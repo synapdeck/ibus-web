@@ -1,4 +1,6 @@
+/* hangul.h uses NULL without including a header that defines it. */
 #include <stddef.h>
+
 #include <hangul.h>
 
 int probe(void) {
