@@ -27,7 +27,7 @@ Worker wait loop (R2) and CI workflows. Each gets its own plan.
 - nixpkgs revision: `8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe` (2026-09-10), locked through `flake.lock`.
 - Emscripten comes from nixpkgs (6.0.9 at that revision). No compiler patches; never `-sEMULATE_FUNCTION_POINTER_CASTS`.
 - Every WASM object is compiled with `-fPIC -pthread -fwasm-exceptions`.
-- System: `x86_64-linux` only in this plan.
+- Systems come from the `systems` input (`github:nix-systems/triplet`: `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`). Every system must evaluate; builds and checks in this plan are run and verified on `x86_64-linux`.
 - Everything builds through the flake; `nix flake check` must pass at the end of every task.
 - **Dendritic layout:** `flake.nix` contains only inputs and `mkFlake … (inputs.import-tree ./modules)`. Every `.nix` file under `modules/` is a flake-parts module. Modules never `import` each other; they share values only through the `ibusWeb.*` per-system options.
 - Non-Nix files a module needs (C sources, shell hooks) live in a `_`-prefixed directory or file next to that module; import-tree skips paths containing `/_`.
@@ -208,7 +208,7 @@ every PIC build would compile libc and libc++ again (spec §10.3).
 - Consumes: the Task 1 flake.
 - Produces (per system):
   - `ibusWeb.toolchain.commonFlags` = `"-fPIC -pthread -fwasm-exceptions"`
-  - `ibusWeb.toolchain.testMainFlags`: `-O2` plus link flags for Node-run test main modules, identical to a combination the cache was built for
+  - `ibusWeb.toolchain.testMainFlags`: `-O2` plus link flags for Node-run test main modules, identical to a combination the cache was built for. Main modules link with `em++`, never `emcc`; C sources are compiled with `emcc -c` first.
   - `ibusWeb.toolchain.emscriptenCache`: an Emscripten cache directory
   - `ibusWeb.toolchain.emscriptenCacheHook`: a setup hook that sets `EM_CACHE` to a writable per-build copy whose `sysroot/lib` is read-only, and sets `HOME` when it is the sandbox placeholder
   - `ibusWeb.toolchain.wasmStdenv`: declared here, set in Task 3
@@ -354,6 +354,9 @@ emscriptenCacheSetup
 
       # Link settings the cache is prepared for. Emscripten picks library
       # variants from link settings, so tests must link with one of these.
+      # Main modules always link with em++: they must carry the C++ runtime
+      # for C++ side modules, and linking one with emcc leaves libunwind's
+      # reference to __gxx_wasm_personality_v0 unresolved.
       mainLinkNode = "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
       mainLinkWasmfs = "-sMAIN_MODULE=2 -sPTHREAD_POOL_SIZE=2 -sWASMFS=1 -sEXIT_RUNTIME=1";
 
@@ -373,8 +376,9 @@ emscriptenCacheSetup
           cp -r --no-preserve=mode ${emscripten}/share/emscripten/cache $EM_CACHE
 
           for opt in -O0 -O2; do
+            emcc $opt ${commonFlags} -c probe.c -o $TMPDIR/probe.o
             for link in "${mainLinkNode}" "${mainLinkWasmfs}"; do
-              emcc $opt ${commonFlags} $link probe.c -o $TMPDIR/probe-c.js
+              em++ $opt ${commonFlags} $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
               em++ $opt ${commonFlags} $link probe.cpp -o $TMPDIR/probe-cpp.js
             done
             emcc $opt ${commonFlags} -sSIDE_MODULE=1 probe_side.c -o $TMPDIR/probe-side.wasm
@@ -419,12 +423,13 @@ emscriptenCacheSetup
           }
           ''
             cp ${./_probes}/* .
-            emcc ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.c -o probe-c.js
+            emcc ${toolchain.commonFlags} -O2 -c probe.c -o probe.o
+            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.o -o probe-c.js
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
 
-            if emcc ${toolchain.commonFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.c -o uncached.js 2> uncached.log; then
+            if em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
               echo "expected an uncached library variant to fail" >&2
               exit 1
             fi
@@ -524,7 +529,7 @@ Replace `modules/flake/formatting.nix`:
 - [ ] **Step 8: Build the cache**
 
 Run: `git add modules && nix build .#emscriptenCache -L`
-Expected: the build log ends with `probe 7` and `probe 2`, and `ls result/sysroot/lib/wasm32-emscripten/pic` lists `libc-mt.a`, `libc++-mt-wasmexcept.a` and `libc++abi-mt-wasmexcept.a`.
+Expected: the build log ends with `probe 7` and `probe 2`, and `ls result/sysroot/lib/wasm32-emscripten/pic` lists `libc-mt.a`, `libc++-mt-legacyexcept.a` and `libc++abi-mt-legacyexcept.a`. (With `-fwasm-exceptions`, Emscripten 6 defaults to the legacy WASM exception instructions, hence `legacyexcept`.)
 
 - [ ] **Step 9: Run the checks and try the dev shell**
 
@@ -549,6 +554,7 @@ git commit -m "Add prebuilt Emscripten library cache, cache check and dev shell"
 
 **Files:**
 - Create: `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh`, `modules/wasm-packages/options.nix`, `modules/wasm-packages/libhangul.nix`, `modules/wasm-packages/_tests/libhangul-test.c`
+- Modify: `flake.nix` (one input), `flake.lock`, `modules/flake/systems.nix`
 
 **Interfaces:**
 - Consumes: `ibusWeb.toolchain.{commonFlags,testMainFlags,emscriptenCacheHook}` (Task 2).
@@ -556,6 +562,29 @@ git commit -m "Add prebuilt Emscripten library cache, cache check and dev shell"
   - `ibusWeb.toolchain.wasmStdenv`: a stdenv whose `mkDerivation` accepts native nixpkgs recipes (attrset or `finalAttrs` function) and builds them with Emscripten as static PIC libraries.
   - `ibusWeb.wasmPackages` option, with `ibusWeb.wasmPackages.libhangul` set.
   - `packages.libhangul-wasm`: installs `lib/libhangul.a`, `include/hangul-1.0/hangul.h`, `lib/pkgconfig/libhangul.pc` and the Hanja data.
+
+- [ ] **Step 0: Take the system list from `nix-systems/triplet`**
+
+In `flake.nix`, add this entry to the `inputs` attrset, after `flake-root`:
+
+```nix
+    systems.url = "github:nix-systems/triplet";
+```
+
+Replace `modules/flake/systems.nix`:
+
+```nix
+{ inputs, ... }:
+{
+  systems = import inputs.systems;
+}
+```
+
+Run: `nix flake lock && grep -c 8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe flake.lock`
+Expected: `flake.lock` gains a `systems` node; the grep prints `1`.
+
+Run: `git add flake.nix flake.lock modules && nix flake show --all-systems 2>/dev/null | grep -E 'aarch64-darwin|aarch64-linux|x86_64-linux' | sort -u | head`
+Expected: entries for all three systems, and no evaluation error.
 
 - [ ] **Step 1: Write the failing install check program**
 
@@ -706,10 +735,10 @@ preConfigureHooks+=(wasmConfigureSetup)
         doInstallCheck = true;
         installCheckPhase = ''
           runHook preInstallCheck
-          emcc ${toolchain.commonFlags} ${toolchain.testMainFlags} \
-            ${./_tests/libhangul-test.c} \
-            -I$out/include/hangul-1.0 $out/lib/libhangul.a \
-            -o libhangul-test.js
+          emcc ${toolchain.commonFlags} -O2 -I$out/include/hangul-1.0 \
+            -c ${./_tests/libhangul-test.c} -o libhangul-test.o
+          em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} \
+            libhangul-test.o $out/lib/libhangul.a -o libhangul-test.js
           node libhangul-test.js
           runHook postInstallCheck
         '';
@@ -740,8 +769,8 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add modules/toolchain modules/wasm-packages
-git commit -m "Add wasmStdenv and a WASM build of libhangul"
+git add flake.nix flake.lock modules/flake/systems.nix modules/toolchain modules/wasm-packages
+git commit -m "Add wasmStdenv and a WASM build of libhangul; take systems from nix-systems/triplet"
 ```
 
 ---
