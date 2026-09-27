@@ -32,6 +32,10 @@
 
           for opt in -O0 -O2; do
             emcc $opt ${commonFlags} -c probe.c -o $TMPDIR/probe.o
+            # Configure scripts link plain test executables with the
+            # project's compile flags.
+            emcc $opt ${commonFlags} $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
+            em++ $opt ${commonFlags} probe.cpp -o $TMPDIR/probe-plain-cpp.js
             for link in "${mainLinkNode}" "${mainLinkWasmfs}"; do
               em++ $opt ${commonFlags} $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
               em++ $opt ${commonFlags} $link probe.cpp -o $TMPDIR/probe-cpp.js
@@ -83,6 +87,9 @@
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
+
+            emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
+            test "$(node probe-plain.js)" = "probe 7"
 
             if em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
               echo "expected an uncached library variant to fail" >&2
