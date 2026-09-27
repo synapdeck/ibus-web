@@ -753,9 +753,6 @@ preConfigureHooks+=(wasmConfigureSetup)
       libhangul = (pkgs.libhangul.override { stdenv = toolchain.wasmStdenv; }).overrideAttrs (old: {
         pname = "libhangul-wasm";
         configureFlags = old.configureFlags ++ [ "--disable-nls" ];
-        # The command-line tool needs iconv and is not shipped; build only the
-        # library and its data.
-        makeFlags = (old.makeFlags or [ ]) ++ [ "SUBDIRS=hangul data" ];
 
         doInstallCheck = true;
         installCheckPhase = ''
@@ -786,7 +783,7 @@ Expected: the log shows `emconfigure ./configure ... --host=wasm32-unknown-emscr
 Run: `ls result/lib result/include/hangul-1.0 result/share/libhangul/hanja`
 Expected: `libhangul.a` (and `libhangul.la`, `pkgconfig/`), `hangul.h`, and `hanja.txt`.
 
-If configure fails on `--host=wasm32-unknown-emscripten` ("Invalid configuration"), the generated `config.sub` is too old to know the triple; add `postAutoreconf = "cp ${pkgs.gnu-config}/config.sub .";` to the override and re-run. If `make` still enters `tools` or `po`, check that `makeFlags` reached the build (`nix log .#libhangul-wasm | grep SUBDIRS`).
+If configure fails on `--host=wasm32-unknown-emscripten` ("Invalid configuration"), the generated `config.sub` is too old to know the triple; add `postAutoreconf = "cp ${pkgs.gnu-config}/config.sub .";` to the override and re-run. The build also installs the `hangul` command-line tool; it is harmless and not shipped. Restricting `SUBDIRS` from the make command line does not work here: as a string, stdenv word-splits it, and as an array, it leaks into automake's recursive makes.
 
 - [ ] **Step 7: Run all checks**
 
