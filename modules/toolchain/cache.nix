@@ -90,6 +90,8 @@
 
             emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
             test "$(node probe-plain.js)" = "probe 7"
+            em++ ${toolchain.commonFlags} probe.cpp -o probe-plain-cpp.js
+            test "$(node probe-plain-cpp.js)" = "probe 2"
 
             if em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
               echo "expected an uncached library variant to fail" >&2

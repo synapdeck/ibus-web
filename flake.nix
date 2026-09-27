@@ -17,7 +17,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-root.url = "github:srid/flake-root";
-    systems.url = "github:nix-systems/triplet";
+    systems.url = "github:nix-systems/default-linux";
   };
 
   outputs = inputs: inputs.flake-parts.lib.mkFlake { inherit inputs; } (inputs.import-tree ./modules);
