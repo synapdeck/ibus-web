@@ -14,7 +14,7 @@ into WASM builds (spec §10.2–10.3). libhangul is the first recipe converted. 
 spike under `tests/spikes/dynlink` links a main module and five side modules
 and runs them under Node as a flake check.
 
-**Tech stack:** Nix flakes, flake-parts, import-tree, treefmt-nix, nixpkgs
+**Tech stack:** Nix flakes, flake-parts, import-tree, treefmt-nix, numtide/devshell, flake-root, nixpkgs
 Emscripten 6.0.9 (LLVM 22.1.8), Node 24, C/C++, autotools (through nixpkgs'
 libhangul recipe).
 
@@ -42,7 +42,8 @@ Worker wait loop (R2) and CI workflows. Each gets its own plan.
 | `flake.nix`, `flake.lock` | Inputs and the import-tree entry point |
 | `modules/flake/systems.nix` | Supported systems |
 | `modules/flake/formatting.nix` | treefmt-nix: `nix fmt` and the `treefmt` check |
-| `modules/flake/dev-shell.nix` | Development shell |
+| `modules/flake/flake-root.nix` | flake-root: project-root discovery for treefmt and the dev shell |
+| `modules/flake/dev-shell.nix` | Development shell (numtide/devshell) |
 | `modules/toolchain/options.nix` | Declares `perSystem.ibusWeb.toolchain.*` |
 | `modules/toolchain/cache.nix` | Library cache, cache hook, flags, `toolchain-cache` check |
 | `modules/toolchain/_probes/*` | Programs whose compilation fills the library cache |
@@ -76,7 +77,7 @@ only once the task that declares it is done.
 - Generated: `flake.lock`
 
 **Interfaces:**
-- Produces: the flake outputs `formatter.x86_64-linux` and `checks.x86_64-linux.treefmt`. Later tasks add modules under `modules/` without touching `flake.nix`.
+- Produces: the flake outputs `formatter.x86_64-linux` and `checks.x86_64-linux.treefmt`. Later tasks add modules under `modules/` and touch `flake.nix` only to add inputs.
 
 - [ ] **Step 1: Confirm there is nothing to check yet**
 
@@ -200,7 +201,8 @@ nixpkgs' Emscripten ships libraries only for non-PIC variants, so without this
 every PIC build would compile libc and libc++ again (spec §10.3).
 
 **Files:**
-- Create: `modules/toolchain/options.nix`, `modules/toolchain/cache.nix`, `modules/toolchain/_emscripten-cache-hook.sh`, `modules/toolchain/_probes/probe.c`, `modules/toolchain/_probes/probe.cpp`, `modules/toolchain/_probes/probe_side.c`, `modules/toolchain/_probes/probe_side.cpp`, `modules/flake/dev-shell.nix`
+- Create: `modules/toolchain/options.nix`, `modules/toolchain/cache.nix`, `modules/toolchain/_emscripten-cache-hook.sh`, `modules/toolchain/_probes/probe.c`, `modules/toolchain/_probes/probe.cpp`, `modules/toolchain/_probes/probe_side.c`, `modules/toolchain/_probes/probe_side.cpp`, `modules/flake/flake-root.nix`, `modules/flake/dev-shell.nix`
+- Modify: `flake.nix` (two inputs), `flake.lock`, `modules/flake/formatting.nix`
 
 **Interfaces:**
 - Consumes: the Task 1 flake.
@@ -210,7 +212,8 @@ every PIC build would compile libc and libc++ again (spec §10.3).
   - `ibusWeb.toolchain.emscriptenCache`: an Emscripten cache directory
   - `ibusWeb.toolchain.emscriptenCacheHook`: a setup hook that sets `EM_CACHE` to a writable per-build copy whose `sysroot/lib` is read-only, and sets `HOME` when it is the sandbox placeholder
   - `ibusWeb.toolchain.wasmStdenv`: declared here, set in Task 3
-  - outputs `packages.emscriptenCache`, `checks.toolchain-cache`, `devShells.default`
+  - outputs `packages.emscriptenCache`, `checks.toolchain-cache`, `devShells.default` (through devshell's `devshells.default`)
+  - `config.flake-root.projectRootFile` and `config.flake-root.package` (from flake-root's module)
 
 - [ ] **Step 1: Declare the toolchain options**
 
@@ -432,22 +435,83 @@ emscriptenCacheSetup
 }
 ```
 
-- [ ] **Step 5: Write `modules/flake/dev-shell.nix`**
+- [ ] **Step 5: Add the devshell and flake-root inputs**
+
+In `flake.nix`, add these two entries to the `inputs` attrset, after `treefmt-nix`:
 
 ```nix
+    devshell = {
+      url = "github:numtide/devshell";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    flake-root.url = "github:srid/flake-root";
+```
+
+Run: `nix flake lock`
+Expected: `flake.lock` gains `devshell` and `flake-root` nodes; the `nixpkgs` node still names `8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe` (`grep -c 8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe flake.lock` prints `1`).
+
+- [ ] **Step 6: Add flake-root and point treefmt at it**
+
+`modules/flake/flake-root.nix`:
+
+```nix
+{ inputs, ... }:
 {
+  imports = [ inputs.flake-root.flakeModule ];
+}
+```
+
+Replace `modules/flake/formatting.nix`:
+
+```nix
+{ inputs, ... }:
+{
+  imports = [ inputs.treefmt-nix.flakeModule ];
+
   perSystem =
-    { config, pkgs, ... }:
+    { config, ... }:
     {
-      devShells.default = pkgs.mkShell {
+      treefmt = {
+        inherit (config.flake-root) projectRootFile;
+        programs.nixfmt.enable = true;
+      };
+    };
+}
+```
+
+- [ ] **Step 7: Write `modules/flake/dev-shell.nix`**
+
+```nix
+{ inputs, ... }:
+{
+  imports = [ inputs.devshell.flakeModule ];
+
+  perSystem =
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    {
+      devshells.default = {
         packages = [
           pkgs.emscripten
           pkgs.nodejs
           config.treefmt.build.wrapper
         ];
+        env = [
+          {
+            name = "FLAKE_ROOT";
+            eval = "$(${lib.getExe config.flake-root.package})";
+          }
+          {
+            name = "EM_CACHE";
+            eval = "$FLAKE_ROOT/.emcache";
+          }
+        ];
         # A writable cache in the checkout, seeded from the prebuilt one.
-        shellHook = ''
-          export EM_CACHE="$PWD/.emcache"
+        devshell.startup.emscripten-cache.text = ''
           if [ ! -d "$EM_CACHE" ]; then
             cp -r --no-preserve=mode ${config.ibusWeb.toolchain.emscriptenCache} "$EM_CACHE"
           fi
@@ -457,23 +521,26 @@ emscriptenCacheSetup
 }
 ```
 
-- [ ] **Step 6: Build the cache**
+- [ ] **Step 8: Build the cache**
 
 Run: `git add modules && nix build .#emscriptenCache -L`
 Expected: the build log ends with `probe 7` and `probe 2`, and `ls result/sysroot/lib/wasm32-emscripten/pic` lists `libc-mt.a`, `libc++-mt-wasmexcept.a` and `libc++abi-mt-wasmexcept.a`.
 
-- [ ] **Step 7: Run the checks**
+- [ ] **Step 9: Run the checks and try the dev shell**
 
 Run: `nix flake check -L`
 Expected: PASS for `treefmt` and `toolchain-cache`. Evaluation succeeds even though `wasmStdenv` is unset, because nothing reads it yet.
 
 If `toolchain-cache` fails on the first two compiles with `Permission denied`, the cache lacks a variant those links need. Read the library name from the error, add a probe compile to `emscriptenCache` that produces it, and re-run. If the `-sMALLOC=mimalloc` compile unexpectedly succeeds, `libmimalloc-mt` was built into the cache by a probe; pick another uncached setting (for example `-sMALLOC=emmalloc-debug`) and confirm it is missing with `ls result/sysroot/lib/wasm32-emscripten/pic`.
 
-- [ ] **Step 8: Commit**
+Run: `nix develop -c sh -c 'echo "$EM_CACHE"; ls "$EM_CACHE/sysroot/lib/wasm32-emscripten/pic" | grep -c "^libc-mt.a$"; emcc --version | head -1'`
+Expected: a path ending in `ibus-web/.emcache`, then `1`, then an `emcc` 6.0.9 version line. (`.emcache/` is git-ignored.)
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add modules/toolchain modules/flake/dev-shell.nix
-git commit -m "Add prebuilt Emscripten library cache and cache check"
+git add flake.nix flake.lock modules/toolchain modules/flake
+git commit -m "Add prebuilt Emscripten library cache, cache check and dev shell"
 ```
 
 ---
