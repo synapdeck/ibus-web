@@ -750,9 +750,30 @@ build their own panel. It is meant for testing and simple hosts.
 |---|---|---|
 | `@ibus-web/protocol` | GVariant codec, schemas, SAB layout | yes (Schema) |
 | `@ibus-web/core` | router, services, adapters, keystroke path | yes, except the keystroke path |
-| `ibus-web` | facade | internally |
+| `ibus-web` | entry package: facade plus re-exports (§7.4.1) | facade uses it internally; `ibus-web/effect` exposes it |
 | `@ibus-web/panel` | default panel | through the facade |
 | `@ibus-web/worker-host` | Worker bootstrap, resource scopes, request loop | yes, except the request loop |
+
+#### 7.4.1 The `ibus-web` entry package
+
+Hosts install one package. `ibus-web` depends on the scoped packages and
+exposes them through subpath exports:
+
+| Import | Contents |
+|---|---|
+| `ibus-web` | the non-Effect facade |
+| `ibus-web/effect` | re-exports of the Effect surface: `@ibus-web/core` (services, layers, streams, tagged errors, adapters) and the public schemas and types from `@ibus-web/protocol` |
+| `ibus-web/panel` | re-export of `@ibus-web/panel` |
+| `ibus-web/worker` | the Worker script's URL only, for `new Worker(new URL(…, import.meta.url))`; never its code (§9.2) |
+
+- **`effect` is a peer dependency** of every package, so hosts and ibus-web
+  share one copy. Two copies would make services and layers from one
+  unrecognizable to the other.
+- **The scoped packages stay published** for hosts that want finer-grained
+  dependencies; the re-exports add no code of their own.
+- **Subpaths are separate entry points**, so importing `ibus-web/effect` does
+  not pull in the facade's `ManagedRuntime` wrapper, and the panel is included
+  only when imported.
 
 ## 8. Errors and recovery
 
