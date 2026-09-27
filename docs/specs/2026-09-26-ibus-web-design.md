@@ -1,6 +1,6 @@
 # ibus-web design
 
-- **Status:** Draft for review
+- **Status:** Approved (2026-09-26); expected to change as milestones find problems
 - **Date:** 2026-09-26
 - **Author:** Alexis Williams
 
