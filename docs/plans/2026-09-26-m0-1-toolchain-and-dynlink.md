@@ -554,7 +554,7 @@ git commit -m "Add prebuilt Emscripten library cache, cache check and dev shell"
 
 **Files:**
 - Create: `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh`, `modules/wasm-packages/options.nix`, `modules/wasm-packages/libhangul.nix`, `modules/wasm-packages/_tests/libhangul-test.c`
-- Modify: `flake.nix` (one input), `flake.lock`, `modules/flake/systems.nix`
+- Modify: `flake.nix` (one input), `flake.lock`, `modules/flake/systems.nix`, `modules/toolchain/cache.nix`
 
 **Interfaces:**
 - Consumes: `ibusWeb.toolchain.{commonFlags,testMainFlags,emscriptenCacheHook}` (Task 2).
@@ -585,6 +585,31 @@ Expected: `flake.lock` gains a `systems` node; the grep prints `1`.
 
 Run: `git add flake.nix flake.lock modules && nix flake show --all-systems 2>/dev/null | grep -E 'aarch64-darwin|aarch64-linux|x86_64-linux' | sort -u | head`
 Expected: entries for all three systems, and no evaluation error.
+
+- [ ] **Step 0b: Cache the variants configure scripts link**
+
+Autoconf's compiler checks link plain executables (no `MAIN_MODULE`) with the
+project's flags and no `-O`, which needs non-PIC threaded libraries the cache
+does not yet hold.
+
+In `modules/toolchain/cache.nix`, in `emscriptenCache`'s `buildPhase`, insert these lines inside the `for opt in -O0 -O2; do` loop, directly after the `emcc $opt ${commonFlags} -c probe.c -o $TMPDIR/probe.o` line:
+
+```nix
+            # Configure scripts link plain test executables with the
+            # project's compile flags.
+            emcc $opt ${commonFlags} $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
+            em++ $opt ${commonFlags} probe.cpp -o $TMPDIR/probe-plain-cpp.js
+```
+
+In `checks.toolchain-cache`, insert after the `test "$(node probe-cpp.js)" = "probe 2"` line:
+
+```nix
+            emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
+            test "$(node probe-plain.js)" = "probe 7"
+```
+
+Run: `git add modules && nix build .#checks.x86_64-linux.toolchain-cache -L`
+Expected: PASS (the cache rebuilds first).
 
 - [ ] **Step 1: Write the failing install check program**
 
@@ -747,6 +772,8 @@ preConfigureHooks+=(wasmConfigureSetup)
     {
       ibusWeb.wasmPackages.libhangul = libhangul;
       packages.libhangul-wasm = libhangul;
+      # nix flake check skips building packages; this runs the install check.
+      checks.libhangul-wasm = libhangul;
     };
 }
 ```
@@ -764,7 +791,7 @@ If configure fails on `--host=wasm32-unknown-emscripten` ("Invalid configuration
 - [ ] **Step 7: Run all checks**
 
 Run: `nix flake check -L`
-Expected: PASS.
+Expected: PASS, with `checks.x86_64-linux.libhangul-wasm` built (not skipped).
 
 - [ ] **Step 8: Commit**
 
