@@ -71,8 +71,9 @@ of in engine code, fix it there.
 - **WASM rejects function-pointer signature mismatches.** GLib and GObject
   code relies on calling functions through mismatched pointer types. Upstream
   GLib requires the toolchain to handle this (§5.1.1).
-- **The first consuming application is written in Effect 4.** The page side is
-  written in Effect 4 with a non-Effect facade (§7.4).
+- **The first consuming application is written in Effect 4.** The page side
+  and the Worker host are written in Effect 4, with a non-Effect facade for
+  hosts (§7.4).
 
 ## 3. Decision log
 
@@ -93,7 +94,7 @@ of in engine code, fix it there.
 | D13 | Storage | WasmFS with the OPFS backend per Worker, one directory per engine | Host-managed storage only |
 | D14 | Wire format | IBus Engine D-Bus methods and signals, GVariant-encoded | Custom CBOR mapping |
 | D15 | Output transport | One sequenced, variable-length, back-pressured output ring per Worker | Fixed-size ring with eviction; ring of descriptors into a shared heap |
-| D16 | TypeScript stack | Effect 4 throughout, except the synchronous keystroke path and the Worker host | Plain TypeScript; Effect 3 |
+| D16 | TypeScript stack | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections | Plain TypeScript; Effect 3 |
 | D17 | Protocol definition | Effect Schema as the source of truth, with a GVariant byte codec | Hand-written codec and separate docs |
 | D18 | First milestone | Hangul spike end to end | libpinyin or Rime first |
 
@@ -104,7 +105,7 @@ of in engine code, fix it there.
 ```
  Page (MIT OR Apache-2.0)                     Worker, one per engine module (engine's GPL)
 ┌─────────────────────────────────────┐      ┌──────────────────────────────────────────┐
-│ Host app                            │      │ Worker host (JS)                         │
+│ Host app                            │      │ Worker host (Effect)                     │
 │   │                                 │      │   ▲ wait / dispatch / write ring         │
 │   ▼                                 │      │   │                                      │
 │ @ibus-web/core  (Effect)            │      │ ibus-runtime.wasm  (main module, LGPL)   │
@@ -368,17 +369,52 @@ Generated at build time, partly from the engine's component XML. Example
 
 ### 5.5 Worker host
 
-Plain TypeScript, no Effect. Loaded by URL as its own file, never inlined into
-the page bundle (§9.2).
+TypeScript on Effect 4. Loaded by URL as its own file, never inlined into the
+page bundle (§9.2).
 
 1. Receives the compiled runtime module, the SAB and the manifest by
    `postMessage`.
-2. Instantiates the runtime, mounts storage (§5.6), fetches and installs data
-   files, loads the side module, builds the arity table (§5.1.2) and calls
+2. Builds the Worker's resources in nested scopes (below): instantiates the
+   runtime, mounts storage (§5.6), fetches and installs data files, loads the
+   side module, builds the arity table (§5.1.2) and calls
    `ibusweb_module_init`.
 3. Enters the request loop: `Atomics.wait` on the request word with the pump
    deadline as timeout, dispatch or pump, write the reply, repeat.
 4. Wraps every dispatch and pump in a handler for WASM traps (§8).
+
+#### 5.5.1 Resource scopes
+
+| Scope | Acquire | Release on normal close | Release after a trap |
+|---|---|---|---|
+| Worker | SAB views, `Logger` layer | final `Log` records flushed | crash record written |
+| Runtime | instantiate `ibus-runtime.wasm` | none (freed with the Worker) | none |
+| Storage | WasmFS mounts, data archives | flush and unmount OPFS | close OPFS handles from JS only |
+| Engine module | load side module, arity table, `ibusweb_module_init` | module shutdown call | skipped |
+| Engine instance (one per input context, child of the module scope) | `CreateEngine` | `DestroyEngine` (`g_object_unref`) | skipped |
+
+- **Finalizers inspect the `Exit`.** After a trap the WASM heap cannot be
+  trusted, so finalizers that call into the runtime run only on a normal close;
+  JS-side cleanup and crash reporting always run.
+- **Nothing depends on finalizers for correctness.** A hang ends in
+  `worker.terminate()`, which runs no finalizers; the browser releases OPFS
+  access handles when the Worker ends. Emscripten side modules are not
+  actually unloaded, so the module scope is bookkeeping; the Worker is the
+  unit that frees memory.
+
+#### 5.5.2 The request loop and the Effect runtime
+
+The request loop is a single synchronous section inside the scoped program. A
+thread blocked in `Atomics.wait` runs no other fibers, so nothing in the
+Worker may rely on concurrent fibers or Effect timers while the loop runs; GLib
+time is handled by the wait timeout (§5.2.4). Engine-instance scopes are opened
+and closed synchronously from the loop as `CreateEngine` and `DestroyEngine`
+arrive.
+
+#### 5.5.3 Logging
+
+The Worker's `Logger` layer writes `Log` records into the output ring, and the
+GLib log handler (§8) feeds the same logger. The page re-emits them through
+its own loggers with engine and domain annotations (§7.4).
 
 ### 5.6 Storage
 
@@ -716,7 +752,7 @@ build their own panel. It is meant for testing and simple hosts.
 | `@ibus-web/core` | router, services, adapters, keystroke path | yes, except the keystroke path |
 | `ibus-web` | facade | internally |
 | `@ibus-web/panel` | default panel | through the facade |
-| `@ibus-web/worker-host` | Worker bootstrap and loop | no |
+| `@ibus-web/worker-host` | Worker bootstrap, resource scopes, request loop | yes, except the request loop |
 
 ## 8. Errors and recovery
 
