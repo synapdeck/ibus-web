@@ -87,7 +87,7 @@ of in engine code, fix it there.
 | D6 | Keystroke answer | Main thread spin-waits on a SAB reply with a time budget; consume-and-replay on timeout | Always consume and re-implement editing; predict from composition state |
 | D7 | Instances | One engine instance per input context via `IBusFactory` | Shared instance |
 | D8 | Linking | Shared `ibus-runtime.wasm` main module; engines as side modules | Static GLib in every engine |
-| D9 | GLib base | udevbe/Wolthuizen `glib-emscripten` 2.80.2 line on nixpkgs Emscripten, no compiler patches | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
+| D9 | GLib base | nixpkgs `glib` plus the udevbe/Wolthuizen Emscripten patches forward-ported as a patch series; nixpkgs Emscripten, no compiler patches | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
 | D10 | Settings | GSettings backend bridge and API only | Generated forms; per-engine UI |
 | D11 | UI | Headless core plus separate default panel package | Headless only; built-in themed panel |
 | D12 | Surfaces | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in | Textarea only; CodeMirror adapter in v1 |
@@ -97,7 +97,7 @@ of in engine code, fix it there.
 | D16 | TypeScript stack | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections | Plain TypeScript; Effect 3 |
 | D17 | Protocol definition | Effect Schema as the source of truth, with a GVariant byte codec | Hand-written codec and separate docs |
 | D18 | First milestone | Hangul spike end to end | libpinyin or Rime first |
-| D19 | Build orchestration | Nix flake for toolchain, every artifact, checks and the release set; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI |
+| D19 | Build orchestration | Nix flake for toolchain, every artifact, checks and the release set; dependencies, engines and data are overrides of nixpkgs recipes; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI |
 | D20 | npm registry | npmjs.com with trusted publishing from GitHub Actions | GitHub Packages |
 
 ## 4. Architecture
@@ -127,7 +127,7 @@ of in engine code, fix it there.
 
 | Component | Language | Runs in | Package or artifact | License |
 |---|---|---|---|---|
-| `glib-wasm` | C | Worker | separate repo, pinned as a flake input; built into the runtime | LGPL-2.1-or-later |
+| `glib-wasm` | C | Worker | nixpkgs `glib` plus a patch series in this repo; built into the runtime | LGPL-2.1-or-later |
 | `libibus-web` | C | Worker | built into the runtime | LGPL-2.1-or-later |
 | `ibus-runtime.wasm` | WASM | Worker | release asset | LGPL-2.1-or-later (combined) |
 | Engine side modules | WASM | Worker | release asset per engine | engine's own license |
@@ -163,10 +163,11 @@ of in engine code, fix it there.
 
 ### 5.1 `glib-wasm`
 
-A fork of GLib based on
+nixpkgs' `glib` recipe with an Emscripten patch series kept in this
+repository (§10.3). The series starts from
 [udevbe/glib-emscripten `2.80.2-emscripten`](https://github.com/udevbe/glib-emscripten/tree/2.80.2-emscripten),
 which carries Kleis Auke Wolthuizen's Emscripten patch set (the one wasm-vips
-uses) plus further fixes. Built with nixpkgs Emscripten and Meson cross files
+uses) plus further fixes, forward-ported to the nixpkgs GLib version. Built with nixpkgs Emscripten and Meson cross files
 (§10). D-Bus,
 networking, subprocesses and file monitoring are disabled or stubbed; GIO is
 kept for GSettings and the types it needs.
@@ -224,8 +225,6 @@ the mismatch so the engine needs no patch.
   `gmain.c` Emscripten changes (GMainContext deadlock fix, zero poll timeout).
 - Review the fork's GSettings changes (`gsettings.c`,
   `gdelayedsettingsbackend.c`) before building the settings bridge on them.
-- Rebase onto a newer GLib when practical; 2.80 is the starting point, not a
-  commitment.
 
 ### 5.2 `libibus-web`
 
@@ -325,7 +324,8 @@ OpenCC for libpinyin and Rime) stay private to each engine in v1.
 
 #### 5.4.2 Patch layers
 
-Each engine recipe keeps patches in two ordered series:
+Engine builds are overrides of nixpkgs recipes (§10.3); our patches go after
+nixpkgs' own. Each engine keeps two ordered series:
 
 - `patches/port/`: build system, startup (§5.4.3), removal of D-Bus-only
   code paths. Expected to stay small.
@@ -858,11 +858,12 @@ release.
 
 ```
 ibus-web/
-├─ flake.nix, flake.lock           inputs: nixpkgs, glib-wasm
+├─ flake.nix, flake.lock           input: nixpkgs
 ├─ nix/
-│  ├─ toolchain/                   Emscripten, frozen library cache, mkWasm, Meson cross files
-│  ├─ deps/                        WASM builds of engine libraries
-│  ├─ engines/                     side modules, data, source bundles
+│  ├─ toolchain/                   emscriptenCache, wasmStdenv, cross files
+│  ├─ overrides/                   WASM overrides of nixpkgs recipes (libraries and engines)
+│  ├─ patches/glib/                Emscripten patch series for nixpkgs glib
+│  ├─ engines/                     side-module packaging, data, source bundles
 │  ├─ ts/                          pnpm workspace builds, npm tarballs
 │  ├─ checks/                      flake checks
 │  └─ release.nix                  the release set
@@ -877,44 +878,95 @@ One version for the whole project. Protocol version and runtime ABI version
 are recorded separately and checked at load, but a release ships only
 matching parts.
 
-### 10.2 Toolchain
+### 10.2 Nixpkgs as the source of dependencies
 
 Everything builds through the flake: development dependencies, every artifact
-and every check.
+and every check. **Dependencies, engines and engine data come from nixpkgs
+wherever nixpkgs has them.** Updating the `nixpkgs` input is how versions move;
+CI's conformance tests catch breakage, and our patch layers are rebased when
+needed.
 
-- **Emscripten from nixpkgs** (6.0.9 at nixpkgs `8ce4ef6`), overridden to a
-  pinned version only if needed. nixpkgs builds it against nixpkgs' LLVM
-  rather than the LLVM revision upstream Emscripten pins, patching the version
-  check (R12).
+WASM builds follow the pattern in nixpkgs' Emscripten documentation
+(`doc/languages-frameworks/emscripten.section.md`): take the nixpkgs recipe,
+`override` its `stdenv` with an Emscripten stdenv and its dependencies with
+their WASM builds, then `overrideAttrs` for what differs. Only packages nixpkgs
+lacks (`libibus-web`, the custom table engine) get recipes of their own.
+
+| Artifact | nixpkgs recipe (at `8ce4ef6`) | Build system | Notes |
+|---|---|---|---|
+| `glib-wasm` | `glib` 2.88.3 | Meson | Emscripten patch set on top of nixpkgs' `glib` (§10.3) |
+| `libffi-wasm` | `libffi` 3.8.0 | autotools | upstream WASM backend |
+| `libhangul-wasm` | `libhangul` 0.2.0 | autotools | |
+| `engine-hangul` | `ibus-engines.hangul` 1.5.5 | autotools | GPL-2.0-or-later |
+| `m17n-lib-wasm` | `m17n_lib` 1.8.6 | autotools | |
+| `engine-m17n` | `ibus-engines.m17n` 1.4.40 | autotools | GPL-2.0-or-later |
+| `libpinyin-wasm` | `libpinyin` 2.11.91 | autotools | Kyoto Cabinet backend, as nixpkgs configures it |
+| `engine-libpinyin` | `ibus-engines.libpinyin` 1.16.5 | autotools | GPL-3.0-or-later; also Berkeley DB 5.3 (Sleepycat), SQLite, OpenCC |
+| `librime-wasm` | `librime` 1.17.0 | CMake | Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog, each from nixpkgs |
+| `engine-rime` | `ibus-engines.rime` 1.6.1 | CMake | GPL-3.0-or-later |
+
+**Engine data** also comes from nixpkgs:
+
+- **Rime:** `rime-data`, plus any other `rime-*` data packages, chosen through
+  the same `rimeDataPkgs` parameter nixpkgs' `ibus-rime` uses. The YAML sources
+  are compiled at build time by the WASM build of `rime_deployer` under Node,
+  so compiled dictionaries come from the librime build that reads them.
+- **m17n:** `m17n_db`'s output, used directly; it is text data.
+- **Hangul:** the Hanja tables from nixpkgs' native `libhangul` output; also
+  text.
+- **libpinyin:** the model data nixpkgs' `libpinyin` recipe fetches, compiled
+  into binary tables by the WASM build's own tools (R16).
+
+**License fields** in engine manifests are generated from each recipe's
+`meta.license` SPDX identifiers.
+
+### 10.3 Toolchain and overrides
+
+- **Emscripten from nixpkgs** (6.0.9 at `8ce4ef6`). nixpkgs builds it against
+  nixpkgs' LLVM rather than the revision upstream Emscripten pins (R12).
 - **`emscriptenCache`.** nixpkgs precompiles system libraries only for non-PIC
-  variants, and its default cache location is per build, so every PIC build
-  would recompile libc and libc++. A dedicated derivation runs `embuilder`
-  once for the variants this project uses (PIC, pthreads, WASM exceptions):
-  libc, libc++ and libc++abi, libunwind, compiler-rt, malloc and WasmFS. All
-  other builds use it as a frozen, read-only cache.
-- **`mkWasm`.** The project's builder, used instead of nixpkgs'
-  autotools-oriented `buildEmscriptenPackage`. It generates the Meson cross
-  file (compilers, `-fPIC`, `-pthread`, `-fwasm-exceptions`, main-module or
-  side-module link flags), points at the frozen cache and takes native tools
-  (`glib-compile-schemas`, Meson, Ninja, Python, pkg-config) from
-  `buildPackages`.
-- **TypeScript.** One pnpm workspace. Dependencies are a fixed-output
+  variants, and builds otherwise use a per-build cache, so every PIC build
+  would recompile libc and libc++. A dedicated derivation runs `embuilder` once
+  for the variants this project uses (PIC, pthreads, WASM exceptions): libc,
+  libc++ and libc++abi, libunwind, compiler-rt, malloc and WasmFS. All other
+  builds use it as a frozen, read-only cache.
+- **`wasmStdenv`.** nixpkgs' `emscriptenStdenv` extended for this project: the
+  frozen cache, `-fPIC -pthread -fwasm-exceptions`, main-module or side-module
+  link flags, and configure steps for each build system (`emconfigure` for
+  autotools, Emscripten's CMake toolchain file, a generated Meson cross file).
+  Native tools (`glib-compile-schemas`, Meson, Ninja, Python, pkg-config) come
+  from `buildPackages`.
+- **Per-package overrides** do four things, and nothing else:
+  1. swap dependencies for WASM builds (`glib` → `glib-wasm`, `ibus` →
+     `libibus-web`, `libhangul` → `libhangul-wasm`, …);
+  2. drop desktop-only inputs and features: GTK and Python setup programs,
+     `wrapGAppsHook3`, GObject introspection, libnotify, and network features
+     such as ibus-libpinyin's cloud input (`libsoup_3`, `--enable-cloud-input-mode`);
+  3. drop nixpkgs patches that only serve those features (for example
+     ibus-hangul's `fix-paths.patch`, which edits the Python setup program);
+  4. append our patch layers after nixpkgs' remaining patches: `patches/port`,
+     then `patches/casts` as a separate list.
+- **`glib-wasm`** is nixpkgs' `glib` recipe with an Emscripten patch series
+  kept in this repository (`nix/patches/glib/`): the Wolthuizen patch set and
+  the fixes carried by the udevbe fork, forward-ported from 2.80.2 to the
+  nixpkgs version, plus our own patches (§5.1). nixpkgs' own `glib` patches
+  are reviewed individually; most are NixOS path handling and are dropped.
+- **TypeScript.** One pnpm workspace; dependencies are a fixed-output
   derivation (`fetchPnpmDeps`, installed offline with `pnpmConfigHook`). The
   Playwright npm version is pinned to match nixpkgs' `playwright-driver`
-  (1.61.1 at the same revision), whose Chromium, Firefox and WebKit builds the
-  tests use.
+  (1.61.1 at `8ce4ef6`), whose Chromium, Firefox and WebKit builds the tests
+  use.
 
-### 10.3 Derivations
+#### 10.3.1 Derivation graph
 
 ```
-emscriptenCache
+emscriptenCache ─ wasmStdenv
  ├─ libffi-wasm ─┐
- ├─ glib-wasm ───┴─ ibus-runtime (main module and JS glue)
- ├─ libhangul-wasm ─────────── engine-hangul
- ├─ m17n-lib-wasm ──────────── engine-m17n      + engine-m17n-data
- ├─ libpinyin-wasm ─────────── engine-libpinyin
- └─ librime-wasm (Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog)
-                   ─────────── engine-rime      + engine-rime-data
+ ├─ glib-wasm ───┴─ libibus-web ─ ibus-runtime (main module and JS glue)
+ ├─ libhangul-wasm ─────────── engine-hangul      (data: libhangul Hanja tables)
+ ├─ m17n-lib-wasm ──────────── engine-m17n        (data: m17n_db)
+ ├─ libpinyin-wasm ─────────── engine-libpinyin   (data: compiled model tables)
+ └─ librime-wasm ───────────── engine-rime        (data: rime-data, deployed)
 
 pnpmDeps ─ ts-packages ─ npm tarballs (@ibus-web/*, ibus-web)
                       └─ protocol-spec
@@ -922,20 +974,10 @@ engine-<name> ─ engine-<name>-src (source bundle)
 release = the set of all release assets, plus release.json with checksums
 ```
 
-- **Upstream sources** are fixed-output fetches pinned by hash. Each engine
-  derivation applies `patches/port` and then `patches/casts` as separate lists,
-  so the cast layer can be dropped by changing one attribute.
-- **`glib-wasm`** lives in its own repository and is a non-flake input pinned
-  in `flake.lock`.
-- **Engine outputs** are the side module, its manifest, compiled GSettings
-  schemas and the `.gschema.xml` sources.
-- **Rime data** is deployed at build time by running the WASM build of
-  `rime_deployer` under Node inside the derivation, so compiled dictionaries
-  come from the same librime build that reads them. Native librime output is
-  not assumed to load under wasm32.
-- **Source bundles** (`engine-<name>-src`) pack the engine's fetched upstream
-  sources, patch layers, and the repository's Nix expressions and `flake.lock`
-  at the tagged commit (§9.3).
+- **Source bundles** (`engine-<name>-src`) pack the `src` of every recipe in
+  the engine's closure (the fetched upstream sources), the nixpkgs recipes as
+  used, our overrides and patch layers, and `flake.lock` at the tagged commit
+  (§9.3).
 
 ### 10.4 Checks
 
@@ -1005,7 +1047,7 @@ specification and `release.json`.
 
 | | Scope | Questions answered |
 |---|---|---|
-| M0 | Flake, `emscriptenCache`, `mkWasm` and a first `nix flake check`; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
+| M0 | Flake, `emscriptenCache`, `wasmStdenv` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and arity fix count and layer; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
@@ -1028,11 +1070,14 @@ specification and `release.json`.
 - **R3. Dynamic linking with pthreads.** Weakest area of Emscripten dynamic
   linking. Side modules load once at startup, before any threads exist, which
   avoids the hardest case. Settled in M0.
-- **R4. GLib base age.** The fork is on 2.80.2. Rebasing is ours to do.
+- **R4. GLib patch forward-port.** The Emscripten patch set exists for
+  2.80.2; nixpkgs is on 2.88.3. Forward-porting it is M0 work, and each
+  nixpkgs GLib update may need a rebase.
 - **R5. OPFS in Workers across browsers.** Synchronous access handles need
   checking on current WebKit. Fallback is in-memory with an event.
-- **R6. libpinyin database backend.** Which backend builds and performs well
-  in WASM. Decided in M4.
+- **R6. libpinyin databases in WASM.** nixpkgs builds libpinyin with Kyoto
+  Cabinet and ibus-libpinyin with Berkeley DB 5.3 and SQLite. All three must
+  build and perform acceptably on WasmFS/OPFS. Checked in M4.
 - **R7. Rime data size.** Prebuilt schemas can be large; lazy download per
   schema may be needed. Decided in M5.
 - **R8. Engine patch acceptance.** Cast fixes are UB fixes that upstreams may
@@ -1052,6 +1097,14 @@ specification and `release.json`.
 - **R14. First publish with trusted publishing.** Check whether npm allows
   configuring a trusted publisher before a package's first version exists. If
   not, each package's first version needs a one-time manual publish.
+- **R15. Native assumptions in nixpkgs recipes.** Engine recipes include
+  desktop features (setup programs, cloud input, notifications) and patches
+  for them. Overrides remove them per engine; a nixpkgs update can add new
+  ones, which the WASM build or conformance tests will surface.
+- **R16. libpinyin binary data.** libpinyin compiles its model into binary
+  tables at build time. Building them with the WASM build's tools under Node
+  avoids assuming the native format loads under wasm32; if that proves
+  impractical, the format's portability must be verified.
 
 ## 14. References
 
@@ -1077,5 +1130,7 @@ specification and `release.json`.
 - Chromium `dom_code_data.inc`:
   https://chromium.googlesource.com/chromium/src/+/refs/heads/main/ui/events/keycodes/dom/dom_code_data.inc
 - Effect 4 documentation: https://www.effect.website/docs/v4/
-- nixpkgs Emscripten package (at `8ce4ef6`):
-  `pkgs/development/compilers/emscripten/default.nix`
+- nixpkgs Emscripten package and documentation (at `8ce4ef6`):
+  `pkgs/development/compilers/emscripten/default.nix`,
+  `doc/languages-frameworks/emscripten.section.md`,
+  `pkgs/top-level/emscripten-packages.nix`
