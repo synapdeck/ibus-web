@@ -87,7 +87,7 @@ of in engine code, fix it there.
 | D6 | Keystroke answer | Main thread spin-waits on a SAB reply with a time budget; consume-and-replay on timeout | Always consume and re-implement editing; predict from composition state |
 | D7 | Instances | One engine instance per input context via `IBusFactory` | Shared instance |
 | D8 | Linking | Shared `ibus-runtime.wasm` main module; engines as side modules | Static GLib in every engine |
-| D9 | GLib base | udevbe/Wolthuizen `glib-emscripten` 2.80.2 line on stock emsdk | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
+| D9 | GLib base | udevbe/Wolthuizen `glib-emscripten` 2.80.2 line on nixpkgs Emscripten, no compiler patches | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
 | D10 | Settings | GSettings backend bridge and API only | Generated forms; per-engine UI |
 | D11 | UI | Headless core plus separate default panel package | Headless only; built-in themed panel |
 | D12 | Surfaces | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in | Textarea only; CodeMirror adapter in v1 |
@@ -97,6 +97,8 @@ of in engine code, fix it there.
 | D16 | TypeScript stack | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections | Plain TypeScript; Effect 3 |
 | D17 | Protocol definition | Effect Schema as the source of truth, with a GVariant byte codec | Hand-written codec and separate docs |
 | D18 | First milestone | Hangul spike end to end | libpinyin or Rime first |
+| D19 | Build orchestration | Nix flake for toolchain, every artifact, checks and the release set; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI |
+| D20 | npm registry | npmjs.com with trusted publishing from GitHub Actions | GitHub Packages |
 
 ## 4. Architecture
 
@@ -125,7 +127,7 @@ of in engine code, fix it there.
 
 | Component | Language | Runs in | Package or artifact | License |
 |---|---|---|---|---|
-| `glib-wasm` | C | Worker | git submodule, built into the runtime | LGPL-2.1-or-later |
+| `glib-wasm` | C | Worker | separate repo, pinned as a flake input; built into the runtime | LGPL-2.1-or-later |
 | `libibus-web` | C | Worker | built into the runtime | LGPL-2.1-or-later |
 | `ibus-runtime.wasm` | WASM | Worker | release asset | LGPL-2.1-or-later (combined) |
 | Engine side modules | WASM | Worker | release asset per engine | engine's own license |
@@ -164,7 +166,8 @@ of in engine code, fix it there.
 A fork of GLib based on
 [udevbe/glib-emscripten `2.80.2-emscripten`](https://github.com/udevbe/glib-emscripten/tree/2.80.2-emscripten),
 which carries Kleis Auke Wolthuizen's Emscripten patch set (the one wasm-vips
-uses) plus further fixes. Built with stock emsdk and Meson cross files. D-Bus,
+uses) plus further fixes. Built with nixpkgs Emscripten and Meson cross files
+(§10). D-Bus,
 networking, subprocesses and file monitoring are disabled or stubbed; GIO is
 kept for GSettings and the types it needs.
 
@@ -185,7 +188,7 @@ kept for GSettings and the types it needs.
   `GCClosure` holds signal handlers.
 - **Chosen.** The fork's source-level fixes, including the `G_DEFINE_TYPE`
   header fixes, which engines pick up automatically.
-- **Watch.** If a toolchain-level fix ships in emsdk, drop the engine cast
+- **Watch.** If a toolchain-level fix ships in Emscripten, drop the engine cast
   patch layer (§5.4.2) and re-run the audit.
 
 #### 5.1.2 Callbacks with fewer parameters
@@ -831,10 +834,13 @@ release.
 
 ### 9.3 Release obligations
 
-- CI builds every artifact from a tagged commit with pinned toolchains.
-- Each engine artifact has a source bundle (engine source, patch layers,
-  `glib-wasm`, `libibus-web`, libc++ and musl versions, build scripts and
-  toolchain versions) attached to the same release.
+- Every artifact is a Nix flake output built from the tagged commit, with the
+  toolchain pinned by `flake.lock` (§10).
+- Each engine artifact has a source bundle, itself a flake output, attached to
+  the same release: the engine's fetched upstream sources, its patch layers,
+  and the repository's Nix expressions and `flake.lock` at the tag. Because the
+  flake is the build definition and pins the toolchain, the bundle is the
+  complete build recipe, not a description of one.
 - License notices ship with the packages; hosts link them from a licenses
   page.
 - The runtime is a separately replaceable module, which meets LGPL relinking
@@ -846,28 +852,130 @@ release.
 - The protocol specification is regenerated and must match the committed one.
 - Every engine artifact must have a source bundle.
 
-## 10. Repository and releases
+## 10. Build, CI and releases
+
+### 10.1 Repository
 
 ```
 ibus-web/
+├─ flake.nix, flake.lock           inputs: nixpkgs, glib-wasm
+├─ nix/
+│  ├─ toolchain/                   Emscripten, frozen library cache, mkWasm, Meson cross files
+│  ├─ deps/                        WASM builds of engine libraries
+│  ├─ engines/                     side modules, data, source bundles
+│  ├─ ts/                          pnpm workspace builds, npm tarballs
+│  ├─ checks/                      flake checks
+│  └─ release.nix                  the release set
 ├─ docs/specs/                     design documents
-├─ runtime/
-│  ├─ glib/                        submodule: glib-wasm
-│  ├─ libibus-web/                 C sources and ibus.h-compatible headers
-│  └─ toolchain/                   emsdk pin, Meson cross files
-├─ engines/
-│  └─ <name>/                      recipe: upstream refs, patches/port, patches/casts, manifest template, data
-├─ packages/
-│  ├─ protocol/  core/  ibus-web/  panel/  worker-host/
+├─ runtime/libibus-web/            C sources and ibus.h-compatible headers
+├─ engines/<name>/                 recipe: patches/port, patches/casts, manifest template, data
+├─ packages/                       protocol, core, ibus-web, panel, worker-host
 └─ tests/                          conformance harness, Playwright suites, benchmarks
 ```
 
-- One version for the whole project. Protocol version and runtime ABI version
-  are recorded separately and checked at load, but a release ships only
-  matching parts.
-- Release assets: the npm packages, `ibus-runtime.wasm`, each engine's
-  `.wasm`, data archives, manifest and source bundle, and the generated
-  protocol specification.
+One version for the whole project. Protocol version and runtime ABI version
+are recorded separately and checked at load, but a release ships only
+matching parts.
+
+### 10.2 Toolchain
+
+Everything builds through the flake: development dependencies, every artifact
+and every check.
+
+- **Emscripten from nixpkgs** (6.0.9 at nixpkgs `8ce4ef6`), overridden to a
+  pinned version only if needed. nixpkgs builds it against nixpkgs' LLVM
+  rather than the LLVM revision upstream Emscripten pins, patching the version
+  check (R12).
+- **`emscriptenCache`.** nixpkgs precompiles system libraries only for non-PIC
+  variants, and its default cache location is per build, so every PIC build
+  would recompile libc and libc++. A dedicated derivation runs `embuilder`
+  once for the variants this project uses (PIC, pthreads, WASM exceptions):
+  libc, libc++ and libc++abi, libunwind, compiler-rt, malloc and WasmFS. All
+  other builds use it as a frozen, read-only cache.
+- **`mkWasm`.** The project's builder, used instead of nixpkgs'
+  autotools-oriented `buildEmscriptenPackage`. It generates the Meson cross
+  file (compilers, `-fPIC`, `-pthread`, `-fwasm-exceptions`, main-module or
+  side-module link flags), points at the frozen cache and takes native tools
+  (`glib-compile-schemas`, Meson, Ninja, Python, pkg-config) from
+  `buildPackages`.
+- **TypeScript.** One pnpm workspace. Dependencies are a fixed-output
+  derivation (`fetchPnpmDeps`, installed offline with `pnpmConfigHook`). The
+  Playwright npm version is pinned to match nixpkgs' `playwright-driver`
+  (1.61.1 at the same revision), whose Chromium, Firefox and WebKit builds the
+  tests use.
+
+### 10.3 Derivations
+
+```
+emscriptenCache
+ ├─ libffi-wasm ─┐
+ ├─ glib-wasm ───┴─ ibus-runtime (main module and JS glue)
+ ├─ libhangul-wasm ─────────── engine-hangul
+ ├─ m17n-lib-wasm ──────────── engine-m17n      + engine-m17n-data
+ ├─ libpinyin-wasm ─────────── engine-libpinyin
+ └─ librime-wasm (Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog)
+                   ─────────── engine-rime      + engine-rime-data
+
+pnpmDeps ─ ts-packages ─ npm tarballs (@ibus-web/*, ibus-web)
+                      └─ protocol-spec
+engine-<name> ─ engine-<name>-src (source bundle)
+release = the set of all release assets, plus release.json with checksums
+```
+
+- **Upstream sources** are fixed-output fetches pinned by hash. Each engine
+  derivation applies `patches/port` and then `patches/casts` as separate lists,
+  so the cast layer can be dropped by changing one attribute.
+- **`glib-wasm`** lives in its own repository and is a non-flake input pinned
+  in `flake.lock`.
+- **Engine outputs** are the side module, its manifest, compiled GSettings
+  schemas and the `.gschema.xml` sources.
+- **Rime data** is deployed at build time by running the WASM build of
+  `rime_deployer` under Node inside the derivation, so compiled dictionaries
+  come from the same librime build that reads them. Native librime output is
+  not assumed to load under wasm32.
+- **Source bundles** (`engine-<name>-src`) pack the engine's fetched upstream
+  sources, patch layers, and the repository's Nix expressions and `flake.lock`
+  at the tagged commit (§9.3).
+
+### 10.4 Checks
+
+`nix flake check` runs:
+
+- TypeScript unit and keystroke-path tests (Vitest)
+- `libibus-web` C tests and the GLib test subset, under Node
+- C/TS protocol parity
+- engine conformance golden tests and arity-audit gates
+- the license-boundary scan (§9.4)
+- the generated protocol spec against the committed copy
+- Playwright suites on nixpkgs' browsers
+
+### 10.5 CI
+
+- **Pull requests:** `nix flake check`, with a binary cache so the toolchain,
+  library cache and dependency builds are fetched rather than rebuilt.
+- **Tags:** `nix build .#release`, then publish. Publishing needs credentials,
+  so it is the only step outside Nix, and it builds nothing: create the GitHub
+  release with the assets from `release/`, then `npm publish` each prebuilt
+  tarball.
+- **npm:** npmjs.com with trusted publishing. The publish job gets
+  `id-token: write` and exchanges its GitHub OIDC token for a short-lived npm
+  credential, so no npm token is stored, and npm attaches provenance to each
+  version. Each package on npmjs is configured to trust this repository's
+  release workflow (R14).
+- **Scheduled:** `nix build --rebuild .#release` to catch non-reproducible
+  outputs.
+
+### 10.6 Development shell
+
+`nix develop` provides the toolchain, a writable copy of the library cache,
+Node, pnpm and the Playwright browsers. Day-to-day work runs `meson` and
+`pnpm` directly for fast iteration; `nix build` is for integration and CI.
+
+### 10.7 Release assets
+
+The npm tarballs, `ibus-runtime.wasm` and its JS glue, each engine's `.wasm`,
+data archives, manifest and source bundle, the generated protocol
+specification and `release.json`.
 
 ## 11. Testing
 
@@ -897,7 +1005,7 @@ ibus-web/
 
 | | Scope | Questions answered |
 |---|---|---|
-| M0 | emsdk pin; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
+| M0 | Flake, `emscriptenCache`, `mkWasm` and a first `nix flake check`; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and arity fix count and layer; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
@@ -930,10 +1038,20 @@ ibus-web/
 - **R8. Engine patch acceptance.** Cast fixes are UB fixes that upstreams may
   accept, shrinking the patch layers over time. Not required.
 - **R9. Toolchain fix.** If `-fwasm-fix-function-bitcasts` or a call-site
-  alternative ships in emsdk, re-evaluate §5.1.1 and remove the cast layer.
+  alternative ships in Emscripten, re-evaluate §5.1.1 and remove the cast layer.
 - **R10. Decode speed.** If schema decoding exceeds the budget, lazy candidate
   decoding (§6.3).
 - **R11. Legal review.** The boundary argument in §9 needs counsel before 1.0.
+- **R12. nixpkgs Emscripten's LLVM.** nixpkgs pairs Emscripten with its own
+  LLVM, not the revision upstream tests with, and its package runs only a
+  hello-world test. Our test suites are the real check; if a codegen issue
+  appears, override the Emscripten or LLVM version in the flake.
+- **R13. WebKit in the Nix sandbox.** If WebKit under Playwright is unreliable
+  in the build sandbox, that suite runs as `nix develop -c` in CI instead of
+  as a flake check.
+- **R14. First publish with trusted publishing.** Check whether npm allows
+  configuring a trusted publisher before a package's first version exists. If
+  not, each package's first version needs a one-time manual publish.
 
 ## 14. References
 
@@ -959,3 +1077,5 @@ ibus-web/
 - Chromium `dom_code_data.inc`:
   https://chromium.googlesource.com/chromium/src/+/refs/heads/main/ui/events/keycodes/dom/dom_code_data.inc
 - Effect 4 documentation: https://www.effect.website/docs/v4/
+- nixpkgs Emscripten package (at `8ce4ef6`):
+  `pkgs/development/compilers/emscripten/default.nix`
