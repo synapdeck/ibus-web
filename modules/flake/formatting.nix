@@ -2,8 +2,12 @@
 {
   imports = [ inputs.treefmt-nix.flakeModule ];
 
-  perSystem.treefmt = {
-    projectRootFile = "flake.nix";
-    programs.nixfmt.enable = true;
-  };
+  perSystem =
+    { config, ... }:
+    {
+      treefmt = {
+        inherit (config.flake-root) projectRootFile;
+        programs.nixfmt.enable = true;
+      };
+    };
 }
