@@ -856,22 +856,31 @@ release.
 
 ### 10.1 Repository
 
+The flake is dendritic: `flake.nix` holds only inputs and passes `modules/`
+through import-tree to flake-parts, so every `.nix` file there is a
+flake-parts module. Modules share values only through `ibusWeb.*` per-system
+options (the toolchain, the WASM package set, engines), never by importing
+each other. Non-Nix files a module needs sit next to it under a `_`-prefixed
+name, which import-tree skips.
+
 ```
 ibus-web/
-├─ flake.nix, flake.lock           input: nixpkgs
-├─ nix/
-│  ├─ toolchain/                   emscriptenCache, wasmStdenv, cross files
-│  ├─ overrides/                   WASM overrides of nixpkgs recipes (libraries and engines)
-│  ├─ patches/glib/                Emscripten patch series for nixpkgs glib
+├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, treefmt-nix
+├─ modules/
+│  ├─ flake/                       systems, formatting (treefmt-nix), dev shell, CI outputs
+│  ├─ toolchain/                   emscriptenCache, wasmStdenv, their hooks and probes
+│  ├─ wasm-packages/               WASM overrides of nixpkgs recipes (libraries and engines)
+│  ├─ glib/                        glib-wasm and its _patches/ series
+│  ├─ runtime/                     libibus-web and ibus-runtime
 │  ├─ engines/                     side-module packaging, data, source bundles
-│  ├─ ts/                          pnpm workspace builds, npm tarballs
-│  ├─ checks/                      flake checks
+│  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
+│  ├─ checks/                      flake checks not owned by another module
 │  └─ release.nix                  the release set
-├─ docs/specs/                     design documents
+├─ docs/                           specs, plans, spike reports
 ├─ runtime/libibus-web/            C sources and ibus.h-compatible headers
 ├─ engines/<name>/                 recipe: patches/port, patches/casts, manifest template, data
 ├─ packages/                       protocol, core, ibus-web, panel, worker-host
-└─ tests/                          conformance harness, Playwright suites, benchmarks
+└─ tests/                          conformance harness, Playwright suites, benchmarks, spikes
 ```
 
 One version for the whole project. Protocol version and runtime ABI version
@@ -947,7 +956,7 @@ lacks (`libibus-web`, the custom table engine) get recipes of their own.
   4. append our patch layers after nixpkgs' remaining patches: `patches/port`,
      then `patches/casts` as a separate list.
 - **`glib-wasm`** is nixpkgs' `glib` recipe with an Emscripten patch series
-  kept in this repository (`nix/patches/glib/`): the Wolthuizen patch set and
+  kept in this repository (`modules/glib/_patches/`): the Wolthuizen patch set and
   the fixes carried by the udevbe fork, forward-ported from 2.80.2 to the
   nixpkgs version, plus our own patches (§5.1). nixpkgs' own `glib` patches
   are reviewed individually; most are NixOS path handling and are dropped.
