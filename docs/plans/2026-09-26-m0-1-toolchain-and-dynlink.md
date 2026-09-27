@@ -616,12 +616,13 @@ Expected: PASS (the cache rebuilds first).
 `modules/wasm-packages/_tests/libhangul-test.c`:
 
 ```c
-/* 2-set keys g, k, s compose to the syllable 한 (U+D55C). */
+/* 2-set keys g, k, s compose to the syllable 한 (U+D55C). Built without
+ * external keyboards, libhangul needs no hangul_init(): keyboard lookup falls
+ * back to the built-in tables. */
 #include <hangul.h>
 #include <stdio.h>
 
 int main(void) {
-  hangul_init(NULL);
   HangulInputContext *hic = hangul_ic_new("2");
   if (hic == NULL) {
     puts("hangul_ic_new failed");
@@ -637,7 +638,6 @@ int main(void) {
   int ok = preedit[0] == 0xD55C && preedit[1] == 0;
 
   hangul_ic_delete(hic);
-  hangul_fini();
   return ok ? 0 : 1;
 }
 ```
@@ -949,7 +949,6 @@ extern "C" int probe() { throw std::runtime_error("thrown in side module"); }
 #include <hangul.h>
 
 int probe(void) {
-  hangul_init(NULL);
   HangulInputContext *hic = hangul_ic_new("2");
   if (hic == NULL) return 1;
 
@@ -960,7 +959,6 @@ int probe(void) {
   int ok = preedit[0] == 0xD55C && preedit[1] == 0;
 
   hangul_ic_delete(hic);
-  hangul_fini();
   return ok ? 0 : 2;
 }
 ```
