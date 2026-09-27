@@ -1078,7 +1078,10 @@ specification and `release.json`.
   free. Settled in M0.
 - **R3. Dynamic linking with pthreads.** Weakest area of Emscripten dynamic
   linking. Side modules load once at startup, before any threads exist, which
-  avoids the hardest case. Settled in M0.
+  avoids the hardest case. Settled in M0. The M0.1 spike confirmed this: all
+  five probes passed, including a side module running on a pool thread
+  created before its `dlopen` and a C++ exception thrown in a side module
+  caught in the main module; see `docs/spikes/2026-09-26-dynlink.md`.
 - **R4. GLib patch forward-port.** The Emscripten patch set exists for
   2.80.2; nixpkgs is on 2.88.3. Forward-porting it is M0 work, and each
   nixpkgs GLib update may need a rebase.
@@ -1099,7 +1102,9 @@ specification and `release.json`.
 - **R12. nixpkgs Emscripten's LLVM.** nixpkgs pairs Emscripten with its own
   LLVM, not the revision upstream tests with, and its package runs only a
   hello-world test. Our test suites are the real check; if a codegen issue
-  appears, override the Emscripten or LLVM version in the flake.
+  appears, override the Emscripten or LLVM version in the flake. At
+  `8ce4ef6`, nixpkgs pairs Emscripten 6.0.9 with LLVM 22.1.8; upstream
+  Emscripten expects 24.
 - **R13. WebKit in the Nix sandbox.** If WebKit under Playwright is unreliable
   in the build sandbox, that suite runs as `nix develop -c` in CI instead of
   as a flake check.
