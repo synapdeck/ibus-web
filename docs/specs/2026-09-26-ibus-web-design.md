@@ -547,11 +547,25 @@ the rest on request from the panel.
   evdev column (BSD-3-Clause; notice kept).
 - **`keyval`, layout `default`.** From `event.key`:
   - a single code point: Latin-1 directly; a legacy keysym where
-    `keysymdef.h` defines one; otherwise `0x01000000 + codepoint`. The table
-    is generated from xorgproto's `keysymdef.h` (MIT), not from upstream
-    `ibuskeyuni.c` (LGPL).
+    `keysymdef.h` defines one; otherwise `0x01000000 + codepoint`, the rule
+    `keysymdef.h` itself specifies.
   - a named key: a table from UI Events key values to keysyms (`Backspace`,
-    `ArrowLeft`, `Shift`, `HangulMode`, `HanjaMode`, …).
+    `ArrowLeft`, `Shift`, `HangulMode`, `HanjaMode`, …), with keysym values
+    taken from `keysymdef.h`.
+- **Keysym tables** are generated at build time from xorgproto's
+  [`keysymdef.h`](https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/master/include/X11/keysymdef.h),
+  not from upstream `ibuskeyuni.c` (LGPL). The file is under The Open Group's
+  MIT-style license (SPDX `MIT-open-group`) and a Digital HPND-style notice;
+  both notices ship with the page packages. Generation rules come from the
+  file's own annotations:
+  - `// U+xxxx` marks a one-to-one mapping and is used in both directions.
+  - `//<U+xxxx>` marks a more specific keysym for a character that already has
+    a generic one (for example `XK_KP_Space`). These map keysym → character
+    only; character → keysym picks the generic keysym.
+  - `(U+xxxx)` marks a deprecated or unclear legacy mapping and is not used
+    for character → keysym.
+  - Where several names share a value, the first listed is canonical; aliases
+    are ignored.
 - **`keyval`, layout `us`.** Computed from `event.code` with a bundled US
   layout table and the Shift and CapsLock state, ignoring `event.key`. On the
   desktop IBus switches the system layout for such engines; in a browser the
@@ -734,6 +748,10 @@ discarded, never repaired.
 | Engine recipes and patches | the engine's license |
 | Engine artifacts | the engine's license, covering the combined work in that Worker |
 
+Third-party tables in page packages keep their notices: Chromium's
+`dom_code_data.inc` (BSD-3-Clause) and xorgproto's `keysymdef.h`
+(`MIT-open-group` plus a Digital HPND-style notice).
+
 The runtime must be compatible with every engine's GPL at once; GPLv2-only and
 GPLv3 engines conflict with each other, which LGPL-2.1-or-later avoids, and
 separate Workers keep differently licensed engines from ever being combined.
@@ -879,6 +897,8 @@ ibus-web/
   deprecation and revert), #22285 (exceptions with `MAIN_MODULE` and cast
   emulation), #15081:
   https://github.com/emscripten-core/emscripten/issues/11066
+- xorgproto `keysymdef.h`:
+  https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/master/include/X11/keysymdef.h
 - Chromium `dom_code_data.inc`:
   https://chromium.googlesource.com/chromium/src/+/refs/heads/main/ui/events/keycodes/dom/dom_code_data.inc
 - Effect 4 documentation: https://www.effect.website/docs/v4/
