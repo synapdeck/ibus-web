@@ -1114,6 +1114,14 @@ specification and `release.json`.
   tables at build time. Building them with the WASM build's tools under Node
   avoids assuming the native format loads under wasm32; if that proves
   impractical, the format's portability must be verified.
+- **R17. `wasmStdenv` inherits the native stdenv's identity.** It swaps the
+  compiler through environment variables but keeps the build machine's
+  `hostPlatform` and `cc`, so recipes' `meta.platforms` limits and any
+  branches on `stdenv.cc` or `hostPlatform` see the native machine, not WASM.
+  The first visible effect is that recipes restricted to Linux (libhangul)
+  refuse to evaluate on Darwin, so the flake is Linux-only
+  (`nix-systems/default-linux`) until this is settled, most likely with a
+  real `wasm32-unknown-emscripten` cross platform.
 
 ## 14. References
 

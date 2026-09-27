@@ -27,7 +27,7 @@ Worker wait loop (R2) and CI workflows. Each gets its own plan.
 - nixpkgs revision: `8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe` (2026-09-10), locked through `flake.lock`.
 - Emscripten comes from nixpkgs (6.0.9 at that revision). No compiler patches; never `-sEMULATE_FUNCTION_POINTER_CASTS`.
 - Every WASM object is compiled with `-fPIC -pthread -fwasm-exceptions`.
-- Systems come from the `systems` input (`github:nix-systems/triplet`: `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`). Every system must evaluate; builds and checks in this plan are run and verified on `x86_64-linux`.
+- Systems come from the `systems` input (`github:nix-systems/default-linux`: `aarch64-linux`, `x86_64-linux`). Every system must evaluate; builds and checks in this plan are run and verified on `x86_64-linux`. Darwin is excluded until `wasmStdenv` stops inheriting the native `hostPlatform` (spec R17).
 - Everything builds through the flake; `nix flake check` must pass at the end of every task.
 - **Dendritic layout:** `flake.nix` contains only inputs and `mkFlake … (inputs.import-tree ./modules)`. Every `.nix` file under `modules/` is a flake-parts module. Modules never `import` each other; they share values only through the `ibusWeb.*` per-system options.
 - Non-Nix files a module needs (C sources, shell hooks) live in a `_`-prefixed directory or file next to that module; import-tree skips paths containing `/_`.
@@ -563,12 +563,12 @@ git commit -m "Add prebuilt Emscripten library cache, cache check and dev shell"
   - `ibusWeb.wasmPackages` option, with `ibusWeb.wasmPackages.libhangul` set.
   - `packages.libhangul-wasm`: installs `lib/libhangul.a`, `include/hangul-1.0/hangul.h`, `lib/pkgconfig/libhangul.pc` and the Hanja data.
 
-- [ ] **Step 0: Take the system list from `nix-systems/triplet`**
+- [ ] **Step 0: Take the system list from `nix-systems/default-linux`**
 
 In `flake.nix`, add this entry to the `inputs` attrset, after `flake-root`:
 
 ```nix
-    systems.url = "github:nix-systems/triplet";
+    systems.url = "github:nix-systems/default-linux";
 ```
 
 Replace `modules/flake/systems.nix`:
@@ -583,8 +583,8 @@ Replace `modules/flake/systems.nix`:
 Run: `nix flake lock && grep -c 8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe flake.lock`
 Expected: `flake.lock` gains a `systems` node; the grep prints `1`.
 
-Run: `git add flake.nix flake.lock modules && nix flake show --all-systems 2>/dev/null | grep -E 'aarch64-darwin|aarch64-linux|x86_64-linux' | sort -u | head`
-Expected: entries for all three systems, and no evaluation error.
+Run: `git add flake.nix flake.lock modules && nix flake show --all-systems 2>/dev/null | grep -E 'aarch64-linux|x86_64-linux' | sort -u | head`
+Expected: entries for both systems, and no evaluation error.
 
 - [ ] **Step 0b: Cache the variants configure scripts link**
 
@@ -606,6 +606,8 @@ In `checks.toolchain-cache`, insert after the `test "$(node probe-cpp.js)" = "pr
 ```nix
             emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
             test "$(node probe-plain.js)" = "probe 7"
+            em++ ${toolchain.commonFlags} probe.cpp -o probe-plain-cpp.js
+            test "$(node probe-plain-cpp.js)" = "probe 2"
 ```
 
 Run: `git add modules && nix build .#checks.x86_64-linux.toolchain-cache -L`
@@ -794,7 +796,7 @@ Expected: PASS, with `checks.x86_64-linux.libhangul-wasm` built (not skipped).
 
 ```bash
 git add flake.nix flake.lock modules/flake/systems.nix modules/toolchain modules/wasm-packages
-git commit -m "Add wasmStdenv and a WASM build of libhangul; take systems from nix-systems/triplet"
+git commit -m "Add wasmStdenv and a WASM build of libhangul; take systems from nix-systems/default-linux"
 ```
 
 ---
