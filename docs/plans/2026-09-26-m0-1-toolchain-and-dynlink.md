@@ -947,6 +947,9 @@ extern "C" int probe() { throw std::runtime_error("thrown in side module"); }
 `tests/spikes/dynlink/side_hangul.c`:
 
 ```c
+/* hangul.h uses NULL without including a header that defines it. */
+#include <stddef.h>
+
 #include <hangul.h>
 
 int probe(void) {
