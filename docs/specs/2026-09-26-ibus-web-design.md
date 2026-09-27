@@ -1116,8 +1116,9 @@ specification and `release.json`.
   impractical, the format's portability must be verified.
 - **R17. `wasmStdenv` inherits the native stdenv's identity.** It swaps the
   compiler through environment variables but keeps the build machine's
-  `hostPlatform` and `cc`, so recipes' `meta.platforms` limits and any
-  branches on `stdenv.cc` or `hostPlatform` see the native machine, not WASM.
+  `hostPlatform`. It is based on nixpkgs' `clangStdenv`, so `stdenv.cc` is
+  correctly a clang (`isClang`), but recipes' `meta.platforms` limits and any
+  branches on `hostPlatform` see the native machine, not WASM.
   The first visible effect is that recipes restricted to Linux (libhangul)
   refuse to evaluate on Darwin, so the flake is Linux-only
   (`nix-systems/default-linux`) until this is settled, most likely with a

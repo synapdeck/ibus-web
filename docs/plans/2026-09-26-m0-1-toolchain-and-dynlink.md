@@ -691,10 +691,12 @@ preConfigureHooks+=(wasmConfigureSetup)
       } ./_wasm-build-hook.sh;
     in
     {
-      ibusWeb.toolchain.wasmStdenv = pkgs.stdenv // {
+      # Emscripten is clang, so recipes that branch on the compiler
+      # (stdenv.cc.isClang) must take their clang paths.
+      ibusWeb.toolchain.wasmStdenv = pkgs.clangStdenv // {
         mkDerivation =
           fnOrAttrs:
-          pkgs.stdenv.mkDerivation (
+          pkgs.clangStdenv.mkDerivation (
             finalAttrs:
             let
               args = lib.toFunction fnOrAttrs finalAttrs;
