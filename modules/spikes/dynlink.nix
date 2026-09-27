@@ -32,10 +32,17 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
+          # node exits non-zero on a probe FAIL, which would abort under set -e
+          # before the diagnostics below ever printed. Capture the status and
+          # exit with it after showing the output, instead of letting it kill
+          # the phase early.
           node main.js $PWD/side_basic.wasm $PWD/side_thread.wasm $PWD/side_cxx.wasm \
-            $PWD/side_throw.wasm $PWD/side_hangul.wasm > actual.txt
+            $PWD/side_throw.wasm $PWD/side_hangul.wasm > actual.txt || status=$?
           cat actual.txt
           diff -u expected.txt actual.txt
+          if [ -n "''${status:-}" ]; then
+            exit "$status"
+          fi
           runHook postCheck
         '';
 

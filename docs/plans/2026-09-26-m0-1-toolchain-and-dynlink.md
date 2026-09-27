@@ -947,7 +947,7 @@ extern "C" int probe() { throw std::runtime_error("thrown in side module"); }
 `tests/spikes/dynlink/side_hangul.c`:
 
 ```c
-/* hangul.h uses NULL without including a header that defines it. */
+/* hangul.h does not bring in a definition of NULL. */
 #include <stddef.h>
 
 #include <hangul.h>
@@ -1006,10 +1006,17 @@ int probe(void) {
         doCheck = true;
         checkPhase = ''
           runHook preCheck
+          # node exits non-zero on a probe FAIL, which would abort under set -e
+          # before the diagnostics below ever printed. Capture the status and
+          # exit with it after showing the output, instead of letting it kill
+          # the phase early.
           node main.js $PWD/side_basic.wasm $PWD/side_thread.wasm $PWD/side_cxx.wasm \
-            $PWD/side_throw.wasm $PWD/side_hangul.wasm > actual.txt
+            $PWD/side_throw.wasm $PWD/side_hangul.wasm > actual.txt || status=$?
           cat actual.txt
           diff -u expected.txt actual.txt
+          if [ -n "''${status:-}" ]; then
+            exit "$status"
+          fi
           runHook postCheck
         '';
 

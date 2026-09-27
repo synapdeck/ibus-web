@@ -935,16 +935,18 @@ lacks (`libibus-web`, the custom table engine) get recipes of their own.
   nixpkgs' LLVM rather than the revision upstream Emscripten pins (R12).
 - **`emscriptenCache`.** nixpkgs precompiles system libraries only for non-PIC
   variants, and builds otherwise use a per-build cache, so every PIC build
-  would recompile libc and libc++. A dedicated derivation runs `embuilder` once
-  for the variants this project uses (PIC, pthreads, WASM exceptions): libc,
-  libc++ and libc++abi, libunwind, compiler-rt, malloc and WasmFS. All other
-  builds use it as a frozen, read-only cache.
-- **`wasmStdenv`.** nixpkgs' `emscriptenStdenv` extended for this project: the
-  frozen cache, `-fPIC -pthread -fwasm-exceptions`, main-module or side-module
-  link flags, and configure steps for each build system (`emconfigure` for
-  autotools, Emscripten's CMake toolchain file, a generated Meson cross file).
-  Native tools (`glib-compile-schemas`, Meson, Ninja, Python, pkg-config) come
-  from `buildPackages`.
+  would recompile libc and libc++. A dedicated derivation fills the cache by
+  compiling probe programs with the project's compile flags and link
+  settings, at `-O0` and `-O2`, so Emscripten's own link step populates the
+  cache with the variants those flags select, rather than running
+  `embuilder`. All other builds use it as a frozen, read-only cache.
+- **`wasmStdenv`.** nixpkgs' `clangStdenv`, with the frozen cache,
+  `-fPIC -pthread -fwasm-exceptions`, and static-only configure flags layered
+  on. It currently handles autotools only, configuring through
+  `emconfigure`; a CMake toolchain file and a generated Meson cross file are
+  not implemented yet and are later-plan work. Native tools
+  (`glib-compile-schemas`, Meson, Ninja, Python, pkg-config) come from
+  `buildPackages`.
 - **Per-package overrides** do four things, and nothing else:
   1. swap dependencies for WASM builds (`glib` → `glib-wasm`, `ibus` →
      `libibus-web`, `libhangul` → `libhangul-wasm`, …);
@@ -1077,11 +1079,17 @@ specification and `release.json`.
   queue; running each engine on a pthread with the Worker's own thread left
   free. Settled in M0.
 - **R3. Dynamic linking with pthreads.** Weakest area of Emscripten dynamic
-  linking. Side modules load once at startup, before any threads exist, which
-  avoids the hardest case. Settled in M0. The M0.1 spike confirmed this: all
-  five probes passed, including a side module running on a pool thread
-  created before its `dlopen` and a C++ exception thrown in a side module
-  caught in the main module; see `docs/spikes/2026-09-26-dynlink.md`.
+  linking. §5.3's thread pool is pre-allocated. Its worker threads exist
+  before `main` runs, not after. Side modules load after that pool already
+  exists. That is the harder case for dynamic linking with pthreads, not the
+  easier one. The M0.1 spike tested this harder case. It used the
+  `-sMAIN_MODULE=1`/`-sNODERAWFS=1`/Node configuration, not §5.3's
+  `-sMAIN_MODULE=2`/WasmFS/browser configuration. All five probes passed,
+  including a side module running on a pool thread created before its
+  `dlopen` and a C++ exception thrown in a side module caught in the main
+  module. See `docs/spikes/2026-09-26-dynlink.md`. The `-sMAIN_MODULE=2`,
+  WasmFS, browser configuration is still to be tested. Settled in M0 for the
+  tested configuration.
 - **R4. GLib patch forward-port.** The Emscripten patch set exists for
   2.80.2; nixpkgs is on 2.88.3. Forward-porting it is M0 work, and each
   nixpkgs GLib update may need a rebase.

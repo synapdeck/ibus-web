@@ -1,4 +1,4 @@
-/* hangul.h uses NULL without including a header that defines it. */
+/* hangul.h does not bring in a definition of NULL. */
 #include <stddef.h>
 
 #include <hangul.h>
