@@ -4,7 +4,7 @@
     options.ibusWeb.wasmPackages = lib.mkOption {
       type = lib.types.lazyAttrsOf lib.types.package;
       default = { };
-      description = "WASM builds of nixpkgs recipes, keyed by nixpkgs attribute name.";
+      description = "WASM packages from the Emscripten cross package set, keyed by nixpkgs attribute name.";
     };
   };
 }

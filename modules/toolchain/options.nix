@@ -18,10 +18,6 @@
         type = lib.types.package;
         description = "Setup hook giving each build a private copy of the cache.";
       };
-      wasmStdenv = lib.mkOption {
-        type = lib.types.raw;
-        description = "stdenv that builds nixpkgs recipes as static PIC WASM libraries.";
-      };
       pkgsWasm = lib.mkOption {
         type = lib.types.raw;
         description = "nixpkgs for wasm32-unknown-none, compiled with Emscripten.";
