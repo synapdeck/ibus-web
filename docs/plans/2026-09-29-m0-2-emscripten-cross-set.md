@@ -43,7 +43,7 @@ through the cross `pkg-config`, and composed 한 with it.
 - Main modules are linked with `em++` (`$CXX` in the cross stdenv); C sources are compiled with `$CC -c` first.
 - `nix flake check` must pass at the end of every task, and a check must exist for every WASM package we rely on (it doesn't build `packages.*` or `legacyPackages`).
 - Outputs: `packages.<system>` holds only ibus-web's own artifacts. nixpkgs packages built for WASM are reached through `legacyPackages.<system>.pkgsWasm`; toolchain pieces live under `legacyPackages` too.
-- Recipe changes for WASM are overlays in the flake's `overlays` output, each gated as `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.cc.cc.isEmscripten or false)) { … }` (read `prev`, never `final`, in the gate). Never define a patched package under another name: dependents inside `pkgsWasm` would not see it.
+- Recipe changes for WASM are overlays in the flake's `overlays` output, one directory per nixpkgs attribute (`modules/overlays/<attr>/default.nix` defining `flake.overlays.<attr>`, patches beside it), each gated as `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false)) { … }`. The gate reads only the platform: reading `stdenv.cc` recurses, because the wrapped compiler is built through `buildPackages`, whose splicing reaches back into `pkgsWasm`. Never define a patched package under another name: dependents inside `pkgsWasm` would not see it.
 - Comments explain why, not what, and never refer to other files, this plan or its history.
 - Flakes only see git-tracked files: `git add` before any `nix` command.
 - The user edits files in this tree while work runs: leave changes you didn't make in place; never `git checkout`/`restore`/`stash`; commit only the task's files.
@@ -1036,3 +1036,19 @@ Expected: PASS.
 git add docs/specs/2026-09-26-ibus-web-design.md docs/spikes/2026-09-26-dynlink.md
 git commit -m "Spec: WASM builds come from an Emscripten cross package set; resolve R17"
 ```
+
+---
+
+## Post-review fixes
+
+The final review found that the overlay gate first specified here (on
+`stdenv.cc.cc.isEmscripten`) recurses infinitely as soon as an overlay
+exists. The fix round replaces it with a platform marker
+(`useEmscripten = true` on `crossSystem`), adds an evaluation check that a
+probe overlay applies to `pkgsWasm` and not to `buildPackages`, drops the
+explicit `makeStaticLibraries` (nixpkgs' cross stages already apply
+`makeStatic` for `isStatic` platforms), asserts that the cache and the
+wrapper use the same Emscripten, makes the wrapper's `rm`/`sed` edits fail
+loudly, and moves overlays to `modules/overlays/<attr>/`. The Global
+constraints above reflect the fixed gate; the task text keeps the original
+wording as a record.
