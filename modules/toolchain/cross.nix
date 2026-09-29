@@ -59,6 +59,23 @@ in
             ln -s ${emscripten.llvmEnv}/bin/wasm-ld $out/bin/ld
           '';
 
+          # Meson keys Emscripten behaviour (GLib's patches, the .js
+          # executable suffix) on the host system, which nixpkgs' cross file
+          # reports as the platform's kernel, "none". Node runs what Emscripten
+          # links, so Meson can run tests and run() checks.
+          mesonCrossFile = pkgsBuildBuild.writeText "emscripten-meson-cross.ini" ''
+            [host_machine]
+            system = 'emscripten'
+
+            [binaries]
+            exe_wrapper = ['${lib.getExe pkgsBuildBuild.nodejs}']
+          '';
+
+          emscriptenMesonHook = pkgsBuildBuild.makeSetupHook {
+            name = "emscripten-meson-hook";
+            substitutions.crossFile = mesonCrossFile;
+          } ./emscripten-meson-hook.sh;
+
           bintools = buildPackages.wrapBintoolsWith {
             bintools = emscriptenBinutils;
             # Emscripten's libc lives in its cache sysroot, which emcc adds
@@ -98,7 +115,10 @@ in
         assert emscripten.drvPath == pkgs.emscripten.drvPath;
         baseStdenv.override (old: {
           inherit cc;
-          extraNativeBuildInputs = old.extraNativeBuildInputs ++ [ toolchain.emscriptenCacheHook ];
+          extraNativeBuildInputs = old.extraNativeBuildInputs ++ [
+            toolchain.emscriptenCacheHook
+            emscriptenMesonHook
+          ];
         });
 
       pkgsWasm = import inputs.nixpkgs {
