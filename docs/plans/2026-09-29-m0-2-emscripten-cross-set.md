@@ -37,7 +37,7 @@ through the cross `pkg-config`, and composed 한 with it.
 - Every WASM object is compiled with `ibusWeb.toolchain.commonFlags` (`-fPIC -pthread -fwasm-exceptions`).
 - **Derive, don't hardcode:** versions, target prefixes, triples and store paths come from Nix evaluation (for example `stdenv.cc.targetPrefix`, `emscripten.version`), never spelled out as literals.
 - Dendritic layout: `flake.nix` holds only inputs and `mkFlake … (inputs.import-tree ./modules)`; every `.nix` file under `modules/` is a flake-parts module; modules never `import` each other and share values only through `ibusWeb.*` per-system options.
-- Non-Nix files a module needs live in a `_`-prefixed path next to it. A check with its own sources is a directory: `modules/checks/<name>/default.nix` plus `_`-prefixed files or directories beside it.
+- import-tree imports only `.nix` files whose path has no `/_`. Non-Nix files a module needs sit beside it under plain names; a `_` prefix is only for paths holding `.nix` files that aren't flake-parts modules. A check with its own sources is a directory: `modules/checks/<name>/default.nix` plus its files beside it.
 - Emscripten must come from `pkgsBuildBuild` inside the cross set. `buildPackages` (`pkgsBuildHost`) gives it a WASM target platform, which rehashes it and everything under it (openjdk included) and misses the binary cache.
 - In `nativeBuildInputs`, reference packages from `pkgsWasm` directly (they are spliced to the build platform); use `pkgsBuildBuild` only where a build tool's store path is interpolated into a string.
 - Main modules are linked with `em++` (`$CXX` in the cross stdenv); C sources are compiled with `$CC -c` first.
@@ -60,7 +60,7 @@ through the cross `pkg-config`, and composed 한 with it.
 | `modules/wasm-packages/*` | create (Task 2), delete (Task 3) | alias layer, replaced by overlays |
 | `modules/checks/libhangul/{default.nix,_libhangul-test.c}` | create (Task 3) | `checks.libhangul-wasm` through the cross `pkg-config` |
 | `modules/spikes/dynlink.nix`, `modules/toolchain/cache.nix` | modify (Task 3) | read `pkgsWasm.libhangul`; cache under `legacyPackages` |
-| `modules/checks/meson-consumer/{default.nix,_src/}` | create (Task 4) | Meson + `pkg-config` + zlib + libffi check |
+| `modules/checks/meson-consumer/{default.nix,src/}` | create (Task 4) | Meson + `pkg-config` + zlib + libffi check |
 | `modules/flake/formatting.nix`, `.clang-format` | modify, create | clang-format and shfmt |
 | `modules/flake/systems.nix`, `flake.nix`, `flake.lock` | modify | systems from `nix-systems/triplet` |
 | `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md` | modify | describe the cross set; resolve R17 |
@@ -561,7 +561,7 @@ from `pkgsWasm`'s unmodified zlib and libffi, that Meson's cross setup, the
 cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
 
 **Files:**
-- Create: `modules/checks/meson-consumer/default.nix`, `modules/checks/meson-consumer/_src/meson.build`, `modules/checks/meson-consumer/_src/main.c`
+- Create: `modules/checks/meson-consumer/default.nix`, `modules/checks/meson-consumer/src/meson.build`, `modules/checks/meson-consumer/src/main.c`
 
 **Interfaces:**
 - Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1), `pkgsWasm.zlib`, `pkgsWasm.libffi`.
@@ -569,7 +569,7 @@ cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
 
 - [ ] **Step 1: Write the consumer program**
 
-`modules/checks/meson-consumer/_src/main.c`:
+`modules/checks/meson-consumer/src/main.c`:
 
 ```c
 /* Exercises zlib and libffi once each, as found through pkg-config. */
@@ -618,7 +618,7 @@ int main(void) {
 }
 ```
 
-`modules/checks/meson-consumer/_src/meson.build`:
+`modules/checks/meson-consumer/src/meson.build`:
 
 ```meson
 project('meson-consumer', 'c')
@@ -657,7 +657,7 @@ If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` sho
       # cross pkg-config and both libraries in one program.
       checks.meson-consumer = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-meson-consumer";
-        src = ./_src;
+        src = ./src;
         nativeBuildInputs = [
           pkgsWasm.meson
           pkgsWasm.ninja
@@ -740,15 +740,28 @@ git commit -m "Check a WasmFS main-module link against the cache"
 
 ---
 
-### Task 6: Format C, C++ and shell sources
+### Task 6: Plain names and formatting for non-Nix sources
 
 **Files:**
-- Modify: `modules/flake/formatting.nix`
+- Rename: `modules/toolchain/_probes/` → `modules/toolchain/probes/`, `modules/toolchain/_emscripten-cache-hook.sh` → `modules/toolchain/emscripten-cache-hook.sh`, `modules/checks/libhangul/_libhangul-test.c` → `modules/checks/libhangul/libhangul-test.c`
+- Modify: every `.nix` file that references them (`modules/toolchain/cache.nix`, `modules/toolchain/cross-check.nix`, `modules/checks/libhangul/default.nix`), `modules/flake/formatting.nix`
 - Create: `.clang-format`
 - Reformatted by the tool: C, C++ and shell files under `modules/` and `tests/`
 
 **Interfaces:**
-- Produces: `nix fmt` and `checks.treefmt` cover `*.c`, `*.cpp`, `*.h` and `*.sh`.
+- Produces: no `_`-prefixed non-Nix paths remain under `modules/`; `nix fmt` and `checks.treefmt` cover `*.c`, `*.cpp`, `*.h` and `*.sh`.
+
+- [ ] **Step 0: Drop the underscores**
+
+Run: `git mv modules/toolchain/_probes modules/toolchain/probes && git mv modules/toolchain/_emscripten-cache-hook.sh modules/toolchain/emscripten-cache-hook.sh && git mv modules/checks/libhangul/_libhangul-test.c modules/checks/libhangul/libhangul-test.c`
+
+Then update the references: `./_probes` → `./probes` (in `cache.nix` and `cross-check.nix`), `./_emscripten-cache-hook.sh` → `./emscripten-cache-hook.sh` (in `cache.nix`), `./_libhangul-test.c` → `./libhangul-test.c` (in `modules/checks/libhangul/default.nix`).
+
+Run: `git add -A modules && grep -rn '\./_' modules; find modules -name '_*'`
+Expected: no output from either command.
+
+Run: `nix build .#checks.x86_64-linux.toolchain-cache .#checks.x86_64-linux.cross-toolchain .#checks.x86_64-linux.libhangul-wasm --dry-run`
+Expected: renaming `probes` changes the cache derivation's source, and the cache hook is part of the cross stdenv, so the cache, the cross stdenv and every `pkgsWasm` package in these checks' closures rebuild. That is expected and cheap (libhangul, zlib, libffi). The list must not include `emscripten`, `openjdk` or `closure-compiler`.
 
 - [ ] **Step 1: Configure the formatters**
 
@@ -798,7 +811,7 @@ Expected: PASS, with every check rebuilt from the reformatted sources producing 
 
 ```bash
 git add .clang-format modules tests
-git commit -m "Format C, C++ and shell sources with clang-format and shfmt"
+git commit -m "Plain names for non-Nix sources; format them with clang-format and shfmt"
 ```
 
 ---
