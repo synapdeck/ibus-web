@@ -23,6 +23,11 @@
             $CXX ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
+            # Flags clang and lld accept must not reach emcc or wasm-ld.
+            $CC -O2 -static-libgcc -c probe.c -o probe-flags.o 2> flags.log
+            test ! -s flags.log
+            $CXX ${toolchain.testMainFlags} -Wl,--undefined-version probe-flags.o -o probe-flags.js
+            test "$(node probe-flags.js)" = "probe 7"
             runHook postBuild
           '';
           installPhase = "touch $out";

@@ -89,6 +89,7 @@ in
               rm -f $out/nix-support/add-local-cc-cflags-before.sh
               sed -i '/-nostdlibinc/d' $out/nix-support/cc-cflags
               echo "${toolchain.commonFlags}" >> $out/nix-support/cc-cflags
+              cp ${./emscripten-cc-wrapper-hook.sh} $out/nix-support/cc-wrapper-hook
             '';
           };
         in
