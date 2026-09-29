@@ -863,8 +863,15 @@ options (the toolchain and its `pkgsWasm` package set, engines), never by
 importing each other. import-tree imports only `.nix` files outside
 `_`-prefixed paths, so non-Nix files a module needs sit beside it under
 plain names; a `_` prefix is only for `.nix` files that aren't flake-parts
-modules. A check with its own sources is a directory,
-`modules/checks/<name>/default.nix` with its files beside it.
+modules. Each component the build changes has one directory,
+`modules/<component>/`: `overlay.nix` defines `flake.overlays.<component>`,
+one gated overlay that may change several nixpkgs attributes; `patches/`
+holds its patch files and a README recording their provenance; `checks/`
+holds its checks, `checks/<name>.nix` or, with sources of its own,
+`checks/<name>/default.nix` with its files beside it. An engine is a
+component too, living at the repository root in `engines/<name>/` with the
+same shape plus its manifest template and data; `flake.nix` passes both
+`./modules` and `./engines` to import-tree.
 
 ```
 ibus-web/
@@ -872,15 +879,15 @@ ibus-web/
 ├─ modules/
 │  ├─ flake/                       systems, formatting (treefmt-nix), dev shell, CI outputs
 │  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
-│  ├─ overlays/                    one directory per nixpkgs attribute: Emscripten-gated overlay and its patches
+│  │  └─ checks/                   checks of the toolchain itself
+│  ├─ <component>/                 overlay.nix, patches/, checks/ for one component (glib, libhangul, …)
 │  ├─ runtime/                     libibus-web and ibus-runtime
 │  ├─ engines/                     side-module packaging, data, source bundles
 │  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
-│  ├─ checks/                      flake checks not owned by another module, one directory each
 │  └─ release.nix                  the release set
 ├─ docs/                           specs, plans, spike reports
 ├─ runtime/libibus-web/            C sources and ibus.h-compatible headers
-├─ engines/<name>/                 recipe: patches/port, patches/casts, manifest template, data
+├─ engines/<name>/                 one component per engine: overlay.nix, patches/{port,casts}, checks/, manifest template, data
 ├─ packages/                       protocol, core, ibus-web, panel, worker-host
 └─ tests/                          conformance harness, Playwright suites, benchmarks, spikes
 ```
@@ -979,9 +986,10 @@ artifacts; WASM builds of nixpkgs packages are reached through
   overlay never reaches a native or WASI package set and the overlays are
   safe to export. The gate reads only the platform, because reading
   `stdenv.cc` would evaluate the wrapped compiler, whose `buildPackages`
-  splicing reaches back into `pkgsWasm` and recurses. Layout: one directory
-  per nixpkgs attribute, `modules/overlays/<attr>/default.nix` defining
-  `flake.overlays.<attr>`, with its patches beside it. They do three things, and nothing else:
+  splicing reaches back into `pkgsWasm` and recurses. Layout: one per
+  component, `modules/<component>/overlay.nix` defining
+  `flake.overlays.<component>`, with its patches in
+  `modules/<component>/patches/`. They do three things, and nothing else:
   1. drop desktop-only inputs and features: GTK and Python setup programs,
      `wrapGAppsHook3`, GObject introspection, libnotify, and network features
      such as ibus-libpinyin's cloud input (`libsoup_3`, `--enable-cloud-input-mode`);
@@ -993,7 +1001,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
   builds. A patched package is never defined under another name, because
   dependents inside `pkgsWasm` would not see it.
 - **GLib** is nixpkgs' `glib` recipe with an Emscripten patch series kept in
-  this repository (`modules/overlays/glib/patches/`) and applied to
+  this repository (`modules/glib/patches/`) and applied to
   `pkgsWasm.glib` by `flake.overlays.glib`: the Wolthuizen patch set and
   the fixes carried by the udevbe fork, forward-ported from 2.80.2 to the
   nixpkgs version, plus our own patches (§5.1). nixpkgs' own `glib` patches

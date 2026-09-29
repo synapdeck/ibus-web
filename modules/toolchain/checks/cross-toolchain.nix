@@ -27,7 +27,7 @@
         assert !(probed.buildPackages.ibusWebOverlayProbe or false);
         pkgsWasm.stdenv.mkDerivation {
           name = "ibus-web-cross-toolchain-check";
-          src = ./probes;
+          src = ../probes;
           nativeBuildInputs = [ pkgsWasm.nodejs ];
           buildPhase = ''
             runHook preBuild
