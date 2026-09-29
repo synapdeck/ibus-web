@@ -37,7 +37,7 @@ through the cross `pkg-config`, and composed 한 with it.
 - Every WASM object is compiled with `ibusWeb.toolchain.commonFlags` (`-fPIC -pthread -fwasm-exceptions`).
 - **Derive, don't hardcode:** versions, target prefixes, triples and store paths come from Nix evaluation (for example `stdenv.cc.targetPrefix`, `emscripten.version`), never spelled out as literals.
 - Dendritic layout: `flake.nix` holds only inputs and `mkFlake … (inputs.import-tree ./modules)`; every `.nix` file under `modules/` is a flake-parts module; modules never `import` each other and share values only through `ibusWeb.*` per-system options.
-- Non-Nix files a module needs live in a `_`-prefixed path next to it; test programs shared with the spec's layout live under `tests/`.
+- Non-Nix files a module needs live in a `_`-prefixed path next to it. A check with its own sources is a directory: `modules/checks/<name>/default.nix` plus `_`-prefixed files or directories beside it.
 - Emscripten must come from `pkgsBuildBuild` inside the cross set. `buildPackages` (`pkgsBuildHost`) gives it a WASM target platform, which rehashes it and everything under it (openjdk included) and misses the binary cache.
 - In `nativeBuildInputs`, reference packages from `pkgsWasm` directly (they are spliced to the build platform); use `pkgsBuildBuild` only where a build tool's store path is interpolated into a string.
 - Main modules are linked with `em++` (`$CXX` in the cross stdenv); C sources are compiled with `$CC -c` first.
@@ -58,9 +58,9 @@ through the cross `pkg-config`, and composed 한 with it.
 | `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh` | delete | superseded by the cross set |
 | `modules/toolchain/cache.nix` | modify | WasmFS main-module link in `checks.toolchain-cache` |
 | `modules/wasm-packages/*` | create (Task 2), delete (Task 3) | alias layer, replaced by overlays |
-| `modules/checks/libhangul.nix`, `modules/checks/_tests/libhangul-test.c` | create (Task 3) | `checks.libhangul-wasm` through the cross `pkg-config` |
+| `modules/checks/libhangul/{default.nix,_libhangul-test.c}` | create (Task 3) | `checks.libhangul-wasm` through the cross `pkg-config` |
 | `modules/spikes/dynlink.nix`, `modules/toolchain/cache.nix` | modify (Task 3) | read `pkgsWasm.libhangul`; cache under `legacyPackages` |
-| `modules/checks/meson-consumer.nix`, `tests/meson-consumer/*` | create (Task 4) | Meson + `pkg-config` + zlib + libffi check |
+| `modules/checks/meson-consumer/{default.nix,_src/}` | create (Task 4) | Meson + `pkg-config` + zlib + libffi check |
 | `modules/flake/formatting.nix`, `.clang-format` | modify, create | clang-format and shfmt |
 | `modules/flake/systems.nix`, `flake.nix`, `flake.lock` | modify | systems from `nix-systems/triplet` |
 | `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md` | modify | describe the cross set; resolve R17 |
@@ -403,8 +403,8 @@ applied to `pkgsWasm` itself, and the alias layer goes away.
 
 **Files:**
 - Modify: `modules/toolchain/cross.nix`, `modules/toolchain/cache.nix`, `modules/spikes/dynlink.nix`
-- Create: `modules/checks/libhangul.nix`
-- Move: `modules/wasm-packages/_tests/libhangul-test.c` → `modules/checks/_tests/libhangul-test.c`
+- Create: `modules/checks/libhangul/default.nix`
+- Move: `modules/wasm-packages/_tests/libhangul-test.c` → `modules/checks/libhangul/_libhangul-test.c`
 - Delete: `modules/wasm-packages/` (`options.nix`, `libhangul.nix`, `libhangul-check.nix`)
 
 **Interfaces:**
@@ -471,9 +471,9 @@ To make that valid Nix, turn the existing `let … in` of `perSystem` (which bin
 
 - [ ] **Step 2: Move the check and remove the alias layer**
 
-Run: `mkdir -p modules/checks/_tests && git mv modules/wasm-packages/_tests/libhangul-test.c modules/checks/_tests/libhangul-test.c && git rm -r modules/wasm-packages`
+Run: `mkdir -p modules/checks/libhangul && git mv modules/wasm-packages/_tests/libhangul-test.c modules/checks/libhangul/_libhangul-test.c && git rm -r modules/wasm-packages`
 
-Create `modules/checks/libhangul.nix`:
+Create `modules/checks/libhangul/default.nix`:
 
 ```nix
 {
@@ -499,7 +499,7 @@ Create `modules/checks/libhangul.nix`:
             buildInputs = [ libhangul ];
           }
           ''
-            $CC -O2 $(${pkgConfig} --cflags libhangul) -c ${./_tests/libhangul-test.c} -o libhangul-test.o
+            $CC -O2 $(${pkgConfig} --cflags libhangul) -c ${./_libhangul-test.c} -o libhangul-test.o
             $CXX ${toolchain.testMainFlags} libhangul-test.o $(${pkgConfig} --libs libhangul) -o libhangul-test.js
             node libhangul-test.js | tee $out
             grep -qx "preedit U+D55C" $out
@@ -561,7 +561,7 @@ from `pkgsWasm`'s unmodified zlib and libffi, that Meson's cross setup, the
 cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
 
 **Files:**
-- Create: `modules/checks/meson-consumer.nix`, `tests/meson-consumer/meson.build`, `tests/meson-consumer/main.c`
+- Create: `modules/checks/meson-consumer/default.nix`, `modules/checks/meson-consumer/_src/meson.build`, `modules/checks/meson-consumer/_src/main.c`
 
 **Interfaces:**
 - Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1), `pkgsWasm.zlib`, `pkgsWasm.libffi`.
@@ -569,7 +569,7 @@ cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
 
 - [ ] **Step 1: Write the consumer program**
 
-`tests/meson-consumer/main.c`:
+`modules/checks/meson-consumer/_src/main.c`:
 
 ```c
 /* Exercises zlib and libffi once each, as found through pkg-config. */
@@ -618,7 +618,7 @@ int main(void) {
 }
 ```
 
-`tests/meson-consumer/meson.build`:
+`modules/checks/meson-consumer/_src/meson.build`:
 
 ```meson
 project('meson-consumer', 'c')
@@ -643,7 +643,7 @@ If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` sho
 
 - [ ] **Step 3: Write the check**
 
-`modules/checks/meson-consumer.nix`:
+`modules/checks/meson-consumer/default.nix`:
 
 ```nix
 {
@@ -657,7 +657,7 @@ If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` sho
       # cross pkg-config and both libraries in one program.
       checks.meson-consumer = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-meson-consumer";
-        src = ../../tests/meson-consumer;
+        src = ./_src;
         nativeBuildInputs = [
           pkgsWasm.meson
           pkgsWasm.ninja
@@ -685,7 +685,7 @@ If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` sho
 
 - [ ] **Step 4: Run the consumer**
 
-Run: `git add modules tests && nix build .#checks.x86_64-linux.meson-consumer -L`
+Run: `git add modules && nix build .#checks.x86_64-linux.meson-consumer -L`
 Expected: PASS. The log shows Meson configuring with a cross file (`Build machine` x86_64, `Host machine` wasm32), and the output lines `zlib ok` and `ffi 42`.
 
 libffi's WASM backend calls through JavaScript, and it can depend on Emscripten link settings. If `ffi_call` traps or prints a wrong number, record the exact output and error and report DONE_WITH_CONCERNS; don't add link flags speculatively.
@@ -696,7 +696,7 @@ Run: `nix flake check -L`
 Expected: PASS, including `meson-consumer`.
 
 ```bash
-git add modules/checks/meson-consumer.nix tests/meson-consumer
+git add modules/checks/meson-consumer
 git commit -m "Prove Meson, pkg-config, zlib and libffi from the cross set"
 ```
 
