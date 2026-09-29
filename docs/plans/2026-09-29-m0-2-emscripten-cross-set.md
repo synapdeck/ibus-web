@@ -561,11 +561,12 @@ from `pkgsWasm`'s unmodified zlib and libffi, that Meson's cross setup, the
 cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
 
 **Files:**
-- Create: `modules/checks/meson-consumer/default.nix`, `modules/checks/meson-consumer/src/meson.build`, `modules/checks/meson-consumer/src/main.c`
+- Create: `modules/checks/meson-consumer/default.nix`, `modules/checks/meson-consumer/src/meson.build`, `modules/checks/meson-consumer/src/main.c`, `modules/toolchain/emscripten-cc-wrapper-hook.sh`
+- Modify: `modules/toolchain/cross.nix`, `modules/toolchain/cross-check.nix`
 
 **Interfaces:**
 - Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1), `pkgsWasm.zlib`, `pkgsWasm.libffi`.
-- Produces: `checks.meson-consumer` (output contains `zlib ok` and `ffi 42`; compiling at all proves a recipe's `NIX_CFLAGS_COMPILE` reaches `emcc`).
+- Produces: `checks.meson-consumer` (output contains `zlib ok` and `ffi 42`; compiling at all proves a recipe's `NIX_CFLAGS_COMPILE` reaches `emcc`). The wrapped compiler drops flags that clang/lld accept but `emcc`/`wasm-ld` reject, and `checks.cross-toolchain` tests that.
 
 - [ ] **Step 1: Write the consumer program**
 
@@ -634,12 +635,64 @@ executable(
 )
 ```
 
+- [ ] **Step 1b: Drop flags Emscripten rejects, in the wrapper**
+
+The wrapper presents Emscripten as clang with lld, so recipes pass flags meant
+for those: nixpkgs' zlib adds `-static-libgcc` to `NIX_CFLAGS_COMPILE` and, because
+the platform's linker is lld, `--undefined-version` to `NIX_LDFLAGS`. emcc warns
+about the first, and Emscripten's `wasm-ld` rejects the second, so every link
+probe in zlib's configure fails. cc-wrapper sources `nix-support/cc-wrapper-hook`
+after assembling its argument arrays and before writing its response file, so
+the hook is where such flags are dropped, for every recipe.
+
+`modules/toolchain/emscripten-cc-wrapper-hook.sh`:
+
+```bash
+# Recipes pass flags meant for clang and lld, which this compiler presents
+# itself as; emcc and wasm-ld reject these, so they are dropped here rather
+# than in each recipe.
+emscriptenDropUnsupported() {
+  local -n args=$1
+  local kept=() arg
+  for arg in "${args[@]}"; do
+    case "$arg" in
+      -static-libgcc | -Wl,--undefined-version | --undefined-version) ;;
+      *) kept+=("$arg") ;;
+    esac
+  done
+  args=("${kept[@]}")
+}
+
+emscriptenDropUnsupported params
+emscriptenDropUnsupported extraBefore
+emscriptenDropUnsupported extraAfter
+```
+
+In `modules/toolchain/cross.nix`, in the `cc = buildPackages.wrapCCWith { … }` `extraBuildCommands`, add this line after the `echo "${toolchain.commonFlags}" …` line:
+
+```nix
+              cp ${./emscripten-cc-wrapper-hook.sh} $out/nix-support/cc-wrapper-hook
+```
+
+In `modules/toolchain/cross-check.nix`, inside `buildPhase`, directly after `test "$(node probe-cpp.js)" = "probe 2"`, insert:
+
+```nix
+            # Flags clang and lld accept must not reach emcc or wasm-ld.
+            $CC -O2 -static-libgcc -c probe.c -o probe-flags.o 2> flags.log
+            test ! -s flags.log
+            $CXX ${toolchain.testMainFlags} -Wl,--undefined-version probe-flags.o -o probe-flags.js
+            test "$(node probe-flags.js)" = "probe 7"
+```
+
+Run: `git add modules && nix build .#checks.x86_64-linux.cross-toolchain -L`
+Expected: PASS. (Before the hook is installed, the same check fails on `flags.log` being non-empty or on `wasm-ld: error: unknown argument: --undefined-version`; if you want the red step, add the check lines first and run it once.)
+
 - [ ] **Step 2: Build the libraries**
 
 Run: `nix build .#pkgsWasm.zlib .#pkgsWasm.libffi -L`
 Expected: both build. `ls result/lib result-1/lib` lists `libz.a` and `libffi.a` (static only, no `.so`), plus `pkgconfig/`. (If the dev outputs are split, the `.pc` files are under the `-dev` outputs; `nix build .#pkgsWasm.zlib.dev .#pkgsWasm.libffi.dev` shows them.)
 
-If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` should match `wasm32-unknown-none`; check the log for the triple it received. If a recipe fails in a way that needs a change, stop and report BLOCKED with the log excerpt rather than writing an overlay; overlays are a design decision for the plan.
+If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` should match `wasm32-unknown-none`; check the log for the triple it received. If a recipe still fails, read its configure log (`nix build … --keep-failed`, then the kept directory's `config.log` or `configure.log`) and report BLOCKED with the failing probe's command and error. Don't write an overlay or extend the wrapper's drop list without a decision.
 
 - [ ] **Step 3: Write the check**
 
@@ -696,8 +749,8 @@ Run: `nix flake check -L`
 Expected: PASS, including `meson-consumer`.
 
 ```bash
-git add modules/checks/meson-consumer
-git commit -m "Prove Meson, pkg-config, zlib and libffi from the cross set"
+git add modules/checks/meson-consumer modules/toolchain/emscripten-cc-wrapper-hook.sh modules/toolchain/cross.nix modules/toolchain/cross-check.nix
+git commit -m "Drop flags Emscripten rejects in the wrapper; prove Meson, zlib and libffi"
 ```
 
 ---
