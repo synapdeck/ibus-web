@@ -87,6 +87,8 @@
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
+            em++ ${toolchain.commonFlags} -O2 ${mainLinkWasmfs} probe.o -o probe-wasmfs.js
+            test "$(node probe-wasmfs.js)" = "probe 7"
 
             emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
             test "$(node probe-plain.js)" = "probe 7"
