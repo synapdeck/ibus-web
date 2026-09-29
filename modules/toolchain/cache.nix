@@ -18,7 +18,7 @@
       emscriptenCache = pkgs.stdenvNoCC.mkDerivation {
         pname = "emscripten-cache";
         inherit (emscripten) version;
-        src = ./_probes;
+        src = ./probes;
         nativeBuildInputs = [
           emscripten
           pkgs.nodejs
@@ -64,7 +64,7 @@
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";
           substitutions.cache = emscriptenCache;
-        } ./_emscripten-cache-hook.sh;
+        } ./emscripten-cache-hook.sh;
       };
 
       legacyPackages.emscriptenCache = emscriptenCache;
@@ -81,7 +81,7 @@
             ];
           }
           ''
-            cp ${./_probes}/* .
+            cp ${./probes}/* .
             emcc ${toolchain.commonFlags} -O2 -c probe.c -o probe.o
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.o -o probe-c.js
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js

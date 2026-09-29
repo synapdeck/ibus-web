@@ -6,8 +6,8 @@ emscriptenDropUnsupported() {
   local kept=() arg
   for arg in "${args[@]}"; do
     case "$arg" in
-      -static-libgcc | -Wl,--undefined-version | --undefined-version) ;;
-      *) kept+=("$arg") ;;
+    -static-libgcc | -Wl,--undefined-version | --undefined-version) ;;
+    *) kept+=("$arg") ;;
     esac
   done
   args=("${kept[@]}")

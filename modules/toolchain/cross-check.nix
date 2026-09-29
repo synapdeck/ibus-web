@@ -14,7 +14,7 @@
         assert hostPlatform.isWasm && hostPlatform.isStatic;
         pkgsWasm.stdenv.mkDerivation {
           name = "ibus-web-cross-toolchain-check";
-          src = ./_probes;
+          src = ./probes;
           nativeBuildInputs = [ pkgsWasm.nodejs ];
           buildPhase = ''
             runHook preBuild

@@ -8,8 +8,10 @@ int main(void) {
   void *result = NULL;
   int value = 7;
 
-  if (pthread_create(&thread, NULL, echo, &value) != 0) return 1;
-  if (pthread_join(thread, &result) != 0) return 2;
+  if (pthread_create(&thread, NULL, echo, &value) != 0)
+    return 1;
+  if (pthread_join(thread, &result) != 0)
+    return 2;
 
   FILE *f = fopen("/tmp/probe.txt", "w");
   if (f != NULL) {

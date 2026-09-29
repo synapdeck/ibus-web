@@ -5,7 +5,8 @@
 
 int probe(void) {
   HangulInputContext *hic = hangul_ic_new("2");
-  if (hic == NULL) return 1;
+  if (hic == NULL)
+    return 1;
 
   hangul_ic_process(hic, 'g');
   hangul_ic_process(hic, 'k');

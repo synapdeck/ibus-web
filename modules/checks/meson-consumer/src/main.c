@@ -21,7 +21,8 @@ static int zlib_round_trip(void) {
     return 0;
   if (uncompress((Bytef *)unpacked, &unpacked_len, packed, packed_len) != Z_OK)
     return 0;
-  return unpacked_len == sizeof text && memcmp(text, unpacked, sizeof text) == 0;
+  return unpacked_len == sizeof text &&
+         memcmp(text, unpacked, sizeof text) == 0;
 }
 
 static int ffi_add(void) {
@@ -31,7 +32,8 @@ static int ffi_add(void) {
   void *args[2] = {&a, &b};
   ffi_arg result = 0;
 
-  if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 2, &ffi_type_sint, arg_types) != FFI_OK)
+  if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 2, &ffi_type_sint, arg_types) !=
+      FFI_OK)
     return -1;
   ffi_call(&cif, FFI_FN(add), &result, args);
   return (int)result;

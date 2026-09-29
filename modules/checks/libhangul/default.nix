@@ -21,7 +21,7 @@
             buildInputs = [ libhangul ];
           }
           ''
-            $CC -O2 $(${pkgConfig} --cflags libhangul) -c ${./_libhangul-test.c} -o libhangul-test.o
+            $CC -O2 $(${pkgConfig} --cflags libhangul) -c ${./libhangul-test.c} -o libhangul-test.o
             $CXX ${toolchain.testMainFlags} libhangul-test.o $(${pkgConfig} --libs libhangul) -o libhangul-test.js
             node libhangul-test.js | tee $out
             grep -qx "preedit U+D55C" $out
