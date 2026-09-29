@@ -11,9 +11,11 @@ handled by nixpkgs' own cross-compilation machinery.
 `crossSystem = wasm32-unknown-none` (made static) and uses
 `config.replaceCrossStdenv` to swap the cross stdenv's compiler for Emscripten
 wrapped by nixpkgs' `cc-wrapper`. The result is exposed as
-`ibusWeb.toolchain.pkgsWasm`. WASM packages become plain `pkgsWasm.<name>`.
-libhangul moves over unchanged; zlib and libffi (GLib's dependencies) are
-added and proven through a small Meson program.
+`ibusWeb.toolchain.pkgsWasm` and `legacyPackages.pkgsWasm`; WASM packages are
+plain `pkgsWasm.<name>`, and recipe changes are Emscripten-gated overlays in
+the flake's `overlays` output, applied to `pkgsWasm`. libhangul moves over
+unchanged; zlib and libffi (GLib's dependencies) are proven through a small
+Meson program.
 
 **Tech stack:** Nix flakes, flake-parts, import-tree, treefmt-nix, nixpkgs
 cross compilation (`crossSystem`, `replaceCrossStdenv`, `wrapCCWith`,
@@ -39,7 +41,9 @@ through the cross `pkg-config`, and composed 한 with it.
 - Emscripten must come from `pkgsBuildBuild` inside the cross set. `buildPackages` (`pkgsBuildHost`) gives it a WASM target platform, which rehashes it and everything under it (openjdk included) and misses the binary cache.
 - In `nativeBuildInputs`, reference packages from `pkgsWasm` directly (they are spliced to the build platform); use `pkgsBuildBuild` only where a build tool's store path is interpolated into a string.
 - Main modules are linked with `em++` (`$CXX` in the cross stdenv); C sources are compiled with `$CC -c` first.
-- `nix flake check` must pass at the end of every task, and a check must exist for every new WASM package (it skips building `packages.*`).
+- `nix flake check` must pass at the end of every task, and a check must exist for every WASM package we rely on (it doesn't build `packages.*` or `legacyPackages`).
+- Outputs: `packages.<system>` holds only ibus-web's own artifacts. nixpkgs packages built for WASM are reached through `legacyPackages.<system>.pkgsWasm`; toolchain pieces live under `legacyPackages` too.
+- Recipe changes for WASM are overlays in the flake's `overlays` output, each gated as `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.cc.cc.isEmscripten or false)) { … }` (read `prev`, never `final`, in the gate). Never define a patched package under another name: dependents inside `pkgsWasm` would not see it.
 - Comments explain why, not what, and never refer to other files, this plan or its history.
 - Flakes only see git-tracked files: `git add` before any `nix` command.
 - The user edits files in this tree while work runs: leave changes you didn't make in place; never `git checkout`/`restore`/`stash`; commit only the task's files.
@@ -53,11 +57,10 @@ through the cross `pkg-config`, and composed 한 with it.
 | `modules/toolchain/cross-check.nix` | create | `checks.cross-toolchain` |
 | `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh` | delete | superseded by the cross set |
 | `modules/toolchain/cache.nix` | modify | WasmFS main-module link in `checks.toolchain-cache` |
-| `modules/wasm-packages/options.nix` | modify | description of `wasmPackages` |
-| `modules/wasm-packages/libhangul.nix` | rewrite | `pkgsWasm.libhangul` |
-| `modules/wasm-packages/libhangul-check.nix` | create | `checks.libhangul-wasm` through the cross `pkg-config` |
-| `modules/wasm-packages/zlib.nix`, `modules/wasm-packages/libffi.nix` | create | GLib's dependencies |
-| `modules/checks/meson-consumer.nix`, `tests/meson-consumer/*` | create | Meson + `pkg-config` + zlib + libffi check |
+| `modules/wasm-packages/*` | create (Task 2), delete (Task 3) | alias layer, replaced by overlays |
+| `modules/checks/libhangul.nix`, `modules/checks/_tests/libhangul-test.c` | create (Task 3) | `checks.libhangul-wasm` through the cross `pkg-config` |
+| `modules/spikes/dynlink.nix`, `modules/toolchain/cache.nix` | modify (Task 3) | read `pkgsWasm.libhangul`; cache under `legacyPackages` |
+| `modules/checks/meson-consumer.nix`, `tests/meson-consumer/*` | create (Task 4) | Meson + `pkg-config` + zlib + libffi check |
 | `modules/flake/formatting.nix`, `.clang-format` | modify, create | clang-format and shfmt |
 | `modules/flake/systems.nix`, `flake.nix`, `flake.lock` | modify | systems from `nix-systems/triplet` |
 | `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md` | modify | describe the cross set; resolve R17 |
@@ -72,7 +75,8 @@ through the cross `pkg-config`, and composed 한 with it.
 | `ibusWeb.toolchain.emscriptenCacheHook` | `package` | unchanged; now also part of the cross stdenv |
 | `ibusWeb.toolchain.wasmStdenv` | — | **removed** (Task 2) |
 | `ibusWeb.toolchain.pkgsWasm` | `raw` | **new** (Task 1): nixpkgs for `wasm32-unknown-none` with Emscripten |
-| `ibusWeb.wasmPackages` | `lazyAttrsOf package` | values now come from `pkgsWasm`: `libhangul` (Task 2), `zlib`, `libffi` (Task 3) |
+| `ibusWeb.wasmPackages` | — | **removed** (Task 3); use `pkgsWasm.<name>` |
+| flake output `overlays` | attrset of overlays | applied to `pkgsWasm` (Task 3); none defined in this plan |
 
 ---
 
@@ -390,19 +394,178 @@ git commit -m "Build libhangul from the cross set; remove wasmStdenv"
 
 ---
 
-### Task 3: zlib, libffi and a Meson consumer
+### Task 3: Overlays and outputs instead of `wasm-packages/`
 
-GLib needs zlib and libffi, and it builds with Meson and passes defines
-through `NIX_CFLAGS_COMPILE`. This task adds both libraries from the cross
-set, unmodified, and proves Meson's cross setup, `pkg-config`, a recipe's
-`NIX_CFLAGS_COMPILE` and both libraries with one small program.
+`wasmPackages.<name>` aliases only change what code that reads the alias
+sees: a patched package defined there would never reach the packages that
+depend on it inside `pkgsWasm`. Recipe changes therefore become overlays
+applied to `pkgsWasm` itself, and the alias layer goes away.
 
 **Files:**
-- Create: `modules/wasm-packages/zlib.nix`, `modules/wasm-packages/libffi.nix`, `modules/checks/meson-consumer.nix`, `tests/meson-consumer/meson.build`, `tests/meson-consumer/main.c`
+- Modify: `modules/toolchain/cross.nix`, `modules/toolchain/cache.nix`, `modules/spikes/dynlink.nix`
+- Create: `modules/checks/libhangul.nix`
+- Move: `modules/wasm-packages/_tests/libhangul-test.c` → `modules/checks/_tests/libhangul-test.c`
+- Delete: `modules/wasm-packages/` (`options.nix`, `libhangul.nix`, `libhangul-check.nix`)
 
 **Interfaces:**
-- Consumes: `ibusWeb.toolchain.pkgsWasm`.
-- Produces: `ibusWeb.wasmPackages.zlib`, `ibusWeb.wasmPackages.libffi`, `packages.zlib-wasm`, `packages.libffi-wasm`, `checks.meson-consumer` (output contains `zlib ok` and `ffi 42`; compiling at all proves a recipe's `NIX_CFLAGS_COMPILE` reaches `emcc`).
+- Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1).
+- Produces:
+  - `pkgsWasm.stdenv.cc.cc.isEmscripten = true` (a marker on the unwrapped compiler).
+  - Every overlay in the flake's `overlays` output (`config.flake.overlays`) is applied to `pkgsWasm`. Overlays gate themselves, so they are safe on any nixpkgs:
+    `final: prev: lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.cc.cc.isEmscripten or false)) { … }`.
+    None are defined yet; the GLib plan adds the first.
+  - `legacyPackages.<system>.pkgsWasm` (build any WASM package with `nix build .#pkgsWasm.<name>`) and `legacyPackages.<system>.emscriptenCache`.
+  - `packages.<system>` is reserved for ibus-web's own artifacts and is empty after this task.
+  - `checks.libhangul-wasm` (same check, now in `modules/checks/`); `checks.dynlink-spike` reads `pkgsWasm.libhangul`.
+  - The `ibusWeb.wasmPackages` option no longer exists.
+
+- [ ] **Step 1: Mark the compiler and apply the flake's overlays**
+
+In `modules/toolchain/cross.nix`:
+
+1. Change the file's first line from `{ inputs, ... }:` to:
+
+```nix
+{ inputs, config, ... }:
+let
+  flakeOverlays = builtins.attrValues config.flake.overlays;
+in
+```
+
+2. Inside `perSystem`, the existing `config` argument shadows the top-level one; that is intended (it is the per-system config used for `ibusWeb.toolchain`). `flakeOverlays` is bound outside it.
+
+3. In `emscriptenClang`'s `passthru`, add `isEmscripten = true;` after `isClang = true;`, with this comment above `passthru`:
+
+```nix
+                # Overlays check isEmscripten so their Emscripten-specific
+                # changes never reach a native or WASI package set.
+```
+
+4. Replace the final attrset of `perSystem` (the one that sets `ibusWeb.toolchain.pkgsWasm = import inputs.nixpkgs { … };`) with:
+
+```nix
+    let
+      pkgsWasm = import inputs.nixpkgs {
+        localSystem = system;
+        # Side modules link their libraries statically, so every recipe
+        # builds static libraries only.
+        crossSystem = lib.systems.examples.wasm32-unknown-none // {
+          isStatic = true;
+        };
+        overlays = flakeOverlays;
+        config = {
+          # Recipes' platform lists predate this target; building them for
+          # it is the point.
+          allowUnsupportedSystem = true;
+          inherit replaceCrossStdenv;
+        };
+      };
+    in
+    {
+      ibusWeb.toolchain.pkgsWasm = pkgsWasm;
+      legacyPackages.pkgsWasm = pkgsWasm;
+    };
+```
+
+To make that valid Nix, turn the existing `let … in` of `perSystem` (which binds `toolchain` and `replaceCrossStdenv`) into the outer `let`, and nest this `let pkgsWasm = …; in { … }` as its body.
+
+- [ ] **Step 2: Move the check and remove the alias layer**
+
+Run: `mkdir -p modules/checks/_tests && git mv modules/wasm-packages/_tests/libhangul-test.c modules/checks/_tests/libhangul-test.c && git rm -r modules/wasm-packages`
+
+Create `modules/checks/libhangul.nix`:
+
+```nix
+{
+  perSystem =
+    { config, ... }:
+    let
+      inherit (config.ibusWeb) toolchain;
+      inherit (toolchain) pkgsWasm;
+      inherit (pkgsWasm) libhangul;
+      pkgConfig = "${pkgsWasm.stdenv.cc.targetPrefix}pkg-config";
+    in
+    {
+      # Builds against the installed library through the cross pkg-config,
+      # the way an engine will find it.
+      checks.libhangul-wasm =
+        assert libhangul.stdenv.hostPlatform.isWasm;
+        pkgsWasm.runCommandCC "ibus-web-libhangul-check"
+          {
+            nativeBuildInputs = [
+              pkgsWasm.nodejs
+              pkgsWasm.pkg-config
+            ];
+            buildInputs = [ libhangul ];
+          }
+          ''
+            $CC -O2 $(${pkgConfig} --cflags libhangul) -c ${./_tests/libhangul-test.c} -o libhangul-test.o
+            $CXX ${toolchain.testMainFlags} libhangul-test.o $(${pkgConfig} --libs libhangul) -o libhangul-test.js
+            node libhangul-test.js | tee $out
+            grep -qx "preedit U+D55C" $out
+          '';
+    };
+}
+```
+
+In `modules/spikes/dynlink.nix`, replace
+
+```nix
+      inherit (config.ibusWeb) toolchain wasmPackages;
+      libhangul = wasmPackages.libhangul;
+```
+
+with
+
+```nix
+      inherit (config.ibusWeb) toolchain;
+      inherit (toolchain.pkgsWasm) libhangul;
+```
+
+In `modules/toolchain/cache.nix`, replace `packages.emscriptenCache = emscriptenCache;` with `legacyPackages.emscriptenCache = emscriptenCache;`.
+
+- [ ] **Step 3: Verify the outputs**
+
+Run: `git add -A modules && grep -rn wasmPackages modules`
+Expected: no output.
+
+Run: `nix eval --json .#packages.x86_64-linux --apply builtins.attrNames`
+Expected: `[]`.
+
+Run: `nix eval --raw .#pkgsWasm.stdenv.cc.cc.isEmscripten`
+Expected: `1` (Nix prints `true` as `1` with `--raw`).
+
+Run: `nix build .#pkgsWasm.libhangul --dry-run`
+Expected: nothing to build. libhangul is unchanged by this task, because no overlays are defined yet and the compiler marker is a `passthru` attribute (it doesn't change the wrapper's derivation). If derivations would be built, report it before building.
+
+- [ ] **Step 4: Run the checks, then commit**
+
+Run: `nix build .#checks.x86_64-linux.libhangul-wasm .#checks.x86_64-linux.dynlink-spike -L`
+Expected: PASS (`preedit U+D55C`, and the spike's five probe lines).
+
+Run: `nix flake check -L`
+Expected: PASS.
+
+```bash
+git add -A modules
+git commit -m "Apply Emscripten-gated overlays to pkgsWasm; drop the wasm-packages aliases"
+```
+
+---
+
+### Task 4: zlib, libffi and a Meson consumer
+
+GLib needs zlib and libffi, it builds with Meson, and it passes defines
+through `NIX_CFLAGS_COMPILE`. This task proves, with one small program built
+from `pkgsWasm`'s unmodified zlib and libffi, that Meson's cross setup, the
+cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
+
+**Files:**
+- Create: `modules/checks/meson-consumer.nix`, `tests/meson-consumer/meson.build`, `tests/meson-consumer/main.c`
+
+**Interfaces:**
+- Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1), `pkgsWasm.zlib`, `pkgsWasm.libffi`.
+- Produces: `checks.meson-consumer` (output contains `zlib ok` and `ffi 42`; compiling at all proves a recipe's `NIX_CFLAGS_COMPILE` reaches `emcc`).
 
 - [ ] **Step 1: Write the consumer program**
 
@@ -471,7 +634,14 @@ executable(
 )
 ```
 
-- [ ] **Step 2: Write the failing check**
+- [ ] **Step 2: Build the libraries**
+
+Run: `nix build .#pkgsWasm.zlib .#pkgsWasm.libffi -L`
+Expected: both build. `ls result/lib result-1/lib` lists `libz.a` and `libffi.a` (static only, no `.so`), plus `pkgconfig/`. (If the dev outputs are split, the `.pc` files are under the `-dev` outputs; `nix build .#pkgsWasm.zlib.dev .#pkgsWasm.libffi.dev` shows them.)
+
+If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` should match `wasm32-unknown-none`; check the log for the triple it received. If a recipe fails in a way that needs a change, stop and report BLOCKED with the log excerpt rather than writing an overlay; overlays are a design decision for the plan.
+
+- [ ] **Step 3: Write the check**
 
 `modules/checks/meson-consumer.nix`:
 
@@ -480,8 +650,7 @@ executable(
   perSystem =
     { config, ... }:
     let
-      inherit (config.ibusWeb) toolchain wasmPackages;
-      inherit (toolchain) pkgsWasm;
+      inherit (config.ibusWeb.toolchain) pkgsWasm;
     in
     {
       # nixpkgs' Meson setup hook writes the cross file; this proves it, the
@@ -496,8 +665,8 @@ executable(
           pkgsWasm.nodejs
         ];
         buildInputs = [
-          wasmPackages.zlib
-          wasmPackages.libffi
+          pkgsWasm.zlib
+          pkgsWasm.libffi
         ];
         # Recipes such as GLib's pass defines this way; main.c refuses to
         # compile if the wrapper drops them.
@@ -514,70 +683,26 @@ executable(
 }
 ```
 
-Run: `git add modules tests && nix flake check -L`
-Expected: FAIL during evaluation: `wasmPackages.zlib` does not exist.
+- [ ] **Step 4: Run the consumer**
 
-- [ ] **Step 3: Add zlib and libffi**
-
-`modules/wasm-packages/zlib.nix`:
-
-```nix
-{
-  perSystem =
-    { config, ... }:
-    let
-      inherit (config.ibusWeb.toolchain) pkgsWasm;
-    in
-    {
-      ibusWeb.wasmPackages.zlib = pkgsWasm.zlib;
-      packages.zlib-wasm = pkgsWasm.zlib;
-    };
-}
-```
-
-`modules/wasm-packages/libffi.nix`:
-
-```nix
-{
-  perSystem =
-    { config, ... }:
-    let
-      inherit (config.ibusWeb.toolchain) pkgsWasm;
-    in
-    {
-      ibusWeb.wasmPackages.libffi = pkgsWasm.libffi;
-      packages.libffi-wasm = pkgsWasm.libffi;
-    };
-}
-```
-
-- [ ] **Step 4: Build the libraries**
-
-Run: `git add modules && nix build .#zlib-wasm .#libffi-wasm -L`
-Expected: both build. `ls result/lib result-1/lib` lists `libz.a` and `libffi.a` (static only, no `.so`), plus `pkgconfig/`.
-
-If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` should match `wasm32-unknown-none`; check the log for the triple it received. If a recipe fails in a way that needs a per-package override, stop and report BLOCKED with the log excerpt rather than adding one; overrides are a design decision for the plan.
-
-- [ ] **Step 5: Run the consumer**
-
-Run: `nix build .#checks.x86_64-linux.meson-consumer -L`
+Run: `git add modules tests && nix build .#checks.x86_64-linux.meson-consumer -L`
 Expected: PASS. The log shows Meson configuring with a cross file (`Build machine` x86_64, `Host machine` wasm32), and the output lines `zlib ok` and `ffi 42`.
 
 libffi's WASM backend calls through JavaScript, and it can depend on Emscripten link settings. If `ffi_call` traps or prints a wrong number, record the exact output and error and report DONE_WITH_CONCERNS; don't add link flags speculatively.
 
-- [ ] **Step 6: Run all checks, then commit**
+- [ ] **Step 5: Run all checks, then commit**
 
 Run: `nix flake check -L`
 Expected: PASS, including `meson-consumer`.
 
 ```bash
-git add modules/wasm-packages/zlib.nix modules/wasm-packages/libffi.nix modules/checks/meson-consumer.nix tests/meson-consumer
-git commit -m "Add zlib and libffi from the cross set; prove Meson with them"
+git add modules/checks/meson-consumer.nix tests/meson-consumer
+git commit -m "Prove Meson, pkg-config, zlib and libffi from the cross set"
 ```
 
 ---
 
-### Task 4: WasmFS main module in the cache check
+### Task 5: WasmFS main module in the cache check
 
 The runtime will be a `-sMAIN_MODULE=2` WasmFS main module. The cache is
 built for that link setting, but no check links it.
@@ -615,7 +740,7 @@ git commit -m "Check a WasmFS main-module link against the cache"
 
 ---
 
-### Task 5: Format C, C++ and shell sources
+### Task 6: Format C, C++ and shell sources
 
 **Files:**
 - Modify: `modules/flake/formatting.nix`
@@ -678,7 +803,7 @@ git commit -m "Format C, C++ and shell sources with clang-format and shfmt"
 
 ---
 
-### Task 6: Restore Darwin to the system list
+### Task 7: Restore Darwin to the system list
 
 R17 kept the flake Linux-only because recipes restricted to Linux refused to
 evaluate against a native `hostPlatform`. The cross set's `hostPlatform` is
@@ -724,13 +849,13 @@ git commit -m "Evaluate on Darwin again: systems from nix-systems/triplet"
 
 ---
 
-### Task 7: Update the spec and the spike findings
+### Task 8: Update the spec and the spike findings
 
 **Files:**
 - Modify: `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md`
 
 **Interfaces:**
-- Consumes: the results of Tasks 1–6 (read their commits with `git log`, and the reports if you have them).
+- Consumes: the results of Tasks 1–7 (read their commits with `git log`, and the reports if you have them).
 
 - [ ] **Step 1: Rewrite the WASM-builds paragraph in §10.2**
 
@@ -740,10 +865,14 @@ Replace the paragraph that begins "WASM builds follow the pattern in nixpkgs' Em
 WASM builds come from a nixpkgs cross package set, `pkgsWasm`: nixpkgs
 instantiated for `wasm32-unknown-none` (made static), with the cross stdenv's
 compiler replaced by Emscripten through `config.replaceCrossStdenv` (§10.3).
-Recipes are used unmodified. Their dependencies, `pkg-config`, and their
-autotools, Meson and CMake configuration all come from nixpkgs' ordinary
-cross-compilation machinery. Only packages nixpkgs lacks (`libibus-web`, the
-custom table engine) get recipes of their own.
+Recipes are used unmodified wherever possible. Their dependencies,
+`pkg-config`, and their autotools, Meson and CMake configuration all come from
+nixpkgs' ordinary cross-compilation machinery. Where a recipe needs changes,
+they are overlays applied to `pkgsWasm`, so every package that depends on it
+sees the change. The flake's `packages` output holds only ibus-web's own
+artifacts; WASM builds of nixpkgs packages are reached through
+`legacyPackages.<system>.pkgsWasm`. Only packages nixpkgs lacks
+(`libibus-web`, the custom table engine) get recipes of their own.
 ```
 
 - [ ] **Step 2: Rewrite the `wasmStdenv` and per-package-override bullets in §10.3**
@@ -774,8 +903,12 @@ Replace the bullet that begins "**`wasmStdenv`.**" with:
 Replace the bullet that begins "**Per-package overrides** do four things" (and its numbered list) with:
 
 ```markdown
-- **Per-package overrides** are applied to `pkgsWasm` recipes only where a
-  recipe needs them, and do three things, and nothing else:
+- **Overlays** in the flake's `overlays` output carry every recipe change.
+  Each is gated with
+  `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.cc.cc.isEmscripten or false))`,
+  where `isEmscripten` is a marker on the wrapped compiler, so an overlay
+  never reaches a native or WASI package set and the overlays are safe to
+  export. They do three things, and nothing else:
   1. drop desktop-only inputs and features: GTK and Python setup programs,
      `wrapGAppsHook3`, GObject introspection, libnotify, and network features
      such as ibus-libpinyin's cloud input (`libsoup_3`, `--enable-cloud-input-mode`);
@@ -784,7 +917,8 @@ Replace the bullet that begins "**Per-package overrides** do four things" (and i
   3. append our patch layers after nixpkgs' remaining patches: `patches/port`,
      then `patches/casts` as a separate list.
   Dependencies are never swapped by hand: cross splicing supplies the WASM
-  builds.
+  builds. A patched package is never defined under another name, because
+  dependents inside `pkgsWasm` would not see it.
 ```
 
 In §10.3.1, change the first line of the derivation graph from `emscriptenCache ─ wasmStdenv` to `emscriptenCache ─ pkgsWasm`.
