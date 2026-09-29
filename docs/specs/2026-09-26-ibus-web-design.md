@@ -50,7 +50,7 @@ build it and meet its license obligations comes with that release.
 ### 1.3 Governing principle
 
 **Patch GLib and the runtime freely; keep engine patches minimal.** When a
-problem can be fixed in `glib-wasm`, `libibus-web` or the Worker host instead
+problem can be fixed in `pkgsWasm.glib`, `libibus-web` or the Worker host instead
 of in engine code, fix it there.
 
 ## 2. Context and constraints
@@ -114,7 +114,7 @@ of in engine code, fix it there.
 │  ├─ Router                          │ SAB  │  ├─ libibus-web (dispatcher, emitters,   │
 │  │   ├─ key translation             │◄────►│  │   IBusEngine, IBusFactory, GSettings  │
 │  │   ├─ input contexts / focus      │      │  │   backend, pump)                      │
-│  │   ├─ engine registry / Workers   │      │  ├─ glib-wasm (GLib, GObject, GIO subset)│
+│  │   ├─ engine registry / Workers   │      │  ├─ pkgsWasm.glib (GLib, GObject, GIO)   │
 │  │   └─ keystroke path (plain TS)   │      │  └─ libc, libc++                         │
 │  ├─ Settings API                    │      │                                          │
 │  └─ Event streams                   │      │ engine side module                       │
@@ -127,7 +127,7 @@ of in engine code, fix it there.
 
 | Component | Language | Runs in | Package or artifact | License |
 |---|---|---|---|---|
-| `glib-wasm` | C | Worker | nixpkgs `glib` plus a patch series in this repo; built into the runtime | LGPL-2.1-or-later |
+| `pkgsWasm.glib` | C | Worker | nixpkgs `glib` plus a patch series in this repo; built into the runtime | LGPL-2.1-or-later |
 | `libibus-web` | C | Worker | built into the runtime | LGPL-2.1-or-later |
 | `ibus-runtime.wasm` | WASM | Worker | release asset | LGPL-2.1-or-later (combined) |
 | Engine side modules | WASM | Worker | release asset per engine | engine's own license |
@@ -161,7 +161,7 @@ of in engine code, fix it there.
 
 ## 5. Worker side
 
-### 5.1 `glib-wasm`
+### 5.1 `pkgsWasm.glib`
 
 nixpkgs' `glib` recipe with an Emscripten patch series kept in this
 repository (§10.3). The series starts from
@@ -196,7 +196,7 @@ kept for GSettings and the types it needs.
 
 Most engine-side mismatches are callbacks that declare fewer trailing
 parameters than the caller passes: signal handlers without `user_data`,
-`(GFunc) g_free`, and similar. When GLib is the caller, `glib-wasm` absorbs
+`(GFunc) g_free`, and similar. When GLib is the caller, `pkgsWasm.glib` absorbs
 the mismatch so the engine needs no patch.
 
 - **Arity table.** A function pointer is an index into the WASM function
@@ -218,7 +218,7 @@ the mismatch so the engine needs no patch.
 - **Audit output.** Debug builds log every absorbed mismatch with the callee's
   name and the call site. That log is the engine audit report (§11.3).
 
-#### 5.1.3 Other `glib-wasm` changes
+#### 5.1.3 Other `pkgsWasm.glib` changes
 
 - Hooks for the pump (§5.2.4) and GSettings backend registration (§5.2.5).
 - Cherry-picks from Fluendo's `gst.wasm` branch as needed, especially its
@@ -301,7 +301,7 @@ doorbell `postMessage` (§6.2.3).
 
 ### 5.3 `ibus-runtime.wasm`
 
-- **Contents.** libc, libc++/libc++abi, `glib-wasm` (GLib, GObject, GModule,
+- **Contents.** libc, libc++/libc++abi, `pkgsWasm.glib` (GLib, GObject, GModule,
   the GIO subset), libffi and `libibus-web`.
 - **Build.** `-sMAIN_MODULE=2` with an explicit, versioned export list.
   Everything is compiled with `-fPIC`. Threads are enabled with a
@@ -329,7 +329,7 @@ nixpkgs' own. Each engine keeps two ordered series:
 
 - `patches/port/`: build system, startup (§5.4.3), removal of D-Bus-only
   code paths. Expected to stay small.
-- `patches/casts/`: function-pointer fixes that `glib-wasm` cannot absorb.
+- `patches/casts/`: function-pointer fixes that `pkgsWasm.glib` cannot absorb.
   Removable as a unit if a toolchain-level fix ships.
 
 Both layers target minimal diffs that upstream engines could accept, since the
@@ -804,7 +804,7 @@ discarded, never repaired.
 |---|---|
 | Page-side packages and Worker host | MIT OR Apache-2.0 |
 | `libibus-web` | LGPL-2.1-or-later |
-| `glib-wasm` | LGPL-2.1-or-later (GLib's) |
+| `pkgsWasm.glib` | LGPL-2.1-or-later (GLib's) |
 | Engine recipes and patches | the engine's license |
 | Engine artifacts | the engine's license, covering the combined work in that Worker |
 
@@ -872,8 +872,7 @@ ibus-web/
 ├─ modules/
 │  ├─ flake/                       systems, formatting (treefmt-nix), dev shell, CI outputs
 │  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
-│  ├─ overlays/                    Emscripten-gated overlays (flake.overlays) carrying recipe changes for pkgsWasm
-│  ├─ glib/                        GLib's Emscripten patch series and the overlay that applies it
+│  ├─ overlays/                    one directory per nixpkgs attribute: Emscripten-gated overlay and its patches
 │  ├─ runtime/                     libibus-web and ibus-runtime
 │  ├─ engines/                     side-module packaging, data, source bundles
 │  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
@@ -912,15 +911,15 @@ artifacts; WASM builds of nixpkgs packages are reached through
 
 | Artifact | nixpkgs recipe (at `8ce4ef6`) | Build system | Notes |
 |---|---|---|---|
-| `glib-wasm` | `glib` 2.88.3 | Meson | Emscripten patch set on top of nixpkgs' `glib` (§10.3) |
-| `libffi-wasm` | `libffi` 3.8.0 | autotools | upstream WASM backend |
-| `libhangul-wasm` | `libhangul` 0.2.0 | autotools | |
+| `pkgsWasm.glib` | `glib` 2.88.3 | Meson | Emscripten patch set on top of nixpkgs' `glib` (§10.3) |
+| `pkgsWasm.libffi` | `libffi` 3.8.0 | autotools | upstream WASM backend |
+| `pkgsWasm.libhangul` | `libhangul` 0.2.0 | autotools | |
 | `engine-hangul` | `ibus-engines.hangul` 1.5.5 | autotools | GPL-2.0-or-later |
-| `m17n-lib-wasm` | `m17n_lib` 1.8.6 | autotools | |
+| `pkgsWasm.m17n_lib` | `m17n_lib` 1.8.6 | autotools | |
 | `engine-m17n` | `ibus-engines.m17n` 1.4.40 | autotools | GPL-2.0-or-later |
-| `libpinyin-wasm` | `libpinyin` 2.11.91 | autotools | Kyoto Cabinet backend, as nixpkgs configures it |
+| `pkgsWasm.libpinyin` | `libpinyin` 2.11.91 | autotools | Kyoto Cabinet backend, as nixpkgs configures it |
 | `engine-libpinyin` | `ibus-engines.libpinyin` 1.16.5 | autotools | GPL-3.0-or-later; also Berkeley DB 5.3 (Sleepycat), SQLite, OpenCC |
-| `librime-wasm` | `librime` 1.17.0 | CMake | Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog, each from nixpkgs |
+| `pkgsWasm.librime` | `librime` 1.17.0 | CMake | Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog, each from nixpkgs |
 | `engine-rime` | `ibus-engines.rime` 1.6.1 | CMake | GPL-3.0-or-later |
 
 **Engine data** also comes from nixpkgs:
@@ -950,7 +949,8 @@ artifacts; WASM builds of nixpkgs packages are reached through
   cache with the variants those flags select, rather than running
   `embuilder`. All other builds use it as a frozen, read-only cache.
 - **`pkgsWasm`.** `import nixpkgs` with `crossSystem` set to nixpkgs'
-  `wasm32-unknown-none` example plus `isStatic = true`, and
+  `wasm32-unknown-none` example plus `isStatic = true` and
+  `useEmscripten = true`, and
   `config.replaceCrossStdenv` swapping the compiler:
   - `emcc` and `em++` are wrapped by nixpkgs' `cc-wrapper` as a clang
     (`stdenv.cc.isClang`), with its version taken from the clang Emscripten
@@ -965,18 +965,23 @@ artifacts; WASM builds of nixpkgs packages are reached through
     nixpkgs' zlib, for example, adds both.
   - `libc` is `null`: Emscripten's libc lives in its cache sysroot, which
     emcc adds itself.
-  - `stdenvAdapters.makeStaticLibraries` makes every recipe build static
-    libraries, and the frozen-cache hook is part of the stdenv.
+  - `isStatic` makes nixpkgs apply its `makeStatic` adapter to the cross
+    stdenv: static libraries only, every build input propagated, and
+    `-static` at link time. The frozen-cache hook is part of the stdenv.
   - Emscripten comes from `pkgsBuildBuild`. `buildPackages` gives it a WASM
     target platform, which rehashes it and misses the binary cache.
   - `config.allowUnsupportedSystem` is set, because recipes' platform lists
     predate this target.
 - **Overlays** in the flake's `overlays` output carry every recipe change.
   Each is gated with
-  `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.cc.cc.isEmscripten or false))`,
-  where `isEmscripten` is a marker on the wrapped compiler, so an overlay
-  never reaches a native or WASI package set and the overlays are safe to
-  export. They do three things, and nothing else:
+  `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false))`,
+  where `useEmscripten` is an attribute on `pkgsWasm`'s platform, so an
+  overlay never reaches a native or WASI package set and the overlays are
+  safe to export. The gate reads only the platform, because reading
+  `stdenv.cc` would evaluate the wrapped compiler, whose `buildPackages`
+  splicing reaches back into `pkgsWasm` and recurses. Layout: one directory
+  per nixpkgs attribute, `modules/overlays/<attr>/default.nix` defining
+  `flake.overlays.<attr>`, with its patches beside it. They do three things, and nothing else:
   1. drop desktop-only inputs and features: GTK and Python setup programs,
      `wrapGAppsHook3`, GObject introspection, libnotify, and network features
      such as ibus-libpinyin's cloud input (`libsoup_3`, `--enable-cloud-input-mode`);
@@ -987,9 +992,9 @@ artifacts; WASM builds of nixpkgs packages are reached through
   Dependencies are never swapped by hand: cross splicing supplies the WASM
   builds. A patched package is never defined under another name, because
   dependents inside `pkgsWasm` would not see it.
-- **`glib-wasm`** is nixpkgs' `glib` recipe with an Emscripten patch series
-  kept in this repository (`modules/glib/patches/`) and applied to `pkgsWasm`'s
-  `glib` by an overlay: the Wolthuizen patch set and
+- **GLib** is nixpkgs' `glib` recipe with an Emscripten patch series kept in
+  this repository (`modules/overlays/glib/patches/`) and applied to
+  `pkgsWasm.glib` by `flake.overlays.glib`: the Wolthuizen patch set and
   the fixes carried by the udevbe fork, forward-ported from 2.80.2 to the
   nixpkgs version, plus our own patches (§5.1). nixpkgs' own `glib` patches
   are reviewed individually; most are NixOS path handling and are dropped.
@@ -1003,17 +1008,12 @@ artifacts; WASM builds of nixpkgs packages are reached through
 
 ```
 emscriptenCache ─ pkgsWasm
- ├─ libffi-wasm ─┐
- ├─ glib-wasm ───┴─ libibus-web ─ ibus-runtime (main module and JS glue)
- ├─ libhangul-wasm ─────────── engine-hangul      (data: libhangul Hanja tables)
- ├─ m17n-lib-wasm ──────────── engine-m17n        (data: m17n_db)
- ├─ libpinyin-wasm ─────────── engine-libpinyin   (data: compiled model tables)
- └─ librime-wasm ───────────── engine-rime        (data: rime-data, deployed)
-
-pnpmDeps ─ ts-packages ─ npm tarballs (@ibus-web/*, ibus-web)
-                      └─ protocol-spec
-engine-<name> ─ engine-<name>-src (source bundle)
-release = the set of all release assets, plus release.json with checksums
+ ├─ pkgsWasm.libffi ─┐
+ ├─ pkgsWasm.glib ───┴─ libibus-web ─ ibus-runtime (main module and JS glue)
+ ├─ pkgsWasm.libhangul ─────────── engine-hangul      (data: libhangul Hanja tables)
+ ├─ pkgsWasm.m17n_lib ──────────── engine-m17n        (data: m17n_db)
+ ├─ pkgsWasm.libpinyin ─────────── engine-libpinyin   (data: compiled model tables)
+ └─ pkgsWasm.librime ───────────── engine-rime        (data: rime-data, deployed)
 ```
 
 - **Source bundles** (`engine-<name>-src`) pack the `src` of every recipe in
@@ -1067,7 +1067,7 @@ specification and `release.json`.
    (fixtures serialized by real `IBusSerializable` in WASM, decoded and
    re-encoded byte for byte in TS, and the reverse); property tests from
    schema-derived arbitraries (fast-check).
-2. **Runtime.** GLib's test suite under Node against `glib-wasm`, with the
+2. **Runtime.** GLib's test suite under Node against `pkgsWasm.glib`, with the
    passing subset tracked; C tests for `libibus-web` (lifecycle, emitters,
    pump, settings backend); tests for the fewer-parameters callback patch.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`
@@ -1089,7 +1089,7 @@ specification and `release.json`.
 
 | | Scope | Questions answered |
 |---|---|---|
-| M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
+| M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
 | ↳ M0.2 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and arity fix count and layer; GSettings bridge; decode speed with a synthetic large table |

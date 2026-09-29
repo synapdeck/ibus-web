@@ -7,6 +7,7 @@ in
     {
       config,
       lib,
+      pkgs,
       system,
       ...
     }:
@@ -33,11 +34,8 @@ in
           emscriptenClang =
             pkgsBuildBuild.runCommand "emscripten-clang-${emscripten.version}"
               {
-                # Overlays check isEmscripten so their Emscripten-specific
-                # changes never reach a native or WASI package set.
                 passthru = {
                   isClang = true;
-                  isEmscripten = true;
                   version = clangVersion;
                   langC = true;
                   langCC = true;
@@ -86,27 +84,32 @@ in
             # so the wrapper's --target and -nostdlibinc (meant to hide
             # /usr/include) would only fight it.
             extraBuildCommands = ''
-              rm -f $out/nix-support/add-local-cc-cflags-before.sh
+              test -e $out/nix-support/add-local-cc-cflags-before.sh
+              rm $out/nix-support/add-local-cc-cflags-before.sh
+              grep -q -- -nostdlibinc $out/nix-support/cc-cflags
               sed -i '/-nostdlibinc/d' $out/nix-support/cc-cflags
               echo "${toolchain.commonFlags}" >> $out/nix-support/cc-cflags
               cp ${./emscripten-cc-wrapper-hook.sh} $out/nix-support/cc-wrapper-hook
             '';
           };
         in
-        buildPackages.stdenvAdapters.makeStaticLibraries (
-          baseStdenv.override (old: {
-            inherit cc;
-            extraNativeBuildInputs = old.extraNativeBuildInputs ++ [ toolchain.emscriptenCacheHook ];
-          })
-        );
-    in
-    let
+        # The frozen cache is built from the perSystem Emscripten; a different
+        # one would leave the wrapper's emcc with a stale cache.
+        assert emscripten.drvPath == pkgs.emscripten.drvPath;
+        baseStdenv.override (old: {
+          inherit cc;
+          extraNativeBuildInputs = old.extraNativeBuildInputs ++ [ toolchain.emscriptenCacheHook ];
+        });
+
       pkgsWasm = import inputs.nixpkgs {
         localSystem = system;
-        # Side modules link their libraries statically, so every recipe
-        # builds static libraries only.
         crossSystem = lib.systems.examples.wasm32-unknown-none // {
+          # Side modules link their libraries statically; nixpkgs' makeStatic
+          # adapter makes every recipe build static libraries only.
           isStatic = true;
+          # Overlays gate on this because the platform can be read without
+          # evaluating the compiler.
+          useEmscripten = true;
         };
         overlays = flakeOverlays;
         config = {

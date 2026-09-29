@@ -1,10 +1,21 @@
 {
   perSystem =
-    { config, ... }:
+    { config, lib, ... }:
     let
       inherit (config.ibusWeb) toolchain;
       inherit (toolchain) pkgsWasm;
       inherit (pkgsWasm.stdenv) hostPlatform;
+
+      # Overlays gate on the platform; this proves a gated overlay applies to
+      # the WASM set, stays out of its build tools, and evaluates at all.
+      probe =
+        final: prev:
+        lib.optionalAttrs
+          (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false))
+          {
+            ibusWebOverlayProbe = true;
+          };
+      probed = pkgsWasm.appendOverlays [ probe ];
     in
     {
       # The probes go through the cross stdenv's own $CC and $CXX, so this
@@ -12,6 +23,8 @@
       checks.cross-toolchain =
         assert pkgsWasm.stdenv.cc.isClang;
         assert hostPlatform.isWasm && hostPlatform.isStatic;
+        assert probed.ibusWebOverlayProbe or false;
+        assert !(probed.buildPackages.ibusWebOverlayProbe or false);
         pkgsWasm.stdenv.mkDerivation {
           name = "ibus-web-cross-toolchain-check";
           src = ./probes;
