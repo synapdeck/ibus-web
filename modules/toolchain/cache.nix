@@ -67,7 +67,7 @@
         } ./_emscripten-cache-hook.sh;
       };
 
-      packages.emscriptenCache = emscriptenCache;
+      legacyPackages.emscriptenCache = emscriptenCache;
 
       # Probe programs must build from the cache alone, and a variant the cache
       # lacks must fail rather than be compiled.

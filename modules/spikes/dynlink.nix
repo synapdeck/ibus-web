@@ -2,8 +2,8 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) toolchain wasmPackages;
-      libhangul = wasmPackages.libhangul;
+      inherit (config.ibusWeb) toolchain;
+      inherit (toolchain.pkgsWasm) libhangul;
     in
     {
       checks.dynlink-spike = pkgs.stdenvNoCC.mkDerivation {

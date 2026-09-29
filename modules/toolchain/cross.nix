@@ -1,4 +1,7 @@
-{ inputs, ... }:
+{ inputs, config, ... }:
+let
+  flakeOverlays = builtins.attrValues config.flake.overlays;
+in
 {
   perSystem =
     {
@@ -30,8 +33,11 @@
           emscriptenClang =
             pkgsBuildBuild.runCommand "emscripten-clang-${emscripten.version}"
               {
+                # Overlays check isEmscripten so their Emscripten-specific
+                # changes never reach a native or WASI package set.
                 passthru = {
                   isClang = true;
+                  isEmscripten = true;
                   version = clangVersion;
                   langC = true;
                   langCC = true;
@@ -93,14 +99,15 @@
           })
         );
     in
-    {
-      ibusWeb.toolchain.pkgsWasm = import inputs.nixpkgs {
+    let
+      pkgsWasm = import inputs.nixpkgs {
         localSystem = system;
         # Side modules link their libraries statically, so every recipe
         # builds static libraries only.
         crossSystem = lib.systems.examples.wasm32-unknown-none // {
           isStatic = true;
         };
+        overlays = flakeOverlays;
         config = {
           # Recipes' platform lists predate this target; building them for
           # it is the point.
@@ -108,5 +115,9 @@
           inherit replaceCrossStdenv;
         };
       };
+    in
+    {
+      ibusWeb.toolchain.pkgsWasm = pkgsWasm;
+      legacyPackages.pkgsWasm = pkgsWasm;
     };
 }
