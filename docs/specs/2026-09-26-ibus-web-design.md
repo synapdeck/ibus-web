@@ -97,7 +97,7 @@ of in engine code, fix it there.
 | D16 | TypeScript stack | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections | Plain TypeScript; Effect 3 |
 | D17 | Protocol definition | Effect Schema as the source of truth, with a GVariant byte codec | Hand-written codec and separate docs |
 | D18 | First milestone | Hangul spike end to end | libpinyin or Rime first |
-| D19 | Build orchestration | Nix flake for toolchain, every artifact, checks and the release set; dependencies, engines and data are overrides of nixpkgs recipes; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI |
+| D19 | Build orchestration | Nix flake for toolchain, every artifact, checks and the release set; dependencies, engines and data come from a nixpkgs cross package set for wasm32-unknown-none with Emscripten as its compiler; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI |
 | D20 | npm registry | npmjs.com with trusted publishing from GitHub Actions | GitHub Packages |
 
 ## 4. Architecture
@@ -859,22 +859,25 @@ release.
 The flake is dendritic: `flake.nix` holds only inputs and passes `modules/`
 through import-tree to flake-parts, so every `.nix` file there is a
 flake-parts module. Modules share values only through `ibusWeb.*` per-system
-options (the toolchain, the WASM package set, engines), never by importing
-each other. Non-Nix files a module needs sit next to it under a `_`-prefixed
-name, which import-tree skips.
+options (the toolchain and its `pkgsWasm` package set, engines), never by
+importing each other. import-tree imports only `.nix` files outside
+`_`-prefixed paths, so non-Nix files a module needs sit beside it under
+plain names; a `_` prefix is only for `.nix` files that aren't flake-parts
+modules. A check with its own sources is a directory,
+`modules/checks/<name>/default.nix` with its files beside it.
 
 ```
 ibus-web/
-├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, treefmt-nix
+├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, treefmt-nix, devshell, flake-root, systems
 ├─ modules/
 │  ├─ flake/                       systems, formatting (treefmt-nix), dev shell, CI outputs
-│  ├─ toolchain/                   emscriptenCache, wasmStdenv, their hooks and probes
-│  ├─ wasm-packages/               WASM overrides of nixpkgs recipes (libraries and engines)
-│  ├─ glib/                        glib-wasm and its _patches/ series
+│  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
+│  ├─ overlays/                    Emscripten-gated overlays (flake.overlays) carrying recipe changes for pkgsWasm
+│  ├─ glib/                        GLib's Emscripten patch series and the overlay that applies it
 │  ├─ runtime/                     libibus-web and ibus-runtime
 │  ├─ engines/                     side-module packaging, data, source bundles
 │  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
-│  ├─ checks/                      flake checks not owned by another module
+│  ├─ checks/                      flake checks not owned by another module, one directory each
 │  └─ release.nix                  the release set
 ├─ docs/                           specs, plans, spike reports
 ├─ runtime/libibus-web/            C sources and ibus.h-compatible headers
@@ -895,11 +898,17 @@ wherever nixpkgs has them.** Updating the `nixpkgs` input is how versions move;
 CI's conformance tests catch breakage, and our patch layers are rebased when
 needed.
 
-WASM builds follow the pattern in nixpkgs' Emscripten documentation
-(`doc/languages-frameworks/emscripten.section.md`): take the nixpkgs recipe,
-`override` its `stdenv` with an Emscripten stdenv and its dependencies with
-their WASM builds, then `overrideAttrs` for what differs. Only packages nixpkgs
-lacks (`libibus-web`, the custom table engine) get recipes of their own.
+WASM builds come from a nixpkgs cross package set, `pkgsWasm`: nixpkgs
+instantiated for `wasm32-unknown-none` (made static), with the cross stdenv's
+compiler replaced by Emscripten through `config.replaceCrossStdenv` (§10.3).
+Recipes are used unmodified wherever possible. Their dependencies,
+`pkg-config`, and their autotools, Meson and CMake configuration all come from
+nixpkgs' ordinary cross-compilation machinery. Where a recipe needs changes,
+they are overlays applied to `pkgsWasm`, so every package that depends on it
+sees the change. The flake's `packages` output holds only ibus-web's own
+artifacts; WASM builds of nixpkgs packages are reached through
+`legacyPackages.<system>.pkgsWasm`. Only packages nixpkgs lacks
+(`libibus-web`, the custom table engine) get recipes of their own.
 
 | Artifact | nixpkgs recipe (at `8ce4ef6`) | Build system | Notes |
 |---|---|---|---|
@@ -940,25 +949,47 @@ lacks (`libibus-web`, the custom table engine) get recipes of their own.
   settings, at `-O0` and `-O2`, so Emscripten's own link step populates the
   cache with the variants those flags select, rather than running
   `embuilder`. All other builds use it as a frozen, read-only cache.
-- **`wasmStdenv`.** nixpkgs' `clangStdenv`, with the frozen cache,
-  `-fPIC -pthread -fwasm-exceptions`, and static-only configure flags layered
-  on. It currently handles autotools only, configuring through
-  `emconfigure`; a CMake toolchain file and a generated Meson cross file are
-  not implemented yet and are later-plan work. Native tools
-  (`glib-compile-schemas`, Meson, Ninja, Python, pkg-config) come from
-  `buildPackages`.
-- **Per-package overrides** do four things, and nothing else:
-  1. swap dependencies for WASM builds (`glib` → `glib-wasm`, `ibus` →
-     `libibus-web`, `libhangul` → `libhangul-wasm`, …);
-  2. drop desktop-only inputs and features: GTK and Python setup programs,
+- **`pkgsWasm`.** `import nixpkgs` with `crossSystem` set to nixpkgs'
+  `wasm32-unknown-none` example plus `isStatic = true`, and
+  `config.replaceCrossStdenv` swapping the compiler:
+  - `emcc` and `em++` are wrapped by nixpkgs' `cc-wrapper` as a clang
+    (`stdenv.cc.isClang`), with its version taken from the clang Emscripten
+    is built against. The wrapper adds `-fPIC -pthread -fwasm-exceptions` to
+    every compile and link.
+  - The wrapper's `--target` and `-nostdlibinc` are removed (emcc chooses its
+    own target and sysroot), and the hardening defaults are limited to
+    `format`, `pic` and `strictflexarrays1`.
+  - A `cc-wrapper-hook` drops arguments that clang and lld accept but `emcc`
+    and `wasm-ld` reject (`-static-libgcc`, `--undefined-version`). Recipes
+    pass them because the wrapper presents Emscripten as clang with lld;
+    nixpkgs' zlib, for example, adds both.
+  - `libc` is `null`: Emscripten's libc lives in its cache sysroot, which
+    emcc adds itself.
+  - `stdenvAdapters.makeStaticLibraries` makes every recipe build static
+    libraries, and the frozen-cache hook is part of the stdenv.
+  - Emscripten comes from `pkgsBuildBuild`. `buildPackages` gives it a WASM
+    target platform, which rehashes it and misses the binary cache.
+  - `config.allowUnsupportedSystem` is set, because recipes' platform lists
+    predate this target.
+- **Overlays** in the flake's `overlays` output carry every recipe change.
+  Each is gated with
+  `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.cc.cc.isEmscripten or false))`,
+  where `isEmscripten` is a marker on the wrapped compiler, so an overlay
+  never reaches a native or WASI package set and the overlays are safe to
+  export. They do three things, and nothing else:
+  1. drop desktop-only inputs and features: GTK and Python setup programs,
      `wrapGAppsHook3`, GObject introspection, libnotify, and network features
      such as ibus-libpinyin's cloud input (`libsoup_3`, `--enable-cloud-input-mode`);
-  3. drop nixpkgs patches that only serve those features (for example
+  2. drop nixpkgs patches that only serve those features (for example
      ibus-hangul's `fix-paths.patch`, which edits the Python setup program);
-  4. append our patch layers after nixpkgs' remaining patches: `patches/port`,
+  3. append our patch layers after nixpkgs' remaining patches: `patches/port`,
      then `patches/casts` as a separate list.
+  Dependencies are never swapped by hand: cross splicing supplies the WASM
+  builds. A patched package is never defined under another name, because
+  dependents inside `pkgsWasm` would not see it.
 - **`glib-wasm`** is nixpkgs' `glib` recipe with an Emscripten patch series
-  kept in this repository (`modules/glib/_patches/`): the Wolthuizen patch set and
+  kept in this repository (`modules/glib/patches/`) and applied to `pkgsWasm`'s
+  `glib` by an overlay: the Wolthuizen patch set and
   the fixes carried by the udevbe fork, forward-ported from 2.80.2 to the
   nixpkgs version, plus our own patches (§5.1). nixpkgs' own `glib` patches
   are reviewed individually; most are NixOS path handling and are dropped.
@@ -971,7 +1002,7 @@ lacks (`libibus-web`, the custom table engine) get recipes of their own.
 #### 10.3.1 Derivation graph
 
 ```
-emscriptenCache ─ wasmStdenv
+emscriptenCache ─ pkgsWasm
  ├─ libffi-wasm ─┐
  ├─ glib-wasm ───┴─ libibus-web ─ ibus-runtime (main module and JS glue)
  ├─ libhangul-wasm ─────────── engine-hangul      (data: libhangul Hanja tables)
@@ -1058,7 +1089,7 @@ specification and `release.json`.
 
 | | Scope | Questions answered |
 |---|---|---|
-| M0 | Flake, `emscriptenCache`, `wasmStdenv` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
+| M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `glib-wasm` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and arity fix count and layer; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
@@ -1079,17 +1110,15 @@ specification and `release.json`.
   queue; running each engine on a pthread with the Worker's own thread left
   free. Settled in M0.
 - **R3. Dynamic linking with pthreads.** Weakest area of Emscripten dynamic
-  linking. §5.3's thread pool is pre-allocated. Its worker threads exist
-  before `main` runs, not after. Side modules load after that pool already
-  exists. That is the harder case for dynamic linking with pthreads, not the
-  easier one. The M0.1 spike tested this harder case. It used the
-  `-sMAIN_MODULE=1`/`-sNODERAWFS=1`/Node configuration, not §5.3's
-  `-sMAIN_MODULE=2`/WasmFS/browser configuration. All five probes passed,
-  including a side module running on a pool thread created before its
-  `dlopen` and a C++ exception thrown in a side module caught in the main
-  module. See `docs/spikes/2026-09-26-dynlink.md`. The `-sMAIN_MODULE=2`,
-  WasmFS, browser configuration is still to be tested. Settled in M0 for the
-  tested configuration.
+  linking. §5.3's thread pool is pre-allocated, so its workers exist before
+  `main` runs and side modules load after the pool already exists: the
+  harder case for dynamic linking with pthreads. The M0.1 spike tested that
+  case in the `-sMAIN_MODULE=1`/`-sNODERAWFS=1`/Node configuration, and all
+  five probes passed, including a side module running on a pool thread
+  created before its `dlopen` and a C++ exception thrown in a side module
+  caught in the main module. See `docs/spikes/2026-09-26-dynlink.md`.
+  Settled for that configuration; open for §5.3's `-sMAIN_MODULE=2`/WasmFS/
+  browser configuration, which the runtime plan must test.
 - **R4. GLib patch forward-port.** The Emscripten patch set exists for
   2.80.2; nixpkgs is on 2.88.3. Forward-porting it is M0 work, and each
   nixpkgs GLib update may need a rebase.
@@ -1127,15 +1156,11 @@ specification and `release.json`.
   tables at build time. Building them with the WASM build's tools under Node
   avoids assuming the native format loads under wasm32; if that proves
   impractical, the format's portability must be verified.
-- **R17. `wasmStdenv` inherits the native stdenv's identity.** It swaps the
-  compiler through environment variables but keeps the build machine's
-  `hostPlatform`. It is based on nixpkgs' `clangStdenv`, so `stdenv.cc` is
-  correctly a clang (`isClang`), but recipes' `meta.platforms` limits and any
-  branches on `hostPlatform` see the native machine, not WASM.
-  The first visible effect is that recipes restricted to Linux (libhangul)
-  refuse to evaluate on Darwin, so the flake is Linux-only
-  (`nix-systems/default-linux`) until this is settled, most likely with a
-  real `wasm32-unknown-emscripten` cross platform.
+- **R17. Platform identity of WASM builds. Resolved.** WASM packages come
+  from `pkgsWasm`, whose `hostPlatform` is `wasm32-unknown-none` (static), so
+  dependencies are routed by cross splicing and recipes' platform checks see
+  WASM. Evaluation succeeds on Darwin again; Darwin builds are not yet
+  verified on a Darwin builder.
 
 ## 14. References
 
