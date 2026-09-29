@@ -1,0 +1,42 @@
+From 6321e207f106742a155220ac0fb6b32a22e91a7b Mon Sep 17 00:00:00 2001
+From: Kleis Auke Wolthuizen <github@kleisauke.nl>
+Date: Wed, 22 Apr 2020 12:11:28 +0200
+Subject: [PATCH 06/14] Ensure separate checks are also done for Emscripten
+
+Upstream-Status: Inappropriate [Wasm-specific]
+GLib will not integrate any Wasm-specific patches until the toolchain
+supports calling functions through differently typed function pointers,
+see: https://gitlab.gnome.org/GNOME/glib/-/issues/3596
+
+(cherry picked from commit bc4812fd5890ea9489f4cad827fbc793e5d9d1a4)
+---
+ meson.build | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 3c7ae2df8..92cdd88d9 100644
+--- a/meson.build
++++ b/meson.build
+@@ -576,7 +576,7 @@ foreach m : struct_members
+ endforeach
+ 
+ # Compiler flags
+-if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
++if cc.get_id() == 'gcc' or cc.get_id() == 'clang' or cc.get_id() == 'emscripten'
+   warning_common_args = [
+     '-Wduplicated-branches',
+     '-Wfloat-conversion',
+@@ -1806,10 +1806,10 @@ g_sizet_compatibility = {
+   'long long': sizet_size == long_long_size,
+ }
+ 
+-# Do separate checks for gcc/clang (and ignore other compilers for now), since
+-# we need to explicitly pass -Werror to the compilers.
++# Do separate checks for gcc/clang/emscripten (and ignore other compilers for now),
++# since we need to explicitly pass -Werror to the compilers.
+ # FIXME: https://github.com/mesonbuild/meson/issues/5399
+-if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
++if cc.get_id() == 'gcc' or cc.get_id() == 'clang' or cc.get_id() == 'emscripten'
+   foreach type_name, size_compatibility : g_sizet_compatibility
+     g_sizet_compatibility += { type_name: size_compatibility and
+       cc.compiles(

@@ -1,0 +1,39 @@
+From 2052ed16fb530c26bb88db2934b5c9823a3138af Mon Sep 17 00:00:00 2001
+From: Kleis Auke Wolthuizen <github@kleisauke.nl>
+Date: Tue, 13 Apr 2021 15:30:00 +0200
+Subject: [PATCH 07/14] Use vsnpintf/snprintf/printf from musl libc
+
+The C99 semantics of these functions is well supported in musl libc.
+
+Note: can also be set with these properties in the Meson cross file:
+have_c99_vsnprintf = true
+have_c99_snprintf = true
+have_unix98_printf = true
+
+Upstream-Status: Inappropriate [Wasm-specific]
+GLib will not integrate any Wasm-specific patches until the toolchain
+supports calling functions through differently typed function pointers,
+see: https://gitlab.gnome.org/GNOME/glib/-/issues/3596
+
+(cherry picked from commit c0bb73dd62bfc8cb9979a2d993d0f60203f232e1)
+---
+ meson.build | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 92cdd88d9..5fcc83db2 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1239,9 +1239,9 @@ if host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-
+   glib_conf.set('HAVE_C99_SNPRINTF', false)
+   glib_conf.set('HAVE_C99_VSNPRINTF', false)
+   glib_conf.set('HAVE_UNIX98_PRINTF', false)
+-elif not cc_can_run and host_system == 'darwin'
+-  # All these are true when compiling natively on macOS, so we should use good
+-  # defaults when building for iOS and tvOS.
++elif not cc_can_run and host_system in ['darwin', 'emscripten']
++  # All these are true when compiling natively on macOS, or when compiling with
++  # Emscripten (which uses musl libc internally).
+   glib_conf.set('HAVE_C99_SNPRINTF', true)
+   glib_conf.set('HAVE_C99_VSNPRINTF', true)
+   glib_conf.set('HAVE_UNIX98_PRINTF', true)

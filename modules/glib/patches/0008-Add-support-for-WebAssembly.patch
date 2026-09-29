@@ -1,0 +1,2057 @@
+From 57d7735298c913a91abfc8986dcd5baf1b833ac1 Mon Sep 17 00:00:00 2001
+From: Kleis Auke Wolthuizen <github@kleisauke.nl>
+Date: Wed, 24 Aug 2022 21:55:32 +0200
+Subject: [PATCH 08/14] Add support for WebAssembly
+
+- Exclude unix specific files.
+- Add Wasm-specific platform definition.
+- Use `.wasm` as shared module suffix.
+- Disable subprocess, spawn, signal, pipe, and stdin usage.
+- Implement `g_get_os_info(G_OS_INFO_KEY_NAME)`.
+- Implement `g_time_zone_new_identifier(NULL)`.
+- Implement `g_get_num_processors()`.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+GLib will not integrate any Wasm-specific patches that require huge
+and invasive modifications to the codebase (like this one), see:
+https://gitlab.gnome.org/GNOME/glib/-/issues/3596
+
+(cherry picked from commit fc0d03194fb2c3f5f9861771c5538bf665bf545e)
+---
+ gio/gappinfo.c                |   4 +-
+ gio/gapplicationcommandline.c |   4 +-
+ gio/gcontenttype-wasm.c       | 211 ++++++++++++++++++++++++++++++++++
+ gio/gdbusprivate.c            |  18 +--
+ gio/gdesktopappinfo.c         |   6 +-
+ gio/gfile.c                   |   2 +-
+ gio/giomodule.c               |   6 +-
+ gio/gkeyfilesettingsbackend.c |   2 +-
+ gio/glocalfile.c              |  39 +++++--
+ gio/glocalfileinfo.c          |   8 +-
+ gio/glocalfileinfo.h          |   2 +-
+ gio/glocalfileinputstream.c   |  14 ++-
+ gio/glocalfilemonitor.c       |   4 +-
+ gio/glocalfileoutputstream.c  |  20 ++--
+ gio/glocalvfs.c               |   6 +-
+ gio/gportalsupport.c          |  14 +++
+ gio/gresourcefile.c           |   2 +
+ gio/gsocket.c                 |  18 +--
+ gio/gsocketcontrolmessage.c   |   2 +-
+ gio/gsocketinputstream.c      |   8 +-
+ gio/gsocketoutputstream.c     |   8 +-
+ gio/gsubprocess.c             |  52 +++++----
+ gio/gtestdbus.c               |  20 +++-
+ gio/gthreadedresolver.c       |  12 +-
+ gio/gunixconnection.c         |   2 +-
+ gio/gunixfdlist.c             |   4 +
+ gio/meson.build               |   8 +-
+ glib/gmain.c                  |  58 +++++-----
+ glib/gthread.c                |   8 +-
+ glib/gtimezone.c              |  12 +-
+ glib/gutils.c                 |   7 +-
+ glib/gwakeup.c                |  29 +++++
+ glib/meson.build              |   5 +-
+ gobject/gsourceclosure.c      |  24 ++--
+ meson.build                   |   9 +-
+ 35 files changed, 498 insertions(+), 150 deletions(-)
+ create mode 100644 gio/gcontenttype-wasm.c
+
+diff --git a/gio/gappinfo.c b/gio/gappinfo.c
+index 2d79fd111..a0aa2c4a5 100644
+--- a/gio/gappinfo.c
++++ b/gio/gappinfo.c
+@@ -1201,7 +1201,7 @@ g_app_info_launch_default_for_uri (const char         *uri,
+       g_object_unref (app_info);
+     }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   if (!res && glib_should_use_portal ())
+     {
+       GFile *file = NULL;
+@@ -1272,7 +1272,7 @@ launch_default_for_uri_portal_open_uri_cb (GObject      *object,
+ static void
+ launch_default_for_uri_portal_open_uri (GTask *task, GError *error)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   LaunchDefaultForUriData *data = g_task_get_task_data (task);
+   GCancellable *cancellable = g_task_get_cancellable (task);
+ 
+diff --git a/gio/gapplicationcommandline.c b/gio/gapplicationcommandline.c
+index ab123b03b..468ebf8f7 100644
+--- a/gio/gapplicationcommandline.c
++++ b/gio/gapplicationcommandline.c
+@@ -295,7 +295,9 @@ g_application_command_line_real_printerr_literal (GApplicationCommandLine *cmdli
+ static GInputStream *
+ g_application_command_line_real_get_stdin (GApplicationCommandLine *cmdline)
+ {
+-#ifdef G_OS_UNIX
++#ifdef G_PLATFORM_WASM
++  return NULL;
++#elif defined(G_OS_UNIX)
+   return g_unix_input_stream_new (0, FALSE);
+ #else
+   return g_win32_input_stream_new (GetStdHandle (STD_INPUT_HANDLE), FALSE);
+diff --git a/gio/gcontenttype-wasm.c b/gio/gcontenttype-wasm.c
+new file mode 100644
+index 000000000..4862a2732
+--- /dev/null
++++ b/gio/gcontenttype-wasm.c
+@@ -0,0 +1,211 @@
++/* -*- mode: C; c-file-style: "gnu"; indent-tabs-mode: nil; -*- */
++
++/* GIO - GLib Input, Output and Streaming Library
++ *
++ * Copyright (C) 2023 Kleis Auke Wolthuizen
++ *
++ * SPDX-License-Identifier: LGPL-2.1-or-later
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General
++ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++#include <string.h>
++#include "gcontenttypeprivate.h"
++#include "glibintl.h"
++
++/*< private >*/
++void
++g_content_type_set_mime_dirs_impl (const gchar * const *dirs)
++{
++  /* noop on WebAssembly */
++}
++
++/*< private >*/
++const gchar * const *
++g_content_type_get_mime_dirs_impl (void)
++{
++  const gchar * const *mime_dirs = { NULL };
++  return mime_dirs;
++}
++
++gboolean
++g_content_type_equals_impl (const gchar *type1,
++                            const gchar *type2)
++{
++  g_return_val_if_fail (type1 != NULL, FALSE);
++  g_return_val_if_fail (type2 != NULL, FALSE);
++
++  if (g_ascii_strcasecmp (type1, type2) == 0)
++    return TRUE;
++
++  return FALSE;
++}
++
++gboolean
++g_content_type_is_a_impl (const gchar *type,
++                          const gchar *supertype)
++{
++  g_return_val_if_fail (type != NULL, FALSE);
++  g_return_val_if_fail (supertype != NULL, FALSE);
++
++  if (g_content_type_equals (type, supertype))
++    return TRUE;
++
++  return FALSE;
++}
++
++gboolean
++g_content_type_is_mime_type_impl (const gchar *type,
++                                  const gchar *mime_type)
++{
++  gchar *content_type;
++  gboolean ret;
++
++  g_return_val_if_fail (type != NULL, FALSE);
++  g_return_val_if_fail (mime_type != NULL, FALSE);
++
++  content_type = g_content_type_from_mime_type (mime_type);
++  ret = g_content_type_is_a (type, content_type);
++  g_free (content_type);
++
++  return ret;
++}
++
++gboolean
++g_content_type_is_unknown_impl (const gchar *type)
++{
++  g_return_val_if_fail (type != NULL, FALSE);
++
++  return strcmp ("*", type) == 0;
++}
++
++gchar *
++g_content_type_get_description_impl (const gchar *type)
++{
++  return g_strdup (_("Unknown type"));
++}
++
++gchar *
++g_content_type_get_mime_type_impl (const gchar *type)
++{
++  return g_strdup ("application/octet-stream");
++}
++
++GIcon *
++g_content_type_get_icon_impl (const gchar *type)
++{
++  return NULL;
++}
++
++GIcon *
++g_content_type_get_symbolic_icon_impl (const gchar *type)
++{
++  return NULL;
++}
++
++gchar *
++g_content_type_get_generic_icon_name_impl (const gchar *type)
++{
++  return NULL;
++}
++
++gboolean
++g_content_type_can_be_executable_impl (const gchar *type)
++{
++  g_return_val_if_fail (type != NULL, FALSE);
++
++  return strcmp (type, ".wasm") == 0;
++}
++
++static gboolean
++looks_like_text (const guchar *data, 
++                 gsize         data_size)
++{
++  gsize i;
++  guchar c;
++  for (i = 0; i < data_size; i++)
++    {
++      c = data[i];
++      if (g_ascii_iscntrl (c) && !g_ascii_isspace (c) && c != '\b')
++        return FALSE;
++    }
++  return TRUE;
++}
++
++gchar *
++g_content_type_from_mime_type_impl (const gchar *mime_type)
++{
++  return g_strdup ("*");
++}
++
++gchar *
++g_content_type_guess_impl (const gchar  *filename,
++                           const guchar *data,
++                           gsize         data_size,
++                           gboolean     *result_uncertain)
++{
++  char *basename;
++  char *type;
++  char *dot;
++  size_t i;
++
++  type = NULL;
++
++  if (result_uncertain)
++    *result_uncertain = FALSE;
++
++  /* our test suite and potentially other code used -1 in the past, which is
++   * not documented and not allowed; guard against that */
++  g_return_val_if_fail (data_size != (gsize) -1, g_strdup ("*"));
++
++  if (filename)
++    {
++      i = strlen (filename);
++      if (i > 0 && filename[i - 1] == G_DIR_SEPARATOR)
++        {
++          type = g_strdup ("inode/directory");
++          if (result_uncertain)
++            *result_uncertain = TRUE;
++        }
++      else
++        {
++          basename = g_path_get_basename (filename);
++          dot = strrchr (basename, '.');
++          if (dot)
++            type = g_strdup (dot);
++          g_free (basename);
++        }
++    }
++
++  if (type)
++    return type;
++
++  if (data && looks_like_text (data, data_size))
++    return g_strdup (".txt");
++
++  return g_strdup ("*");
++}
++
++GList *
++g_content_types_get_registered_impl (void)
++{
++  return NULL;
++}
++
++gchar **
++g_content_type_guess_for_tree_impl (GFile *root)
++{
++  return NULL;
++}
+diff --git a/gio/gdbusprivate.c b/gio/gdbusprivate.c
+index 204d4c046..f34fac90e 100644
+--- a/gio/gdbusprivate.c
++++ b/gio/gdbusprivate.c
+@@ -48,7 +48,7 @@
+ #include "gsocketoutputstream.h"
+ #include "gtask.h"
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "gunixfdmessage.h"
+ #include "gunixconnection.h"
+ #include "gunixcredentialsmessage.h"
+@@ -600,7 +600,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
+           if (FALSE)
+             {
+             }
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+           else if (G_IS_UNIX_FD_MESSAGE (control_message))
+             {
+               GUnixFDMessage *fd_message;
+@@ -770,7 +770,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
+               goto out;
+             }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+           if (worker->read_fd_list != NULL)
+             {
+               g_dbus_message_set_unix_fd_list (message, worker->read_fd_list);
+@@ -970,7 +970,7 @@ write_message_async_cb (GObject      *source_object,
+  * write-lock is not held on entry
+  * output_pending is PENDING_WRITE on entry
+  */
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static gboolean
+ on_socket_ready (GSocket      *socket,
+                  GIOCondition  condition,
+@@ -992,7 +992,7 @@ static void
+ write_message_continue_writing (MessageToWriteData *data)
+ {
+   GOutputStream *ostream;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GUnixFDList *fd_list;
+ #endif
+ 
+@@ -1003,7 +1003,7 @@ write_message_continue_writing (MessageToWriteData *data)
+    * like @data is not always freed on every code path in this function. */
+ 
+   ostream = g_io_stream_get_output_stream (data->worker->stream);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   fd_list = g_dbus_message_get_unix_fd_list (data->message);
+ #endif
+ 
+@@ -1013,7 +1013,7 @@ write_message_continue_writing (MessageToWriteData *data)
+   if (FALSE)
+     {
+     }
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   else if (G_IS_SOCKET_OUTPUT_STREAM (ostream) && data->total_written == 0)
+     {
+       GOutputVector vector;
+@@ -1100,7 +1100,7 @@ write_message_continue_writing (MessageToWriteData *data)
+ #endif
+   else
+     {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       if (data->total_written == 0 && fd_list != NULL)
+         {
+           /* We were trying to write byte 0 of the message, which needs
+@@ -1125,7 +1125,7 @@ write_message_continue_writing (MessageToWriteData *data)
+                                    write_message_async_cb,
+                                    data);  /* steal @data */
+     }
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+  out:
+ #endif
+   ;
+diff --git a/gio/gdesktopappinfo.c b/gio/gdesktopappinfo.c
+index 013ec97f4..7f3424db7 100644
+--- a/gio/gdesktopappinfo.c
++++ b/gio/gdesktopappinfo.c
+@@ -42,7 +42,7 @@
+ 
+ #include "gcontenttypeprivate.h"
+ #include "gdesktopappinfo.h"
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #endif
+ #include "gfile.h"
+@@ -58,7 +58,7 @@
+ #include "glocalfilemonitor.h"
+ #include "gutilsprivate.h"
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "gdocumentportal.h"
+ #endif
+ 
+@@ -3407,7 +3407,7 @@ g_desktop_app_info_launch_uris_with_dbus (GDesktopAppInfo    *info,
+ 
+   g_return_val_if_fail (info != NULL, FALSE);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   app_id = g_desktop_app_info_get_string (info, "X-Flatpak");
+ 
+   if (!app_id)
+diff --git a/gio/gfile.c b/gio/gfile.c
+index 0bae14fb1..c71b78673 100644
+--- a/gio/gfile.c
++++ b/gio/gfile.c
+@@ -58,7 +58,7 @@
+ 
+ #include "gfile.h"
+ #include "glib/gstdio.h"
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #endif
+ #include "gvfs.h"
+diff --git a/gio/giomodule.c b/gio/giomodule.c
+index 731177557..311bc9d59 100644
+--- a/gio/giomodule.c
++++ b/gio/giomodule.c
+@@ -1101,7 +1101,7 @@ extern GType g_memory_monitor_portal_get_type (void);
+ extern GType g_memory_monitor_win32_get_type (void);
+ extern GType g_power_profile_monitor_dbus_get_type (void);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ extern GType g_fdo_notification_backend_get_type (void);
+ extern GType g_gtk_notification_backend_get_type (void);
+ extern GType g_portal_notification_backend_get_type (void);
+@@ -1197,7 +1197,7 @@ _g_io_modules_ensure_extension_points_registered (void)
+ 
+   if (g_once_init_enter (&registered_extensions))
+     {
+-#if defined(G_OS_UNIX) && !defined(__APPLE__)
++#if defined(G_OS_UNIX) && !defined(__APPLE__) && !defined(G_PLATFORM_WASM)
+ #if !GLIB_CHECK_VERSION (3, 0, 0)
+       ep = g_io_extension_point_register (G_DESKTOP_APP_INFO_LOOKUP_EXTENSION_POINT_NAME);
+       g_io_extension_point_set_required_type (ep, G_TYPE_DESKTOP_APP_INFO_LOOKUP);
+@@ -1381,7 +1381,7 @@ _g_io_modules_ensure_loaded (void)
+       g_type_ensure (g_osx_app_info_get_type ());
+       g_type_ensure (g_osx_network_monitor_get_type ());
+ #endif
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       g_type_ensure (_g_unix_volume_monitor_get_type ());
+       g_type_ensure (g_debug_controller_dbus_get_type ());
+       g_type_ensure (g_fdo_notification_backend_get_type ());
+diff --git a/gio/gkeyfilesettingsbackend.c b/gio/gkeyfilesettingsbackend.c
+index 0a4bcd61a..daa33bc81 100644
+--- a/gio/gkeyfilesettingsbackend.c
++++ b/gio/gkeyfilesettingsbackend.c
+@@ -79,7 +79,7 @@ typedef struct
+   GFileMonitor      *dir_monitor;
+ } GKeyfileSettingsBackend;
+ 
+-#ifdef G_OS_WIN32
++#if defined(G_OS_WIN32) || defined(G_PLATFORM_WASM)
+ #define EXTENSION_PRIORITY 10
+ #else
+ #define EXTENSION_PRIORITY (glib_should_use_portal () && !glib_has_dconf_access_in_sandbox () ? 110 : 10)
+diff --git a/gio/glocalfile.c b/gio/glocalfile.c
+index 4fb79711a..becce1d18 100644
+--- a/gio/glocalfile.c
++++ b/gio/glocalfile.c
+@@ -27,7 +27,7 @@
+ #include <string.h>
+ #include <errno.h>
+ #include <fcntl.h>
+-#if G_OS_UNIX
++#ifdef G_OS_UNIX
+ #include <dirent.h>
+ #include <unistd.h>
+ #endif
+@@ -69,7 +69,7 @@
+ #include <glib/gstdio.h>
+ #include <glib/gstdioprivate.h>
+ #include "glibintl.h"
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #include "gportalsupport.h"
+ #include "gtrashportal.h"
+@@ -763,7 +763,7 @@ get_fs_type (long f_type)
+ }
+ #endif
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ 
+ G_LOCK_DEFINE_STATIC(mount_info_hash);
+ static GHashTable *mount_info_hash = NULL;
+@@ -1107,6 +1107,7 @@ g_local_file_query_filesystem_info (GFile         *file,
+     g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE, fstype);
+ #endif /* G_OS_WIN32 */
+ 
++#ifndef G_PLATFORM_WASM
+   if (g_file_attribute_matcher_matches (attribute_matcher,
+                                         G_FILE_ATTRIBUTE_FILESYSTEM_READONLY) ||
+       g_file_attribute_matcher_matches (attribute_matcher,
+@@ -1118,6 +1119,7 @@ g_local_file_query_filesystem_info (GFile         *file,
+       get_mount_info (info, local->filename, attribute_matcher);
+ #endif /* G_OS_WIN32 */
+     }
++#endif /* !G_PLATFORM_WASM */
+ 
+   g_file_attribute_matcher_unref (attribute_matcher);
+   
+@@ -1129,6 +1131,7 @@ g_local_file_find_enclosing_mount (GFile         *file,
+                                    GCancellable  *cancellable,
+                                    GError       **error)
+ {
++#ifndef G_PLATFORM_WASM
+   GLocalFile *local = G_LOCAL_FILE (file);
+   GStatBuf buf;
+   char *mountpoint;
+@@ -1147,6 +1150,7 @@ g_local_file_find_enclosing_mount (GFile         *file,
+     return mount;
+ 
+ error:
++#endif
+   g_set_io_error (error,
+ 		  /* Translators: This is an error message when trying to find
+ 		   * the enclosing (user visible) mount of a file, but none
+@@ -1567,7 +1571,7 @@ g_local_file_delete (GFile         *file,
+   return TRUE;
+ }
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ 
+ static char *
+ strip_trailing_slashes (const char *path)
+@@ -1980,7 +1984,6 @@ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
+   return res;
+ }
+ 
+-#ifndef G_OS_WIN32
+ gboolean
+ _g_local_file_is_lost_found_dir (const char *path, dev_t path_dev)
+ {
+@@ -2019,7 +2022,6 @@ _g_local_file_is_lost_found_dir (const char *path, dev_t path_dev)
+   g_free (mount_dir);
+   return ret;
+ }
+-#endif
+ 
+ /* Check whether subsequently deleting the original file from the trash
+  * (in the gvfsd-trash process) will succeed. If we think it won’t, return
+@@ -2541,7 +2543,7 @@ g_local_file_trash (GFile         *file,
+   
+   return TRUE;
+ }
+-#else /* G_OS_WIN32 */
++#elif defined(G_OS_WIN32)
+ gboolean
+ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
+ {
+@@ -2589,7 +2591,24 @@ g_local_file_trash (GFile         *file,
+   g_free (wfilename);
+   return success;
+ }
+-#endif /* G_OS_WIN32 */
++#else /* G_PLATFORM_WASM */
++gboolean
++_g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
++{
++  return FALSE;
++}
++
++static gboolean
++g_local_file_trash (GFile         *file,
++		    GCancellable  *cancellable,
++		    GError       **error)
++{
++  g_set_io_error (error,
++                  _("g_local_file_trash is no-op on WebAssembly"),
++                  file, ENOTSUP);
++  return FALSE;
++}
++#endif /* G_PLATFORM_WASM */
+ 
+ static gboolean
+ g_local_file_make_directory (GFile         *file,
+@@ -2793,7 +2812,7 @@ g_local_file_move (GFile                  *source,
+   return TRUE;
+ }
+ 
+-#ifdef G_OS_WIN32
++#if defined(G_OS_WIN32) || defined(G_PLATFORM_WASM)
+ 
+ gboolean
+ g_local_file_is_nfs_home (const gchar *filename)
+@@ -2857,7 +2876,7 @@ g_local_file_is_nfs_home (const gchar *filename)
+ 
+   return FALSE;
+ }
+-#endif /* !G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+ static GFileMonitor*
+ g_local_file_monitor_dir (GFile             *file,
+diff --git a/gio/glocalfileinfo.c b/gio/glocalfileinfo.c
+index d2efb169e..69ff59a0d 100644
+--- a/gio/glocalfileinfo.c
++++ b/gio/glocalfileinfo.c
+@@ -62,8 +62,10 @@
+ 
+ #ifdef G_OS_UNIX
+ #include <unistd.h>
++#ifndef G_PLATFORM_WASM
+ #include "glib-unix.h"
+-#endif
++#endif /* !G_PLATFORM_WASM */
++#endif /* G_OS_UNIX */
+ 
+ #include "glib-private.h"
+ 
+@@ -1336,7 +1338,7 @@ get_content_type (const char          *basename,
+ 
+       content_type = g_content_type_guess (basename, NULL, 0, &result_uncertain);
+       
+-#if !defined(G_OS_WIN32) && !defined(__APPLE__)
++#if !defined(G_OS_WIN32) && !defined(__APPLE__) && !defined(G_PLATFORM_WASM)
+       if (!fast && result_uncertain && path != NULL)
+ 	{
+           /* Sniff the first 16KiB of the file (sometimes less, if xdgmime
+@@ -1994,6 +1996,7 @@ _g_local_file_info_get (const char             *basename,
+   if (stat_ok)
+     set_info_from_stat (info, &statbuf, attribute_matcher);
+ 
++#ifndef G_PLATFORM_WASM
+ #ifndef G_OS_WIN32
+   if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+ 					    G_FILE_ATTRIBUTE_ID_STANDARD_IS_HIDDEN))
+@@ -2030,6 +2033,7 @@ _g_local_file_info_get (const char             *basename,
+         _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_REPARSE_POINT_TAG, statbuf.reparse_tag);
+     }
+ #endif
++#endif /* !G_PLATFORM_WASM */
+ 
+   symlink_target = NULL;
+   if (is_symlink)
+diff --git a/gio/glocalfileinfo.h b/gio/glocalfileinfo.h
+index fcb1dccd3..5467a6263 100644
+--- a/gio/glocalfileinfo.h
++++ b/gio/glocalfileinfo.h
+@@ -352,7 +352,7 @@ inline static guint32   _g_stat_mtim_nsec (const GLocalFileStat *buf) { return 0
+ 
+ gboolean   _g_local_file_has_trash_dir        (const char             *dirname,
+                                                dev_t                   dir_dev);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ gboolean   _g_local_file_is_lost_found_dir    (const char             *path,
+                                                dev_t                   path_dev);
+ #endif
+diff --git a/gio/glocalfileinputstream.c b/gio/glocalfileinputstream.c
+index 933f31714..33e848f87 100644
+--- a/gio/glocalfileinputstream.c
++++ b/gio/glocalfileinputstream.c
+@@ -37,9 +37,11 @@
+ 
+ #ifdef G_OS_UNIX
+ #include <unistd.h>
++#ifndef G_PLATFORM_WASM
+ #include "glib-unix.h"
+ #include "gfiledescriptorbased.h"
+-#endif
++#endif /* !G_PLATFORM_WASM */
++#endif /* G_OS_UNIX */
+ 
+ #ifdef G_OS_WIN32
+ #include <io.h>
+@@ -50,12 +52,12 @@ struct _GLocalFileInputStreamPrivate {
+   guint do_close : 1;
+ };
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void       g_file_descriptor_based_iface_init   (GFileDescriptorBasedIface *iface);
+ #endif
+ 
+ #define g_local_file_input_stream_get_type _g_local_file_input_stream_get_type
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ G_DEFINE_TYPE_WITH_CODE (GLocalFileInputStream, g_local_file_input_stream, G_TYPE_FILE_INPUT_STREAM,
+                          G_ADD_PRIVATE (GLocalFileInputStream)
+ 			 G_IMPLEMENT_INTERFACE (G_TYPE_FILE_DESCRIPTOR_BASED,
+@@ -84,7 +86,7 @@ static GFileInfo *g_local_file_input_stream_query_info (GFileInputStream  *strea
+ 							const char        *attributes,
+ 							GCancellable      *cancellable,
+ 							GError           **error);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static int        g_local_file_input_stream_get_fd     (GFileDescriptorBased *stream);
+ #endif
+ 
+@@ -109,7 +111,7 @@ g_local_file_input_stream_class_init (GLocalFileInputStreamClass *klass)
+   file_stream_class->query_info = g_local_file_input_stream_query_info;
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void
+ g_file_descriptor_based_iface_init (GFileDescriptorBasedIface *iface)
+ {
+@@ -297,7 +299,7 @@ g_local_file_input_stream_query_info (GFileInputStream  *stream,
+ 					 error);
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static int
+ g_local_file_input_stream_get_fd (GFileDescriptorBased *fd_based)
+ {
+diff --git a/gio/glocalfilemonitor.c b/gio/glocalfilemonitor.c
+index 59d3cb3fe..a6dc14495 100644
+--- a/gio/glocalfilemonitor.c
++++ b/gio/glocalfilemonitor.c
+@@ -742,7 +742,7 @@ g_local_file_monitor_set_property (GObject *object, guint prop_id,
+     g_object_notify (object, "rate-limit");
+ }
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ static void
+ g_local_file_monitor_mounts_changed (GUnixMountMonitor *mount_monitor,
+                                      gpointer           user_data)
+@@ -792,7 +792,7 @@ g_local_file_monitor_start (GLocalFileMonitor *local_monitor,
+ 
+   if (is_directory && !class->mount_notify && (flags & G_FILE_MONITOR_WATCH_MOUNTS))
+     {
+-#ifdef G_OS_WIN32
++#if defined(G_OS_WIN32) || defined(G_PLATFORM_WASM)
+       /*claim everything was mounted */
+       local_monitor->was_mounted = TRUE;
+ #else
+diff --git a/gio/glocalfileoutputstream.c b/gio/glocalfileoutputstream.c
+index fda643b50..929d640b5 100644
+--- a/gio/glocalfileoutputstream.c
++++ b/gio/glocalfileoutputstream.c
+@@ -44,9 +44,11 @@
+ 
+ #ifdef G_OS_UNIX
+ #include <unistd.h>
++#ifndef G_PLATFORM_WASM
+ #include "gfiledescriptorbased.h"
+ #include <sys/uio.h>
+-#endif
++#endif /* !G_PLATFORM_WASM */
++#endif /* G_OS_UNIX */
+ 
+ #include "glib-private.h"
+ #include "gioprivate.h"
+@@ -81,12 +83,12 @@ struct _GLocalFileOutputStreamPrivate {
+   int fd;
+ };
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void       g_file_descriptor_based_iface_init   (GFileDescriptorBasedIface *iface);
+ #endif
+ 
+ #define g_local_file_output_stream_get_type _g_local_file_output_stream_get_type
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ G_DEFINE_TYPE_WITH_CODE (GLocalFileOutputStream, g_local_file_output_stream, G_TYPE_FILE_OUTPUT_STREAM,
+                          G_ADD_PRIVATE (GLocalFileOutputStream)
+ 			 G_IMPLEMENT_INTERFACE (G_TYPE_FILE_DESCRIPTOR_BASED,
+@@ -108,7 +110,7 @@ static gssize     g_local_file_output_stream_write        (GOutputStream      *s
+ 							   gsize               count,
+ 							   GCancellable       *cancellable,
+ 							   GError            **error);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static gboolean   g_local_file_output_stream_writev       (GOutputStream       *stream,
+ 							   const GOutputVector *vectors,
+ 							   gsize                n_vectors,
+@@ -136,7 +138,7 @@ static gboolean   g_local_file_output_stream_truncate     (GFileOutputStream  *s
+ 							   goffset             size,
+ 							   GCancellable       *cancellable,
+ 							   GError            **error);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static int        g_local_file_output_stream_get_fd       (GFileDescriptorBased *stream);
+ #endif
+ 
+@@ -165,7 +167,7 @@ g_local_file_output_stream_class_init (GLocalFileOutputStreamClass *klass)
+   gobject_class->finalize = g_local_file_output_stream_finalize;
+ 
+   stream_class->write_fn = g_local_file_output_stream_write;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   stream_class->writev_fn = g_local_file_output_stream_writev;
+ #endif
+   stream_class->close_fn = g_local_file_output_stream_close;
+@@ -178,7 +180,7 @@ g_local_file_output_stream_class_init (GLocalFileOutputStreamClass *klass)
+   file_stream_class->truncate_fn = g_local_file_output_stream_truncate;
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void
+ g_file_descriptor_based_iface_init (GFileDescriptorBasedIface *iface)
+ {
+@@ -234,7 +236,7 @@ g_local_file_output_stream_write (GOutputStream  *stream,
+  * things, that each chunk is the size of a whole page and in memory aligned
+  * to a page. We can't possibly guarantee that in GLib.
+  */
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ /* Macro to check if struct iovec and GOutputVector have the same ABI */
+ #define G_OUTPUT_VECTOR_IS_IOVEC (sizeof (struct iovec) == sizeof (GOutputVector) && \
+       G_SIZEOF_MEMBER (struct iovec, iov_base) == G_SIZEOF_MEMBER (GOutputVector, buffer) && \
+@@ -1338,7 +1340,7 @@ _g_local_file_output_stream_get_fd (GLocalFileOutputStream *stream)
+   return stream->priv->fd;
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static int
+ g_local_file_output_stream_get_fd (GFileDescriptorBased *fd_based)
+ {
+diff --git a/gio/glocalvfs.c b/gio/glocalvfs.c
+index 7266ee0f8..7c330d026 100644
+--- a/gio/glocalvfs.c
++++ b/gio/glocalvfs.c
+@@ -28,7 +28,7 @@
+ #include "gvfs.h"
+ #include <gio/gdummyfile.h>
+ #include <sys/types.h>
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #include <pwd.h>
+ #endif
+@@ -134,7 +134,7 @@ g_local_vfs_parse_name (GVfs       *vfs,
+     {
+       if (*parse_name == '~')
+ 	{
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ 	  const char *user_start;
+ 	  user_start = parse_name + 1;
+ #endif
+@@ -145,7 +145,7 @@ g_local_vfs_parse_name (GVfs       *vfs,
+ 	  
+ 	  user_end = parse_name;
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ 	  if (user_end == user_start)
+ 	    user_prefix = g_strdup (g_get_home_dir ());
+ 	  else
+diff --git a/gio/gportalsupport.c b/gio/gportalsupport.c
+index b002e93f6..4bfcede7b 100644
+--- a/gio/gportalsupport.c
++++ b/gio/gportalsupport.c
+@@ -29,6 +29,7 @@ static gboolean use_portal;
+ static gboolean network_available;
+ static gboolean dconf_access;
+ 
++#ifndef G_PLATFORM_WASM
+ #ifdef G_PORTAL_SUPPORT_TEST
+ static const char *snapctl = "snapctl";
+ #else
+@@ -136,21 +137,29 @@ sandbox_info_read (void)
+ 
+   g_once_init_leave (&sandbox_info_is_read, 1);
+ }
++#endif
+ 
+ gboolean
+ glib_should_use_portal (void)
+ {
++#ifdef G_PLATFORM_WASM
++  return FALSE;
++#else
+   sandbox_info_read ();
+ 
+   if (sandbox_type == G_SANDBOX_TYPE_SNAP)
+     return snap_plug_is_connected ("desktop");
+ 
+   return use_portal;
++#endif
+ }
+ 
+ gboolean
+ glib_network_available_in_sandbox (void)
+ {
++#ifdef G_PLATFORM_WASM
++  return FALSE;
++#else
+   sandbox_info_read ();
+ 
+   if (sandbox_type == G_SANDBOX_TYPE_SNAP)
+@@ -164,15 +173,20 @@ glib_network_available_in_sandbox (void)
+     }
+ 
+   return network_available;
++#endif
+ }
+ 
+ gboolean
+ glib_has_dconf_access_in_sandbox (void)
+ {
++#ifdef G_PLATFORM_WASM
++  return FALSE;
++#else
+   sandbox_info_read ();
+ 
+   if (sandbox_type == G_SANDBOX_TYPE_SNAP)
+     return snap_plug_is_connected ("gsettings");
+ 
+   return dconf_access;
++#endif
+ }
+diff --git a/gio/gresourcefile.c b/gio/gresourcefile.c
+index 72dee7f4a..67c12413f 100644
+--- a/gio/gresourcefile.c
++++ b/gio/gresourcefile.c
+@@ -509,6 +509,7 @@ g_resource_file_query_info (GFile                *file,
+       g_file_info_set_file_type (info, G_FILE_TYPE_REGULAR);
+       g_file_info_set_size (info, size);
+ 
++#ifndef G_PLATFORM_WASM
+       if ((_g_file_attribute_matcher_matches_id (matcher, G_FILE_ATTRIBUTE_ID_STANDARD_CONTENT_TYPE) ||
+            ((~resource_flags & G_RESOURCE_FLAGS_COMPRESSED) && 
+             _g_file_attribute_matcher_matches_id (matcher, G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE))) &&
+@@ -523,6 +524,7 @@ g_resource_file_query_info (GFile                *file,
+           g_bytes_unref (bytes);
+         }
+       else
++#endif
+         content_type = NULL;
+ 
+       if (content_type)
+diff --git a/gio/gsocket.c b/gio/gsocket.c
+index 0a2a523e2..8ee2fc1c0 100644
+--- a/gio/gsocket.c
++++ b/gio/gsocket.c
+@@ -31,7 +31,7 @@
+ 
+ #include "gsocket.h"
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #endif
+ 
+@@ -54,7 +54,7 @@
+ # include <sys/filio.h>
+ #endif
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include <sys/uio.h>
+ #endif
+ 
+@@ -606,9 +606,9 @@ g_socket_details_from_fd (GSocket *socket)
+ static void
+ socket_set_nonblock (int fd)
+ {
+-#ifndef G_OS_WIN32
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GError *error = NULL;
+-#else
++#elif defined(G_OS_WIN32)
+   gulong arg;
+ #endif
+ 
+@@ -616,13 +616,13 @@ socket_set_nonblock (int fd)
+    * nonblocking automatically in certain operations. This way we make
+    * things work the same on all platforms.
+    */
+-#ifndef G_OS_WIN32
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   if (!g_unix_set_fd_nonblocking (fd, TRUE, &error))
+     {
+       g_warning ("Error setting socket to nonblocking mode: %s", error->message);
+       g_clear_error (&error);
+     }
+-#else
++#elif defined(G_OS_WIN32)
+   arg = TRUE;
+ 
+   if (ioctlsocket (fd, FIONBIO, &arg) == SOCKET_ERROR)
+@@ -4283,7 +4283,9 @@ socket_source_dispatch (GSource     *source,
+     events = G_IO_NVAL;
+   else
+     events = update_condition (socket_source->socket);
+-#else
++#elif defined(G_PLATFORM_WASM)
++  events = G_IO_NVAL;
++#elif defined(G_OS_UNIX)
+   if (g_socket_is_closed (socket_source->socket))
+     {
+       if (socket_source->fd_tag)
+@@ -4421,7 +4423,7 @@ socket_source_new (GSocket      *socket,
+   socket_source->pollfd.events = condition;
+   socket_source->pollfd.revents = 0;
+   g_source_add_poll (source, &socket_source->pollfd);
+-#else
++#elif defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   socket_source->fd_tag = g_source_add_unix_fd (source, socket->priv->fd, condition);
+ #endif
+ 
+diff --git a/gio/gsocketcontrolmessage.c b/gio/gsocketcontrolmessage.c
+index 0b3887881..3ac21fc19 100644
+--- a/gio/gsocketcontrolmessage.c
++++ b/gio/gsocketcontrolmessage.c
+@@ -196,7 +196,7 @@ g_socket_control_message_deserialize (int      level,
+     {
+       i = 0;
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+       builtin_messages[i++] = G_TYPE_UNIX_CREDENTIALS_MESSAGE;
+       builtin_messages[i++] = G_TYPE_UNIX_FD_MESSAGE;
+ #endif
+diff --git a/gio/gsocketinputstream.c b/gio/gsocketinputstream.c
+index 7a15f512d..fbfbb641b 100644
+--- a/gio/gsocketinputstream.c
++++ b/gio/gsocketinputstream.c
+@@ -42,13 +42,13 @@ struct _GSocketInputStreamPrivate
+ };
+ 
+ static void g_socket_input_stream_pollable_iface_init (GPollableInputStreamInterface *iface);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void g_socket_input_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface *iface);
+ #endif
+ 
+ #define g_socket_input_stream_get_type _g_socket_input_stream_get_type
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ G_DEFINE_TYPE_WITH_CODE (GSocketInputStream, g_socket_input_stream, G_TYPE_INPUT_STREAM,
+                          G_ADD_PRIVATE (GSocketInputStream)
+ 			 G_IMPLEMENT_INTERFACE (G_TYPE_POLLABLE_INPUT_STREAM, g_socket_input_stream_pollable_iface_init)
+@@ -168,7 +168,7 @@ g_socket_input_stream_pollable_read_nonblocking (GPollableInputStream  *pollable
+ 					 NULL, error);
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static int
+ g_socket_input_stream_get_fd (GFileDescriptorBased *fd_based)
+ {
+@@ -196,7 +196,7 @@ g_socket_input_stream_class_init (GSocketInputStreamClass *klass)
+ 							G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void
+ g_socket_input_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface *iface)
+ {
+diff --git a/gio/gsocketoutputstream.c b/gio/gsocketoutputstream.c
+index a5b4c3532..36ea413c1 100644
+--- a/gio/gsocketoutputstream.c
++++ b/gio/gsocketoutputstream.c
+@@ -47,13 +47,13 @@ struct _GSocketOutputStreamPrivate
+ };
+ 
+ static void g_socket_output_stream_pollable_iface_init (GPollableOutputStreamInterface *iface);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void g_socket_output_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface *iface);
+ #endif
+ 
+ #define g_socket_output_stream_get_type _g_socket_output_stream_get_type
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ G_DEFINE_TYPE_WITH_CODE (GSocketOutputStream, g_socket_output_stream, G_TYPE_OUTPUT_STREAM,
+                          G_ADD_PRIVATE (GSocketOutputStream)
+ 			 G_IMPLEMENT_INTERFACE (G_TYPE_POLLABLE_OUTPUT_STREAM, g_socket_output_stream_pollable_iface_init)
+@@ -223,7 +223,7 @@ g_socket_output_stream_pollable_create_source (GPollableOutputStream *pollable,
+   return pollable_source;
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static int
+ g_socket_output_stream_get_fd (GFileDescriptorBased *fd_based)
+ {
+@@ -252,7 +252,7 @@ g_socket_output_stream_class_init (GSocketOutputStreamClass *klass)
+ 							G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void
+ g_socket_output_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface *iface)
+ {
+diff --git a/gio/gsubprocess.c b/gio/gsubprocess.c
+index 2cdd53dca..674d39834 100644
+--- a/gio/gsubprocess.c
++++ b/gio/gsubprocess.c
+@@ -97,7 +97,7 @@
+ #include "glib-private.h"
+ 
+ #include <string.h>
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include <gio/gunixoutputstream.h>
+ #include <gio/gfiledescriptorbased.h>
+ #include <gio/gunixinputstream.h>
+@@ -110,6 +110,14 @@
+ #include <io.h>
+ #include "giowin32-priv.h"
+ #endif
++#ifdef G_PLATFORM_WASM
++#include <gio/gioenumtypes.h>
++#include <gio/ginitable.h>
++#include <gio/gtask.h>
++#include <gio/gmemoryinputstream.h>
++#include <gio/gmemoryoutputstream.h>
++#include <unistd.h>
++#endif
+ 
+ #ifndef O_BINARY
+ #define O_BINARY 0
+@@ -192,7 +200,9 @@ platform_input_stream_from_spawn_fd (gint fd)
+   if (fd < 0)
+     return NULL;
+ 
+-#ifdef G_OS_UNIX
++#ifdef G_PLATFORM_WASM
++  return NULL;
++#elif defined(G_OS_UNIX)
+   return g_unix_input_stream_new (fd, TRUE);
+ #else
+   return g_win32_input_stream_new_from_fd (fd, TRUE);
+@@ -205,14 +215,16 @@ platform_output_stream_from_spawn_fd (gint fd)
+   if (fd < 0)
+     return NULL;
+ 
+-#ifdef G_OS_UNIX
++#ifdef G_PLATFORM_WASM
++  return NULL;
++#elif defined(G_OS_UNIX)
+   return g_unix_output_stream_new (fd, TRUE);
+ #else
+   return g_win32_output_stream_new_from_fd (fd, TRUE);
+ #endif
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static gint
+ unix_open_file (const char  *filename,
+                 gint         mode,
+@@ -306,7 +318,7 @@ initable_init (GInitable     *initable,
+   gint pipe_fds[3] = { -1, -1, -1 };
+   gint close_fds[3] = { -1, -1, -1 };
+   GPid pid = 0;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   gint stdin_fd = -1, stdout_fd = -1, stderr_fd = -1;
+ #endif
+   GSpawnFlags spawn_flags = 0;
+@@ -329,7 +341,7 @@ initable_init (GInitable     *initable,
+     spawn_flags |= G_SPAWN_CHILD_INHERITS_STDIN;
+   else if (self->flags & G_SUBPROCESS_FLAGS_STDIN_PIPE)
+     pipe_ptrs[0] = &pipe_fds[0];
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   else if (self->launcher)
+     {
+       if (self->launcher->stdin_fd != -1)
+@@ -348,7 +360,7 @@ initable_init (GInitable     *initable,
+     spawn_flags |= G_SPAWN_STDOUT_TO_DEV_NULL;
+   else if (self->flags & G_SUBPROCESS_FLAGS_STDOUT_PIPE)
+     pipe_ptrs[1] = &pipe_fds[1];
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   else if (self->launcher)
+     {
+       if (self->launcher->stdout_fd != -1)
+@@ -367,7 +379,7 @@ initable_init (GInitable     *initable,
+     spawn_flags |= G_SPAWN_STDERR_TO_DEV_NULL;
+   else if (self->flags & G_SUBPROCESS_FLAGS_STDERR_PIPE)
+     pipe_ptrs[2] = &pipe_fds[2];
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   else if (self->flags & G_SUBPROCESS_FLAGS_STDERR_MERGE)
+     /* This will work because stderr gets set up after stdout. */
+     stderr_fd = 1;
+@@ -403,7 +415,7 @@ initable_init (GInitable     *initable,
+                                               (const gchar * const *) self->argv,
+                                               (const gchar * const *) (self->launcher ? self->launcher->envp : NULL),
+                                               spawn_flags,
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+                                               self->launcher ? self->launcher->child_setup_func : NULL,
+                                               self->launcher ? self->launcher->child_setup_user_data : NULL,
+                                               stdin_fd, stdout_fd, stderr_fd,
+@@ -451,7 +463,7 @@ initable_init (GInitable     *initable,
+       g_source_unref (source);
+     }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ out:
+ #endif
+   /* we don't need this past init... */
+@@ -1011,7 +1023,7 @@ g_subprocess_wait_check_finish (GSubprocess   *subprocess,
+   return g_spawn_check_wait_status (status, error);
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ typedef struct
+ {
+   GSubprocess *subprocess;
+@@ -1108,9 +1120,9 @@ g_subprocess_force_exit (GSubprocess *subprocess)
+ {
+   g_return_if_fail (G_IS_SUBPROCESS (subprocess));
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_subprocess_dispatch_signal (subprocess, SIGKILL);
+-#else
++#elif defined(G_OS_WIN32)
+   g_mutex_lock (&subprocess->pending_waits_lock);
+   TerminateProcess (subprocess->pid, 1);
+   g_mutex_unlock (&subprocess->pending_waits_lock);
+@@ -1185,7 +1197,7 @@ g_subprocess_get_successful (GSubprocess *subprocess)
+ 
+   g_return_val_if_fail (pid == 0, FALSE);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   return WIFEXITED (status) && WEXITSTATUS (status) == 0;
+ #else
+   return status == 0;
+@@ -1223,7 +1235,7 @@ g_subprocess_get_if_exited (GSubprocess *subprocess)
+ 
+   g_return_val_if_fail (pid == 0, FALSE);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   return WIFEXITED (status);
+ #else
+   return TRUE;
+@@ -1262,7 +1274,7 @@ g_subprocess_get_exit_status (GSubprocess *subprocess)
+ 
+   g_return_val_if_fail (pid == 0, 1);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_return_val_if_fail (WIFEXITED (status), 1);
+ 
+   return WEXITSTATUS (status);
+@@ -1301,7 +1313,7 @@ g_subprocess_get_if_signaled (GSubprocess *subprocess)
+ 
+   g_return_val_if_fail (pid == 0, FALSE);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   return WIFSIGNALED (status);
+ #else
+   return FALSE;
+@@ -1339,12 +1351,12 @@ g_subprocess_get_term_sig (GSubprocess *subprocess)
+ 
+   g_return_val_if_fail (pid == 0, 0);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_return_val_if_fail (WIFSIGNALED (status), 0);
+ 
+   return WTERMSIG (status);
+ #else
+-  g_critical ("g_subprocess_get_term_sig() called on Windows, where "
++  g_critical ("g_subprocess_get_term_sig() called on Windows or Wasm, where "
+               "g_subprocess_get_if_signaled() always returns FALSE...");
+   return 0;
+ #endif
+@@ -1559,7 +1571,7 @@ g_subprocess_communicate_internal (GSubprocess         *subprocess,
+     {
+       g_assert (stdin_buf != NULL);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       /* We're doing async writes to the pipe, and the async write mechanism assumes
+        * that streams polling as writable do SOME progress (possibly partial) and then
+        * stop, but never block.
+diff --git a/gio/gtestdbus.c b/gio/gtestdbus.c
+index ee1d97262..03d851619 100644
+--- a/gio/gtestdbus.c
++++ b/gio/gtestdbus.c
+@@ -48,7 +48,7 @@
+ 
+ #include "glibintl.h"
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #include "glib-unixprivate.h"
+ #endif
+@@ -148,7 +148,7 @@ _g_test_watcher_remove_pid (GPid pid)
+      will be killed anyway */
+ }
+ 
+-#else
++#elif defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ 
+ #define ADD_PID_FORMAT "add pid %d\n"
+ #define REMOVE_PID_FORMAT "remove pid %d\n"
+@@ -351,6 +351,20 @@ _g_test_watcher_remove_pid (GPid pid)
+   g_free (command);
+ }
+ 
++#else
++
++static void
++_g_test_watcher_add_pid (GPid pid)
++{
++  /* no-op */
++}
++
++static void
++_g_test_watcher_remove_pid (GPid pid)
++{
++  /* no-op */
++}
++
+ #endif
+ 
+ /* -------------------------------------------------------------------------- */
+@@ -629,7 +643,7 @@ static gboolean
+ make_pipe (gint     pipe_fds[2],
+            GError **error)
+ {
+-#if defined(G_OS_UNIX)
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   return g_unix_open_pipe (pipe_fds, O_CLOEXEC, error);
+ #elif defined(G_OS_WIN32)
+   if (_pipe (pipe_fds, 4096, _O_BINARY) < 0)
+diff --git a/gio/gthreadedresolver.c b/gio/gthreadedresolver.c
+index 1ee543c96..a8e7fe01f 100644
+--- a/gio/gthreadedresolver.c
++++ b/gio/gthreadedresolver.c
+@@ -1393,7 +1393,7 @@ do_lookup_records (const gchar          *rrname,
+ {
+   GList *records;
+ 
+-#if defined(G_OS_UNIX)
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   gint len = 512;
+   gint herr;
+   GByteArray *answer;
+@@ -1458,7 +1458,8 @@ do_lookup_records (const gchar          *rrname,
+ 
+ #endif  /* HAVE_RES_NQUERY */
+ 
+-#else
++  return g_steal_pointer (&records);
++#elif defined(G_OS_WIN32)
+ 
+   DNS_STATUS status;
+   DNS_RECORDA *results = NULL;
+@@ -1477,9 +1478,12 @@ do_lookup_records (const gchar          *rrname,
+   if (results != NULL)
+     DnsRecordListFree (results, DnsFreeRecordList);
+ 
+-#endif
+-
+   return g_steal_pointer (&records);
++#else
++  g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
++               _("do_lookup_records is no-op on WebAssembly"));
++  return NULL;
++#endif
+ }
+ 
+ static GList *
+diff --git a/gio/gunixconnection.c b/gio/gunixconnection.c
+index 94a92e3c4..e2c3a8145 100644
+--- a/gio/gunixconnection.c
++++ b/gio/gunixconnection.c
+@@ -141,7 +141,7 @@ g_unix_connection_receive_fd (GUnixConnection  *connection,
+                               GCancellable     *cancellable,
+                               GError          **error)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GSocketControlMessage **scms;
+   gint *fds, nfd, fd, nscm;
+   GUnixFDMessage *fdmsg;
+diff --git a/gio/gunixfdlist.c b/gio/gunixfdlist.c
+index 88a5a5f8a..d2c2f7308 100644
+--- a/gio/gunixfdlist.c
++++ b/gio/gunixfdlist.c
+@@ -45,6 +45,10 @@
+ #include "glib/glib-private.h"
+ #include "glib/gstdio.h"
+ 
++#ifdef G_OS_UNIX
++#include <unistd.h>  /* dup() */
++#endif
++
+ #ifdef G_OS_WIN32
+ #include <io.h>
+ #endif
+diff --git a/gio/meson.build b/gio/meson.build
+index 5944a6eef..ee1855307 100644
+--- a/gio/meson.build
++++ b/gio/meson.build
+@@ -352,7 +352,7 @@ gdbus_daemon_sources = [
+   gdbus_daemon_generated,
+ ]
+ 
+-if host_system != 'windows'
++if host_system not in ['windows', 'emscripten']
+   unix_sources = files(
+     'gfiledescriptorbased.c',
+     'giounix-private.c',
+@@ -450,7 +450,7 @@ if host_system != 'windows'
+       'gnetworkmonitornm.c',
+     )
+   endif
+-else
++elif host_system == 'windows'
+   win32_sources += files('gwin32appinfo.c')
+   contenttype_sources += files('gcontenttype-win32.c')
+   platform_deps += [cc.find_library('shlwapi'),
+@@ -500,6 +500,8 @@ else
+     'gwin32outputstream.h',
+   )
+   install_headers(gio_win32_include_headers, subdir : 'gio-win32-2.0/gio')
++elif host_system == 'emscripten'
++  contenttype_sources += files('gcontenttype-wasm.c')
+ endif
+ 
+ gio_base_sources = files(
+@@ -975,7 +977,7 @@ if host_system == 'windows'
+     description : 'Windows specific headers for glib I/O library',
+   )
+   meson.override_dependency('gio-windows-2.0', libgio_dep)
+-else
++elif host_system != 'emscripten'
+   pkg.generate(requires : ['gobject-2.0', 'gio-2.0'],
+     subdirs : ['gio-unix-2.0'],
+     version : glib_version,
+diff --git a/glib/gmain.c b/glib/gmain.c
+index 94dcb7c55..7c5682a18 100644
+--- a/glib/gmain.c
++++ b/glib/gmain.c
+@@ -58,7 +58,7 @@
+ #include <poll.h>
+ #endif
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #include <pthread.h>
+ #ifdef HAVE_EVENTFD
+@@ -259,9 +259,9 @@ struct _GChildWatchSource
+   /* @poll is always used on Windows.
+    * On Unix, poll.fd will be negative if PIDFD is unavailable. */
+   GPollFD     poll;
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+   gboolean child_maybe_exited; /* (atomic) */
+-#endif /* G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM  */
+ };
+ 
+ struct _GUnixSignalWatchSource
+@@ -370,11 +370,11 @@ static gboolean g_child_watch_dispatch (GSource     *source,
+ 					gpointer     user_data);
+ static void     g_child_watch_finalize (GSource     *source);
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ static void unref_unix_signal_handler_unlocked (int signum);
+ #endif
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static void g_unix_signal_handler (int signum);
+ static gboolean g_unix_signal_watch_prepare  (GSource     *source,
+ 					      gint        *timeout);
+@@ -405,7 +405,7 @@ static GRWLock source_destroy_lock;
+ 
+ static GMainContext *glib_worker_context;
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ 
+ 
+ /* UNIX signals work by marking one of these variables then waking the
+@@ -446,7 +446,7 @@ GSourceFuncs g_unix_signal_funcs =
+   g_unix_signal_watch_finalize,
+   NULL, NULL
+ };
+-#endif /* !G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+ GSourceFuncs g_timeout_funcs =
+ {
+@@ -2808,7 +2808,7 @@ g_clear_handle_id (guint            *tag_ptr,
+     }
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ /**
+  * g_source_add_unix_fd:
+  * @source: a source
+@@ -2993,7 +2993,7 @@ g_source_query_unix_fd (GSource  *source,
+ 
+   return poll_fd->revents;
+ }
+-#endif /* G_OS_UNIX */
++#endif /* G_OS_UNIX && !G_PLATFORM_WASM */
+ 
+ /**
+  * g_get_current_time:
+@@ -5708,9 +5708,9 @@ static gboolean
+ g_child_watch_prepare (GSource *source,
+ 		       gint    *timeout)
+ {
+-#ifdef G_OS_WIN32
++#if defined(G_OS_WIN32) || defined(G_PLATFORM_WASM)
+   return FALSE;
+-#else  /* G_OS_WIN32 */
++#else  /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+   {
+     GChildWatchSource *child_watch_source;
+ 
+@@ -5721,7 +5721,7 @@ g_child_watch_prepare (GSource *source,
+ 
+     return g_atomic_int_get (&child_watch_source->child_maybe_exited);
+   }
+-#endif /* G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ }
+ 
+ static gboolean
+@@ -5732,9 +5732,9 @@ g_child_watch_check (GSource *source)
+ 
+   child_watch_source = (GChildWatchSource *) source;
+ 
+-#ifdef G_OS_WIN32
++#if defined(G_OS_WIN32) || defined(G_PLATFORM_WASM)
+   child_exited = !!(child_watch_source->poll.revents & G_IO_IN);
+-#else /* G_OS_WIN32 */
++#else /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ #ifdef HAVE_PIDFD
+   if (child_watch_source->poll.fd >= 0)
+     {
+@@ -5743,7 +5743,7 @@ g_child_watch_check (GSource *source)
+     }
+ #endif /* HAVE_PIDFD */
+   child_exited = g_atomic_int_get (&child_watch_source->child_maybe_exited);
+-#endif /* G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+   return child_exited;
+ }
+@@ -5751,7 +5751,7 @@ g_child_watch_check (GSource *source)
+ static void
+ g_child_watch_finalize (GSource *source)
+ {
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+   GChildWatchSource *child_watch_source = (GChildWatchSource *) source;
+ 
+   if (child_watch_source->poll.fd >= 0)
+@@ -5764,10 +5764,10 @@ g_child_watch_finalize (GSource *source)
+   unix_child_watches = g_slist_remove (unix_child_watches, source);
+   unref_unix_signal_handler_unlocked (SIGCHLD);
+   G_UNLOCK (unix_signal_lock);
+-#endif /* G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ }
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ 
+ static void
+ wake_source (GSource *source)
+@@ -6101,7 +6101,9 @@ g_child_watch_dispatch (GSource    *source,
+     else
+       wait_status = child_status;
+   }
+-#else /* G_OS_WIN32 */
++#elif defined(G_PLATFORM_WASM) /* !G_OS_WIN32 */
++  wait_status = -1;
++#else /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+   {
+     gboolean child_exited = FALSE;
+ 
+@@ -6185,7 +6187,7 @@ g_child_watch_dispatch (GSource    *source,
+           }
+       }
+   }
+-#endif /* G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+   if (!callback)
+     {
+@@ -6200,7 +6202,7 @@ g_child_watch_dispatch (GSource    *source,
+   return FALSE;
+ }
+ 
+-#ifndef G_OS_WIN32
++#if !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ 
+ static void
+ g_unix_signal_handler (int signum)
+@@ -6221,7 +6223,7 @@ g_unix_signal_handler (int signum)
+   errno = saved_errno;
+ }
+ 
+-#endif /* !G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+ /**
+  * g_child_watch_source_new:
+@@ -6294,12 +6296,12 @@ g_child_watch_source_new (GPid pid)
+ 
+   child_watch_source->pid = pid;
+ 
+-#ifdef G_OS_WIN32
++#if defined(G_OS_WIN32) || defined(G_PLATFORM_WASM)
+   child_watch_source->poll.fd = (gintptr) pid;
+   child_watch_source->poll.events = G_IO_IN;
+ 
+   g_source_add_poll (source, &child_watch_source->poll);
+-#else /* !G_OS_WIN32 */
++#else /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+ #ifdef HAVE_PIDFD
+   /* Use a pidfd, if possible, to avoid having to install a global SIGCHLD
+@@ -6334,7 +6336,7 @@ g_child_watch_source_new (GPid pid)
+   ref_unix_signal_handler_unlocked (SIGCHLD);
+   unix_child_watches = g_slist_prepend (unix_child_watches, child_watch_source);
+   G_UNLOCK (unix_signal_lock);
+-#endif /* !G_OS_WIN32 */
++#endif /* !G_OS_WIN32 && !G_PLATFORM_WASM */
+ 
+   return source;
+ }
+@@ -6789,7 +6791,7 @@ glib_worker_main (gpointer data)
+     {
+       g_main_context_iteration (glib_worker_context, TRUE);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       if (g_atomic_int_get (&any_unix_signal_pending))
+         dispatch_unix_signals ();
+ #endif
+@@ -6806,7 +6808,7 @@ g_get_worker_context (void)
+   if (g_once_init_enter (&initialised))
+     {
+       /* mask all signals in the worker thread */
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       sigset_t prev_mask;
+       sigset_t all;
+ 
+@@ -6815,7 +6817,7 @@ g_get_worker_context (void)
+ #endif
+       glib_worker_context = g_main_context_new ();
+       g_thread_new ("gmain", glib_worker_main, NULL);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
+ #endif
+       g_once_init_leave (&initialised, TRUE);
+diff --git a/glib/gthread.c b/glib/gthread.c
+index 8354c01e5..cdcb9a931 100644
+--- a/glib/gthread.c
++++ b/glib/gthread.c
+@@ -61,6 +61,10 @@
+ #include <windows.h>
+ #endif /* G_OS_WIN32 */
+ 
++#ifdef G_PLATFORM_WASM
++#include <emscripten/threading.h>
++#endif /*G_PLATFORM_WASM*/
++
+ #include "gslice.h"
+ #include "gstrfuncs.h"
+ #include "gtestutils.h"
+@@ -1142,7 +1146,9 @@ g_thread_get_name (GThread *thread)
+ guint
+ g_get_num_processors (void)
+ {
+-#ifdef G_OS_WIN32
++#ifdef G_PLATFORM_WASM
++  return emscripten_num_logical_cores();
++#elif defined(G_OS_WIN32)
+   unsigned int count;
+   SYSTEM_INFO sysinfo;
+   DWORD_PTR process_cpus;
+diff --git a/glib/gtimezone.c b/glib/gtimezone.c
+index 6e8605db3..adb686296 100644
+--- a/glib/gtimezone.c
++++ b/glib/gtimezone.c
+@@ -202,7 +202,7 @@ static GTimeZone *tz_local = NULL;
+                            there's no point in getting carried
+                            away. */
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static GTimeZone *parse_footertz (const gchar *, size_t);
+ #endif
+ 
+@@ -503,7 +503,7 @@ zone_identifier_illumos (void)
+ }
+ #endif /* defined(__sun) && defined(__SRVR) */
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #define MAX_SYMLINKS 20
+ 
+ /*
+@@ -1697,7 +1697,7 @@ rules_from_identifier (const gchar   *identifier,
+   return create_ruleset_from_rule (rules, &tzr);
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static GTimeZone *
+ parse_footertz (const gchar *footer, size_t footerlen)
+ {
+@@ -1856,7 +1856,9 @@ g_time_zone_new_identifier (const gchar *identifier)
+   else
+     {
+       G_LOCK (tz_default);
+-#ifdef G_OS_UNIX
++#ifdef G_PLATFORM_WASM
++      resolved_identifier = g_strdup ("UTC0");
++#elif defined (G_OS_UNIX)
+       resolved_identifier = zone_identifier_unix ();
+ #elif defined (G_OS_WIN32)
+       resolved_identifier = windows_default_tzname ();
+@@ -1896,7 +1898,7 @@ g_time_zone_new_identifier (const gchar *identifier)
+ 
+   if (tz->t_info == NULL)
+     {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       GBytes *zoneinfo = zone_info_unix (identifier, resolved_identifier);
+       if (zoneinfo != NULL)
+         {
+diff --git a/glib/gutils.c b/glib/gutils.c
+index 02da41b68..9325c1f9a 100644
+--- a/glib/gutils.c
++++ b/glib/gutils.c
+@@ -1534,7 +1534,7 @@ get_windows_version (gboolean with_windows)
+ }
+ #endif
+ 
+-#if defined (G_OS_UNIX) && !defined (__APPLE__)
++#if defined (G_OS_UNIX) && !defined (__APPLE__) && !defined (G_PLATFORM_WASM)
+ static gchar *
+ get_os_info_from_os_release (const gchar *key_name,
+                              const gchar *buffer)
+@@ -1691,6 +1691,11 @@ g_get_os_info (const gchar *key_name)
+     return g_strdup ("macOS");
+   else
+     return NULL;
++#elif defined (G_PLATFORM_WASM)
++  if (g_strcmp0 (key_name, G_OS_INFO_KEY_NAME) == 0)
++    return g_strdup ("wasm");
++  else
++    return NULL;
+ #elif defined (G_OS_UNIX)
+   const gchar * const os_release_files[] = { "/etc/os-release", "/usr/lib/os-release" };
+   gsize i;
+diff --git a/glib/gwakeup.c b/glib/gwakeup.c
+index 820804216..1f6140e00 100644
+--- a/glib/gwakeup.c
++++ b/glib/gwakeup.c
+@@ -110,16 +110,24 @@ g_wakeup_free (GWakeup *wakeup)
+ 
+ #else
+ 
++#ifdef G_PLATFORM_WASM
++#ifdef GLIB_COMPILATION
++#include "gmessages.h"
++#endif
++#else /* !G_PLATFORM_WASM */
+ #include "glib-unix.h"
+ #include <fcntl.h>
+ 
+ #if defined (HAVE_EVENTFD)
+ #include <sys/eventfd.h>
+ #endif
++#endif /*G_PLATFORM_WASM*/
+ 
+ struct _GWakeup
+ {
++#ifndef G_PLATFORM_WASM
+   gint fds[2];
++#endif
+ };
+ 
+ /*< private >
+@@ -136,6 +144,10 @@ struct _GWakeup
+ GWakeup *
+ g_wakeup_new (void)
+ {
++#ifdef G_PLATFORM_WASM
++  g_error ("g_wakeup_new is no-op on WebAssembly");
++  return NULL;
++#else
+   GError *error = NULL;
+   GWakeup *wakeup;
+ 
+@@ -166,6 +178,7 @@ g_wakeup_new (void)
+     g_error ("Set pipes non-blocking for GWakeup: %s", error->message);
+ 
+   return wakeup;
++#endif
+ }
+ 
+ /*< private >
+@@ -184,8 +197,12 @@ void
+ g_wakeup_get_pollfd (GWakeup *wakeup,
+                      GPollFD *poll_fd)
+ {
++#ifdef G_PLATFORM_WASM
++  g_error ("g_wakeup_get_pollfd is no-op on WebAssembly");
++#else
+   poll_fd->fd = wakeup->fds[0];
+   poll_fd->events = G_IO_IN;
++#endif
+ }
+ 
+ /*< private >
+@@ -205,6 +222,9 @@ g_wakeup_get_pollfd (GWakeup *wakeup,
+ void
+ g_wakeup_acknowledge (GWakeup *wakeup)
+ {
++#ifdef G_PLATFORM_WASM
++  g_error ("g_wakeup_acknowledge is no-op on WebAssembly");
++#else
+   int res;
+ 
+   if (wakeup->fds[1] == -1)
+@@ -225,6 +245,7 @@ g_wakeup_acknowledge (GWakeup *wakeup)
+         res = read (wakeup->fds[0], &value, sizeof (value));
+       while (res == sizeof (value) || G_UNLIKELY (res == -1 && errno == EINTR));
+     }
++#endif
+ }
+ 
+ /*< private >
+@@ -244,6 +265,9 @@ g_wakeup_acknowledge (GWakeup *wakeup)
+ void
+ g_wakeup_signal (GWakeup *wakeup)
+ {
++#ifdef G_PLATFORM_WASM
++  g_error ("g_wakeup_signal is no-op on WebAssembly");
++#else
+   int res;
+ 
+   if (wakeup->fds[1] == -1)
+@@ -266,6 +290,7 @@ g_wakeup_signal (GWakeup *wakeup)
+         res = write (wakeup->fds[1], &one, sizeof one);
+       while (G_UNLIKELY (res == -1 && errno == EINTR));
+     }
++#endif
+ }
+ 
+ /*< private >
+@@ -280,12 +305,16 @@ g_wakeup_signal (GWakeup *wakeup)
+ void
+ g_wakeup_free (GWakeup *wakeup)
+ {
++#ifdef G_PLATFORM_WASM
++  g_error ("g_wakeup_free is no-op on WebAssembly");
++#else
+   close (wakeup->fds[0]);
+ 
+   if (wakeup->fds[1] != -1)
+     close (wakeup->fds[1]);
+ 
+   g_slice_free (GWakeup, wakeup);
++#endif
+ }
+ 
+ #endif /* !_WIN32 */
+diff --git a/glib/meson.build b/glib/meson.build
+index 655b5972e..faf597c2f 100644
+--- a/glib/meson.build
++++ b/glib/meson.build
+@@ -380,13 +380,14 @@ if host_system == 'windows'
+     glib_sources += files('dirent/wdirent.c')
+   endif
+ else
+-  glib_sources += files('glib-unix.c', 'giounix.c')
++  if host_system != 'emscripten'
++    glib_sources += files('glib-unix.c', 'giounix.c')
++  endif
+   if process_spawn_allowed
+     glib_sources += files('gspawn-posix.c')
+   else
+     glib_sources += files('gspawn-unsupported.c')
+   endif
+-  platform_deps = []
+ endif
+ 
+ if host_system == 'linux'
+diff --git a/gobject/gsourceclosure.c b/gobject/gsourceclosure.c
+index 13da5cf99..f4076abdc 100644
+--- a/gobject/gsourceclosure.c
++++ b/gobject/gsourceclosure.c
+@@ -25,7 +25,7 @@
+ #include "gmarshal.h"
+ #include "gvalue.h"
+ #include "gvaluetypes.h"
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include "glib-unix.h"
+ #endif
+ 
+@@ -119,7 +119,7 @@ g_child_watch_closure_callback (GPid     pid,
+ 
+   g_value_init (&result_value, G_TYPE_BOOLEAN);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_value_init (&params[0], G_TYPE_ULONG);
+   G_STATIC_ASSERT (sizeof (pid) <= sizeof (unsigned long));
+   g_value_set_ulong (&params[0], (gulong) pid);
+@@ -142,7 +142,7 @@ g_child_watch_closure_callback (GPid     pid,
+   return result;
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static gboolean
+ g_unix_fd_source_closure_callback (int           fd,
+                                    GIOCondition  condition,
+@@ -200,16 +200,18 @@ closure_callback_get (gpointer     cb_data,
+ 
+   if (!closure_callback)
+     {
+-      if (source->source_funcs == &g_io_watch_funcs)
+-        closure_callback = (GSourceFunc)io_watch_closure_callback;
+-      else if (source->source_funcs == &g_child_watch_funcs)
++      if (source->source_funcs == &g_child_watch_funcs)
+         closure_callback = (GSourceFunc)g_child_watch_closure_callback;
+-#ifdef G_OS_UNIX
++#ifndef G_PLATFORM_WASM
++      else if (source->source_funcs == &g_io_watch_funcs)
++        closure_callback = (GSourceFunc)io_watch_closure_callback;
++#endif
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       else if (source->source_funcs == &g_unix_fd_source_funcs)
+         closure_callback = (GSourceFunc)g_unix_fd_source_closure_callback;
+ #endif
+       else if (source->source_funcs == &g_timeout_funcs ||
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+                source->source_funcs == &g_unix_signal_funcs ||
+ #endif
+                source->source_funcs == &g_idle_funcs)
+@@ -252,12 +254,14 @@ g_source_set_closure (GSource  *source,
+   g_return_if_fail (closure != NULL);
+ 
+   if (!source->source_funcs->closure_callback &&
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       source->source_funcs != &g_unix_fd_source_funcs &&
+       source->source_funcs != &g_unix_signal_funcs &&
+ #endif
+       source->source_funcs != &g_child_watch_funcs &&
++#ifndef G_PLATFORM_WASM
+       source->source_funcs != &g_io_watch_funcs &&
++#endif
+       source->source_funcs != &g_timeout_funcs &&
+       source->source_funcs != &g_idle_funcs)
+     {
+@@ -277,7 +281,7 @@ g_source_set_closure (GSource  *source,
+       if (marshal)
+ 	g_closure_set_marshal (closure, marshal);
+       else if (source->source_funcs == &g_idle_funcs ||
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+                source->source_funcs == &g_unix_signal_funcs ||
+ #endif
+                source->source_funcs == &g_timeout_funcs)
+diff --git a/meson.build b/meson.build
+index 5fcc83db2..c4dbd8789 100644
+--- a/meson.build
++++ b/meson.build
+@@ -296,7 +296,7 @@ glib_conf.set('ENABLE_NLS', 1)
+ glibconfig_conf.set('LT_CURRENT_MINUS_AGE', soversion)
+ 
+ process_spawn_allowed = true
+-if subsystem.startswith('tvos') or subsystem.startswith('watchos')
++if subsystem.startswith('tvos') or subsystem.startswith('watchos') or host_system == 'emscripten'
+   process_spawn_allowed = false
+ endif
+ 
+@@ -357,6 +357,9 @@ if host_system == 'windows'
+ elif host_system == 'cygwin'
+   glib_os = '''#define G_OS_UNIX
+ #define G_WITH_CYGWIN'''
++elif host_system == 'emscripten'
++  glib_os = '''#define G_OS_UNIX
++#define G_PLATFORM_WASM'''
+ else
+   glib_os = '#define G_OS_UNIX'
+ endif
+@@ -891,7 +894,7 @@ if host_system != 'windows' and cc.has_function('posix_memalign', prefix: '#incl
+ endif
+ 
+ # Check that posix_spawn() is usable; must use header
+-if cc.has_function('posix_spawn', prefix : '#include <spawn.h>')
++if process_spawn_allowed and cc.has_function('posix_spawn', prefix : '#include <spawn.h>')
+   glib_conf.set('HAVE_POSIX_SPAWN', 1)
+ endif
+ 
+@@ -1894,6 +1897,8 @@ glibconfig_conf.set('gssizebits', ssizet_size * 8)
+ # XXX: https://gitlab.gnome.org/GNOME/glib/issues/1413
+ if host_system == 'windows' or host_system == 'cygwin'
+   g_module_suffix = 'dll'
++elif host_system == 'emscripten'
++  g_module_suffix = 'wasm'
+ else
+   g_module_suffix = 'so'
+ endif

@@ -1,0 +1,34 @@
+From 8af8167bb02fb90d9759f63074e3c4dd6b81ffd5 Mon Sep 17 00:00:00 2001
+From: Kleis Auke Wolthuizen <github@kleisauke.nl>
+Date: Wed, 18 Sep 2019 15:00:00 +0200
+Subject: [PATCH 03/14] Emscripten doesn't always define
+ __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
+
+See:
+https://github.com/llvm/llvm-project/commit/d227c3b68cf5c236902c9ff4fdf8b719c9a3dd26
+
+Upstream-Status: Inappropriate [Wasm-specific]
+GLib will not integrate any Wasm-specific patches until the toolchain
+supports calling functions through differently typed function pointers,
+see: https://gitlab.gnome.org/GNOME/glib/-/issues/3596
+
+(cherry picked from commit 84981eb5dd3146918b2b46b908e9aa885aa87cb5)
+---
+ meson.build | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 4be0a7ce8..4b80c6df0 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2100,8 +2100,8 @@ atomicdefine = '''
+ # We know that we can always use real ("lock free") atomic operations with MSVC
+ if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl' or cc.links(atomictest, name : 'atomic ops')
+   have_atomic_lock_free = true
+-  if cc.get_id() == 'gcc' and not cc.compiles(atomicdefine, name : 'atomic ops define')
+-    # Old gcc release may provide
++  if (cc.get_id() == 'gcc' or host_system == 'emscripten') and not cc.compiles(atomicdefine, name : 'atomic ops define')
++    # Some old releases of GCC or Emscripten provides
+     # __sync_bool_compare_and_swap but doesn't define
+     # __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
+     glib_conf.set('__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4', true)
