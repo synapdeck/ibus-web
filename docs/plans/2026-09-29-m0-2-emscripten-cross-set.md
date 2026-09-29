@@ -625,7 +625,7 @@ int main(void) {
 project('meson-consumer', 'c')
 
 executable(
-  'meson-consumer',
+  'consumer',
   'main.c',
   dependencies: [dependency('zlib'), dependency('libffi')],
   # A threaded program keeps its runtime alive after main returns, and
@@ -726,9 +726,10 @@ If libffi's configure rejects the host, `wasm32-*-*` in its `configure.host` sho
         env.NIX_CFLAGS_COMPILE = "-DIBUS_WEB_RECIPE_CFLAGS";
         installPhase = ''
           runHook preInstall
-          node meson-consumer.js | tee $out
-          grep -qx "zlib ok" $out
-          grep -qx "ffi 42" $out
+          mkdir -p $out
+          node consumer.js | tee $out/output.txt
+          grep -qx "zlib ok" $out/output.txt
+          grep -qx "ffi 42" $out/output.txt
           runHook postInstall
         '';
       };
