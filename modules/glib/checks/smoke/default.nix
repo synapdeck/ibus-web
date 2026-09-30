@@ -9,6 +9,8 @@
       pkgConfig = "${pkgsWasm.stdenv.cc.targetPrefix}pkg-config";
     in
     {
+      ibusWeb.toolchain.devLibraries = [ pkgsWasm.glib ];
+
       checks.glib =
         pkgsWasm.runCommandCC "ibus-web-glib-check"
           {

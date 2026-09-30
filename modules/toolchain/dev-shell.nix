@@ -16,8 +16,17 @@
       inherit (pkgs) emscripten;
       pkgConfig = toolchain.pkgsWasm.buildPackages.pkg-config;
 
+      # The cross pkg-config always resolves static linking, which needs
+      # every Requires.private module, so propagated inputs are searched too.
+      withPropagated =
+        drvs:
+        lib.unique (
+          lib.concatMap (drv: [ drv ] ++ withPropagated (drv.propagatedBuildInputs or [ ])) (
+            lib.filter lib.isDerivation drvs
+          )
+        );
       pkgConfigPath = lib.concatStringsSep ":" (
-        map (dir: lib.makeSearchPathOutput "dev" dir toolchain.devLibraries) [
+        map (dir: lib.makeSearchPathOutput "dev" dir (withPropagated toolchain.devLibraries)) [
           "lib/pkgconfig"
           "share/pkgconfig"
         ]
@@ -61,7 +70,8 @@
             done
           done
           if [ -n "$modules" ]; then
-            for flag in $(${pkgConfig}/bin/${targetPrefix}pkg-config --cflags $modules); do
+            cflags=$(${pkgConfig}/bin/${targetPrefix}pkg-config --cflags $modules)
+            for flag in $cflags; do
               echo "    - \"''${flag/#-I/-isystem}\""
             done
           fi
