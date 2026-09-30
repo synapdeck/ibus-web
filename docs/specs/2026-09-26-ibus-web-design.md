@@ -1092,7 +1092,25 @@ artifacts; WASM builds of nixpkgs packages are reached through
     tool variable names an installed program. GLib's executables link
     with `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8
     -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the
-    libraries don't see these.
+    libraries don't see these. The tools keep Node's raw filesystem, one of
+    Emscripten's JavaScript file systems, because WasmFS under Node breaks
+    them: its Node backend traps on `fsync()`, which GLib issues when it
+    replaces a non-empty file (a second `glib-compile-schemas` into the
+    same directory), and its stdout turns a NUL byte into a line break.
+  - **Tests' file system.** `checks.glib-tests` links GLib's tests with
+    WasmFS, the file system the runtime ships, in place of
+    `-sNODERAWFS=1`: `ibusWeb.toolchain.nodeHostFsFlags` is `-sWASMFS=1
+    -sNODE_HOST_ENV=1` and an object that roots WasmFS at the host's `/`
+    through its Node backend and starts in Node's working directory.
+    Emscripten's `-sNODERAWFS` under WasmFS roots the tree at the working
+    directory instead, so absolute paths miss the build tree. Each test's
+    `TMPDIR` names a directory the host lacks, which the object creates
+    in WasmFS's memory backend, so temporary files live in memory as in
+    the browser and never meet the Node backend's gaps: it traps on
+    `fsync()`, and a file renamed over another keeps its old host path,
+    so reopening it fails. `ibusWeb.toolchain.testMainFlags` link the
+    other Node-run checks the same way, and the GLib smoke check keeps
+    its file in such a `TMPDIR` too.
   - **Tools in consumers' builds.** A cross build runs its tools on the
     build machine, whose GLib has unpatched ones (its `gdbus-codegen`
     emits interface init functions WebAssembly traps on). `pkgsWasm.glib`
@@ -1189,13 +1207,15 @@ specification and `release.json`.
    re-encoded byte for byte in TS, and the reverse); property tests from
    schema-derived arbitraries (fast-check).
 2. **Runtime.** GLib's own tests, built by `pkgsWasm.glib`'s recipe and run
-   under Node in `checks.glib-tests`. `modules/glib/checks/tests/baseline.toml`
-   lists the tests that must pass, every one that passed in the reviewed run
-   (237 of 300), and the excluded tests with the reason each can't run here:
-   process spawning, sockets, blocking main-context iteration and pipes (31),
-   which are reported but never run. The rest are reported on every run but don't gate: 19 failures from libc,
-   locale and time differences, Node's raw filesystem and small GIO gaps,
-   and 13 skips. Also C tests for `libibus-web` (lifecycle, emitters, pump,
+   under Node on WasmFS (§10.3) in `checks.glib-tests`.
+   `modules/glib/checks/tests/baseline.toml` lists the tests that must pass,
+   every one that passed in three reviewed runs (243 of 300), and the
+   excluded tests with the reason each can't run here: process spawning,
+   sockets, blocking main-context iteration and pipes (24), which are
+   reported but never run. The rest are reported on every run but don't
+   gate: 20 failures from libc, locale and time differences, WasmFS's
+   file-time precision and unchecked directory search permission, and small
+   GIO gaps, and 13 skips. Also C tests for `libibus-web` (lifecycle, emitters, pump,
    settings backend) and, if the lazy arity lookup is built (§5.1.2),
    tests for it.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`

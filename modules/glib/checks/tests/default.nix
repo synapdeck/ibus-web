@@ -4,7 +4,8 @@
   perSystem =
     { config, lib, ... }:
     let
-      inherit (config.ibusWeb.toolchain) pkgsWasm;
+      inherit (config.ibusWeb) toolchain;
+      inherit (toolchain) pkgsWasm;
       inherit (pkgsWasm) pkgsBuildBuild;
 
       # Node makes its stdout non-blocking once a program starts its thread
@@ -16,7 +17,9 @@
       # only handles a signal once its foreground child has exited; without
       # the explicit redirection a background job reads /dev/null. A test
       # killed by a signal is reported the same way, by the wrapper dying of
-      # it too, so Meson doesn't take it for an exit status.
+      # it too, so Meson doesn't take it for an exit status. TMPDIR names a
+      # directory the host doesn't have, which the tests' file system then
+      # keeps in memory, as the browser keeps temporary files.
       nodeToFiles = pkgsBuildBuild.writeShellScript "node-to-files" ''
         dir=$(mktemp -d)
         replay() {
@@ -29,7 +32,7 @@
           kill -s "$1" $$
         }
         trap 'replay; die TERM' TERM
-        ${lib.getExe pkgsBuildBuild.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
+        TMPDIR=$dir/tmp ${lib.getExe pkgsBuildBuild.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
         wait $!
         status=$?
         replay
@@ -38,6 +41,7 @@
         fi
         exit $status
       '';
+      nodeRawFs = "-sNODERAWFS=1";
       testsCrossFile = pkgsBuildBuild.writeText "glib-tests-cross.ini" ''
         [binaries]
         exe_wrapper = ['${nodeToFiles}']
@@ -49,7 +53,14 @@
       # the build machine can't execute host binaries, so the tests run here.
       checks.glib-tests = pkgsWasm.glib.overrideAttrs (old: {
         pname = "ibus-web-glib-tests";
-        mesonFlags = (old.mesonFlags or [ ]) ++ [ "-Dtests=true" ];
+        # The tests link against WasmFS, the file system the runtime ships,
+        # rather than the tools' JavaScript one. If the C and C++ link
+        # arguments stop naming the latter, evaluation fails instead of the
+        # tests quietly staying on it.
+        mesonFlags =
+          assert lib.count (lib.hasInfix nodeRawFs) old.mesonFlags == 2;
+          map (lib.replaceStrings [ nodeRawFs ] [ toolchain.nodeHostFsFlags ]) old.mesonFlags
+          ++ [ "-Dtests=true" ];
         # After the toolchain's cross file, whose exe_wrapper this replaces.
         preConfigure = (old.preConfigure or "") + ''
           mesonFlagsArray+=("--cross-file=${testsCrossFile}")

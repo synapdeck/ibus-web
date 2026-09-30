@@ -13,6 +13,10 @@
         type = lib.types.str;
         description = "Link flags for Node-run test programs; a combination the library cache covers.";
       };
+      nodeHostFsFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "Link flags putting a Node-run program on WasmFS with the host's files at their own paths; a TMPDIR missing on the host is created in memory.";
+      };
       emscriptenCache = lib.mkOption {
         type = lib.types.package;
         description = "Emscripten cache prebuilt for this project's library variants.";

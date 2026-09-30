@@ -4,15 +4,17 @@
 # Tests that must pass for the build to succeed. Filled in from a reviewed
 # run; see the excluded table for tests that cannot work in this runtime.
 # Tests in neither table are reported on every run but don't gate: they
-# are gaps worth fixing (libc, locale and time differences, the Node
-# filesystem, small GIO gaps).
+# are gaps worth fixing (libc, locale and time differences, WasmFS
+# differences, small GIO gaps).
 
 [must_pass]
 tests = [
   "gio - glib:application-command-line",
+  "gio - glib:async-close-output-stream",
   "gio - glib:autoptr-gio",
   "gio - glib:buffered-input-stream",
   "gio - glib:buffered-output-stream",
+  "gio - glib:contexts",
   "gio - glib:converter",
   "gio - glib:credentials",
   "gio - glib:data-input-stream",
@@ -21,7 +23,9 @@ tests = [
   "gio - glib:file-enumerator",
   "gio - glib:file-thumbnail",
   "gio - glib:fileattributematcher",
+  "gio - glib:filter-streams",
   "gio - glib:g-file",
+  "gio - glib:g-icon",
   "gio - glib:gdbus-addresses",
   "gio - glib:gdbus-message",
   "gio - glib:giomodule",
@@ -40,7 +44,9 @@ tests = [
   "gio - glib:sandbox",
   "gio - glib:simple-async-result",
   "gio - glib:simple-proxy",
+  "gio - glib:sleepy-stream",
   "gio - glib:srvtarget",
+  "gio - glib:task",
   "gio - glib:thumbnail-verification",
   "gio - glib:tls-certificate",
   "gio - glib:tls-database",
@@ -77,8 +83,8 @@ tests = [
   "glib+core - glib:dir",
   "glib+core - glib:environment",
   "glib+core - glib:error",
-  "glib+core - glib:fileutils",
   "glib+core - glib:guuid",
+  "glib+core - glib:gwakeup",
   "glib+core - glib:hash",
   "glib+core - glib:hmac",
   "glib+core - glib:hook",
@@ -250,25 +256,18 @@ tests = [
 
 # name = "reason it cannot run under Node with Emscripten"
 [excluded]
-"gio - glib:async-close-output-stream" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:async-splice-output-stream" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:cancellable" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"gio - glib:contexts" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:filenamecompleter" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"gio - glib:filter-streams" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"gio - glib:g-icon" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:gdbus-peer" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:gdbus-server-auth" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:iptosmessage" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:pollable" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:proxy-test" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:sleepy-stream" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:socket" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:socket-listener" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:socket-service" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:task" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio+no-valgrind - glib:gio-tool.py" = "no process spawning under Emscripten"
-"glib+core - glib:gwakeup" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "glib+core - glib:io-channel-basic" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "glib+core - glib:mainloop" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "glib+core - glib:mapping" = "no process spawning under Emscripten"

@@ -377,9 +377,9 @@ leaves `query_exists` unset on platforms with the same gap (Android,
 Solaris, the BSDs); the fallback queries the file's type, which
 reports a dangling symlink as existing. `access()`, `g_access()` and `g_file_test()` pass
 no flags and are unaffected. Under Node's raw filesystem
-(`-sNODERAWFS`, used for tests and tools), path lookups never follow
-symlinks, so `access()` finds a dangling symlink; the browser's
-filesystems are not affected by that.
+(`-sNODERAWFS`, which the tools use), path lookups never follow
+symlinks, so `access()` finds a dangling symlink; WasmFS, which the
+tests and the browser use, is not affected by that.
 
 0025 gives `GMainContext` a wakeup it can sleep on, so a blocking
 `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` no longer
@@ -408,10 +408,11 @@ without editing them:
   asynchronously with pthreads; WasmFS implements it in C and is not
   affected): that needs the main thread back in its event loop, so on the
   JavaScript file systems a pthread's `fsync()` waits as long as the main
-  thread blocks, in a GLib loop or anywhere else. GLib's `async-splice-output-stream` test hangs that way: its
-  threaded-output case replaces an existing file from a `GTask` thread,
-  which GLib `fsync()`s before the rename, while the main thread sleeps
-  in `g_main_loop_run()`.
+  thread blocks, in a GLib loop or anywhere else. On them, GLib's
+  `async-splice-output-stream` test hangs that way: its threaded-output
+  case replaces an existing file from a `GTask` thread, which GLib
+  `fsync()`s before the rename, while the main thread sleeps in
+  `g_main_loop_run()`. The tests run on WasmFS, where it completes.
 - **The main context.** `g_main_context_iterate_unlocked()` passes the
   computed timeout on again (0012's forced zero is gone), and
   `g_main_context_poll_unlocked()` hands it to a WebAssembly-only loop

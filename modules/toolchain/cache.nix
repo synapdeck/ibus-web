@@ -20,6 +20,12 @@
       mainLinkNode = "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
       mainLinkWasmfs = "-sMAIN_MODULE=2 -sPTHREAD_POOL_SIZE=2 -sWASMFS=1 -sEXIT_RUNTIME=1";
 
+      # Node-run programs on WasmFS, the runtime's file system. `object`
+      # gives them the host's files at the host's paths.
+      nodeHostFsFlags = object: "-sWASMFS=1 -sNODE_HOST_ENV=1 ${object}";
+      mainLinkNodeWasmfs =
+        object: "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sEXIT_RUNTIME=1 ${nodeHostFsFlags object}";
+
       emscriptenCache = pkgs.stdenvNoCC.mkDerivation {
         pname = "emscripten-cache";
         inherit (emscripten) version;
@@ -37,13 +43,17 @@
 
           # The level comes last so it overrides the one in the common
           # flags: a package's own -O0 links against the debug variants.
+          emcc ${commonFlags} -c ${./node-host-fs.c} -o $TMPDIR/node-host-fs.o
           for opt in -O0 -O2; do
             emcc ${commonFlags} $opt -c probe.c -o $TMPDIR/probe.o
             # Configure scripts link plain test executables with the
             # project's compile flags.
             emcc ${commonFlags} $opt $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
             em++ ${commonFlags} $opt probe.cpp -o $TMPDIR/probe-plain-cpp.js
-            for link in "${mainLinkNode}" "${mainLinkWasmfs}"; do
+            # GLib's tests are plain executables on WasmFS.
+            emcc ${commonFlags} $opt ${nodeHostFsFlags "$TMPDIR/node-host-fs.o"} $TMPDIR/probe.o \
+              -o $TMPDIR/probe-plain-wasmfs.js
+            for link in "${mainLinkNode}" "${mainLinkWasmfs}" "${mainLinkNodeWasmfs "$TMPDIR/node-host-fs.o"}"; do
               em++ ${commonFlags} $opt $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
               em++ ${commonFlags} $opt $link probe.cpp -o $TMPDIR/probe-cpp.js
             done
@@ -53,6 +63,7 @@
 
           node $TMPDIR/probe-c.js
           node $TMPDIR/probe-cpp.js
+          node $TMPDIR/probe-plain-wasmfs.js
           runHook postBuild
         '';
 
@@ -63,13 +74,27 @@
           runHook postInstall
         '';
       };
+
+      nodeHostFs =
+        pkgs.runCommand "ibus-web-node-host-fs"
+          {
+            nativeBuildInputs = [
+              emscripten
+              toolchain.emscriptenCacheHook
+            ];
+          }
+          ''
+            mkdir $out
+            emcc ${commonFlags} -c ${./node-host-fs.c} -o $out/node-host-fs.o
+          '';
     in
     {
       ibusWeb.toolchain = {
         inherit commonFlags emscriptenCache;
         # Every link inherits the wrapper's -O2, which turns Emscripten's
         # runtime assertions off; test programs want them back.
-        testMainFlags = "-O2 -sASSERTIONS=1 ${mainLinkNode}";
+        testMainFlags = "-O2 -sASSERTIONS=1 ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"}";
+        nodeHostFsFlags = nodeHostFsFlags "${nodeHostFs}/node-host-fs.o";
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";
           substitutions.cache = emscriptenCache;
@@ -98,6 +123,8 @@
             test "$(node probe-cpp.js)" = "probe 2"
             em++ ${toolchain.commonFlags} -O2 ${mainLinkWasmfs} probe.o -o probe-wasmfs.js
             test "$(node probe-wasmfs.js)" = "probe 7"
+            emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} probe.o -o probe-plain-wasmfs.js
+            test "$(node probe-plain-wasmfs.js)" = "probe 7"
 
             emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
             test "$(node probe-plain.js)" = "probe 7"

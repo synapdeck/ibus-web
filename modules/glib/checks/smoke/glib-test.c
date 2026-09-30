@@ -233,22 +233,25 @@ int main(void) {
   g_object_unref(group);
   g_object_unref(source);
 
-  /* Relative to the build directory: the sandbox may have no /tmp. */
-  g_file_set_contents("glib-test.txt", "gio", -1, NULL);
-  GFile *file = g_file_new_for_path("glib-test.txt");
+  /* In the temporary directory, which WasmFS keeps in memory, as in the
+   * browser. */
+  gchar *path = g_build_filename(g_get_tmp_dir(), "glib-test.txt", NULL);
+  g_file_set_contents(path, "gio", -1, NULL);
+  GFile *file = g_file_new_for_path(path);
   gchar *contents = NULL;
   g_file_load_contents(file, NULL, &contents, NULL, NULL, NULL);
   printf("gio %s\n", contents);
   g_free(contents);
   g_object_unref(file);
+  g_free(path);
 
-  /* A dangling symlink exists. (Following it, as G_FILE_TEST_EXISTS does,
-   * isn't checked: Node's raw filesystem looks paths up without following
-   * links.) */
+  /* A dangling symlink exists, but following it, as G_FILE_TEST_EXISTS
+   * does, finds nothing. */
   symlink("glib-test-missing", "glib-test-dangling");
   GFile *dangling = g_file_new_for_path("glib-test-dangling");
-  printf("exists %d %d\n", g_file_query_exists(dangling, NULL),
-         g_file_test("glib-test-dangling", G_FILE_TEST_IS_SYMLINK));
+  printf("exists %d %d %d\n", g_file_query_exists(dangling, NULL),
+         g_file_test("glib-test-dangling", G_FILE_TEST_IS_SYMLINK),
+         g_file_test("glib-test-dangling", G_FILE_TEST_EXISTS));
   g_object_unref(dangling);
 
   GMainContext *context = g_main_context_new();
