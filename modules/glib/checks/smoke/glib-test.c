@@ -3,7 +3,10 @@
 
 /* Exercises each GLib library once: GLib (key files, GRegex, threads, a main
  * context, callbacks cast to GCompareFunc), GObject (a property notification,
- * a dynamic type, signal class handlers) and GIO (reading a file back). */
+ * a dynamic type, signal class handlers) and GIO (reading a file back). Also
+ * checks that blocking main-context iteration sleeps instead of spinning,
+ * and wakes when another thread changes the context. */
+#include <emscripten.h>
 #include <gio/gio.h>
 #include <glib-object.h>
 #include <glib.h>
@@ -23,6 +26,37 @@ static void on_notify(GObject *object, GParamSpec *pspec, gpointer user_data) {
 static gboolean count_idle(gpointer user_data) {
   *(int *)user_data += 1;
   return G_SOURCE_REMOVE;
+}
+
+/* CPU time of the whole process, every thread included. Emscripten's
+ * clock() counts wall time and its getrusage() is a stub, so ask Node. */
+EM_JS(double, process_cpu_ms, (void), {
+  const usage = process.cpuUsage();
+  return (usage.user + usage.system) / 1000;
+});
+
+static gpointer run_loop(gpointer loop) {
+  g_main_loop_run(loop);
+  return NULL;
+}
+
+static gboolean quit_loop(gpointer loop) {
+  g_main_loop_quit(loop);
+  return G_SOURCE_REMOVE;
+}
+
+static void task_thread(GTask *task, gpointer source_object, gpointer task_data,
+                        GCancellable *cancellable) {
+  (void)source_object;
+  (void)task_data;
+  (void)cancellable;
+  g_task_return_int(task, 7);
+}
+
+static void task_done(GObject *source_object, GAsyncResult *result,
+                      gpointer user_data) {
+  (void)source_object;
+  *(gssize *)user_data = g_task_propagate_int(G_TASK(result), NULL);
 }
 
 /* A dynamic type, registered by its GTypeModule when the module loads. */
@@ -227,6 +261,56 @@ int main(void) {
     ;
   g_main_context_unref(context);
   printf("mainloop %d\n", idled);
+
+  /* The loop thread is asleep by the time the source is attached, and only
+   * the context's wakeup can end its wait. */
+  GMainContext *loop_context = g_main_context_new();
+  GMainLoop *loop = g_main_loop_new(loop_context, FALSE);
+  GThread *looper = g_thread_new("loop", run_loop, loop);
+  while (!g_main_loop_is_running(loop))
+    g_usleep(1000);
+  g_usleep(50000);
+  GSource *quitter = g_idle_source_new();
+  g_source_set_callback(quitter, quit_loop, loop, NULL);
+  g_source_attach(quitter, loop_context);
+  g_source_unref(quitter);
+  g_thread_join(looper);
+  printf("wakeup %d\n", !g_main_loop_is_running(loop));
+  g_main_loop_unref(loop);
+  g_main_context_unref(loop_context);
+
+  /* A spinning wait would burn as much CPU time as it takes wall time. */
+  GMainContext *timed = g_main_context_new();
+  gint64 timed_start = g_get_monotonic_time();
+  GSource *timeout = g_timeout_source_new(200);
+  int fired = 0;
+  g_source_set_callback(timeout, count_idle, &fired, NULL);
+  g_source_attach(timeout, timed);
+  g_source_unref(timeout);
+  double timed_cpu = process_cpu_ms();
+  g_main_context_iteration(timed, TRUE);
+  timed_cpu = process_cpu_ms() - timed_cpu;
+  double timed_wall = (g_get_monotonic_time() - timed_start) / 1000.0;
+  g_main_context_unref(timed);
+  printf("blocking wall %.1f ms, cpu %.1f ms\n", timed_wall, timed_cpu);
+  printf("blocking %d %d %d\n", fired, timed_wall >= 200,
+         timed_cpu < timed_wall / 4);
+
+  /* GTask starts GLib's worker context, whose thread then blocks in its
+   * loop for the rest of the program. */
+  gssize task_result = 0;
+  GTask *task = g_task_new(NULL, NULL, task_done, &task_result);
+  g_task_run_in_thread(task, task_thread);
+  g_object_unref(task);
+  while (task_result == 0)
+    g_main_context_iteration(NULL, TRUE);
+  double idle_cpu = process_cpu_ms();
+  gint64 idle_start = g_get_monotonic_time();
+  g_usleep(300000);
+  idle_cpu = process_cpu_ms() - idle_cpu;
+  double idle_wall = (g_get_monotonic_time() - idle_start) / 1000.0;
+  printf("worker wall %.1f ms, cpu %.1f ms\n", idle_wall, idle_cpu);
+  printf("worker %d %d\n", (int)task_result, idle_cpu < idle_wall / 4);
 
   GTypeModule *module = g_object_new(thing_module_get_type(), NULL);
   g_type_module_use(module);

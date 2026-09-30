@@ -23,7 +23,8 @@
           ''
             $CC -O2 $(${pkgConfig} --cflags gio-2.0) -c ${./glib-test.c} -o glib-test.o
             $CXX ${toolchain.testMainFlags} glib-test.o $(${pkgConfig} --libs gio-2.0) -o glib-test.js
-            node glib-test.js | tee output.txt
+            # A lost wakeup leaves a thread asleep for good; fail instead.
+            timeout 300 node glib-test.js | tee output.txt
             mkdir -p $out
             cp output.txt $out/
             grep -qx "keyfile hangul" output.txt
@@ -33,6 +34,9 @@
             grep -qx "gio gio" output.txt
             grep -qx "exists 1 1" output.txt
             grep -qx "mainloop 1" output.txt
+            grep -qx "wakeup 1" output.txt
+            grep -qx "blocking 1 1 1" output.txt
+            grep -qx "worker 7 1" output.txt
             grep -qx "casts abcde" output.txt
             grep -qx "dynamic DynamicThing 1 1" output.txt
             grep -qx "processors yes" output.txt

@@ -1,0 +1,52 @@
+From f105a7ccceadd1540be676f449ab0880d10cef51 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 14:55:45 -0700
+Subject: [PATCH 26/26] tests: Wait on GWakeup without its poll fd on
+ WebAssembly
+
+A WebAssembly GWakeup has no fd, and g_wakeup_get_pollfd() aborts
+there, so gwakeuptest checks and waits for a signal with
+g_wakeup_wait() instead.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/tests/gwakeuptest.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/glib/tests/gwakeuptest.c b/glib/tests/gwakeuptest.c
+index ab36c858a..dbd87bdee 100644
+--- a/glib/tests/gwakeuptest.c
++++ b/glib/tests/gwakeuptest.c
+@@ -1,22 +1,32 @@
+ #include <glib.h>
+ #include <glib/gwakeup.h>
+ 
++/* A WebAssembly wakeup has no fd to poll; it is waited on directly. */
+ static gboolean
+ check_signaled (GWakeup *wakeup)
+ {
++#ifdef G_PLATFORM_WASM
++  return g_wakeup_wait (wakeup, 0);
++#else
+   GPollFD fd;
+ 
+   g_wakeup_get_pollfd (wakeup, &fd);
+   return g_poll (&fd, 1, 0);
++#endif
+ }
+ 
+ static void
+ wait_for_signaled (GWakeup *wakeup)
+ {
++#ifdef G_PLATFORM_WASM
++  while (!g_wakeup_wait (wakeup, -1))
++    ;
++#else
+   GPollFD fd;
+ 
+   g_wakeup_get_pollfd (wakeup, &fd);
+   g_poll (&fd, 1, -1);
++#endif
+ }
+ 
+ static void

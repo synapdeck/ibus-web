@@ -1,7 +1,7 @@
 From 7887bd37217c3d54a74b400fa046f7d77dab364d Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:08:03 -0700
-Subject: [PATCH 21/24] gtestutils: Skip subprocess tests on WebAssembly
+Subject: [PATCH 21/26] gtestutils: Skip subprocess tests on WebAssembly
 
 g_test_trap_subprocess() runs the test binary again as a child process,
 which WebAssembly can't spawn, so the whole test program aborted with a

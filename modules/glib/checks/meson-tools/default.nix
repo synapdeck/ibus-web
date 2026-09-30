@@ -8,9 +8,13 @@
       inherit (pkgsWasm) glib;
     in
     {
-      # A Meson project using each gnome module helper that runs a GLib tool,
-      # the way a library built on this GLib would, with the build machine's
-      # GLib (and its tools) on PATH as well and no depsBuildBuild.
+      # A Meson project calling the gnome module helpers that run a GLib tool
+      # at build time (gdbus_codegen, compile_resources, genmarshal,
+      # mkenums_simple, compile_schemas), the way a library built on this
+      # GLib would, with the build machine's GLib (and its tools) on PATH as
+      # well and no depsBuildBuild. gnome.post_install, which runs
+      # glib-compile-schemas and gio-querymodules at install time, is not
+      # exercised.
       checks.glib-meson-tools = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-glib-meson-tools";
         src = lib.fileset.toSource {

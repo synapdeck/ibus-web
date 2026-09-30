@@ -88,7 +88,9 @@
             # whose gnome module takes a tool from the host machine's cross
             # files before the build machine's GLib. A variable that names a
             # missing program would hand consumers a dead path, so each one
-            # is checked once every output is final.
+            # is checked once every output is final. Meson rejects a cross
+            # file that repeats a key, and would do so in every consumer, so
+            # a tool two .pc files both name fails here instead.
             postFixup =
               programName (replaceIn [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup)
               + ''
@@ -98,6 +100,7 @@
                 ini=$dev/nix-support/glib-tools-cross.ini
                 mkdir -p $dev/nix-support
                 echo "[binaries]" > $ini
+                declare -A toolModule=()
                 for pc in $dev/lib/pkgconfig/*.pc; do
                   module=$(basename "$pc" .pc)
                   variables=$(pcQuery --print-variables "$module")
@@ -108,7 +111,13 @@
                         echo "$module.pc: $variable names $value, which is not installed" >&2
                         exit 1
                       fi
-                      echo "''${variable//_/-} = '$value'" >> $ini
+                      key=''${variable//_/-}
+                      if [[ -v toolModule[$key] ]]; then
+                        echo "$module.pc and ''${toolModule[$key]}.pc both name a $key tool" >&2
+                        exit 1
+                      fi
+                      toolModule[$key]=$module
+                      echo "$key = '$value'" >> $ini
                     fi
                   done
                 done

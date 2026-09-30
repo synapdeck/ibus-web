@@ -50,6 +50,8 @@ originals.
 | 0022 gobject: Call class handlers without user data on WebAssembly | Alexis Williams | — |
 | 0023 tests: Give signal handlers the parameters they're called with | Alexis Williams | — |
 | 0024 gio: Don't query file existence through `faccessat()` on WebAssembly | Alexis Williams | — |
+| 0025 gmain: Wait on a futex-backed GWakeup on WebAssembly | Alexis Williams | — |
+| 0026 tests: Wait on GWakeup without its poll fd on WebAssembly | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -94,7 +96,7 @@ its own commits was checked against the rebased tree:
 | `75de668d3690` A g_error is a fatal error when run, remove it | **Ported** as 0010, unchanged | `g_wakeup_new()` and `g_wakeup_signal()` still call `g_error()` on `G_PLATFORM_WASM` in the rebased tree. Every `GMainContext` creates a wakeup, so creating any main context aborted, and `g_main_loop_quit()`, `g_main_context_wakeup()` and cross-thread source changes signal it. |
 | `4c360061dda3` Initial main loop support | **Ported in part** as 0011 | Kept: skipping `g_wakeup_get_pollfd()`/`g_main_context_add_poll_unlocked()` for the wakeup in `g_main_context_new_with_flags()`, which would otherwise hit `g_error()` in `g_wakeup_get_pollfd()`. Guarded by `G_PLATFORM_WASM` instead of `G_WITH_EMSCRIPTEN`. Dropped: the `emscripten.h` include and running `g_main_loop_run()` through `emscripten_set_main_loop_arg()`; this runtime never hands control back to the browser event loop from its Worker, and pumps the context itself. |
 | `89a193f7e7da` emscripten: fix deadlock in GMainContext-related code | **Skipped** | Changes only the `emscripten_set_main_loop_arg()` path dropped from 0011. |
-| `990ffd85fe41` gmain: emscripten: Use 0 timeout | **Ported** as 0012 | Guarded by `G_PLATFORM_WASM`; applied to `timeout_usec` in `g_main_context_iterate_unlocked()`, which is what 2.88 calls the timeout. Emscripten's `poll()` sends a zero timeout to a synchronous, non-suspending probe. A non-zero timeout is ignored on the main thread and, from a pthread, becomes an asynchronous call proxied to the main thread, which only completes when that thread returns to its event loop. Consequence: with no wakeup fd and the timeout forced to 0, a blocking `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` busy-spins on WebAssembly, including GLib's own worker-context thread. The runtime only iterates non-blocking. |
+| `990ffd85fe41` gmain: emscripten: Use 0 timeout | **Ported** as 0012 | Guarded by `G_PLATFORM_WASM`; applied to `timeout_usec` in `g_main_context_iterate_unlocked()`, which is what 2.88 calls the timeout. Emscripten's `poll()` sends a zero timeout to a synchronous, non-suspending probe. A non-zero timeout is ignored on the main thread and, from a pthread, becomes an asynchronous call proxied to the main thread, which only completes when that thread returns to its event loop. With no wakeup fd and the timeout forced to 0, a blocking `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` busy-spun, including GLib's own worker-context thread; 0025 restores the timeout and waits on a futex instead. |
 | `86387bcf5b85` glist: Fix function signatures in internals of glist/gslist | **Ported** as 0013, all hunks | The Wolthuizen series doesn't touch `glist.c` or `gslist.c`, so none of its hunks were already covered. |
 | `b45d3dc05781` Differentiate wasm from emscripten | **Skipped** | Adds a `G_WITH_EMSCRIPTEN` define; the ported hunks use the series' own `G_PLATFORM_WASM`. |
 | `93fe7aa6231d` Be able to pass the canvas to the thread creation | **Skipped** | Shares WebGL canvases with new threads (GStreamer/WebGL only). |
@@ -115,18 +117,19 @@ WebAssembly, both kinds of call trap with "function signature mismatch";
 0014 finishes 0010. The rebased tree still called `g_error()` from
 `g_wakeup_free()` and `g_wakeup_acknowledge()`. `g_main_context_unref()`
 frees the context's wakeup when the last reference goes, so every context
-that was ever freed aborted. On WebAssembly `g_wakeup_new()` returns `NULL`,
-so there is nothing to release. 0014 also sets the unregistered wakeup
-record's fd to -1; left at 0, a source polling fd 0 would be taken for the
-wakeup and `g_wakeup_acknowledge()` called for it (which no longer aborts
-either).
+that was ever freed aborted. With 0010's `g_wakeup_new()` returning `NULL`
+there was nothing to release. 0014 also set the unregistered wakeup
+record's fd to -1, so that a source polling fd 0 wasn't taken for the
+wakeup. 0025 replaces all of this with a real wakeup and drops the fd -1
+record, which nothing compares against any more.
 
-`g_wakeup_get_pollfd()` still aborts. The main context no longer calls it,
-but `g_cancellable_make_pollfd()` does (after asserting `g_wakeup_new()`,
-which returns `NULL`), so **GCancellable file descriptors —
-`g_cancellable_make_pollfd()` and `g_cancellable_get_fd()` — are unsupported
-on WebAssembly and abort.** Their callers are `gsocket.c`,
-`gasynchelper.c`, `gunixinputstream.c` and `gunixoutputstream.c`.
+`g_wakeup_get_pollfd()` still aborts: a futex can't be polled. The main
+context doesn't call it, but `g_cancellable_make_pollfd()` does, so
+**GCancellable file descriptors — `g_cancellable_make_pollfd()` and
+`g_cancellable_get_fd()` — are unsupported on WebAssembly and abort.**
+Their callers are `gsocket.c`, `gasynchelper.c`, `gunixinputstream.c` and
+`gunixoutputstream.c`. A pipe-backed fd for them is possible but not
+built.
 
 0015 fixes GLib's own calls through mismatched function types. Calling a
 function through a pointer type with a different parameter list or return
@@ -377,6 +380,79 @@ no flags and are unaffected. Under Node's raw filesystem
 (`-sNODERAWFS`, used for tests and tools), path lookups never follow
 symlinks, so `access()` finds a dangling symlink; the browser's
 filesystems are not affected by that.
+
+0025 gives `GMainContext` a wakeup it can sleep on, so a blocking
+`g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` no longer
+busy-spins. It supersedes the wakeup parts of 0010, 0011, 0012 and 0014
+without editing them:
+
+- **The wakeup.** On WebAssembly a `GWakeup` holds two atomic counters.
+  `g_wakeup_signal()` increments `signals` and wakes every waiter on it
+  with `emscripten_futex_wake()`; `g_wakeup_acknowledge()` copies
+  `signals` into `acknowledged`; the new `g_wakeup_wait (wakeup,
+  timeout_usec)` sleeps with `emscripten_futex_wait()` while `signals`
+  still equals `acknowledged`, and says whether it moved. That is
+  eventfd's contract (signalled until acknowledged, any number of signals
+  acknowledged at once), and comparing only for equality makes wrapping
+  harmless. `g_wakeup_new()` allocates one and `g_wakeup_free()` frees it.
+- **Why `emscripten_futex_wait()`** rather than a bare
+  `emscripten_atomic_wait_u32()`: other threads hand a sleeping thread
+  work and wait for it. The main thread runs the calls pthreads proxy to
+  it (file system calls and `poll()` among them), and with dynamic
+  linking `dlopen()` blocks until every thread has loaded the new module.
+  `emscripten_futex_wait()` is woken for both and does the work before
+  returning; a bare atomic wait would deadlock them. On a browser's main
+  thread it busy-waits, but GLib never runs there in this runtime. What
+  it can't do is finish a call Emscripten proxies as a promise
+  (`fsync()`, which `fd_sync` resolves asynchronously with pthreads): that
+  needs the main thread back in its event loop, so a pthread's `fsync()`
+  waits as long as the main thread blocks, in a GLib loop or anywhere
+  else. GLib's `async-splice-output-stream` test hangs that way: its
+  threaded-output case replaces an existing file from a `GTask` thread,
+  which GLib `fsync()`s before the rename, while the main thread sleeps
+  in `g_main_loop_run()`.
+- **The main context.** `g_main_context_iterate_unlocked()` passes the
+  computed timeout on again (0012's forced zero is gone), and
+  `g_main_context_poll_unlocked()` hands it to a WebAssembly-only loop
+  instead of `poll()`/`ppoll()`. With no fds it waits on the context's
+  wakeup until it is signalled or the deadline passes, rechecking the
+  deadline after early returns (a futex wait also ends when the thread is
+  handed proxied work). With fds, it probes them with `poll_func (fds, n,
+  0)` and waits on the wakeup between probes in slices of at most 10 ms,
+  until an fd is ready, the wakeup is signalled or the deadline passes.
+  `g_main_context_check()` acknowledges the wakeup, since it isn't among
+  the fds.
+- **The slice.** An fd turning ready signals nothing, so the slice bounds
+  how late it is noticed. Each probe from a pthread is a call proxied to
+  the main thread, so the slice also bounds how often that thread is
+  interrupted. 10 ms keeps a probing thread to 100 probes a second
+  (negligible CPU) and the added latency below one frame; fds are rare
+  here (sockets, pipes and ttys are mostly unsupported), so the common
+  case is the no-fd wait, which has no slices.
+- **Non-blocking iteration** (`g_main_context_iteration (ctx, FALSE)`,
+  what the runtime's pump calls) is unchanged: fds are probed once with a
+  zero timeout, and with none nothing is called. Only the acknowledgement
+  in `g_main_context_check()` is new, an atomic store.
+- **Custom poll functions** (`g_main_context_set_poll_func()`) are only
+  ever asked to probe, with a zero timeout; the wait is on the wakeup.
+- **The pump hook** (the runtime's Worker host waits on its own request
+  word, and `g_wakeup_signal()` on the pumped context's wakeup must also
+  bump and notify that word) fits without changing any of this: add a
+  `gint *` to the WebAssembly `GWakeup`, set for the default context's
+  wakeup through a private setter (a `GLibPrivateVTable` entry or a small
+  WebAssembly-only function in `gmain.c`), and have `g_wakeup_signal()`
+  increment and `emscripten_futex_wake()` that word after its own. Waiting
+  and acknowledging don't change, since the host never waits on the
+  wakeup's own counter.
+
+With the wakeup in place, the thread `g_get_worker_context()` starts
+(for `GTask`, among others) and GDBus's shared thread sleep in their
+loops instead of spinning. `checks.glib` measures it with Node's
+`process.cpuUsage()`, since Emscripten's `clock()` counts wall time and
+its `getrusage()` is a stub.
+
+0026 makes `gwakeuptest` check and wait for a signal with
+`g_wakeup_wait()` on WebAssembly, where `g_wakeup_get_pollfd()` aborts.
 
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers

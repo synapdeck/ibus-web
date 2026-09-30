@@ -231,24 +231,32 @@ the mismatch so the engine needs no patch.
 
 - Hooks for the pump (§5.2.4) and GSettings backend registration (§5.2.5).
   The pump hook includes the context wakeup: on WebAssembly,
-  `g_wakeup_signal` (reached through `g_main_context_wakeup`) bumps and
-  notifies an atomic word the Worker host also waits on.
+  `g_wakeup_signal` (reached through `g_main_context_wakeup`) also bumps
+  and notifies an atomic word the Worker host waits on, besides the
+  wakeup's own futex.
 - Blocking iteration (`g_main_context_iteration(ctx, TRUE)`,
-  `g_main_loop_run`) is unsupported: with no wakeup fd and a zero poll
-  timeout it busy-waits. The runtime only iterates without blocking.
+  `g_main_loop_run`) sleeps. On WebAssembly a `GWakeup` is an atomic
+  counter with futex wake and wait (`emscripten_futex_wake`/`_wait`), and a
+  blocking iteration waits on its context's wakeup for the computed
+  timeout instead of calling `poll()`, which can't wait there. Any fds are
+  probed with a zero timeout between waits of at most 10 ms. Another
+  thread's change to the context (`g_main_context_wakeup`, attaching a
+  source, quitting a loop) ends the wait. The runtime's pump still
+  iterates without blocking, which is unchanged. `g_wakeup_get_pollfd`
+  still aborts, so GCancellable fds (`g_cancellable_get_fd`,
+  `g_cancellable_make_pollfd`) are unsupported.
 - GLib's worker context (`g_get_worker_context()`) runs a blocking loop on
-  a thread GLib starts on first use, and on WebAssembly that thread
-  busy-spins. `GTask`'s type initialization starts it, so in practice any
-  GIO asynchronous call does; so do local file queries for
-  `standard::is-hidden`, `GThreadedResolver` lookups with a timeout or
-  cancellable, and `GSubprocess`. GDBus's shared thread runs its own
-  blocking loop and spins the same way. libibus-web must avoid these APIs
-  or the pump's wakeup hook must also make these threads wait; `GTask`
-  makes avoiding them impractical.
-- From Fluendo's `gst.wasm` branch: wakeups that no longer abort, the main
-  context skipping the wakeup's poll fd, and zero poll timeouts. Its
-  `emscripten_set_main_loop` integration and the deadlock fix that only
-  concerns it are not taken; the runtime pumps the context itself.
+  a thread GLib starts on first use. `GTask`'s type initialization starts
+  it, so in practice any GIO asynchronous call does; so do local file
+  queries for `standard::is-hidden`, `GThreadedResolver` lookups with a
+  timeout or cancellable, and `GSubprocess`. GDBus's shared thread runs
+  its own blocking loop. Both sleep until woken, so each costs a pthread
+  for the life of the Worker but no CPU.
+- From Fluendo's `gst.wasm` branch: wakeups that no longer abort and the
+  main context skipping the wakeup's poll fd. Its zero poll timeouts are
+  replaced by the futex wait above. Its `emscripten_set_main_loop`
+  integration and the deadlock fix that only concerns it are not taken;
+  the runtime pumps the context itself.
 - Review the series' GSettings changes (`gsettings.c`,
   `gdelayedsettingsbackend.c`) before building the settings bridge on them.
 
@@ -1055,14 +1063,15 @@ artifacts; WASM builds of nixpkgs packages are reached through
   `pkgsWasm.glib` by `flake.overlays.glib`, after nixpkgs' own `glib`
   patches, which are all kept. The patches README lists each patch with its
   source and the reason for it.
-  - **Series.** 24 patches. Kleis Auke Wolthuizen's series from his
+  - **Series.** 26 patches. Kleis Auke Wolthuizen's series from his
     `wasm-vips-<version>` branches of GLib (the one wasm-vips uses), rebased
     from 2.88.1 onto 2.88.3, without its GRegex removal and with its tool
     removal cut down to girepository and the fuzzers. Fluendo's main-context
     fixes from `gst.wasm` (no-op wakeups, the context skipping its wakeup
     fd, zero poll timeouts) and its `glist`/`gslist` signature fixes, but
-    not its `emscripten_set_main_loop` integration. Ours: the rest of the
-    wakeup made no-ops; GLib's own calls through mismatched function types,
+    not its `emscripten_set_main_loop` integration. Ours: a futex-backed
+    `GWakeup` that blocking iteration sleeps on (§5.1.3), replacing the
+    no-op wakeups and zero timeouts; GLib's own calls through mismatched function types,
     including the interface init functions `gdbus-codegen` generates; class
     handlers called without `user_data`, through libffi (§5.1.2); the
     adapters the dynamic-type macros refer to; Unix sources WebAssembly
@@ -1208,7 +1217,7 @@ specification and `release.json`.
 | M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
-| ↳ M0.3 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 24-patch Emscripten series (Wolthuizen's, Fluendo's main-context fixes, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse` | GLib 2.88.3 builds for WASM with GRegex and its tools; 237 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
+| ↳ M0.3 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 26-patch Emscripten series (Wolthuizen's, Fluendo's main-context fixes, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse` | GLib 2.88.3 builds for WASM with GRegex and its tools; 237 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
