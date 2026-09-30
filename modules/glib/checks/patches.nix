@@ -5,6 +5,8 @@
       inherit (config.ibusWeb.toolchain) pkgsWasm;
       inherit (pkgsWasm) glib;
       ours = ../patches;
+      # GLib's patch list ends with ours; the rest are nixpkgs'.
+      nixpkgsPatches = lib.filter (p: !(lib.hasPrefix "${toString ours}/" (toString p))) glib.patches;
     in
     {
       # Applies nixpkgs' own GLib patches and then ours, in the order the
@@ -15,7 +17,7 @@
         cd glib-*
         # Interpolating each patch gives it store context; `toString` on the
         # list would not, and the sandbox would lack the files.
-        for p in ${lib.concatMapStringsSep " " (p: "${p}") glib.patches}; do
+        for p in ${lib.concatMapStringsSep " " (p: "${p}") nixpkgsPatches}; do
           patch -p1 --forward --batch < "$p"
         done
         # No fuzz for ours: a hunk that only lands somewhere nearby after a
