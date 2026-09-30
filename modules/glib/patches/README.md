@@ -360,12 +360,16 @@ assertions every `g_file_query_exists()` aborted) and otherwise ignore
 it, and WasmFS ignores it too, so a dangling symlink can be reported
 missing. GLib already
 leaves `query_exists` unset on platforms with the same gap (Android,
-Solaris, the BSDs); the fallback queries the file's type without
-following symlinks. `access()`, `g_access()` and `g_file_test()` pass
+Solaris, the BSDs); the fallback queries the file's type, which
+reports a dangling symlink as existing. `access()`, `g_access()` and `g_file_test()` pass
 no flags and are unaffected. Under Node's raw filesystem
 (`-sNODERAWFS`, used for tests and tools), path lookups never follow
 symlinks, so `access()` finds a dangling symlink; the browser's
 filesystems are not affected by that.
+
+Tests and tools link with runtime assertions on, so threaded tests print
+`received "…" command from terminated worker` as their pthread workers
+shut down at exit. It is Emscripten's diagnostic, not a GLib failure.
 
 Not covered either: callbacks that *users* pass with fewer parameters
 than the API documents (including signal handlers connected with

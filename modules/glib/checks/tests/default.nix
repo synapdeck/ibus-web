@@ -33,8 +33,8 @@
         wait $!
         status=$?
         replay
-        if [ "$status" -gt 128 ]; then
-          die "$(kill -l "$status")"
+        if [ "$status" -gt 128 ] && sig=$(kill -l "$status" 2> /dev/null); then
+          die "$sig"
         fi
         exit $status
       '';
