@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+ *
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
 /* 2-set keys g, k, s compose to the syllable 한 (U+D55C). Built without
  * external keyboards, libhangul needs no hangul_init(): keyboard lookup falls
  * back to the built-in tables. */

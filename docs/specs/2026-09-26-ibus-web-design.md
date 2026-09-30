@@ -833,6 +833,8 @@ discarded, never repaired.
 | Engine recipes and patches | the engine's license |
 | Engine artifacts | the engine's license, covering the combined work in that Worker |
 
+The repository follows the REUSE specification. License texts live in `LICENSES/`. Source files we write carry SPDX headers, and `REUSE.toml` annotates the rest by path: patches, generated files, documentation and, for each engine, its `engines/<name>/` directory. `REUSE.toml` is the authoritative per-path mapping; this table summarizes it.
+
 Third-party tables in page packages keep their notices: Chromium's
 `dom_code_data.inc` (BSD-3-Clause) and xorgproto's `keysymdef.h`
 (`MIT-open-group` plus a Digital HPND-style notice).
@@ -876,6 +878,8 @@ release.
 - Page bundles are scanned for Worker, runtime and Emscripten code.
 - The protocol specification is regenerated and must match the committed one.
 - Every engine artifact must have a source bundle.
+- `reuse lint` passes (`checks.reuse`).
+- Each `engines/<name>/` annotation in `REUSE.toml` matches that engine's `meta.license`.
 
 ## 10. Build, CI and releases
 
@@ -1183,7 +1187,7 @@ specification and `release.json`.
 | M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
-| ↳ M0.3 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 24-patch Emscripten series (Wolthuizen's, Fluendo's main-context fixes, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd | GLib 2.88.3 builds for WASM with GRegex and its tools; 237 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
+| ↳ M0.3 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 24-patch Emscripten series (Wolthuizen's, Fluendo's main-context fixes, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse` | GLib 2.88.3 builds for WASM with GRegex and its tools; 237 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |

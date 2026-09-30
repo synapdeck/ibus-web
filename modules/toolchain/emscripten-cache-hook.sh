@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # Each build gets a private copy of the prebuilt cache. The library directory
 # is made read-only, so a build that needs a variant the cache lacks fails
 # with "Permission denied" instead of silently compiling libc again.

@@ -7,8 +7,7 @@ own GLib patches (`glib-appinfo-watch.patch`, `schema-override-variable.patch`,
 `elementary-terminal-support.patch`, `split-dev-programs.patch`,
 `gdb_script.patch`). `checks.glib-patches` applies both sets in that order.
 
-Every patch keeps its original author, and all of them are licensed like GLib
-itself: LGPL-2.1-or-later.
+Every patch keeps its original author.
 
 ## Sources
 
