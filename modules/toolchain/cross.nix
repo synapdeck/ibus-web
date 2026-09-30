@@ -14,6 +14,18 @@ in
     let
       inherit (config.ibusWeb) toolchain;
 
+      # Meson keys Emscripten behaviour (GLib's patches, the .js executable
+      # suffix) on the host system, which nixpkgs' cross file reports as the
+      # platform's kernel, "none". Node runs what Emscripten links, so Meson
+      # can run tests and run() checks.
+      mesonCrossFile = pkgs.writeText "emscripten-meson-cross.ini" ''
+        [host_machine]
+        system = 'emscripten'
+
+        [binaries]
+        exe_wrapper = ['${lib.getExe pkgs.nodejs}']
+      '';
+
       replaceCrossStdenv =
         { buildPackages, baseStdenv }:
         let
@@ -49,26 +61,18 @@ in
                 ln -s ${emscripten}/bin/em++ $out/bin/c++
               '';
 
+          # The bintools wrapper only wraps tools carrying the target prefix;
+          # unprefixed ones leave $AR and friends unset, and builds fall back
+          # to whatever `ar` is on PATH.
+          targetPrefix = "${baseStdenv.hostPlatform.config}-";
           emscriptenBinutils = pkgsBuildBuild.runCommand "emscripten-binutils-${emscripten.version}" { } ''
             mkdir -p $out/bin
-            ln -s ${emscripten}/bin/emar $out/bin/ar
-            ln -s ${emscripten}/bin/emranlib $out/bin/ranlib
+            ln -s ${emscripten}/bin/emar $out/bin/${targetPrefix}ar
+            ln -s ${emscripten}/bin/emranlib $out/bin/${targetPrefix}ranlib
             for tool in nm strip objdump objcopy readelf size strings; do
-              ln -s ${emscripten.llvmEnv}/bin/llvm-$tool $out/bin/$tool
+              ln -s ${emscripten.llvmEnv}/bin/llvm-$tool $out/bin/${targetPrefix}$tool
             done
-            ln -s ${emscripten.llvmEnv}/bin/wasm-ld $out/bin/ld
-          '';
-
-          # Meson keys Emscripten behaviour (GLib's patches, the .js
-          # executable suffix) on the host system, which nixpkgs' cross file
-          # reports as the platform's kernel, "none". Node runs what Emscripten
-          # links, so Meson can run tests and run() checks.
-          mesonCrossFile = pkgsBuildBuild.writeText "emscripten-meson-cross.ini" ''
-            [host_machine]
-            system = 'emscripten'
-
-            [binaries]
-            exe_wrapper = ['${lib.getExe pkgsBuildBuild.nodejs}']
+            ln -s ${emscripten.llvmEnv}/bin/wasm-ld $out/bin/${targetPrefix}ld
           '';
 
           emscriptenMesonHook = pkgsBuildBuild.makeSetupHook {
@@ -142,6 +146,14 @@ in
     in
     {
       ibusWeb.toolchain.pkgsWasm = pkgsWasm;
+      # nixpkgs' generated cross file first, then ours, the order builds see.
+      ibusWeb.toolchain.mesonCrossFlags =
+        (import "${inputs.nixpkgs}/pkgs/build-support/lib/meson.nix" {
+          inherit lib;
+          inherit (pkgsWasm) stdenv;
+        }).makeMesonFlags
+          { }
+        ++ [ "--cross-file=${mesonCrossFile}" ];
       legacyPackages.pkgsWasm = pkgsWasm;
     };
 }

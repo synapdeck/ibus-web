@@ -1,3 +1,6 @@
 result
 result-*
 .emcache/
+/.clangd
+.cache/
+.worktrees/

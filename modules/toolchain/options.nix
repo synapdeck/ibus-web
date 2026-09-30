@@ -18,6 +18,15 @@
         type = lib.types.package;
         description = "Setup hook giving each build a private copy of the cache.";
       };
+      mesonCrossFlags = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        description = "Meson flags selecting pkgsWasm's cross files, for configuring by hand.";
+      };
+      devLibraries = lib.mkOption {
+        type = lib.types.listOf lib.types.package;
+        default = [ ];
+        description = "pkgsWasm libraries whose headers and pkg-config files the dev shell and editor see.";
+      };
       pkgsWasm = lib.mkOption {
         type = lib.types.raw;
         description = "nixpkgs for wasm32-unknown-none, compiled with Emscripten.";
