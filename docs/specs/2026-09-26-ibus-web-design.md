@@ -236,6 +236,15 @@ the mismatch so the engine needs no patch.
 - Blocking iteration (`g_main_context_iteration(ctx, TRUE)`,
   `g_main_loop_run`) is unsupported: with no wakeup fd and a zero poll
   timeout it busy-waits. The runtime only iterates without blocking.
+- GLib's worker context (`g_get_worker_context()`) runs a blocking loop on
+  a thread GLib starts on first use, and on WebAssembly that thread
+  busy-spins. `GTask`'s type initialization starts it, so in practice any
+  GIO asynchronous call does; so do local file queries for
+  `standard::is-hidden`, `GThreadedResolver` lookups with a timeout or
+  cancellable, and `GSubprocess`. GDBus's shared thread runs its own
+  blocking loop and spins the same way. libibus-web must avoid these APIs
+  or the pump's wakeup hook must also make these threads wait; `GTask`
+  makes avoiding them impractical.
 - From Fluendo's `gst.wasm` branch: wakeups that no longer abort, the main
   context skipping the wakeup's poll fd, and zero poll timeouts. Its
   `emscripten_set_main_loop` integration and the deadlock fix that only
@@ -318,8 +327,8 @@ doorbell `postMessage` (§6.2.3).
   update the backend and call `g_settings_backend_changed`, so engines' own
   `changed::` handlers fire. Engine writes emit `SettingWritten` records for
   the host to persist.
-- **Schemas.** Compiled at build time with the host `glib-compile-schemas`
-  and shipped in the engine's data files under
+- **Schemas.** Compiled at build time with the build machine's
+  `glib-compile-schemas` and shipped in the engine's data files under
   `/usr/share/glib-2.0/schemas`. The `.gschema.xml` sources are also shipped
   so the page can describe keys to host UIs.
 
@@ -1070,7 +1079,10 @@ artifacts; WASM builds of nixpkgs packages are reached through
   - **`gdbus-codegen`.** A cross build runs its tools on the build machine,
     whose GLib has the unpatched `gdbus-codegen`. `pkgsWasm.glib` carries a
     setup hook that points Meson consumers at its patched script; Autotools
-    consumers get it through `gio-2.0.pc`'s `gdbus_codegen`.
+    consumers get it through `gio-2.0.pc`'s `gdbus_codegen`. Meson consumers
+    also need `depsBuildBuild = [ pkg-config glib ]`: `gnome.gdbus_codegen`
+    chooses its options by the build machine's GLib version, and assumes
+    2.54 without it.
   - **Overlay.** Removes `bash-interactive`, `gnum4`, `libsysprof-capture`,
     `gettext` and `libiconv` from the inputs (Emscripten's musl provides
     iconv and gettext), disables NLS, sysprof, documentation, tests and
@@ -1160,11 +1172,12 @@ specification and `release.json`.
    under Node in `checks.glib-tests`. `modules/glib/checks/tests/baseline.toml`
    lists the tests that must pass, every one that passed in the reviewed run
    (237 of 300), and the excluded tests with the reason each can't run here:
-   process spawning, sockets, blocking main-context iteration and pipes (31).
-   The rest are reported on every run but don't gate: 19 failures from libc,
+   process spawning, sockets, blocking main-context iteration and pipes (31),
+   which are reported but never run. The rest are reported on every run but don't gate: 19 failures from libc,
    locale and time differences, Node's raw filesystem and small GIO gaps,
    and 13 skips. Also C tests for `libibus-web` (lifecycle, emitters, pump,
-   settings backend) and tests for the fewer-parameters callback patch.
+   settings backend) and, if the lazy arity lookup is built (§5.1.2),
+   tests for it.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`
    and SAB (Node allows `Atomics.wait` on the main thread). Each engine has
    golden key-sequence tests, for example Hangul 2-set `g k s` → preedit `ㅎ`,
@@ -1221,7 +1234,9 @@ specification and `release.json`.
 - **R4. GLib patch rebases.** The series is rebased from Wolthuizen's
   per-release `wasm-vips-<version>` branches, so each nixpkgs GLib update
   means rebasing from the nearest one. `checks.glib-patches` fails first
-  when a nixpkgs update breaks the series.
+  when a nixpkgs update breaks the series. `ibusWeb.toolchain.mesonCrossFlags`
+  imports nixpkgs' `pkgs/build-support/lib/meson.nix`, so an update that
+  moves that file fails evaluation.
 - **R5. OPFS in Workers across browsers.** Synchronous access handles need
   checking on current WebKit. Fallback is in-memory with an event.
 - **R6. libpinyin databases in WASM.** nixpkgs builds libpinyin with Kyoto
