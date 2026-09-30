@@ -49,14 +49,18 @@ in
                 ln -s ${emscripten}/bin/em++ $out/bin/c++
               '';
 
+          # The bintools wrapper only wraps tools carrying the target prefix;
+          # unprefixed ones leave $AR and friends unset, and builds fall back
+          # to whatever `ar` is on PATH.
+          targetPrefix = "${baseStdenv.hostPlatform.config}-";
           emscriptenBinutils = pkgsBuildBuild.runCommand "emscripten-binutils-${emscripten.version}" { } ''
             mkdir -p $out/bin
-            ln -s ${emscripten}/bin/emar $out/bin/ar
-            ln -s ${emscripten}/bin/emranlib $out/bin/ranlib
+            ln -s ${emscripten}/bin/emar $out/bin/${targetPrefix}ar
+            ln -s ${emscripten}/bin/emranlib $out/bin/${targetPrefix}ranlib
             for tool in nm strip objdump objcopy readelf size strings; do
-              ln -s ${emscripten.llvmEnv}/bin/llvm-$tool $out/bin/$tool
+              ln -s ${emscripten.llvmEnv}/bin/llvm-$tool $out/bin/${targetPrefix}$tool
             done
-            ln -s ${emscripten.llvmEnv}/bin/wasm-ld $out/bin/ld
+            ln -s ${emscripten.llvmEnv}/bin/wasm-ld $out/bin/${targetPrefix}ld
           '';
 
           # Meson keys Emscripten behaviour (GLib's patches, the .js
