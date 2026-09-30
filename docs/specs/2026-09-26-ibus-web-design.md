@@ -989,7 +989,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
     is built against. The wrapper adds `-O2 -fPIC -pthread -fwasm-exceptions`
     to every compile and link. `-O2` goes before the command's own arguments,
     so a package's own `-O` wins. An `-O2` link turns Emscripten's runtime
-    assertions off, so check and test links add `-sASSERTIONS=1`.
+    assertions off, so every check and test link adds `-sASSERTIONS=1` itself.
   - The Emscripten binutils (`emar`, `emranlib`, LLVM's `nm`, `strip` and
     friends, `wasm-ld`) carry the target prefix, so the bintools wrapper
     wraps them and builds get `$AR`, `$NM` and the rest from it.
