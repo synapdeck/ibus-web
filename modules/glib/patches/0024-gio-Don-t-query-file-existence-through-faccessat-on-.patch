@@ -1,4 +1,4 @@
-From 3010427c9d279f8159a386e5ba51ed4b4377f5ea Mon Sep 17 00:00:00 2001
+From d37c4a09f9b7c95ba308ad07167a64ce36c0f11a Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 20:35:03 -0700
 Subject: [PATCH 24/24] gio: Don't query file existence through faccessat() on

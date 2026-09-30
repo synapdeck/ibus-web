@@ -1081,14 +1081,16 @@ artifacts; WASM builds of nixpkgs packages are reached through
     with `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8
     -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the
     libraries don't see these.
-  - **`gdbus-codegen`.** A cross build runs its tools on the build machine,
-    whose GLib has the unpatched `gdbus-codegen`. `pkgsWasm.glib` carries a
-    setup hook that points Meson consumers at its patched script; Autotools
-    consumers get it through `gio-2.0.pc`'s `gdbus_codegen`.
-    `gnome.gdbus_codegen` also chooses its options by the build machine's
-    GLib version, which Meson reads through a build-machine pkg-config; the
-    same hook points it at the build platform's pkg-config and GLib `.pc`
-    files, so consumers need no `depsBuildBuild` for it.
+  - **Tools in consumers' builds.** A cross build runs its tools on the
+    build machine, whose GLib has unpatched ones (its `gdbus-codegen`
+    emits interface init functions WebAssembly traps on). `pkgsWasm.glib`
+    carries a setup hook that points Meson's gnome module at its tools
+    through a cross file listing every tool its `.pc` files name; Autotools
+    consumers get them through the `.pc` variables themselves. The gnome
+    module also chooses tool options by the build machine's GLib version,
+    which Meson reads through a build-machine pkg-config; the same hook
+    points it at the build platform's pkg-config and GLib `.pc` files, so
+    consumers need no `depsBuildBuild` for it.
   - **Overlay.** Removes `bash-interactive`, `gnum4`, `libsysprof-capture`,
     `gettext` and `libiconv` from the inputs (Emscripten's musl provides
     iconv and gettext), disables NLS, sysprof, documentation, tests and

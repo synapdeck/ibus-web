@@ -1,4 +1,4 @@
-From 33a515a0d9d5edc3b407ab6d8cc6e15f3d57849e Mon Sep 17 00:00:00 2001
+From 34d57fe7d033273b12769da4f0743f64cf2b7690 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 17:08:30 -0700
 Subject: [PATCH 15/24] Call internally-forwarded callbacks through their own
@@ -44,8 +44,9 @@ Upstream-Status: Inappropriate [Wasm-specific]
  gio/gdbusobjectskeleton.c      |   6 +-
  gio/gdbusprivate.c             |   3 +-
  gio/gdbusserver.c              |  11 ++-
- gio/gkeyfilesettingsbackend.c  |  12 +++-
- gio/gsettingsbackend.c         |  12 +++-
+ gio/gkeyfilesettingsbackend.c  |   2 +-
+ gio/gsettingsbackend.c         |   2 +-
+ gio/gsettingsbackendinternal.h |  12 ++++
  gio/gtestdbus.c                |  11 ++-
  glib/garray.c                  |   8 +--
  glib/gasyncqueue.c             |   4 +-
@@ -57,7 +58,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/gutilsprivate.h           |  13 ++++
  gobject/gbinding.c             |  13 +++-
  gobject/gobject.c              |  41 +++++++++--
- 20 files changed, 327 insertions(+), 87 deletions(-)
+ 21 files changed, 319 insertions(+), 87 deletions(-)
 
 diff --git a/gio/gcancellable.c b/gio/gcancellable.c
 index 44b8bc463..12c6274f7 100644
@@ -378,65 +379,54 @@ index 7d9c20b28..7bd18ff99 100644
    g_socket_service_start (G_SOCKET_SERVICE (server->listener));
    server->active = TRUE;
 diff --git a/gio/gkeyfilesettingsbackend.c b/gio/gkeyfilesettingsbackend.c
-index daa33bc81..bd5ec27be 100644
+index daa33bc81..6b7b62c20 100644
 --- a/gio/gkeyfilesettingsbackend.c
 +++ b/gio/gkeyfilesettingsbackend.c
-@@ -92,6 +92,16 @@ G_DEFINE_TYPE_WITH_CODE (GKeyfileSettingsBackend,
-                          g_io_extension_point_implement (G_SETTINGS_BACKEND_EXTENSION_POINT_NAME,
-                                                          g_define_type_id, "keyfile", EXTENSION_PRIORITY))
- 
-+/* strcmp() as a #GCompareDataFunc: calling strcmp() through that
-+ * three-argument type is undefined behaviour, and traps on WebAssembly. */
-+static gint
-+compare_strings (gconstpointer a,
-+                 gconstpointer b,
-+                 gpointer      user_data)
-+{
-+  return strcmp (a, b);
-+}
-+
- static void
- compute_checksum (guint8        *digest,
-                   gconstpointer  contents,
-@@ -546,7 +556,7 @@ g_keyfile_settings_backend_keyfile_reload (GKeyfileSettingsBackend *kfsb)
+@@ -546,7 +546,7 @@ g_keyfile_settings_backend_keyfile_reload (GKeyfileSettingsBackend *kfsb)
        GKeyFile *keyfiles[2];
        GTree *tree;
  
 -      tree = g_tree_new_full ((GCompareDataFunc) strcmp, NULL,
-+      tree = g_tree_new_full (compare_strings, NULL,
++      tree = g_tree_new_full (g_settings_backend_compare_strings, NULL,
                                g_free, g_free);
  
        keyfiles[0] = kfsb->keyfile;
 diff --git a/gio/gsettingsbackend.c b/gio/gsettingsbackend.c
-index a1245f4e0..12d276992 100644
+index a1245f4e0..988facc27 100644
 --- a/gio/gsettingsbackend.c
 +++ b/gio/gsettingsbackend.c
-@@ -950,6 +950,16 @@ g_settings_backend_class_init (GSettingsBackendClass *class)
-   gobject_class->finalize = g_settings_backend_finalize;
- }
- 
-+/* strcmp() as a #GCompareDataFunc: calling strcmp() through that
-+ * three-argument type is undefined behaviour, and traps on WebAssembly. */
-+static gint
-+compare_strings (gconstpointer a,
-+                 gconstpointer b,
-+                 gpointer      user_data)
-+{
-+  return strcmp (a, b);
-+}
-+
- static void
- g_settings_backend_variant_unref0 (gpointer data)
- {
-@@ -969,7 +979,7 @@ g_settings_backend_variant_unref0 (gpointer data)
+@@ -969,7 +969,7 @@ g_settings_backend_variant_unref0 (gpointer data)
  GTree *
  g_settings_backend_create_tree (void)
  {
 -  return g_tree_new_full ((GCompareDataFunc) strcmp, NULL,
-+  return g_tree_new_full (compare_strings, NULL,
++  return g_tree_new_full (g_settings_backend_compare_strings, NULL,
                            g_free, g_settings_backend_variant_unref0);
  }
  
+diff --git a/gio/gsettingsbackendinternal.h b/gio/gsettingsbackendinternal.h
+index 3b9b6ebc3..28ae13cf5 100644
+--- a/gio/gsettingsbackendinternal.h
++++ b/gio/gsettingsbackendinternal.h
+@@ -26,6 +26,18 @@
+ 
+ #include "gsettingsbackend.h"
+ 
++#include <string.h>
++
++/* strcmp() as a #GCompareDataFunc: calling strcmp() through that
++ * three-argument type is undefined behaviour, and traps on WebAssembly. */
++static inline gint
++g_settings_backend_compare_strings (gconstpointer a,
++                                    gconstpointer b,
++                                    gpointer      user_data G_GNUC_UNUSED)
++{
++  return strcmp (a, b);
++}
++
+ typedef struct
+ {
+   void (* changed)               (GObject             *target,
 diff --git a/gio/gtestdbus.c b/gio/gtestdbus.c
 index 03d851619..bebab00cb 100644
 --- a/gio/gtestdbus.c

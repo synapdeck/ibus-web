@@ -69,9 +69,6 @@
                   makeWrapper ${lib.getExe pkgsBuildBuild.nodejs} "''${js%.js}" --add-flag "$js"
                 fi
               done
-              mkdir -p $dev/nix-support
-              printf "[binaries]\ngdbus-codegen = '%s'\n" "$dev/bin/gdbus-codegen" \
-                > $dev/nix-support/gdbus-codegen-cross.ini
             '';
             # The makeWrapper this cross set splices in writes the host's
             # shell, a WebAssembly bash, into the wrappers' interpreter line.
@@ -80,27 +77,38 @@
             # The build fills in @dev@; with structured attributes it sees only
             # exported variables, so the rest are filled in here.
             setupHooks = (old.setupHooks or [ ]) ++ [
-              (pkgsBuildBuild.replaceVars ./gdbus-codegen-hook.sh {
+              (pkgsBuildBuild.replaceVars ./glib-tools-hook.sh {
                 dev = null;
                 inherit buildPkgConfig;
                 buildGlibPkgConfigPath = "${pkgsBuildBuild.glib.dev}/lib/pkgconfig";
               })
             ];
-            # A tool variable that names a missing program hands consumers a
-            # dead path, so each one is checked once every output is final.
+            # The .pc files' tool variables (the values under a bin
+            # directory) go into a cross file the setup hook hands Meson,
+            # whose gnome module takes a tool from the host machine's cross
+            # files before the build machine's GLib. A variable that names a
+            # missing program would hand consumers a dead path, so each one
+            # is checked once every output is final.
             postFixup =
               programName (replaceIn [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup)
               + ''
                 pcQuery() {
                   PKG_CONFIG_PATH=$dev/lib/pkgconfig ${buildPkgConfig} "$@"
                 }
+                ini=$dev/nix-support/glib-tools-cross.ini
+                mkdir -p $dev/nix-support
+                echo "[binaries]" > $ini
                 for pc in $dev/lib/pkgconfig/*.pc; do
                   module=$(basename "$pc" .pc)
-                  for variable in $(pcQuery --print-variables "$module"); do
+                  variables=$(pcQuery --print-variables "$module")
+                  for variable in $variables; do
                     value=$(pcQuery --variable="$variable" "$module")
-                    if [[ $value == */bin/* && ! -x $value ]]; then
-                      echo "$module.pc: $variable names $value, which is not installed" >&2
-                      exit 1
+                    if [[ $value == */bin/* ]]; then
+                      if [[ ! -x $value ]]; then
+                        echo "$module.pc: $variable names $value, which is not installed" >&2
+                        exit 1
+                      fi
+                      echo "''${variable//_/-} = '$value'" >> $ini
                     fi
                   done
                 done

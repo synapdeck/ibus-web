@@ -1,0 +1,11 @@
+<!--
+SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+<schemalist>
+  <schema id="org.example.Consumer" path="/org/example/consumer/">
+    <key name="greeting" type="s">
+      <default>'hello'</default>
+    </key>
+  </schema>
+</schemalist>

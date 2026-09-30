@@ -285,27 +285,33 @@ type) differ; the remaining ones are GLib's own round trips, such as a
 The `gdbus-codegen` fix only reaches code generated with this GLib's
 `gdbus-codegen`, the Python script in `pkgsWasm.glib.dev/bin`. A cross
 build runs its tools on the build machine, and the build machine's GLib
-(nixpkgs' native `glib`, unpatched) has its own:
+(nixpkgs' native `glib`, unpatched) has its own. So that consumers run
+this GLib's tools:
 
-- Autotools projects that take the tool from `gio-2.0.pc`
+- Autotools projects that take a tool from the host's `.pc` files
   (`PKG_CHECK_VAR([GDBUS_CODEGEN], [gio-2.0], [gdbus_codegen])`, as IBus
-  does) read the host's `gio-2.0.pc`, whose `gdbus_codegen` is
-  `${devbindir}/gdbus-codegen`: the patched script.
-- Meson's `gnome.gdbus_codegen()` looks the tool up in the host machine's
-  cross files first, then in the `gdbus_codegen` variable of the *build*
-  machine's `gio-2.0`, then on `PATH`; the last two find the unpatched
-  one. `pkgsWasm.glib` therefore installs
-  `nix-support/gdbus-codegen-cross.ini`, naming its own script, and a
-  setup hook that adds it to `mesonFlagsArray` in every build depending
-  on it. `checks.glib-gdbus-codegen` builds a Meson project that way, with
-  the native GLib present too, and runs the generated skeletons under
-  Node. Meson also reads the build machine's GLib version to choose
-  gdbus-codegen options, through a build-machine pkg-config, and assumes
-  2.54 (with a warning) without one; the hook sets `PKG_CONFIG_FOR_BUILD`
-  and `PKG_CONFIG_PATH_FOR_BUILD` to the build platform's pkg-config and
+  does) get this GLib's: the `.pc` tool variables name its scripts and
+  the Node wrappers of its `.js` tools. `checks.glib-autotools-tools`
+  builds and reads back a schema and a resource that way.
+- Meson's gnome module looks each tool (`gdbus-codegen`,
+  `glib-compile-resources`, `glib-compile-schemas`, `glib-genmarshal`,
+  `glib-mkenums`, `gio-querymodules`) up in the host machine's cross files
+  first, then in the variable of the *build* machine's `gio-2.0` or
+  `glib-2.0`, then on `PATH`; the last two find the native ones.
+  `pkgsWasm.glib` therefore installs `nix-support/glib-tools-cross.ini`,
+  naming every tool its `.pc` files name, and a setup hook that adds it
+  to `mesonFlagsArray` in every build depending on it. Meson also reads
+  the build machine's GLib version to choose tool options, through a
+  build-machine pkg-config, and assumes 2.54 (with a warning) without
+  one; the hook sets `PKG_CONFIG_FOR_BUILD` and
+  `PKG_CONFIG_PATH_FOR_BUILD` to the build platform's pkg-config and
   GLib, so consumers need no `depsBuildBuild` for it.
-- Anything that runs `gdbus-codegen` by name from `PATH` gets the native
-  one, and its interface init functions trap on WebAssembly.
+  `checks.glib-meson-tools` builds a Meson project calling each helper,
+  with the native GLib on `PATH` too, and runs what they generate under
+  Node.
+- Anything that runs a tool by name from `PATH` gets the native one, and
+  the interface init functions its `gdbus-codegen` emits trap on
+  WebAssembly.
 
 0020 defines the instance init adapter `G_DEFINE_DYNAMIC_TYPE_EXTENDED`
 registers and adds one for `class_finalize`, which the macro also cast to
