@@ -1,4 +1,4 @@
-From 798129969c806df74af1487c9db8abb1f8af977b Mon Sep 17 00:00:00 2001
+From 3eec9e9b1f26534800478235c487222797f53b91 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:08:03 -0700
 Subject: [PATCH 21/24] gtestutils: Skip subprocess tests on WebAssembly
@@ -19,7 +19,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  1 file changed, 30 insertions(+)
 
 diff --git a/glib/gtestutils.c b/glib/gtestutils.c
-index f500ee085..bdd5cb4c6 100644
+index 9296855d4..f2b8dbc90 100644
 --- a/glib/gtestutils.c
 +++ b/glib/gtestutils.c
 @@ -58,6 +58,9 @@
@@ -48,7 +48,7 @@ index f500ee085..bdd5cb4c6 100644
  static char       *test_uri_base = NULL;
  static gboolean    test_debug_log = FALSE;
  static gboolean    test_tap_log = TRUE;  /* default to TAP as of GLib 2.62; see #1619; the non-TAP output mode is deprecated */
-@@ -3168,12 +3180,23 @@ test_case_run (GTestCase  *tc,
+@@ -3167,12 +3179,23 @@ test_case_run (GTestCase  *tc,
                test_run_seed (test_run_seedstr);
                if (tc->fixture_setup)
                  tc->fixture_setup (fixture, tc->test_data);
@@ -72,7 +72,7 @@ index f500ee085..bdd5cb4c6 100644
                test_trap_clear();
                while (test_destroy_queue)
                  {
-@@ -4200,6 +4223,13 @@ g_test_trap_subprocess_with_envp (const char           *test_path,
+@@ -4199,6 +4222,13 @@ g_test_trap_subprocess_with_envp (const char           *test_path,
    /* Sanity check that they used GTestSubprocessFlags, not GTestTrapFlags */
    g_assert ((test_flags & (G_TEST_TRAP_INHERIT_STDIN | G_TEST_TRAP_SILENCE_STDOUT | G_TEST_TRAP_SILENCE_STDERR)) == 0);
  

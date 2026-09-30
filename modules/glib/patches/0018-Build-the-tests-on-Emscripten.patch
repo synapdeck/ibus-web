@@ -1,4 +1,4 @@
-From 2894f5a8931bb8b44ac696eac4b46ac926a65c10 Mon Sep 17 00:00:00 2001
+From 14413067bd607fde12b099d9836dae3c07f145d0 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 18:26:32 -0700
 Subject: [PATCH 18/24] Build the tests on Emscripten

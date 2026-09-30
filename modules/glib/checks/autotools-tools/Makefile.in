@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+srcdir = @srcdir@
+GLIB_COMPILE_SCHEMAS = @GLIB_COMPILE_SCHEMAS@
+GLIB_COMPILE_RESOURCES = @GLIB_COMPILE_RESOURCES@
+GSETTINGS = @GSETTINGS@
+GRESOURCE = @GRESOURCE@
+
+all: schemas/gschemas.compiled example.gresource
+
+schemas/gschemas.compiled: $(srcdir)/org.example.Tools.gschema.xml
+	mkdir -p schemas
+	$(GLIB_COMPILE_SCHEMAS) --strict --targetdir=schemas $(srcdir)
+
+example.gresource: $(srcdir)/example.gresource.xml $(srcdir)/org.example.Tools.gschema.xml
+	$(GLIB_COMPILE_RESOURCES) --sourcedir=$(srcdir) --target=$@ $(srcdir)/example.gresource.xml
+
+check: all
+	GSETTINGS_SCHEMA_DIR=schemas GSETTINGS_BACKEND=memory $(GSETTINGS) get org.example.Tools greeting > greeting
+	test "`cat greeting`" = "'hello'"
+	$(GRESOURCE) extract example.gresource /org/example/tools/org.example.Tools.gschema.xml > extracted
+	cmp extracted $(srcdir)/org.example.Tools.gschema.xml
+
+.PHONY: all check

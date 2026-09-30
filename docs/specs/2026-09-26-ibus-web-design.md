@@ -1073,16 +1073,22 @@ artifacts; WASM builds of nixpkgs packages are reached through
     `glib-compile-resources`, `gio`, `gobject-query`, …) are built for
     WebAssembly as `.js` programs and run under Node; features they reach
     through Unix sources WebAssembly doesn't build report themselves
-    unsupported. GLib's executables link with `-sNODERAWFS=1
-    -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1
-    -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the libraries don't see these.
+    unsupported. Each is installed as `<tool>.js` and `<tool>.wasm` plus a
+    `<tool>` wrapper that runs it with the build machine's Node, so the
+    paths `gio-2.0.pc` and `glib-2.0.pc` give (`glib_compile_schemas`,
+    `gsettings`, …) run this GLib's tools; the build checks that every
+    tool variable names an installed program. GLib's executables link
+    with `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8
+    -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the
+    libraries don't see these.
   - **`gdbus-codegen`.** A cross build runs its tools on the build machine,
     whose GLib has the unpatched `gdbus-codegen`. `pkgsWasm.glib` carries a
     setup hook that points Meson consumers at its patched script; Autotools
-    consumers get it through `gio-2.0.pc`'s `gdbus_codegen`. Meson consumers
-    also need `depsBuildBuild = [ pkg-config glib ]`: `gnome.gdbus_codegen`
-    chooses its options by the build machine's GLib version, and assumes
-    2.54 without it.
+    consumers get it through `gio-2.0.pc`'s `gdbus_codegen`.
+    `gnome.gdbus_codegen` also chooses its options by the build machine's
+    GLib version, which Meson reads through a build-machine pkg-config; the
+    same hook points it at the build platform's pkg-config and GLib `.pc`
+    files, so consumers need no `depsBuildBuild` for it.
   - **Overlay.** Removes `bash-interactive`, `gnum4`, `libsysprof-capture`,
     `gettext` and `libiconv` from the inputs (Emscripten's musl provides
     iconv and gettext), disables NLS, sysprof, documentation, tests and

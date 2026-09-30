@@ -1,4 +1,4 @@
-From 5c36ac874c31f0654575d74e89c47cd303c6e568 Mon Sep 17 00:00:00 2001
+From cc1e7d0a306ad2f4efc4750866fc16454e6899cc Mon Sep 17 00:00:00 2001
 From: Fabian Orccon <cfoch.fabian@gmail.com>
 Date: Fri, 22 May 2026 14:20:10 +0200
 Subject: [PATCH 12/24] gmain: emscripten: Use 0 timeout
@@ -8,7 +8,7 @@ As of the date non-zero timeouts are not supported on poll()
 Ported with the G_PLATFORM_WASM guard in place of G_WITH_EMSCRIPTEN,
 and against the microsecond timeout variable the iteration uses now.
 
-(cherry picked from commit 990ffd85fe4167bf3a28a28c6f85a25287ca79ad)
+(adapted from commit 990ffd85fe4167bf3a28a28c6f85a25287ca79ad)
 ---
  glib/gmain.c | 2 ++
  1 file changed, 2 insertions(+)

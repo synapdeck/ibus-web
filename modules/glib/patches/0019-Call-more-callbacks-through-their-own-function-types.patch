@@ -1,4 +1,4 @@
-From 02bf82a5bc41dd764afc4054ce45cf07ebd87704 Mon Sep 17 00:00:00 2001
+From 1728fa85a4ce07ed016369c2820b8ba87e135b3b Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:05:00 -0700
 Subject: [PATCH 19/24] Call more callbacks through their own function types

@@ -7,3 +7,9 @@
 # interface init functions, which WebAssembly traps on calling; this GLib's
 # emits ones it can call.
 mesonFlagsArray+=("--cross-file=@dev@/nix-support/gdbus-codegen-cross.ini")
+
+# gnome.gdbus_codegen() also picks its options by the build machine's GLib
+# version, which Meson reads through the build machine's pkg-config, and
+# assumes 2.54 without one. A consumer's own build-machine pkg-config wins.
+export PKG_CONFIG_FOR_BUILD=${PKG_CONFIG_FOR_BUILD:-@buildPkgConfig@}
+addToSearchPath PKG_CONFIG_PATH_FOR_BUILD @buildGlibPkgConfigPath@

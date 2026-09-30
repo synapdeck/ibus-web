@@ -1,4 +1,4 @@
-From 41dc33c16be3ed6ab9046b60fbb6434ef2544372 Mon Sep 17 00:00:00 2001
+From 4c108c655393c448c809c88cba4b2435a055b05b Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 17:29:24 -0700
 Subject: [PATCH 16/24] Resolve references to Unix sources that WebAssembly
@@ -29,7 +29,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  4 files changed, 64 insertions(+), 3 deletions(-)
 
 diff --git a/gio/gappinfo.c b/gio/gappinfo.c
-index a0aa2c4a5..11314227c 100644
+index a0aa2c4a5..d098551e8 100644
 --- a/gio/gappinfo.c
 +++ b/gio/gappinfo.c
 @@ -2011,3 +2011,63 @@ g_app_info_monitor_fire (void)
@@ -43,9 +43,9 @@ index a0aa2c4a5..11314227c 100644
 + * installed and none can be launched. */
 +
 +GAppInfo *
-+g_app_info_create_from_commandline_impl (const char           *commandline,
-+                                         const char           *application_name,
-+                                         GAppInfoCreateFlags   flags,
++g_app_info_create_from_commandline_impl (const char           *commandline G_GNUC_UNUSED,
++                                         const char           *application_name G_GNUC_UNUSED,
++                                         GAppInfoCreateFlags   flags G_GNUC_UNUSED,
 +                                         GError              **error)
 +{
 +  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
@@ -54,37 +54,37 @@ index a0aa2c4a5..11314227c 100644
 +}
 +
 +GList *
-+g_app_info_get_recommended_for_type_impl (const gchar *content_type)
++g_app_info_get_recommended_for_type_impl (const gchar *content_type G_GNUC_UNUSED)
 +{
 +  return NULL;
 +}
 +
 +GList *
-+g_app_info_get_fallback_for_type_impl (const gchar *content_type)
++g_app_info_get_fallback_for_type_impl (const gchar *content_type G_GNUC_UNUSED)
 +{
 +  return NULL;
 +}
 +
 +GList *
-+g_app_info_get_all_for_type_impl (const char *content_type)
++g_app_info_get_all_for_type_impl (const char *content_type G_GNUC_UNUSED)
 +{
 +  return NULL;
 +}
 +
 +void
-+g_app_info_reset_type_associations_impl (const char *content_type)
++g_app_info_reset_type_associations_impl (const char *content_type G_GNUC_UNUSED)
 +{
 +}
 +
 +GAppInfo *
-+g_app_info_get_default_for_type_impl (const char *content_type,
-+                                      gboolean    must_support_uris)
++g_app_info_get_default_for_type_impl (const char *content_type G_GNUC_UNUSED,
++                                      gboolean    must_support_uris G_GNUC_UNUSED)
 +{
 +  return NULL;
 +}
 +
 +GAppInfo *
-+g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
++g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme G_GNUC_UNUSED)
 +{
 +  return NULL;
 +}

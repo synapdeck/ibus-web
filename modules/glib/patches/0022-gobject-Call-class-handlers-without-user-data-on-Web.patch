@@ -1,4 +1,4 @@
-From 96192cb330158084422f6a3e4899707d90fd3f94 Mon Sep 17 00:00:00 2001
+From 2d512a2df261615a909d73ecffc2a235fe98b0b5 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 20:05:09 -0700
 Subject: [PATCH 22/24] gobject: Call class handlers without user data on

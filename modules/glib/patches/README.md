@@ -18,7 +18,9 @@ Every patch keeps its original author.
 
 The series was built by cherry-picking onto a branch made of upstream `2.88.3`
 plus nixpkgs' patches, then exported with `git format-patch`. Commit
-messages carry `(cherry picked from commit …)` with the source hash.
+messages carry `(cherry picked from commit …)` with the source hash, or
+`(adapted from commit …)` on 0011 and 0012, whose hunks differ from the
+originals.
 
 ## The series
 
@@ -182,9 +184,11 @@ GLib into one failed on them:
   `gdesktopappinfo.c`. On WebAssembly they find no applications, and
   `g_app_info_create_from_commandline()` reports `G_IO_ERROR_NOT_SUPPORTED`.
 
-0017 lets the tools link. Three of them call into Unix sources that 0008
-excludes; on WebAssembly each reports the feature as unsupported at run
-time instead:
+0017 lets the tools link. The overlay installs each as `<tool>.js` and
+`<tool>.wasm` with a `<tool>` wrapper beside them that runs it under the
+build machine's Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give
+exist. Three of the tools call into Unix sources that 0008 excludes; on
+WebAssembly each reports the feature as unsupported at run time instead:
 
 - `gtester` opens its report pipe with `pipe()` instead of
   `g_unix_open_pipe()`; spawning the test binary then fails as unsupported.
@@ -296,8 +300,10 @@ build runs its tools on the build machine, and the build machine's GLib
   on it. `checks.glib-gdbus-codegen` builds a Meson project that way, with
   the native GLib present too, and runs the generated skeletons under
   Node. Meson also reads the build machine's GLib version to choose
-  gdbus-codegen options, and assumes 2.54 (with a warning) unless the
-  consumer has `pkg-config` and `glib` in `depsBuildBuild`.
+  gdbus-codegen options, through a build-machine pkg-config, and assumes
+  2.54 (with a warning) without one; the hook sets `PKG_CONFIG_FOR_BUILD`
+  and `PKG_CONFIG_PATH_FOR_BUILD` to the build platform's pkg-config and
+  GLib, so consumers need no `depsBuildBuild` for it.
 - Anything that runs `gdbus-codegen` by name from `PATH` gets the native
   one, and its interface init functions trap on WebAssembly.
 

@@ -1,8 +1,5 @@
-/*
- * SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
- *
- * SPDX-License-Identifier: MIT OR Apache-2.0
- */
+/* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+ * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
 /* Exercises zlib and libffi once each, as found through pkg-config. */
 #ifndef IBUS_WEB_RECIPE_CFLAGS

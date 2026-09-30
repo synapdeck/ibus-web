@@ -64,15 +64,15 @@
         # and hold cores the other tests need. The gate prints the
         # `meson test` invocations that select the rest, one per line, and
         # their logs are joined into one.
-        # The pkg-config tests point PKG_CONFIG_PATH at the build tree, which
-        # nixpkgs' pkg-config wrapper replaces with its role's search path;
-        # the unwrapped pkg-config honours it.
         installPhase = ''
           runHook preInstall
+          # The pkg-config tests point PKG_CONFIG_PATH at the build tree,
+          # which nixpkgs' pkg-config wrapper replaces with its role's search
+          # path; the unwrapped pkg-config honours it.
           export PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH
           gate() {
             python3 ${./gate.py} "$1" meson-info/intro-tests.json default-tests \
-              ${./baseline.toml} "''${@:2}"
+              excluded-suites ${./baseline.toml} "''${@:2}"
           }
           # Invocations come on fd 3, since tests inherit stdin and may read
           # it; Meson's report goes to stderr, stdout carries the joined log.
@@ -87,6 +87,7 @@
           }
           mkdir -p $out
           meson test --no-rebuild --list > default-tests
+          meson runpython ${./setup-excludes.py} > excluded-suites
           gate runnable > runnable
           runTests run $NIX_BUILD_CORES runnable > $out/testlog.json
           gate failing $out/testlog.json > failing
@@ -102,5 +103,20 @@
         preFixup = "";
         postFixup = "";
       });
+
+      # The gate's test selection, run against Meson on a small project
+      # whose tests collide in the ways GLib's could.
+      checks.glib-tests-gate =
+        pkgsWasm.buildPackages.runCommand "ibus-web-glib-tests-gate"
+          {
+            nativeBuildInputs = [
+              pkgsWasm.meson
+              pkgsWasm.ninja
+              pkgsWasm.python3
+            ];
+          }
+          ''
+            python3 ${./gate-test.py} ${./gate.py} ${./setup-excludes.py} | tee $out
+          '';
     };
 }

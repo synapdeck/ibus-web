@@ -1,4 +1,4 @@
-From d32d1b0cdeb571c3eb1c30098a411b34d5dd7177 Mon Sep 17 00:00:00 2001
+From a1b181e5ee01748c3e7a282f7a3ae81954671c26 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:06:20 -0700
 Subject: [PATCH 20/24] Define the adapters G_DEFINE_DYNAMIC_TYPE_EXTENDED

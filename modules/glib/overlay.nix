@@ -46,6 +46,8 @@
             # suffix, and nixpkgs files their completions and man pages by
             # program name.
             programName = replaceIn [ "\${i##*/}" ] [ "$(basename \"$i\" .js)" ];
+            inherit (final) pkgsBuildBuild;
+            buildPkgConfig = lib.getExe' pkgsBuildBuild.pkg-config-unwrapped "pkg-config";
           in
           {
             # Sorted by name, so 0001-… applies first; README.md is not a patch.
@@ -57,16 +59,52 @@
             # With documentation off nothing lands in devdoc, and Nix fails a
             # build that leaves an output unwritten.
             outputs = lib.remove "devdoc" old.outputs;
+            # The .pc files name each tool without its suffix, and consumers
+            # run what they name on the build machine, so every tool gets a
+            # wrapper under its plain name that runs it with the build
+            # machine's Node.
             postInstall = programName old.postInstall + ''
+              for js in $bin/bin/*.js $dev/bin/*.js; do
+                if [ -e "''${js%.js}.wasm" ]; then
+                  makeWrapper ${lib.getExe pkgsBuildBuild.nodejs} "''${js%.js}" --add-flag "$js"
+                fi
+              done
               mkdir -p $dev/nix-support
               printf "[binaries]\ngdbus-codegen = '%s'\n" "$dev/bin/gdbus-codegen" \
                 > $dev/nix-support/gdbus-codegen-cross.ini
             '';
+            # The makeWrapper this cross set splices in writes the host's
+            # shell, a WebAssembly bash, into the wrappers' interpreter line.
+            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgsBuildBuild.makeWrapper ];
             # Runs in every build that depends on this GLib, never in its own.
-            setupHooks = (old.setupHooks or [ ]) ++ [ ./gdbus-codegen-hook.sh ];
-            postFixup = programName (
-              replaceIn [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup
-            );
+            # The build fills in @dev@; with structured attributes it sees only
+            # exported variables, so the rest are filled in here.
+            setupHooks = (old.setupHooks or [ ]) ++ [
+              (pkgsBuildBuild.replaceVars ./gdbus-codegen-hook.sh {
+                dev = null;
+                inherit buildPkgConfig;
+                buildGlibPkgConfigPath = "${pkgsBuildBuild.glib.dev}/lib/pkgconfig";
+              })
+            ];
+            # A tool variable that names a missing program hands consumers a
+            # dead path, so each one is checked once every output is final.
+            postFixup =
+              programName (replaceIn [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup)
+              + ''
+                pcQuery() {
+                  PKG_CONFIG_PATH=$dev/lib/pkgconfig ${buildPkgConfig} "$@"
+                }
+                for pc in $dev/lib/pkgconfig/*.pc; do
+                  module=$(basename "$pc" .pc)
+                  for variable in $(pcQuery --print-variables "$module"); do
+                    value=$(pcQuery --variable="$variable" "$module")
+                    if [[ $value == */bin/* && ! -x $value ]]; then
+                      echo "$module.pc: $variable names $value, which is not installed" >&2
+                      exit 1
+                    fi
+                  done
+                done
+              '';
             buildInputs = keep (old.buildInputs or [ ]);
             propagatedBuildInputs = keep (old.propagatedBuildInputs or [ ]);
             mesonFlags = (old.mesonFlags or [ ]) ++ [

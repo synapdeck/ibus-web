@@ -1,4 +1,4 @@
-From ca9dfb58619ab49e7d7ac09b99ce594651b685c8 Mon Sep 17 00:00:00 2001
+From e4fd68c49a41637542e0e97ce6c399d81c6c3c34 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 18:26:24 -0700
 Subject: [PATCH 17/24] Build the tools on Emscripten

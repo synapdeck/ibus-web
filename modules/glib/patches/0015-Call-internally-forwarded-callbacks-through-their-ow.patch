@@ -1,4 +1,4 @@
-From b4e3b0348dc60d1cf5eff0d113aed9c173d4beed Mon Sep 17 00:00:00 2001
+From 33a515a0d9d5edc3b407ab6d8cc6e15f3d57849e Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 17:08:30 -0700
 Subject: [PATCH 15/24] Call internally-forwarded callbacks through their own
@@ -37,26 +37,27 @@ trampoline that takes the real function as user data.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- gio/gcancellable.c             | 44 +++++++++++++++--
- gio/gdbusintrospection.c       | 33 ++++++++-----
- gio/gdbusobjectmanagerclient.c | 16 ++++--
- gio/gdbusobjectproxy.c         |  3 +-
- gio/gdbusobjectskeleton.c      |  6 ++-
- gio/gdbusprivate.c             |  3 +-
- gio/gdbusserver.c              | 11 ++++-
- gio/gkeyfilesettingsbackend.c  | 12 ++++-
- gio/gsettingsbackend.c         | 12 ++++-
- gio/gtestdbus.c                | 11 ++++-
- glib/garray.c                  | 21 ++++++--
- glib/gasyncqueue.c             |  4 +-
- glib/glist.c                   | 27 +++++++++--
- glib/gqueue.c                  | 25 +++++++++-
- glib/gslist.c                  | 27 +++++++++--
- glib/gtestutils.c              | 89 ++++++++++++++++++++++++++--------
- glib/gtree.c                   | 15 +++++-
- gobject/gbinding.c             | 13 ++++-
- gobject/gobject.c              | 41 ++++++++++++++--
- 19 files changed, 345 insertions(+), 68 deletions(-)
+ gio/gcancellable.c             |  44 +++++++++++-
+ gio/gdbusintrospection.c       |  33 ++++++---
+ gio/gdbusobjectmanagerclient.c |  16 ++++-
+ gio/gdbusobjectproxy.c         |   3 +-
+ gio/gdbusobjectskeleton.c      |   6 +-
+ gio/gdbusprivate.c             |   3 +-
+ gio/gdbusserver.c              |  11 ++-
+ gio/gkeyfilesettingsbackend.c  |  12 +++-
+ gio/gsettingsbackend.c         |  12 +++-
+ gio/gtestdbus.c                |  11 ++-
+ glib/garray.c                  |   8 +--
+ glib/gasyncqueue.c             |   4 +-
+ glib/glist.c                   |  15 +++-
+ glib/gqueue.c                  |  25 ++++++-
+ glib/gslist.c                  |  15 +++-
+ glib/gtestutils.c              | 126 ++++++++++++++++++++++-----------
+ glib/gtree.c                   |   3 +-
+ glib/gutilsprivate.h           |  13 ++++
+ gobject/gbinding.c             |  13 +++-
+ gobject/gobject.c              |  41 +++++++++--
+ 20 files changed, 327 insertions(+), 87 deletions(-)
 
 diff --git a/gio/gcancellable.c b/gio/gcancellable.c
 index 44b8bc463..12c6274f7 100644
@@ -466,47 +467,27 @@ index 03d851619..bebab00cb 100644
    /* Drop the strong ref held by the caller in an idle callback. This is to
     * make sure the mainloop is already running when weak notify happens (when
 diff --git a/glib/garray.c b/glib/garray.c
-index b37215962..74b080019 100644
+index b37215962..c065e6c8e 100644
 --- a/glib/garray.c
 +++ b/glib/garray.c
-@@ -915,6 +915,19 @@ g_array_remove_range (GArray *farray,
-   return farray;
- }
- 
-+/* Lets a #GCompareFunc, passed as @user_data, be used where a
-+ * #GCompareDataFunc is expected. Calling it through the three-argument
-+ * type directly is undefined behaviour, and traps on WebAssembly. */
-+static gint
-+compare_func_trampoline (gconstpointer a,
-+                         gconstpointer b,
-+                         gpointer      user_data)
-+{
-+  GCompareFunc compare_func = (GCompareFunc) user_data;
-+
-+  return compare_func (a, b);
-+}
-+
- /**
-  * g_array_sort:
-  * @array: an array
-@@ -940,8 +953,8 @@ g_array_sort (GArray       *farray,
+@@ -940,8 +940,8 @@ g_array_sort (GArray       *farray,
      g_sort_array (array->data,
                    array->len,
                    array->elt_size,
 -                  (GCompareDataFunc) compare_func,
 -                  NULL);
-+                  compare_func_trampoline,
++                  g_compare_func_trampoline,
 +                  (gpointer) compare_func);
  }
  
  /**
-@@ -2434,8 +2447,8 @@ g_ptr_array_sort (GPtrArray    *array,
+@@ -2434,8 +2434,8 @@ g_ptr_array_sort (GPtrArray    *array,
      g_sort_array (array->pdata,
                    array->len,
                    sizeof (gpointer),
 -                  (GCompareDataFunc) compare_func,
 -                  NULL);
-+                  compare_func_trampoline,
++                  g_compare_func_trampoline,
 +                  (gpointer) compare_func);
  }
  
@@ -527,10 +508,18 @@ index c8b914c88..ec769cfd7 100644
      }
  }
 diff --git a/glib/glist.c b/glib/glist.c
-index f3dcc0107..8f2c47cb0 100644
+index f3dcc0107..03b32ec56 100644
 --- a/glib/glist.c
 +++ b/glib/glist.c
-@@ -159,7 +159,15 @@ void
+@@ -35,6 +35,7 @@
+ #include "gmessages.h"
+ 
+ #include "gtestutils.h"
++#include "gutilsprivate.h"
+ 
+ /**
+  * GList:
+@@ -159,7 +160,15 @@ void
  g_list_free_full (GList          *list,
                    GDestroyNotify  free_func)
  {
@@ -547,41 +536,21 @@ index f3dcc0107..8f2c47cb0 100644
    g_list_free (list);
  }
  
-@@ -1010,6 +1018,19 @@ g_list_foreach (GList    *list,
-     }
- }
- 
-+/* Lets a #GCompareFunc, passed as @user_data, be used where a
-+ * #GCompareDataFunc is expected. Calling it through the three-argument
-+ * type directly is undefined behaviour, and traps on WebAssembly. */
-+static gint
-+compare_func_trampoline (gconstpointer a,
-+                         gconstpointer b,
-+                         gpointer      user_data)
-+{
-+  GCompareFunc compare_func = (GCompareFunc) user_data;
-+
-+  return compare_func (a, b);
-+}
-+
- static GList*
- g_list_insert_sorted_real (GList    *list,
-                            gpointer  data,
-@@ -1086,7 +1107,7 @@ g_list_insert_sorted (GList        *list,
+@@ -1086,7 +1095,7 @@ g_list_insert_sorted (GList        *list,
                        gpointer      data,
                        GCompareFunc  func)
  {
 -  return g_list_insert_sorted_real (list, data, (GCompareDataFunc) func, NULL);
-+  return g_list_insert_sorted_real (list, data, compare_func_trampoline, (gpointer) func);
++  return g_list_insert_sorted_real (list, data, g_compare_func_trampoline, (gpointer) func);
  }
  
  /**
-@@ -1217,7 +1238,7 @@ GList *
+@@ -1217,7 +1226,7 @@ GList *
  g_list_sort (GList        *list,
               GCompareFunc  compare_func)
  {
 -  return g_list_sort_real (list, (GCompareDataFunc) compare_func, NULL);
-+  return g_list_sort_real (list, compare_func_trampoline, (gpointer) compare_func);
++  return g_list_sort_real (list, g_compare_func_trampoline, (gpointer) compare_func);
  }
  
  /**
@@ -636,10 +605,18 @@ index 07805ff27..467352070 100644
    g_queue_clear (queue);
  }
 diff --git a/glib/gslist.c b/glib/gslist.c
-index 92d13c676..2a014744e 100644
+index 92d13c676..76f620a17 100644
 --- a/glib/gslist.c
 +++ b/glib/gslist.c
-@@ -146,7 +146,15 @@ void
+@@ -33,6 +33,7 @@
+ #include "gslist.h"
+ 
+ #include "gtestutils.h"
++#include "gutilsprivate.h"
+ #include "gslice.h"
+ 
+ /**
+@@ -146,7 +147,15 @@ void
  g_slist_free_full (GSList         *list,
  		   GDestroyNotify  free_func)
  {
@@ -656,46 +633,26 @@ index 92d13c676..2a014744e 100644
    g_slist_free (list);
  }
  
-@@ -839,6 +847,19 @@ g_slist_foreach (GSList   *list,
-     }
- }
- 
-+/* Lets a #GCompareFunc, passed as @user_data, be used where a
-+ * #GCompareDataFunc is expected. Calling it through the three-argument
-+ * type directly is undefined behaviour, and traps on WebAssembly. */
-+static gint
-+compare_func_trampoline (gconstpointer a,
-+                         gconstpointer b,
-+                         gpointer      user_data)
-+{
-+  GCompareFunc compare_func = (GCompareFunc) user_data;
-+
-+  return compare_func (a, b);
-+}
-+
- static GSList*
- g_slist_insert_sorted_real (GSList               *list,
-                             gpointer             data,
-@@ -911,7 +932,7 @@ g_slist_insert_sorted (GSList       *list,
+@@ -911,7 +920,7 @@ g_slist_insert_sorted (GSList       *list,
                         gpointer      data,
                         GCompareFunc  func)
  {
 -  return g_slist_insert_sorted_real (list, data, (GCompareDataFunc) func, NULL);
-+  return g_slist_insert_sorted_real (list, data, compare_func_trampoline, (gpointer) func);
++  return g_slist_insert_sorted_real (list, data, g_compare_func_trampoline, (gpointer) func);
  }
  
  /**
-@@ -1018,7 +1039,7 @@ GSList *
+@@ -1018,7 +1027,7 @@ GSList *
  g_slist_sort (GSList       *list,
                GCompareFunc  compare_func)
  {
 -  return g_slist_sort_real (list, (GCompareDataFunc) compare_func, NULL);
-+  return g_slist_sort_real (list, compare_func_trampoline, (gpointer) compare_func);
++  return g_slist_sort_real (list, g_compare_func_trampoline, (gpointer) compare_func);
  }
  
  /**
 diff --git a/glib/gtestutils.c b/glib/gtestutils.c
-index 867604d0e..f500ee085 100644
+index 867604d0e..9296855d4 100644
 --- a/glib/gtestutils.c
 +++ b/glib/gtestutils.c
 @@ -684,6 +684,14 @@ struct GTestCase
@@ -713,10 +670,29 @@ index 867604d0e..f500ee085 100644
  };
  struct GTestSuite
  {
-@@ -2527,22 +2535,24 @@ find_case (gconstpointer l, gconstpointer s)
-  *
-  * Since: 2.28
-  */
+@@ -2508,41 +2516,23 @@ find_case (gconstpointer l, gconstpointer s)
+   return strcmp (tc->name, str);
+ }
+ 
+-/**
+- * GTestFixtureFunc:
+- * @fixture: (not nullable): the test fixture
+- * @user_data: the data provided when registering the test
+- *
+- * The type used for functions that operate on test fixtures.
+- *
+- * This is used for the fixture setup and teardown functions
+- * as well as for the testcases themselves.
+- *
+- * @user_data is a pointer to the data that was given when
+- * registering the test case.
+- *
+- * @fixture will be a pointer to the area of memory allocated by the
+- * test framework, of the size requested.  If the requested size was
+- * zero then @fixture will be equal to @user_data.
+- *
+- * Since: 2.28
+- */
 -void
 -g_test_add_vtable (const char       *testpath,
 -                   gsize             data_size,
@@ -724,7 +700,6 @@ index 867604d0e..f500ee085 100644
 -                   GTestFixtureFunc  data_setup,
 -                   GTestFixtureFunc  fixture_test_func,
 -                   GTestFixtureFunc  data_teardown)
-+
 +static GTestCase *
 +test_add_vtable (const char       *testpath,
 +                 gsize             data_size,
@@ -749,7 +724,7 @@ index 867604d0e..f500ee085 100644
  
    suite = g_test_get_root();
    segments = g_strsplit (testpath, "/", -1);
-@@ -2572,8 +2582,6 @@ g_test_add_vtable (const char       *testpath,
+@@ -2572,8 +2562,6 @@ g_test_add_vtable (const char       *testpath,
          }
        else /* islast */
          {
@@ -758,7 +733,7 @@ index 867604d0e..f500ee085 100644
            if (g_slist_find_custom (suite->cases, seg, find_case))
              g_error ("duplicate test case path: %s", testpath);
  
-@@ -2582,6 +2590,20 @@ g_test_add_vtable (const char       *testpath,
+@@ -2582,6 +2570,39 @@ g_test_add_vtable (const char       *testpath,
          }
      }
    g_strfreev (segments);
@@ -766,6 +741,25 @@ index 867604d0e..f500ee085 100644
 +  return tc;
 +}
 +
++/**
++ * GTestFixtureFunc:
++ * @fixture: (not nullable): the test fixture
++ * @user_data: the data provided when registering the test
++ *
++ * The type used for functions that operate on test fixtures.
++ *
++ * This is used for the fixture setup and teardown functions
++ * as well as for the testcases themselves.
++ *
++ * @user_data is a pointer to the data that was given when
++ * registering the test case.
++ *
++ * @fixture will be a pointer to the area of memory allocated by the
++ * test framework, of the size requested.  If the requested size was
++ * zero then @fixture will be equal to @user_data.
++ *
++ * Since: 2.28
++ */
 +void
 +g_test_add_vtable (const char       *testpath,
 +                   gsize             data_size,
@@ -779,7 +773,7 @@ index 867604d0e..f500ee085 100644
  }
  
  /**
-@@ -2832,10 +2854,14 @@ void
+@@ -2832,10 +2853,14 @@ void
  g_test_add_func (const char *testpath,
                   GTestFunc   test_func)
  {
@@ -795,7 +789,7 @@ index 867604d0e..f500ee085 100644
  }
  
  /**
-@@ -2877,11 +2903,15 @@ g_test_add_data_func (const char     *testpath,
+@@ -2877,11 +2902,15 @@ g_test_add_data_func (const char     *testpath,
                        gconstpointer   test_data,
                        GTestDataFunc   test_func)
  {
@@ -812,7 +806,7 @@ index 867604d0e..f500ee085 100644
  }
  
  /**
-@@ -2904,13 +2934,20 @@ g_test_add_data_func_full (const char     *testpath,
+@@ -2904,13 +2933,20 @@ g_test_add_data_func_full (const char     *testpath,
                             GTestDataFunc   test_func,
                             GDestroyNotify  data_free_func)
  {
@@ -836,7 +830,7 @@ index 867604d0e..f500ee085 100644
  }
  
  static gboolean
-@@ -3131,7 +3168,12 @@ test_case_run (GTestCase  *tc,
+@@ -3131,7 +3167,12 @@ test_case_run (GTestCase  *tc,
                test_run_seed (test_run_seedstr);
                if (tc->fixture_setup)
                  tc->fixture_setup (fixture, tc->test_data);
@@ -850,7 +844,7 @@ index 867604d0e..f500ee085 100644
                test_trap_clear();
                while (test_destroy_queue)
                  {
-@@ -3140,9 +3182,12 @@ test_case_run (GTestCase  *tc,
+@@ -3140,9 +3181,12 @@ test_case_run (GTestCase  *tc,
                    dentry->destroy_func (dentry->destroy_data);
                    g_slice_free (DestroyEntry, dentry);
                  }
@@ -864,7 +858,7 @@ index 867604d0e..f500ee085 100644
                if (tc->fixture_size)
                  g_free (fixture);
                g_timer_stop (test_run_timer);
-@@ -3349,7 +3394,9 @@ g_test_case_free (GTestCase *test_case)
+@@ -3349,7 +3393,9 @@ g_test_case_free (GTestCase *test_case)
     * data may still need to be freed, as the client’s main() function may have
     * passed ownership of it into g_test_add_data_func_full() with a
     * #GDestroyNotify. */
@@ -876,36 +870,50 @@ index 867604d0e..f500ee085 100644
  
    g_free (test_case->name);
 diff --git a/glib/gtree.c b/glib/gtree.c
-index 087094bc2..d8eb809d9 100644
+index 087094bc2..e320b9ab1 100644
 --- a/glib/gtree.c
 +++ b/glib/gtree.c
-@@ -131,12 +131,25 @@ g_tree_node_new (gpointer key,
-  * 
-  * Returns: a newly allocated #GTree
-  */
+@@ -34,6 +34,7 @@
+ 
+ #include "gatomic.h"
+ #include "gtestutils.h"
++#include "gutilsprivate.h"
+ #include "gslice.h"
+ 
+ #define MAX_GTREE_HEIGHT 40
+@@ -136,7 +137,7 @@ g_tree_new (GCompareFunc key_compare_func)
+ {
+   g_return_val_if_fail (key_compare_func != NULL, NULL);
+ 
+-  return g_tree_new_full ((GCompareDataFunc) key_compare_func, NULL,
++  return g_tree_new_full (g_compare_func_trampoline, (gpointer) key_compare_func,
+                           NULL, NULL);
+ }
+ 
+diff --git a/glib/gutilsprivate.h b/glib/gutilsprivate.h
+index 57177350d..4e23c60ec 100644
+--- a/glib/gutilsprivate.h
++++ b/glib/gutilsprivate.h
+@@ -56,6 +56,19 @@ g_nearest_pow (gsize num)
+   return n + 1;
+ }
+ 
 +/* Lets a #GCompareFunc, passed as @user_data, be used where a
 + * #GCompareDataFunc is expected. Calling it through the three-argument
 + * type directly is undefined behaviour, and traps on WebAssembly. */
-+static gint
-+compare_func_trampoline (gconstpointer a,
-+                         gconstpointer b,
-+                         gpointer      user_data)
++static inline gint
++g_compare_func_trampoline (gconstpointer a,
++                           gconstpointer b,
++                           gpointer      user_data)
 +{
 +  GCompareFunc compare_func = (GCompareFunc) user_data;
 +
 +  return compare_func (a, b);
 +}
 +
- GTree *
- g_tree_new (GCompareFunc key_compare_func)
- {
-   g_return_val_if_fail (key_compare_func != NULL, NULL);
+ void _g_unset_cached_tmp_dir (void);
  
--  return g_tree_new_full ((GCompareDataFunc) key_compare_func, NULL,
-+  return g_tree_new_full (compare_func_trampoline, (gpointer) key_compare_func,
-                           NULL, NULL);
- }
- 
+ gboolean _g_localtime (time_t timet, struct tm *tm);
 diff --git a/gobject/gbinding.c b/gobject/gbinding.c
 index aef23761b..26118a111 100644
 --- a/gobject/gbinding.c
