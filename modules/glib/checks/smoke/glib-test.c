@@ -274,6 +274,8 @@ int main(void) {
   g_source_set_callback(quitter, quit_loop, loop, NULL);
   g_source_attach(quitter, loop_context);
   g_source_unref(quitter);
+  /* Reaching the join at all is the assertion: without a working wakeup
+   * the loop never sees the quitter and the check's timeout fails it. */
   g_thread_join(looper);
   printf("wakeup %d\n", !g_main_loop_is_running(loop));
   g_main_loop_unref(loop);

@@ -318,9 +318,12 @@ in `Atomics.wait` never runs its event loop.
 
 Sources can also become ready on other threads: a `GTask` finishing in the
 thread pool, or an engine library's own thread calling `g_idle_add`. GLib
-announces these with `g_main_context_wakeup`, which on WebAssembly notifies the
-word the host waits on (§5.1.3), so the host wakes and pumps then rather than at
-the next request or deadline. A test attaches a source from another thread
+announces these by signalling the context's wakeup, which on WebAssembly also
+notifies the word the host waits on (§5.1.3), so the host wakes and pumps then
+rather than at the next request or deadline. GLib signals for a source attached
+from another thread only when the context has an owner, so the pump's thread
+acquires the default context once for the Worker's lifetime; acquiring is
+recursive, so its non-blocking iterations still work. A test attaches a source from another thread
 while the host waits and checks that it is dispatched promptly.
 
 Output produced by a pump outside a request goes to the ring followed by a
@@ -1237,7 +1240,11 @@ specification and `release.json`.
   may need that thread to yield or to process its proxy queue. Options, in
   order: pre-allocated thread pool and a wait loop in C that processes the
   queue; running each engine on a pthread with the Worker's own thread left
-  free. Settled in M0.
+  free. A wait loop in C only covers calls proxied synchronously: calls
+  Emscripten proxies as promises (`fsync()` on the JavaScript file systems)
+  need the thread back in its JS event loop, which the request loop never
+  returns to. The M0 test includes one such call from a pthread while the host
+  waits. Settled in M0.
 - **R3. Dynamic linking with pthreads.** Weakest area of Emscripten dynamic
   linking. §5.3's thread pool is pre-allocated, so its workers exist before
   `main` runs and side modules load after the pool already exists: the

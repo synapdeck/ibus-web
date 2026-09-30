@@ -404,10 +404,11 @@ without editing them:
   returning; a bare atomic wait would deadlock them. On a browser's main
   thread it busy-waits, but GLib never runs there in this runtime. What
   it can't do is finish a call Emscripten proxies as a promise
-  (`fsync()`, which `fd_sync` resolves asynchronously with pthreads): that
-  needs the main thread back in its event loop, so a pthread's `fsync()`
-  waits as long as the main thread blocks, in a GLib loop or anywhere
-  else. GLib's `async-splice-output-stream` test hangs that way: its
+  (`fsync()`, which the JavaScript file systems' `fd_sync` resolves
+  asynchronously with pthreads; WasmFS implements it in C and is not
+  affected): that needs the main thread back in its event loop, so on the
+  JavaScript file systems a pthread's `fsync()` waits as long as the main
+  thread blocks, in a GLib loop or anywhere else. GLib's `async-splice-output-stream` test hangs that way: its
   threaded-output case replaces an existing file from a `GTask` thread,
   which GLib `fsync()`s before the rename, while the main thread sleeps
   in `g_main_loop_run()`.
@@ -443,7 +444,13 @@ without editing them:
   WebAssembly-only function in `gmain.c`), and have `g_wakeup_signal()`
   increment and `emscripten_futex_wake()` that word after its own. Waiting
   and acknowledging don't change, since the host never waits on the
-  wakeup's own counter.
+  wakeup's own counter. GLib only signals a context's wakeup for a source
+  attached from another thread when some other thread owns the context
+  (or it polls without an owner), so the pump's thread must acquire the
+  default context once for the Worker's lifetime; acquiring is recursive,
+  so its non-blocking iterations still work. A context acquired and
+  released around each iteration is unowned between pumps, and a source
+  attached then would never wake the host.
 
 With the wakeup in place, the thread `g_get_worker_context()` starts
 (for `GTask`, among others) and GDBus's shared thread sleep in their
