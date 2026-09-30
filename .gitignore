@@ -4,3 +4,4 @@ result-*
 /.clangd
 .cache/
 .worktrees/
+.direnv/
