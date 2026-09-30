@@ -1,7 +1,7 @@
 From 57d7735298c913a91abfc8986dcd5baf1b833ac1 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 24 Aug 2022 21:55:32 +0200
-Subject: [PATCH 08/14] Add support for WebAssembly
+Subject: [PATCH 08/15] Add support for WebAssembly
 
 - Exclude unix specific files.
 - Add Wasm-specific platform definition.

@@ -1,7 +1,7 @@
 From 2052ed16fb530c26bb88db2934b5c9823a3138af Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Tue, 13 Apr 2021 15:30:00 +0200
-Subject: [PATCH 07/14] Use vsnpintf/snprintf/printf from musl libc
+Subject: [PATCH 07/15] Use vsnpintf/snprintf/printf from musl libc
 
 The C99 semantics of these functions is well supported in musl libc.
 

@@ -1,7 +1,7 @@
 From 031fc3301df5d4c1f0a0340a569f6922e868b9e8 Mon Sep 17 00:00:00 2001
 From: Jorge Zapata <jorgeluis.zapata@gmail.com>
 Date: Fri, 19 Jun 2026 16:11:40 +0200
-Subject: [PATCH 13/14] glist: Fix function signatures in internals of
+Subject: [PATCH 13/15] glist: Fix function signatures in internals of
  glist/gslist
 
 Replaces the incorrect GFunc with GCompareDataFunc in internal

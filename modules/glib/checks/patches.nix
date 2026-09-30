@@ -18,8 +18,10 @@
         for p in ${lib.concatMapStringsSep " " (p: "${p}") glib.patches}; do
           patch -p1 --forward --batch < "$p"
         done
+        # No fuzz for ours: a hunk that only lands somewhere nearby after a
+        # nixpkgs update should fail here, not apply in the wrong place.
         for p in ${ours}/*.patch; do
-          patch -p1 --forward --batch < "$p"
+          patch -p1 --forward --batch --fuzz=0 < "$p"
         done
         touch $out
       '';

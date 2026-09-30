@@ -1,7 +1,7 @@
 From 8af8167bb02fb90d9759f63074e3c4dd6b81ffd5 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 18 Sep 2019 15:00:00 +0200
-Subject: [PATCH 03/14] Emscripten doesn't always define
+Subject: [PATCH 03/15] Emscripten doesn't always define
  __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
 
 See:
