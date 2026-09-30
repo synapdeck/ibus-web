@@ -40,6 +40,7 @@
         cpp = '${targetPrefix}c++'
         ar = '${targetPrefix}ar'
         nm = '${targetPrefix}nm'
+        strip = '${targetPrefix}strip'
         ranlib = '${targetPrefix}ranlib'
         pkg-config = '${targetPrefix}pkg-config'
       '';

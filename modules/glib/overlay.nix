@@ -20,7 +20,13 @@
               "libiconv"
             ];
             # The lists also hold GLib's setup hook, a path with no name.
-            keep = deps: lib.filter (d: !(lib.isDerivation d && lib.elem (lib.getName d) unwanted)) deps;
+            depName = d: if lib.isDerivation d then lib.getName d else null;
+            # Each name must be there to remove, so a rename upstream fails
+            # evaluation instead of letting the input back in.
+            inputNames = map depName ((old.buildInputs or [ ]) ++ (old.propagatedBuildInputs or [ ]));
+            keep =
+              assert lib.all (name: lib.elem name inputNames) unwanted;
+              lib.filter (d: !(lib.elem (depName d) unwanted));
             # GLib's executables (its tools, and its tests when enabled) only
             # ever run under Node, so they get a real filesystem and threads
             # that start without returning to the event loop. Static

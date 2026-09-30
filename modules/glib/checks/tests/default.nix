@@ -60,25 +60,42 @@
           pkgsWasm.nodejs
         ];
         outputs = [ "out" ];
+        # Excluded tests never run: several busy-wait until Meson's timeout
+        # and hold cores the other tests need. The gate prints the
+        # `meson test` invocations that select the rest, one per line, and
+        # their logs are joined into one.
         # The pkg-config tests point PKG_CONFIG_PATH at the build tree, which
         # nixpkgs' pkg-config wrapper replaces with its role's search path;
         # the unwrapped pkg-config honours it.
         installPhase = ''
           runHook preInstall
           export PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH
-          meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
-            --num-processes $NIX_BUILD_CORES || true
+          gate() {
+            python3 ${./gate.py} "$1" meson-info/intro-tests.json default-tests \
+              ${./baseline.toml} "''${@:2}"
+          }
+          # Invocations come on fd 3, since tests inherit stdin and may read
+          # it; Meson's report goes to stderr, stdout carries the joined log.
+          runTests() {
+            local base=$1 jobs=$2 n=0 selection
+            while read -r -a selection <&3; do
+              meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
+                --num-processes "$jobs" --logbase "$base-$n" "''${selection[@]}" >&2 || true
+              n=$((n + 1))
+            done 3< "$3"
+            cat meson-logs/"$base"-*.json 2> /dev/null || true
+          }
           mkdir -p $out
-          cp meson-logs/testlog.json $out/
-          mapfile -t failing < <(python3 ${./gate.py} --failing $out/testlog.json ${./baseline.toml})
+          meson test --no-rebuild --list > default-tests
+          gate runnable > runnable
+          runTests run $NIX_BUILD_CORES runnable > $out/testlog.json
+          gate failing $out/testlog.json > failing
           rerun=()
-          if [ ''${#failing[@]} -gt 0 ]; then
-            meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
-              --num-processes 1 --logbase rerun "''${failing[@]}" || true
-            cp meson-logs/rerun.json $out/
+          if [ -s failing ]; then
+            runTests rerun 1 failing > $out/rerun.json
             rerun=($out/rerun.json)
           fi
-          python3 ${./gate.py} $out/testlog.json ${./baseline.toml} $out "''${rerun[@]}"
+          gate report $out/testlog.json $out "''${rerun[@]}"
           runHook postInstall
         '';
         postInstall = "";
