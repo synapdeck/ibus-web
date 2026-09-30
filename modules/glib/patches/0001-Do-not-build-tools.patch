@@ -1,7 +1,7 @@
 From 1f86fb34823d940c1c4573a8f83d8a96f83e2258 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Tue, 8 Oct 2019 11:30:00 +0200
-Subject: [PATCH 01/15] Do not build tools
+Subject: [PATCH 01/16] Do not build tools
 
 We're only interested in the libraries.
 

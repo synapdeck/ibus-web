@@ -1,0 +1,139 @@
+From 8cd47f120f30d858a47fb553f894c863c15ca9af Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 29 Sep 2026 17:29:24 -0700
+Subject: [PATCH 16/16] Resolve references to Unix sources that WebAssembly
+ doesn't build
+
+Excluding the Unix-specific sources left callers behind: gappinfo.c
+calls the application database's *_impl functions from
+gdesktopappinfo.c, g_unix_connection_send_fd() and the D-Bus command
+line's stdin use gunixfdmessage.c and gunixinputstream.c, and
+gtestutils.c and gtestdbus.c call g_io_channel_unix_new() from
+giounix.c. A static link garbage-collects these callers, but a main
+module keeps every function for side modules to import, so the link
+fails on the undefined symbols.
+
+Build giounix.c, which is plain POSIX I/O on file descriptors and
+provides an API giochannel.h declares for every Unix. Guard the fd
+message and input stream callers like the neighbouring receive_fd and
+GApplicationCommandLine stdin, which already report no support. Give
+the application database empty implementations: there are no
+applications to find or launch.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/gappinfo.c              | 60 +++++++++++++++++++++++++++++++++++++
+ gio/gapplicationimpl-dbus.c |  2 +-
+ gio/gunixconnection.c       |  2 +-
+ glib/meson.build            |  3 +-
+ 4 files changed, 64 insertions(+), 3 deletions(-)
+
+diff --git a/gio/gappinfo.c b/gio/gappinfo.c
+index a0aa2c4a5..11314227c 100644
+--- a/gio/gappinfo.c
++++ b/gio/gappinfo.c
+@@ -2011,3 +2011,63 @@ g_app_info_monitor_fire (void)
+ {
+   g_context_specific_group_emit (&g_app_info_monitor_group, g_app_info_monitor_changed_signal);
+ }
++
++#ifdef G_PLATFORM_WASM
++
++/* There is no application database on WebAssembly: no applications are
++ * installed and none can be launched. */
++
++GAppInfo *
++g_app_info_create_from_commandline_impl (const char           *commandline,
++                                         const char           *application_name,
++                                         GAppInfoCreateFlags   flags,
++                                         GError              **error)
++{
++  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
++                       _("Launching applications is not supported"));
++  return NULL;
++}
++
++GList *
++g_app_info_get_recommended_for_type_impl (const gchar *content_type)
++{
++  return NULL;
++}
++
++GList *
++g_app_info_get_fallback_for_type_impl (const gchar *content_type)
++{
++  return NULL;
++}
++
++GList *
++g_app_info_get_all_for_type_impl (const char *content_type)
++{
++  return NULL;
++}
++
++void
++g_app_info_reset_type_associations_impl (const char *content_type)
++{
++}
++
++GAppInfo *
++g_app_info_get_default_for_type_impl (const char *content_type,
++                                      gboolean    must_support_uris)
++{
++  return NULL;
++}
++
++GAppInfo *
++g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
++{
++  return NULL;
++}
++
++GList *
++g_app_info_get_all_impl (void)
++{
++  return NULL;
++}
++
++#endif /* G_PLATFORM_WASM */
+diff --git a/gio/gapplicationimpl-dbus.c b/gio/gapplicationimpl-dbus.c
+index 90959ecac..19914532a 100644
+--- a/gio/gapplicationimpl-dbus.c
++++ b/gio/gapplicationimpl-dbus.c
+@@ -959,7 +959,7 @@ g_dbus_command_line_printerr_literal (GApplicationCommandLine *cmdline,
+ static GInputStream *
+ g_dbus_command_line_get_stdin (GApplicationCommandLine *cmdline)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GDBusCommandLine *gdbcl = (GDBusCommandLine *) cmdline;
+   GInputStream *result = NULL;
+   GDBusMessage *message;
+diff --git a/gio/gunixconnection.c b/gio/gunixconnection.c
+index e2c3a8145..dea3f56ad 100644
+--- a/gio/gunixconnection.c
++++ b/gio/gunixconnection.c
+@@ -82,7 +82,7 @@ g_unix_connection_send_fd (GUnixConnection  *connection,
+                            GCancellable     *cancellable,
+                            GError          **error)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GSocketControlMessage *scm;
+   GSocket *socket;
+ 
+diff --git a/glib/meson.build b/glib/meson.build
+index faf597c2f..c4b92e0db 100644
+--- a/glib/meson.build
++++ b/glib/meson.build
+@@ -380,8 +380,9 @@ if host_system == 'windows'
+     glib_sources += files('dirent/wdirent.c')
+   endif
+ else
++  glib_sources += files('giounix.c')
+   if host_system != 'emscripten'
+-    glib_sources += files('glib-unix.c', 'giounix.c')
++    glib_sources += files('glib-unix.c')
+   endif
+   if process_spawn_allowed
+     glib_sources += files('gspawn-posix.c')

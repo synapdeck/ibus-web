@@ -1,7 +1,7 @@
 From c273833d936674c7a776379c9c98132e81454265 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 18 Sep 2019 15:40:00 +0200
-Subject: [PATCH 05/15] Network libs are not available on Emscripten
+Subject: [PATCH 05/16] Network libs are not available on Emscripten
 
 Upstream-Status: Inappropriate [Wasm-specific]
 GLib will not integrate any Wasm-specific patches until the toolchain

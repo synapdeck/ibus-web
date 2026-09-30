@@ -1,7 +1,7 @@
 From 6321e207f106742a155220ac0fb6b32a22e91a7b Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 22 Apr 2020 12:11:28 +0200
-Subject: [PATCH 06/15] Ensure separate checks are also done for Emscripten
+Subject: [PATCH 06/16] Ensure separate checks are also done for Emscripten
 
 Upstream-Status: Inappropriate [Wasm-specific]
 GLib will not integrate any Wasm-specific patches until the toolchain

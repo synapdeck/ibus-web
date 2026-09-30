@@ -40,6 +40,7 @@ messages carry `(cherry picked from commit …)` with the source hash.
 | 0013 glist: Fix function signatures in internals of glist/gslist | Jorge Zapata (Fluendo) | `86387bcf5b85` |
 | 0014 gwakeup: Make acknowledging and freeing no-ops on WebAssembly | Alexis Williams | — |
 | 0015 Call internally-forwarded callbacks through their own function types | Alexis Williams | — |
+| 0016 Resolve references to Unix sources that WebAssembly doesn't build | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -155,6 +156,23 @@ behaviour, except where noted.
   `g_list_foreach()`/`g_ptr_array_foreach()` as `GFunc`.
 - `gsettingsbackend.c`, `gkeyfilesettingsbackend.c`: `strcmp()` passed to
   `g_tree_new_full()` as a `GCompareDataFunc`.
+
+0016 resolves the symbols that 0008's exclusion of Unix-specific sources
+left undefined. A static link garbage-collects their callers, but a main
+module (`-sMAIN_MODULE=1`) keeps every function for side modules, so linking
+GLib into one failed on them:
+
+- `giounix.c` (`g_io_channel_unix_new()`, called by `gtestutils.c` and
+  `gtestdbus.c`) is built again. It is plain POSIX I/O on file descriptors
+  and `giochannel.h` declares it on every Unix.
+- `g_unix_connection_send_fd()` and the D-Bus command line's stdin used
+  `gunixfdmessage.c` and `gunixinputstream.c`. They are guarded like
+  `g_unix_connection_receive_fd()` and `GApplicationCommandLine`'s own stdin
+  already were: sending an fd reports `G_IO_ERROR_NOT_SUPPORTED`, and stdin
+  is `NULL`.
+- `gappinfo.c` called the application database's `*_impl` functions from
+  `gdesktopappinfo.c`. On WebAssembly they find no applications, and
+  `g_app_info_create_from_commandline()` reports `G_IO_ERROR_NOT_SUPPORTED`.
 
 Not covered: callbacks that *users* pass with fewer parameters than the
 API documents, `(GFunc)` casts in the unbuilt `TEST_COMPLETION` block of
