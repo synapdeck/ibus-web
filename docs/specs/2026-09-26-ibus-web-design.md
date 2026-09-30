@@ -327,7 +327,9 @@ doorbell `postMessage` (§6.2.3).
 - **Build.** `-sMAIN_MODULE=2` with an explicit, versioned export list.
   Everything is compiled with `-fPIC`. Threads are enabled with a
   pre-allocated pool (`-sPTHREAD_POOL_SIZE`), so creating a thread never has to
-  yield to the event loop (§13, R2).
+  yield to the event loop (§13, R2). GRegex overflows Emscripten's 64 KiB
+  default stack, so the link sets `-sSTACK_SIZE` to at least 1 MiB, and
+  `-sDEFAULT_PTHREAD_STACK_SIZE` too if GLib runs on a pthread.
 - **ABI version.** The export list's version is the runtime ABI version. Every
   engine manifest records the version it was built against, and a mismatch is
   a load failure (§8).
@@ -981,8 +983,13 @@ artifacts; WASM builds of nixpkgs packages are reached through
   `config.replaceCrossStdenv` swapping the compiler:
   - `emcc` and `em++` are wrapped by nixpkgs' `cc-wrapper` as a clang
     (`stdenv.cc.isClang`), with its version taken from the clang Emscripten
-    is built against. The wrapper adds `-fPIC -pthread -fwasm-exceptions` to
-    every compile and link.
+    is built against. The wrapper adds `-O2 -fPIC -pthread -fwasm-exceptions`
+    to every compile and link. `-O2` goes before the command's own arguments,
+    so a package's own `-O` wins. An `-O2` link turns Emscripten's runtime
+    assertions off, so check and test links add `-sASSERTIONS=1`.
+  - The Emscripten binutils (`emar`, `emranlib`, LLVM's `nm`, `strip` and
+    friends, `wasm-ld`) carry the target prefix, so the bintools wrapper
+    wraps them and builds get `$AR`, `$NM` and the rest from it.
   - The wrapper's `--target` and `-nostdlibinc` are removed (emcc chooses its
     own target and sysroot), and the hardening defaults are limited to
     `format`, `pic` and `strictflexarrays1`.
@@ -999,6 +1006,13 @@ artifacts; WASM builds of nixpkgs packages are reached through
     target platform, which rehashes it and misses the binary cache.
   - `config.allowUnsupportedSystem` is set, because recipes' platform lists
     predate this target.
+  - A setup hook gives every Meson build a second cross file setting
+    `host_machine.system = 'emscripten'` and Node as exe wrapper, so Meson
+    can run tests and `run()` checks. nixpkgs' own cross file reports the
+    platform's kernel, `none`, and nixpkgs' `lib.systems` has no Emscripten
+    kernel; autotools and CMake still see `wasm32-unknown-none`. Both cross
+    files are exposed as `ibusWeb.toolchain.mesonCrossFlags` for configuring
+    by hand.
 - **Overlays** in the flake's `overlays` output carry every recipe change.
   Each is gated with
   `lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false))`,
@@ -1022,10 +1036,38 @@ artifacts; WASM builds of nixpkgs packages are reached through
   dependents inside `pkgsWasm` would not see it.
 - **GLib** is nixpkgs' `glib` recipe with an Emscripten patch series kept in
   this repository (`modules/glib/patches/`) and applied to
-  `pkgsWasm.glib` by `flake.overlays.glib`: the Wolthuizen patch set and
-  the fixes carried by the udevbe fork, forward-ported from 2.80.2 to the
-  nixpkgs version, plus our own patches (§5.1). nixpkgs' own `glib` patches
-  are reviewed individually; most are NixOS path handling and are dropped.
+  `pkgsWasm.glib` by `flake.overlays.glib`, after nixpkgs' own `glib`
+  patches, which are all kept. The patches README lists each patch with its
+  source and the reason for it.
+  - **Series.** 24 patches. Kleis Auke Wolthuizen's series from his
+    `wasm-vips-<version>` branches of GLib (the one wasm-vips uses), rebased
+    from 2.88.1 onto 2.88.3, without its GRegex removal and with its tool
+    removal cut down to girepository and the fuzzers. Fluendo's main-context
+    fixes from `gst.wasm` (no-op wakeups, the context skipping its wakeup
+    fd, zero poll timeouts) and its `glist`/`gslist` signature fixes, but
+    not its `emscripten_set_main_loop` integration. Ours: the rest of the
+    wakeup made no-ops; GLib's own calls through mismatched function types,
+    including the interface init functions `gdbus-codegen` generates; class
+    handlers called without `user_data`, through libffi (§5.1.2); the
+    adapters the dynamic-type macros refer to; Unix sources WebAssembly
+    doesn't build; `g_file_query_exists` without the `faccessat` flags
+    Emscripten doesn't support; subprocess tests skipped; and test-only
+    fixes.
+  - **Tools.** GLib's tools (`glib-compile-schemas`,
+    `glib-compile-resources`, `gio`, `gobject-query`, …) are built for
+    WebAssembly as `.js` programs and run under Node; features they reach
+    through Unix sources WebAssembly doesn't build report themselves
+    unsupported. GLib's executables link with `-sNODERAWFS=1
+    -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1
+    -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the libraries don't see these.
+  - **`gdbus-codegen`.** A cross build runs its tools on the build machine,
+    whose GLib has the unpatched `gdbus-codegen`. `pkgsWasm.glib` carries a
+    setup hook that points Meson consumers at its patched script; Autotools
+    consumers get it through `gio-2.0.pc`'s `gdbus_codegen`.
+  - **Overlay.** Removes `bash-interactive`, `gnum4`, `libsysprof-capture`,
+    `gettext` and `libiconv` from the inputs (Emscripten's musl provides
+    iconv and gettext), disables NLS, sysprof, documentation, tests and
+    xattr, and drops the `devdoc` output.
 - **TypeScript.** One pnpm workspace; dependencies are a fixed-output
   derivation (`fetchPnpmDeps`, installed offline with `pnpmConfigHook`). The
   Playwright npm version is pinned to match nixpkgs' `playwright-driver`
@@ -1083,6 +1125,18 @@ emscriptenCache ─ pkgsWasm
 Node, pnpm and the Playwright browsers. Day-to-day work runs `meson` and
 `pnpm` directly for fast iteration; `nix build` is for integration and CI.
 
+- **WASM toolchain.** `pkgsWasm`'s wrapped compiler, binutils and
+  `pkg-config`, under their target-prefixed names, with `meson` and `ninja`.
+  `PKG_CONFIG_PATH` covers the libraries components register in
+  `ibusWeb.toolchain.devLibraries` and their propagated inputs.
+  `meson-setup-wasm` runs `meson setup` with `pkgsWasm`'s cross files.
+- **clangd** comes from the LLVM Emscripten uses, so its builtin headers
+  match, and trusts the wrapped compiler through `--query-driver`. The shell
+  links a generated `.clangd` into the checkout that gives loose sources the
+  cross compiler, the common flags and the dev libraries' include paths.
+  `checks.clangd` keeps every C and C++ source in the repository parsing
+  cleanly under it.
+
 ### 10.7 Release assets
 
 The npm tarballs, `ibus-runtime.wasm` and its JS glue, each engine's `.wasm`,
@@ -1095,9 +1149,15 @@ specification and `release.json`.
    (fixtures serialized by real `IBusSerializable` in WASM, decoded and
    re-encoded byte for byte in TS, and the reverse); property tests from
    schema-derived arbitraries (fast-check).
-2. **Runtime.** GLib's test suite under Node against `pkgsWasm.glib`, with the
-   passing subset tracked; C tests for `libibus-web` (lifecycle, emitters,
-   pump, settings backend); tests for the fewer-parameters callback patch.
+2. **Runtime.** GLib's own tests, built by `pkgsWasm.glib`'s recipe and run
+   under Node in `checks.glib-tests`. `modules/glib/checks/tests/baseline.toml`
+   lists the tests that must pass, every one that passed in the reviewed run
+   (237 of 300), and the excluded tests with the reason each can't run here:
+   process spawning, sockets, blocking main-context iteration and pipes (31).
+   The rest are reported on every run but don't gate: 19 failures from libc,
+   locale and time differences, Node's raw filesystem and small GIO gaps,
+   and 13 skips. Also C tests for `libibus-web` (lifecycle, emitters, pump,
+   settings backend) and tests for the fewer-parameters callback patch.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`
    and SAB (Node allows `Atomics.wait` on the main thread). Each engine has
    golden key-sequence tests, for example Hangul 2-set `g k s` → preedit `ㅎ`,
@@ -1120,6 +1180,7 @@ specification and `release.json`.
 | M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
+| ↳ M0.3 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 24-patch Emscripten series (Wolthuizen's, Fluendo's main-context fixes, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd | GLib 2.88.3 builds for WASM with GRegex and its tools; 237 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
 | M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
@@ -1150,9 +1211,10 @@ specification and `release.json`.
   caught in the main module. See `docs/spikes/2026-09-26-dynlink.md`.
   Settled for that configuration; open for §5.3's `-sMAIN_MODULE=2`/WasmFS/
   browser configuration, which the runtime plan must test.
-- **R4. GLib patch forward-port.** The Emscripten patch set exists for
-  2.80.2; nixpkgs is on 2.88.3. Forward-porting it is M0 work, and each
-  nixpkgs GLib update may need a rebase.
+- **R4. GLib patch rebases.** The series is rebased from Wolthuizen's
+  per-release `wasm-vips-<version>` branches, so each nixpkgs GLib update
+  means rebasing from the nearest one. `checks.glib-patches` fails first
+  when a nixpkgs update breaks the series.
 - **R5. OPFS in Workers across browsers.** Synchronous access handles need
   checking on current WebKit. Fallback is in-memory with an event.
 - **R6. libpinyin databases in WASM.** nixpkgs builds libpinyin with Kyoto
