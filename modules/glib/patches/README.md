@@ -48,6 +48,7 @@ messages carry `(cherry picked from commit …)` with the source hash.
 | 0021 gtestutils: Skip subprocess tests on WebAssembly | Alexis Williams | — |
 | 0022 gobject: Call class handlers without user data on WebAssembly | Alexis Williams | — |
 | 0023 tests: Give signal handlers the parameters they're called with | Alexis Williams | — |
+| 0024 gio: Don't query file existence through `faccessat()` on WebAssembly | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -295,7 +296,9 @@ build runs its tools on the build machine, and the build machine's GLib
   setup hook that adds it to `mesonFlagsArray` in every build depending
   on it. `checks.glib-gdbus-codegen` builds a Meson project that way, with
   the native GLib present too, and runs the generated skeletons under
-  Node.
+  Node. Meson also reads the build machine's GLib version to choose
+  gdbus-codegen options, and assumes 2.54 (with a warning) unless the
+  consumer has `pkg-config` and `glib` in `depsBuildBuild`.
 - Anything that runs `gdbus-codegen` by name from `PATH` gets the native
   one, and its interface init functions trap on WebAssembly.
 
@@ -339,14 +342,30 @@ handlers.
 
 On Emscripten, libffi's `ffi_call` calls the function from JavaScript,
 which pads or drops arguments rather than trapping, so a class handler
-declaring fewer parameters than its signal (GLib's `performance` test has
-one) still runs. That is libffi's behaviour, not a guarantee of 0022.
+declaring fewer parameters than its signal would still run. That is
+libffi's behaviour, not a guarantee of 0022; nothing in this series
+relies on it.
 
 0023 fixes test code the same way 0018 did: handlers connected to
 `accumulator`'s and `signals`' signals, and the class closures `override`
 creates with `g_cclosure_new()`, now take the user data their
-marshallers pass, and `performance` connects a handler taking its
-signal's arguments to the signal that has them.
+marshallers pass, and `performance`'s signal with arguments gets a class
+handler and a connected handler that take them.
+
+0024 stops `g_file_query_exists()` from calling `faccessat()` on
+WebAssembly. GLib asks for `AT_EACCESS | AT_SYMLINK_NOFOLLOW`, but
+Emscripten doesn't honour `AT_SYMLINK_NOFOLLOW`: its JavaScript
+filesystems assert that the flags are 0 or `AT_EACCESS` (so with runtime
+assertions every `g_file_query_exists()` aborted) and otherwise ignore
+it, and WasmFS ignores it too, so a dangling symlink can be reported
+missing. GLib already
+leaves `query_exists` unset on platforms with the same gap (Android,
+Solaris, the BSDs); the fallback queries the file's type without
+following symlinks. `access()`, `g_access()` and `g_file_test()` pass
+no flags and are unaffected. Under Node's raw filesystem
+(`-sNODERAWFS`, used for tests and tools), path lookups never follow
+symlinks, so `access()` finds a dangling symlink; the browser's
+filesystems are not affected by that.
 
 Not covered either: callbacks that *users* pass with fewer parameters
 than the API documents (including signal handlers connected with

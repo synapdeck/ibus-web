@@ -3,8 +3,9 @@
 #include <gio/gio.h>
 #include <stdio.h>
 
-/* Declared here rather than through the generated header, which only exists
- * in the build directory. */
+/* Declared here rather than through the generated header, which the
+ * repository-wide clangd check, parsing sources outside any build, can't
+ * see. */
 GType example_counter_skeleton_get_type(void);
 GType example_object_skeleton_get_type(void);
 

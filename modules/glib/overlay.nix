@@ -26,8 +26,10 @@
             # that start without returning to the event loop. Static
             # libraries don't see link arguments. Emscripten's default 64 KiB
             # stack is too small for the regex test, which needs between 448
-            # and 480 KiB; 1 MiB leaves it room.
-            nodeLinkArgs = "-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576";
+            # and 480 KiB; 1 MiB leaves it room. Links inherit the wrapper's
+            # -O2, which turns Emscripten's runtime assertions off; tests and
+            # tools keep them.
+            nodeLinkArgs = "-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1";
             # Edits to nixpkgs' scripts must find what they edit, so a change
             # upstream fails evaluation instead of silently doing nothing.
             replaceIn =

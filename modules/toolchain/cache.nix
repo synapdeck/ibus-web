@@ -64,7 +64,9 @@
     {
       ibusWeb.toolchain = {
         inherit commonFlags emscriptenCache;
-        testMainFlags = "-O2 ${mainLinkNode}";
+        # Every link inherits the wrapper's -O2, which turns Emscripten's
+        # runtime assertions off; test programs want them back.
+        testMainFlags = "-O2 -sASSERTIONS=1 ${mainLinkNode}";
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";
           substitutions.cache = emscriptenCache;

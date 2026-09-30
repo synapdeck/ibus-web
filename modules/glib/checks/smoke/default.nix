@@ -31,6 +31,7 @@
             grep -qx "thread 42" output.txt
             grep -qx "gobject 1" output.txt
             grep -qx "gio gio" output.txt
+            grep -qx "exists 1 1" output.txt
             grep -qx "mainloop 1" output.txt
             grep -qx "casts abcde" output.txt
             grep -qx "dynamic DynamicThing 1 1" output.txt

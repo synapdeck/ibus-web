@@ -12,6 +12,7 @@ executable(
   'main.c',
   dependencies: [dependency('zlib'), dependency('libffi')],
   # A threaded program keeps its runtime alive after main returns, and
-  # stdout is only flushed when the runtime exits.
-  link_args: ['-sEXIT_RUNTIME=1'],
+  # stdout is only flushed when the runtime exits. The wrapper's -O2 reaches
+  # the link too and would turn Emscripten's runtime assertions off.
+  link_args: ['-sEXIT_RUNTIME=1', '-sASSERTIONS=1'],
 )

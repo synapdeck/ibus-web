@@ -8,6 +8,7 @@
 #include <glib-object.h>
 #include <glib.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static gpointer add_one(gpointer data) {
   return GINT_TO_POINTER(GPOINTER_TO_INT(data) + 1);
@@ -206,6 +207,15 @@ int main(void) {
   printf("gio %s\n", contents);
   g_free(contents);
   g_object_unref(file);
+
+  /* A dangling symlink exists. (Following it, as G_FILE_TEST_EXISTS does,
+   * isn't checked: Node's raw filesystem looks paths up without following
+   * links.) */
+  symlink("glib-test-missing", "glib-test-dangling");
+  GFile *dangling = g_file_new_for_path("glib-test-dangling");
+  printf("exists %d %d\n", g_file_query_exists(dangling, NULL),
+         g_file_test("glib-test-dangling", G_FILE_TEST_IS_SYMLINK));
+  g_object_unref(dangling);
 
   GMainContext *context = g_main_context_new();
   GSource *idle = g_idle_source_new();

@@ -1,7 +1,7 @@
 From 2894f5a8931bb8b44ac696eac4b46ac926a65c10 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 18:26:32 -0700
-Subject: [PATCH 18/23] Build the tests on Emscripten
+Subject: [PATCH 18/24] Build the tests on Emscripten
 
 The tests' meson files treat every non-Windows host as Unix, while the
 library build excludes the Unix sources on Emscripten, so configuring

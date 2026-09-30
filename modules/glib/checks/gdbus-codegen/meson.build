@@ -17,5 +17,7 @@ executable(
   'main.c',
   generated,
   dependencies: [dependency('gio-2.0')],
-  link_args: ['-sEXIT_RUNTIME=1'],
+  # The wrapper's -O2 reaches the link too and would turn Emscripten's
+  # runtime assertions off.
+  link_args: ['-sEXIT_RUNTIME=1', '-sASSERTIONS=1'],
 )

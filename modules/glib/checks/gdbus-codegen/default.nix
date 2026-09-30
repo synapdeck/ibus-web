@@ -28,6 +28,12 @@
           pkgsWasm.glib
           pkgsWasm.nodejs
         ];
+        # gnome.gdbus_codegen() picks its options by the build machine's GLib
+        # version, which Meson reads through a build-machine pkg-config.
+        depsBuildBuild = [
+          pkgsWasm.pkg-config
+          pkgsWasm.glib
+        ];
         buildInputs = [ pkgsWasm.glib ];
         installPhase = ''
           runHook preInstall

@@ -14,7 +14,9 @@
       # or when Meson's timeout sends SIGTERM, so a timed-out test still
       # shows how far it got. Node runs in the background because bash
       # only handles a signal once its foreground child has exited; without
-      # the explicit redirection a background job reads /dev/null.
+      # the explicit redirection a background job reads /dev/null. A test
+      # killed by a signal is reported the same way, by the wrapper dying of
+      # it too, so Meson doesn't take it for an exit status.
       nodeToFiles = pkgsBuildBuild.writeShellScript "node-to-files" ''
         dir=$(mktemp -d)
         replay() {
@@ -22,11 +24,18 @@
           cat "$dir/stderr" >&2
           rm -r "$dir"
         }
-        trap 'replay; exit 143' TERM
+        die() {
+          trap - "$1"
+          kill -s "$1" $$
+        }
+        trap 'replay; die TERM' TERM
         ${lib.getExe pkgsBuildBuild.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
         wait $!
         status=$?
         replay
+        if [ "$status" -gt 128 ]; then
+          die "$(kill -l "$status")"
+        fi
         exit $status
       '';
       testsCrossFile = pkgsBuildBuild.writeText "glib-tests-cross.ini" ''

@@ -1,0 +1,50 @@
+From 820a0e1629d1c2a4c88131a4269c20bf47896705 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 29 Sep 2026 20:35:03 -0700
+Subject: [PATCH 24/24] gio: Don't query file existence through faccessat() on
+ WebAssembly
+
+g_local_file_query_exists() calls faccessat() with AT_EACCESS and
+AT_SYMLINK_NOFOLLOW. Emscripten's faccessat() doesn't honour
+AT_SYMLINK_NOFOLLOW: its JavaScript filesystems assert that the flags
+are 0 or AT_EACCESS, so every g_file_query_exists() aborted in a build
+with runtime assertions and ignored the flag in one without, and WasmFS
+accepts the flag but ignores it. A dangling symlink can then be
+reported missing. Leave query_exists unset on WebAssembly, as on the
+platforms whose faccessat() has the same gaps, so g_file_query_exists()
+falls back to querying the file's type without following symlinks.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/glocalfile.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/gio/glocalfile.c b/gio/glocalfile.c
+index 502b8dc06..8ee097642 100644
+--- a/gio/glocalfile.c
++++ b/gio/glocalfile.c
+@@ -1281,9 +1281,14 @@ g_local_file_query_info (GFile                *file,
+  * On Solaris, combining AT_EACCESS and AT_SYMLINK_NOFOLLOW results in EINVAL,
+  * since only AT_EACCESS is supported for faccessat()
+  * https://docs.oracle.com/cd/E86824_01/html/E54765/faccessat-2.html
++ *
++ * On WebAssembly, Emscripten's faccessat() doesn't honour AT_SYMLINK_NOFOLLOW:
++ * its JavaScript filesystems assert on it (or, built without assertions,
++ * ignore it) and WasmFS ignores it, so a dangling symlink can be reported
++ * missing.
+  */
+ #if defined(HAVE_FACCESSAT) && !defined(__FreeBSD__) && !defined(__ANDROID__) && \
+-    !defined(__OpenBSD__) && !defined(__sun__)
++    !defined(__OpenBSD__) && !defined(__sun__) && !defined(G_PLATFORM_WASM)
+ static gboolean
+ g_local_file_query_exists (GFile        *file,
+                            GCancellable *cancellable)
+@@ -3301,7 +3306,7 @@ g_local_file_file_iface_init (GFileIface *iface,
+   iface->monitor_file = g_local_file_monitor_file;
+   iface->measure_disk_usage = g_local_file_measure_disk_usage;
+ #if defined(HAVE_FACCESSAT) && !defined(__FreeBSD__) && !defined(__ANDROID__) && \
+-    !defined(__OpenBSD__) && !defined(__sun__)
++    !defined(__OpenBSD__) && !defined(__sun__) && !defined(G_PLATFORM_WASM)
+   iface->query_exists = g_local_file_query_exists;
+ #endif
+ 

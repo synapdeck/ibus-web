@@ -1,7 +1,7 @@
-From debff65d9e9bc53047190a7527e88cb5de38be23 Mon Sep 17 00:00:00 2001
+From 81605e3fc8e4a3bf0ff1d73c2d2a86699fda3d7b Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 20:05:09 -0700
-Subject: [PATCH 23/23] tests: Give signal handlers the parameters they're
+Subject: [PATCH 23/24] tests: Give signal handlers the parameters they're
  called with
 
 Several GObject tests connect handlers, or pass class closures made
@@ -9,15 +9,16 @@ with g_cclosure_new(), whose functions declare fewer parameters than
 the signal's marshaller passes: no user data, or none of the signal's
 own parameters. The call is undefined behaviour and traps on
 WebAssembly. Declare the parameters, and give the performance test's
-signal with arguments a handler that takes them.
+signal with arguments a class handler and a connected handler that
+take them.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
  gobject/tests/accumulator.c             |  6 ++++--
  gobject/tests/override.c                | 18 ++++++++++++------
- gobject/tests/performance/performance.c | 10 +++++++++-
+ gobject/tests/performance/performance.c | 23 +++++++++++++++++++++--
  gobject/tests/signals.c                 | 21 +++++++++++----------
- 4 files changed, 36 insertions(+), 19 deletions(-)
+ 4 files changed, 48 insertions(+), 20 deletions(-)
 
 diff --git a/gobject/tests/accumulator.c b/gobject/tests/accumulator.c
 index 6aa8d1b39..f62e4e75a 100644
@@ -108,10 +109,51 @@ index aee0e1855..c8621cc6b 100644
    GValue args[1] = { G_VALUE_INIT };
  
 diff --git a/gobject/tests/performance/performance.c b/gobject/tests/performance/performance.c
-index c620d0001..88308f7e4 100644
+index c620d0001..e2f74eaae 100644
 --- a/gobject/tests/performance/performance.c
 +++ b/gobject/tests/performance/performance.c
-@@ -906,6 +906,14 @@ test_emission_handled_handler (ComplexObject *obj, gpointer data)
+@@ -337,6 +337,9 @@ struct _ComplexObjectClass
+ 
+   void (*signal) (ComplexObject *obj);
+   void (*signal_empty) (ComplexObject *obj);
++  void (*signal_args) (ComplexObject *obj,
++                       guint          arg1,
++                       gpointer       arg2);
+ };
+ 
+ static void complex_test_iface_init (gpointer         g_iface,
+@@ -432,6 +435,13 @@ complex_object_real_signal (ComplexObject *obj)
+ {
+ }
+ 
++static void
++complex_object_real_signal_args (ComplexObject *obj,
++                                 guint          arg1,
++                                 gpointer       arg2)
++{
++}
++
+ static void
+ complex_object_class_init (ComplexObjectClass *class)
+ {
+@@ -442,6 +452,7 @@ complex_object_class_init (ComplexObjectClass *class)
+   object_class->get_property = complex_object_get_property;
+ 
+   class->signal = complex_object_real_signal;
++  class->signal_args = complex_object_real_signal_args;
+ 
+   complex_signals[COMPLEX_SIGNAL] =
+     g_signal_new ("signal",
+@@ -482,7 +493,7 @@ complex_object_class_init (ComplexObjectClass *class)
+     g_signal_new ("signal-args",
+                   G_TYPE_FROM_CLASS (object_class),
+                   G_SIGNAL_RUN_FIRST,
+-                  G_STRUCT_OFFSET (ComplexObjectClass, signal),
++                  G_STRUCT_OFFSET (ComplexObjectClass, signal_args),
+                   NULL, NULL,
+                   g_cclosure_marshal_VOID__UINT_POINTER,
+                   G_TYPE_NONE, 2, G_TYPE_UINT, G_TYPE_POINTER);
+@@ -906,6 +917,14 @@ test_emission_handled_handler (ComplexObject *obj, gpointer data)
  {
  }
  
@@ -126,7 +168,7 @@ index c620d0001..88308f7e4 100644
  static gpointer
  test_emission_handled_setup (PerformanceTest *test)
  {
-@@ -927,7 +935,7 @@ test_emission_handled_setup (PerformanceTest *test)
+@@ -927,7 +946,7 @@ test_emission_handled_setup (PerformanceTest *test)
                      G_CALLBACK (test_emission_handled_handler),
                      NULL);
    g_signal_connect (data->object, "signal-args",
