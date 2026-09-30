@@ -24,12 +24,20 @@
             # GLib's executables (its tools, and its tests when enabled) only
             # ever run under Node, so they get a real filesystem and threads
             # that start without returning to the event loop. Static
-            # libraries don't see link arguments.
-            nodeLinkArgs = "-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1";
+            # libraries don't see link arguments. Emscripten's default 64 KiB
+            # stack is too small for the regex test, which needs between 448
+            # and 480 KiB; 1 MiB leaves it room.
+            nodeLinkArgs = "-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576";
+            # Edits to nixpkgs' scripts must find what they edit, so a change
+            # upstream fails evaluation instead of silently doing nothing.
+            replaceIn =
+              from: to: script:
+              assert lib.all (pattern: lib.hasInfix pattern script) from;
+              lib.replaceStrings from to script;
             # The tools are named after the program with Emscripten's .js
             # suffix, and nixpkgs files their completions and man pages by
             # program name.
-            programName = lib.replaceStrings [ "\${i##*/}" ] [ "$(basename \"$i\" .js)" ];
+            programName = replaceIn [ "\${i##*/}" ] [ "$(basename \"$i\" .js)" ];
           in
           {
             # Sorted by name, so 0001-… applies first; README.md is not a patch.
@@ -43,7 +51,7 @@
             outputs = lib.remove "devdoc" old.outputs;
             postInstall = programName old.postInstall;
             postFixup = programName (
-              lib.replaceStrings [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup
+              replaceIn [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup
             );
             buildInputs = keep (old.buildInputs or [ ]);
             propagatedBuildInputs = keep (old.propagatedBuildInputs or [ ]);

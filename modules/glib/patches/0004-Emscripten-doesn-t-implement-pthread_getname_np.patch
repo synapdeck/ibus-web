@@ -1,7 +1,7 @@
 From 41bdfe6db9655aae1131d31e4aa4b6337a1e268d Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 18 Sep 2019 15:20:00 +0200
-Subject: [PATCH 04/18] Emscripten doesn't implement `pthread_getname_np()`
+Subject: [PATCH 04/21] Emscripten doesn't implement `pthread_getname_np()`
 
 Upstream-Status: Inappropriate [Wasm-specific]
 GLib will not integrate any Wasm-specific patches until the toolchain

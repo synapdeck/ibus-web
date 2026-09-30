@@ -43,6 +43,9 @@ messages carry `(cherry picked from commit …)` with the source hash.
 | 0016 Resolve references to Unix sources that WebAssembly doesn't build | Alexis Williams | — |
 | 0017 Build the tools on Emscripten | Alexis Williams | — |
 | 0018 Build the tests on Emscripten | Alexis Williams | — |
+| 0019 Call more callbacks through their own function types | Alexis Williams | — |
+| 0020 Define the adapters `G_DEFINE_DYNAMIC_TYPE_EXTENDED` registers | Alexis Williams | — |
+| 0021 gtestutils: Skip subprocess tests on WebAssembly | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -220,23 +223,89 @@ leaves out on Emscripten, each worth revisiting if the reason goes away:
   process spawning and fd passing.
 - `dynamictype`, `dynamictests`: `G_DEFINE_DYNAMIC_TYPE_EXTENDED` refers to a
   `type_name##_init_adapter` that 0009 never defines in `gtypemodule.h`, so
-  **any code using `G_DEFINE_DYNAMIC_TYPE` fails to compile on WebAssembly**.
+  they don't compile. 0020 defines it and builds them again.
 - Subtests calling the glib-unix and gio-unix APIs: mainloop's unix-fd
   tests, closure's `/closure/fd` and `/closure/signal`, pollable's Unix
   stream tests and `/pollable/converter`, and testing's subprocess stdin
   test.
-- thread's CPU affinity subtest: Emscripten declares
-  `pthread_getaffinity_np()` but doesn't define it. GLib's configure check
-  finds the declaration, so **`g_get_num_processors()` references the
-  missing symbol and fails to link** wherever it is used.
+- thread's CPU affinity subtest: it calls `pthread_getaffinity_np()` and
+  `pthread_setaffinity_np()` itself, which Emscripten declares but doesn't
+  define. The library doesn't: 0008 already makes `g_get_num_processors()`
+  return `emscripten_num_logical_cores()` on WebAssembly.
 
 Two tests are adapted instead: `spawn-singlethread` and `test-printf` open
 their pipe with `pipe()` instead of `g_unix_open_pipe()`, and `param`'s
 custom `instance_init` takes the class data argument that 0009 adds to
 `GParamSpecTypeInfo`.
 
-Not covered: callbacks that *users* pass with fewer parameters than the
-API documents, `(GFunc)` casts in the unbuilt `TEST_COMPLETION` block of
-`deprecated/gcompletion.c`, Windows- and macOS-only files, and the
-remaining `(GSourceFunc)`, `(GAsyncReadyCallback)` and `(GCallback)` casts in
-GLib, GObject and GIO, which were not audited site by site.
+Test code that registers callbacks with the wrong signature is fixed too,
+since each such call traps on WebAssembly. Class, instance and interface
+init functions take their data argument (`gobject/tests` and GIO's test
+converters, TLS backend and proxies), notify handlers in
+`properties-refcount*` take their user data, and small wrappers replace
+library functions passed through another callback type: `g_strdup` as
+`GCopyFunc`/`GDuplicateFunc` (`array-test`, `qdata`), `g_free` as `GFunc`
+(`option-context`), `g_usleep` as `GFunc` (`thread-pool-slow`),
+`g_main_loop_quit` as `GSourceFunc` (`mainloop`, `resolver`),
+`g_cancellable_cancel` as `GThreadFunc` and a one-argument callback
+passed to `g_cancellable_connect()` (`cancellable`), and
+`g_object_unref` as `GWeakNotify` (`signalgroup`). Two-argument compare
+functions get three-argument wrappers (`list`, `slist`, `tree`,
+`glistmodel`), `node`'s traversal callback a void one for
+`g_node_children_foreach()`, `dataset`'s notify a `GDataForeachFunc`,
+`binding` and `bindinggroup` their `GClosureNotify`s, and `hook` swaps
+its hooks' functions between `g_hook_list_invoke()` and
+`g_hook_list_invoke_check()`, which call them through different types.
+
+0019 fixes the library sites the test run and a cast audit found after
+0015. The audit compiled every library source with
+`-Wcast-function-type-strict` and kept the casts whose WebAssembly
+signatures (parameter count and `i32`/`i64`/`f32`/`f64` types, return
+type) differ; the remaining ones are GLib's own round trips, such as a
+`GSourceFunc` that the source's dispatch casts back to its real type.
+
+- `gtypemodule.c`: `GTypeModule`'s one-argument `class_init`, so every GIO
+  extension point (and any `GTypeModule`) trapped on first use.
+- `gbookmarkfile.c`: `g_bookmark_file_copy()` passed `g_strdup()` and
+  one-argument copy functions to `g_list_copy_deep()` as `GCopyFunc`.
+- `gsourceclosure.c`: `g_closure_ref()`, which returns the closure, as a
+  closure source's void-returning ref function.
+- `gdbusinterfaceskeleton.c`, `gdbusobjectmanagerserver.c`,
+  `gdbusobjectproxy.c`, `gdbusobjectskeleton.c`, `gmemorymonitorbase.c`,
+  and the interface init functions `gdbus-codegen` generates: one-argument
+  `GInterfaceInitFunc`s.
+- `gtester.c`: `g_free()` passed to `g_slist_foreach()` as a `GFunc`.
+
+0020 defines the instance init adapter `G_DEFINE_DYNAMIC_TYPE_EXTENDED`
+registers and adds one for `class_finalize`, which the macro also cast to
+the two-argument `GClassFinalizeFunc`, and builds the `dynamictype` and
+`dynamictests` tests again.
+
+0021 changes GTest. `g_test_trap_subprocess()` runs the test binary again
+as a child, which WebAssembly can't spawn, so the first subprocess test
+aborted the whole program. On WebAssembly it now marks the calling test
+skipped and `longjmp()`s back to `test_case_run()`, which ends that test
+and goes on with the next; returning would leave the caller asserting on
+a subprocess that never ran. A call from another thread, or outside a
+test case, only marks the test skipped.
+
+**Not fixed: signal class handlers.** A signal's class closure calls the
+class's handler through the signal's C marshaller, which passes the
+instance, the parameters *and* the closure's user data, while class
+handlers (`klass->activate`, `klass->notify` and every other signal
+vfunc, and handlers given to `g_signal_new_class_handler()` or
+`g_signal_override_class_handler()`) take no user data. Native ABIs
+ignore the extra argument; on WebAssembly **emitting any signal whose
+class handler is set traps**, in GLib's own classes as in user code. A fix
+has to change how class closures call their handler (for instance
+through libffi with the parameter types the signal records, dropping the
+user data), not the handlers themselves, whose types are public API.
+
+Not covered either: callbacks that *users* pass with fewer parameters
+than the API documents (including signal handlers connected with
+`G_CALLBACK`, which the audit can't see), the one-argument
+`iface_init`/`class_init` functions users pass through
+`G_IMPLEMENT_INTERFACE` or hand-written `GTypeInfo` (as GLib's tests did),
+`(GFunc)` casts in the unbuilt `TEST_COMPLETION` block of
+`deprecated/gcompletion.c`, and Windows-, macOS- and Unix-only files
+that WebAssembly doesn't build.

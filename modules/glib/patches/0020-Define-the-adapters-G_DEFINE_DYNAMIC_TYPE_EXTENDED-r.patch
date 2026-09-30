@@ -1,0 +1,76 @@
+From 097c42d2f2ad3a605c3727f0ec874b411ae4e51d Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 29 Sep 2026 19:06:20 -0700
+Subject: [PATCH 20/21] Define the adapters G_DEFINE_DYNAMIC_TYPE_EXTENDED
+ registers
+
+The dynamic type macro registers type_name##_init_adapter as the
+instance init function but never defines it, so any code using
+G_DEFINE_DYNAMIC_TYPE failed to compile. Define it, and register the
+one-argument class_finalize through an adapter too: calling it as a
+two-argument GClassFinalizeFunc is undefined behaviour, and traps on
+WebAssembly.
+
+With the macro fixed, the dynamictype and dynamictests tests build
+on Emscripten again.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gobject/gtypemodule.h     | 12 +++++++++++-
+ gobject/tests/meson.build | 13 -------------
+ 2 files changed, 11 insertions(+), 14 deletions(-)
+
+diff --git a/gobject/gtypemodule.h b/gobject/gtypemodule.h
+index 55c02470c..a8786dab2 100644
+--- a/gobject/gtypemodule.h
++++ b/gobject/gtypemodule.h
+@@ -176,6 +176,16 @@ struct _GTypeModuleClass
+ static void     type_name##_init              (TypeName        *self); \
+ static void     type_name##_class_init        (TypeName##Class *klass); \
+ static void     type_name##_class_finalize    (TypeName##Class *klass); \
++static void     type_name##_init_adapter      (TypeName        *self, \
++                                               gpointer         class_data G_GNUC_UNUSED) \
++{ \
++  type_name##_init (self); \
++} \
++static void     type_name##_class_finalize_adapter (TypeName##Class *klass, \
++                                                    gpointer         class_data G_GNUC_UNUSED) \
++{ \
++  type_name##_class_finalize (klass); \
++} \
+ static gpointer type_name##_parent_class = NULL; \
+ static GType    type_name##_type_id = 0; \
+ static gint     TypeName##_private_offset; \
+@@ -203,7 +213,7 @@ type_name##_register_type (GTypeModule *type_module) \
+     (GBaseInitFunc) NULL, \
+     (GBaseFinalizeFunc) NULL, \
+     (GClassInitFunc) type_name##_class_intern_init, \
+-    (GClassFinalizeFunc) type_name##_class_finalize, \
++    (GClassFinalizeFunc) type_name##_class_finalize_adapter, \
+     NULL,   /* class_data */ \
+     sizeof (TypeName), \
+     0,      /* n_preallocs */ \
+diff --git a/gobject/tests/meson.build b/gobject/tests/meson.build
+index 56fd23573..b10099583 100644
+--- a/gobject/tests/meson.build
++++ b/gobject/tests/meson.build
+@@ -157,19 +157,6 @@ test_deps = [libm, thread_dep, libglib_dep, libgobject_dep, test_profile_dep]
+ test_cargs = ['-DG_LOG_DOMAIN="GLib-GObject"', '-UG_DISABLE_ASSERT', warning_sign_conversion_args]
+ test_cpp_args = test_cargs
+ 
+-if host_system == 'emscripten'
+-  # G_DEFINE_DYNAMIC_TYPE_EXTENDED doesn't compile for Emscripten: it refers
+-  # to an instance init adapter it never defines.
+-  emscripten_unsupported = ['dynamictype', 'dynamictests']
+-  supported_tests = {}
+-  foreach test_name, extra_args : gobject_tests
+-    if test_name not in emscripten_unsupported
+-      supported_tests += {test_name : extra_args}
+-    endif
+-  endforeach
+-  gobject_tests = supported_tests
+-endif
+-
+ foreach test_name, extra_args : gobject_tests
+   source = extra_args.get('source', test_name + '.c')
+   install = installed_tests_enabled and extra_args.get('install', true)

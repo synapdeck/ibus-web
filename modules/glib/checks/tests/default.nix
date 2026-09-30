@@ -19,9 +19,13 @@
           pkgsWasm.nodejs
         ];
         outputs = [ "out" ];
+        # The pkg-config tests point PKG_CONFIG_PATH at the build tree, which
+        # nixpkgs' pkg-config wrapper replaces with its role's search path;
+        # the unwrapped pkg-config honours it.
         installPhase = ''
           runHook preInstall
-          meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
+          PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH \
+            meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
             --num-processes $NIX_BUILD_CORES || true
           mkdir -p $out
           cp meson-logs/testlog.json $out/

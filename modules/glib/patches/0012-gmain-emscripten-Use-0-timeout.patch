@@ -1,7 +1,7 @@
 From 5c36ac874c31f0654575d74e89c47cd303c6e568 Mon Sep 17 00:00:00 2001
 From: Fabian Orccon <cfoch.fabian@gmail.com>
 Date: Fri, 22 May 2026 14:20:10 +0200
-Subject: [PATCH 12/18] gmain: emscripten: Use 0 timeout
+Subject: [PATCH 12/21] gmain: emscripten: Use 0 timeout
 
 As of the date non-zero timeouts are not supported on poll()
 

@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
 /* Exercises each GLib library once: GLib (key files, GRegex, threads, a main
- * context, callbacks cast to GCompareFunc), GObject (a property notification)
- * and GIO (reading a file back). */
+ * context, callbacks cast to GCompareFunc), GObject (a property notification,
+ * a dynamic type) and GIO (reading a file back). */
 #include <gio/gio.h>
 #include <glib-object.h>
 #include <glib.h>
@@ -23,6 +23,60 @@ static gboolean count_idle(gpointer user_data) {
   *(int *)user_data += 1;
   return G_SOURCE_REMOVE;
 }
+
+/* A dynamic type, registered by its GTypeModule when the module loads. */
+typedef struct {
+  GObject parent;
+} DynamicThing;
+
+typedef struct {
+  GObjectClass parent;
+} DynamicThingClass;
+
+static int class_inits, instance_inits;
+
+G_DEFINE_DYNAMIC_TYPE(DynamicThing, dynamic_thing, G_TYPE_OBJECT)
+
+static void dynamic_thing_class_init(DynamicThingClass *klass) {
+  (void)klass;
+  class_inits += 1;
+}
+
+static void dynamic_thing_class_finalize(DynamicThingClass *klass) {
+  (void)klass;
+}
+
+static void dynamic_thing_init(DynamicThing *self) {
+  (void)self;
+  instance_inits += 1;
+}
+
+typedef struct {
+  GTypeModule parent;
+} ThingModule;
+
+typedef struct {
+  GTypeModuleClass parent;
+} ThingModuleClass;
+
+static GType thing_module_get_type(void);
+
+G_DEFINE_TYPE(ThingModule, thing_module, G_TYPE_TYPE_MODULE)
+
+static gboolean thing_module_load(GTypeModule *module) {
+  dynamic_thing_register_type(module);
+  return TRUE;
+}
+
+static void thing_module_unload(GTypeModule *module) { (void)module; }
+
+static void thing_module_class_init(ThingModuleClass *klass) {
+  GTypeModuleClass *module_class = G_TYPE_MODULE_CLASS(klass);
+  module_class->load = thing_module_load;
+  module_class->unload = thing_module_unload;
+}
+
+static void thing_module_init(ThingModule *self) { (void)self; }
 
 int main(void) {
   GKeyFile *keys = g_key_file_new();
@@ -73,6 +127,16 @@ int main(void) {
     ;
   g_main_context_unref(context);
   printf("mainloop %d\n", idled);
+
+  GTypeModule *module = g_object_new(thing_module_get_type(), NULL);
+  g_type_module_use(module);
+  GObject *thing = g_object_new(dynamic_thing_get_type(), NULL);
+  printf("dynamic %s %d %d\n", G_OBJECT_TYPE_NAME(thing), class_inits,
+         instance_inits);
+  g_object_unref(thing);
+  g_type_module_unuse(module);
+
+  printf("processors %s\n", g_get_num_processors() > 0 ? "yes" : "no");
 
   GList *list =
       g_list_append(g_list_append(NULL, g_strdup("b")), g_strdup("a"));
