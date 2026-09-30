@@ -114,9 +114,8 @@ either).
 but `g_cancellable_make_pollfd()` does (after asserting `g_wakeup_new()`,
 which returns `NULL`), so **GCancellable file descriptors —
 `g_cancellable_make_pollfd()` and `g_cancellable_get_fd()` — are unsupported
-on WebAssembly and abort.** Their callers include `gsocket.c`,
-`gpollableutils.c`, `gasynchelper.c`, `gthreadedresolver.c`,
-`gunixinputstream.c` and `gunixoutputstream.c`.
+on WebAssembly and abort.** Their callers are `gsocket.c`,
+`gasynchelper.c`, `gunixinputstream.c` and `gunixoutputstream.c`.
 
 0015 fixes GLib's own calls through mismatched function types. Calling a
 function through a pointer type with a different parameter list or return
@@ -159,4 +158,6 @@ behaviour, except where noted.
 
 Not covered: callbacks that *users* pass with fewer parameters than the
 API documents, `(GFunc)` casts in the unbuilt `TEST_COMPLETION` block of
-`deprecated/gcompletion.c`, and Windows- and macOS-only files.
+`deprecated/gcompletion.c`, Windows- and macOS-only files, and the
+remaining `(GSourceFunc)`, `(GAsyncReadyCallback)` and `(GCallback)` casts in
+GLib, GObject and GIO, which were not audited site by site.
