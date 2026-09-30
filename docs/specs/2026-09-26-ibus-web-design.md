@@ -221,6 +221,12 @@ the mismatch so the engine needs no patch.
 #### 5.1.3 Other `pkgsWasm.glib` changes
 
 - Hooks for the pump (§5.2.4) and GSettings backend registration (§5.2.5).
+  The pump hook includes the context wakeup: on WebAssembly,
+  `g_wakeup_signal` (reached through `g_main_context_wakeup`) bumps and
+  notifies an atomic word the Worker host also waits on.
+- Blocking iteration (`g_main_context_iteration(ctx, TRUE)`,
+  `g_main_loop_run`) is unsupported: with no wakeup fd and a zero poll
+  timeout it busy-waits. The runtime only iterates without blocking.
 - Cherry-picks from Fluendo's `gst.wasm` branch as needed, especially its
   `gmain.c` Emscripten changes (GMainContext deadlock fix, zero poll timeout).
 - Review the fork's GSettings changes (`gsettings.c`,
@@ -281,6 +287,13 @@ Worker host waits on the request word with a timeout equal to the next source
 deadline from `g_main_context_query`, and pumps when the timeout expires. JS
 timers are never needed in the Worker, which matters because a Worker blocked
 in `Atomics.wait` never runs its event loop.
+
+Sources can also become ready on other threads: a `GTask` finishing in the
+thread pool, or an engine library's own thread calling `g_idle_add`. GLib
+announces these with `g_main_context_wakeup`, which on WebAssembly notifies the
+word the host waits on (§5.1.3), so the host wakes and pumps then rather than at
+the next request or deadline. A test attaches a source from another thread
+while the host waits and checks that it is dispatched promptly.
 
 Output produced by a pump outside a request goes to the ring followed by a
 doorbell `postMessage` (§6.2.3).
