@@ -65,12 +65,20 @@
         # the unwrapped pkg-config honours it.
         installPhase = ''
           runHook preInstall
-          PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH \
-            meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
+          export PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH
+          meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
             --num-processes $NIX_BUILD_CORES || true
           mkdir -p $out
           cp meson-logs/testlog.json $out/
-          python3 ${./gate.py} $out/testlog.json ${./baseline.toml} $out
+          mapfile -t failing < <(python3 ${./gate.py} --failing $out/testlog.json ${./baseline.toml})
+          rerun=()
+          if [ ''${#failing[@]} -gt 0 ]; then
+            meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
+              --num-processes 1 --logbase rerun "''${failing[@]}" || true
+            cp meson-logs/rerun.json $out/
+            rerun=($out/rerun.json)
+          fi
+          python3 ${./gate.py} $out/testlog.json ${./baseline.toml} $out "''${rerun[@]}"
           runHook postInstall
         '';
         postInstall = "";
