@@ -25,7 +25,7 @@ messages carry `(cherry picked from commit …)` with the source hash.
 
 | Patch | Author | Source commit |
 |---|---|---|
-| 0001 Do not build tools | Wolthuizen | `0e5465ae90c6` |
+| 0001 Do not build girepository and the fuzzers (partial) | Wolthuizen | `0e5465ae90c6` |
 | 0002 Disable NLS | Wolthuizen | `1f4fa40ad026` |
 | 0003 Emscripten doesn't always define `__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4` | Wolthuizen | `84981eb5dd31` |
 | 0004 Emscripten doesn't implement `pthread_getname_np()` | Wolthuizen | `8ced885eb25b` |
@@ -41,6 +41,8 @@ messages carry `(cherry picked from commit …)` with the source hash.
 | 0014 gwakeup: Make acknowledging and freeing no-ops on WebAssembly | Alexis Williams | — |
 | 0015 Call internally-forwarded callbacks through their own function types | Alexis Williams | — |
 | 0016 Resolve references to Unix sources that WebAssembly doesn't build | Alexis Williams | — |
+| 0017 Build the tools on Emscripten | Alexis Williams | — |
+| 0018 Build the tests on Emscripten | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -58,21 +60,22 @@ they touch that changed between 2.88.1 and 2.88.3 (`gio/gdbusconnection.c`,
 `gio/gresourcefile.c`, `gobject/gtype.h`, `gobject/gtypemodule.h`,
 `meson.build`) changed in lines the series doesn't touch.
 
-Applying nixpkgs' `split-dev-programs.patch` first conflicts with 0001: that
-patch adds `install_dir : get_option('devbindir')` to the `gresource`,
-`gio-querymodules`, `glib-compile-schemas`, `glib-compile-resources` and
-`gobject-query` executables that 0001 deletes.
+Wolthuizen's "Do not build tools" commit is **ported in part** as 0001. It
+also dropped `subdir('girepository')` and `subdir('fuzzing')` from the
+top-level `meson.build`, and only that hunk is kept: girepository (a library
+plus its own compiler, decompiler and inspector) and the fuzz targets aren't
+needed here. The hunks that deleted GLib's tools — `gio`, `gresource`,
+`gio-querymodules`, `glib-compile-schemas`, `glib-compile-resources`,
+`gsettings`, `gdbus`, `gapplication` in `gio/meson.build`, `gobject-query`
+in `gobject/meson.build` and `gtester` in `glib/meson.build`, with the
+schema and resource DTDs and the multiarch symlinks — are dropped, so the
+tools build as `.js` programs run under Node. Leaving them out also removes
+the conflict with nixpkgs' `split-dev-programs.patch`, which adds
+`install_dir : get_option('devbindir')` to those executables.
 
-- `gio/meson.build`, `gobject/meson.build`: resolved by deleting the same
-  blocks as the original commit, now including nixpkgs' `install_dir` lines.
-  0001 therefore removes three more lines than upstream's version; no hunk of
-  its intent was dropped.
-- `glib/meson.build`: the `gtester` hunk (`else` → `elif host_system !=
-  'emscripten'`) applies unchanged; nixpkgs' `install_dir` line sits inside
-  the block it skips.
-
-All later patches applied to the nixpkgs-patched tree without conflicts, and
-the exported series applies there with `--fuzz=0`.
+All later patches applied to the nixpkgs-patched tree without conflicts and
+with unchanged content (`git range-diff` against the full 0001 shows no
+differences), and the exported series applies there with `--fuzz=0`.
 
 ### Fluendo's commits
 
@@ -173,6 +176,64 @@ GLib into one failed on them:
 - `gappinfo.c` called the application database's `*_impl` functions from
   `gdesktopappinfo.c`. On WebAssembly they find no applications, and
   `g_app_info_create_from_commandline()` reports `G_IO_ERROR_NOT_SUPPORTED`.
+
+0017 lets the tools link. Three of them call into Unix sources that 0008
+excludes; on WebAssembly each reports the feature as unsupported at run
+time instead:
+
+- `gtester` opens its report pipe with `pipe()` instead of
+  `g_unix_open_pipe()`; spawning the test binary then fails as unsupported.
+- `gio info` leaves out the Unix mount line, and `gio launch` reports "not
+  currently supported on this platform", as on Windows and macOS.
+- `gapplication list` finds no D-Bus activatable applications, and
+  `gapplication list-actions` reports that it can't find the application's
+  desktop file.
+
+The tools get Node link flags, and Meson links configure's run checks with
+them too. Only one result changed: the `/proc/self/cmdline` check passed
+under Node, which reads the host's `/proc`, although the library also runs
+in browsers, which have none. 0017 takes that result from the
+`have_proc_self_cmdline` cross property on Emscripten (default false), as a
+cross build without an exe wrapper does, so the libraries build exactly as
+before.
+
+0018 lets GLib's own tests configure and build with `-Dtests=true`. It
+changes only test sources and test build files (`glib/tests`,
+`gobject/tests`, `gio/tests`, `tests/lib`), so the library is built exactly
+as before. The tools' own tests (`gobject-query.py`, `gio-tool.py`,
+`gdbus-tool.py`) run the `.js` tools: `tests/lib/testprogramrunner.py`
+looks for `<tool>.js` and runs it with the Node that
+`_G_TEST_PROGRAM_RUNNER_NODE` names, which the gobject and gio test meson
+files set on Emscripten from `find_program('node', native : true)`. What it
+leaves out on Emscripten, each worth revisiting if the reason goes away:
+
+- The Unix-only blocks in `glib/tests` (`include`, `poll-fdset`, `unix`,
+  `gutils-user-database`) and `gio/tests` (the large Unix test block,
+  `gdbus-example-unix-fd-client`, the `dbus-launch` helper,
+  `GIO_LAUNCH_DESKTOP`): 0008 excludes the Unix sources they test.
+- `gio-unix-2.0-pkg-config`: Emscripten has no `gio-unix-2.0`.
+- `constructor`: its helpers are shared libraries, which Meson can't link
+  for Emscripten.
+- `tests/lib`'s `glibconfig.py`: only girepository's tests read it, and
+  girepository isn't built (0001).
+- `appmonitor`, `gsubprocess`, `unix-fd`: they need `GDesktopAppInfo`,
+  process spawning and fd passing.
+- `dynamictype`, `dynamictests`: `G_DEFINE_DYNAMIC_TYPE_EXTENDED` refers to a
+  `type_name##_init_adapter` that 0009 never defines in `gtypemodule.h`, so
+  **any code using `G_DEFINE_DYNAMIC_TYPE` fails to compile on WebAssembly**.
+- Subtests calling the glib-unix and gio-unix APIs: mainloop's unix-fd
+  tests, closure's `/closure/fd` and `/closure/signal`, pollable's Unix
+  stream tests and `/pollable/converter`, and testing's subprocess stdin
+  test.
+- thread's CPU affinity subtest: Emscripten declares
+  `pthread_getaffinity_np()` but doesn't define it. GLib's configure check
+  finds the declaration, so **`g_get_num_processors()` references the
+  missing symbol and fails to link** wherever it is used.
+
+Two tests are adapted instead: `spawn-singlethread` and `test-printf` open
+their pipe with `pipe()` instead of `g_unix_open_pipe()`, and `param`'s
+custom `instance_init` takes the class data argument that 0009 adds to
+`GParamSpecTypeInfo`.
 
 Not covered: callbacks that *users* pass with fewer parameters than the
 API documents, `(GFunc)` casts in the unbuilt `TEST_COMPLETION` block of

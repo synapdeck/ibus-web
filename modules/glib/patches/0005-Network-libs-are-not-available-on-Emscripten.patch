@@ -1,7 +1,7 @@
-From c273833d936674c7a776379c9c98132e81454265 Mon Sep 17 00:00:00 2001
+From d4bb2088c16e86e79e878f7cf0f7fa4c7d6acf8b Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 18 Sep 2019 15:40:00 +0200
-Subject: [PATCH 05/16] Network libs are not available on Emscripten
+Subject: [PATCH 05/18] Network libs are not available on Emscripten
 
 Upstream-Status: Inappropriate [Wasm-specific]
 GLib will not integrate any Wasm-specific patches until the toolchain
@@ -14,7 +14,7 @@ see: https://gitlab.gnome.org/GNOME/glib/-/issues/3596
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/gio/meson.build b/gio/meson.build
-index 26346e2e3..5944a6eef 100644
+index 02a5d04af..aff84682c 100644
 --- a/gio/meson.build
 +++ b/gio/meson.build
 @@ -39,7 +39,7 @@ endif

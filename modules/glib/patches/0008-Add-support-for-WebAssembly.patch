@@ -1,7 +1,7 @@
-From 57d7735298c913a91abfc8986dcd5baf1b833ac1 Mon Sep 17 00:00:00 2001
+From aa5e435a6506c17ea7e010758ddc08ce9c47dfc4 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Wed, 24 Aug 2022 21:55:32 +0200
-Subject: [PATCH 08/16] Add support for WebAssembly
+Subject: [PATCH 08/18] Add support for WebAssembly
 
 - Exclude unix specific files.
 - Add Wasm-specific platform definition.
@@ -1430,7 +1430,7 @@ index 88a5a5f8a..d2c2f7308 100644
  #include <io.h>
  #endif
 diff --git a/gio/meson.build b/gio/meson.build
-index 5944a6eef..ee1855307 100644
+index aff84682c..b261b2408 100644
 --- a/gio/meson.build
 +++ b/gio/meson.build
 @@ -352,7 +352,7 @@ gdbus_daemon_sources = [
@@ -1914,7 +1914,7 @@ index 820804216..1f6140e00 100644
  
  #endif /* !_WIN32 */
 diff --git a/glib/meson.build b/glib/meson.build
-index 655b5972e..faf597c2f 100644
+index 501103f25..d3d184f04 100644
 --- a/glib/meson.build
 +++ b/glib/meson.build
 @@ -380,13 +380,14 @@ if host_system == 'windows'

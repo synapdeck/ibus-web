@@ -1,0 +1,30 @@
+From 50f5f287344e227903934ea0cb1279bd9cf5ec67 Mon Sep 17 00:00:00 2001
+From: Kleis Auke Wolthuizen <github@kleisauke.nl>
+Date: Tue, 8 Oct 2019 11:30:00 +0200
+Subject: [PATCH 01/18] Do not build girepository and the fuzzers
+
+We're only interested in the libraries.
+
+Upstream-Status: Inappropriate [disable feature]
+This patch is just for our convenience.
+
+(cherry picked from commit 0e5465ae90c6ac29ff993617bd1b1de31756cdc1,
+keeping only its top-level meson.build hunk; the tools it also disabled
+are built)
+---
+ meson.build | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 22ed1814e..4be0a7ce8 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2735,8 +2735,6 @@ subdir('gobject')
+ subdir('gthread')
+ subdir('gmodule')
+ subdir('gio')
+-subdir('girepository')
+-subdir('fuzzing')
+ if get_option('tests')
+   subdir('tests')
+ endif

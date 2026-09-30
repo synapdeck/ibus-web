@@ -1,7 +1,7 @@
-From bd27b4c2b1c4e6b47988d81b1ea3b30a1cd5eb4e Mon Sep 17 00:00:00 2001
+From 16a39213106302583a9074299551819997ce4b69 Mon Sep 17 00:00:00 2001
 From: Jorge Zapata <jorgeluis.zapata@gmail.com>
 Date: Sun, 28 Apr 2024 19:49:17 +0200
-Subject: [PATCH 11/16] Initial main loop support
+Subject: [PATCH 11/18] Initial main loop support
 
 WebAssembly has no wakeup file descriptor to poll, so do not register
 one with a new main context.

@@ -1,7 +1,7 @@
-From 8cd47f120f30d858a47fb553f894c863c15ca9af Mon Sep 17 00:00:00 2001
+From 41dc33c16be3ed6ab9046b60fbb6434ef2544372 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 17:29:24 -0700
-Subject: [PATCH 16/16] Resolve references to Unix sources that WebAssembly
+Subject: [PATCH 16/18] Resolve references to Unix sources that WebAssembly
  doesn't build
 
 Excluding the Unix-specific sources left callers behind: gappinfo.c
@@ -123,7 +123,7 @@ index e2c3a8145..dea3f56ad 100644
    GSocket *socket;
  
 diff --git a/glib/meson.build b/glib/meson.build
-index faf597c2f..c4b92e0db 100644
+index d3d184f04..8c1cd7661 100644
 --- a/glib/meson.build
 +++ b/glib/meson.build
 @@ -380,8 +380,9 @@ if host_system == 'windows'

@@ -33,6 +33,11 @@
             grep -qx "gio gio" output.txt
             grep -qx "mainloop 1" output.txt
             grep -qx "casts abcde" output.txt
+            # GLib's tools are built for WASM too and run under Node.
+            mkdir schemas
+            echo '<schemalist><schema id="org.example.T"><key name="k" type="b"><default>true</default></key></schema></schemalist>' > schemas/t.gschema.xml
+            node ${pkgsWasm.glib.dev}/bin/glib-compile-schemas.js --strict schemas
+            test -s schemas/gschemas.compiled
           '';
     };
 }

@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Tests that must pass for the build to succeed. Filled in from a reviewed
+# run; see the excluded table for tests that cannot work in this runtime.
+[must_pass]
+tests = []
+
+# name = "reason it cannot run under Node with Emscripten"
+[excluded]

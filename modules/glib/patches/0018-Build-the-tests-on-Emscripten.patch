@@ -1,0 +1,448 @@
+From fa8a7817dc6d0bc14976b12003527d25ef467fd3 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 29 Sep 2026 18:26:32 -0700
+Subject: [PATCH 18/18] Build the tests on Emscripten
+
+The tests' meson files treat every non-Windows host as Unix, while the
+library build excludes the Unix sources on Emscripten, so configuring
+with -Dtests=true fails and several tests don't link.
+
+Skip what Emscripten can't build:
+- the Unix-only test blocks and programs in glib/tests and gio/tests,
+  GIO_LAUNCH_DESKTOP, the dbus-launch helper and the gio-unix-2.0
+  pkg-config test;
+- the constructor test, whose shared libraries Meson can't link here;
+- tests/lib's glibconfig.py, which only girepository's tests read;
+- appmonitor (GDesktopAppInfo), gsubprocess (spawning) and unix-fd
+  (fd passing), which test features Emscripten doesn't have;
+- dynamictype and dynamictests: G_DEFINE_DYNAMIC_TYPE_EXTENDED refers
+  to a type_name##_init_adapter that it never defines on WebAssembly.
+
+In the tests that do build, exclude the subtests that call the
+glib-unix and gio-unix APIs (mainloop, closure, pollable, the testing
+stdin subtest), use pipe() where a test only needs a pipe
+(spawn-singlethread, test-printf), skip the CPU affinity subtest
+(Emscripten declares pthread_getaffinity_np but doesn't define it), and
+give param's instance_init the class data argument it takes here.
+
+The tool tests' runner looks for <tool>.js and runs it with the Node
+that _G_TEST_PROGRAM_RUNNER_NODE names, which the meson files set on
+Emscripten.
+
+Only test sources and test build files change.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/tests/meson.build           | 61 ++++++++++++++++++++++-----------
+ gio/tests/pollable.c            |  4 +--
+ glib/tests/mainloop.c           |  8 +++--
+ glib/tests/meson.build          |  5 +--
+ glib/tests/spawn-singlethread.c |  4 ++-
+ glib/tests/test-printf.c        |  4 ++-
+ glib/tests/testing.c            |  2 +-
+ glib/tests/thread.c             |  4 +--
+ gobject/tests/closure.c         |  4 +--
+ gobject/tests/meson.build       | 18 ++++++++++
+ gobject/tests/param.c           |  6 ++++
+ tests/lib/meson.build           | 28 ++++++++-------
+ tests/lib/testprogramrunner.py  | 10 +++++-
+ 13 files changed, 111 insertions(+), 47 deletions(-)
+
+diff --git a/gio/tests/meson.build b/gio/tests/meson.build
+index 23b967d6d..0cb1fac97 100644
+--- a/gio/tests/meson.build
++++ b/gio/tests/meson.build
+@@ -151,7 +151,7 @@ gio_tests = {
+   'tls-bindings' : {'extra_sources' : ['gtesttlsbackend.c']},
+   'unix-fd' : {},
+   'gdbus-address-get-session' : {
+-    'extra_programs': host_system != 'windows' ? ['dbus-launch'] : [],
++    'extra_programs': host_system not in ['windows', 'emscripten'] ? ['dbus-launch'] : [],
+     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/1392
+     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+     'can_fail' : host_system in ['darwin', 'gnu'],
+@@ -229,7 +229,7 @@ test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
+ test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
+ test_env.set('GIO_MODULE_DIR', '')
+ 
+-if host_system != 'windows' and not glib_have_cocoa
++if host_system not in ['windows', 'emscripten'] and not glib_have_cocoa
+   test_env.set('GIO_LAUNCH_DESKTOP', gio_launch_desktop.full_path())
+ endif
+ 
+@@ -276,7 +276,7 @@ if have_dbus_daemon
+ endif
+ 
+ #  Test programs buildable on UNIX only
+-if host_machine.system() != 'windows'
++if host_machine.system() not in ['windows', 'emscripten']
+   gio_tests += {
+     'file' : {
+       # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+@@ -745,7 +745,7 @@ if cc.get_id() != 'msvc' and cc.get_id() != 'clang-cl'
+   }
+ endif
+ 
+-if host_machine.system() != 'windows'
++if host_machine.system() not in ['windows', 'emscripten']
+   test_extra_programs += {
+     'gdbus-example-unix-fd-client' : {
+       'install' : false,
+@@ -1144,6 +1144,19 @@ foreach program_name, extra_args : test_extra_programs
+   }
+ endforeach
+ 
++if host_system == 'emscripten'
++  # appmonitor needs GDesktopAppInfo, gsubprocess spawns processes and
++  # unix-fd passes file descriptors over sockets; Emscripten has none of these.
++  emscripten_unsupported = ['appmonitor', 'gsubprocess', 'unix-fd']
++  supported_tests = {}
++  foreach test_name, extra_args : gio_tests
++    if test_name not in emscripten_unsupported
++      supported_tests += {test_name : extra_args}
++    endif
++  endforeach
++  gio_tests = supported_tests
++endif
++
+ foreach test_name, extra_args : gio_tests
+   source = extra_args.get('source', test_name + '.c')
+   extra_sources = extra_args.get('extra_sources', [])
+@@ -1216,6 +1229,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+ if python_test_env_common_path.length() > 0
+   python_test_env.prepend('PATH', python_test_env_common_path)
+ endif
++# Emscripten builds the tools as .js programs that run under Node.
++if host_system == 'emscripten'
++  python_test_env.set('_G_TEST_PROGRAM_RUNNER_NODE',
++                      find_program('node', native : true).full_path())
++endif
+ 
+ foreach test_name, extra_args : python_tests
+   depends = [extra_args.get('depends', [])]
+@@ -1340,23 +1358,26 @@ if have_bash and have_pkg_config
+     },
+   )
+ 
+-  platform_module = host_system == 'windows' ? 'gio-windows-2.0' : 'gio-unix-2.0'
+-  pkg_config_tests = [
+-    'pkg-config --validate ' + platform_module,
+-    'test "$(pkg-config --modversion @0@)" = "@1@"'.format(platform_module,
+-      glib_version),
+-    'test "$(pkg-config --variable=prefix @0@)" = "@1@"'.format(platform_module,
+-      get_option('prefix')),
+-  ]
++  # Emscripten has no gio-unix-2.0.
++  if host_system != 'emscripten'
++    platform_module = host_system == 'windows' ? 'gio-windows-2.0' : 'gio-unix-2.0'
++    pkg_config_tests = [
++      'pkg-config --validate ' + platform_module,
++      'test "$(pkg-config --modversion @0@)" = "@1@"'.format(platform_module,
++        glib_version),
++      'test "$(pkg-config --variable=prefix @0@)" = "@1@"'.format(platform_module,
++        get_option('prefix')),
++    ]
+ 
+-  test(platform_module + '-pkg-config',
+-    bash,
+-    args: [ '-xe', '-c', '\n'.join(pkg_config_tests) ],
+-    suite: ['gio', 'no-valgrind', 'pkg-config'],
+-    env: {
+-      'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
+-    },
+-  )
++    test(platform_module + '-pkg-config',
++      bash,
++      args: [ '-xe', '-c', '\n'.join(pkg_config_tests) ],
++      suite: ['gio', 'no-valgrind', 'pkg-config'],
++      env: {
++        'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
++      },
++    )
++  endif
+ endif
+ 
+ subdir('services')
+diff --git a/gio/tests/pollable.c b/gio/tests/pollable.c
+index 87449c353..c46269ad6 100644
+--- a/gio/tests/pollable.c
++++ b/gio/tests/pollable.c
+@@ -167,7 +167,7 @@ test_streams (GPollableInputStream *in,
+   g_assert_cmpint (success, ==, TRUE);
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ 
+ #define g_assert_not_pollable(fd) \
+   G_STMT_START {                                                        \
+@@ -391,7 +391,7 @@ main (int   argc,
+ {
+   g_test_init (&argc, &argv, NULL);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_test_add_func ("/pollable/unix/pipe", test_pollable_unix_pipe);
+   g_test_add_func ("/pollable/unix/pty", test_pollable_unix_pty);
+   g_test_add_func ("/pollable/unix/file", test_pollable_unix_file);
+diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
+index 2435a0aae..f65a59c3b 100644
+--- a/glib/tests/mainloop.c
++++ b/glib/tests/mainloop.c
+@@ -1263,7 +1263,7 @@ test_recursive_loop_child_sources (void)
+ }
+ 
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ 
+ #include <glib-unix.h>
+ #include <unistd.h>
+@@ -2750,13 +2750,15 @@ main (int argc, char *argv[])
+   g_test_add_func ("/mainloop/remove-invalid", test_remove_invalid);
+   g_test_add_func ("/mainloop/unref-while-pending", test_unref_while_pending);
+   g_test_add_func ("/mainloop/null-default-context", test_null_default_context);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_test_add_func ("/mainloop/unix-fd", test_unix_fd);
+   g_test_add_func ("/mainloop/unix-fd-source", test_unix_fd_source);
+   g_test_add_func ("/mainloop/source-unix-fd-api", test_source_unix_fd_api);
+-  g_test_add_func ("/mainloop/wait", test_mainloop_wait);
+   g_test_add_func ("/mainloop/unix-file-poll", test_unix_file_poll);
+   g_test_add_func ("/mainloop/unix-fd-priority", test_unix_fd_priority);
++#endif
++#ifdef G_OS_UNIX
++  g_test_add_func ("/mainloop/wait", test_mainloop_wait);
+ #endif
+   g_test_add_func ("/mainloop/nfds", test_nfds);
+   g_test_add_func ("/mainloop/steal-fd", test_steal_fd);
+diff --git a/glib/tests/meson.build b/glib/tests/meson.build
+index 9e5628030..581699211 100644
+--- a/glib/tests/meson.build
++++ b/glib/tests/meson.build
+@@ -258,7 +258,7 @@ if host_machine.system() == 'windows'
+       'dependencies' : [winsock2],
+     },
+   }
+-else
++elif host_system != 'emscripten'
+   glib_tests += {
+     'include' : {},
+     'poll-fdset' : {},
+@@ -355,7 +355,8 @@ if host_machine.system() == 'windows'
+   }
+ endif
+ 
+-if host_machine.system() == 'windows' or have_dlopen_dlsym
++# Meson can't link shared libraries for Emscripten.
++if (host_machine.system() == 'windows' or have_dlopen_dlsym) and host_system != 'emscripten'
+   constructor_helper = shared_library('constructor-helper',
+                                       'constructor-helper.c',
+                                       dependencies: [libglib_dep],
+diff --git a/glib/tests/spawn-singlethread.c b/glib/tests/spawn-singlethread.c
+index 33b44d650..d73b2c5b7 100644
+--- a/glib/tests/spawn-singlethread.c
++++ b/glib/tests/spawn-singlethread.c
+@@ -236,7 +236,9 @@ test_spawn_async_with_fds (void)
+               test_pipe[j][1] = -5;
+               break;
+             case PIPE:
+-#ifdef G_OS_UNIX
++#if defined(G_PLATFORM_WASM)
++              g_assert_no_errno (pipe (test_pipe[j]));
++#elif defined(G_OS_UNIX)
+               g_unix_open_pipe (test_pipe[j], O_CLOEXEC, &error);
+               g_assert_no_error (error);
+ #else
+diff --git a/glib/tests/test-printf.c b/glib/tests/test-printf.c
+index d572e9479..e99a55228 100644
+--- a/glib/tests/test-printf.c
++++ b/glib/tests/test-printf.c
+@@ -925,7 +925,9 @@ test_produce_embedded_nulls2 (void)
+                   "(%c) with value '\0'. Test that printing such strings via "
+                   "g_fprintf() works as expected.");
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_PLATFORM_WASM)
++  g_assert_no_errno (pipe (fds));
++#elif defined(G_OS_UNIX)
+   GError *error = NULL;
+   g_unix_open_pipe (fds, O_CLOEXEC, &error);
+   g_assert_no_error (error);
+diff --git a/glib/tests/testing.c b/glib/tests/testing.c
+index eaa5b0878..536fd56b0 100644
+--- a/glib/tests/testing.c
++++ b/glib/tests/testing.c
+@@ -448,7 +448,7 @@ test_subprocess_envp (void)
+ static void
+ test_subprocess_stdin (void)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   int old_stdin_fd = -1;
+   int pipe_fd[2] = { -1, -1 };
+   const char *test_string = "*hello there*";
+diff --git a/glib/tests/thread.c b/glib/tests/thread.c
+index ba34485af..0316570f0 100644
+--- a/glib/tests/thread.c
++++ b/glib/tests/thread.c
+@@ -217,7 +217,7 @@ test_thread6 (void)
+   g_thread_join (thread);
+ }
+ 
+-#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
++#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP) && !defined(G_PLATFORM_WASM)
+ static gpointer
+ thread7_func (gpointer data)
+ {
+@@ -248,7 +248,7 @@ thread7_func (gpointer data)
+ static void
+ test_thread7 (void)
+ {
+-#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
++#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP) && !defined(G_PLATFORM_WASM)
+   GThread *thread = g_thread_new ("mask", thread7_func, NULL);
+   gpointer result = g_thread_join (thread);
+ 
+diff --git a/gobject/tests/closure.c b/gobject/tests/closure.c
+index b76182513..fef671e7c 100644
+--- a/gobject/tests/closure.c
++++ b/gobject/tests/closure.c
+@@ -133,7 +133,7 @@ test_closure_child (void)
+   g_source_unref (source);
+ }
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ static gboolean
+ fd_quit_callback (gint         fd,
+                   GIOCondition condition,
+@@ -214,7 +214,7 @@ main (int argc,
+   g_test_add_func ("/closure/timeout", test_closure_timeout);
+   g_test_add_func ("/closure/iochannel", test_closure_iochannel);
+   g_test_add_func ("/closure/child", test_closure_child);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   g_test_add_func ("/closure/fd", test_closure_fd);
+   g_test_add_func ("/closure/signal", test_closure_signal);
+ #endif
+diff --git a/gobject/tests/meson.build b/gobject/tests/meson.build
+index 199339e7e..56fd23573 100644
+--- a/gobject/tests/meson.build
++++ b/gobject/tests/meson.build
+@@ -157,6 +157,19 @@ test_deps = [libm, thread_dep, libglib_dep, libgobject_dep, test_profile_dep]
+ test_cargs = ['-DG_LOG_DOMAIN="GLib-GObject"', '-UG_DISABLE_ASSERT', warning_sign_conversion_args]
+ test_cpp_args = test_cargs
+ 
++if host_system == 'emscripten'
++  # G_DEFINE_DYNAMIC_TYPE_EXTENDED doesn't compile for Emscripten: it refers
++  # to an instance init adapter it never defines.
++  emscripten_unsupported = ['dynamictype', 'dynamictests']
++  supported_tests = {}
++  foreach test_name, extra_args : gobject_tests
++    if test_name not in emscripten_unsupported
++      supported_tests += {test_name : extra_args}
++    endif
++  endforeach
++  gobject_tests = supported_tests
++endif
++
+ foreach test_name, extra_args : gobject_tests
+   source = extra_args.get('source', test_name + '.c')
+   install = installed_tests_enabled and extra_args.get('install', true)
+@@ -217,6 +230,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+ if python_test_env_common_path.length() > 0
+   python_test_env.prepend('PATH', python_test_env_common_path)
+ endif
++# Emscripten builds the tools as .js programs that run under Node.
++if host_system == 'emscripten'
++  python_test_env.set('_G_TEST_PROGRAM_RUNNER_NODE',
++                      find_program('node', native : true).full_path())
++endif
+ 
+ foreach test_name, extra_args : python_tests
+   depends = [extra_args.get('depends', [])]
+diff --git a/gobject/tests/param.c b/gobject/tests/param.c
+index bd6d46aa3..a7f803b44 100644
+--- a/gobject/tests/param.c
++++ b/gobject/tests/param.c
+@@ -1549,8 +1549,14 @@ test_param_is_valid_name (void)
+     g_assert_false (g_param_spec_is_valid_name (invalid_names[i]));
+ }
+ 
++#ifdef G_PLATFORM_WASM
++static void
++param_int_init (GParamSpec *pspec,
++                gpointer    class_data)
++#else
+ static void
+ param_int_init (GParamSpec *pspec)
++#endif
+ {
+   GParamSpecInt *ispec = (GParamSpecInt *)pspec;
+ 
+diff --git a/tests/lib/meson.build b/tests/lib/meson.build
+index 9e7ca4052..e867e77ce 100644
+--- a/tests/lib/meson.build
++++ b/tests/lib/meson.build
+@@ -13,16 +13,20 @@ if installed_tests_enabled
+   )
+ endif
+ 
+-tests_conf = configuration_data()
+-tests_conf.set('gir_suffix', gir_suffix)
+-tests_conf.set('glib_datadir', glib_datadir)
+-tests_conf.set('glib_girdir', glib_girdir)
++# Only girepository's tests read this, and girepository isn't built for
++# Emscripten.
++if host_system != 'emscripten'
++  tests_conf = configuration_data()
++  tests_conf.set('gir_suffix', gir_suffix)
++  tests_conf.set('glib_datadir', glib_datadir)
++  tests_conf.set('glib_girdir', glib_girdir)
+ 
+-configure_file(
+-  configuration: tests_conf,
+-  input: 'glibconfig.py.in',
+-  output: 'glibconfig.py',
+-  install: installed_tests_enabled,
+-  install_dir: installed_tests_execdir,
+-  install_tag: 'tests',
+-)
++  configure_file(
++    configuration: tests_conf,
++    input: 'glibconfig.py.in',
++    output: 'glibconfig.py',
++    install: installed_tests_enabled,
++    install_dir: installed_tests_execdir,
++    install_tag: 'tests',
++  )
++endif
+diff --git a/tests/lib/testprogramrunner.py b/tests/lib/testprogramrunner.py
+index aa8d4ea47..7b782e3ba 100644
+--- a/tests/lib/testprogramrunner.py
++++ b/tests/lib/testprogramrunner.py
+@@ -71,6 +71,14 @@ class TestProgramRunner(unittest.TestCase):
+         if cls.PROGRAM_TYPE == ProgramType.NATIVE and os.name == "nt":
+             ext = ".exe"
+ 
++        # Emscripten builds a program as <name>.js, to be run by Node.
++        cls.__node = []
++        if cls.PROGRAM_TYPE == ProgramType.NATIVE:
++            node = os.environ.get("_G_TEST_PROGRAM_RUNNER_NODE")
++            if node:
++                ext = ".js"
++                cls.__node = [node]
++
+         cls._program_name = f"{cls.PROGRAM_NAME}{ext}"
+ 
+         if "_G_TEST_PROGRAM_RUNNER_PATH" in os.environ:
+@@ -114,7 +122,7 @@ class TestProgramRunner(unittest.TestCase):
+         if self.PROGRAM_TYPE == ProgramType.INTERPRETED and os.name == "nt":
+             argv.insert(0, self.INTERPRETER if self.INTERPRETER else sys.executable)
+ 
+-        argv = wrapper_args + argv
++        argv = wrapper_args + self.__node + argv
+ 
+         env = os.environ.copy()
+         env["LC_ALL"] = "C.UTF-8"
