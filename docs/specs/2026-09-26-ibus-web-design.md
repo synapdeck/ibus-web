@@ -9,7 +9,7 @@
 ibus-web runs minimally modified C and C++ IBus engines in the browser. It has
 two halves:
 
-- **Worker side:** a WebAssembly runtime (a GLib fork plus a fresh
+- **Worker side:** a WebAssembly runtime (a patched GLib plus a fresh
   implementation of `libibus`) that hosts one engine per Web Worker, loaded as
   a dynamically linked side module.
 - **Page side:** a TypeScript library that replaces what the IBus daemon, the
@@ -87,7 +87,7 @@ of in engine code, fix it there.
 | D6 | Keystroke answer | Main thread spin-waits on a SAB reply with a time budget; consume-and-replay on timeout | Always consume and re-implement editing; predict from composition state |
 | D7 | Instances | One engine instance per input context via `IBusFactory` | Shared instance |
 | D8 | Linking | Shared `ibus-runtime.wasm` main module; engines as side modules | Static GLib in every engine |
-| D9 | GLib base | nixpkgs `glib` plus the udevbe/Wolthuizen Emscripten patches forward-ported as a patch series; nixpkgs Emscripten, no compiler patches | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
+| D9 | GLib base | nixpkgs `glib` plus Wolthuizen's per-release Emscripten patches, rebased onto nixpkgs' GLib, as a patch series; nixpkgs Emscripten, no compiler patches | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
 | D10 | Settings | GSettings backend bridge and API only | Generated forms; per-engine UI |
 | D11 | UI | Headless core plus separate default panel package | Headless only; built-in themed panel |
 | D12 | Surfaces | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in | Textarea only; CodeMirror adapter in v1 |
@@ -164,11 +164,12 @@ of in engine code, fix it there.
 ### 5.1 `pkgsWasm.glib`
 
 nixpkgs' `glib` recipe with an Emscripten patch series kept in this
-repository (§10.3). The series starts from
-[udevbe/glib-emscripten `2.80.2-emscripten`](https://github.com/udevbe/glib-emscripten/tree/2.80.2-emscripten),
-which carries Kleis Auke Wolthuizen's Emscripten patch set (the one wasm-vips
-uses) plus further fixes, forward-ported to the nixpkgs GLib version. Built with nixpkgs Emscripten and Meson cross files
-(§10). D-Bus,
+repository (§10.3). The series starts from Kleis Auke Wolthuizen's
+Emscripten patch set (the one wasm-vips uses), taken from his per-release
+[`wasm-vips-<version>`](https://github.com/kleisauke/glib/tree/wasm-vips-2.88.1)
+branches of GLib and rebased onto nixpkgs' GLib (2.88.3), plus Fluendo's
+main-context fixes and our own. Built with nixpkgs Emscripten and Meson
+cross files (§10). D-Bus,
 networking, subprocesses and file monitoring are disabled or stubbed; GIO is
 kept for GSettings and the types it needs.
 
@@ -187,7 +188,7 @@ kept for GSettings and the types it needs.
   unmerged and contested, needs a forked LLVM for everyone who builds an
   engine, and does not cover callbacks stored as `gpointer`, which is how
   `GCClosure` holds signal handlers.
-- **Chosen.** The fork's source-level fixes, including the `G_DEFINE_TYPE`
+- **Chosen.** The series' source-level fixes, including the `G_DEFINE_TYPE`
   header fixes, which engines pick up automatically.
 - **Watch.** If a toolchain-level fix ships in Emscripten, drop the engine cast
   patch layer (§5.4.2) and re-run the audit.
@@ -235,9 +236,11 @@ the mismatch so the engine needs no patch.
 - Blocking iteration (`g_main_context_iteration(ctx, TRUE)`,
   `g_main_loop_run`) is unsupported: with no wakeup fd and a zero poll
   timeout it busy-waits. The runtime only iterates without blocking.
-- Cherry-picks from Fluendo's `gst.wasm` branch as needed, especially its
-  `gmain.c` Emscripten changes (GMainContext deadlock fix, zero poll timeout).
-- Review the fork's GSettings changes (`gsettings.c`,
+- From Fluendo's `gst.wasm` branch: wakeups that no longer abort, the main
+  context skipping the wakeup's poll fd, and zero poll timeouts. Its
+  `emscripten_set_main_loop` integration and the deadlock fix that only
+  concerns it are not taken; the runtime pumps the context itself.
+- Review the series' GSettings changes (`gsettings.c`,
   `gdelayedsettingsbackend.c`) before building the settings bridge on them.
 
 ### 5.2 `libibus-web`
@@ -1177,7 +1180,7 @@ specification and `release.json`.
 
 | | Scope | Questions answered |
 |---|---|---|
-| M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
+| M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
 | ↳ M0.3 | **Tasks done; in final review.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 24-patch Emscripten series (Wolthuizen's, Fluendo's main-context fixes, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd | GLib 2.88.3 builds for WASM with GRegex and its tools; 237 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
@@ -1257,8 +1260,8 @@ specification and `release.json`.
 
 ## 14. References
 
-- udevbe glib-emscripten:
-  https://github.com/udevbe/glib-emscripten/tree/2.80.2-emscripten
+- Kleis Auke Wolthuizen's GLib `wasm-vips-<version>` branches:
+  https://github.com/kleisauke/glib/tree/wasm-vips-2.88.1
 - Fluendo GLib `gst.wasm`:
   https://github.com/GNOME/glib/compare/2.76.0...fluendo:glib:gst.wasm
 - Fluendo LLVM `wasm-function-pointers`:
