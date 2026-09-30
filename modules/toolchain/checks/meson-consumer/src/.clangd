@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# The build sets this through the recipe's NIX_CFLAGS_COMPILE.
+CompileFlags:
+  Add: [-DIBUS_WEB_RECIPE_CFLAGS]

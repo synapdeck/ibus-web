@@ -5,6 +5,11 @@
       inherit (config.ibusWeb.toolchain) pkgsWasm;
     in
     {
+      ibusWeb.toolchain.devLibraries = [
+        pkgsWasm.zlib
+        pkgsWasm.libffi
+      ];
+
       # nixpkgs' Meson setup hook writes the cross file; this proves it, the
       # cross pkg-config and both libraries in one program.
       checks.meson-consumer = pkgsWasm.stdenv.mkDerivation {
