@@ -1108,7 +1108,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
     in WasmFS's memory backend, so temporary files live in memory as in
     the browser and never meet the Node backend's gaps: it traps on
     `fsync()`, and a file renamed over another keeps its old host path,
-    so reopening it fails. `ibusWeb.toolchain.testMainFlags` link the
+    so reopening it fails. `ibusWeb.toolchain.testMainFlags` links the
     other Node-run checks the same way, and the GLib smoke check keeps
     its file in such a `TMPDIR` too.
   - **Tools in consumers' builds.** A cross build runs its tools on the
@@ -1273,8 +1273,9 @@ specification and `release.json`.
   five probes passed, including a side module running on a pool thread
   created before its `dlopen` and a C++ exception thrown in a side module
   caught in the main module. See `docs/spikes/2026-09-26-dynlink.md`.
-  Settled for that configuration; open for §5.3's `-sMAIN_MODULE=2`/WasmFS/
-  browser configuration, which the runtime plan must test.
+  The same spike also passes with WasmFS under Node. Settled for those
+  configurations; open for §5.3's `-sMAIN_MODULE=2`/WasmFS/browser
+  configuration, which the runtime plan must test.
 - **R4. GLib patch rebases.** The series is rebased from Wolthuizen's
   per-release `wasm-vips-<version>` branches, so each nixpkgs GLib update
   means rebasing from the nearest one. `checks.glib-patches` fails first

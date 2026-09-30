@@ -54,7 +54,9 @@
       checks.glib-tests = pkgsWasm.glib.overrideAttrs (old: {
         pname = "ibus-web-glib-tests";
         # The tests link against WasmFS, the file system the runtime ships,
-        # rather than the tools' JavaScript one. If the C and C++ link
+        # rather than the tools' JavaScript one. So does every executable this
+        # build links, including the in-tree tools Meson runs while building;
+        # they only ever write fresh outputs here, which WasmFS handles. If the C and C++ link
         # arguments stop naming the latter, evaluation fails instead of the
         # tests quietly staying on it.
         mesonFlags =

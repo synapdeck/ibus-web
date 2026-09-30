@@ -11,7 +11,7 @@
       };
       testMainFlags = lib.mkOption {
         type = lib.types.str;
-        description = "Link flags for Node-run test programs; a combination the library cache covers.";
+        description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers. Point TMPDIR at a directory missing on the host so temporary files live in memory: WasmFS's Node backend mishandles fsync and renames.";
       };
       nodeHostFsFlags = lib.mkOption {
         type = lib.types.str;
