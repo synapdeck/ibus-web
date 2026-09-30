@@ -1,7 +1,7 @@
 From 41dc33c16be3ed6ab9046b60fbb6434ef2544372 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 17:29:24 -0700
-Subject: [PATCH 16/21] Resolve references to Unix sources that WebAssembly
+Subject: [PATCH 16/23] Resolve references to Unix sources that WebAssembly
  doesn't build
 
 Excluding the Unix-specific sources left callers behind: gappinfo.c

@@ -1,0 +1,13 @@
+<!--
+SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+<node>
+  <interface name="org.example.Counter">
+    <method name="Add">
+      <arg name="amount" type="i" direction="in"/>
+      <arg name="total" type="i" direction="out"/>
+    </method>
+    <property name="Total" type="i" access="read"/>
+  </interface>
+</node>

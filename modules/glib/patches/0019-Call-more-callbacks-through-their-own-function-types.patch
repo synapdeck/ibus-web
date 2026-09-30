@@ -1,7 +1,7 @@
-From 1185f0e22217cf09a56313bdc1e708f4001093e7 Mon Sep 17 00:00:00 2001
+From 02bf82a5bc41dd764afc4054ce45cf07ebd87704 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:05:00 -0700
-Subject: [PATCH 19/21] Call more callbacks through their own function types
+Subject: [PATCH 19/23] Call more callbacks through their own function types
 
 Calling a function through a pointer to a type with a different
 parameter list or return type is undefined behaviour; WebAssembly
@@ -245,7 +245,7 @@ index 56b083f7e..b0a3aa7ec 100644
    iface->init = g_memory_monitor_base_initable_init;
  }
 diff --git a/glib/gbookmarkfile.c b/glib/gbookmarkfile.c
-index 7392b1e07..8e0014e21 100644
+index 7392b1e07..6c344e4e3 100644
 --- a/glib/gbookmarkfile.c
 +++ b/glib/gbookmarkfile.c
 @@ -355,6 +355,22 @@ bookmark_metadata_free (BookmarkMetadata *metadata)
@@ -283,10 +283,10 @@ index 7392b1e07..8e0014e21 100644
  
    for (l = copy->applications; l; l = l->next)
      {
-@@ -1727,6 +1743,13 @@ g_bookmark_file_new (void)
-  *
-  * Since: 2.76
-  */
+@@ -1716,6 +1732,13 @@ g_bookmark_file_new (void)
+   return bookmark;
+ }
+ 
 +static gpointer
 +copy_item (gconstpointer src,
 +           gpointer      data)
@@ -294,9 +294,9 @@ index 7392b1e07..8e0014e21 100644
 +  return bookmark_item_copy ((BookmarkItem *) src);
 +}
 +
- GBookmarkFile *
- g_bookmark_file_copy (GBookmarkFile *bookmark)
- {
+ /**
+  * g_bookmark_file_copy:
+  * @bookmark: A #GBookmarkFile
 @@ -1738,7 +1761,7 @@ g_bookmark_file_copy (GBookmarkFile *bookmark)
    copy = g_bookmark_file_new ();
    copy->title = g_strdup (bookmark->title);

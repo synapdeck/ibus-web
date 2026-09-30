@@ -1,7 +1,7 @@
-From 097c42d2f2ad3a605c3727f0ec874b411ae4e51d Mon Sep 17 00:00:00 2001
+From d32d1b0cdeb571c3eb1c30098a411b34d5dd7177 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:06:20 -0700
-Subject: [PATCH 20/21] Define the adapters G_DEFINE_DYNAMIC_TYPE_EXTENDED
+Subject: [PATCH 20/23] Define the adapters G_DEFINE_DYNAMIC_TYPE_EXTENDED
  registers
 
 The dynamic type macro registers type_name##_init_adapter as the
@@ -21,7 +21,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  2 files changed, 11 insertions(+), 14 deletions(-)
 
 diff --git a/gobject/gtypemodule.h b/gobject/gtypemodule.h
-index 55c02470c..a8786dab2 100644
+index 55c02470c..70ec3b489 100644
 --- a/gobject/gtypemodule.h
 +++ b/gobject/gtypemodule.h
 @@ -176,6 +176,16 @@ struct _GTypeModuleClass
@@ -29,7 +29,7 @@ index 55c02470c..a8786dab2 100644
  static void     type_name##_class_init        (TypeName##Class *klass); \
  static void     type_name##_class_finalize    (TypeName##Class *klass); \
 +static void     type_name##_init_adapter      (TypeName        *self, \
-+                                               gpointer         class_data G_GNUC_UNUSED) \
++                                               gpointer         g_class G_GNUC_UNUSED) \
 +{ \
 +  type_name##_init (self); \
 +} \

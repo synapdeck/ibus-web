@@ -109,7 +109,15 @@ in
               rm $out/nix-support/add-local-cc-cflags-before.sh
               grep -q -- -nostdlibinc $out/nix-support/cc-cflags
               sed -i '/-nostdlibinc/d' $out/nix-support/cc-cflags
-              echo "${toolchain.commonFlags}" >> $out/nix-support/cc-cflags
+              # cc-cflags follow the command's own arguments, where an
+              # optimization level would override the package's; before
+              # them, a package's own -O still wins.
+              for flag in ${toolchain.commonFlags}; do
+                case "$flag" in
+                  -O*) echo "$flag" >> $out/nix-support/cc-cflags-before ;;
+                  *) echo "$flag" >> $out/nix-support/cc-cflags ;;
+                esac
+              done
               cp ${./emscripten-cc-wrapper-hook.sh} $out/nix-support/cc-wrapper-hook
             '';
           };

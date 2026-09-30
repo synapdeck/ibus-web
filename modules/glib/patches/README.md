@@ -46,6 +46,8 @@ messages carry `(cherry picked from commit …)` with the source hash.
 | 0019 Call more callbacks through their own function types | Alexis Williams | — |
 | 0020 Define the adapters `G_DEFINE_DYNAMIC_TYPE_EXTENDED` registers | Alexis Williams | — |
 | 0021 gtestutils: Skip subprocess tests on WebAssembly | Alexis Williams | — |
+| 0022 gobject: Call class handlers without user data on WebAssembly | Alexis Williams | — |
+| 0023 tests: Give signal handlers the parameters they're called with | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -276,6 +278,27 @@ type) differ; the remaining ones are GLib's own round trips, such as a
   `GInterfaceInitFunc`s.
 - `gtester.c`: `g_free()` passed to `g_slist_foreach()` as a `GFunc`.
 
+The `gdbus-codegen` fix only reaches code generated with this GLib's
+`gdbus-codegen`, the Python script in `pkgsWasm.glib.dev/bin`. A cross
+build runs its tools on the build machine, and the build machine's GLib
+(nixpkgs' native `glib`, unpatched) has its own:
+
+- Autotools projects that take the tool from `gio-2.0.pc`
+  (`PKG_CHECK_VAR([GDBUS_CODEGEN], [gio-2.0], [gdbus_codegen])`, as IBus
+  does) read the host's `gio-2.0.pc`, whose `gdbus_codegen` is
+  `${devbindir}/gdbus-codegen`: the patched script.
+- Meson's `gnome.gdbus_codegen()` looks the tool up in the host machine's
+  cross files first, then in the `gdbus_codegen` variable of the *build*
+  machine's `gio-2.0`, then on `PATH`; the last two find the unpatched
+  one. `pkgsWasm.glib` therefore installs
+  `nix-support/gdbus-codegen-cross.ini`, naming its own script, and a
+  setup hook that adds it to `mesonFlagsArray` in every build depending
+  on it. `checks.glib-gdbus-codegen` builds a Meson project that way, with
+  the native GLib present too, and runs the generated skeletons under
+  Node.
+- Anything that runs `gdbus-codegen` by name from `PATH` gets the native
+  one, and its interface init functions trap on WebAssembly.
+
 0020 defines the instance init adapter `G_DEFINE_DYNAMIC_TYPE_EXTENDED`
 registers and adds one for `class_finalize`, which the macro also cast to
 the two-argument `GClassFinalizeFunc`, and builds the `dynamictype` and
@@ -286,20 +309,44 @@ as a child, which WebAssembly can't spawn, so the first subprocess test
 aborted the whole program. On WebAssembly it now marks the calling test
 skipped and `longjmp()`s back to `test_case_run()`, which ends that test
 and goes on with the next; returning would leave the caller asserting on
-a subprocess that never ran. A call from another thread, or outside a
-test case, only marks the test skipped.
+a subprocess that never ran. The rest of the test function, its cleanup
+included, doesn't run, so what it allocated leaks. A call from another
+thread, or outside a test case, only marks the test skipped.
 
-**Not fixed: signal class handlers.** A signal's class closure calls the
-class's handler through the signal's C marshaller, which passes the
-instance, the parameters *and* the closure's user data, while class
-handlers (`klass->activate`, `klass->notify` and every other signal
-vfunc, and handlers given to `g_signal_new_class_handler()` or
+0022 fixes signal class handlers. A signal's C marshaller calls a
+closure's callback with the instance, the signal's parameters *and* the
+closure's user data, while class handlers (`klass->activate`,
+`klass->notify` and every other signal vfunc registered by offset, and
+handlers given to `g_signal_new_class_handler()` or
 `g_signal_override_class_handler()`) take no user data. Native ABIs
-ignore the extra argument; on WebAssembly **emitting any signal whose
-class handler is set traps**, in GLib's own classes as in user code. A fix
-has to change how class closures call their handler (for instance
-through libffi with the parameter types the signal records, dropping the
-user data), not the handlers themselves, whose types are public API.
+ignore the extra argument; on WebAssembly emitting any signal whose class
+handler was set trapped, in GLib's own classes as in user code. On
+WebAssembly only, the closures GLib makes for class handlers
+(`g_signal_type_cclosure_new()` and the two class-handler functions) now
+get their own marshaller when they are created: the libffi generic
+marshaller, and its va form, with the trailing user data left off the
+call. A closure that already has a marshaller keeps it when it becomes a
+signal's class closure, so the signal's C and va marshallers are never
+installed on these; every path that runs a class closure — emission,
+`g_signal_chain_from_overridden()`,
+`g_signal_chain_from_overridden_handler()` — reaches the handler through
+libffi with exactly the instance and the signal's parameters, and returns
+its value. Other platforms compile the same code as before. Closures that
+callers make themselves and pass to `g_signal_newv()` or
+`g_signal_override_class_closure()`, such as `g_cclosure_new (handler,
+NULL, NULL)`, may take user data, so they are unchanged, as are connected
+handlers.
+
+On Emscripten, libffi's `ffi_call` calls the function from JavaScript,
+which pads or drops arguments rather than trapping, so a class handler
+declaring fewer parameters than its signal (GLib's `performance` test has
+one) still runs. That is libffi's behaviour, not a guarantee of 0022.
+
+0023 fixes test code the same way 0018 did: handlers connected to
+`accumulator`'s and `signals`' signals, and the class closures `override`
+creates with `g_cclosure_new()`, now take the user data their
+marshallers pass, and `performance` connects a handler taking its
+signal's arguments to the signal that has them.
 
 Not covered either: callbacks that *users* pass with fewer parameters
 than the API documents (including signal handlers connected with

@@ -1,0 +1,280 @@
+From 96192cb330158084422f6a3e4899707d90fd3f94 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 29 Sep 2026 20:05:09 -0700
+Subject: [PATCH 22/23] gobject: Call class handlers without user data on
+ WebAssembly
+
+A signal's C marshaller calls a closure's callback with the instance,
+the signal's parameters and a trailing user data pointer. Class
+handlers - the functions in class structures that g_signal_new()
+registers by offset, and those given to g_signal_new_class_handler()
+and g_signal_override_class_handler() - never declare that pointer.
+WebAssembly checks the type of every indirect call, so on WebAssembly
+every emission that ran a class handler trapped with "function
+signature mismatch", in GLib's own classes and in every library built
+on GObject.
+
+On WebAssembly, give the closures made for class handlers (those from
+g_signal_type_cclosure_new(), g_signal_new_class_handler() and
+g_signal_override_class_handler()) a marshaller of their own when they
+are created: a variant of the libffi generic marshaller, and of its va
+form, that leaves the user data out. Signals then keep the closure's
+marshaller instead of installing theirs, so every emission of a class
+closure, including chaining up with g_signal_chain_from_overridden()
+and g_signal_chain_from_overridden_handler(), calls the handler with
+exactly the instance and the signal's parameters.
+
+Closures connected as handlers, or passed as class closures by the
+caller, are unchanged: they may take user data.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gobject/gclosure.c      | 131 ++++++++++++++++++++++++++++++++++++++++
+ gobject/gsignal.c       |   8 +++
+ gobject/gtype-private.h |   3 +
+ 3 files changed, 142 insertions(+)
+
+diff --git a/gobject/gclosure.c b/gobject/gclosure.c
+index cefa845e8..01e867cc3 100644
+--- a/gobject/gclosure.c
++++ b/gobject/gclosure.c
+@@ -1099,6 +1099,28 @@ g_cclosure_new_swap (GCallback      callback_func,
+   return closure;
+ }
+ 
++#ifdef G_PLATFORM_WASM
++/* Class handlers are the functions of a class structure, or ones given to
++ * g_signal_new_class_handler() or g_signal_override_class_handler(), and none
++ * of them declares the trailing user data a signal's C marshaller passes.
++ * WebAssembly traps on a call whose arguments don't match the callee's, so
++ * their closures call them through libffi with just the instance and the
++ * signal's parameters instead. */
++static void class_handler_marshal (GClosure     *closure,
++                                   GValue       *return_gvalue,
++                                   guint         n_param_values,
++                                   const GValue *param_values,
++                                   gpointer      invocation_hint,
++                                   gpointer      marshal_data);
++static void class_handler_marshal_va (GClosure *closure,
++                                      GValue   *return_value,
++                                      gpointer  instance,
++                                      va_list   args_list,
++                                      gpointer  marshal_data,
++                                      int       n_params,
++                                      GType    *param_types);
++#endif
++
+ static void
+ g_type_class_meta_marshal (GClosure       *closure,
+ 			   GValue /*out*/ *return_value,
+@@ -1272,6 +1294,10 @@ g_signal_type_cclosure_new (GType    itype,
+       g_closure_set_meta_marshal (closure, GUINT_TO_POINTER (struct_offset), g_type_class_meta_marshal);
+       g_closure_set_meta_va_marshal (closure, g_type_class_meta_marshalv);
+     }
++#ifdef G_PLATFORM_WASM
++  g_closure_set_marshal (closure, class_handler_marshal);
++  _g_closure_set_va_marshal (closure, class_handler_marshal_va);
++#endif
+   return closure;
+ }
+ 
+@@ -1550,6 +1576,16 @@ va_to_ffi_type (GType gtype,
+  *
+  * Since: 2.30
+  */
++#ifdef G_PLATFORM_WASM
++static void
++marshal_generic (GClosure     *closure,
++                 GValue       *return_gvalue,
++                 guint         n_param_values,
++                 const GValue *param_values,
++                 gpointer      invocation_hint,
++                 gpointer      marshal_data,
++                 gboolean      pass_data)
++#else
+ void
+ g_cclosure_marshal_generic (GClosure     *closure,
+                             GValue       *return_gvalue,
+@@ -1557,6 +1593,7 @@ g_cclosure_marshal_generic (GClosure     *closure,
+                             const GValue *param_values,
+                             gpointer      invocation_hint,
+                             gpointer      marshal_data)
++#endif
+ {
+   ffi_type *rtype;
+   void *rvalue;
+@@ -1618,6 +1655,16 @@ g_cclosure_marshal_generic (GClosure     *closure,
+                                      &tmpval_used);
+     }
+ 
++#ifdef G_PLATFORM_WASM
++  /* Unswapped, the data is the last argument, so dropping it leaves the
++   * instance and the parameters. */
++  if (!pass_data)
++    {
++      g_assert (!G_CCLOSURE_SWAP_DATA (closure));
++      n_args--;
++    }
++#endif
++
+   g_assert (n_args <= UINT_MAX);
+ 
+   if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, (unsigned int) n_args, rtype, atypes) != FFI_OK)
+@@ -1629,6 +1676,32 @@ g_cclosure_marshal_generic (GClosure     *closure,
+     value_from_ffi_type (return_gvalue, rvalue);
+ }
+ 
++#ifdef G_PLATFORM_WASM
++void
++g_cclosure_marshal_generic (GClosure     *closure,
++                            GValue       *return_gvalue,
++                            guint         n_param_values,
++                            const GValue *param_values,
++                            gpointer      invocation_hint,
++                            gpointer      marshal_data)
++{
++  marshal_generic (closure, return_gvalue, n_param_values, param_values,
++                   invocation_hint, marshal_data, TRUE);
++}
++
++static void
++class_handler_marshal (GClosure     *closure,
++                       GValue       *return_gvalue,
++                       guint         n_param_values,
++                       const GValue *param_values,
++                       gpointer      invocation_hint,
++                       gpointer      marshal_data)
++{
++  marshal_generic (closure, return_gvalue, n_param_values, param_values,
++                   invocation_hint, marshal_data, FALSE);
++}
++#endif
++
+ /**
+  * g_cclosure_marshal_generic_va:
+  * @closure: the #GClosure to which the marshaller belongs
+@@ -1650,6 +1723,17 @@ g_cclosure_marshal_generic (GClosure     *closure,
+  *
+  * Since: 2.30
+  */
++#ifdef G_PLATFORM_WASM
++static void
++marshal_generic_va (GClosure *closure,
++		    GValue   *return_value,
++		    gpointer  instance,
++		    va_list   args_list,
++		    gpointer  marshal_data,
++		    int       n_params,
++		    GType    *param_types,
++		    gboolean  pass_data)
++#else
+ void
+ g_cclosure_marshal_generic_va (GClosure *closure,
+ 			       GValue   *return_value,
+@@ -1658,6 +1742,7 @@ g_cclosure_marshal_generic_va (GClosure *closure,
+ 			       gpointer  marshal_data,
+ 			       int       n_params,
+ 			       GType    *param_types)
++#endif
+ {
+   ffi_type *rtype;
+   void *rvalue;
+@@ -1739,6 +1824,14 @@ g_cclosure_marshal_generic_va (GClosure *closure,
+ 
+   va_end (args_copy);
+ 
++#ifdef G_PLATFORM_WASM
++  if (!pass_data)
++    {
++      g_assert (!G_CCLOSURE_SWAP_DATA (closure));
++      n_args--;
++    }
++#endif
++
+   g_assert (n_args <= UINT_MAX);
+ 
+   if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, (unsigned int) n_args, rtype, atypes) != FFI_OK)
+@@ -1770,3 +1863,41 @@ g_cclosure_marshal_generic_va (GClosure *closure,
+   if (return_value && G_VALUE_TYPE (return_value))
+     value_from_ffi_type (return_value, rvalue);
+ }
++
++#ifdef G_PLATFORM_WASM
++void
++g_cclosure_marshal_generic_va (GClosure *closure,
++			       GValue   *return_value,
++			       gpointer  instance,
++			       va_list   args_list,
++			       gpointer  marshal_data,
++			       int       n_params,
++			       GType    *param_types)
++{
++  marshal_generic_va (closure, return_value, instance, args_list,
++		      marshal_data, n_params, param_types, TRUE);
++}
++
++static void
++class_handler_marshal_va (GClosure *closure,
++			  GValue   *return_value,
++			  gpointer  instance,
++			  va_list   args_list,
++			  gpointer  marshal_data,
++			  int       n_params,
++			  GType    *param_types)
++{
++  marshal_generic_va (closure, return_value, instance, args_list,
++		      marshal_data, n_params, param_types, FALSE);
++}
++
++GClosure *
++_g_cclosure_new_class_handler (GCallback class_handler)
++{
++  GClosure *closure = g_cclosure_new (class_handler, NULL, NULL);
++
++  g_closure_set_marshal (closure, class_handler_marshal);
++  _g_closure_set_va_marshal (closure, class_handler_marshal_va);
++  return closure;
++}
++#endif
+diff --git a/gobject/gsignal.c b/gobject/gsignal.c
+index 9aba8b28b..6c07e8b40 100644
+--- a/gobject/gsignal.c
++++ b/gobject/gsignal.c
+@@ -1510,7 +1510,11 @@ g_signal_new_class_handler (const gchar        *signal_name,
+   va_start (args, n_params);
+ 
+   signal_id = g_signal_new_valist (signal_name, itype, signal_flags,
++#ifdef G_PLATFORM_WASM
++                                   class_handler ? _g_cclosure_new_class_handler (class_handler) : NULL,
++#else
+                                    class_handler ? g_cclosure_new (class_handler, NULL, NULL) : NULL,
++#endif
+                                    accumulator, accu_data, c_marshaller,
+                                    return_type, n_params, args);
+ 
+@@ -2048,7 +2052,11 @@ g_signal_override_class_handler (const gchar *signal_name,
+ 
+   if (signal_id)
+     g_signal_override_class_closure (signal_id, instance_type,
++#ifdef G_PLATFORM_WASM
++                                     _g_cclosure_new_class_handler (class_handler));
++#else
+                                      g_cclosure_new (class_handler, NULL, NULL));
++#endif
+   else
+     g_critical ("%s: signal name '%s' is invalid for type id '%"G_GUINTPTR_FORMAT"'",
+                 G_STRLOC, signal_name, (guintptr) instance_type);
+diff --git a/gobject/gtype-private.h b/gobject/gtype-private.h
+index 53fb4af43..b95b06038 100644
+--- a/gobject/gtype-private.h
++++ b/gobject/gtype-private.h
+@@ -94,6 +94,9 @@ void        _g_closure_invoke_va (GClosure       *closure,
+ 				  va_list         args,
+ 				  int             n_params,
+ 				  GType          *param_types);
++#ifdef G_PLATFORM_WASM
++GClosure   *_g_cclosure_new_class_handler (GCallback class_handler);
++#endif
+ 
+ gboolean    _g_object_has_signal_handler     (GObject     *object);
+ void        _g_object_set_has_signal_handler (GObject     *object,

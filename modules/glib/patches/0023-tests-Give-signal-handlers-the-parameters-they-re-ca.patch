@@ -1,0 +1,224 @@
+From debff65d9e9bc53047190a7527e88cb5de38be23 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 29 Sep 2026 20:05:09 -0700
+Subject: [PATCH 23/23] tests: Give signal handlers the parameters they're
+ called with
+
+Several GObject tests connect handlers, or pass class closures made
+with g_cclosure_new(), whose functions declare fewer parameters than
+the signal's marshaller passes: no user data, or none of the signal's
+own parameters. The call is undefined behaviour and traps on
+WebAssembly. Declare the parameters, and give the performance test's
+signal with arguments a handler that takes them.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gobject/tests/accumulator.c             |  6 ++++--
+ gobject/tests/override.c                | 18 ++++++++++++------
+ gobject/tests/performance/performance.c | 10 +++++++++-
+ gobject/tests/signals.c                 | 21 +++++++++++----------
+ 4 files changed, 36 insertions(+), 19 deletions(-)
+
+diff --git a/gobject/tests/accumulator.c b/gobject/tests/accumulator.c
+index 6aa8d1b39..f62e4e75a 100644
+--- a/gobject/tests/accumulator.c
++++ b/gobject/tests/accumulator.c
+@@ -100,7 +100,8 @@ test_object_signal1_callback_after (TestObject *tobject,
+ 
+ static gboolean
+ test_object_signal2_callback_before (TestObject *tobject,
+-                                     gint        param)
++                                     gint        param,
++                                     gpointer    data)
+ {
+   switch (param)
+     {
+@@ -132,7 +133,8 @@ test_object_real_signal2 (TestObject *tobject,
+ 
+ static gboolean
+ test_object_signal2_callback_after (TestObject *tobject,
+-                                    gint        param)
++                                    gint        param,
++                                    gpointer    data)
+ {
+   switch (param)
+     {
+diff --git a/gobject/tests/override.c b/gobject/tests/override.c
+index aee0e1855..c8621cc6b 100644
+--- a/gobject/tests/override.c
++++ b/gobject/tests/override.c
+@@ -46,7 +46,8 @@ struct _TestIClass
+ };
+ 
+ static void
+-test_i_foo (TestI *self)
++test_i_foo (TestI    *self,
++            gpointer  data)
+ {
+   record ("TestI::foo");
+ }
+@@ -81,7 +82,8 @@ struct _TestAClass {
+ };
+ 
+ static void
+-test_a_foo (TestI *self)
++test_a_foo (TestI    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -169,7 +171,8 @@ struct _TestBClass {
+ };
+ 
+ static void
+-test_b_foo (TestI *self)
++test_b_foo (TestI    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -187,7 +190,8 @@ test_b_foo (TestI *self)
+ }
+ 
+ static void
+-test_b_bar (TestA *self)
++test_b_bar (TestA    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -261,7 +265,8 @@ struct _TestCClass {
+ };
+ 
+ static void
+-test_c_foo (TestI *self)
++test_c_foo (TestI    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -279,7 +284,8 @@ test_c_foo (TestI *self)
+ }
+ 
+ static void
+-test_c_bar (TestA *self)
++test_c_bar (TestA    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+diff --git a/gobject/tests/performance/performance.c b/gobject/tests/performance/performance.c
+index c620d0001..88308f7e4 100644
+--- a/gobject/tests/performance/performance.c
++++ b/gobject/tests/performance/performance.c
+@@ -906,6 +906,14 @@ test_emission_handled_handler (ComplexObject *obj, gpointer data)
+ {
+ }
+ 
++static void
++test_emission_handled_args_handler (ComplexObject *obj,
++                                    guint          arg1,
++                                    gpointer       arg2,
++                                    gpointer       data)
++{
++}
++
+ static gpointer
+ test_emission_handled_setup (PerformanceTest *test)
+ {
+@@ -927,7 +935,7 @@ test_emission_handled_setup (PerformanceTest *test)
+                     G_CALLBACK (test_emission_handled_handler),
+                     NULL);
+   g_signal_connect (data->object, "signal-args",
+-                    G_CALLBACK (test_emission_handled_handler),
++                    G_CALLBACK (test_emission_handled_args_handler),
+                     NULL);
+ 
+   return data;
+diff --git a/gobject/tests/signals.c b/gobject/tests/signals.c
+index 1538858ba..12f04db1a 100644
+--- a/gobject/tests/signals.c
++++ b/gobject/tests/signals.c
+@@ -630,7 +630,8 @@ on_generic_marshaller_2 (Test *obj,
+ 			 TestEnum    v_enum,
+ 			 gint        v_int2,
+ 			 TestUnsignedEnum v_uenum,
+-			 gint        v_int3)
++			 gint        v_int3,
++			 gpointer    data)
+ {
+   g_assert_cmpint (v_int1, ==, 42);
+   g_assert_cmpint (v_enum, ==, TEST_ENUM_BAR);
+@@ -653,13 +654,13 @@ test_generic_marshaller_signal_2 (void)
+ }
+ 
+ static TestEnum
+-on_generic_marshaller_enum_return_signed_1 (Test *obj)
++on_generic_marshaller_enum_return_signed_1 (Test *obj, gpointer data)
+ {
+   return TEST_ENUM_NEGATIVE;
+ }
+ 
+ static TestEnum
+-on_generic_marshaller_enum_return_signed_2 (Test *obj)
++on_generic_marshaller_enum_return_signed_2 (Test *obj, gpointer data)
+ {
+   return TEST_ENUM_BAR;
+ }
+@@ -696,13 +697,13 @@ test_generic_marshaller_signal_enum_return_signed (void)
+ }
+ 
+ static TestUnsignedEnum
+-on_generic_marshaller_enum_return_unsigned_1 (Test *obj)
++on_generic_marshaller_enum_return_unsigned_1 (Test *obj, gpointer data)
+ {
+   return TEST_UNSIGNED_ENUM_FOO;
+ }
+ 
+ static TestUnsignedEnum
+-on_generic_marshaller_enum_return_unsigned_2 (Test *obj)
++on_generic_marshaller_enum_return_unsigned_2 (Test *obj, gpointer data)
+ {
+   return TEST_UNSIGNED_ENUM_BAR;
+ }
+@@ -741,13 +742,13 @@ test_generic_marshaller_signal_enum_return_unsigned (void)
+ /**********************/
+ 
+ static gint
+-on_generic_marshaller_int_return_signed_1 (Test *obj)
++on_generic_marshaller_int_return_signed_1 (Test *obj, gpointer data)
+ {
+   return -30;
+ }
+ 
+ static gint
+-on_generic_marshaller_int_return_signed_2 (Test *obj)
++on_generic_marshaller_int_return_signed_2 (Test *obj, gpointer data)
+ {
+   return 2;
+ }
+@@ -805,13 +806,13 @@ test_generic_marshaller_signal_int_return (void)
+ }
+ 
+ static guint
+-on_generic_marshaller_uint_return_1 (Test *obj)
++on_generic_marshaller_uint_return_1 (Test *obj, gpointer data)
+ {
+   return 1;
+ }
+ 
+ static guint
+-on_generic_marshaller_uint_return_2 (Test *obj)
++on_generic_marshaller_uint_return_2 (Test *obj, gpointer data)
+ {
+   return G_MAXUINT;
+ }
+@@ -865,7 +866,7 @@ test_generic_marshaller_signal_uint_return (void)
+ }
+ 
+ static gpointer
+-on_generic_marshaller_interface_return (Test *test)
++on_generic_marshaller_interface_return (Test *test, gpointer data)
+ {
+   return g_object_new (baa_get_type (), NULL);
+ }

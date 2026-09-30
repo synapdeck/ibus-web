@@ -49,7 +49,13 @@
             # With documentation off nothing lands in devdoc, and Nix fails a
             # build that leaves an output unwritten.
             outputs = lib.remove "devdoc" old.outputs;
-            postInstall = programName old.postInstall;
+            postInstall = programName old.postInstall + ''
+              mkdir -p $dev/nix-support
+              printf "[binaries]\ngdbus-codegen = '%s'\n" "$dev/bin/gdbus-codegen" \
+                > $dev/nix-support/gdbus-codegen-cross.ini
+            '';
+            # Runs in every build that depends on this GLib, never in its own.
+            setupHooks = (old.setupHooks or [ ]) ++ [ ./gdbus-codegen-hook.sh ];
             postFixup = programName (
               replaceIn [ "moveToOutput \"share/doc\" \"$devdoc\"" ] [ "" ] old.postFixup
             );

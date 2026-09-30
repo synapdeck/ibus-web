@@ -41,6 +41,13 @@
             test ! -s flags.log
             $CXX ${toolchain.testMainFlags} -Wl,--undefined-version probe-flags.o -o probe-flags.js
             test "$(node probe-flags.js)" = "probe 7"
+            # Every compile is optimized unless the package asks otherwise.
+            echo | $CC -dM -E -x c - | grep -q "__OPTIMIZE__"
+            echo | $CC -O0 -dM -E -x c - > O0.h
+            if grep -q "__OPTIMIZE__" O0.h; then
+              echo "a package's -O0 must override the common -O2" >&2
+              exit 1
+            fi
             runHook postBuild
           '';
           installPhase = "touch $out";

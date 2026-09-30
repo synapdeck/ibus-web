@@ -5,7 +5,9 @@
       inherit (pkgs) emscripten;
       inherit (config.ibusWeb) toolchain;
 
-      commonFlags = "-fPIC -pthread -fwasm-exceptions";
+      # -O2 over -Os: engine data, not code, dominates download size, and
+      # keystrokes have a latency budget.
+      commonFlags = "-O2 -fPIC -pthread -fwasm-exceptions";
 
       # Link settings the cache is prepared for. Emscripten picks library
       # variants from link settings, so tests must link with one of these.
@@ -30,18 +32,20 @@
           export EM_CACHE=$TMPDIR/cache
           cp -r --no-preserve=mode ${emscripten}/share/emscripten/cache $EM_CACHE
 
+          # The level comes last so it overrides the one in the common
+          # flags: a package's own -O0 links against the debug variants.
           for opt in -O0 -O2; do
-            emcc $opt ${commonFlags} -c probe.c -o $TMPDIR/probe.o
+            emcc ${commonFlags} $opt -c probe.c -o $TMPDIR/probe.o
             # Configure scripts link plain test executables with the
             # project's compile flags.
-            emcc $opt ${commonFlags} $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
-            em++ $opt ${commonFlags} probe.cpp -o $TMPDIR/probe-plain-cpp.js
+            emcc ${commonFlags} $opt $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
+            em++ ${commonFlags} $opt probe.cpp -o $TMPDIR/probe-plain-cpp.js
             for link in "${mainLinkNode}" "${mainLinkWasmfs}"; do
-              em++ $opt ${commonFlags} $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
-              em++ $opt ${commonFlags} $link probe.cpp -o $TMPDIR/probe-cpp.js
+              em++ ${commonFlags} $opt $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
+              em++ ${commonFlags} $opt $link probe.cpp -o $TMPDIR/probe-cpp.js
             done
-            emcc $opt ${commonFlags} -sSIDE_MODULE=1 probe_side.c -o $TMPDIR/probe-side.wasm
-            em++ $opt ${commonFlags} -sSIDE_MODULE=1 probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
+            emcc ${commonFlags} $opt -sSIDE_MODULE=1 probe_side.c -o $TMPDIR/probe-side.wasm
+            em++ ${commonFlags} $opt -sSIDE_MODULE=1 probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
           done
 
           node $TMPDIR/probe-c.js

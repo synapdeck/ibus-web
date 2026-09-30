@@ -1,7 +1,7 @@
-From db1fdaff5a21c5523534cfe4293bee3121bddcdf Mon Sep 17 00:00:00 2001
+From 798129969c806df74af1487c9db8abb1f8af977b Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:08:03 -0700
-Subject: [PATCH 21/21] gtestutils: Skip subprocess tests on WebAssembly
+Subject: [PATCH 21/23] gtestutils: Skip subprocess tests on WebAssembly
 
 g_test_trap_subprocess() runs the test binary again as a child process,
 which WebAssembly can't spawn, so the whole test program aborted with a
@@ -15,11 +15,11 @@ test case, only mark the test skipped.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- glib/gtestutils.c | 28 ++++++++++++++++++++++++++++
- 1 file changed, 28 insertions(+)
+ glib/gtestutils.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
 
 diff --git a/glib/gtestutils.c b/glib/gtestutils.c
-index f500ee085..516b9c598 100644
+index f500ee085..bdd5cb4c6 100644
 --- a/glib/gtestutils.c
 +++ b/glib/gtestutils.c
 @@ -58,6 +58,9 @@
@@ -32,21 +32,23 @@ index f500ee085..516b9c598 100644
  
  #include "gmain.h"
  #include "gpattern.h"
-@@ -764,6 +767,13 @@ static GPid        test_trap_last_pid = 0;
+@@ -764,6 +767,15 @@ static GPid        test_trap_last_pid = 0;
  static char       *test_trap_last_subprocess = NULL;
  static char       *test_trap_last_stdout = NULL;
  static char       *test_trap_last_stderr = NULL;
 +#ifdef G_PLATFORM_WASM
 +/* WebAssembly can't run the test binary again as a subprocess, so a test
 + * that asks for one is skipped by jumping back out of its test function:
-+ * returning would leave it asserting on a subprocess that never ran. */
++ * returning would leave it asserting on a subprocess that never ran. The
++ * rest of the test function, its cleanup included, doesn't run, so what it
++ * allocated is leaked. */
 +static jmp_buf    *test_trap_skip_jmp = NULL;
 +static GThread    *test_trap_skip_thread = NULL;
 +#endif
  static char       *test_uri_base = NULL;
  static gboolean    test_debug_log = FALSE;
  static gboolean    test_tap_log = TRUE;  /* default to TAP as of GLib 2.62; see #1619; the non-TAP output mode is deprecated */
-@@ -3168,12 +3178,23 @@ test_case_run (GTestCase  *tc,
+@@ -3168,12 +3180,23 @@ test_case_run (GTestCase  *tc,
                test_run_seed (test_run_seedstr);
                if (tc->fixture_setup)
                  tc->fixture_setup (fixture, tc->test_data);
@@ -70,7 +72,7 @@ index f500ee085..516b9c598 100644
                test_trap_clear();
                while (test_destroy_queue)
                  {
-@@ -4200,6 +4221,13 @@ g_test_trap_subprocess_with_envp (const char           *test_path,
+@@ -4200,6 +4223,13 @@ g_test_trap_subprocess_with_envp (const char           *test_path,
    /* Sanity check that they used GTestSubprocessFlags, not GTestTrapFlags */
    g_assert ((test_flags & (G_TEST_TRAP_INHERIT_STDIN | G_TEST_TRAP_SILENCE_STDOUT | G_TEST_TRAP_SILENCE_STDERR)) == 0);
  

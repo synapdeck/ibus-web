@@ -3,7 +3,7 @@
 
 /* Exercises each GLib library once: GLib (key files, GRegex, threads, a main
  * context, callbacks cast to GCompareFunc), GObject (a property notification,
- * a dynamic type) and GIO (reading a file back). */
+ * a dynamic type, signal class handlers) and GIO (reading a file back). */
 #include <gio/gio.h>
 #include <glib-object.h>
 #include <glib.h>
@@ -78,6 +78,96 @@ static void thing_module_class_init(ThingModuleClass *klass) {
 
 static void thing_module_init(ThingModule *self) { (void)self; }
 
+/* Signals with class handlers, which take no user data, called through a C
+ * marshaller that passes some. */
+typedef struct {
+  GObject parent;
+} Signaller;
+
+typedef struct {
+  GObjectClass parent;
+  void (*poke)(Signaller *self);
+  gboolean (*judge)(Signaller *self, int value);
+} SignallerClass;
+
+static GType signaller_get_type(void);
+static GString *trail;
+static guint judge_signal;
+
+G_DEFINE_TYPE(Signaller, signaller, G_TYPE_OBJECT)
+
+static void signaller_poke(Signaller *self) {
+  (void)self;
+  g_string_append(trail, "poke;");
+}
+
+static gboolean signaller_judge(Signaller *self, int value) {
+  (void)self;
+  g_string_append_printf(trail, "judge %d;", value);
+  return value > 0;
+}
+
+static void marshal_BOOLEAN__INT(GClosure *closure, GValue *return_value,
+                                 guint n_param_values,
+                                 const GValue *param_values,
+                                 gpointer invocation_hint,
+                                 gpointer marshal_data) {
+  typedef gboolean (*Func)(gpointer instance, int value, gpointer data);
+  GCClosure *cc = (GCClosure *)closure;
+  Func callback = (Func)(marshal_data ? marshal_data : cc->callback);
+  (void)n_param_values;
+  (void)invocation_hint;
+  g_value_set_boolean(
+      return_value, callback(g_value_peek_pointer(&param_values[0]),
+                             g_value_get_int(&param_values[1]), closure->data));
+}
+
+static void signaller_class_init(SignallerClass *klass) {
+  klass->poke = signaller_poke;
+  klass->judge = signaller_judge;
+  g_signal_new("poke", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST,
+               G_STRUCT_OFFSET(SignallerClass, poke), NULL, NULL,
+               g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
+  judge_signal =
+      g_signal_new("judge", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST,
+                   G_STRUCT_OFFSET(SignallerClass, judge), NULL, NULL,
+                   marshal_BOOLEAN__INT, G_TYPE_BOOLEAN, 1, G_TYPE_INT);
+}
+
+static void signaller_init(Signaller *self) { (void)self; }
+
+/* Overrides one handler in its class structure and the other with
+ * g_signal_override_class_handler(), chaining up from both. */
+typedef struct {
+  Signaller parent;
+} SubSignaller;
+
+typedef struct {
+  SignallerClass parent;
+} SubSignallerClass;
+
+static GType sub_signaller_get_type(void);
+
+G_DEFINE_TYPE(SubSignaller, sub_signaller, signaller_get_type())
+
+static void sub_signaller_poke(Signaller *self) {
+  g_string_append(trail, "sub-poke;");
+  g_signal_chain_from_overridden_handler(self);
+}
+
+static gboolean sub_signaller_judge(Signaller *self, int value) {
+  g_string_append(trail, "sub-judge;");
+  return ((SignallerClass *)sub_signaller_parent_class)->judge(self, value + 1);
+}
+
+static void sub_signaller_class_init(SubSignallerClass *klass) {
+  ((SignallerClass *)klass)->judge = sub_signaller_judge;
+  g_signal_override_class_handler("poke", G_TYPE_FROM_CLASS(klass),
+                                  G_CALLBACK(sub_signaller_poke));
+}
+
+static void sub_signaller_init(SubSignaller *self) { (void)self; }
+
 int main(void) {
   GKeyFile *keys = g_key_file_new();
   g_key_file_load_from_data(keys, "[engine]\nname=hangul\n", -1,
@@ -137,6 +227,19 @@ int main(void) {
   g_type_module_unuse(module);
 
   printf("processors %s\n", g_get_num_processors() > 0 ? "yes" : "no");
+
+  trail = g_string_new(NULL);
+  gboolean base_verdict = FALSE, sub_verdict = TRUE;
+  GObject *base = g_object_new(signaller_get_type(), NULL);
+  g_signal_emit_by_name(base, "poke");
+  g_signal_emit(base, judge_signal, 0, 5, &base_verdict);
+  GObject *sub = g_object_new(sub_signaller_get_type(), NULL);
+  g_signal_emit_by_name(sub, "poke");
+  g_signal_emit(sub, judge_signal, 0, -1, &sub_verdict);
+  printf("signals %s %d %d\n", trail->str, base_verdict, sub_verdict);
+  g_object_unref(sub);
+  g_object_unref(base);
+  g_string_free(trail, TRUE);
 
   GList *list =
       g_list_append(g_list_append(NULL, g_strdup("b")), g_strdup("a"));

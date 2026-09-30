@@ -1,7 +1,7 @@
 From 3c715fb07c68b3e224b07a9fc72b116bb8433d52 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 16:53:57 -0700
-Subject: [PATCH 14/21] gwakeup: Make acknowledging and freeing no-ops on
+Subject: [PATCH 14/23] gwakeup: Make acknowledging and freeing no-ops on
  WebAssembly
 
 Every GMainContext owns a GWakeup, and unreffing the last reference to

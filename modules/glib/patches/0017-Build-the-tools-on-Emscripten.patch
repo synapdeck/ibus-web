@@ -1,7 +1,7 @@
 From ca9dfb58619ab49e7d7ac09b99ce594651b685c8 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 18:26:24 -0700
-Subject: [PATCH 17/21] Build the tools on Emscripten
+Subject: [PATCH 17/23] Build the tools on Emscripten
 
 Three tools link against Unix sources that aren't built for
 Emscripten: gtester opens its report pipe with g_unix_open_pipe(), the
