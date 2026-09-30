@@ -199,24 +199,32 @@ parameters than the caller passes: signal handlers without `user_data`,
 `(GFunc) g_free`, and similar. When GLib is the caller, `pkgsWasm.glib` absorbs
 the mismatch so the engine needs no patch.
 
-- **Arity table.** A function pointer is an index into the WASM function
-  table, and the function there has a JS `.length` equal to its parameter
-  count. The Worker host scans the table once after instantiating the runtime
-  and again after loading the side module, filling a byte array in runtime
-  memory (`0xFF` for empty slots). A lookup is one memory load.
+- **Class handlers.** Class closures never take `user_data`, so on
+  WebAssembly they are marshalled through libffi with the instance and the
+  signal's parameters only. This covers class-struct handlers,
+  `g_signal_new_class_handler`, overrides and chaining up, without knowing
+  anything about the callee.
+- **Other callbacks: lazy arity lookup.** A function pointer is an index into
+  the WASM function table, and the function there has a JS `.length` equal to
+  its parameter count. At the covered call sites GLib asks for it through a
+  small `EM_JS` helper and caches the answer per function pointer, so a
+  pointer is looked up once. Nothing is scanned ahead of time, and side
+  modules loaded later need no extra step.
 - **Covered call sites.** Closure invocation (the generated marshallers and
   `g_cclosure_marshal_generic`), `g_list_foreach`, `g_slist_foreach`,
   `g_ptr_array_foreach`, `g_hash_table_foreach` and its `_remove`/`_steal`
   variants, `GDestroyNotify` calls, `GSourceFunc` dispatch and sort comparison
   callbacks.
-- **Calling.** When the table says the callee takes fewer parameters, simple
-  all-pointer cases call through a pointer type with the matching arity (a
-  switch over arity). Marshallers fall back to libffi with a truncated call
-  description. Calls with matching arity take the normal path.
+- **Calling.** Calls with matching arity take the normal path. When the callee
+  takes fewer parameters, the call goes through JS (`wasmTable.get(fp)(…)`),
+  which drops the extra arguments itself.
 - **Not covered.** Callees declaring *more* parameters than passed, and
   mismatches in engine code that GLib never calls. Those need engine patches.
 - **Audit output.** Debug builds log every absorbed mismatch with the callee's
   name and the call site. That log is the engine audit report (§11.3).
+- **Only if needed.** The lookup is built when the engine audit shows it pays
+  for itself. If the target engines have only a few such callbacks, they are
+  fixed in each engine's `patches/casts` instead and the lookup is not built.
 
 #### 5.1.3 Other `pkgsWasm.glib` changes
 
@@ -392,8 +400,7 @@ page bundle (§9.2).
    `postMessage`.
 2. Builds the Worker's resources in nested scopes (below): instantiates the
    runtime, mounts storage (§5.6), fetches and installs data files, loads the
-   side module, builds the arity table (§5.1.2) and calls
-   `ibusweb_module_init`.
+   side module and calls `ibusweb_module_init`.
 3. Enters the request loop: `Atomics.wait` on the request word with the pump
    deadline as timeout, dispatch or pump, write the reply, repeat.
 4. Wraps every dispatch and pump in a handler for WASM traps (§8).
@@ -405,7 +412,7 @@ page bundle (§9.2).
 | Worker | SAB views, `Logger` layer | final `Log` records flushed | crash record written |
 | Runtime | instantiate `ibus-runtime.wasm` | none (freed with the Worker) | none |
 | Storage | WasmFS mounts, data archives | flush and unmount OPFS | close OPFS handles from JS only |
-| Engine module | load side module, arity table, `ibusweb_module_init` | module shutdown call | skipped |
+| Engine module | load side module, `ibusweb_module_init` | module shutdown call | skipped |
 | Engine instance (one per input context, child of the module scope) | `CreateEngine` | `DestroyEngine` (`g_object_unref`) | skipped |
 
 - **Finalizers inspect the `Exit`.** After a trap the WASM heap cannot be
@@ -1049,7 +1056,7 @@ emscriptenCache ─ pkgsWasm
 - TypeScript unit and keystroke-path tests (Vitest)
 - `libibus-web` C tests and the GLib test subset, under Node
 - C/TS protocol parity
-- engine conformance golden tests and arity-audit gates
+- engine conformance golden tests and callback-audit gates
 - the license-boundary scan (§9.4)
 - the generated protocol spec against the committed copy
 - Playwright suites on nixpkgs' browsers
@@ -1094,7 +1101,7 @@ specification and `release.json`.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`
    and SAB (Node allows `Atomics.wait` on the main thread). Each engine has
    golden key-sequence tests, for example Hangul 2-set `g k s` → preedit `ㅎ`,
-   `하`, `한`. The arity audit report must be empty or match the engine's
+   `하`, `한`. The callback audit report must be empty or match the engine's
    committed allow-list.
 4. **Keystroke path.** TS tests against an in-process fake Worker that speaks
    the ring protocol: timeouts, the replay queue, crashes, hangs, fragmented
@@ -1113,7 +1120,7 @@ specification and `release.json`.
 | M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches forward-ported to nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
 | ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
-| M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and arity fix count and layer; GSettings bridge; decode speed with a synthetic large table |
+| M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table |
 | M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
 | M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
 | M4 | libpinyin: C++ side module against the runtime's libc++, database backend, OPFS user dictionaries | C++ across modules; persistence; large lookup tables |
@@ -1122,9 +1129,10 @@ specification and `release.json`.
 
 ## 13. Risks and open questions
 
-- **R1. Arity-tolerant callbacks.** The design in §5.1.2 is unproven. If
-  libffi's WASM backend cannot make truncated calls cheaply, marshallers need
-  per-signature trampolines instead. Settled in M1.
+- **R1. Arity-tolerant callbacks.** The lazy lookup in §5.1.2 is unproven:
+  the cost of a JS call per mismatched callback, and whether `.length` is
+  reliable for every table entry Emscripten creates, are measured in M1. If
+  the audit finds few mismatches, engine patches replace it.
 - **R2. Blocking the Worker.** The Worker host blocks in `Atomics.wait`
   outside the Emscripten runtime. Thread creation and work that Emscripten
   proxies back to the Worker's thread (some filesystem and OPFS operations)
