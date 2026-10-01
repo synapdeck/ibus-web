@@ -6,17 +6,11 @@
   imports = [ inputs.devshell.flakeModule ];
 
   perSystem =
-    {
-      config,
-      lib,
-      pkgs,
-      ...
-    }:
+    { config, lib, ... }:
     {
       devshells.default = {
         packages = [
           config.ibusWeb.toolchain.emscripten
-          pkgs.nodejs
           config.treefmt.build.wrapper
         ];
         env = [

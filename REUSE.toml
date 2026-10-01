@@ -13,8 +13,14 @@ SPDX-License-Identifier = "MIT OR Apache-2.0"
 # Docs quote SPDX tags in prose, so file contents must not be scanned.
 precedence = "override"
 
+# JSON has no comment syntax.
 [[annotations]]
-path = "flake.lock"
+path = ["package.json", "**/package.json", "**/tsconfig.json"]
+SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+[[annotations]]
+path = ["flake.lock", "pnpm-lock.yaml"]
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "CC0-1.0"
 

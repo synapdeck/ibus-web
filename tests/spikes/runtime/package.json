@@ -1,0 +1,10 @@
+{
+  "name": "@ibus-web/spike-runtime",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "playwright": "1.61.1",
+    "typescript": "7.0.2"
+  }
+}
