@@ -113,13 +113,15 @@
           }
           ''
             # The exceptions scenario's operation throws on purpose, and the
-            # runtime warns about it on stderr.
-            run() {
+            # runtime warns about it on stderr. The filter is a pipe, so it
+            # has finished by the time run returns.
+            run() (
+              set -o pipefail
               ${runtime.nodeTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/run.js \
                 --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json \
-                --constants ${constants}/constants.json --pool ${poolSize} "$@" \
-                2> >(sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2)
-            }
+                --constants ${constants}/constants.json --pool ${poolSize} "$@" 2>&1 1>&3 3>&- |
+                sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
+            ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
             echo "# released runtime" >> $out

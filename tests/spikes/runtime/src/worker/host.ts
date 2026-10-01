@@ -410,8 +410,10 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   // Whether the last wait ended with its word changed, which is how a
   // request that arrives while the host sleeps wakes it. ibusweb_wait()
   // can't tell a word that changed before it slept from one that changed
-  // during, so in "runtime" mode this also counts the rare request that
-  // lands between the pump and the wait.
+  // during, so in "runtime" mode the word is read once more just before the
+  // call: a change before that read doesn't count. One that lands between
+  // that read and the futex wait inside the call, a window of a few
+  // instructions, still does.
   let woken = false;
   try {
     for (;;) {
@@ -443,10 +445,11 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
       const timeout = delay < 0 ? Infinity : delay;
       switch (init.wait) {
         case "runtime": {
+          const unmoved = Atomics.load(heap.words, wakeIndex) === seen;
           const ret = rt._ibusweb_wait(seen, delay);
           if (ret < 0 && ret !== constants.waitTimedOut)
             throw new Error(`ibusweb_wait: ${ret}`);
-          woken = ret === 0;
+          woken = unmoved && ret === 0;
           break;
         }
         case "runtime-async": {
