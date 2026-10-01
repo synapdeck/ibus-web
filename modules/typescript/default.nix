@@ -14,32 +14,75 @@
       pnpm = pkgs.pnpm_11;
       root = ../..;
 
-      # The package globs under pnpm-workspace.yaml's `packages:` key. Nix has
-      # no YAML reader, so this takes the block-list form the file uses.
-      workspaceGlobs =
+      # pnpm-workspace.yaml's `packages:` block list and `overrides:` block
+      # mapping. Nix has no YAML reader, so this reads those two keys line by
+      # line, and inside them any line it doesn't recognise throws: a form it
+      # can't read must not be skipped silently.
+      workspaceYaml =
         let
+          file = "pnpm-workspace.yaml";
+          # A quoted or plain scalar; the first matching group of the three
+          # inner ones is its value.
+          scalar = plain: ''("([^"]*)"|'([^']*)'|(${plain}))'';
+          valueOf = groups: lib.findFirst (group: group != null) null groups;
+          comment = "([[:space:]]+#.*)?[[:space:]]*";
+          matchItem = builtins.match "[[:space:]]*-[[:space:]]+${scalar "[^\"'#[:space:]][^#[:space:]]*"}${comment}";
+          matchEntry = builtins.match "[[:space:]]+${scalar "[^\"'#:[:space:]][^#:[:space:]]*"}:[[:space:]]+${scalar "[^\"'#[:space:]][^#[:space:]]*"}${comment}";
+          matchKey = builtins.match "([^[:space:]#][^:]*):(.*)";
+          isBlank = line: builtins.match "[[:space:]]*(#.*)?" line != null;
+          isIndented = line: builtins.match "[[:space:]].*" line != null;
+
           step =
             state: line:
             let
-              item = builtins.match ''[[:space:]]+-[[:space:]]+["']?([^"'[:space:]]+)["']?[[:space:]]*'' line;
+              item = matchItem line;
+              entry = matchEntry line;
+              key = matchKey line;
+              keyName = builtins.elemAt key 0;
+              unreadable = throw "${file}: can't read this line under `${state.section}:`: ${line}";
             in
-            if builtins.match "packages:[[:space:]]*" line != null then
-              state // { inPackages = true; }
-            else if builtins.match "[^[:space:]#].*" line != null then
-              state // { inPackages = false; }
-            else if state.inPackages && item != null then
-              state // { globs = state.globs ++ item; }
+            if isBlank line then
+              state
+            else if state.section == "packages" && item != null then
+              let
+                glob = valueOf (lib.sublist 1 3 item);
+              in
+              if lib.hasPrefix "!" glob then
+                throw "${file}: negated package globs are not supported: ${glob}"
+              else
+                state // { globs = state.globs ++ [ glob ]; }
+            else if state.section == "overrides" && entry != null then
+              state
+              // {
+                overrides = state.overrides // {
+                  ${valueOf (lib.sublist 1 3 entry)} = valueOf (lib.sublist 5 3 entry);
+                };
+              }
+            else if !isIndented line && key != null then
+              if
+                lib.elem keyName [
+                  "packages"
+                  "overrides"
+                ]
+              then
+                if isBlank (builtins.elemAt key 1) then
+                  state // { section = keyName; }
+                else
+                  throw "${file}: `${keyName}:` must be in block style, not ${line}"
+              else
+                state // { section = null; }
+            else if state.section != null then
+              unreadable
             else
               state;
+
           parsed = lib.foldl' step {
-            inPackages = false;
+            section = null;
             globs = [ ];
-          } (lib.splitString "\n" (builtins.readFile (root + "/pnpm-workspace.yaml")));
+            overrides = { };
+          } (lib.splitString "\n" (builtins.readFile (root + "/${file}")));
         in
-        if parsed.globs == [ ] then
-          throw "pnpm-workspace.yaml: no `packages:` list found"
-        else
-          parsed.globs;
+        if parsed.globs == [ ] then throw "${file}: no `packages:` list found" else parsed;
 
       # Repository-relative directories of the workspace's packages.
       packageDirs = lib.concatMap (
@@ -56,7 +99,7 @@
           [ ]
         else
           map (name: "${parent}/${name}") (lib.attrNames (lib.filterAttrs isPackage entries))
-      ) workspaceGlobs;
+      ) workspaceYaml.globs;
 
       workspaceFiles = map (file: root + "/${file}") [
         "package.json"
@@ -104,6 +147,48 @@
         typescript = pkgs.typescript.version;
       };
       isExactVersion = version: builtins.match "[0-9]+\\.[0-9]+\\.[0-9]+" version != null;
+      nodeMajor = lib.versions.major nodejs.version;
+
+      # Why `name` at `spec` disagrees with nixpkgs, or null. @types/node isn't
+      # published for every Node patch release, so it needs only an exact
+      # version with Node's major.
+      versionProblem =
+        name: spec:
+        if pinnedVersions ? ${name} then
+          if spec == pinnedVersions.${name} then
+            null
+          else
+            "is ${spec}, but nixpkgs has ${pinnedVersions.${name}}"
+        else if name == "@types/node" && !(isExactVersion spec && lib.versions.major spec == nodeMajor) then
+          "is ${spec}, but needs an exact ${nodeMajor}.x.y for Node ${nodejs.version}"
+        else
+          null;
+
+      # One line per entry of `specs` (name -> version spec) that disagrees.
+      problemsIn =
+        where: specs:
+        lib.concatLists (
+          lib.mapAttrsToList (
+            name: spec:
+            let
+              problem = versionProblem name spec;
+            in
+            lib.optional (problem != null) "${where}: ${name} ${problem}"
+          ) specs
+        );
+
+      dependencyFields = [
+        "dependencies"
+        "devDependencies"
+        "optionalDependencies"
+        "peerDependencies"
+      ];
+
+      # An override's key selects a package as `[<parent>>]<name>[@<range>]`;
+      # it applies to the dependency named after the last `>`.
+      overrideTarget =
+        selector:
+        builtins.head (builtins.match "(@?[^@]+)(@.*)?" (lib.last (lib.splitString ">" selector)));
 
       rootManifest = lib.importJSON (root + "/package.json");
       versionMismatches =
@@ -112,27 +197,18 @@
             builtins.toJSON (rootManifest.packageManager or null)
           }, but nixpkgs' pnpm_11 is ${pnpm.version}"
         ++ lib.concatMap (
-          dir:
+          file:
           let
-            manifest = lib.importJSON (root + "/${dir}/package.json");
-            dependencies = (manifest.dependencies or { }) // (manifest.devDependencies or { });
-            nodeTypes = dependencies."@types/node" or null;
-            nodeMajor = lib.versions.major nodejs.version;
+            manifest = lib.importJSON (root + "/${file}");
           in
-          lib.mapAttrsToList
-            (
-              name: version: "${dir}/package.json: ${name} is ${dependencies.${name}}, but nixpkgs has ${version}"
-            )
-            (
-              lib.filterAttrs (
-                name: version: dependencies ? ${name} && dependencies.${name} != version
-              ) pinnedVersions
-            )
-          ++
-            lib.optional
-              (nodeTypes != null && !(isExactVersion nodeTypes && lib.versions.major nodeTypes == nodeMajor))
-              "${dir}/package.json: @types/node is ${nodeTypes}, but needs an exact ${nodeMajor}.x.y for Node ${nodejs.version}"
-        ) packageDirs;
+          lib.concatMap (field: problemsIn "${file}: ${field}" (manifest.${field} or { })) dependencyFields
+        ) ([ "package.json" ] ++ map (dir: "${dir}/package.json") packageDirs)
+        ++ lib.concatLists (
+          lib.mapAttrsToList (
+            selector: spec:
+            problemsIn "pnpm-workspace.yaml: overrides.\"${selector}\"" { ${overrideTarget selector} = spec; }
+          ) workspaceYaml.overrides
+        );
     in
     {
       ibusWeb.typescript = {
