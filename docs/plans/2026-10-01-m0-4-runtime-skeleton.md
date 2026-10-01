@@ -166,7 +166,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 ### Task 5: Spike Worker host and the Node harness (R2)
 
-**Files:** `tests/spikes/runtime/src/host/worker.ts` (the Worker host), `src/host/control.ts` (control-header layout and helpers), `src/scenarios.ts` (scenario definitions shared by both harnesses), `src/node/run.ts` (Node harness: `worker_threads`), `modules/spikes/runtime/default.nix` (`checks.runtime-spike-node`), `docs/spikes/2026-10-01-runtime-worker.md`.
+**Files:** `tests/spikes/runtime/src/worker/host.ts` (the Worker host, portable across browser Workers and `worker_threads`), `src/shared/control.ts` (control-header layout and helpers), `src/shared/scenarios.ts` (scenario definitions shared by both harnesses), `src/node/run.ts` (Node harness) and `src/node/worker-adapter.ts` (what `worker_threads` needs that a browser Worker has natively), `modules/spikes/runtime/default.nix` (`checks.runtime-spike-node`), `docs/spikes/2026-10-01-runtime-worker.md`.
 
 **Host (spec §5.5 steps 1–4, spike-sized):** receives the compiled runtime module (or its URL), a dedicated control SAB and the side-module list by `postMessage`; instantiates the runtime; mounts storage (memory in Node; OPFS in browsers, Task 6); loads the side modules; calls `ibusweb_runtime_init`; enters the request loop — `Atomics.wait` with the pump deadline as timeout, then dispatch or pump, write the reply, repeat. Requests use a minimal spike layout of §6.2.1's control header (`state`, `reqSeq`, `reqLen`, `replyRet`, plus a request/reply slot); no ring or GVariant yet.
 
@@ -189,7 +189,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 ### Task 6: Browser harness (Chromium and Firefox)
 
-**Files:** `tests/spikes/runtime/src/browser/{server.ts,page.ts,index.html,run.ts}`, `modules/spikes/runtime/default.nix` (`checks.runtime-spike-browser`), optionally `modules/playwright/default.nix` exposing `ibusWeb.testing.playwright` (browsers path, env) for reuse in M1.
+**Files:** `tests/spikes/runtime/src/node/{server.ts,browser-run.ts}`, `src/page/{page.ts,index.html}` (`index.html` declared under `ibusWeb.assets`), `modules/spikes/runtime/default.nix` (`checks.runtime-spike-browser`), optionally `modules/playwright/default.nix` exposing `ibusWeb.testing.playwright` (browsers path, env) for reuse in M1.
 
 **Requirements:**
 
@@ -201,7 +201,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 ### Task 7: Memory growth (§5.3)
 
-**Files:** `tests/spikes/runtime/sides/memstress.c` (or a standalone program), `tests/spikes/runtime/src/scenarios.ts` (stress scenario), `runtime/ibus-runtime/package.nix` (final memory flags), spike report.
+**Files:** `tests/spikes/runtime/sides/memstress.c` (or a standalone program), `tests/spikes/runtime/src/shared/scenarios.ts` (stress scenario), `runtime/ibus-runtime/package.nix` (final memory flags), spike report.
 
 **Requirements:** reproduce the GLib-suite trap pattern without GLib (many pthreads allocating and touching fresh memory while memory grows) and with GLib (the `1bit-emufutex`-style workload), under memory growth and under fixed memory, in Node (≥ 300 runs), Chromium and Firefox (≥ 50 runs each). Decision rule (user-approved): **if growth traps in any engine, the runtime uses fixed per-Worker memory, sized from the manifest (runtime + side module + data, with margin); otherwise growth.** Implement the chosen rule in the link (and, for fixed memory, how the size is chosen — a manifest field the host passes, or a per-engine link), record the evidence. If a GLib-free reproduction appears, add it to `docs/upstream/` as a draft (V8/SpiderMonkey/Node or Emscripten, per the evidence).
 
