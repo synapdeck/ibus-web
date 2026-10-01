@@ -1024,10 +1024,13 @@ modules. Each component the build changes has one directory,
 one gated overlay that may change several nixpkgs attributes; `patches/`
 holds its patch files and a README recording their provenance; `checks/`
 holds its checks, `checks/<name>.nix` or, with sources of its own,
-`checks/<name>/default.nix` with its files beside it. An engine is a
-component too, living at the repository root in `engines/<name>/` with the
-same shape plus its manifest template and data; `flake.nix` passes both
-`./modules` and `./engines` to import-tree.
+`checks/<name>/default.nix` with its files beside it. The runtime and
+each engine are components too, living at the repository root with their
+flake-parts modules beside the sources they build: `runtime/` holds
+`libibus-web`'s sources, the modules that build `libibus-web` and
+`ibus-runtime`, and its `checks/`; `engines/<name>/` has the same shape as
+`modules/<component>/` plus its manifest template and data. `flake.nix`
+passes `./modules`, `./runtime` and `./engines` to import-tree.
 
 ```
 ibus-web/
@@ -1037,12 +1040,12 @@ ibus-web/
 │  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
 │  │  └─ checks/                   checks of the toolchain itself
 │  ├─ <component>/                 overlay.nix, patches/, checks/ for one component (glib, libhangul, …)
-│  ├─ runtime/                     libibus-web and ibus-runtime
 │  ├─ engines/                     side-module packaging, data, source bundles
 │  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
 │  └─ release.nix                  the release set
 ├─ docs/                           specs, plans, spike reports
-├─ runtime/libibus-web/            C sources and ibus.h-compatible headers
+├─ runtime/                        the runtime component: *.nix modules building libibus-web and ibus-runtime, checks/
+│  └─ libibus-web/                 C sources and ibus.h-compatible headers
 ├─ engines/<name>/                 one component per engine: overlay.nix, patches/{port,casts}, checks/, manifest template, data
 ├─ packages/                       protocol, core, ibus-web, panel, worker-host
 └─ tests/                          conformance harness, Playwright suites, benchmarks, spikes
