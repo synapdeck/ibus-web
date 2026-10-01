@@ -221,5 +221,8 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
 - **Caveat maintainers may raise.** #19417 notes that WasmFS assumes it has
   complete control over the file system. The reproduction changes files only
   through WasmFS, so it doesn't depend on outside changes.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `node_backend.cpp` and `libwasmfs_node.js` are unchanged between 6.0.9 and
+  `main` (2151200, 139 commits later). The latest release, 6.0.10 (tagged
+  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
+  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

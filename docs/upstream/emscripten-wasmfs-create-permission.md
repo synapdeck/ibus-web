@@ -159,8 +159,9 @@ open("/ro/new", O_CREAT|O_WRONLY)        Permission denied
 ## Notes for the user
 
 - **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page
-  says only owner permissions apply. The test uses owner bits, so this is within
-  what Emscripten claims to enforce. Run at `-O0` and `-O2`, with the same
+  says only owner permissions apply. WasmFS's code checks for any write bit
+  (`0222`) and ignores ownership. The test clears every write bit (mode `0555`),
+  so it doesn't depend on that difference. Run at `-O0` and `-O2`, with the same
   result.
 - **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
   included. Bitcode is left out because the fault is in `libwasmfs`. The guide
@@ -178,6 +179,11 @@ open("/ro/new", O_CREAT|O_WRONLY)        Permission denied
 - **Why it matters to us.** GLib's
   `/fileutils/set-contents-full/read-only-directory` fails on WasmFS, partly
   because of this (see also `emscripten-wasmfs-search-permission.md`).
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8. Check that #18033 is still open before
-  posting.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: the
+  cited `doOpen` and `doMkdir` code is unchanged between 6.0.9 and `main`
+  (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s
+  error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is
+  unchanged, a few lines further down. The latest release, 6.0.10 (tagged
+  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
+  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8. #18033 was open on
+  2026-09-30.

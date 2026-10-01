@@ -7,9 +7,10 @@ stdin/stdout/stderr stream crashes with NODERAWFS", closed as completed on
 [#27632](https://github.com/emscripten-core/emscripten/pull/27632) ("Fix fstat
 on stdio streams under NODERAWFS", merged 2026-09-01). #27632 gives the standard
 streams a synthetic node and adds `test_fs_fstat_stdio`, which covers fds 0–2
-on every file system. Emscripten 6.0.9 as packaged by nixpkgs predates the fix.
-Nothing needs to go upstream. Once a release with #27632 is packaged, re-run the
-reproduction below to confirm the fix.
+on every file system. **It's fixed in 6.0.10** (tagged 2026-09-18), whose
+`libnoderawfs.js` has #27632's `createStandardStreams`. Emscripten 6.0.9 as
+packaged by nixpkgs predates the fix. Nothing needs to go upstream. When nixpkgs
+moves to 6.0.10 or later, re-run the reproduction below to confirm.
 
 The rest of this file records what we saw, so the check is quick.
 
@@ -156,5 +157,7 @@ way, by giving the streams a node.
   the tests ran on NODERAWFS. They run on WasmFS now, where `fstat(0)` works.
   We haven't checked whether the GLib tools, which still link with NODERAWFS,
   ever `fstat` a standard stream.
-- **Not verified on tip-of-tree.** That #27632 fixes our case is inferred from
-  its description and test. We didn't build `main`.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: both
+  6.0.10 and `main` (2151200) carry #27632's change to `libnoderawfs.js`. That
+  it fixes our case is inferred from the code and #27632's test; neither was
+  built here.

@@ -14,10 +14,11 @@ so linking to it from there would help too.
 
 ---
 
-This still reproduces on 6.0.9 with nothing but the memory backend. No fetch,
-OPFS or icase backend is needed. Any directory created with
-`wasmfs_create_directory()` under the (memory) root loses its name in
-`getcwd()`.
+This still reproduces on 6.0.9. As the `wasmfs_mounted_cwd.c` test in #23756
+already shows, it needs nothing but the memory backend: any directory created
+with `wasmfs_create_directory()` under the (memory) root loses its name in
+`getcwd()`. The test case below is the same idea with a subdirectory added,
+which shows the `//sub` form too.
 
 **Version of emscripten/emsdk:**
 
@@ -187,10 +188,17 @@ builds a `FILE*`'s path the same way, and the fix covers both.
   test. The guide prefers a PR. #23756 already exists, so the comment offers the
   analysis rather than a competing PR. Alternatively, offer to take over #23756
   if its author has gone quiet.
+- **Credit.** #23756 already has a memory-backend-only reproduction
+  (`test/wasmfs/wasmfs_mounted_cwd.c`). The comment credits it, not ours, as
+  the minimal case.
 - **Duplicate search.** "wasmfs getcwd", "wasmfs getcwd mount", "wasmfs mount
   getName", "getcwd mounted directory", "getcwd empty name", "getcwd opfs",
   "WASMFS chdir" and "getcwd", plus a scan of all open issues and PRs matching
   "wasmfs", turned up #18112, #24141 and #23756. Nothing else is close.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8. Check that #18112 and #23756 are still open
-  before posting.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `file.cpp`, `file.h`, `memory_backend.cpp` and `emscripten.cpp` are unchanged
+  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed
+  only in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp
+  rounding; the cited `getcwd` code is unchanged, two lines further down. The
+  latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from
+  the diff; `main` wasn't rebuilt. #18112 and #23756 were open on 2026-09-30.

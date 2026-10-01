@@ -164,5 +164,10 @@ since it touches the backend API.
   on the same quirk on purpose: it `chmod`s the WasmFS root to the host's mode,
   knowing only WasmFS's record changes. If upstream fixes this, that `chmod`
   will start changing the host's `/`, or fail.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `node_backend.cpp` and `file.h` are unchanged between 6.0.9 and `main`
+  (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s
+  error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is
+  unchanged, a few lines further down. The latest release, 6.0.10 (tagged
+  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
+  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

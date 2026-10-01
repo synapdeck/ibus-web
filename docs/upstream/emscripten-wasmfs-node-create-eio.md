@@ -71,8 +71,8 @@ Expected `EACCES` for both, which is what the host returned.
 
 WasmFS's own permission check doesn't catch this. The mount point's mode is the
 `0777` given to `wasmfs_create_directory`, not the host's `0555`. The same
-happens for files in host directories owned by another user, since WasmFS
-checks owner bits only.
+happens in host directories owned by another user: WasmFS's check passes if any
+write bit (`0222`) is set, ignoring ownership.
 
 <details>
 <summary>Full compile and link output with <code>-v</code> appended (cache and scratch paths shortened)</summary>
@@ -131,7 +131,8 @@ the backend interface, so we haven't written it.
 - **Overlap with other drafts.** For `open(O_CREAT)`, fixing #18033 (see
   `emscripten-wasmfs-create-permission.md`) makes WasmFS answer `EACCES` itself
   whenever its idea of the directory's mode is right. This report covers the
-  rest: mount points, other owners and non-permission errors.
+  rest: mount points, directories owned by someone else (WasmFS ignores
+  ownership) and non-permission errors.
 - **Duplicate search.** "wasmfs EIO", "wasmfs I/O error", "wasmfs mkdir EIO",
   "Receive a specific error code", "wasmfs node backend" and "EACCES", plus a
   scan of all open "wasmfs" issues, turned up #17773 ("WasmFS: Error handling
@@ -140,5 +141,10 @@ the backend interface, so we haven't written it.
   `EACCES` creating under `/usr` in the build sandbox. It got `EIO` until
   `modules/toolchain/node-host-fs.c` started `chmod`ing the WasmFS root to the
   host's mode.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `node_backend.cpp` and `libwasmfs_node.js` are unchanged between 6.0.9 and
+  `main` (2151200, 139 commits later). `syscalls.cpp` changed only in
+  `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the
+  cited code is unchanged, a few lines further down. The latest release, 6.0.10
+  (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
+  wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

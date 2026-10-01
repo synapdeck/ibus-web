@@ -181,14 +181,17 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
    // The first "dso" is always the default one which is equivalent to
 ```
 
-With this applied to 6.0.9:
+With this applied to 6.0.9, the program prints this under `-sMAIN_MODULE=2`:
 
 ```
-$ emcc -O0 -sMAIN_MODULE=2 rtld_next.c -o rtld_next.js && node rtld_next.js
 RTLD_NEXT is defined
 dlsym(RTLD_NEXT, "puts") = 0 (RTLD_NEXT is not supported)
 dlsym(RTLD_DEFAULT, "puts") = 0 (Tried to lookup unknown symbol "puts" in dynamic lib: __main__)
-$ emcc -O0 -sMAIN_MODULE=1 rtld_next.c -o rtld_next.js && node rtld_next.js
+```
+
+and this under `-sMAIN_MODULE=1`:
+
+```
 RTLD_NEXT is defined
 dlsym(RTLD_NEXT, "puts") = 0 (RTLD_NEXT is not supported)
 dlsym(RTLD_DEFAULT, "puts") = 0x3f (no error)
@@ -230,6 +233,10 @@ recurse forever.
 - **GLib side.** GLib's `meson.build` sets `HAVE_RTLD_NEXT` because musl's
   `dlfcn.h` defines `RTLD_NEXT`. Turning it off for Emscripten in our patch
   series is a one-line alternative to the per-test guards.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8. Before posting, check that `dynlink.c` on
-  `main` still lets `RTLD_NEXT` through.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `dynlink.c`, `emscripten_libc_stubs.c` and musl's `dlsym.c` are unchanged
+  between 6.0.9 and `main` (2151200, 139 commits later). `libdylink.js` changed
+  elsewhere (the preload plugin, a `dylink.0` architecture check, `dlopen`
+  callbacks), but `_dlsym_js` and its assertion didn't. The latest release,
+  6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff;
+  `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

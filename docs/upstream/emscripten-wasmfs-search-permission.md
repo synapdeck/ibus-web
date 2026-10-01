@@ -91,9 +91,9 @@ chdir("/d")                              Permission denied
 ```
 
 Both file systems report uid 0. Linux would let root through, but Emscripten
-enforces owner permission bits regardless (the JS FS here, and WasmFS's own
-`open`, `mkdir`, `unlink` and `access`), so this is about WasmFS being
-consistent with itself and with the JS FS.
+enforces permission bits regardless (the JS FS here, and WasmFS's own `open`,
+`mkdir`, `unlink` and `access`), ignoring ownership. So this is about WasmFS
+being consistent with itself and with the JS FS.
 
 <details>
 <summary>Full compile and link output with <code>-v</code> appended (cache and scratch paths shortened)</summary>
@@ -198,8 +198,8 @@ results with and without the patch. We didn't run the full suite.
 - **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page
   says user and group permissions "are defined but ignored" and that "the
   caller is always treated as the owner", which is about which bits apply, not
-  about skipping checks. The test only flips owner bits, so this is within what
-  Emscripten claims to enforce. Run at `-O0` and `-O2`, with the same result.
+  about skipping checks. The test clears every execute bit (mode `0666`), so
+  it doesn't depend on ownership, which WasmFS ignores. Run at `-O0` and `-O2`, with the same result.
 - **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
   included. Bitcode is left out because the fault is in `libwasmfs`. Small
   enough to send as a PR (with a `test/wasmfs` case) if preferred.
@@ -220,6 +220,10 @@ results with and without the patch. We didn't run the full suite.
   `/fileutils/set-contents-full/read-only-directory` (rewriting a file in a
   mode-0 directory) fails because of this together with the create-permission
   gap. Both hold in the browser too.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8. Check that `paths.cpp` on `main` still has
-  the TODO before posting.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `paths.cpp` (with its TODO) is unchanged between 6.0.9 and `main` (2151200,
+  139 commits later). `syscalls.cpp` changed only in `fdatasync`'s error sign
+  (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a
+  few lines further down. The latest release, 6.0.10 (tagged 2026-09-18),
+  matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build
+  is nixpkgs' 6.0.9 with LLVM 22.1.8.

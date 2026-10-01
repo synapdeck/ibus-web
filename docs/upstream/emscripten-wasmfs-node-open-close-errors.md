@@ -83,8 +83,8 @@ The host's `EACCES` (2) is taken for fd 2. `open()` succeeds, the write lands
 on stderr, and `close()` closes Node's own stderr. Expected:
 `open("/etc/passwd", O_WRONLY) = -1 (Permission denied)`.
 
-WasmFS's own permission check passes here because it treats the caller as the
-owner. The host disagrees because the caller isn't.
+WasmFS's own permission check passes here: it accepts any write bit (`0222`) and
+ignores ownership. The host refuses because the caller doesn't own the file.
 
 **Test case 2** (`node_close_errno.c`): a host `open` that fails with `ENOENT`.
 The easiest way to get one is the stale path a `rename` leaves behind (#NNNN):
@@ -256,9 +256,11 @@ and return the underlying file descriptor") could say so too.
   `/etc/passwd`, which is true on ordinary Linux systems. It doesn't write to
   `/etc/passwd`: the write goes to stderr, which is the bug. It does close the
   Node process's real fd 2, which is harmless at the end of the program.
-- **The `close` half wasn't tested on its own.** With both fixes applied, test
-  case 2's `open` fails cleanly, so `close` never sees an error. The `close`
-  change is by inspection: every other helper caller negates.
+- **The `close` half wasn't exercised.** The fixed tree also has the `rename`
+  fix, so test case 2's `open` reaches the right host file and succeeds. The
+  fixed run printed open = 3, read = 0, close = 0. With no host
+  error, `close` never sees one. The `close` change is by inspection: every
+  other helper caller negates.
 - **How the fix was tested.** The "with this applied" run used a 6.0.9 tree
   with all of this set's candidate fixes applied at once.
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`: the open
@@ -274,6 +276,11 @@ and return the underlying file descriptor") could say so too.
   (WasmFS NODERAWFS design). None reports this.
 - **Why it matters to us.** Every GLib test failure the plan blames on the
   `fd_close` assertion reaches it this way, after a `rename`.
-- **Not verified on tip-of-tree or emsdk's latest release.** The build is
-  nixpkgs' 6.0.9 with LLVM 22.1.8. Check `libwasmfs_node.js` on `main`, since
-  #26598 shows someone has been fixing these signs.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
+  `node_backend.cpp`, `node_backend.h` and `libwasmfs_node.js` are unchanged
+  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed
+  only in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp
+  rounding; the cited code is unchanged, a few lines further down. The only sign
+  fix since 6.0.9 is #27806, for `fdatasync`. The latest release, 6.0.10 (tagged
+  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
+  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
