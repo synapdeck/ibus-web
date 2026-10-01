@@ -14,7 +14,10 @@
       emscriptenRoot = "${emscripten}/share/emscripten";
 
       # Emscripten records the LLVM release each library it imports from LLVM
-      # comes from in that library's README.
+      # comes from in that library's README. libc++abi's and libunwind's rest
+      # on it alone: their version macros (_LIBCPPABI_VERSION,
+      # _LIBUNWIND_VERSION) are frozen at 15000, and nothing else records
+      # them.
       llvmImport = library: {
         file = "${emscriptenRoot}/system/lib/${library}/README.md";
         pattern = "based on release ([0-9]+\\.[0-9]+\\.[0-9]+)";
@@ -87,10 +90,42 @@
               packages = [ "libffi" ];
             };
           }
+          # Emscripten's own API, as its core headers declare it, implemented
+          # partly in C, in whichever system library, and partly in
+          # JavaScript. It comes before the libraries that implement it, so
+          # its names are its own. Weak definitions are hooks a program
+          # overrides at its own link, which a side module can't.
+          {
+            name = "emscripten";
+            version = "{emscripten}";
+            systemLibraries = "*";
+            javascript = { };
+            declaredIn.headers = map (header: "emscripten/${header}.h") [
+              "emscripten"
+              "em_asm"
+              "em_js"
+              "console"
+              "threading"
+              "proxying"
+              "eventloop"
+              "heap"
+              "atomic"
+              "stack"
+              "wasmfs"
+            ];
+            skipWeak = true;
+          }
           # Emscripten's C and C++ runtime, whole: side modules link no system
           # libraries, so every libc, libc++ and compiler builtin call an
           # engine makes lands here. The rest a main module links (OpenGL,
           # OpenAL, HTML5 events) are browser APIs no engine reaches for.
+          #
+          # Emscripten implements part of libc in JavaScript (assert's
+          # __assert_fail, exit, the resolver): its JavaScript functions that
+          # musl's headers declare. Two of those headers don't compile on
+          # their own: musl's sys/procfs.h needs ELF register sets, which
+          # Emscripten's architecture lacks, and Emscripten's overlay of
+          # sys/random.h uses size_t before anything defines it.
           {
             name = "libc";
             version = "{musl}+emscripten.{emscripten}";
@@ -101,6 +136,13 @@
               "stubs"
               "sockets"
             ];
+            javascript.declaredIn = {
+              tree = "${emscriptenRoot}/system/lib/libc/musl/include";
+              unparseable = [
+                "sys/procfs.h"
+                "sys/random.h"
+              ];
+            };
           }
           {
             name = "compiler-rt";
@@ -122,16 +164,6 @@
             version = "{libunwind}";
             systemLibraries = [ "unwind" ];
           }
-          {
-            # WasmFS leaves its C++ internals visible; only what Emscripten's
-            # headers declare is its API. Weak definitions are hooks a
-            # program overrides at its own link, which a side module can't.
-            name = "emscripten";
-            version = "{emscripten}";
-            systemLibraries = [ "wasmfs" ];
-            declaredIn.beside = "emscripten/emscripten.h";
-            skipWeak = true;
-          }
         ];
       };
 
@@ -148,13 +180,16 @@
           pkgsWasm.libffi
         ];
         dontFixup = true;
-        # The system libraries' variants are those of a link with the
+        # The system libraries' variants, and the C functions Emscripten's
+        # JavaScript library implements, are those of a link with the
         # runtime's settings, without assertions, as it is released.
+        # EMCC_DEBUG keeps the settings that link hands its JavaScript
+        # compiler.
         buildPhase = ''
           runHook preBuild
           echo 'int main(void) { return 0; }' > probe.c
           $CC -c probe.c -o probe.o
-          $CXX ${runtime.linkFlags} probe.o -o probe.js -v 2> link.log
+          EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CXX ${runtime.linkFlags} probe.o -o probe.js -v 2> link.log
           python3 ${./exports.py} manifest --spec ${pkgs.writeText "ibus-runtime-exports.json" (builtins.toJSON spec)} \
             --objdump ${emscripten.llvmEnv}/bin/llvm-objdump --link-log link.log --out $out
           runHook postBuild

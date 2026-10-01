@@ -46,8 +46,8 @@
       };
 
       # The manifest's two files must agree, each library must be at the
-      # version the build's inputs carry, and libibus-web must export only
-      # what its header declares.
+      # version the build's inputs carry, and libibus-web must export exactly
+      # the API its header declares, but for what side modules define.
       exportListCheck = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-ibus-runtime-exports-check";
         dontUnpack = true;
@@ -63,10 +63,13 @@
           for file in exports.txt exports.json; do
             cmp $manifest/$file ${runtime.ibusRuntime}/$file
           done
-          abi=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["abi"])' $manifest/exports.json)
+          macro() { python3 ${./exports.py} macro "$@"; }
+          abi=$(macro --include ibus-web/runtime.h --pkg-config libibus-web IBUSWEB_RUNTIME_ABI)
           musl=$(< ${emscripten}/share/emscripten/system/lib/libc/musl/VERSION)
           # libc++ numbers its release XXYYZZ.
-          libcxx=$(python3 ${./exports.py} macro --lang c++ --include version _LIBCPP_VERSION)
+          libcxx=$(macro --lang c++ --include version _LIBCPP_VERSION)
+          # compiler-rt is the compiler's own runtime, from its release.
+          clang=$(macro __clang_major__).$(macro __clang_minor__).$(macro __clang_patchlevel__)
           python3 ${./exports.py} verify --dir $manifest \
             --expect libibus-web=$abi \
             ${
@@ -80,8 +83,10 @@
             --expect libffi=${pkgsWasm.libffi.version} \
             --expect "libc=$musl+emscripten.${emscripten.version}" \
             --expect "libc++=$((libcxx / 10000)).$((libcxx / 100 % 100)).$((libcxx % 100))" \
+            --expect compiler-rt=$clang \
             --expect emscripten=${emscripten.version} \
             --api-library libibus-web --api-header ibus-web/runtime.h --api-pkg-config libibus-web \
+            --api-side-defined ibusweb_module_init \
             > summary.txt
           cat summary.txt
           runHook postBuild

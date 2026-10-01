@@ -115,5 +115,5 @@ export async function startRuntime(path) {
 
   const loadModule = (path) => withString(path, (ptr) => rt._ibusweb_load_module(ptr, 0));
 
-  return { dispatch, call, pump, settle, writeFile, loadModule };
+  return { module: rt, dispatch, call, pump, settle, writeFile, loadModule };
 }

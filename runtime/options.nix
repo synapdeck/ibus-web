@@ -23,7 +23,7 @@
       };
       exportList = lib.mkOption {
         type = lib.types.package;
-        description = "The runtime's export manifest: exports.txt, what side modules may import from it, grouped by library, and exports.json, the runtime ABI and each library's name, version and symbol count, which together identify the runtime's ABI.";
+        description = "The runtime's export manifest: exports.txt, what side modules may import from it, grouped by library, and exports.json, the runtime ABI and each library's name, version, symbol count and symbols, which together identify the runtime's ABI.";
       };
       checkSideModuleImports = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
