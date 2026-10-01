@@ -25,6 +25,13 @@ static gint64 idle_delay;
 static State spawn_state;
 static int32_t spawn_joined;
 
+static State detached_state;
+static int32_t detached_expected;
+static int32_t detached_reported;
+
+static State nested_state;
+static int32_t nested_joined;
+
 static gboolean record_dispatch(gpointer data) {
   (void)data;
   idle_delay = g_get_monotonic_time() - idle_attached;
@@ -79,28 +86,26 @@ static gpointer report_start(gpointer started) {
   return NULL;
 }
 
-/* Runs from a pump, as an engine's own code would create threads. Each
- * thread must start before the next is created, and only those that did are
- * joined; one that doesn't start in time is left to run whenever it can. */
-static gboolean spawn_all(gpointer n) {
+/* Creates n threads, each of which must start before the next is created,
+ * then joins those that did and returns how many; one that doesn't start in
+ * time is left to run whenever it can. */
+static int create_and_join(int n) {
   GThread *threads[MAX_SPAWN];
   GAsyncQueue *started = g_async_queue_new();
   int running = 0;
 
-  while (running < GPOINTER_TO_INT(n)) {
+  while (running < n) {
     GError *error = NULL;
     GThread *thread = g_thread_try_new("spawn", report_start,
                                        g_async_queue_ref(started), &error);
     if (thread == NULL) {
-      g_warning("spawn: thread %d of %d: %s", running + 1, GPOINTER_TO_INT(n),
-                error->message);
+      g_warning("spawn: thread %d of %d: %s", running + 1, n, error->message);
       g_error_free(error);
       g_async_queue_unref(started);
       break;
     }
     if (g_async_queue_timeout_pop(started, START_TIMEOUT) == NULL) {
-      g_warning("spawn: thread %d of %d didn't start", running + 1,
-                GPOINTER_TO_INT(n));
+      g_warning("spawn: thread %d of %d didn't start", running + 1, n);
       g_thread_unref(thread);
       break;
     }
@@ -109,7 +114,12 @@ static gboolean spawn_all(gpointer n) {
   for (int i = 0; i < running; i++)
     g_thread_join(threads[i]);
   g_async_queue_unref(started);
-  spawn_joined = running;
+  return running;
+}
+
+/* Runs from a pump, as an engine's own code would create threads. */
+static gboolean spawn_all(gpointer n) {
+  spawn_joined = create_and_join(GPOINTER_TO_INT(n));
   spawn_state = DONE;
   return G_SOURCE_REMOVE;
 }
@@ -145,6 +155,117 @@ static void spawn_result(const uint8_t *payload, uint32_t len, GString *reply) {
   }
 }
 
+static gboolean count_detached(gpointer data) {
+  (void)data;
+  if (++detached_reported == detached_expected)
+    detached_state = DONE;
+  return G_SOURCE_REMOVE;
+}
+
+static gpointer report_and_exit(gpointer data) {
+  (void)data;
+  g_idle_add(count_detached, NULL);
+  return NULL;
+}
+
+/* spawn-detached(n): creates n detached threads, each of which reports to
+ * the default context and ends; nobody joins them. */
+static void spawn_detached(const uint8_t *payload, uint32_t len,
+                           GString *reply) {
+  int32_t n;
+  if (!spike_arg(payload, len, 0, &n) || n <= 0 || n > MAX_SPAWN)
+    return;
+  if (detached_state == PENDING) {
+    spike_reply(reply, -EBUSY);
+    return;
+  }
+  detached_expected = 0;
+  detached_reported = 0;
+  detached_state = PENDING;
+  for (int i = 0; i < n; i++) {
+    GError *error = NULL;
+    GThread *thread =
+        g_thread_try_new("detached", report_and_exit, NULL, &error);
+    if (thread == NULL) {
+      g_warning("spawn-detached: thread %d of %d: %s", i + 1, n,
+                error->message);
+      g_error_free(error);
+      break;
+    }
+    g_thread_unref(thread);
+    detached_expected++;
+  }
+  if (detached_expected == 0)
+    detached_state = DONE;
+  spike_reply(reply, detached_expected);
+}
+
+/* spawn-detached-result(): how many of the threads reported. */
+static void spawn_detached_result(const uint8_t *payload, uint32_t len,
+                                  GString *reply) {
+  (void)payload;
+  (void)len;
+  switch (detached_state) {
+  case IDLE:
+    spike_reply(reply, -ENOENT);
+    break;
+  case PENDING:
+    spike_reply(reply, -EAGAIN);
+    break;
+  case DONE:
+    spike_reply(reply, detached_reported);
+    break;
+  }
+}
+
+static gboolean record_nested(gpointer joined) {
+  nested_joined = GPOINTER_TO_INT(joined);
+  nested_state = DONE;
+  return G_SOURCE_REMOVE;
+}
+
+static gpointer create_from_thread(gpointer n) {
+  g_idle_add(record_nested,
+             GINT_TO_POINTER(create_and_join(GPOINTER_TO_INT(n))));
+  return NULL;
+}
+
+/* spawn-nested(n): a thread off the pumping thread creates n threads and
+ * joins them, as GLib's thread pools create their workers. Emscripten has
+ * the thread that instantiated the runtime create every thread, so each
+ * creation waits for that thread to run it. */
+static void spawn_nested(const uint8_t *payload, uint32_t len, GString *reply) {
+  int32_t n;
+  if (!spike_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
+    return;
+  if (nested_state == PENDING) {
+    spike_reply(reply, -EBUSY);
+    return;
+  }
+  nested_state = PENDING;
+  g_thread_unref(
+      g_thread_new("nested", create_from_thread, GINT_TO_POINTER(n)));
+  spike_reply(reply, 0);
+}
+
+/* spawn-nested-result(): how many of the threads started and were joined. */
+static void spawn_nested_result(const uint8_t *payload, uint32_t len,
+                                GString *reply) {
+  (void)payload;
+  (void)len;
+  switch (nested_state) {
+  case IDLE:
+    spike_reply(reply, -ENOENT);
+    break;
+  case PENDING:
+    spike_reply(reply, -EAGAIN);
+    break;
+  case DONE:
+    spike_reply(reply, nested_joined);
+    break;
+  }
+}
+
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, SPIKE_OP_IDLE_LATER, "idle-later", idle_later);
   ibusweb_module_add_op(module, SPIKE_OP_IDLE_RESULT, "idle-result",
@@ -152,4 +273,12 @@ void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, SPIKE_OP_SPAWN, "spawn", spawn);
   ibusweb_module_add_op(module, SPIKE_OP_SPAWN_RESULT, "spawn-result",
                         spawn_result);
+  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_DETACHED, "spawn-detached",
+                        spawn_detached);
+  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_DETACHED_RESULT,
+                        "spawn-detached-result", spawn_detached_result);
+  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_NESTED, "spawn-nested",
+                        spawn_nested);
+  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_NESTED_RESULT,
+                        "spawn-nested-result", spawn_nested_result);
 }

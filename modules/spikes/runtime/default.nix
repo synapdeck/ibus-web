@@ -5,7 +5,7 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) runtime;
+      inherit (config.ibusWeb) runtime typescript;
 
       sides =
         map
@@ -34,7 +34,24 @@
               name = "fsync";
               source = "fsync.c";
             }
+            {
+              name = "proxy";
+              source = "proxy.c";
+            }
+            {
+              name = "timer";
+              source = "timer.c";
+            }
           ];
+
+      sidesDir = pkgs.runCommand "ibus-web-runtime-spike-sides" { } ''
+        mkdir $out
+        ln -s ${toString (map (side: side.wasm) sides)} $out/
+      '';
+
+      # Scenarios size their thread counts by the pool the runtime is linked
+      # with.
+      poolSize = builtins.head (builtins.match ".*-sPTHREAD_POOL_SIZE=([0-9]+).*" runtime.linkFlags);
     in
     {
       # The asserting runtime loads every spike side module and runs each
@@ -47,9 +64,33 @@
           ''
             cp ${runtime.nodeHarness}/* .
             cp ${./smoke.mjs} smoke.mjs
-            mkdir sides
-            ln -s ${toString (map (side: side.wasm) sides)} sides/
-            ${runtime.nodeTimeout} node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js sides > $out
+            ${runtime.nodeTimeout} node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js ${sidesDir} > $out
+            cat $out
+          '';
+
+      # The Worker host, from the TypeScript build, runs every scenario under
+      # Node: on the asserting runtime for correctness, then on the released
+      # one, whose timings are the ones to quote, with the comparison against
+      # a host that sleeps in Atomics.wait() on the control buffer.
+      checks.runtime-spike-node =
+        pkgs.runCommand "ibus-web-runtime-spike-node"
+          {
+            nativeBuildInputs = [ typescript.nodejs ];
+            # For running the harness by hand from a checkout.
+            passthru = {
+              inherit sidesDir;
+              inherit (runtime) ibusRuntime ibusRuntimeAsserting nodeHarness;
+            };
+          }
+          ''
+            run() {
+              ${runtime.nodeTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/run.js \
+                --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json --pool ${poolSize} "$@"
+            }
+            echo "# asserting runtime" > $out
+            run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
+            echo "# released runtime" >> $out
+            run --runtime ${runtime.ibusRuntime}/ibus-runtime.js --compare >> $out || { cat $out; exit 1; }
             cat $out
           '';
 
