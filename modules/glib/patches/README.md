@@ -647,11 +647,21 @@ used its fallback.
   first converted alone on a second converter, reset for it; one that
   fails or comes back replaced there is treated as `EILSEQ`, so the
   fallback replaces it (or a fallback that has one is refused), and only
-  the others go through the main converter. Whether a character has a
-  representation doesn't depend on the target's shift state, so no
-  further restart is needed and the conversion stays linear: 32,000
-  unrepresentable characters to ASCII take 2 ms on Node. glibc only
-  starts over for an irreversible conversion it counts.
+  the others go through the main converter, so each character costs
+  three `iconv()` calls: the second converter's reset, the check and the
+  conversion. Whether a character has a representation doesn't depend
+  on the target's shift state, so no further restart is needed and the
+  conversion stays linear: 32,000 unrepresentable characters to ASCII
+  take 2 ms on Node. If the second converter can't be opened, the
+  conversion fails with that error rather than keep a replacement
+  unreported. glibc only starts over for an irreversible conversion it
+  counts.
+- **Context-independent encoders.** The check assumes that whether a
+  character has a representation doesn't depend on the characters around
+  it, which holds for musl's encoders. glibc's context-dependent ones
+  (BIG5-HKSCS, TSCII, CP1258's composition) don't fit it, but they report
+  a character they lack with `EILSEQ` and count no replacement, so they
+  never take that path.
 - **`g_convert_with_iconv()`** (and so `g_convert()`), where `iconv()`
   replaces, starts again from a reset converter when a call fails after
   converting something, with room for all the output or with only the
@@ -738,6 +748,11 @@ unsupported and aborts. Only tests use it, to wrap a libc function.
   rather than status 1.
 - **Workaround for the platform**: test-printf's reader waits for its
   writer to finish, since Emscripten's pipe reads never block.
+- **A race on every platform**: asyncqueue's threads test pushed its items
+  as soon as it had created its ten consumers and expected each to get
+  some. Under load a pthread can start 200–560 ms after it is created,
+  once the queue has drained (about one loaded run in five failed
+  `sums_i > 0`), so the test now waits until every consumer is running.
 - **Left to the toolchain's Emscripten fixes**: mainloop's `nfds`,
   `unix-file-poll` and `unix-fd-priority`, closure's `fd` and pollable's
   `/dev/null` test poll empty files and devices; fileutils' `chdir()` and

@@ -1,4 +1,4 @@
-From 39cf8abd5093aeacd4b383af7ee7e35aa257f69a Mon Sep 17 00:00:00 2001
+From 6deaf15a24962fe73c4e29b087960d533e3b5b4f Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 21:26:27 -0700
 Subject: [PATCH 36/37] meson: Don't take RTLD_NEXT for usable on Emscripten

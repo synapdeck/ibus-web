@@ -1,4 +1,4 @@
-From 41ac40c8fbd7ff8fdd5047e74bff45c15230e25c Mon Sep 17 00:00:00 2001
+From 57b8b82806e9db0064febb3b6715371ef00f9b31 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:40 -0700
 Subject: [PATCH 32/37] gconvert, gcharsetconverter: Report characters iconv()
@@ -37,7 +37,15 @@ From then on each character, of the string and of the fallback, is
 first converted alone on a second converter reset for it; one that
 fails or is replaced there is treated as EILSEQ, so the fallback
 replaces it or a fallback holding one is refused, and the conversion
-stays linear.
+stays linear. If the second converter can't be opened, the conversion
+fails rather than keep a replacement unreported.
+
+The check assumes the target's encoder is context-independent: whether
+a character has a representation doesn't depend on its neighbours or the
+shift state. musl's encoders are. glibc's context-dependent ones
+(BIG5-HKSCS, TSCII, CP1258's composition) aren't, but they report a
+character they lack with EILSEQ and count no replacement, so they never
+take that path.
 
 Where iconv() fails with EILSEQ instead, as glibc's does, the only
 change is that last restart, which glibc reaches just for irreversible
@@ -47,8 +55,8 @@ conversions it counts; a target that asks for transliteration
 Upstream-Status: Pending
 ---
  gio/gcharsetconverter.c |  99 +++++++++++++++++++++++
- glib/gconvert.c         | 168 +++++++++++++++++++++++++++++++++++++++-
- 2 files changed, 264 insertions(+), 3 deletions(-)
+ glib/gconvert.c         | 174 +++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 270 insertions(+), 3 deletions(-)
 
 diff --git a/gio/gcharsetconverter.c b/gio/gcharsetconverter.c
 index c8944f3a3..1219425a0 100644
@@ -175,7 +183,7 @@ index c8944f3a3..1219425a0 100644
      res = g_iconv (conv->iconv,
                     &inbufp, &in_left,
 diff --git a/glib/gconvert.c b/glib/gconvert.c
-index f10aeffde..51dc014c6 100644
+index f10aeffde..059e46acc 100644
 --- a/glib/gconvert.c
 +++ b/glib/gconvert.c
 @@ -212,6 +212,55 @@ g_iconv_close (GIConv converter)
@@ -315,7 +323,7 @@ index f10aeffde..51dc014c6 100644
    /* Now the heart of the code. We loop through the UTF-8 string, and
     * whenever we hit an offending character, we form fallback, convert
     * the fallback to the target codeset, and then go back to
-@@ -643,9 +733,75 @@ g_convert_with_fallback (const gchar *str,
+@@ -643,9 +733,81 @@ g_convert_with_fallback (const gchar *str,
  
    while (!done && !have_error)
      {
@@ -348,12 +356,13 @@ index f10aeffde..51dc014c6 100644
 +       * for a character the target codeset lacks and count it as an
 +       * irreversible conversion instead of failing with EILSEQ, and forget
 +       * the count when the same call runs out of room for the output.  Then
-+       * the string is converted again from a reset converter, since the
-+       * output discarded may have changed a stateful target's shift state,
-+       * a character at a time: each is first converted alone on a second
-+       * converter, and one that converts irreversibly there is treated as
-+       * EILSEQ, so the fallback replaces it.  A target that asks for
-+       * transliteration ("//TRANSLIT") gets its replacements on purpose. */
++       * the string is converted again, a character at a time, from a reset
++       * converter, since the output discarded may have changed a stateful
++       * target's shift state.  Each character is first converted alone on a
++       * second converter, and one that converts irreversibly there is
++       * treated as EILSEQ, so the fallback replaces it.  A target that asks
++       * for transliteration ("//TRANSLIT") gets its replacements on
++       * purpose. */
 +      if (!by_char && p_start && !save_p && strstr (to_codeset, "//") == NULL)
 +        {
 +          int errsv = errno;
@@ -362,17 +371,22 @@ index f10aeffde..51dc014c6 100644
 +              (err == (gsize) -1 && errsv == E2BIG && p != p_start &&
 +               iconv_replaces_unrepresentable ()))
 +            {
-+              check_cd = g_iconv_open (to_codeset, "UTF-8");
-+              if (check_cd != (GIConv) -1)
++              /* Without the second converter a replacement would go
++               * through unreported. */
++              check_cd = open_converter (to_codeset, "UTF-8", error);
++              if (check_cd == (GIConv) -1)
 +                {
-+                  g_iconv (cd, NULL, NULL, NULL, NULL);
-+                  p = utf8;
-+                  inbytes_remaining = utf8_len;
-+                  outp = dest;
-+                  outbytes_remaining = outbuf_size - NUL_TERMINATOR_LENGTH;
-+                  by_char = TRUE;
-+                  continue;
++                  have_error = TRUE;
++                  break;
 +                }
++
++              g_iconv (cd, NULL, NULL, NULL, NULL);
++              p = utf8;
++              inbytes_remaining = utf8_len;
++              outp = dest;
++              outbytes_remaining = outbuf_size - NUL_TERMINATOR_LENGTH;
++              by_char = TRUE;
++              continue;
 +            }
 +
 +          errno = errsv;
@@ -393,7 +407,7 @@ index f10aeffde..51dc014c6 100644
  
        if (err == (gsize) -1)
  	{
-@@ -711,7 +867,11 @@ g_convert_with_fallback (const gchar *str,
+@@ -711,7 +873,11 @@ g_convert_with_fallback (const gchar *str,
  	}
        else
  	{
@@ -406,7 +420,7 @@ index f10aeffde..51dc014c6 100644
  	    {
  	      if (!fallback)
  		g_free ((gchar *)insert_str);
-@@ -740,6 +900,8 @@ g_convert_with_fallback (const gchar *str,
+@@ -740,6 +906,8 @@ g_convert_with_fallback (const gchar *str,
      *bytes_written = outp - dest;	/* Doesn't include '\0' */
  
    g_free (utf8);

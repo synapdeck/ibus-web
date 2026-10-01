@@ -1,4 +1,4 @@
-From 6ab14f0636a9e3223dc62f36c7cc8e4c86fd53e1 Mon Sep 17 00:00:00 2001
+From fa3925780324094065215a466a120eb4740ba74e Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:40 -0700
 Subject: [PATCH 33/37] gmain: Give an ownerless-polling context a wakeup fd on

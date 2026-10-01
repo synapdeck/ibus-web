@@ -1,4 +1,4 @@
-From be397ea50ef40dcc0273dffe8f169feaedf8a494 Mon Sep 17 00:00:00 2001
+From 88f4ed9c2f1e8b9af588d59d07e2ddee0049f6e4 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:52 -0700
 Subject: [PATCH 37/37] tests: Skip what WebAssembly can't do, and fix what it
@@ -51,6 +51,12 @@ converter-stream also check stateful charsets: a byte order mark and
 ISO-2022-JP's shift state across calls and full output, and a fallback
 between kanji in ISO-2022-JP.
 
+One fix is for a race on every platform: asyncqueue's threads test
+pushed its items as soon as it had created its consumers, and expected
+each consumer to get some. Under load a thread can start hundreds of
+milliseconds after it is created, once the queue has drained, so the
+test now waits until every consumer is running.
+
 Only test sources and test build files change.
 
 Upstream-Status: Inappropriate [Wasm-specific]
@@ -66,6 +72,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  gio/tests/pollable.c              | 11 +++-
  gio/tests/socket.c                | 48 +++++++++++++++++
  glib/tests/assert-msg-test.py     |  3 ++
+ glib/tests/asyncqueue.c           | 17 ++++++
  glib/tests/collate.c              | 22 ++++++++
  glib/tests/convert.c              | 55 +++++++++++++++++++
  glib/tests/date.c                 | 24 +++++++++
@@ -80,7 +87,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/tests/test-printf.c          |  9 +++-
  glib/tests/testing.c              | 67 +++++++++++++++++++++++
  gobject/tests/closure.c           | 16 +++++-
- 25 files changed, 548 insertions(+), 45 deletions(-)
+ 26 files changed, 565 insertions(+), 45 deletions(-)
 
 diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
 index b00d1bf39..05b773ecb 100644
@@ -736,6 +743,52 @@ index 9d2bde4d3..76d8077cb 100755
          else:
              self.assertEqual(result.info.returncode, -6)
          self.assertIn("assertion failed: (42 < 0)", result.out)
+diff --git a/glib/tests/asyncqueue.c b/glib/tests/asyncqueue.c
+index 210d0ae84..ed1d3eadd 100644
+--- a/glib/tests/asyncqueue.c
++++ b/glib/tests/asyncqueue.c
+@@ -138,6 +138,9 @@ static GAsyncQueue *global_queue;
+ static GThread *threads[10];
+ static gint counts[10];  /* (atomic) */
+ static gint sums[10];  /* (atomic) */
++static GMutex started_mutex;
++static GCond started_cond;
++static gint started;  /* (locked-by started_mutex) */
+ 
+ static gpointer
+ thread_func (gpointer data)
+@@ -145,6 +148,11 @@ thread_func (gpointer data)
+   gint pos = GPOINTER_TO_INT (data);
+   gint value;
+ 
++  g_mutex_lock (&started_mutex);
++  started++;
++  g_cond_signal (&started_cond);
++  g_mutex_unlock (&started_mutex);
++
+   while (1)
+     {
+       value = GPOINTER_TO_INT (g_async_queue_pop (global_queue));
+@@ -170,10 +178,19 @@ test_async_queue_threads (void)
+   int total = 0;
+ 
+   global_queue = g_async_queue_new ();
++  started = 0;
+ 
+   for (i = 0; i < 10; i++)
+     threads[i] = g_thread_new ("test", thread_func, GINT_TO_POINTER (i));
+ 
++  /* Every consumer must get some items, but a thread can start running long
++   * after it is created on a loaded machine, and one that starts after the
++   * queue has drained gets none.  Push only once they are all running. */
++  g_mutex_lock (&started_mutex);
++  while (started < 10)
++    g_cond_wait (&started_cond, &started_mutex);
++  g_mutex_unlock (&started_mutex);
++
+   for (i = 0; i < 100; i++)
+     {
+       g_async_queue_lock (global_queue);
 diff --git a/glib/tests/collate.c b/glib/tests/collate.c
 index bd9ea234f..d27cd0559 100644
 --- a/glib/tests/collate.c
