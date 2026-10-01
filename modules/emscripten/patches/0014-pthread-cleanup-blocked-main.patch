@@ -10,11 +10,15 @@ list instead, which it drains whenever it processes its queued calls,
 including inside emscripten_futex_wait(); the message is still sent, for
 a main thread that is idle in its event loop.
 
+Since a wait on the main thread can now free a thread, dlopen()'s sync,
+which waits on each thread of a list it took first, skips the ones that
+are gone by their turn instead of syncing them through freed memory.
+
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-pthread-cleanup-blocked-main.md
 
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
-index a975f21..bbb6153 100644
+index a975f21..063675f 100644
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -93,6 +93,7 @@ var LibraryPThread = {
@@ -62,6 +66,28 @@ index a975f21..bbb6153 100644
    },
  
    _emscripten_thread_set_strongref: (thread) => {
+@@ -1256,7 +1266,9 @@ var LibraryPThread = {
+     // invokeEntryPoint before the threads entry point is called.
+     for (const ptr of Object.keys(PThread.pthreads)) {
+       const pthread_ptr = Number(ptr);
+-      if (pthread_ptr !== caller && !PThread.finishedThreads.has(pthread_ptr)) {
++      // Proxying can wait, and a wait on the main thread cleans up threads
++      // that have ended, so one listed above may be gone (and freed) by now.
++      if (pthread_ptr !== caller && ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
+         info = makePromise();
+         __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
+         PThread.outstandingPromises[pthread_ptr] = info;
+@@ -1290,7 +1302,9 @@ var LibraryPThread = {
+     }
+     for (const ptr of Object.keys(PThread.pthreads)) {
+       const pthread_ptr = Number(ptr);
+-      if (!PThread.finishedThreads.has(pthread_ptr)) {
++      // Each sync waits, and a wait on the main thread cleans up threads that
++      // have ended, so one listed above may be gone (and freed) by now.
++      if (ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
+         __emscripten_proxy_dlsync(pthread_ptr);
+       }
+     }
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
 index b8a48cb..98b1068 100644
 --- a/system/lib/pthread/library_pthread.c

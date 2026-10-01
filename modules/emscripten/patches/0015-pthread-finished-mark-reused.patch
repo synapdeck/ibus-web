@@ -12,7 +12,7 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-pthread-finished-mark-reused.md
 
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
-index bbb6153..b05bc2e 100644
+index 063675f..5d353cb 100644
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -86,6 +86,7 @@ var LibraryPThread = {

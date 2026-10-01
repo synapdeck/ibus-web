@@ -17,6 +17,7 @@
 /* Each round's threads: half end detached, half join a child of their own
  * first, so a round runs up to 1.5 × THREADS threads at once. */
 #define THREADS 4
+#define AT_ONCE (THREADS + THREADS / 2)
 #define STACK_SIZE (256 * 1024)
 
 /* Workers the runtime holds, idle or hosting a thread. */
@@ -51,8 +52,7 @@ static void block_for(double ms) {
 static size_t in_use(void) { return mallinfo().uordblks; }
 
 static void run_round(void) {
-  int target =
-      __atomic_load_n(&finished, __ATOMIC_SEQ_CST) + THREADS + THREADS / 2;
+  int target = __atomic_load_n(&finished, __ATOMIC_SEQ_CST) + AT_ONCE;
   for (int i = 0; i < THREADS; i++) {
     pthread_t thread;
     pthread_create(&thread, &attr, i % 2 ? join_child : finish, NULL);
@@ -65,6 +65,8 @@ static void run_round(void) {
 int main(void) {
   pthread_attr_init(&attr);
   pthread_attr_setstacksize(&attr, STACK_SIZE);
+  /* The pool, plus a new Worker for each thread it can't cover. */
+  int max_workers = worker_count() + AT_ONCE;
 
   /* One round warms up whatever the runtime allocates once. */
   run_round();
@@ -85,9 +87,10 @@ int main(void) {
       printf("FAIL: round %d's threads still hold memory\n", round);
       failures++;
     }
-    if (workers > THREADS + THREADS / 2) {
-      printf("FAIL: %d workers for at most %d threads at once\n", workers,
-             THREADS + THREADS / 2);
+    if (workers > max_workers) {
+      printf("FAIL: %d workers, more than the %d to start with plus %d "
+             "threads at once\n",
+             workers, max_workers - AT_ONCE, AT_ONCE);
       failures++;
     }
   }
