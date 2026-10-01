@@ -21,6 +21,10 @@
         type = lib.types.str;
         description = "Link flags every main or side module link adds, acknowledging that Emscripten's dynamic linking is experimental.";
       };
+      runtimeMainFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "The settings of ibus-runtime's main-module link that select library variants; the cache holds them with and without assertions.";
+      };
       sideModuleFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags for side modules a main module loads with dlopen().";

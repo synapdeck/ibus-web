@@ -20,6 +20,10 @@
       mainLinkNode = "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
       mainLinkWasmfs = "-sMAIN_MODULE=2 -sPTHREAD_POOL_SIZE=2 -sWASMFS=1 -sEXIT_RUNTIME=1";
 
+      # The settings of the runtime's main-module link that pick library
+      # variants: the runtime never exits, which takes a library of its own.
+      runtimeMainFlags = "-sMAIN_MODULE=2 -sWASMFS=1 -sEXIT_RUNTIME=0 ${dynamicLinkFlags}";
+
       # Node-run programs on WasmFS, the runtime's file system. `object`
       # gives them the host's files at the host's paths.
       nodeHostFsFlags = object: "-sWASMFS=1 -sNODE_HOST_ENV=1 ${object}";
@@ -35,6 +39,7 @@
       # pthreads (em++) and wasm-ld's PIC linking are experimental. These
       # flags acknowledge it; the linked output is the same without them.
       dynamicLinkFlags = "-Wno-experimental -Wl,--experimental-pic";
+      sideModuleFlags = "-sSIDE_MODULE=1 ${dynamicLinkFlags}";
 
       emscriptenCache = pkgs.stdenvNoCC.mkDerivation {
         pname = "emscripten-cache";
@@ -66,11 +71,18 @@
               $TMPDIR/probe.o -o $TMPDIR/probe-plain-wasmfs.js
             for link in "${mainLinkNode}" "${mainLinkWasmfs}" \
               "${mainLinkNodeWasmfs "$TMPDIR/node-host-fs.o"} ${testMemoryFlags}"; do
-              em++ ${commonFlags} $opt $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
-              em++ ${commonFlags} $opt $link probe.cpp -o $TMPDIR/probe-cpp.js
+              em++ ${commonFlags} $opt $link ${dynamicLinkFlags} $TMPDIR/probe.o -o $TMPDIR/probe-c.js
+              em++ ${commonFlags} $opt $link ${dynamicLinkFlags} probe.cpp -o $TMPDIR/probe-cpp.js
             done
-            emcc ${commonFlags} $opt -sSIDE_MODULE=1 probe_side.c -o $TMPDIR/probe-side.wasm
-            em++ ${commonFlags} $opt -sSIDE_MODULE=1 probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
+            # The runtime, released and asserting.
+            for assertions in 0 1; do
+              em++ ${commonFlags} $opt ${runtimeMainFlags} -sASSERTIONS=$assertions \
+                $TMPDIR/probe.o -o $TMPDIR/probe-runtime-c.js
+              em++ ${commonFlags} $opt ${runtimeMainFlags} -sASSERTIONS=$assertions \
+                probe.cpp -o $TMPDIR/probe-runtime-cpp.js
+            done
+            emcc ${commonFlags} $opt ${sideModuleFlags} probe_side.c -o $TMPDIR/probe-side.wasm
+            em++ ${commonFlags} $opt ${sideModuleFlags} probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
           done
 
           node $TMPDIR/probe-c.js
@@ -106,12 +118,13 @@
           commonFlags
           dynamicLinkFlags
           emscriptenCache
+          runtimeMainFlags
+          sideModuleFlags
           testMemoryFlags
           ;
         # Every link inherits the wrapper's -O2, which turns Emscripten's
         # runtime assertions off; test programs want them back.
         testMainFlags = "-O2 -sASSERTIONS=1 ${testMemoryFlags} ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"} ${dynamicLinkFlags}";
-        sideModuleFlags = "-sSIDE_MODULE=1 ${dynamicLinkFlags}";
         nodeHostFsFlags = nodeHostFsFlags "${nodeHostFs}/node-host-fs.o";
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";
@@ -149,6 +162,20 @@
             test "$(node probe-plain.js)" = "probe 7"
             em++ ${toolchain.commonFlags} probe.cpp -o probe-plain-cpp.js
             test "$(node probe-plain-cpp.js)" = "probe 2"
+
+            # The runtime's settings, and those of the rest of its link that
+            # shape the JavaScript it loads with, released and asserting.
+            # A file, not node -e: the pool's Workers inherit Node's flags.
+            echo 'await (await import(process.argv[2])).default();' > instantiate.mjs
+            for assertions in 0 1; do
+              em++ ${toolchain.commonFlags} ${toolchain.runtimeMainFlags} -sASSERTIONS=$assertions \
+                -sPTHREAD_POOL_SIZE=2 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node \
+                -sEXPORTED_FUNCTIONS=_main,_wasmfs_create_opfs_backend probe.o -o probe-runtime.js
+              test "$(node instantiate.mjs ./probe-runtime.js)" = "probe 7"
+              em++ ${toolchain.commonFlags} ${toolchain.runtimeMainFlags} -sASSERTIONS=$assertions \
+                -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node probe.cpp -o probe-runtime-cpp.js
+              test "$(node instantiate.mjs ./probe-runtime-cpp.js)" = "probe 2"
+            done
 
             if em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
               echo "expected an uncached library variant to fail" >&2
