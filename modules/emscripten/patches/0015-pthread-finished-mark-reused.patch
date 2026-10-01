@@ -1,0 +1,69 @@
+pthreads: a late "finished" mark can land on a new thread
+
+With dynamic linking, a joinable thread posts CMD_MARK_AS_FINISHED to
+the main thread as it exits, so dlopen()'s sync skips it. A join cleans
+the thread up as soon as it returns, possibly before the message
+arrives, and a new thread can then get the same pthread_t; the late
+message marked that running thread finished, and the sync skipped it
+for good, so calling into a module loaded afterwards trapped on it. Mark
+a thread only if it is still known and has actually exited.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-pthread-finished-mark-reused.md
+
+diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
+index bbb6153..b05bc2e 100644
+--- a/src/lib/libpthread.js
++++ b/src/lib/libpthread.js
+@@ -86,6 +86,7 @@ var LibraryPThread = {
+                    '$addOnPreRun',
+ #if MAIN_MODULE
+                    '$markAsFinished',
++                   '_emscripten_thread_has_exited',
+ #endif
+ #if !MINIMAL_RUNTIME && PTHREAD_POOL_SIZE && !PTHREAD_POOL_DELAY_LOAD
+                    '$addRunDependency',
+@@ -326,7 +327,12 @@ var LibraryPThread = {
+             break;
+ #if MAIN_MODULE
+           case {{{ CMD_MARK_AS_FINISHED }}}:
+-            markAsFinished(d.thread);
++            // By the time this arrives the thread may have been joined and
++            // cleaned up, and its pthread_t reused by a new thread that is
++            // still running, which must not be marked.
++            if (PThread.pthreads[d.thread] && __emscripten_thread_has_exited(d.thread)) {
++              markAsFinished(d.thread);
++            }
+             break;
+ #endif
+           case {{{ CMD_LOADED }}}:
+diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
+index 98b1068..dd46baa 100644
+--- a/system/lib/pthread/library_pthread.c
++++ b/system/lib/pthread/library_pthread.c
+@@ -133,6 +133,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
+   return thread->self == thread;
+ }
+ 
++int _emscripten_thread_has_exited(pthread_t thread) {
++  int state = thread->detach_state;
++  return state == DT_EXITING || state == DT_EXITED;
++}
++
+ static void *dummy_tsd[1] = { 0 };
+ weak_alias(dummy_tsd, __pthread_tsd_main);
+ 
+diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
+index 09963f9..523fc69 100644
+--- a/system/lib/pthread/threading_internal.h
++++ b/system/lib/pthread/threading_internal.h
+@@ -88,6 +88,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);
+ // we can pass more of the posixtest suite than vanilla musl.
+ int _emscripten_thread_is_valid(pthread_t thread);
+ 
++// Whether a thread that hasn't been cleaned up yet has run to its end.
++int _emscripten_thread_has_exited(pthread_t thread);
++
+ void _emscripten_thread_exit_joinable(pthread_t thread);
+ void _emscripten_thread_exit(void* result);
+ void _emscripten_process_dlopen_queue(void);

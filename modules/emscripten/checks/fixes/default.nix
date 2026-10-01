@@ -10,7 +10,8 @@
       # The behaviour each of the toolchain's Emscripten fixes restores, on
       # the file system test programs run on (WasmFS under Node), for the
       # standard streams on the one GLib's tools run on (Node's own), and for
-      # threads under a main thread that never returns to its event loop.
+      # threads under a main thread that never returns to its event loop or
+      # that loads a module while they run.
       checks.emscripten-fixes =
         pkgs.runCommand "ibus-web-emscripten-fixes"
           {
@@ -35,6 +36,11 @@
             emcc ${toolchain.commonFlags} -O2 -c ${./thread-cleanup.c} -o thread-cleanup.o
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} thread-cleanup.o -o thread-cleanup.js
             timeout 120 node thread-cleanup.js
+
+            emcc ${toolchain.commonFlags} ${toolchain.sideModuleFlags} ${./dlsync-side.c} -o dlsync-side.wasm
+            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-reused.c} -o dlsync-reused.o
+            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} dlsync-reused.o -o dlsync-reused.js
+            timeout 120 node dlsync-reused.js $PWD/dlsync-side.wasm
             touch $out
           '';
     };

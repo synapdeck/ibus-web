@@ -329,12 +329,12 @@ don't change.
     `free()` to the end for that reason.
   - Pre-existing, `MAIN_MODULE` only, made more likely: a joinable thread
     posts `CMD_MARK_AS_FINISHED` when it exits, and a join on the main thread
-    cleans it up at once, possibly before that message arrives; the late
-    message then adds a freed (or reused) `pthread_t` to
-    `PThread.finishedThreads`, and `dlsync` skips a new thread at that
-    address. With the patch, joins on other threads clean up early too.
-    Worth a line in the PR; a guard in the message handler
-    (`worker.pthread_ptr == d.thread`) would narrow it to a reused address.
+    cleans it up at once, possibly before that message arrives. The late
+    message can then mark a new, running thread at the same address
+    finished, and `dlopen()`'s sync skips it. With this patch, joins on
+    other threads clean up early too. That bug and its fix are a separate
+    draft, `emscripten-pthread-finished-mark-reused.md` (patch 0015 here),
+    which this PR should link.
 - **Duplicate search.** `gh` searches of the repository for
   "_emscripten_thread_cleanup", "CMD_CLEANUP_THREAD", "cleanupThread",
   "returnWorkerToPool", "detached thread leak", "detached pthread memory

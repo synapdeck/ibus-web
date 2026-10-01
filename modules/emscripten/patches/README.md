@@ -34,6 +34,7 @@ there, so changing a patch rebuilds the cache and everything in `pkgsWasm`.
 | 0012 `wasmfs-node-create-eio`        | any backend failure to create a file or directory is reported as `EIO`; the Node backend now reports the host's error                                                                                                                                                                                                                            | not filed; draft `emscripten-wasmfs-node-create-eio.md`                                                                                                                                                                      | a release contains the fix                          |
 | 0013 `wasmfs-node-chmod`             | Node backend: `chmod()`, `fchmod()` and `utimensat()` change only WasmFS's record, never the host's                                                                                                                                                                                                                                              | not filed; draft `emscripten-wasmfs-node-chmod.md`                                                                                                                                                                           | a release contains the fix                          |
 | 0014 `pthread-cleanup-blocked-main`  | pthreads: a thread that ends without a join on the main runtime thread (detached, or joined by another thread) keeps its stack and its Worker until the main thread's event loop runs, so a main thread that stays blocked never gets them back; it now reclaims them whenever it processes its queued calls, `emscripten_futex_wait()` included | [#16763](https://github.com/emscripten-core/emscripten/issues/16763) (closed by its reporter, workarounds only); draft `emscripten-pthread-cleanup-blocked-main.md`                                                          | a release contains the fix                          |
+| 0015 `pthread-finished-mark-reused`  | pthreads with dynamic linking: a joined thread's late "finished" message marks a new, running thread that reuses its `pthread_t`, so `dlopen()`'s sync skips that thread for good and its calls into modules loaded later trap                                                                                                                   | not filed; draft `emscripten-pthread-finished-mark-reused.md`                                                                                                                                                                | a release contains the fix                          |
 
 As of 6.0.10 (2026-09-18) only #27632 is in a release; the drafts record
 that the code the others change is unchanged there and on `main`.
@@ -47,6 +48,14 @@ there. `checks.emscripten-fixes` runs rounds of such threads under a
 blocked main thread and checks that neither memory nor Workers grow. On
 Emscripten's own test runner, a 198-test pthread selection under Node gives
 the same results with and without it.
+
+0015 is independent of 0014 (it applies to 6.0.9 alone) but sits on top of
+it, since both change `libpthread.js`, `library_pthread.c` and
+`threading_internal.h`. 0014 makes its race likelier: joins on other
+threads now clean up as early as joins on the main thread always did.
+`checks.emscripten-fixes` reproduces the race: it joins a thread on the main
+thread, creates a new one at the same address before the event loop runs,
+then `dlopen`s a side module the new thread calls into.
 
 Tested beyond `checks.emscripten-fixes`, with the whole stack on Emscripten's
 own test runner: `other.test_gen_sig_info`, `other.test_wasmfs_getdents_node`
