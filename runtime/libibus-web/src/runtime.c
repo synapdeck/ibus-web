@@ -3,11 +3,14 @@
 
 #include "ibus-web/runtime.h"
 
+#include <emscripten/emscripten.h>
 #include <emscripten/threading_primitives.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 
-static gint initialized; /* (atomic) */
+/* Set once, by the first successful init. */
+static int32_t *wake_word_set; /* (atomic) */
 
 /* Runs wherever the default context's wakeup is signalled, possibly with the
  * context locked, so it must not call into GLib. */
@@ -20,13 +23,38 @@ static void wake(gpointer user_data) {
 int ibusweb_runtime_init(int32_t *wake_word) {
   if (wake_word == NULL)
     return -EINVAL;
-  if (g_atomic_int_get(&initialized))
+  if (g_atomic_pointer_get(&wake_word_set) != NULL)
     return -EALREADY;
   /* Only one thread can own the context, so of racing callers only one gets
    * past here. */
   if (!g_main_context_acquire(NULL))
     return -EBUSY;
   g_main_context_wasm_set_wake_hook(NULL, wake, wake_word);
-  g_atomic_int_set(&initialized, TRUE);
+  g_atomic_pointer_set(&wake_word_set, wake_word);
   return 0;
+}
+
+int ibusweb_wait(int32_t seen, int32_t timeout_ms) {
+  int32_t *word = g_atomic_pointer_get(&wake_word_set);
+  if (word == NULL)
+    return -EINVAL;
+  if (!g_main_context_is_owner(g_main_context_default())) {
+    g_critical("ibusweb_wait() called off the thread that owns the default "
+               "main context");
+    return -EPERM;
+  }
+
+  double end = timeout_ms < 0 ? INFINITY : emscripten_get_now() + timeout_ms;
+  for (;;) {
+    /* Waits at least once, even when the word has already moved or no time
+     * is left: each futex wait on this thread ends by running the calls
+     * other threads proxied to it, and a host that is woken often must not
+     * starve them. */
+    double left = fmax(end - emscripten_get_now(), 0);
+    emscripten_futex_wait(word, (uint32_t)seen, left);
+    if (g_atomic_int_get(word) != seen)
+      return 0;
+    if (left == 0)
+      return -ETIMEDOUT;
+  }
 }

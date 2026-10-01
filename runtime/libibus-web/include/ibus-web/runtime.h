@@ -22,7 +22,7 @@ G_BEGIN_DECLS
  * GMainContext for good, since GLib signals a context's wakeup for sources
  * attached from other threads only while the context has an owner, and
  * installs a wake hook on it that increments *wake_word and wakes every
- * waiter on it. The host can then sleep on *wake_word (Atomics.wait) and
+ * waiter on it. The host can then sleep on *wake_word (ibusweb_wait()) and
  * pump whenever it changes.
  *
  * The hook runs on whichever thread signals the wakeup, possibly with the
@@ -57,7 +57,7 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  *   const seen = Atomics.load(words, i);
  *   const delay = ibusweb_pump();
  *   if (delay === IBUSWEB_PUMP_ERROR) throw new Error("pumped off thread");
- *   Atomics.wait(words, i, seen, delay === -1 ? Infinity : delay);
+ *   ibusweb_wait(seen, delay);
  *
  * The hook can fire while the pump runs, for a source attached after the
  * pump last looked, and a pump that sources were added to or removed from
@@ -69,6 +69,22 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  * through GLib's dispatch out of ibusweb_pump() to the host, leaving the
  * context mid-dispatch. */
 IBUSWEB_API int32_t ibusweb_pump(void);
+
+/* Sleeps on the thread that called ibusweb_runtime_init() while *wake_word
+ * still holds seen, for at most timeout_ms milliseconds, or for good if it is
+ * negative. Returns 0 once the word has changed, -ETIMEDOUT if it hasn't by
+ * the timeout, -EINVAL before ibusweb_runtime_init(), or, from any other
+ * thread, logs a critical and returns -EPERM.
+ *
+ * Unlike a JavaScript Atomics.wait() on the word, this sleep runs the calls
+ * other threads proxy synchronously to the thread that instantiated the
+ * runtime, which Emscripten does for pthread_create() from a thread among
+ * others: those threads would otherwise block until the host returned to
+ * its event loop. It runs them at least once per call, even when the word
+ * has already moved, provided that thread is the one calling. Anything that
+ * changes the word wakes it, a write from JavaScript (Atomics.add() and
+ * Atomics.notify() on the word) as well as the wake hook. */
+IBUSWEB_API int ibusweb_wait(int32_t seen, int32_t timeout_ms);
 
 /* A side module, or a set of operations registered as one.
  *

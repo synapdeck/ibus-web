@@ -1,6 +1,8 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
+#include <emscripten/proxying.h>
+#include <emscripten/threading.h>
 #include <errno.h>
 #include <glib-unix.h>
 #include <glib.h>
@@ -108,6 +110,8 @@ static int32_t call(uint32_t opcode, const char *payload, uint8_t *reply,
 }
 
 static void test_init(void) {
+  g_assert_cmpint(ibusweb_wait(0, 0), ==, -EINVAL);
+
   GThread *holder = g_thread_new("holder", hold_default_context, NULL);
   g_mutex_lock(&holder_lock);
   while (!holder_ready)
@@ -198,6 +202,90 @@ static void test_pump_fd(void) {
   g_assert_cmpint(readable, ==, 1);
   close(pipe_fds[0]);
   close(pipe_fds[1]);
+}
+
+static gpointer wait_elsewhere(gpointer ret) {
+  *(int *)ret = ibusweb_wait(g_atomic_int_get(&wake_word), 0);
+  return NULL;
+}
+
+static gpointer idle_after_20ms(gpointer counter) {
+  g_usleep(20 * G_TIME_SPAN_MILLISECOND);
+  g_idle_add(count_dispatch, counter);
+  return NULL;
+}
+
+static gboolean do_nothing(gpointer data) {
+  (void)data;
+  return G_SOURCE_REMOVE;
+}
+
+static void note_thread(void *ran_on_runtime_thread) {
+  *(int *)ran_on_runtime_thread = emscripten_is_main_runtime_thread() ? 1 : -1;
+}
+
+/* Blocks in a call proxied to the runtime's thread, which only a sleep that
+ * runs proxied calls lets finish, then wakes it through the context. */
+static gpointer proxy_then_idle(gpointer ran_on_runtime_thread) {
+  if (emscripten_proxy_sync(emscripten_proxy_get_system_queue(),
+                            emscripten_main_runtime_thread_id(), note_thread,
+                            ran_on_runtime_thread))
+    g_idle_add(do_nothing, NULL);
+  return NULL;
+}
+
+static void test_wait_timeout(void) {
+  runtime_ready();
+  gint64 start = g_get_monotonic_time();
+  g_assert_cmpint(ibusweb_wait(g_atomic_int_get(&wake_word), 20), ==,
+                  -ETIMEDOUT);
+  g_assert_cmpint(g_get_monotonic_time() - start, >=,
+                  20 * G_TIME_SPAN_MILLISECOND);
+  g_assert_cmpint(ibusweb_wait(g_atomic_int_get(&wake_word), 0), ==,
+                  -ETIMEDOUT);
+}
+
+/* A wake that came between reading the word and sleeping must not be
+ * slept through. */
+static void test_wait_stale(void) {
+  runtime_ready();
+  g_assert_cmpint(ibusweb_wait(g_atomic_int_get(&wake_word) - 1, -1), ==, 0);
+}
+
+static void test_wait_wake(void) {
+  int idled = 0;
+
+  runtime_ready();
+  int32_t seen = g_atomic_int_get(&wake_word);
+  GThread *thread = g_thread_new("idle", idle_after_20ms, &idled);
+  g_assert_cmpint(ibusweb_wait(seen, 5000), ==, 0);
+  g_thread_join(thread);
+  g_assert_cmpint(ibusweb_pump(), ==, -1);
+  g_assert_cmpint(idled, ==, 1);
+}
+
+static void test_wait_proxied(void) {
+  int ran_on_runtime_thread = 0;
+
+  runtime_ready();
+  int32_t seen = g_atomic_int_get(&wake_word);
+  GThread *thread =
+      g_thread_new("proxy", proxy_then_idle, &ran_on_runtime_thread);
+  g_assert_cmpint(ibusweb_wait(seen, 5000), ==, 0);
+  g_thread_join(thread);
+  g_assert_cmpint(ran_on_runtime_thread, ==, 1);
+  g_assert_cmpint(ibusweb_pump(), ==, -1);
+}
+
+static void test_wait_wrong_thread(void) {
+  int ret = 0;
+
+  runtime_ready();
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_CRITICAL,
+                        "*off the thread that owns*");
+  g_thread_join(g_thread_new("wait", wait_elsewhere, &ret));
+  g_test_assert_expected_messages();
+  g_assert_cmpint(ret, ==, -EPERM);
 }
 
 /* Stands for a stale module from an earlier call, which failures clear. */
@@ -317,6 +405,11 @@ int main(int argc, char **argv) {
   g_test_add_func("/pump/wake", test_pump_wake);
   g_test_add_func("/pump/deadline", test_pump_deadline);
   g_test_add_func("/pump/fd", test_pump_fd);
+  g_test_add_func("/wait/timeout", test_wait_timeout);
+  g_test_add_func("/wait/stale", test_wait_stale);
+  g_test_add_func("/wait/wake", test_wait_wake);
+  g_test_add_func("/wait/proxied", test_wait_proxied);
+  g_test_add_func("/wait/wrong-thread", test_wait_wrong_thread);
   g_test_add_func("/module/register", test_module_register);
   g_test_add_func("/dispatch/echo", test_dispatch_echo);
   g_test_add_func("/dispatch/errors", test_dispatch_errors);
