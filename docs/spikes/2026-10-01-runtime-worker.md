@@ -135,9 +135,9 @@ such Worker and block, so the first version of this spike gave the host an
 event-loop turn between scenarios to stay within 32 MiB.
 
 The toolchain now carries an Emscripten patch,
-`modules/emscripten/patches/0014-pthread-cleanup-blocked-main.patch` (54 lines
-added, 4 removed, in `libpthread.js`, `library_pthread.c` and
-`threading_internal.h`), tracked upstream by the draft
+`modules/emscripten/patches/0014-pthread-cleanup-blocked-main.patch` (108 lines
+added, 15 removed, in `libpthread.js`,
+`library_pthread.c` and `threading_internal.h`), tracked upstream by the draft
 `docs/upstream/emscripten-pthread-cleanup-blocked-main.md` (the symptom was
 reported as #16763, closed without a fix). A thread that ends unjoined adds
 itself to a lock-free list and wakes the main runtime thread with
@@ -151,14 +151,16 @@ and proxying can block and allocate.
 
 Freeing threads inside a wait on the main thread reaches one place in
 Emscripten's own JavaScript: `dlopen()`'s sync lists the threads, then
-proxies to each in turn and waits for it, so a thread later in the list can
-be cleaned up while an earlier one syncs. The patch makes the sync skip a
-thread that is gone by its turn; without that, it synced it through its
-freed struct, which can corrupt whatever reuses the memory or hang
-`dlopen()` on the host's thread, `ibusweb_load_module()`'s path.
-`checks.emscripten-fixes` holds up the sync of one thread while a detached
-thread later in the list ends and its block is reused; without the skip the
-sync aborts on Emscripten's `mailbox_refcount > 0` assertion.
+proxies to each in turn, and a proxy can wait, even between checking the
+list and touching the thread's struct. The patch holds cleanups off while
+the sync goes through its list and runs them as soon as it is done; a thread
+that ends meanwhile stays allocated and refuses the proxy, as in stock
+Emscripten. Freed during the sync, it would be synced through its freed
+struct, which can corrupt whatever reuses the memory or hang `dlopen()` on
+the host's thread, `ibusweb_load_module()`'s path. `checks.emscripten-fixes`
+covers both windows: a sync held up on an earlier thread, and one waiting
+for the dlopen queue's mutex inside the proxy itself; without the hold, the
+second aborts on Emscripten's `mailbox_refcount > 0` assertion.
 
 Reclaiming threads early makes an existing race likelier. With dynamic
 linking, a joined thread's "finished" message can arrive after a new thread
