@@ -78,11 +78,13 @@ IBUSWEB_API int32_t ibusweb_pump(void);
  *
  * Unlike a JavaScript Atomics.wait() on the word, this sleep runs the calls
  * other threads proxy synchronously to the thread that instantiated the
- * runtime, which Emscripten does for pthread_create() from a thread among
- * others: those threads would otherwise block until the host returned to
+ * runtime, as Emscripten does with pthread_create() called on any other
+ * thread: those threads would otherwise block until the host returned to
  * its event loop. It runs them at least once per call, even when the word
- * has already moved, provided that thread is the one calling. Anything that
- * changes the word wakes it, a write from JavaScript (Atomics.add() and
+ * has already moved, provided that thread is the one calling. It also
+ * reclaims the stacks and Workers of threads that ended without being
+ * joined on that thread, detached ones among them. Anything that changes
+ * the word wakes it, a write from JavaScript (Atomics.add() and
  * Atomics.notify() on the word) as well as the wake hook. */
 IBUSWEB_API int ibusweb_wait(int32_t seen, int32_t timeout_ms);
 

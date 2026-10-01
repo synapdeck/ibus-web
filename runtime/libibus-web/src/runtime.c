@@ -9,8 +9,9 @@
 #include <limits.h>
 #include <math.h>
 
-/* Set once, by the first successful init. */
-static int32_t *wake_word_set; /* (atomic) */
+/* The word the wake hook bumps: NULL until the first successful init sets
+ * it, for good. */
+static int32_t *runtime_wake_word; /* (atomic) */
 
 /* Runs wherever the default context's wakeup is signalled, possibly with the
  * context locked, so it must not call into GLib. */
@@ -23,19 +24,19 @@ static void wake(gpointer user_data) {
 int ibusweb_runtime_init(int32_t *wake_word) {
   if (wake_word == NULL)
     return -EINVAL;
-  if (g_atomic_pointer_get(&wake_word_set) != NULL)
+  if (g_atomic_pointer_get(&runtime_wake_word) != NULL)
     return -EALREADY;
   /* Only one thread can own the context, so of racing callers only one gets
    * past here. */
   if (!g_main_context_acquire(NULL))
     return -EBUSY;
   g_main_context_wasm_set_wake_hook(NULL, wake, wake_word);
-  g_atomic_pointer_set(&wake_word_set, wake_word);
+  g_atomic_pointer_set(&runtime_wake_word, wake_word);
   return 0;
 }
 
 int ibusweb_wait(int32_t seen, int32_t timeout_ms) {
-  int32_t *word = g_atomic_pointer_get(&wake_word_set);
+  int32_t *word = g_atomic_pointer_get(&runtime_wake_word);
   if (word == NULL)
     return -EINVAL;
   if (!g_main_context_is_owner(g_main_context_default())) {
