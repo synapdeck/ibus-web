@@ -113,13 +113,14 @@ static void write_file_op(const uint8_t *payload, uint32_t len,
   spike_reply(reply, ret < 0 ? ret : (int32_t)size);
 }
 
-/* read-file(path), on the pumping thread: the file's size, then its
- * contents; or only the error. */
-static void read_file_op(const uint8_t *payload, uint32_t len, GString *reply) {
+/* Reads path, opened with flags, on the pumping thread: replies the file's
+ * size, then its contents; or only the error. */
+static void read_file(const uint8_t *payload, uint32_t len, int flags,
+                      GString *reply) {
   if (len == 0 || memchr(payload, '\0', len) != NULL)
     return;
   g_autofree char *file = g_strndup((const char *)payload, len);
-  int fd = open(file, O_RDONLY);
+  int fd = open(file, flags);
   if (fd < 0) {
     spike_reply(reply, -errno);
     return;
@@ -138,6 +139,18 @@ static void read_file_op(const uint8_t *payload, uint32_t len, GString *reply) {
   g_string_free(contents, TRUE);
 }
 
+/* read-file(path): read-only, which WasmFS's OPFS backend reads as a Blob. */
+static void read_file_op(const uint8_t *payload, uint32_t len, GString *reply) {
+  read_file(payload, len, O_RDONLY, reply);
+}
+
+/* read-file-rdwr(path): opened for reading and writing, which WasmFS's OPFS
+ * backend reads through a sync access handle, without writing. */
+static void read_file_rdwr_op(const uint8_t *payload, uint32_t len,
+                              GString *reply) {
+  read_file(payload, len, O_RDWR, reply);
+}
+
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, SPIKE_OP_FSYNC, "fsync", fsync_op);
   ibusweb_module_add_op(module, SPIKE_OP_FSYNC_RESULT, "fsync-result",
@@ -145,4 +158,6 @@ void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, SPIKE_OP_WRITE_FILE, "write-file",
                         write_file_op);
   ibusweb_module_add_op(module, SPIKE_OP_READ_FILE, "read-file", read_file_op);
+  ibusweb_module_add_op(module, SPIKE_OP_READ_FILE_RDWR, "read-file-rdwr",
+                        read_file_rdwr_op);
 }

@@ -8,6 +8,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
+import { pipeline } from "node:stream";
 import type { AddressInfo } from "node:net";
 import { extname, join, resolve as resolvePath, sep } from "node:path";
 
@@ -80,7 +81,10 @@ export const serve = async (
           "Cache-Control": "no-store",
         });
         if (request.method === "HEAD") response.end();
-        else createReadStream(file).pipe(response);
+        // The status is out by now, so a read that fails can only cut the
+        // response short, which pipeline() does by destroying it; the
+        // browser sees a failed load.
+        else pipeline(createReadStream(file), response, () => {});
       },
       () => fail(response, 404),
     );

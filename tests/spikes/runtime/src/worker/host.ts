@@ -4,8 +4,9 @@
 // The spike's Worker host. Its one message is a HostInit: it instantiates the
 // runtime, mounts storage, loads the side modules, sets the runtime up, then
 // serves requests from the control buffer for good, sleeping between them
-// with the next GLib deadline as the timeout. Only this Worker, and the
-// relay it starts, touch the runtime's memory.
+// with the next GLib deadline as the timeout, and topping the pthread pool
+// up when it runs low. Only this Worker, and the relay it starts, touch the
+// runtime's memory.
 
 import { clockStepUs } from "../shared/client.ts";
 import {
@@ -55,6 +56,19 @@ interface Runtime {
     replyCap: number,
   ): number;
   _mallinfo(out: number): void;
+  // Emscripten's own pthread pool, which the runtime exports for the host to
+  // top it up.
+  PThread: EmscriptenPool;
+}
+
+interface EmscriptenPool {
+  // The Workers pthread_create() hands threads to, last first.
+  unusedWorkers: Worker[];
+  // Creates a Worker for the pool and adds it to unusedWorkers.
+  allocateUnusedWorker(): Worker;
+  // Sends the Worker the runtime; settles once the Worker has instantiated
+  // it and can run a thread.
+  loadWasmModuleToWorker(worker: Worker): Promise<Worker>;
 }
 
 type InstantiateWasm = (
@@ -215,33 +229,22 @@ const startRelay = (init: RelayInit): Promise<Worker> =>
     relay.postMessage(init);
   });
 
-// A spike instrument: tracks the Workers Emscripten creates, through the
+// A spike instrument: counts the Workers Emscripten creates, through the
 // global Worker class. Under Node, Emscripten first assigns worker_threads'
 // Worker to the global, so the global becomes an accessor that wraps
-// whichever class it is given. Emscripten marks the Worker hosting a thread
-// with that thread's pointer, and clears it once the Worker is back in its
-// pool.
+// whichever class it is given.
 interface Workers {
   // Created since counting started.
   created: number;
   counting: boolean;
-  idle(): number;
 }
 
 const trackWorkers = (): Workers => {
-  const all: Worker[] = [];
-  const workers: Workers = {
-    created: 0,
-    counting: false,
-    idle: () =>
-      all.filter((worker) => !(worker as { pthread_ptr?: number }).pthread_ptr)
-        .length,
-  };
+  const workers: Workers = { created: 0, counting: false };
   const wrap = (Base: typeof Worker): typeof Worker =>
     class extends Base {
       constructor(...args: ConstructorParameters<typeof Worker>) {
         super(...args);
-        all.push(this);
         if (workers.counting) workers.created++;
       }
     };
@@ -281,7 +284,55 @@ const pump = (rt: Runtime, constants: BuildConstants): number => {
 interface Counters {
   requests: number;
   requestsWhileAsleep: number;
+  topUps: number;
+  topUpWorkers: number;
+  lastTopUpMs: number | null;
+  lastTopUpCreateMs: number | null;
+  eventLoopTurns: number;
 }
+
+// The pthread pool is sized for the most threads alive at once, and
+// pthread_create() fails with EAGAIN rather than wait for a Worker beyond
+// it: a browser starts a new Worker, or in Firefox even creates one, only
+// while the thread creating it is back in its event loop, which a host that
+// sleeps in the runtime isn't. Whenever no request is pending and fewer than
+// lowWater Workers are idle, the host adds Workers to make up lowWater and
+// stays in its event loop, still serving requests, until they have loaded.
+interface Pool {
+  lowWater: number;
+  // A spike instrument: HostOp.topUp holds top-ups off.
+  held: boolean;
+  topping: Promise<void> | null;
+}
+
+const topUp = (
+  rt: Runtime,
+  want: number,
+  counters: Counters,
+): Promise<void> => {
+  const { PThread } = rt;
+  const startedAt = performance.now();
+  const loading: Promise<void>[] = [];
+  for (let i = 0; i < want; i++) {
+    // pthread_create() hands out any Worker in the pool, and one that hasn't
+    // started yet wouldn't start while the host then blocks, so a new Worker
+    // joins the pool only once it has loaded.
+    const worker = PThread.allocateUnusedWorker();
+    PThread.unusedWorkers.splice(PThread.unusedWorkers.indexOf(worker), 1);
+    loading.push(
+      PThread.loadWasmModuleToWorker(worker).then(() => {
+        PThread.unusedWorkers.push(worker);
+      }),
+    );
+  }
+  const createMs = performance.now() - startedAt;
+  return Promise.all(loading).then(() => {
+    counters.topUps++;
+    counters.topUpWorkers += want;
+    counters.lastTopUpMs = performance.now() - startedAt;
+    counters.lastTopUpCreateMs = createMs;
+  });
+};
 
 // Answers the request in the slot. Only HostOp.yield answers later, after
 // the returned promise settles.
@@ -291,15 +342,20 @@ const serve = (
   constants: BuildConstants,
   buffers: { request: number; reply: number; cap: number; mallinfo: number },
   workers: Workers,
+  pool: Pool,
   counters: Counters,
 ): Promise<void> | undefined => {
   const request = requestBytes(control);
+  const arg = (fallback: number): number =>
+    request.length >= 8
+      ? new DataView(request.buffer, request.byteOffset + 4).getInt32(0, true)
+      : fallback;
   if (request.length >= 4) {
     switch (requestOpcode(request)) {
       case HostOp.stats: {
         const stats: HostStats = {
           workersCreated: workers.created,
-          idleWorkers: workers.idle(),
+          idleWorkers: heap.rt.PThread.unusedWorkers.length,
           heapInUse: heapInUse(heap, constants, buffers.mallinfo),
           ...counters,
         };
@@ -307,16 +363,13 @@ const serve = (
         postReply(control, json.length, json);
         return undefined;
       }
-      case HostOp.yield: {
-        const ms =
-          request.length >= 8
-            ? new DataView(request.buffer, request.byteOffset + 4).getInt32(
-                0,
-                true,
-              )
-            : 10;
-        return yieldToEventLoop(ms).then(() => postReply(control, 0));
-      }
+      case HostOp.yield:
+        counters.eventLoopTurns++;
+        return yieldToEventLoop(arg(10)).then(() => postReply(control, 0));
+      case HostOp.topUp:
+        pool.held = arg(1) === 0;
+        postReply(control, 0);
+        return undefined;
     }
   }
   heap.bytes.set(request, buffers.request);
@@ -428,7 +481,20 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
     cap,
     mallinfo: heap.alloc(constants.mallinfo.bytes),
   };
-  const counters: Counters = { requests: 0, requestsWhileAsleep: 0 };
+  const counters: Counters = {
+    requests: 0,
+    requestsWhileAsleep: 0,
+    topUps: 0,
+    topUpWorkers: 0,
+    lastTopUpMs: null,
+    lastTopUpCreateMs: null,
+    eventLoopTurns: 0,
+  };
+  const pool: Pool = {
+    lowWater: init.poolLowWater,
+    held: false,
+    topping: null,
+  };
   const startupMs = performance.now() - startedAt;
   post({ type: "ready", startupMs, features: features() });
 
@@ -458,6 +524,7 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
           constants,
           buffers,
           workers,
+          pool,
           counters,
         );
         if (later !== undefined) await later;
@@ -468,6 +535,21 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
       const after = Atomics.load(control.words, Word.state);
       if (after === State.request || after === State.crashed) continue;
       const timeout = delay < 0 ? Infinity : delay;
+      const idle = rt.PThread.unusedWorkers.length;
+      if (pool.topping === null && !pool.held && idle < pool.lowWater) {
+        counters.eventLoopTurns++;
+        pool.topping = topUp(rt, pool.lowWater - idle, counters).finally(() => {
+          pool.topping = null;
+        });
+      }
+      if (pool.topping !== null) {
+        const result = waitAsync(sleepWords, sleepIndex, seen, timeout);
+        woken =
+          (result.async
+            ? await Promise.race([result.value, pool.topping])
+            : result.value) === "ok";
+        continue;
+      }
       switch (init.wait) {
         case "runtime": {
           const unmoved = Atomics.load(heap.words, wakeIndex) === seen;

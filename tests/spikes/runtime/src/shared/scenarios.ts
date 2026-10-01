@@ -36,6 +36,9 @@ const opNames = [
   "crashThread",
   "writeFile",
   "readFile",
+  "readFileRdwr",
+  "hold",
+  "release",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
@@ -58,14 +61,25 @@ export const opsFrom = ({ ops }: BuildConstants): Ops => {
   ) as Ops;
 };
 
+// A call whose reply came only after the client stopped waiting the way it
+// must: it held its thread for heldMs, then let it go, and the reply came
+// afterMs later.
+export interface LateReply {
+  opcode: number;
+  heldMs: number;
+  afterMs: number;
+}
+
 export interface Client {
   call(opcode: number, payload?: Uint8Array): Promise<Reply>;
   // The host's report of why it crashed, or null if none came within
   // timeoutMs.
   crashReport(timeoutMs: number): Promise<string | null>;
-  // Calls whose reply came only after the client stopped waiting the way it
-  // must, and why; each fails the scenario that made it.
-  lateReplies?: readonly string[];
+  // Late replies so far; each fails the scenario that made it.
+  lateReplies?: readonly LateReply[];
+  // How long each call so far that held its thread throughout held it, in
+  // milliseconds.
+  heldMs?: readonly number[];
 }
 
 export interface Env {
@@ -77,7 +91,10 @@ export interface Env {
   // Emscripten's errno values, by name.
   errno: Readonly<Record<string, number>>;
   ops: Ops;
+  // The pthread pool's size, and the threads of it the spike's side modules
+  // may have alive at once.
   poolSize: number;
+  engineThreads: number;
   // Files to fsync() from a thread, one per storage backend under test.
   fsyncPaths: readonly string[];
   // How long a result may stay pending before the scenario gives up on it.
@@ -99,7 +116,8 @@ export interface Outcome {
 export interface Scenario {
   name: string;
   criterion: string;
-  run(client: Client, env: Env): Promise<Outcome>;
+  // earlier: the results of the scenarios run before it on the same host.
+  run(client: Client, env: Env, earlier: readonly Result[]): Promise<Outcome>;
 }
 
 export const int32s = (...values: number[]): Uint8Array =>
@@ -110,6 +128,17 @@ export const replyInt32 = ({ ret, bytes }: Reply): number => {
   if (bytes.length !== 4)
     throw new Error(`a reply of ${bytes.length} bytes, not one int32`);
   return new DataView(bytes.buffer, bytes.byteOffset, 4).getInt32(0, true);
+};
+
+// A reply's int32 values, or only its error.
+export const replyInt32s = ({ ret, bytes }: Reply): number[] => {
+  if (ret < 0) return [ret];
+  if (bytes.length % 4 !== 0)
+    throw new Error(`a reply of ${bytes.length} bytes, not int32s`);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+  return Array.from({ length: bytes.length / 4 }, (_, i) =>
+    view.getInt32(i * 4, true),
+  );
 };
 
 const call32 = async (
@@ -126,18 +155,19 @@ const round = (value: number, digits = 3): number =>
   Number(value.toFixed(digits));
 
 // Asks for a result every intervalMs until it is no longer -EAGAIN, or
-// null once env.pendingLimitMs has passed.
+// null once env.pendingLimitMs has passed. value is the reply's first int32.
 const poll = async (
   client: Client,
   env: Env,
   opcode: number,
   intervalMs = 2,
-): Promise<{ value: number; ms: number } | null> => {
+): Promise<{ value: number; values: number[]; ms: number } | null> => {
   const start = env.now();
   for (;;) {
-    const value = await call32(client, opcode);
+    const values = replyInt32s(await client.call(opcode));
+    const value = values[0]!;
     const ms = env.now() - start;
-    if (value !== -env.errno.EAGAIN!) return { value, ms };
+    if (value !== -env.errno.EAGAIN!) return { value, values, ms };
     if (ms > env.pendingLimitMs) return null;
     await env.sleep(intervalMs);
   }
@@ -147,6 +177,11 @@ const poll = async (
 const hostYield = async (client: Client): Promise<void> => {
   const { ret } = await client.call(HostOp.yield);
   if (ret !== 0) throw new Error(`host yield: ${ret}`);
+};
+
+const setTopUps = async (client: Client, allowed: boolean): Promise<void> => {
+  const { ret } = await client.call(HostOp.topUp, int32s(allowed ? 1 : 0));
+  if (ret !== 0) throw new Error(`host top-up: ${ret}`);
 };
 
 const stats = async (client: Client, env: Env): Promise<HostStats> => {
@@ -183,19 +218,37 @@ const latencies = (sorted: readonly number[]): Record<string, number> => ({
 
 // Back to back, the next request often lands before the host has gone back
 // to sleep, so these times mix requests served at once with ones that woke
-// the host; requestsWhileAsleep says how many of each.
+// the host; requestsWhileAsleep says how many of each. A browser's clock
+// steps in tens of microseconds, about a round trip, so each batch of
+// requests is also timed whole, between two readings, for a mean finer than
+// the step.
 const dispatch: Scenario = {
   name: "dispatch",
   criterion: "1000 add round trips back to back, every sum right",
   async run(client, env) {
+    const batches = 10;
+    const perBatch = 100;
     const before = await stats(client, env);
-    const { times, wrong } = await addRoundTrips(client, env, 1000, 0);
+    const times: number[] = [];
+    const means: number[] = [];
+    let wrong = 0;
+    for (let b = 0; b < batches; b++) {
+      const start = env.now();
+      const batch = await addRoundTrips(client, env, perBatch, 0);
+      means.push(((env.now() - start) * 1000) / perBatch);
+      times.push(...batch.times);
+      wrong += batch.wrong;
+    }
     const after = await stats(client, env);
+    times.sort((a, b) => a - b);
+    means.sort((a, b) => a - b);
     return {
       pass: wrong === 0,
       measurements: {
         wrong,
         ...latencies(times),
+        batchMeanUs: round(percentile(means, 50), 2),
+        batchMeanRangeUs: [round(means[0]!, 2), round(means.at(-1)!, 2)],
         requestsWhileAsleep: `${after.requestsWhileAsleep - before.requestsWhileAsleep} of ${after.requests - before.requests}`,
       },
     };
@@ -204,7 +257,11 @@ const dispatch: Scenario = {
 
 // Every request finds the host asleep, so each round trip pays the whole
 // wake path: in "runtime" mode the relay's hop and the host's, in "control"
-// mode the host's alone.
+// mode the host's alone. The gap before each request has to pass with the
+// host asleep, so a batch can't be timed whole without timing the gaps on
+// the same coarse clock. Each request starts after a timer, at no
+// particular point of the clock's step, so each time is off by under a step
+// either way, evenly, and their mean is finer than the step.
 const coldWake: Scenario = {
   name: "cold-wake",
   criterion:
@@ -222,6 +279,7 @@ const coldWake: Scenario = {
       measurements: {
         wrong,
         ...latencies(times),
+        meanUs: round(times.reduce((sum, t) => sum + t, 0) / times.length, 2),
         requestsWhileAsleep: `${asleep} of ${requests}`,
       },
     };
@@ -287,59 +345,175 @@ const deadline: Scenario = {
   },
 };
 
+// A burst the pool covers: every thread starts on a Worker that has already
+// loaded, so nothing waits for the host's event loop.
 const threadCreateBlocked: Scenario = {
   name: "thread-create-blocked",
   criterion:
-    "spawn(pool) and spawn(pool + 1) from a pump start and join every thread; " +
-    "spawn-nested(idle Workers + 1), whose creations the host runs while it sleeps, " +
-    "starts and joins every thread with at least one Worker created beyond the pool",
+    "a burst of the side modules' share of threads alive at once, spawn(share) from a pump " +
+    "and spawn-nested(share - 1) from a thread, whose creations the host runs while it sleeps, " +
+    "starts and joins every thread, creating no Worker and never returning the host to its event loop",
   async run(client, env) {
+    const n = env.engineThreads;
+    const before = await stats(client, env);
     const measurements: Record<string, Measurement> = {
-      poolSize: env.poolSize,
+      engineThreads: n,
+      idleWorkers: `${before.idleWorkers} of a pool of ${env.poolSize}`,
     };
+    if (before.idleWorkers < n)
+      return { pass: false, measurements: { ...measurements, short: true } };
     let pass = true;
-    const run = async (
+    const burst = async (
       label: string,
       start: number,
       result: number,
-      n: number,
-    ): Promise<number | null> => {
-      const before = await stats(client, env);
+      threads: number,
+    ): Promise<void> => {
+      const first = await stats(client, env);
       const startedAt = env.now();
-      const started = await call32(client, start, int32s(n));
+      const started = await call32(client, start, int32s(threads));
       if (started !== 0) throw new Error(`${label}: ${started}`);
       const joined = await poll(client, env, result);
       const ms = env.now() - startedAt;
-      const after = await stats(client, env);
+      const last = await stats(client, env);
       if (joined === null) {
         measurements[label] = "hung";
-        return null;
-      }
-      measurements[`${label}Joined`] = joined.value;
-      measurements[`${label}Ms`] = round(ms, 1);
-      const created = after.workersCreated - before.workersCreated;
-      measurements[`${label}WorkersCreated`] = created;
-      return joined.value === n ? created : null;
-    };
-    for (const n of [env.poolSize, env.poolSize + 1]) {
-      if (
-        (await run(`spawn${n}`, env.ops.spawn, env.ops.spawnResult, n)) === null
-      )
         pass = false;
-    }
-
-    // Each creation from a thread other than the host's waits for the host
-    // to run it, which it does inside its sleep; the thread doing the
-    // creating holds one idle Worker itself.
-    const { idleWorkers } = await stats(client, env);
-    measurements.nestedIdleWorkers = idleWorkers;
-    const created = await run(
+        return;
+      }
+      const [count, error] = joined.values;
+      const created = last.workersCreated - first.workersCreated;
+      const turns = last.eventLoopTurns - first.eventLoopTurns;
+      measurements[label] =
+        `joined ${count} in ${round(ms, 1)} ms, error ${error}, ` +
+        `${created} Workers created, ${turns} event-loop turns`;
+      if (count !== threads || error !== 0 || created !== 0 || turns !== 0)
+        pass = false;
+    };
+    await burst("spawn", env.ops.spawn, env.ops.spawnResult, n);
+    // The thread doing the creating is one of the burst.
+    await burst(
       "nested",
       env.ops.spawnNested,
       env.ops.spawnNestedResult,
-      idleWorkers + 1,
+      n - 1,
     );
-    if (created === null || created === 0) pass = false;
+    return { pass, measurements };
+  },
+};
+
+// Exceeding the pool fails pthread_create() with EAGAIN, which GLib's
+// g_thread_try_new() reports as G_THREAD_ERROR_AGAIN, rather than waiting for
+// a Worker that can't start; hold() takes Workers so that the pool runs out
+// while top-ups are held off. Under Node, Emscripten creates a Worker
+// instead, so this runs in browsers only.
+export const poolExhausted: Scenario = {
+  name: "pool-exhausted",
+  criterion:
+    "with every idle Worker taken and top-ups held off, a thread created from a pump and one " +
+    "created from another thread (proxied to the host) fail with EAGAIN at once, and the host " +
+    "keeps answering; with top-ups allowed again, the host restores the pool's low-water mark " +
+    "of idle Workers by itself, and a burst of that many starts on them",
+  async run(client, env) {
+    const measurements: Record<string, Measurement> = {};
+    let pass = true;
+    const expect = (label: string, ok: boolean, value: Measurement): void => {
+      measurements[label] = value;
+      if (!ok) pass = false;
+    };
+    const hold = async (n: number): Promise<void> => {
+      const [held, error] = replyInt32s(
+        await client.call(env.ops.hold, int32s(n)),
+      );
+      if (held !== n || error !== 0)
+        throw new Error(`hold(${n}): ${held} held, error ${error}`);
+    };
+    const release = async (): Promise<void> => {
+      const released = await call32(client, env.ops.release);
+      if (released < 0) throw new Error(`release: ${released}`);
+    };
+    const attempt = async (start: number, result: number, n: number) => {
+      const startedAt = env.now();
+      const started = await call32(client, start, int32s(n));
+      const outcome = started === 0 ? await poll(client, env, result) : null;
+      return {
+        started,
+        joined: outcome?.values[0],
+        error: outcome?.values[1],
+        ms: round(env.now() - startedAt, 2),
+      };
+    };
+    const eagain = -env.errno.EAGAIN!;
+
+    await setTopUps(client, false);
+    const first = await stats(client, env);
+    const idle = first.idleWorkers;
+    measurements.idleWorkers = idle;
+
+    await hold(idle);
+    const fromPump = await attempt(env.ops.spawn, env.ops.spawnResult, 1);
+    expect(
+      "fromPump",
+      fromPump.joined === 0 && fromPump.error === eagain,
+      `joined ${fromPump.joined}, error ${fromPump.error}, in ${fromPump.ms} ms`,
+    );
+    await release();
+
+    // The creating thread takes the last idle Worker itself.
+    await hold(idle - 1);
+    const proxied = await attempt(
+      env.ops.spawnNested,
+      env.ops.spawnNestedResult,
+      1,
+    );
+    expect(
+      "proxied",
+      proxied.joined === 0 && proxied.error === eagain,
+      `joined ${proxied.joined}, error ${proxied.error}, in ${proxied.ms} ms`,
+    );
+    await release();
+    const answering = await call32(client, env.ops.add, int32s(2, 3));
+    expect("addAfter", answering === 5, answering);
+
+    await hold(idle);
+    const emptied = await stats(client, env);
+    await setTopUps(client, true);
+    // In Firefox, a Worker's new Worker() returns only while the page's
+    // thread is free.
+    await env.sleep(50);
+    const deadline = env.now() + env.pendingLimitMs;
+    let topped = await stats(client, env);
+    while (topped.topUps === emptied.topUps && env.now() < deadline) {
+      await env.sleep(5);
+      topped = await stats(client, env);
+    }
+    const lowWater = topped.topUpWorkers - emptied.topUpWorkers;
+    expect(
+      "topUp",
+      topped.topUps === emptied.topUps + 1 &&
+        lowWater > 0 &&
+        topped.idleWorkers === lowWater,
+      topped.topUps === emptied.topUps
+        ? "none"
+        : `${lowWater} Workers in ${round(topped.lastTopUpMs!, 1)} ms ` +
+            `(new Worker() ${round(topped.lastTopUpCreateMs!, 2)} ms); ${topped.idleWorkers} idle`,
+    );
+    const burst = await attempt(env.ops.spawn, env.ops.spawnResult, lowWater);
+    const last = await stats(client, env);
+    expect(
+      "burstAfterTopUp",
+      burst.joined === lowWater &&
+        burst.error === 0 &&
+        last.workersCreated === topped.workersCreated,
+      `joined ${burst.joined}, error ${burst.error}, in ${burst.ms} ms, ` +
+        `${last.workersCreated - topped.workersCreated} Workers created`,
+    );
+    await release();
+    expect(
+      "workersCreated",
+      last.workersCreated - first.workersCreated === lowWater,
+      last.workersCreated - first.workersCreated,
+    );
     return { pass, measurements };
   },
 };
@@ -352,11 +526,11 @@ const MiB = 2 ** 20;
 const threadExitBlocked: Scenario = {
   name: "thread-exit-blocked",
   criterion:
-    "5 rounds of spawn-detached(pool) with the host never returning to its event loop: " +
+    "5 rounds of spawn-detached(the side modules' share) with the host never returning to its event loop: " +
     "heap in use after each round within 0.5 MiB of the first round's, no Worker created " +
     "in a round that began with enough idle Workers, and nothing left for the event loop to reclaim",
   async run(client, env): Promise<Outcome> {
-    const n = env.poolSize;
+    const n = env.engineThreads;
     const idle: number[] = [];
     const created: number[] = [];
     const heap: number[] = [];
@@ -442,12 +616,19 @@ const syncProxied: Scenario = {
       env.ops.spawnNestedResult,
       2,
     );
+    // GLib starts the threads of its pool for GTasks as the first is run,
+    // and keeps them: the spawner for good, the worker for a while.
+    const before = await stats(client, env);
     await check("taskUs", env.ops.task, undefined, env.ops.taskResult);
+    // Lets the thread that started the task end.
+    await env.sleep(50);
+    const after = await stats(client, env);
+    measurements.workersKeptAfterTask = before.idleWorkers - after.idleWorkers;
     return { pass, measurements };
   },
 };
 
-const promiseProxiedFsync: Scenario = {
+export const promiseProxiedFsync: Scenario = {
   name: "promise-proxied-fsync",
   criterion:
     "fsync() from a thread while the host sleeps completes on every storage backend",
@@ -496,14 +677,16 @@ const replyFile = (
     : { status, text: env.decode(bytes.subarray(4)) };
 };
 
-// Runs after promise-proxied-fsync, whose file on the mount it reads back.
+// WasmFS's OPFS backend reads a file opened for writing through a sync
+// access handle, so this opens every file it reads O_RDWR.
 export const opfs: Scenario = {
   name: "opfs",
   criterion:
     "on WasmFS's OPFS backend: a file absent at first (the storage is fresh) is written and " +
-    "fsync()ed on the host's thread, and reads back the same through the runtime and through " +
-    "the page's OPFS API; promise-proxied-fsync's file reads back through the OPFS API too",
-  async run(client, env) {
+    "fsync()ed on the host's thread, and reads back the same through the runtime, opened " +
+    "for reading and writing, and through the page's OPFS API; promise-proxied-fsync's file, " +
+    "if it ran, reads back through the OPFS API too",
+  async run(client, env, earlier) {
     const { persistent } = env;
     if (persistent === undefined)
       throw new Error("the harness mounts no persistent storage");
@@ -511,7 +694,7 @@ export const opfs: Scenario = {
     const path = `${persistent.dir}/${name}`;
     const contents = `written to ${path} by the runtime`;
     const read = async () =>
-      replyFile(await client.call(env.ops.readFile, env.utf8(path)), env);
+      replyFile(await client.call(env.ops.readFileRdwr, env.utf8(path)), env);
 
     // The backend's own thread holds one of them for good.
     const { idleWorkers } = await stats(client, env);
@@ -528,11 +711,14 @@ export const opfs: Scenario = {
     const readMs = env.now() - readAt;
     const outside = await persistent.read(name);
 
+    const fsyncRan = earlier.some(
+      (result) => result.name === promiseProxiedFsync.name,
+    );
     const fsyncPath = env.fsyncPaths.find((file) =>
       file.startsWith(`${persistent.dir}/`),
     );
     const fsyncFile =
-      fsyncPath === undefined
+      !fsyncRan || fsyncPath === undefined
         ? undefined
         : await persistent.read(fsyncPath.slice(persistent.dir.length + 1));
     const fsyncMatches = fsyncPath !== undefined && fsyncFile === fsyncPath;
@@ -544,7 +730,7 @@ export const opfs: Scenario = {
         written === bytes &&
         after.text === contents &&
         outside === contents &&
-        fsyncMatches,
+        (!fsyncRan || fsyncMatches),
       measurements: {
         idleWorkers: `${idleWorkers} of a pool of ${env.poolSize}`,
         before: before.status,
@@ -554,9 +740,47 @@ export const opfs: Scenario = {
           after.text === contents ? "same" : (after.text ?? after.status),
         readMs: round(readMs, 2),
         throughOpfsApi: outside === contents ? "same" : (outside ?? "absent"),
-        fsyncFileThroughOpfsApi: fsyncMatches
-          ? "same"
-          : (fsyncFile ?? "absent"),
+        fsyncFileThroughOpfsApi: !fsyncRan
+          ? "not run"
+          : fsyncMatches
+            ? "same"
+            : (fsyncFile ?? "absent"),
+      },
+    };
+  },
+};
+
+// WasmFS's OPFS backend opens a file opened read-only as a Blob and reads
+// it with Blob.arrayBuffer().
+export const opfsReadOnly: Scenario = {
+  name: "opfs-read-only",
+  criterion:
+    "on WasmFS's OPFS backend: a file written on the host's thread reads back the same " +
+    "through the runtime, opened read-only",
+  async run(client, env) {
+    const { persistent } = env;
+    if (persistent === undefined)
+      throw new Error("the harness mounts no persistent storage");
+    const path = `${persistent.dir}/opfs-read-only.txt`;
+    const contents = `written to ${path} by the runtime`;
+    const written = await call32(
+      client,
+      env.ops.writeFile,
+      env.utf8(`${path}\0${contents}`),
+    );
+    const readAt = env.now();
+    const after = replyFile(
+      await client.call(env.ops.readFile, env.utf8(path)),
+      env,
+    );
+    const readMs = env.now() - readAt;
+    return {
+      pass: written === env.utf8(contents).length && after.text === contents,
+      measurements: {
+        written,
+        readBack:
+          after.text === contents ? "same" : (after.text ?? after.status),
+        readMs: round(readMs, 2),
       },
     };
   },
@@ -611,7 +835,22 @@ export interface Result extends Outcome {
   name: string;
   criterion: string;
   error?: string;
+  // When late replies failed a scenario that would otherwise have passed or
+  // failed on its own: which way, and the replies.
+  passWithoutLateReplies?: boolean;
+  lateReplies?: LateReply[];
 }
+
+// The page's synchronous path holds its thread for a reply at most this
+// long, then consumes the request and replays it asynchronously; each
+// result counts the calls that held their thread longer.
+export const REPLAY_BUDGET_MS = 40;
+
+const heldSummary = (held: readonly number[]): string => {
+  const over = held.filter((ms) => ms > REPLAY_BUDGET_MS).length;
+  const longest = held.reduce((max, ms) => Math.max(max, ms), 0);
+  return `${held.length} calls, ${over} over ${REPLAY_BUDGET_MS} ms; longest ${round(longest, 2)} ms`;
+};
 
 export const runScenarios = async (
   client: Client,
@@ -621,19 +860,32 @@ export const runScenarios = async (
   const results: Result[] = [];
   for (const scenario of selected) {
     const lateBefore = client.lateReplies?.length ?? 0;
+    const heldBefore = client.heldMs?.length ?? 0;
     try {
-      const outcome = await scenario.run(client, env);
+      const outcome = await scenario.run(client, env, results);
       const late = client.lateReplies?.slice(lateBefore) ?? [];
-      results.push({
-        name: scenario.name,
-        criterion: scenario.criterion,
-        ...outcome,
+      const held = client.heldMs?.slice(heldBefore) ?? [];
+      const measurements = {
+        ...outcome.measurements,
+        ...(held.length === 0 ? {} : { held: heldSummary(held) }),
         ...(late.length === 0
           ? {}
           : {
-              pass: false,
-              measurements: { ...outcome.measurements, lateReplies: late },
+              lateReplies: late.map(
+                ({ opcode, heldMs, afterMs }) =>
+                  `opcode ${opcode}: no reply in ${heldMs} ms of holding the thread; ` +
+                  `it came ${afterMs} ms after the thread was let go`,
+              ),
             }),
+      };
+      results.push({
+        name: scenario.name,
+        criterion: scenario.criterion,
+        pass: outcome.pass && late.length === 0,
+        measurements,
+        ...(late.length === 0
+          ? {}
+          : { passWithoutLateReplies: outcome.pass, lateReplies: late }),
       });
     } catch (error) {
       results.push({

@@ -41,14 +41,27 @@ export const HostOp = {
   // Returns the host to its event loop for the int32 payload's milliseconds
   // (10 if none), then replies 0.
   yield: 0xffff_0002,
+  // Holds off topping the pool up while the int32 payload is 0, and allows
+  // it again otherwise; replies 0.
+  topUp: 0xffff_0003,
 } as const;
 
 // A spike instrument: what HostOp.stats reports.
 export interface HostStats {
   // Workers Emscripten created after the runtime started, beyond its pool.
   workersCreated: number;
-  // Emscripten's Workers that host no thread.
+  // Workers in Emscripten's pool that host no thread and can take one.
   idleWorkers: number;
+  // Pool top-ups finished, the Workers they added, and how long the last
+  // took from its first new Worker to its last one loaded.
+  topUps: number;
+  topUpWorkers: number;
+  lastTopUpMs: number | null;
+  // Of that, how long the last top-up's new Worker() calls took.
+  lastTopUpCreateMs: number | null;
+  // Times the host has left ibusweb_wait() for its event loop: a top-up or
+  // a yield.
+  eventLoopTurns: number;
   // Bytes malloc() has handed out and not had back.
   heapInUse: number;
   // Requests the host has served, this one included.
@@ -100,6 +113,9 @@ export interface SideModule {
 // compiled WebAssembly.Module, typed by the environment that has one.
 export interface HostInit<Wasm = unknown> {
   runtimeUrl: string;
+  // The host tops Emscripten's pthread pool up, when no request is pending,
+  // to this many idle Workers.
+  poolLowWater: number;
   wasm?: Wasm;
   control: SharedArrayBuffer;
   sides: SideModule[];

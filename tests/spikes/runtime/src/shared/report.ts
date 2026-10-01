@@ -22,6 +22,8 @@ export interface PageRunSpec {
   constants: BuildConstants;
   errno: Record<string, number>;
   poolSize: number;
+  engineThreads: number;
+  poolLowWater: number;
   pendingLimitMs: number;
   // How the page waits for each reply: "spin" holds its main thread, as the
   // synchronous keystroke path would; "async" waits with Atomics.waitAsync(),

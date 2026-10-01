@@ -6,18 +6,19 @@
 // control buffer, then runs scenarios against it over that buffer alone:
 // the page never sees the runtime's memory.
 
+import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, clockStepUs } from "../shared/client.ts";
 import {
   createControl,
-  type HostFeatures,
   type HostInit,
-  type HostMessage,
   type SideModule,
 } from "../shared/control.ts";
 import type { PageRunReport, PageRunSpec } from "../shared/report.ts";
 import {
   opfs,
+  opfsReadOnly,
   opsFrom,
+  poolExhausted,
   runScenarios,
   scenarios,
   threadCrash,
@@ -25,12 +26,11 @@ import {
   type Scenario,
 } from "../shared/scenarios.ts";
 
-// A spinning page gives up on a reply after SPIN_LIMIT_MS, longer than any
-// request takes when nothing waits for the page (a spawn's pump waits up to
-// 5 s for a thread to start), and then waits for it without holding its
-// thread, up to REPLY_TIMEOUT_MS more: a reply that comes only then needed
-// the page's main thread.
-const SPIN_LIMIT_MS = 8_000;
+// A spinning page gives up on a reply after SPIN_LIMIT_MS, over ten times
+// the longest any request has taken when nothing waits for the page, then
+// waits for it without holding its thread, up to REPLY_TIMEOUT_MS more: a
+// reply that comes only then needed the page's main thread.
+const SPIN_LIMIT_MS = 1_000;
 const REPLY_TIMEOUT_MS = 30_000;
 
 // ES2024's Atomics.waitAsync(), which the DOM library this targets doesn't
@@ -45,10 +45,9 @@ const { waitAsync } = Atomics as unknown as {
 };
 
 const byName = new Map<string, Scenario>(
-  [...scenarios, opfs, threadCrash].map((scenario) => [
-    scenario.name,
-    scenario,
-  ]),
+  [...scenarios, poolExhausted, opfs, opfsReadOnly, threadCrash].map(
+    (scenario) => [scenario.name, scenario],
+  ),
 );
 
 const sleep = (ms: number): Promise<void> =>
@@ -110,27 +109,9 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     type: "module",
     name: "ibus-web-host",
   });
-  const messages: HostMessage[] = [];
-  let started = false;
-  const ready = new Promise<{ startupMs: number; features: HostFeatures }>(
-    (resolve, reject) => {
-      worker.onmessage = ({ data }: MessageEvent<HostMessage>) => {
-        if (data.type === "ready") {
-          started = true;
-          resolve(data);
-        } else if (data.type === "error")
-          reject(new Error(`host: ${data.message}`));
-        else messages.push(data);
-      };
-      worker.onerror = (event) => {
-        const message = `${event.message} (${event.filename}:${event.lineno})`;
-        if (started) messages.push({ type: "error", message });
-        else reject(new Error(`host: ${message}`));
-      };
-    },
-  );
   const init: HostInit<WebAssembly.Module> = {
     runtimeUrl: runtimeUrl.href,
+    poolLowWater: spec.poolLowWater,
     wasm,
     control,
     sides,
@@ -141,9 +122,8 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     wait: spec.wait,
     constants: spec.constants,
   };
-  worker.postMessage(init);
   try {
-    const { startupMs, features } = await ready;
+    const { startupMs, features, messages } = await startHost(worker, init);
     // The page's main thread can't block, so a call either spins until the
     // reply or waits for it asynchronously.
     const waitFree = async (
@@ -183,6 +163,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       errno: spec.errno,
       ops: opsFrom(spec.constants),
       poolSize: spec.poolSize,
+      engineThreads: spec.engineThreads,
       fsyncPaths: [
         "/tmp/fsync-memory.txt",
         ...(spec.opfsMount === undefined

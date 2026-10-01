@@ -18,13 +18,14 @@ export interface AdapterData {
 }
 
 type MessageHandler = ((event: { data: unknown }) => void) | null;
+type ErrorHandler = (event: { message: string }) => void;
 
 // The part of a browser Worker that worker code here uses. A Worker that
 // ends without terminate() is reported as an error, as a browser would
 // report the error that ended it.
 export class BrowserWorker {
   onmessage: MessageHandler = null;
-  onerror: ((event: { message: string }) => void) | null = null;
+  onerror: ErrorHandler | null = null;
   readonly #worker: NodeWorker;
   #terminated = false;
 
@@ -43,6 +44,25 @@ export class BrowserWorker {
       if (!this.#terminated)
         this.onerror?.({ message: `exited with code ${code}` });
     });
+  }
+
+  addEventListener(
+    type: "message" | "error",
+    listener: (event: { data?: unknown; message?: string }) => void,
+  ): void {
+    if (type === "message")
+      this.#worker.on("message", (message: unknown) =>
+        listener({ data: message }),
+      );
+    else {
+      this.#worker.on("error", (error: unknown) =>
+        listener({ message: String(error) }),
+      );
+      this.#worker.on("exit", (code: number) => {
+        if (!this.#terminated)
+          listener({ message: `exited with code ${code}` });
+      });
+    }
   }
 
   postMessage(message: unknown, transfer?: readonly TransferListItem[]): void {

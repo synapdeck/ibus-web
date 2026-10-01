@@ -3,6 +3,7 @@
 
 // Usage: node browser-run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
 //                            --constants CONSTANTS_JSON --pool N
+//                            --engine-threads N --pool-low-water N
 //                            [--browser chromium|firefox]... [--scenario NAME]...
 //                            [--compare]
 //
@@ -12,26 +13,36 @@
 // runs in a browser context of its own, so the origin's private file system
 // starts empty every time. In each browser the host sleeps in the runtime
 // and runs every scenario, a host of its own with OPFS mounted runs the
-// storage scenarios on it, and another the crash scenario; with --compare, for the record, the idle host that waits
-// asynchronously and the relay-less one follow. Prints each host's results,
-// then a table per host with a column per browser. Exits 1 if any scenario
-// of the first three hosts fails in any browser, other than the known
-// failures listed below, or if one of those passes.
+// storage scenarios on it, and another the crash scenario. With --compare,
+// for the record, the same with the page waiting asynchronously, the idle
+// host that waits asynchronously and the relay-less one follow.
+//
+// Prints each host's results, then a table per host with a column per
+// browser. Exits 1 if a scenario of the first three hosts fails in any
+// browser other than as a known failure below describes, if a known failure
+// passes, or, run without --browser and --scenario, if one isn't run.
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { chromium, firefox, type Browser, type BrowserType } from "playwright";
+import type { Browser } from "playwright";
 import type { BuildConstants, WaitMode } from "../shared/control.ts";
 import {
   reportLines,
   type PageRunReport,
   type PageRunSpec,
 } from "../shared/report.ts";
-import { scenarios, type Result } from "../shared/scenarios.ts";
-import { serve } from "./server.ts";
+import {
+  opfs,
+  opfsReadOnly,
+  opsFrom,
+  poolExhausted,
+  promiseProxiedFsync,
+  scenarios,
+  type Result,
+} from "../shared/scenarios.ts";
+import { browsersNamed, launch, launchError, servePage } from "./browsers.ts";
 
 const { values: args } = parseArgs({
   options: {
@@ -40,6 +51,8 @@ const { values: args } = parseArgs({
     errno: { type: "string" },
     constants: { type: "string" },
     pool: { type: "string" },
+    "engine-threads": { type: "string" },
+    "pool-low-water": { type: "string" },
     browser: { type: "string", multiple: true },
     // Runs only these scenarios, where a host would run them.
     scenario: { type: "string", multiple: true },
@@ -51,20 +64,16 @@ if (
   args.sides === undefined ||
   args.errno === undefined ||
   args.constants === undefined ||
-  args.pool === undefined
+  args.pool === undefined ||
+  args["engine-threads"] === undefined ||
+  args["pool-low-water"] === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants and --pool are required",
+    "--runtime, --sides, --errno, --constants, --pool, --engine-threads and --pool-low-water are required",
   );
 }
 
-const browserTypes: Readonly<Record<string, BrowserType>> = {
-  chromium,
-  firefox,
-};
-const browserNames = args.browser ?? Object.keys(browserTypes);
-for (const name of browserNames)
-  if (!(name in browserTypes)) throw new Error(`no browser ${name}`);
+const browserNames = browsersNamed(args.browser);
 
 // Generous against the scenarios' own limits, so that a hung host fails its
 // run rather than the whole check's time limit.
@@ -82,24 +91,12 @@ const sideNames = (await readdir(args.sides))
   .filter((file) => file.endsWith(".wasm"))
   .sort();
 
-const dist = fileURLToPath(new URL("../", import.meta.url));
-const server = await serve(
-  fileURLToPath(new URL("../../src/page/index.html", import.meta.url)),
-  {
-    "/dist/": dist,
-    "/runtime/": dirname(args.runtime),
-    "/sides/": args.sides,
-  },
-);
+const server = await servePage({
+  "/runtime/": dirname(args.runtime),
+  "/sides/": args.sides,
+});
 
-// Playwright turns Chromium's own sandbox off unless asked; the harness
-// runs it as a browser would.
-const launch = (name: string): Promise<Browser> =>
-  browserTypes[name]!.launch(
-    name === "chromium"
-      ? { headless: true, chromiumSandbox: true }
-      : { headless: true },
-  );
+const ops = opsFrom(constants);
 
 interface Run {
   // Short, for the known failures below.
@@ -117,7 +114,13 @@ interface Run {
 const names = (list: readonly { name: string }[]): string[] =>
   list.map(({ name }) => name);
 
-const opfsScenarios = ["cold-wake", "promise-proxied-fsync", "opfs"];
+const opfsScenarios = names([
+  { name: "cold-wake" },
+  promiseProxiedFsync,
+  opfs,
+  opfsReadOnly,
+]);
+const allScenarios = [...names(scenarios), poolExhausted.name];
 
 const runs: Run[] = [
   {
@@ -127,7 +130,7 @@ const runs: Run[] = [
     counts: true,
     wait: "runtime",
     pageWait: "spin",
-    scenarios: names(scenarios),
+    scenarios: allScenarios,
     pendingLimitMs: 10_000,
     opfs: false,
   },
@@ -161,7 +164,7 @@ if (args.compare)
       counts: false,
       wait: "runtime",
       pageWait: "async",
-      scenarios: names(scenarios),
+      scenarios: allScenarios,
       pendingLimitMs: 10_000,
       opfs: false,
     },
@@ -182,7 +185,7 @@ if (args.compare)
       counts: false,
       wait: "runtime-async",
       pageWait: "spin",
-      scenarios: names(scenarios),
+      scenarios: allScenarios,
       pendingLimitMs: 10_000,
       opfs: false,
     },
@@ -284,6 +287,8 @@ const runOne = async (
       constants,
       errno,
       poolSize: Number(args.pool),
+      engineThreads: Number(args["engine-threads"]),
+      poolLowWater: Number(args["pool-low-water"]),
       pendingLimitMs: run.pendingLimitMs,
       pageWait: run.pageWait,
       ...(run.opfs ? { opfsMount: OPFS_MOUNT } : {}),
@@ -324,20 +329,26 @@ const runOne = async (
   }
 };
 
-// Failures of the runs that count, by "browser run scenario", that the
-// browsers are known to produce, with why. Each fails a criterion that holds
-// under Node, so it is reported as it is instead of loosening the criterion;
-// one that passes fails the harness too, so the list stays exact.
-const knownFailures: Readonly<Record<string, string>> = {
-  "chromium runtime thread-create-blocked":
-    "Chromium starts a Worker only once the thread that created it returns to its event loop, " +
-    "and the host, blocked in a pump or asleep in ibusweb_wait(), doesn't",
-  "firefox runtime thread-create-blocked":
-    "in Firefox, new Worker() on a Worker returns only once the page's main thread is free, " +
-    "and the page spins for the reply",
-  "firefox runtime-opfs opfs":
-    "Firefox reads an OPFS file's Blob, as WasmFS reads a file opened read-only, only once " +
-    "the page's main thread is free, and the page spins for the reply",
+// The ways the browsers are known to fail scenarios in runs whose failures
+// fail the harness, by "browser run scenario". Each fails a criterion that holds under Node,
+// so it is reported as it is instead of loosening the criterion. A failure
+// counts as known only if `matches` recognises its cause; a known failure
+// that passes, or fails some other way, fails the harness.
+interface KnownFailure {
+  why: string;
+  matches(result: Result): boolean;
+}
+
+const knownFailures: Readonly<Record<string, KnownFailure>> = {
+  "firefox runtime-opfs opfs-read-only": {
+    why:
+      "WasmFS reads a file opened read-only on OPFS through its Blob, and Firefox reads a Blob only " +
+      "while the page's main thread is free, which it isn't while the page spins: the scenario " +
+      "would pass but for late replies to read-file",
+    matches: (result) =>
+      result.passWithoutLateReplies === true &&
+      (result.lateReplies ?? []).every(({ opcode }) => opcode === ops.readFile),
+  },
 };
 
 const failureKey = (browser: string, run: Run, scenario: string): string =>
@@ -351,8 +362,9 @@ const headline = ({ name, pass, measurements: m }: Result): string => {
   if (pass)
     switch (name) {
       case "dispatch":
+        return `p50 ${m.p50Us} µs, p99 ${m.p99Us} µs, max ${m.maxUs} µs; batch mean ${m.batchMeanUs} µs (${String(m.batchMeanRangeUs)}); asleep ${m.requestsWhileAsleep}`;
       case "cold-wake":
-        return `p50 ${m.p50Us} µs, p99 ${m.p99Us} µs, max ${m.maxUs} µs; asleep ${m.requestsWhileAsleep}`;
+        return `p50 ${m.p50Us} µs, p99 ${m.p99Us} µs, max ${m.maxUs} µs, mean ${m.meanUs} µs; asleep ${m.requestsWhileAsleep}`;
       case "cross-thread-wake":
         return `ε p50 ${m.p50Ms} ms, max ${m.maxMs} ms`;
       case "deadline":
@@ -382,15 +394,18 @@ const table = (outcomes: readonly Outcome[]): string[] => {
       const cells = columns.map((outcome) => {
         const result = resultOf(outcome, name);
         if (result === undefined) return outcome.error ?? "not run";
-        const known =
-          run.counts && failureKey(outcome.browser, run, name) in knownFailures;
+        const known = run.counts
+          ? knownFailures[failureKey(outcome.browser, run, name)]
+          : undefined;
         const status = result.pass
-          ? known
-            ? "PASS, expected to fail"
-            : "PASS"
-          : known
-            ? "FAIL, known"
-            : "FAIL";
+          ? known === undefined
+            ? "PASS"
+            : "PASS, expected to fail"
+          : known === undefined
+            ? "FAIL"
+            : known.matches(result)
+              ? "FAIL, known"
+              : "FAIL, not as known";
         return `${status}: ${result.error ?? headline(result)}`;
       });
       lines.push(`| ${name} | ${cells.join(" | ")} |`);
@@ -402,7 +417,17 @@ const table = (outcomes: readonly Outcome[]): string[] => {
 const outcomes: Outcome[] = [];
 try {
   for (const name of browserNames) {
-    const browser = await launch(name);
+    let browser: Browser;
+    try {
+      browser = await launch(name);
+    } catch (error) {
+      // The other browser still runs, and the tables show why this didn't.
+      const message = launchError(error);
+      console.log(`== ${name}\nFAIL: ${message}`);
+      for (const run of runs)
+        outcomes.push({ browser: name, run, results: [], error: message });
+      continue;
+    }
     try {
       for (const run of runs) outcomes.push(await runOne(name, browser, run));
     } finally {
@@ -416,18 +441,27 @@ for (const line of table(outcomes)) console.log(line);
 
 const unexpected: string[] = [];
 const known: string[] = [];
+const evaluated = new Set<string>();
 for (const outcome of outcomes) {
   if (!outcome.run.counts) continue;
   for (const name of outcome.run.scenarios) {
     const key = failureKey(outcome.browser, outcome.run, name);
-    const failed = resultOf(outcome, name)?.pass !== true;
-    const why = knownFailures[key];
-    if (failed && why === undefined) unexpected.push(`${key}: failed`);
-    else if (!failed && why !== undefined)
-      unexpected.push(`${key}: passed, but is listed as a known failure`);
-    else if (failed && why !== undefined) known.push(`${key}: ${why}`);
+    const result = resultOf(outcome, name);
+    if (result !== undefined) evaluated.add(key);
+    const knownFailure = knownFailures[key];
+    if (result?.pass === true) {
+      if (knownFailure !== undefined)
+        unexpected.push(`${key}: passed, but is listed as a known failure`);
+    } else if (knownFailure === undefined) unexpected.push(`${key}: failed`);
+    else if (result === undefined || !knownFailure.matches(result))
+      unexpected.push(`${key}: failed, but not as the known failure does`);
+    else known.push(`${key}: ${knownFailure.why}`);
   }
 }
+if (args.browser === undefined && args.scenario === undefined)
+  for (const key of Object.keys(knownFailures))
+    if (!evaluated.has(key))
+      unexpected.push(`${key}: listed as a known failure, but not run`);
 console.log("");
 for (const line of known) console.log(`KNOWN FAILURE ${line}`);
 for (const line of unexpected) console.log(`UNEXPECTED ${line}`);

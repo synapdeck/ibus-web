@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Usage: node run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
-//                    --constants CONSTANTS_JSON --pool N [--compare]
+//                    --constants CONSTANTS_JSON --pool N --engine-threads N
+//                    --pool-low-water N [--compare]
 //
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
 // requests over the control buffer as a page would. The host sleeps in the
@@ -17,6 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { startHost as bootHost } from "../shared/bootstrap.ts";
 import { blockingClient } from "../shared/client.ts";
 import {
   createControl,
@@ -45,6 +47,8 @@ const { values: args } = parseArgs({
     errno: { type: "string" },
     constants: { type: "string" },
     pool: { type: "string" },
+    "engine-threads": { type: "string" },
+    "pool-low-water": { type: "string" },
     compare: { type: "boolean", default: false },
   },
 });
@@ -53,15 +57,19 @@ if (
   args.sides === undefined ||
   args.errno === undefined ||
   args.constants === undefined ||
-  args.pool === undefined
+  args.pool === undefined ||
+  args["engine-threads"] === undefined ||
+  args["pool-low-water"] === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants and --pool are required",
+    "--runtime, --sides, --errno, --constants, --pool, --engine-threads and --pool-low-water are required",
   );
 }
 const runtimeJs = args.runtime;
 const sidesDir = args.sides;
 const poolSize = Number(args.pool);
+const engineThreads = Number(args["engine-threads"]);
+const poolLowWater = Number(args["pool-low-water"]);
 
 // Node's types leave WebAssembly to the DOM library, which Node code here
 // doesn't load; this is the one call made, and the module only passes
@@ -87,28 +95,8 @@ const startHost = async (
   const worker = new BrowserWorker(
     new URL("../worker/host.js", import.meta.url),
   );
-  const messages: HostMessage[] = [];
-  let started = false;
-  const ready = new Promise<{ startupMs: number; features: HostFeatures }>(
-    (resolve, reject) => {
-      worker.onmessage = ({ data }) => {
-        const message = data as HostMessage;
-        if (message.type === "ready") {
-          started = true;
-          resolve(message);
-        } else if (message.type === "error")
-          reject(new Error(`host: ${message.message}`));
-        else messages.push(message);
-      };
-      worker.onerror = ({ message }) => {
-        if (started) messages.push({ type: "error", message });
-        else reject(new Error(`host: ${message}`));
-      };
-    },
-  );
   const init: HostInit<object> = { ...base, control, wait };
-  worker.postMessage(init);
-  const { startupMs, features } = await ready;
+  const { startupMs, features, messages } = await bootHost(worker, init);
   return {
     worker,
     // Blocks this thread until the host replies, as the page's synchronous
@@ -179,6 +167,7 @@ const env = (pendingLimitMs: number): Env => ({
   errno,
   ops,
   poolSize,
+  engineThreads,
   fsyncPaths: ["/tmp/fsync-memory.txt", `${mountPath}/fsync-node.txt`],
   pendingLimitMs,
 });
@@ -189,6 +178,7 @@ const base = {
   sides,
   storage: { kind: "node", hostPath: hostDir, mountPath },
   constants,
+  poolLowWater,
 } as const;
 
 const passed = (results: readonly Result[], expected: number): boolean =>

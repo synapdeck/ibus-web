@@ -3,7 +3,12 @@
 
 {
   perSystem =
-    { config, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb) runtime toolchain typescript;
       inherit (config.ibusWeb.testing) playwright;
@@ -77,8 +82,17 @@
       '';
 
       # Scenarios size their thread counts by the pool the runtime is linked
-      # with.
-      poolSize = builtins.head (builtins.match ".*-sPTHREAD_POOL_SIZE=([0-9]+).*" runtime.linkFlags);
+      # with and the share of it the side modules may use; the host tops the
+      # pool up to its low-water mark.
+      harnessArgs = lib.concatStringsSep " " [
+        "--sides ${sidesDir}"
+        "--errno ${runtime.nodeHarness}/errno.json"
+        "--constants ${constants}/constants.json"
+        "--pool ${toString runtime.threadPool.size}"
+        "--engine-threads ${toString runtime.threadPool.shares.engine}"
+        "--pool-low-water ${toString runtime.threadPool.lowWater}"
+      ];
+      dist = "${typescript.workspace}/tests/spikes/runtime/dist";
 
       # A browser run's own limits catch a host that stops answering; this
       # catches a browser or harness that hangs outright.
@@ -103,9 +117,7 @@
       # The Worker host, from the TypeScript build, runs every scenario under
       # Node, and the crash scenario on a host of its own: on the asserting
       # runtime for correctness, then on the released one, whose timings are
-      # the ones to quote, with the comparisons against an idle host that
-      # waits asynchronously and a relay-less one that sleeps in
-      # Atomics.wait() on the control buffer.
+      # the ones to quote.
       checks.runtime-spike-node =
         pkgs.runCommand "ibus-web-runtime-spike-node"
           {
@@ -122,24 +134,22 @@
             # has finished by the time run returns.
             run() (
               set -o pipefail
-              ${runtime.nodeTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/run.js \
-                --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json \
-                --constants ${constants}/constants.json --pool ${poolSize} "$@" 2>&1 1>&3 3>&- |
+              ${runtime.nodeTimeout} node ${dist}/node/run.js ${harnessArgs} "$@" 2>&1 1>&3 3>&- |
                 sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
             echo "# released runtime" >> $out
-            run --runtime ${runtime.ibusRuntime}/ibus-runtime.js --compare >> $out || { cat $out; exit 1; }
+            run --runtime ${runtime.ibusRuntime}/ibus-runtime.js >> $out || { cat $out; exit 1; }
             cat $out
           '';
 
-      # The same host in headless Chromium and Firefox, through Playwright: a
-      # page served with cross-origin isolation starts it by URL and drives
-      # it over the control buffer, spinning for each reply. Besides Node's
-      # scenarios, a host with WasmFS's OPFS backend mounted runs the storage
-      # ones on it. As under Node, the asserting runtime, then the released
-      # one with the comparisons.
+      # The Worker host in headless Chromium and Firefox, through Playwright:
+      # a page served with cross-origin isolation starts it by URL and drives
+      # it over the control buffer, spinning for each reply. A host with
+      # WasmFS's OPFS backend mounted also runs the storage scenarios on it.
+      # The asserting runtime runs for correctness, then the released one
+      # for the timings.
       checks.runtime-spike-browser =
         pkgs.runCommand "ibus-web-runtime-spike-browser"
           (
@@ -158,17 +168,40 @@
             # warning for the exceptions scenario's throw is marked expected.
             run() (
               set -o pipefail
-              ${browserTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/browser-run.js \
-                --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json \
-                --constants ${constants}/constants.json --pool ${poolSize} "$@" 2>&1 1>&3 3>&- |
+              ${browserTimeout} node ${dist}/node/browser-run.js ${harnessArgs} "$@" 2>&1 1>&3 3>&- |
                 sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
             echo "# released runtime" >> $out
-            run --runtime ${runtime.ibusRuntime}/ibus-runtime.js --compare >> $out || { cat $out; exit 1; }
+            run --runtime ${runtime.ibusRuntime}/ibus-runtime.js >> $out || { cat $out; exit 1; }
             cat $out
           '';
+
+      # The released runtime's scenarios with the comparisons, under Node and
+      # then in the browsers, run from a checkout: an idle host that waits
+      # asynchronously, a relay-less one that sleeps in Atomics.wait() on the
+      # control buffer, and in the browsers a page that waits asynchronously.
+      # Arguments go to the browser harness, such as --browser firefox.
+      apps.runtime-spike-compare = {
+        type = "app";
+        meta.description = "The runtime spike's scenarios with the comparisons, under Node and in headless Chromium and Firefox";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "runtime-spike-compare";
+            runtimeInputs = [ typescript.nodejs ];
+            text = ''
+              ${lib.toShellVars playwright.env}
+              export ${lib.concatStringsSep " " (lib.attrNames playwright.env)}
+              runtime=${runtime.ibusRuntime}/ibus-runtime.js
+              echo "# Node" >&2
+              node ${dist}/node/run.js ${harnessArgs} --runtime "$runtime" --compare
+              echo "# browsers" >&2
+              node ${dist}/node/browser-run.js ${harnessArgs} --runtime "$runtime" --compare "$@"
+            '';
+          }
+        );
+      };
 
       checks.runtime-spike-side-imports = runtime.checkSideModuleImports {
         name = "runtime-spike";

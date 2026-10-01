@@ -36,7 +36,10 @@
   X(TIMEOUT_RESULT, 18)                                                        \
   X(CRASH_THREAD, 19)                                                          \
   X(WRITE_FILE, 20)                                                            \
-  X(READ_FILE, 21)
+  X(READ_FILE, 21)                                                             \
+  X(READ_FILE_RDWR, 22)                                                        \
+  X(HOLD, 23)                                                                  \
+  X(RELEASE, 24)
 
 #define SPIKE_OP_ENUM(name, opcode) SPIKE_OP_##name = opcode,
 enum { SPIKE_OPS(SPIKE_OP_ENUM) };

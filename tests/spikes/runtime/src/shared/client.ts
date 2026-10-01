@@ -15,7 +15,7 @@ import {
   type HostMessage,
   type Reply,
 } from "./control.ts";
-import type { Client } from "./scenarios.ts";
+import type { Client, LateReply } from "./scenarios.ts";
 
 export interface BlockingClientEnv {
   // Milliseconds, from a monotonic clock.
@@ -54,7 +54,8 @@ export const blockingClient = (
   env: BlockingClientEnv,
 ): Client => {
   const views = controlViews(control);
-  const lateReplies: string[] = [];
+  const lateReplies: LateReply[] = [];
+  const heldMs: number[] = [];
 
   // After the blocking wait has given up.
   const awaitLateReply = async (
@@ -66,10 +67,11 @@ export const blockingClient = (
     for (;;) {
       const state = Atomics.load(views.words, Word.state);
       if (state === State.reply) {
-        lateReplies.push(
-          `opcode ${opcode}: no reply in ${env.replyTimeoutMs} ms of holding the thread; ` +
-            `it came ${(env.now() - timedOutAt).toFixed(1)} ms after the thread was let go`,
-        );
+        lateReplies.push({
+          opcode,
+          heldMs: env.replyTimeoutMs,
+          afterMs: Number((env.now() - timedOutAt).toFixed(1)),
+        });
         return takeReply(views);
       }
       if (state === State.crashed)
@@ -86,24 +88,40 @@ export const blockingClient = (
 
   return {
     lateReplies,
+    heldMs,
     call: (opcode, payload) => {
       if (Atomics.load(views.words, Word.state) === State.crashed) {
         return Promise.reject(new Error("the host has crashed"));
       }
       postRequest(views, encodeRequest(opcode, payload));
-      const deadline = env.now() + env.replyTimeoutMs;
+      const postedAt = env.now();
+      const deadline = postedAt + env.replyTimeoutMs;
+      // Whether the call has held the thread throughout so far.
+      let holding = true;
+      const held = (): void => {
+        if (holding) heldMs.push(env.now() - postedAt);
+      };
       const wait = (): Promise<Reply> => {
         for (;;) {
           const state = Atomics.load(views.words, Word.state);
-          if (state === State.reply) return Promise.resolve(takeReply(views));
+          if (state === State.reply) {
+            held();
+            return Promise.resolve(takeReply(views));
+          }
           if (state === State.crashed)
             return Promise.reject(
               new Error(`the host crashed on opcode ${opcode}`),
             );
           const left = deadline - env.now();
-          if (left <= 0) return awaitLateReply(opcode, env.now());
+          if (left <= 0) {
+            held();
+            return awaitLateReply(opcode, env.now());
+          }
           const later = env.block(views.words, Word.state, state, left);
-          if (later !== undefined) return later.then(wait);
+          if (later !== undefined) {
+            holding = false;
+            return later.then(wait);
+          }
         }
       };
       return wait();

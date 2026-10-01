@@ -40,8 +40,15 @@ console.log(`idle-result: attach to dispatch in ${delay} us`);
 
 // Fewer threads than the pool holds: threads that earlier operations started
 // may not be back in it yet.
+// spawn-result replies how many threads were joined, then the error that
+// stopped the rest.
+const spawnResult = () => {
+  const out = rt.dispatch(SPAWN_RESULT);
+  return typeof out === "number" ? [out] : [...new Int32Array(out.buffer, out.byteOffset, out.length / 4)];
+};
 check("spawn 2", rt.call(SPAWN, int32s(2)), 0);
-check("spawn-result", await rt.settle(() => rt.call(SPAWN_RESULT)), 2);
+await rt.settle(() => spawnResult()[0]);
+check("spawn-result", spawnResult().join(" "), "2 0");
 
 check("throw", rt.call(THROW), -errno.ECANCELED);
 check("add after throw", rt.call(ADD, int32s(1, 1)), 2);
