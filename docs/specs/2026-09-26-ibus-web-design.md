@@ -301,7 +301,10 @@ each moves the GLib subtests it fixes from platform-difference skips into
   releases.)
 - **Legacy charsets.** Decoding in `g_convert()` and `g_iconv()` through
   `TextDecoder` (EUC-JP, Shift_JIS, GBK, Big5 and the rest), for dictionaries
-  stored in them. Encoding stays limited: `TextEncoder` only writes UTF-8.
+  stored in them. Encoding stays with musl's encoders: browsers expose no
+  encoder but UTF-8's, and GLib's handling of musl's POSIX-conforming
+  substitutions (it writes `*` and counts the character as irreversible
+  rather than failing) makes the fallback and stream converters exact.
 - **File monitoring.** A `GFileMonitor` backend that watches WasmFS itself,
   since every write to the Worker's files goes through it, for engines that
   reload user dictionaries or configuration when they change. Changes made to
