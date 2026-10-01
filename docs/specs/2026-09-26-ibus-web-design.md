@@ -447,6 +447,13 @@ doorbell `postMessage` (§6.2.3).
 - **ABI version.** The export list's version is the runtime ABI version. Every
   engine manifest records the version it was built against, and a mismatch is
   a load failure (§8).
+- **Memory.** Memory growth with pthreads is unresolved. In GLib's tests a
+  pthread of a test with many threads occasionally faults out of bounds
+  (13 of 300 runs under load); the same test linked with a fixed memory
+  just above its peak never did (0 of 300), but a GLib-free reproduction
+  hasn't shown it yet. The runtime's link chooses fixed memory per Worker,
+  sized for the side modules it loads later (R3), or growth with a
+  mitigation found by then.
 - **Sharing.** The page compiles `ibus-runtime.wasm` once and sends the
   `WebAssembly.Module` to each Worker. Each Worker instantiates its own copy
   with its own memory.

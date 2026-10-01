@@ -1,4 +1,4 @@
-From 315bdc70107c5346a0ab5d74c2bd82918abebdc7 Mon Sep 17 00:00:00 2001
+From 41367552839c19bc32ee199dd870a21dae737ff5 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:42:03 -0700
 Subject: [PATCH 34/36] glib, gio: Build glib-unix and GIO's Unix streams on

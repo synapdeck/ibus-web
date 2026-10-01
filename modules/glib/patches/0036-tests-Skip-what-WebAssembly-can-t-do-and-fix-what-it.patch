@@ -1,4 +1,4 @@
-From cc3e209c962b7ae866be86130e575fc50cc4092e Mon Sep 17 00:00:00 2001
+From 9e1dc0acecf79b217bfa06376bd2f16fd5b8f7a1 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:52 -0700
 Subject: [PATCH 36/36] tests: Skip what WebAssembly can't do, and fix what it
@@ -73,7 +73,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  gio/tests/socket.c                | 48 +++++++++++++++++
  glib/tests/assert-msg-test.py     |  3 ++
  glib/tests/collate.c              | 22 ++++++++
- glib/tests/convert.c              | 47 ++++++++++++++++
+ glib/tests/convert.c              | 55 +++++++++++++++++++
  glib/tests/date.c                 | 24 +++++++++
  glib/tests/fileutils.c            | 35 ++++++++++--
  glib/tests/gdatetime.c            | 28 ++++++++++
@@ -87,7 +87,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/tests/test-printf.c          |  9 +++-
  glib/tests/testing.c              | 67 +++++++++++++++++++++++
  gobject/tests/closure.c           | 37 +++++++++++--
- 27 files changed, 636 insertions(+), 51 deletions(-)
+ 27 files changed, 644 insertions(+), 51 deletions(-)
 
 diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
 index b00d1bf39..05b773ecb 100644
@@ -813,7 +813,7 @@ index bd9ea234f..d27cd0559 100644
    g_array_set_clear_func (line_array, (GDestroyNotify)clear_line);
  
 diff --git a/glib/tests/convert.c b/glib/tests/convert.c
-index 6cf19ad10..1a9029c89 100644
+index 6cf19ad10..4b96c6e1c 100644
 --- a/glib/tests/convert.c
 +++ b/glib/tests/convert.c
 @@ -85,8 +85,16 @@ test_one_half (void)
@@ -833,7 +833,7 @@ index 6cf19ad10..1a9029c89 100644
    g_assert_cmpstr (out, ==, NULL);
    g_clear_error (&error);
    g_free (out);
-@@ -104,6 +112,44 @@ test_one_half (void)
+@@ -104,6 +112,52 @@ test_one_half (void)
    g_free (out);
  }
  
@@ -867,6 +867,14 @@ index 6cf19ad10..1a9029c89 100644
 +  g_assert_cmpstr (out, ==, "\x1b$B4A\x1b(B?\x1b$B4A\x1b(B");
 +  g_free (out);
 +
++  /* A fallback the target lacks, "½" followed by kanji that take more room. */
++  out = g_convert_with_fallback ("\xc2\xbd", -1, "ISO-2022-JP", "UTF-8",
++                                 "\xc2\xbd\xe6\xbc\xa2\xe6\xbc\xa2\xe6\xbc\xa2",
++                                 NULL, NULL, &error);
++  g_assert_error (error, G_CONVERT_ERROR, G_CONVERT_ERROR_ILLEGAL_SEQUENCE);
++  g_assert_null (out);
++  g_clear_error (&error);
++
 +  /* "a½" and the first byte of "é". */
 +  out = g_convert ("a\xc2\xbd\xc3", 4, "ISO-8859-15", "UTF-8",
 +                   &bytes_read, NULL, &error);
@@ -878,7 +886,7 @@ index 6cf19ad10..1a9029c89 100644
  static void
  test_byte_order (void)
  {
-@@ -996,6 +1042,7 @@ main (int argc, char *argv[])
+@@ -996,6 +1050,7 @@ main (int argc, char *argv[])
    g_test_add_func ("/conversion/no-conv", test_no_conv);
    g_test_add_func ("/conversion/iconv-state", test_iconv_state);
    g_test_add_func ("/conversion/illegal-sequence", test_one_half);

@@ -1,4 +1,4 @@
-From 4a5ef0af8dea5a77debf7c41d33cb1134a50e4f2 Mon Sep 17 00:00:00 2001
+From a4159a7f77bb785a8730e004c7ba4fb34ed9581a Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:42:03 -0700
 Subject: [PATCH 35/36] goption: Take the program name from Emscripten on

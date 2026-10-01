@@ -637,14 +637,20 @@ used its fallback.
   the way stays consumed. Nothing is converted twice, so stateful source
   charsets (ISO-2022-JP, UTF-16 with a byte order mark) read exactly as
   in one call. Elsewhere the converter is unchanged.
-- **`g_convert_with_fallback()`** starts again from a reset converter, a
-  character at a time, whenever a call reports a replacement or, where
-  `iconv()` replaces, runs out of output room after converting something.
-  It remembers the characters found so far and treats each as `EILSEQ`,
-  so the fallback replaces it. Starting over rather than rewinding keeps a
-  stateful target from losing a shift sequence to discarded output, on
-  any `iconv()`; glibc only reaches it for an irreversible conversion it
-  counts.
+- **`g_convert_with_fallback()`** starts again once from a reset
+  converter, a character at a time, when a call reports a replacement or,
+  where `iconv()` replaces, runs out of output room after converting
+  something. Starting over rather than rewinding keeps a stateful target
+  from losing a shift sequence to discarded output, on any `iconv()`.
+  From then on each character, of the string and of the fallback, is
+  first converted alone on a second converter, reset for it; one that
+  fails or comes back replaced there is treated as `EILSEQ`, so the
+  fallback replaces it (or a fallback that has one is refused), and only
+  the others go through the main converter. Whether a character has a
+  representation doesn't depend on the target's shift state, so no
+  further restart is needed and the conversion stays linear: 32,000
+  unrepresentable characters to ASCII take 2 ms on Node. glibc only
+  starts over for an irreversible conversion it counts.
 - **`g_convert_with_iconv()`** (and so `g_convert()`), where `iconv()`
   replaces, starts again from a reset converter when a call fails after
   converting something, with room for all the output or with only the
