@@ -1,4 +1,4 @@
-From 92525bb3e8b24a12c5fd52d9259c664fd8cf76bb Mon Sep 17 00:00:00 2001
+From be397ea50ef40dcc0273dffe8f169feaedf8a494 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:52 -0700
 Subject: [PATCH 37/37] tests: Skip what WebAssembly can't do, and fix what it
@@ -45,10 +45,8 @@ Fix the tests themselves where they relied on more than they should:
 - glib/tests never told the Python tests to run their programs with
   Node, and those tests expected abort() to end Node with SIGABRT.
 
-Workarounds keep tests running: test-printf's reader waits for its
-writer, since Emscripten's pipe reads never block; and fileutils'
-stdio-wrappers test works in a temporary directory, since chmod() on
-WasmFS's Node backend doesn't reach the host. convert and
+A workaround keeps a test running: test-printf's reader waits for its
+writer, since Emscripten's pipe reads never block. convert and
 converter-stream also check stateful charsets: a byte order mark and
 ISO-2022-JP's shift state across calls and full output, and a fallback
 between kanji in ISO-2022-JP.
@@ -71,7 +69,6 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/tests/collate.c              | 22 ++++++++
  glib/tests/convert.c              | 55 +++++++++++++++++++
  glib/tests/date.c                 | 24 +++++++++
- glib/tests/fileutils.c            | 19 +++++++
  glib/tests/gdatetime.c            | 28 ++++++++++
  glib/tests/mainloop.c             | 34 ++++++++----
  glib/tests/mapping.c              |  5 ++
@@ -83,7 +80,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/tests/test-printf.c          |  9 +++-
  glib/tests/testing.c              | 67 +++++++++++++++++++++++
  gobject/tests/closure.c           | 16 +++++-
- 26 files changed, 567 insertions(+), 45 deletions(-)
+ 25 files changed, 548 insertions(+), 45 deletions(-)
 
 diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
 index b00d1bf39..05b773ecb 100644
@@ -912,43 +909,6 @@ index b2fb38d83..538af2109 100644
    if (setlocale (LC_ALL, "pl_PL") == NULL)
      {
        g_test_skip ("pl_PL locale not available");
-diff --git a/glib/tests/fileutils.c b/glib/tests/fileutils.c
-index e79b46282..85bfcefa0 100644
---- a/glib/tests/fileutils.c
-+++ b/glib/tests/fileutils.c
-@@ -2114,6 +2114,18 @@ test_stdio_wrappers (void)
- #ifdef G_OS_UNIX
-   gboolean have_cap_dac_override;
- #endif
-+#ifdef G_PLATFORM_WASM
-+  gchar *old_cwd, *tmp_cwd;
-+
-+  /* Under Node the working directory is on WasmFS's Node backend, whose
-+   * chmod() changes only WasmFS's record of the mode, so a directory made
-+   * there stays shut to the host after chmod() opens it. Temporary
-+   * directories are WasmFS's own. */
-+  old_cwd = g_get_current_dir ();
-+  tmp_cwd = g_dir_make_tmp ("stdio-wrappers-XXXXXX", &error);
-+  g_assert_no_error (error);
-+  g_assert_no_errno (g_chdir (tmp_cwd));
-+#endif
- 
-   g_remove ("mkdir-test/test-create");
-   ret = g_rmdir ("mkdir-test");
-@@ -2207,6 +2219,13 @@ test_stdio_wrappers (void)
-   g_chdir ("..");
-   g_remove ("mkdir-test/test-create");
-   g_rmdir ("mkdir-test");
-+
-+#ifdef G_PLATFORM_WASM
-+  g_assert_no_errno (g_chdir (old_cwd));
-+  g_rmdir (tmp_cwd);
-+  g_free (tmp_cwd);
-+  g_free (old_cwd);
-+#endif
- }
- 
- /* Win32 does not support "wb+", but g_fopen() should automatically
 diff --git a/glib/tests/gdatetime.c b/glib/tests/gdatetime.c
 index d003a5445..fa1ce3e9f 100644
 --- a/glib/tests/gdatetime.c

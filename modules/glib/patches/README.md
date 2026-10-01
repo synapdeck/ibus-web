@@ -736,15 +736,14 @@ unsupported and aborts. Only tests use it, to wrap a libc function.
   `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its
   Python tests, which also expected `abort()` to end Node with `SIGABRT`
   rather than status 1.
-- **Workarounds for the platform**: test-printf's reader waits for its
-  writer to finish, since Emscripten's pipe reads never block; and
-  fileutils' `stdio-wrappers` test works in a temporary directory, since
-  `chmod()` on WasmFS's Node backend doesn't reach the host directory.
+- **Workaround for the platform**: test-printf's reader waits for its
+  writer to finish, since Emscripten's pipe reads never block.
 - **Left to the toolchain's Emscripten fixes**: mainloop's `nfds`,
   `unix-file-poll` and `unix-fd-priority`, closure's `fd` and pollable's
   `/dev/null` test poll empty files and devices; fileutils' `chdir()` and
   read-only-directory checks rely on directory search and write
-  permission; pollable's pseudo-terminal test fails to open one cleanly
+  permission, and its `stdio-wrappers` test on `chmod()` reaching the
+  host; pollable's pseudo-terminal test fails to open one cleanly
   and skips as upstream does ("Unable to open PTY").
 
 Tests and tools link with runtime assertions on, so threaded tests print
