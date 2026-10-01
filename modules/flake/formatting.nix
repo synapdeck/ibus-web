@@ -16,6 +16,19 @@
           enable = true;
           indent_size = 2;
         };
+        programs.prettier = {
+          enable = true;
+          includes = [
+            "*.ts"
+            "*.mts"
+            "*.cts"
+            "*.json"
+            "*.yaml"
+            "*.yml"
+          ];
+          # pnpm rewrites its lockfile in its own style on every install.
+          excludes = [ "pnpm-lock.yaml" ];
+        };
       };
     };
 }
