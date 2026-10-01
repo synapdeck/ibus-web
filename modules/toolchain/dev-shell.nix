@@ -69,9 +69,12 @@
           # through that LLVM's symlinks to a second path to the same headers,
           # and a header listed twice include_next's itself: <stdatomic.h>
           # then declares nothing.
-          for dir in ${emscripten.llvmEnv}/lib/clang/*; do
-            echo "    - \"-resource-dir=$dir\""
-          done
+          dirs=(${emscripten.llvmEnv}/lib/clang/*)
+          if [ ''${#dirs[@]} -ne 1 ] || [ ! -d "''${dirs[0]}" ]; then
+            echo "expected one resource directory, found: ''${dirs[*]}" >&2
+            exit 1
+          fi
+          echo "    - \"-resource-dir=''${dirs[0]}\""
           modules=""
           for dir in ''${PKG_CONFIG_PATH//:/ }; do
             for pc in "$dir"/*.pc; do
