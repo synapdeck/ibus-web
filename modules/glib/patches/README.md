@@ -82,7 +82,10 @@ full 0001 shows no differences), and the series applies there with
 ### Fluendo's commits
 
 Fluendo's branch starts from the same Wolthuizen series (on 2.76.0). Each of
-its own commits was checked against the rebased tree:
+its own commits was checked against the rebased tree. The main-context work
+is Jorge Zapata's (`75de668d3690`, `4c360061dda3`) and Fabian Orccon's
+(`990ffd85fe41`); none of their lines remain, but 0013 follows the path they
+opened, and it is credited here:
 
 | Commit | Decision | Reason |
 |---|---|---|
@@ -725,11 +728,13 @@ on WebAssembly, where it is built without `HAVE_RTLD_NEXT`.
 **A race on every platform**: asyncqueue's threads test pushed its items
 as soon as it had created its ten consumers and expected each to get
 some. Under load a pthread can start 200–560 ms after it is created, once
-the queue has drained (about one loaded run in five failed
+the queue has drained (about one run in four or five under the suite's
+parallel load, 23 in 100 run alone at 32-way concurrency, failed
 `sums_i > 0`), so the test waits until every consumer is running.
 
 **Workarounds for the platform**: spawn-singlethread and test-printf open
-their pipe with `pipe()` instead of `g_unix_open_pipe()`, and
+their pipe with `pipe()` instead of `g_unix_open_pipe()` (written before
+0012 built `glib-unix.c`; now unnecessary, see the plan's follow-ups), and
 test-printf's reader waits for its writer to finish, since Emscripten's
 pipe reads never block.
 
