@@ -268,6 +268,86 @@ the mismatch so the engine needs no patch.
 - Review the series' GSettings changes (`gsettings.c`,
   `gdelayedsettingsbackend.c`) before building the settings bridge on them.
 
+#### 5.1.4 Platform backends
+
+Where Emscripten's libc or GLib's WebAssembly build stubs a facility that the
+browser (and Node, for tests) provides, `pkgsWasm.glib` gets a
+WebAssembly-only backend that reaches the JavaScript API through `EM_JS`,
+instead of carrying data or accepting the stub. Time zones already work this
+way (`Intl`). The rest land with the first milestone whose engine needs them;
+each moves the GLib subtests it fixes from platform-difference skips into
+`must_pass`. In order of value to engines:
+
+- **Language and locale.** `g_get_language_names()` and the default locale
+  from `navigator.languages`: musl's locales exist in name only, and this
+  decides the language an engine's own messages use.
+- **Collation.** `g_utf8_collate()` and `g_utf8_collate_key()` through
+  `Intl.Collator`, for engines that sort candidates or dictionary entries.
+- **Localized dates and times.** The locale-dependent parts of
+  `g_date_time_format()` (`%c`, `%x`, `%X`, month and weekday names) through
+  `Intl.DateTimeFormat`, for engines that offer dates as conversions.
+  Era-based formats (`%Ec`, `%EC`, `%Ex`, `%Ey`, `%EY`) need
+  `nl_langinfo(ERA)`, which musl leaves empty, so GLib's tests skip them
+  today. Rather than synthesizing era tables for GLib to parse, GLib's era
+  formatting asks `Intl` directly for the date at hand: the locale's calendar
+  (`japanese`, `buddhist`, `roc`) gives the era name and era-relative year
+  through `formatToParts`, with no table and no range limit. Japanese engines
+  need this for imperial-era years. (Time zones go the other way, as data:
+  GTimeZone's API hands out stable interval indices, so it needs the whole
+  transition table up front, and TZif is a format GLib keeps parsing across
+  releases.)
+- **Legacy charsets.** Decoding in `g_convert()` and `g_iconv()` through
+  `TextDecoder` (EUC-JP, Shift_JIS, GBK, Big5 and the rest), for dictionaries
+  stored in them. Encoding stays limited: `TextEncoder` only writes UTF-8.
+- **File monitoring.** A `GFileMonitor` backend that watches WasmFS itself,
+  since every write to the Worker's files goes through it, for engines that
+  reload user dictionaries or configuration when they change. Changes made to
+  OPFS from another tab need `FileSystemObserver` or a message from that tab.
+- **Network state.** `GNetworkMonitor` from `navigator.onLine` and its events.
+- **User and host.** `g_get_user_name()`, the home directory and the host name
+  for a synthesized WebAssembly user rather than the `getpwuid_r` stub.
+- **Memory.** Browsers expose no low-memory events; `navigator.deviceMemory`
+  at most. Only if an engine needs it.
+
+Node can also run subprocesses through `child_process`, which would let
+`g_test_trap_subprocess()` and the spawning subtests run in the test harness.
+That is test coverage of code the runtime never runs, so it is optional.
+Sockets, DNS, GDBus, application information and Unix signals have no browser
+equivalent an input method needs and stay unsupported.
+
+**Native replacements (measure first).** Some facilities work today but have
+a native browser equivalent that could be faster or smaller. Each crossing
+between WebAssembly and JavaScript copies the string (UTF-8 in linear memory,
+UTF-16 in JavaScript), so only whole-string operations are candidates;
+anything called per character stays in WebAssembly. The runtime links with
+`-sMAIN_MODULE=2`, which already drops GLib code nothing references, so these
+pay off only for code engines reach. The runtime milestone measures a size
+breakdown of the linked runtime (per function and data segment) and the cost
+of the calls engines make before any of them is built.
+
+- **Unicode normalization and case mapping.** `g_utf8_normalize()` through
+  `String.prototype.normalize()`, and locale-independent case mapping and
+  casefolding through `toLowerCase()`/`toUpperCase()`, dropping GLib's
+  decomposition and composition tables. Likely worth it. Per-character
+  property lookups (`g_unichar_type()` and the like) keep GLib's tables.
+- **GRegex through `RegExp`.** PCRE2 is a few hundred KB and the browser's
+  regular expressions are native and JIT-compiled, but GRegex promises PCRE
+  syntax; possessive quantifiers, recursion, `\K` and callouts have no
+  ECMAScript equivalent. Decided by an audit of the patterns the target
+  engines use: route patterns that translate faithfully to `RegExp` with
+  PCRE2 as the fallback (time, not size), or drop PCRE2 if no engine needs
+  PCRE-only features (size).
+- **Legacy-charset tables.** The `TextDecoder` backend above also removes the
+  conversion tables from the build.
+- **ICU.** If an engine depends on ICU (for example through Boost.Locale),
+  a shim over `Intl` could replace ICU's roughly 30 MB of data. Checked when
+  each engine is planned; not built otherwise.
+
+`SubtleCrypto` and `CompressionStream` are asynchronous, so they cannot back
+`GChecksum`, `GHmac` or GIO's zlib converters; the allocator, math and hash
+tables already run at native speed in WebAssembly; `DOMParser`, which could
+replace libxml2, is unavailable in Workers.
+
 ### 5.2 `libibus-web`
 
 A new C implementation of the part of the `libibus` API that engines use,
