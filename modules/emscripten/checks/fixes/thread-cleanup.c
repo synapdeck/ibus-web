@@ -11,7 +11,6 @@
 #include <limits.h>
 #include <malloc.h>
 #include <pthread.h>
-#include <stdatomic.h>
 #include <stdio.h>
 
 #define ROUNDS 8
@@ -26,10 +25,10 @@ EM_JS(int, worker_count, (void), {
 });
 
 static pthread_attr_t attr;
-static _Atomic int finished;
+static int finished;
 
 static void *finish(void *arg) {
-  atomic_fetch_add(&finished, 1);
+  __atomic_fetch_add(&finished, 1, __ATOMIC_SEQ_CST);
   emscripten_futex_wake(&finished, INT_MAX);
   return NULL;
 }
@@ -52,13 +51,14 @@ static void block_for(double ms) {
 static size_t in_use(void) { return mallinfo().uordblks; }
 
 static void run_round(void) {
-  int target = atomic_load(&finished) + THREADS + THREADS / 2;
+  int target =
+      __atomic_load_n(&finished, __ATOMIC_SEQ_CST) + THREADS + THREADS / 2;
   for (int i = 0; i < THREADS; i++) {
     pthread_t thread;
     pthread_create(&thread, &attr, i % 2 ? join_child : finish, NULL);
     pthread_detach(thread);
   }
-  for (int now; (now = atomic_load(&finished)) < target;)
+  for (int now; (now = __atomic_load_n(&finished, __ATOMIC_SEQ_CST)) < target;)
     emscripten_futex_wait(&finished, now, 1000);
 }
 
