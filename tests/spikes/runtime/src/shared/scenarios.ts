@@ -34,6 +34,8 @@ const opNames = [
   "timeout",
   "timeoutResult",
   "crashThread",
+  "writeFile",
+  "readFile",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
@@ -61,6 +63,9 @@ export interface Client {
   // The host's report of why it crashed, or null if none came within
   // timeoutMs.
   crashReport(timeoutMs: number): Promise<string | null>;
+  // Calls whose reply came only after the client stopped waiting the way it
+  // must, and why; each fails the scenario that made it.
+  lateReplies?: readonly string[];
 }
 
 export interface Env {
@@ -77,6 +82,10 @@ export interface Env {
   fsyncPaths: readonly string[];
   // How long a result may stay pending before the scenario gives up on it.
   pendingLimitMs: number;
+  // Storage that outlives the runtime, mounted at dir, and how the harness
+  // reads a file there without the runtime: its contents, or null if there
+  // is no such file.
+  persistent?: { dir: string; read(name: string): Promise<string | null> };
 }
 
 export type Measurement =
@@ -475,6 +484,84 @@ const exceptions: Scenario = {
   },
 };
 
+// A read-file reply: the file's size, then its contents.
+const replyFile = (
+  { ret, bytes }: Reply,
+  env: Env,
+): { status: number; text?: string } => {
+  if (ret < 0) return { status: ret };
+  const status = replyInt32({ ret: 4, bytes: bytes.subarray(0, 4) });
+  return status < 0
+    ? { status }
+    : { status, text: env.decode(bytes.subarray(4)) };
+};
+
+// Runs after promise-proxied-fsync, whose file on the mount it reads back.
+export const opfs: Scenario = {
+  name: "opfs",
+  criterion:
+    "on WasmFS's OPFS backend: a file absent at first (the storage is fresh) is written and " +
+    "fsync()ed on the host's thread, and reads back the same through the runtime and through " +
+    "the page's OPFS API; promise-proxied-fsync's file reads back through the OPFS API too",
+  async run(client, env) {
+    const { persistent } = env;
+    if (persistent === undefined)
+      throw new Error("the harness mounts no persistent storage");
+    const name = "opfs-check.txt";
+    const path = `${persistent.dir}/${name}`;
+    const contents = `written to ${path} by the runtime`;
+    const read = async () =>
+      replyFile(await client.call(env.ops.readFile, env.utf8(path)), env);
+
+    // The backend's own thread holds one of them for good.
+    const { idleWorkers } = await stats(client, env);
+    const before = await read();
+    const startedAt = env.now();
+    const written = await call32(
+      client,
+      env.ops.writeFile,
+      env.utf8(`${path}\0${contents}`),
+    );
+    const writeMs = env.now() - startedAt;
+    const readAt = env.now();
+    const after = await read();
+    const readMs = env.now() - readAt;
+    const outside = await persistent.read(name);
+
+    const fsyncPath = env.fsyncPaths.find((file) =>
+      file.startsWith(`${persistent.dir}/`),
+    );
+    const fsyncFile =
+      fsyncPath === undefined
+        ? undefined
+        : await persistent.read(fsyncPath.slice(persistent.dir.length + 1));
+    const fsyncMatches = fsyncPath !== undefined && fsyncFile === fsyncPath;
+
+    const bytes = env.utf8(contents).length;
+    return {
+      pass:
+        before.status === -env.errno.ENOENT! &&
+        written === bytes &&
+        after.text === contents &&
+        outside === contents &&
+        fsyncMatches,
+      measurements: {
+        idleWorkers: `${idleWorkers} of a pool of ${env.poolSize}`,
+        before: before.status,
+        written,
+        writeAndFsyncMs: round(writeMs, 2),
+        readBack:
+          after.text === contents ? "same" : (after.text ?? after.status),
+        readMs: round(readMs, 2),
+        throughOpfsApi: outside === contents ? "same" : (outside ?? "absent"),
+        fsyncFileThroughOpfsApi: fsyncMatches
+          ? "same"
+          : (fsyncFile ?? "absent"),
+      },
+    };
+  },
+};
+
 // Takes the host down, so it runs on a host of its own.
 export const threadCrash: Scenario = {
   name: "thread-crash",
@@ -533,11 +620,20 @@ export const runScenarios = async (
 ): Promise<Result[]> => {
   const results: Result[] = [];
   for (const scenario of selected) {
+    const lateBefore = client.lateReplies?.length ?? 0;
     try {
+      const outcome = await scenario.run(client, env);
+      const late = client.lateReplies?.slice(lateBefore) ?? [];
       results.push({
         name: scenario.name,
         criterion: scenario.criterion,
-        ...(await scenario.run(client, env)),
+        ...outcome,
+        ...(late.length === 0
+          ? {}
+          : {
+              pass: false,
+              measurements: { ...outcome.measurements, lateReplies: late },
+            }),
       });
     } catch (error) {
       results.push({

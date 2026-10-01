@@ -17,19 +17,16 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { blockingClient } from "../shared/client.ts";
 import {
-  controlViews,
   createControl,
-  encodeRequest,
-  postRequest,
-  State,
-  takeReply,
-  Word,
   type BuildConstants,
+  type HostFeatures,
   type HostInit,
   type HostMessage,
   type WaitMode,
 } from "../shared/control.ts";
+import { reportLines } from "../shared/report.ts";
 import {
   opsFrom,
   runScenarios,
@@ -77,51 +74,10 @@ interface Host {
   worker: BrowserWorker;
   client: Client;
   startupMs: number;
+  features: HostFeatures;
   // Messages after "ready", such as a crash report.
   messages: HostMessage[];
 }
-
-// Blocks this thread until the host replies, as the page's synchronous
-// keystroke path would spin.
-const syncClient = (
-  control: SharedArrayBuffer,
-  messages: readonly HostMessage[],
-): Client => {
-  const views = controlViews(control);
-  return {
-    call: (opcode, payload) => {
-      if (Atomics.load(views.words, Word.state) === State.crashed) {
-        return Promise.reject(new Error("the host has crashed"));
-      }
-      postRequest(views, encodeRequest(opcode, payload));
-      const deadline = performance.now() + REPLY_TIMEOUT_MS;
-      for (;;) {
-        const state = Atomics.load(views.words, Word.state);
-        if (state === State.reply) return Promise.resolve(takeReply(views));
-        if (state === State.crashed)
-          return Promise.reject(
-            new Error(`the host crashed on opcode ${opcode}`),
-          );
-        const left = deadline - performance.now();
-        if (left <= 0)
-          return Promise.reject(
-            new Error(`no reply to opcode ${opcode} in ${REPLY_TIMEOUT_MS} ms`),
-          );
-        Atomics.wait(views.words, Word.state, state, left);
-      }
-    },
-    // The host's messages arrive only while this thread's event loop runs.
-    crashReport: async (timeoutMs) => {
-      const deadline = performance.now() + timeoutMs;
-      for (;;) {
-        const crash = messages.find(({ type }) => type === "crashed");
-        if (crash !== undefined && "message" in crash) return crash.message;
-        if (performance.now() >= deadline) return null;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-    },
-  };
-};
 
 const startHost = async (
   wait: WaitMode,
@@ -133,33 +89,43 @@ const startHost = async (
   );
   const messages: HostMessage[] = [];
   let started = false;
-  const ready = new Promise<number>((resolve, reject) => {
-    worker.onmessage = ({ data }) => {
-      const message = data as HostMessage;
-      if (message.type === "ready") {
-        started = true;
-        resolve(message.startupMs);
-      } else if (message.type === "error")
-        reject(new Error(`host: ${message.message}`));
-      else messages.push(message);
-    };
-    worker.onerror = ({ message }) => {
-      if (started) messages.push({ type: "error", message });
-      else reject(new Error(`host: ${message}`));
-    };
-  });
+  const ready = new Promise<{ startupMs: number; features: HostFeatures }>(
+    (resolve, reject) => {
+      worker.onmessage = ({ data }) => {
+        const message = data as HostMessage;
+        if (message.type === "ready") {
+          started = true;
+          resolve(message);
+        } else if (message.type === "error")
+          reject(new Error(`host: ${message.message}`));
+        else messages.push(message);
+      };
+      worker.onerror = ({ message }) => {
+        if (started) messages.push({ type: "error", message });
+        else reject(new Error(`host: ${message}`));
+      };
+    },
+  );
   const init: HostInit<object> = { ...base, control, wait };
   worker.postMessage(init);
+  const { startupMs, features } = await ready;
   return {
     worker,
-    client: syncClient(control, messages),
-    startupMs: await ready,
+    // Blocks this thread until the host replies, as the page's synchronous
+    // keystroke path would spin.
+    client: blockingClient(control, messages, {
+      now: () => performance.now(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      block: (words, index, value, ms) => {
+        Atomics.wait(words, index, value, ms);
+      },
+      replyTimeoutMs: REPLY_TIMEOUT_MS,
+    }),
+    startupMs,
+    features,
     messages,
   };
 };
-
-const format = (value: unknown): string =>
-  typeof value === "string" ? value : JSON.stringify(value);
 
 // Waits a moment first: the host's own messages, such as a crash report,
 // arrive only once this thread's event loop runs.
@@ -169,20 +135,9 @@ const report = async (
   results: readonly Result[],
 ): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, 100));
-  console.log(`== ${label} (startup ${host.startupMs.toFixed(0)} ms)`);
-  for (const { name, pass, criterion, measurements, error } of results) {
-    console.log(`${pass ? "PASS" : "FAIL"} ${name}: ${criterion}`);
-    for (const [key, value] of Object.entries(measurements))
-      console.log(`    ${key}: ${format(value)}`);
-    if (error !== undefined) console.log(`    error: ${error}`);
-  }
-  for (const message of host.messages)
-    console.log(
-      `    host ${message.type}: ${"message" in message ? message.message : ""}`,
-    );
-  console.log(
-    `RESULTS ${JSON.stringify({ label, startupMs: host.startupMs, results })}`,
-  );
+  const lines = reportLines(label, host.startupMs, results, host.messages);
+  lines.splice(1, 0, `    host features: ${JSON.stringify(host.features)}`);
+  for (const line of lines) console.log(line);
 };
 
 const errno = JSON.parse(await readFile(args.errno, "utf8")) as Record<

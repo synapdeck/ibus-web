@@ -86,7 +86,10 @@ export type WaitMode = "runtime" | "runtime-async" | "control";
 export type Storage =
   | { kind: "memory" }
   // A WasmFS Node backend over hostPath, mounted at mountPath.
-  | { kind: "node"; hostPath: string; mountPath: string };
+  | { kind: "node"; hostPath: string; mountPath: string }
+  // WasmFS's OPFS backend, the origin's whole private file system, mounted
+  // at mountPath.
+  | { kind: "opfs"; mountPath: string };
 
 export interface SideModule {
   name: string;
@@ -105,8 +108,16 @@ export interface HostInit<Wasm = unknown> {
   constants: BuildConstants;
 }
 
+// A spike instrument: what the host's Worker offers that the host or
+// Emscripten's runtime relies on, and the step its performance.now() takes.
+export interface HostFeatures {
+  atomicsWaitAsync: boolean;
+  syncAccessHandle: boolean;
+  clockStepUs: number;
+}
+
 export type HostMessage =
-  | { type: "ready"; startupMs: number }
+  | { type: "ready"; startupMs: number; features: HostFeatures }
   | { type: "error"; message: string }
   | { type: "crashed"; message: string };
 

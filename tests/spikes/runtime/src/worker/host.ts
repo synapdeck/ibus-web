@@ -7,6 +7,7 @@
 // with the next GLib deadline as the timeout. Only this Worker, and the
 // relay it starts, touch the runtime's memory.
 
+import { clockStepUs } from "../shared/client.ts";
 import {
   controlViews,
   HostOp,
@@ -18,6 +19,7 @@ import {
   Word,
   type BuildConstants,
   type ControlViews,
+  type HostFeatures,
   type HostInit,
   type HostMessage,
   type HostStats,
@@ -40,6 +42,7 @@ interface Runtime {
   _close(fd: number): number;
   _mkdir(path: number, mode: number): number;
   _wasmfs_create_node_backend(root: number): number;
+  _wasmfs_create_opfs_backend(): number;
   _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
   _ibusweb_pump(): number;
@@ -84,10 +87,24 @@ const waitAsync = (
 
 const post = (message: HostMessage): void => self.postMessage(message);
 
-const describe = (error: unknown): string =>
-  error instanceof Error
-    ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
-    : String(error);
+const features = (): HostFeatures => ({
+  atomicsWaitAsync:
+    typeof (Atomics as { waitAsync?: unknown }).waitAsync === "function",
+  syncAccessHandle:
+    typeof FileSystemFileHandle === "function" &&
+    "createSyncAccessHandle" in FileSystemFileHandle.prototype,
+  clockStepUs: clockStepUs(() => performance.now()),
+});
+
+// In a browser, a thread's uncaught error reaches this thread as the
+// ErrorEvent its Worker fired, which Emscripten rethrows.
+const describe = (error: unknown): string => {
+  if (error instanceof Error)
+    return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
+  if (typeof ErrorEvent === "function" && error instanceof ErrorEvent)
+    return `${error.message} (${error.filename}:${error.lineno})`;
+  return String(error);
+};
 
 const encoder = new TextEncoder();
 
@@ -136,23 +153,30 @@ const check = (what: string, ret: number): void => {
 };
 
 const mount = (heap: Heap, storage: Storage): void => {
-  switch (storage.kind) {
-    case "memory":
-      return;
-    case "node": {
-      const backend = heap.withString(storage.hostPath, (ptr) =>
-        heap.rt._wasmfs_create_node_backend(ptr),
-      );
-      if (backend === 0)
-        throw new Error(`no Node backend over ${storage.hostPath}`);
-      check(
-        `mount ${storage.mountPath}`,
-        heap.withString(storage.mountPath, (ptr) =>
-          heap.rt._wasmfs_create_directory(ptr, 0o777, backend),
-        ),
-      );
-    }
-  }
+  if (storage.kind === "memory") return;
+  const { rt } = heap;
+  // Its parents, in memory; one that exists already fails harmlessly.
+  const parts = storage.mountPath.split("/").filter((part) => part !== "");
+  for (let i = 1; i < parts.length; i++)
+    heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) =>
+      rt._mkdir(ptr, 0o755),
+    );
+  // The OPFS backend starts a thread of its own, from the pool, that runs
+  // its asynchronous calls for good.
+  const backend =
+    storage.kind === "node"
+      ? heap.withString(storage.hostPath, (ptr) =>
+          rt._wasmfs_create_node_backend(ptr),
+        )
+      : rt._wasmfs_create_opfs_backend();
+  if (backend === 0)
+    throw new Error(`no ${storage.kind} backend for ${storage.mountPath}`);
+  check(
+    `mount ${storage.mountPath}`,
+    heap.withString(storage.mountPath, (ptr) =>
+      rt._wasmfs_create_directory(ptr, 0o777, backend),
+    ),
+  );
 };
 
 // Writes each module through the runtime's own libc, so it lands in its file
@@ -405,7 +429,8 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
     mallinfo: heap.alloc(constants.mallinfo.bytes),
   };
   const counters: Counters = { requests: 0, requestsWhileAsleep: 0 };
-  post({ type: "ready", startupMs: performance.now() - startedAt });
+  const startupMs = performance.now() - startedAt;
+  post({ type: "ready", startupMs, features: features() });
 
   // Whether the last wait ended with its word changed, which is how a
   // request that arrives while the host sleeps wakes it. ibusweb_wait()

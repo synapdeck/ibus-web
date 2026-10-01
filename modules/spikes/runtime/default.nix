@@ -6,6 +6,7 @@
     { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) runtime toolchain typescript;
+      inherit (config.ibusWeb.testing) playwright;
       inherit (toolchain) pkgsWasm;
 
       sides =
@@ -78,6 +79,10 @@
       # Scenarios size their thread counts by the pool the runtime is linked
       # with.
       poolSize = builtins.head (builtins.match ".*-sPTHREAD_POOL_SIZE=([0-9]+).*" runtime.linkFlags);
+
+      # A browser run's own limits catch a host that stops answering; this
+      # catches a browser or harness that hangs outright.
+      browserTimeout = "timeout --kill-after=10 900";
     in
     {
       # The asserting runtime loads every spike side module and runs each
@@ -118,6 +123,42 @@
             run() (
               set -o pipefail
               ${runtime.nodeTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/run.js \
+                --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json \
+                --constants ${constants}/constants.json --pool ${poolSize} "$@" 2>&1 1>&3 3>&- |
+                sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
+            ) 3>&1
+            echo "# asserting runtime" > $out
+            run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
+            echo "# released runtime" >> $out
+            run --runtime ${runtime.ibusRuntime}/ibus-runtime.js --compare >> $out || { cat $out; exit 1; }
+            cat $out
+          '';
+
+      # The same host in headless Chromium and Firefox, through Playwright: a
+      # page served with cross-origin isolation starts it by URL and drives
+      # it over the control buffer, spinning for each reply. Besides Node's
+      # scenarios, a host with WasmFS's OPFS backend mounted runs the storage
+      # ones on it. As under Node, the asserting runtime, then the released
+      # one with the comparisons.
+      checks.runtime-spike-browser =
+        pkgs.runCommand "ibus-web-runtime-spike-browser"
+          (
+            {
+              nativeBuildInputs = [ typescript.nodejs ];
+              passthru = {
+                inherit constants sidesDir;
+                inherit (runtime) ibusRuntime ibusRuntimeAsserting nodeHarness;
+              };
+            }
+            // playwright.env
+          )
+          ''
+            ${playwright.setup}
+            # Browser console output goes to stderr, where the runtime's
+            # warning for the exceptions scenario's throw is marked expected.
+            run() (
+              set -o pipefail
+              ${browserTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/browser-run.js \
                 --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json \
                 --constants ${constants}/constants.json --pool ${poolSize} "$@" 2>&1 1>&3 3>&- |
                 sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2

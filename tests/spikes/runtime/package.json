@@ -10,5 +10,10 @@
     "@types/node": "^24.19.0",
     "playwright": "1.61.1",
     "typescript": "^7.0.2"
+  },
+  "ibusWeb": {
+    "assets": [
+      "src/page/index.html"
+    ]
   }
 }
