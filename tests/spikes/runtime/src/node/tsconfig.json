@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
-  "extends": "./tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     // Explicit, because the default for the target includes DOM.
     "lib": ["es2023"],
@@ -12,5 +12,5 @@
     // would let Node code use page globals.
     "skipLibCheck": true
   },
-  "include": ["src/node", "src/shared"]
+  "include": [".", "../shared"]
 }

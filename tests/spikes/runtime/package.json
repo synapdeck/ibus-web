@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.worker.json && tsc -p tsconfig.page.json && tsc -p tsconfig.node.json",
-    "typecheck": "tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.page.json && tsc --noEmit -p tsconfig.node.json"
+    "build": "status=0; for env in shared worker page node; do tsc -p src/$env || status=1; done; exit $status",
+    "typecheck": "status=0; for env in shared worker page node; do tsc --noEmit -p src/$env || status=1; done; exit $status"
   },
   "devDependencies": {
     "@types/node": "24.19.0",
