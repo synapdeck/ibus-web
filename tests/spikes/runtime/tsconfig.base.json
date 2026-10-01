@@ -1,0 +1,32 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Sources are split by the environment they run in, and each environment has
+// its own config, so no program sees another environment's globals:
+//
+//   src/worker/  tsconfig.worker.json, WebWorker globals. The Worker host runs
+//                in browser Workers and in Node's worker_threads, so it uses
+//                nothing Node-specific.
+//   src/page/    tsconfig.page.json, DOM globals.
+//   src/node/    tsconfig.node.json, Node globals: harnesses and the adapter
+//                that runs the Worker host in worker_threads.
+//   src/shared/  definitions that use no environment's globals. Every config
+//                includes it, so it type-checks under all three.
+//
+// An environment statically imports only its own directory and src/shared/.
+// Another environment's code is reached at run time by URL (a Worker script, a
+// dynamic import()), because a static import would type-check it under the
+// importer's globals. Every config emits to dist/ with the layout of src/.
+{
+  "compilerOptions": {
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "rootDir": "src",
+    "outDir": "dist"
+  }
+}

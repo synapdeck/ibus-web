@@ -2,6 +2,10 @@
   "name": "@ibus-web/spike-runtime",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.worker.json && tsc -p tsconfig.page.json && tsc -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.page.json && tsc --noEmit -p tsconfig.node.json"
+  },
   "devDependencies": {
     "@types/node": "24.19.0",
     "playwright": "1.61.1",

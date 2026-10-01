@@ -141,7 +141,7 @@
         workspace = mkWorkspace "ibus-web-typescript" {
           buildPhase = ''
             runHook preBuild
-            pnpm -r exec tsc -p .
+            pnpm -r run build
             runHook postBuild
           '';
           installPhase = ''
@@ -160,7 +160,7 @@
       checks.typescript = mkWorkspace "ibus-web-typescript-check" {
         buildPhase = ''
           runHook preBuild
-          pnpm -r exec tsc -p . --noEmit
+          pnpm -r run typecheck
           runHook postBuild
         '';
         installPhase = "touch $out";
