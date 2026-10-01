@@ -47,6 +47,8 @@
             grep -qx "dynamic DynamicThing 1 1" output.txt
             grep -qx "processors yes" output.txt
             grep -qx "timezone Europe/Berlin 3600 7200 1" output.txt
+            grep -qx "sydney 39600 36000 1" output.txt
+            grep -qx "timezone case Europe/Berlin" output.txt
             grep -qx "attributes 1 1" output.txt
             grep -qx "resource .txt" output.txt
             grep -qx "memory 1" output.txt

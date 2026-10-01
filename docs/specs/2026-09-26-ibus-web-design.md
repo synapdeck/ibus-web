@@ -249,7 +249,8 @@ the mismatch so the engine needs no patch.
   and sleeps in 10 ms slices, since Emscripten's `poll()` can't wait.
 - `GTimeZone` takes IANA zones from JavaScript's `Intl` API, not from
   zoneinfo files, so the runtime ships no tzdata: GLib's TZif parser gets
-  data synthesized from `Intl.DateTimeFormat` for 1800–2100, and the
+  data synthesized from `Intl.DateTimeFormat` for 1800–2100, continued
+  past 2100 by a POSIX rule where the zone's pattern is one, and the
   local zone is the one `Intl` resolves unless `TZ` is set. Abbreviations
   are `Intl`'s short English names where it has them (`PST`), else
   numeric (`+0100`).

@@ -1,4 +1,4 @@
-From 2ef4b30e1db67cc20ba8b91b431a5e6685ee16c6 Mon Sep 17 00:00:00 2001
+From 15f4905f7c96e7e56f7035f22acce6f977aeac66 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:58:41 -0700
 Subject: [PATCH 27/31] gtimezone: Take zones from Intl on WebAssembly
@@ -12,11 +12,16 @@ the JavaScript engine already has: Intl knows every IANA zone. On
 WebAssembly the TZif data for an identifier is now synthesized from Intl
 and handed to GLib's usual TZif parser, and the default zone is the one
 Intl resolves for the page or process. TZ is still honoured first. An
-identifier Intl doesn't know fails as a missing file does.
+identifier Intl doesn't know fails as a missing file does. Intl accepts
+names in any case; such a name is known by Intl's spelling, so
+"europe/berlin" is the zone "Europe/Berlin". Aliases keep the name they
+were asked for, since Intl maps them to other zones' names.
 
-The data covers 1800 to 2100: offsets are sampled weekly and each change
-is narrowed down to the second, so changes less than a week apart that
-cancel out are missed, and a zone keeps its 2100 offset afterwards. A
+Transitions are listed from 1800 to 2100: offsets are sampled weekly and
+each change is narrowed down to the second, so changes less than a week
+apart that cancel out are missed. After 2100 a POSIX TZ footer repeats
+the 2090s' pattern when it is a fixed offset or a yearly
+month-week-weekday rule, and the zone keeps its last offset otherwise. A
 period counts as daylight saving time when its offset is above the
 lowest offset in both the year before and the year after it began.
 Abbreviations are Intl's short English names where alphabetic ("PST"),
@@ -25,11 +30,11 @@ milliseconds, so the data is cached per identifier for good.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- glib/gtimezone.c | 228 +++++++++++++++++++++++++++++++++++++++++++++--
- 1 file changed, 221 insertions(+), 7 deletions(-)
+ glib/gtimezone.c | 332 +++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 324 insertions(+), 8 deletions(-)
 
 diff --git a/glib/gtimezone.c b/glib/gtimezone.c
-index adb686296..623cdb658 100644
+index adb686296..2db323233 100644
 --- a/glib/gtimezone.c
 +++ b/glib/gtimezone.c
 @@ -50,6 +50,10 @@
@@ -62,7 +67,7 @@ index adb686296..623cdb658 100644
  #define MAX_SYMLINKS 20
  
  /*
-@@ -686,6 +691,217 @@ out:
+@@ -686,6 +691,305 @@ out:
    return zoneinfo;
  }
  
@@ -70,16 +75,24 @@ index adb686296..623cdb658 100644
 +
 +/* A page has no zoneinfo files, but JavaScript's Intl API knows every IANA
 + * zone, so the data a TZif file would hold is synthesized from it and handed
-+ * to the usual TZif parser.  Offsets are read to the second from the local
-+ * time Intl formats for an instant, sampled weekly from 1800, when every
-+ * zone was still on local mean time, to 2100, with each change narrowed down
-+ * to the second; a zone keeps its 2100 offset after that, and two changes
-+ * less than a week apart that cancel out are missed.  A period counts as
-+ * daylight saving time when its offset is above the lowest offset in both
-+ * the year before and the year after it began, so that a zone moving to a
-+ * new standard offset for good isn't taken for one in permanent summer
-+ * time.  Abbreviations are Intl's short English names where they are
-+ * alphabetic ("PST"), which it only has for some zones and only since
++ * to the usual TZif parser.
++ *
++ * Offsets are read to the second from the local time Intl formats for an
++ * instant, sampled weekly from 1800, when every zone was still on local mean
++ * time, to 2101, with each change narrowed down to the second; two changes
++ * less than a week apart that cancel out are missed.  Transitions up to 2100
++ * are listed.  After that the footer carries on with the 2090s' pattern as a
++ * POSIX TZ rule, when it is one: a fixed offset, or one change to daylight
++ * saving time and one back each year on a month-week-weekday date.  Zones
++ * whose pattern isn't (Morocco's, which follow Ramadan) keep their last
++ * offset instead.
++ *
++ * A period counts as daylight saving time when its offset is above the
++ * lowest offset in both the year before and the year after it began, so
++ * that a zone moving to a new standard offset for good isn't taken for one
++ * in permanent summer time; war time that lasted over a year counts as
++ * standard time.  Abbreviations are Intl's short English names where they
++ * are alphabetic ("PST"), which it only has for some zones and only since
 + * 1970; elsewhere they are numeric ("+0100"), or "UTC" for a zero offset,
 + * where tzdata often has a name ("CET") or "LMT". */
 +EM_JS_DEPS (gtimezone, "$UTF8ToString,$stringToUTF8,$lengthBytesUTF8");
@@ -88,122 +101,166 @@ index adb686296..623cdb658 100644
 + * the data for zone_info_take_intl() on the same thread: Emscripten can't
 + * make malloc() callable from here when only JavaScript code needs it. */
 +EM_JS (size_t, zone_info_from_intl, (const char *identifier), {
-+  var clock;
-+  var names;
++  const timeZone = UTF8ToString(identifier);
++  let clock;
++  let names;
 +  try {
-+    var id = UTF8ToString(identifier);
 +    clock = new Intl.DateTimeFormat("en-US", {
-+      timeZone: id, hourCycle: "h23", year: "numeric", month: "numeric",
-+      day: "numeric", hour: "numeric", minute: "numeric", second: "numeric"
++      timeZone, hourCycle: "h23", year: "numeric", month: "numeric",
++      day: "numeric", hour: "numeric", minute: "numeric", second: "numeric",
 +    });
-+    names = new Intl.DateTimeFormat("en-US", {timeZone: id, timeZoneName: "short"});
-+  } catch (e) {
++    names = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "short" });
++  } catch {
 +    return 0;
 +  }
-+  var offsetAt = function (t) {
-+    var p = {};
-+    clock.formatToParts(t * 1000).forEach(function (part) { p[part.type] = part.value; });
-+    return Date.UTC(+p.year, p.month - 1, +p.day, +p.hour, +p.minute, +p.second) / 1000 - t;
-+  };
-+  var two = function (n) { return (n < 10 ? "0" : "") + n; };
-+  var nameAt = function (t, offset) {
-+    var name = names.formatToParts(t * 1000).find(function (part) { return part.type == "timeZoneName"; });
-+    if (name && /^[A-Za-z]+$/.test(name.value))
-+      return name.value;
-+    if (offset == 0)
-+      return "UTC";
-+    var a = Math.abs(offset);
-+    var s = (offset < 0 ? "-" : "+") + two(Math.floor(a / 3600)) + two(Math.floor(a / 60) % 60);
-+    return a % 60 ? s + two(a % 60) : s;
-+  };
 +
-+  var step = 7 * 86400;
-+  var year = 365 * 86400;
-+  var first = Date.UTC(1800, 0, 1) / 1000;
-+  var last = Date.UTC(2100, 0, 1) / 1000;
-+  var times = [first];
-+  var offsets = [offsetAt(first)];
-+  for (var t = first + step; t <= last; t += step) {
-+    var low = t - step;
-+    var offset = offsets[offsets.length - 1];
-+    while (offsetAt(t) != offset) {
-+      var high = t;
++  const offsetAt = (t) => {
++    const p = Object.fromEntries(clock.formatToParts(t * 1000).map(({ type, value }) => [type, value]));
++    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) / 1000 - t;
++  };
++  const two = (n) => String(n).padStart(2, "0");
++  const nameAt = (t, offset) => {
++    const name = names.formatToParts(t * 1000).find(({ type }) => type === "timeZoneName")?.value;
++    if (name && /^[A-Za-z]+$/.test(name))
++      return name;
++    if (offset === 0)
++      return "UTC";
++    const a = Math.abs(offset);
++    const hhmm = `${offset < 0 ? "-" : "+"}${two(Math.floor(a / 3600))}${two(Math.floor(a / 60) % 60)}`;
++    return a % 60 ? hhmm + two(a % 60) : hhmm;
++  };
++  const yearStart = (y) => Date.UTC(y, 0, 1) / 1000;
++
++  const step = 7 * 86400;
++  const year = 365 * 86400;
++  const listed = yearStart(2100);
++  const periods = [{ start: yearStart(1800), offset: offsetAt(yearStart(1800)) }];
++  for (let t = periods[0].start + step; t <= yearStart(2101); t += step) {
++    let low = t - step;
++    let offset = periods.at(-1).offset;
++    while (offsetAt(t) !== offset) {
++      let high = t;
 +      while (high - low > 1) {
-+        var mid = Math.floor((low + high) / 2);
-+        if (offsetAt(mid) == offset)
++        const mid = Math.floor((low + high) / 2);
++        if (offsetAt(mid) === offset)
 +          low = mid;
 +        else
 +          high = mid;
 +      }
 +      offset = offsetAt(high);
-+      times.push(high);
-+      offsets.push(offset);
++      periods.push({ start: high, offset });
 +      low = high;
 +    }
 +  }
 +
-+  var lowest = function (from, to) {
-+    var m = Infinity;
-+    for (var i = 0; i < times.length; i++) {
-+      var end = i + 1 < times.length ? times[i + 1] : Infinity;
-+      if (times[i] < to && end > from)
-+        m = Math.min(m, offsets[i]);
-+    }
-+    return m;
-+  };
-+  var types = [];
-+  var typeIndex = [];
-+  var chars = "";
-+  for (var i = 0; i < times.length; i++) {
-+    var dst = i > 0 && offsets[i] > lowest(times[i] - year, times[i]) &&
-+              offsets[i] > lowest(times[i], times[i] + year) ? 1 : 0;
-+    var abbrev = nameAt(times[i], offsets[i]);
-+    var key = offsets[i] + "/" + dst + "/" + abbrev;
-+    var index = types.findIndex(function (type) { return type.key == key; });
-+    if (index < 0) {
-+      var at = chars.indexOf(abbrev + "\0");
++  const lowest = (from, to) => Math.min(...periods
++    .filter(({ start }, i) => start < to && (periods[i + 1]?.start ?? Infinity) > from)
++    .map(({ offset }) => offset));
++  const types = [];
++  let chars = "";
++  for (const [i, period] of periods.entries()) {
++    if (period.start >= listed)
++      break;
++    const { start, offset } = period;
++    const dst = i > 0 && offset > lowest(start - year, start) && offset > lowest(start, start + year) ? 1 : 0;
++    const abbrev = nameAt(start, offset);
++    let type = types.find((other) => other.offset === offset && other.dst === dst && other.abbrev === abbrev);
++    if (!type) {
++      let at = chars.indexOf(abbrev + "\0");
 +      if (at < 0) {
 +        at = chars.length;
 +        chars += abbrev + "\0";
 +      }
-+      index = types.length;
-+      types.push({key: key, offset: offsets[i], dst: dst, at: at});
++      type = { index: types.length, offset, dst, abbrev, at };
++      types.push(type);
 +    }
-+    typeIndex.push(index);
++    period.type = type;
++  }
++  const emitted = periods.filter(({ type }) => type);
++  /* TZif indexes types and abbreviations with single bytes. */
++  if (types.length > 256 || chars.length > 255)
++    return 0;
++
++  /* POSIX offsets and times: [-]h[:mm[:ss]], offsets counted west. */
++  const clockTime = (s) => {
++    const a = Math.abs(s);
++    const minutes = a % 3600 ? `:${two(Math.floor(a / 60) % 60)}${a % 60 ? `:${two(a % 60)}` : ""}` : "";
++    return `${s < 0 ? "-" : ""}${Math.floor(a / 3600)}${minutes}`;
++  };
++  const zoneName = ({ abbrev, offset }) => `<${abbrev}>${clockTime(-offset)}`;
++  /* The month-week-weekday date and the local time before a change. */
++  const ruleFor = (i) => {
++    const from = emitted[i - 1].type;
++    const local = new Date((emitted[i].start + from.offset) * 1000);
++    const day = local.getUTCDate();
++    const days = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth() + 1, 0)).getUTCDate();
++    return {
++      month: local.getUTCMonth() + 1,
++      week: day + 7 > days ? 5 : Math.ceil(day / 7),
++      weekday: local.getUTCDay(),
++      time: local.getUTCHours() * 3600 + local.getUTCMinutes() * 60 + local.getUTCSeconds(),
++      from,
++      to: emitted[i].type,
++    };
++  };
++  const happens = ({ month, week, weekday, time, from }, y) => {
++    const first = new Date(Date.UTC(y, month - 1, 1)).getUTCDay();
++    let day = 1 + (weekday - first + 7) % 7 + 7 * (week - 1);
++    if (day > new Date(Date.UTC(y, month, 0)).getUTCDate())
++      day -= 7;
++    return Date.UTC(y, month - 1, day) / 1000 + time - from.offset;
++  };
++  const mwd = ({ month, week, weekday, time }) => `,M${month}.${week}.${weekday}/${clockTime(time)}`;
++  const decade = [...emitted.keys()].filter((i) => i > 0 && emitted[i].start >= yearStart(2090));
++  let footer = "";
++  if (decade.length === 0) {
++    footer = zoneName(emitted.at(-1).type);
++  } else if (decade.length === 20) {
++    const rules = [ruleFor(decade[0]), ruleFor(decade[1])];
++    const [start, end] = rules[0].to.dst ? rules : [rules[1], rules[0]];
++    const fits = start.to.dst && !end.to.dst && start.from === end.to && end.from === start.to &&
++      decade.every((i, k) => {
++        const rule = rules[k % 2];
++        return emitted[i].type === rule.to &&
++          happens(rule, new Date(emitted[i].start * 1000).getUTCFullYear()) === emitted[i].start;
++      });
++    if (fits)
++      footer = `${zoneName(end.to)}${zoneName(start.to)}${mwd(start)}${mwd(end)}`;
 +  }
 +
-+  /* Version 2 data with an empty footer; the version 1 block, which
-+   * readers of version 2 skip, holds only the first type. */
-+  var count = times.length - 1;
-+  var firstAbbrev = chars.indexOf("\0") + 1;
-+  var v1 = 44 + 6 + firstAbbrev;
-+  var bytes = new Uint8Array(v1 + 44 + 9 * count + 6 * types.length + chars.length + 2);
-+  var view = new DataView(bytes.buffer);
-+  var header = function (at, counts) {
-+    bytes.set([84, 90, 105, 102, 50], at);
-+    counts.forEach(function (n, i) { view.setUint32(at + 20 + 4 * i, n); });
++  /* Version 2 data; the version 1 block, which readers of version 2 skip,
++   * holds only the first type. */
++  const count = emitted.length - 1;
++  const firstAbbrev = chars.indexOf("\0") + 1;
++  const v1 = 44 + 6 + firstAbbrev;
++  const bytes = new Uint8Array(v1 + 44 + 9 * count + 6 * types.length + chars.length + footer.length + 2);
++  const view = new DataView(bytes.buffer);
++  const header = (at, counts) => {
++    bytes.set([..."TZif2"].map((c) => c.charCodeAt(0)), at);
++    counts.forEach((n, i) => view.setUint32(at + 20 + 4 * i, n));
 +    return at + 44;
 +  };
-+  var ttinfo = function (at, type) {
-+    view.setInt32(at, type.offset);
-+    bytes[at + 4] = type.dst;
-+    bytes[at + 5] = type.at;
++  const ttinfo = (at, { offset, dst, at: abbrevAt }) => {
++    view.setInt32(at, offset);
++    bytes[at + 4] = dst;
++    bytes[at + 5] = abbrevAt;
 +  };
-+  var at = header(0, [0, 0, 0, 0, 1, firstAbbrev]);
++  const ascii = (at, text) => bytes.set([...text].map((c) => c.charCodeAt(0)), at);
++  let at = header(0, [0, 0, 0, 0, 1, firstAbbrev]);
 +  ttinfo(at, types[0]);
-+  for (var c = 0; c < firstAbbrev - 1; c++)
-+    bytes[at + 6 + c] = chars.charCodeAt(c);
++  ascii(at + 6, chars.slice(0, firstAbbrev - 1));
 +  at = header(v1, [0, 0, 0, count, types.length, chars.length]);
-+  for (var j = 0; j < count; j++) {
-+    view.setBigInt64(at + 8 * j, BigInt(times[j + 1]));
-+    bytes[at + 8 * count + j] = typeIndex[j + 1];
++  for (const [j, { start, type }] of emitted.slice(1).entries()) {
++    view.setBigInt64(at + 8 * j, BigInt(start));
++    bytes[at + 8 * count + j] = type.index;
 +  }
 +  at += 9 * count;
-+  types.forEach(function (type) { ttinfo(at, type); at += 6; });
-+  for (var k = 0; k < chars.length; k++)
-+    bytes[at + k] = chars.charCodeAt(k);
-+  bytes[bytes.length - 2] = 10;
-+  bytes[bytes.length - 1] = 10;
++  for (const type of types) {
++    ttinfo(at, type);
++    at += 6;
++  }
++  ascii(at, chars);
++  ascii(at + chars.length, "\n" + footer + "\n");
 +
 +  Module.gTimeZoneData = bytes;
 +  return bytes.length;
@@ -214,13 +271,38 @@ index adb686296..623cdb658 100644
 +  delete Module.gTimeZoneData;
 +});
 +
-+/* Writes the zone's identifier, and returns its length. */
++/* Writes the zone's identifier, and returns its length, or 0 if Intl has
++ * none to give. */
 +EM_JS (int, zone_identifier_from_intl, (char *buffer, int size), {
-+  var id = Intl.DateTimeFormat().resolvedOptions().timeZone;
-+  if (!id)
++  let timeZone;
++  try {
++    ({ timeZone } = Intl.DateTimeFormat().resolvedOptions());
++  } catch {
 +    return 0;
-+  stringToUTF8(id, buffer, size);
-+  return lengthBytesUTF8(id);
++  }
++  if (!timeZone)
++    return 0;
++  stringToUTF8(timeZone, buffer, size);
++  return lengthBytesUTF8(timeZone);
++});
++
++/* Writes Intl's spelling of a zone name it accepts regardless of case, and
++ * returns its length; 0 if it doesn't know the zone, or knows it by another
++ * name.  Intl maps aliases to other zones' names (Asia/Kolkata to
++ * Asia/Calcutta, US/Pacific to America/Los_Angeles), which callers asking
++ * for one zone by name don't expect back, so only case is corrected. */
++EM_JS (int, zone_identifier_canonical_from_intl, (const char *identifier, char *buffer, int size), {
++  const requested = UTF8ToString(identifier);
++  let timeZone;
++  try {
++    ({ timeZone } = new Intl.DateTimeFormat("en-US", { timeZone: requested }).resolvedOptions());
++  } catch {
++    return 0;
++  }
++  if (timeZone?.toLowerCase() !== requested.toLowerCase())
++    return 0;
++  stringToUTF8(timeZone, buffer, size);
++  return lengthBytesUTF8(timeZone);
 +});
 +
 +static gchar *
@@ -228,6 +310,17 @@ index adb686296..623cdb658 100644
 +{
 +  char buffer[256];
 +  int length = zone_identifier_from_intl (buffer, sizeof buffer);
++
++  return length > 0 && length < (int) sizeof buffer ? g_strdup (buffer) : NULL;
++}
++
++/* Intl takes zone names in any case, so "europe/berlin" and
++ * "Europe/Berlin" are one zone, known by the second. */
++static gchar *
++zone_identifier_canonical (const gchar *identifier)
++{
++  char buffer[256];
++  int length = zone_identifier_canonical_from_intl (identifier, buffer, sizeof buffer);
 +
 +  return length > 0 && length < (int) sizeof buffer ? g_strdup (buffer) : NULL;
 +}
@@ -243,7 +336,7 @@ index adb686296..623cdb658 100644
 +{
 +  GBytes *zoneinfo;
 +
-+  if (identifier == NULL)
++  if (resolved_identifier != NULL)
 +    identifier = resolved_identifier;
 +  if (identifier == NULL)
 +    return NULL;
@@ -280,7 +373,7 @@ index adb686296..623cdb658 100644
  static void
  init_zone_from_iana_info (GTimeZone *gtz,
                            GBytes    *zoneinfo,
-@@ -1697,7 +1913,7 @@ rules_from_identifier (const gchar   *identifier,
+@@ -1697,7 +2001,7 @@ rules_from_identifier (const gchar   *identifier,
    return create_ruleset_from_rule (rules, &tzr);
  }
  
@@ -289,7 +382,27 @@ index adb686296..623cdb658 100644
  static GTimeZone *
  parse_footertz (const gchar *footer, size_t footerlen)
  {
-@@ -1856,9 +2072,7 @@ g_time_zone_new_identifier (const gchar *identifier)
+@@ -1851,14 +2155,26 @@ g_time_zone_new_identifier (const gchar *identifier)
+           return tz;
+         }
+       else
+-        resolved_identifier = g_strdup (identifier);
++        {
++#ifdef G_PLATFORM_WASM
++          resolved_identifier = zone_identifier_canonical (identifier);
++          tz = resolved_identifier ? g_hash_table_lookup (time_zones, resolved_identifier) : NULL;
++          if (tz)
++            {
++              g_atomic_int_inc (&tz->ref_count);
++              G_UNLOCK (time_zones);
++              g_free (resolved_identifier);
++              return tz;
++            }
++          if (resolved_identifier == NULL)
++#endif
++            resolved_identifier = g_strdup (identifier);
++        }
+     }
    else
      {
        G_LOCK (tz_default);
@@ -300,7 +413,7 @@ index adb686296..623cdb658 100644
        resolved_identifier = zone_identifier_unix ();
  #elif defined (G_OS_WIN32)
        resolved_identifier = windows_default_tzname ();
-@@ -1898,7 +2112,7 @@ g_time_zone_new_identifier (const gchar *identifier)
+@@ -1898,7 +2214,7 @@ g_time_zone_new_identifier (const gchar *identifier)
  
    if (tz->t_info == NULL)
      {

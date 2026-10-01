@@ -1,4 +1,4 @@
-From 0ca6f44b7a61b2d2ff3d22cd0fe2a86e57eb6de7 Mon Sep 17 00:00:00 2001
+From bb947d85ae3947c1f91da765d9e0cbba884542e6 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 17:01:08 -0700
 Subject: [PATCH 30/31] glib: Give a WebAssembly GWakeup a pipe to poll

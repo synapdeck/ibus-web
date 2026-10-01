@@ -1,4 +1,4 @@
-From 33eabcf79d520cd8007dd73eb52c84c50522c804 Mon Sep 17 00:00:00 2001
+From b3ec8b4b0727594fb7e8013d60e7ac033ddf9768 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:58:58 -0700
 Subject: [PATCH 28/31] gutils: Don't look the user up on WebAssembly

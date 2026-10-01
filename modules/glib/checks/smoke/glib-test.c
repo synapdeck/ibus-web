@@ -33,8 +33,8 @@ static gboolean count_idle(gpointer user_data) {
 /* CPU time of the whole process, every thread included. Emscripten's
  * clock() counts wall time and its getrusage() is a stub, so ask Node. */
 EM_JS(double, process_cpu_ms, (void), {
-  const usage = process.cpuUsage();
-  return (usage.user + usage.system) / 1000;
+  const {user, system} = process.cpuUsage();
+  return (user + system) / 1000;
 });
 
 static gpointer run_loop(gpointer loop) {
@@ -72,6 +72,40 @@ static GSource *fd_source_new(int fd) {
   GSource *source = g_source_new(&fd_source_funcs, sizeof(FdSource));
   ((FdSource *)source)->tag = g_source_add_unix_fd(source, fd, G_IO_IN);
   return source;
+}
+
+/* With an fd to watch the loop thread probes it between waits on the
+ * context's wakeup, and must still wake when the wakeup is signalled. Then
+ * the fd turns ready and its source quits a second run. */
+static void check_fd_wait(int fd_pipe[2]) {
+  GMainContext *fd_context = g_main_context_new();
+  GMainLoop *fd_loop = g_main_loop_new(fd_context, FALSE);
+  GSource *fd_watch = fd_source_new(fd_pipe[0]);
+  g_source_set_callback(fd_watch, quit_loop, fd_loop, NULL);
+  g_source_attach(fd_watch, fd_context);
+  g_source_unref(fd_watch);
+  GThread *fd_looper = g_thread_new("fd-loop", run_loop, fd_loop);
+  while (!g_main_loop_is_running(fd_loop))
+    g_usleep(1000);
+  g_usleep(50000);
+  gint64 fd_signalled = g_get_monotonic_time();
+  GSource *fd_quitter = g_idle_source_new();
+  g_source_set_callback(fd_quitter, quit_loop, fd_loop, NULL);
+  g_source_attach(fd_quitter, fd_context);
+  g_source_unref(fd_quitter);
+  g_thread_join(fd_looper);
+  printf("fdwait latency %.1f ms\n",
+         (g_get_monotonic_time() - fd_signalled) / 1000.0);
+  int fd_woke = !g_main_loop_is_running(fd_loop);
+  int fd_written = write(fd_pipe[1], "x", 1) == 1;
+  fd_looper = g_thread_new("fd-loop", run_loop, fd_loop);
+  g_thread_join(fd_looper);
+  printf("fdwait %d %d %d\n", fd_written, fd_woke,
+         !g_main_loop_is_running(fd_loop));
+  g_main_loop_unref(fd_loop);
+  g_main_context_unref(fd_context);
+  close(fd_pipe[0]);
+  close(fd_pipe[1]);
 }
 
 static gpointer cancel_later(gpointer cancellable) {
@@ -328,39 +362,11 @@ int main(void) {
   g_main_loop_unref(loop);
   g_main_context_unref(loop_context);
 
-  /* With an fd to watch the loop thread probes it between waits on the
-   * context's wakeup, and must still wake when the wakeup is signalled.
-   * Then the fd turns ready and its source quits a second run. */
   int fd_pipe[2];
-  int piped = pipe(fd_pipe) == 0;
-  GMainContext *fd_context = g_main_context_new();
-  GMainLoop *fd_loop = g_main_loop_new(fd_context, FALSE);
-  GSource *fd_watch = fd_source_new(fd_pipe[0]);
-  g_source_set_callback(fd_watch, quit_loop, fd_loop, NULL);
-  g_source_attach(fd_watch, fd_context);
-  g_source_unref(fd_watch);
-  GThread *fd_looper = g_thread_new("fd-loop", run_loop, fd_loop);
-  while (!g_main_loop_is_running(fd_loop))
-    g_usleep(1000);
-  g_usleep(50000);
-  gint64 fd_signalled = g_get_monotonic_time();
-  GSource *fd_quitter = g_idle_source_new();
-  g_source_set_callback(fd_quitter, quit_loop, fd_loop, NULL);
-  g_source_attach(fd_quitter, fd_context);
-  g_source_unref(fd_quitter);
-  g_thread_join(fd_looper);
-  printf("fdwait latency %.1f ms\n",
-         (g_get_monotonic_time() - fd_signalled) / 1000.0);
-  int fd_woke = !g_main_loop_is_running(fd_loop);
-  int fd_written = write(fd_pipe[1], "x", 1) == 1;
-  fd_looper = g_thread_new("fd-loop", run_loop, fd_loop);
-  g_thread_join(fd_looper);
-  printf("fdwait %d %d %d\n", piped && fd_written, fd_woke,
-         !g_main_loop_is_running(fd_loop));
-  g_main_loop_unref(fd_loop);
-  g_main_context_unref(fd_context);
-  close(fd_pipe[0]);
-  close(fd_pipe[1]);
+  if (pipe(fd_pipe) == 0)
+    check_fd_wait(fd_pipe);
+  else
+    printf("fdwait no pipe\n");
 
   /* A cancellable's fd turns ready once another thread cancels it, g_poll()
    * waits for that, and resetting the cancellable clears it. */
@@ -441,6 +447,27 @@ int main(void) {
   if (berlin)
     g_time_zone_unref(berlin);
   g_time_zone_unref(local);
+
+  /* Past 2100 the zone's rule carries on, here Sydney's southern-hemisphere
+   * one: January and July 2150. */
+  GTimeZone *sydney = g_time_zone_new_identifier("Australia/Sydney");
+  if (sydney) {
+    gint january =
+        g_time_zone_find_interval(sydney, G_TIME_TYPE_UNIVERSAL, 5681491200);
+    gint july =
+        g_time_zone_find_interval(sydney, G_TIME_TYPE_UNIVERSAL, 5697129600);
+    printf("sydney %d %d %d\n", g_time_zone_get_offset(sydney, january),
+           g_time_zone_get_offset(sydney, july),
+           g_time_zone_is_dst(sydney, january));
+    g_time_zone_unref(sydney);
+  }
+
+  /* Intl takes zone names in any case; the zone keeps Intl's spelling. */
+  GTimeZone *lower = g_time_zone_new_identifier("europe/berlin");
+  printf("timezone case %s\n",
+         lower ? g_time_zone_get_identifier(lower) : "none");
+  if (lower)
+    g_time_zone_unref(lower);
 
   gchar *dotfile = g_build_filename(g_get_tmp_dir(), ".glib-test", NULL);
   gchar *backup = g_build_filename(g_get_tmp_dir(), "glib-test~", NULL);

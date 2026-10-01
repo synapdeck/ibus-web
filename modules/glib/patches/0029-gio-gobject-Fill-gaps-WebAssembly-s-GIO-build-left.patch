@@ -1,4 +1,4 @@
-From 38e58a38b9849aff9ab3438a58f67f8dd14d8658 Mon Sep 17 00:00:00 2001
+From 36446b6b3758846335d9fc7c92868dc2c1fef731 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:59:58 -0700
 Subject: [PATCH 29/31] gio, gobject: Fill gaps WebAssembly's GIO build left
@@ -21,12 +21,12 @@ promises everywhere else:
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- gio/gcontenttype-wasm.c  |  5 +++++
- gio/giomodule.c          |  6 ++++++
- gio/gmemorymonitorwasm.c | 38 ++++++++++++++++++++++++++++++++++++++
+ gio/gcontenttype-wasm.c  |  5 ++++
+ gio/giomodule.c          |  6 +++++
+ gio/gmemorymonitorwasm.c | 52 ++++++++++++++++++++++++++++++++++++++++
  gio/meson.build          |  1 +
- gobject/gsourceclosure.c | 10 +++-------
- 5 files changed, 53 insertions(+), 7 deletions(-)
+ gobject/gsourceclosure.c | 10 +++-----
+ 5 files changed, 67 insertions(+), 7 deletions(-)
  create mode 100644 gio/gmemorymonitorwasm.c
 
 diff --git a/gio/gcontenttype-wasm.c b/gio/gcontenttype-wasm.c
@@ -71,13 +71,27 @@ index 311bc9d59..11e246d9c 100644
        g_type_ensure (_g_dummy_proxy_resolver_get_type ());
 diff --git a/gio/gmemorymonitorwasm.c b/gio/gmemorymonitorwasm.c
 new file mode 100644
-index 000000000..a0f4cde4f
+index 000000000..33b7e21af
 --- /dev/null
 +++ b/gio/gmemorymonitorwasm.c
-@@ -0,0 +1,38 @@
-+/*
+@@ -0,0 +1,52 @@
++/* GIO - GLib Input, Output and Streaming Library
++ *
 + * SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
-+ * SPDX-License-Identifier: MIT OR Apache-2.0
++ * SPDX-License-Identifier: LGPL-2.1-or-later
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General
++ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
 + */
 +
 +#include "config.h"

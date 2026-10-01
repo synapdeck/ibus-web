@@ -476,18 +476,37 @@ data (browsers and nixpkgs' Node have full ICU), so nothing is bundled:
   it to GLib's own parser. An identifier Intl rejects (`RangeError`) gives
   no data, so it fails as a missing file does and callers fall back to
   UTC. Paths (`TZ=:/etc/localtime`, an absolute file name) aren't read.
+  Data that TZif's single-byte indexes can't hold (over 256 types or 255
+  bytes of abbreviations) is refused the same way.
+- **Names.** Intl accepts zone names in any case. A name it accepts that
+  differs from its own spelling only in case is looked up and named by
+  Intl's spelling, so `europe/berlin` and `Europe/Berlin` are one zone
+  named `Europe/Berlin` and cached once. Other names keep the spelling
+  they were asked for, because Intl maps aliases to other zones' names
+  (`Asia/Kolkata` to `Asia/Calcutta`, `US/Pacific` to
+  `America/Los_Angeles`, `EST` to `America/Panama`), which a caller
+  asking for one zone by name doesn't expect back.
 - **Transitions.** The offset at an instant is the formatted local time
   minus the instant, exact to the second (Intl keeps local mean time
   offsets such as -07:52:58). It is sampled weekly from 1800, before any
-  zone left local mean time, to 2100, and each change is narrowed down to
+  zone left local mean time, to 2101, and each change is narrowed down to
   the second by bisection: about 20,000 `formatToParts()` calls, 40–70 ms
-  per zone under Node. Outside the range a zone keeps its first or last
-  offset (tzdata's footer rule would keep DST going after 2100), and two
-  changes less than a week apart that cancel out are missed; tzdata has
-  none such in the zones checked.
+  per zone under Node. Two changes less than a week apart that cancel out
+  are missed; tzdata has none such in the zones checked. Before 1800 a
+  zone keeps its local mean time.
+- **After 2100.** Transitions are listed up to 2100; the year after is
+  sampled only so the last ones get their DST flag. The footer then
+  carries the 2090s on as a POSIX TZ rule when they fit one: a fixed
+  offset, or one change to DST and one back each year on a
+  month-week-weekday date at a local time, checked against all ten years
+  (Sydney: `<+1000>-10<+1100>-11,M10.1.0/2,M4.1.0/3`). Zones whose
+  changes don't fit keep their last offset after 2100, with an empty
+  footer: Chile's (the first Sunday on or after the 2nd), Greenland's
+  (at 22:00 the day before) and any that follow a lunar calendar.
 - **DST and abbreviations.** A period counts as daylight saving time when
   its offset is above the lowest offset in both the year before and the
-  year after it began. Requiring both keeps a zone that moved to a new
+  year after it began, a stricter test than the surrounding year alone.
+  Requiring both keeps a zone that moved to a new
   standard offset for good (Istanbul in 2016) out of permanent summer time,
   at the cost of calling war time that lasted over a year standard time.
   Abbreviations are Intl's short `en-US` names where alphabetic (`PST`,
