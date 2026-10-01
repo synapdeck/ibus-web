@@ -11,27 +11,34 @@
  * int32 values unless an operation says otherwise; a payload an operation
  * can't read gets an empty reply. Operations that start work reply 0 or
  * -EBUSY while earlier work is still running. Result operations reply
- * -ENOENT before any work started and -EAGAIN while it is pending. */
-enum {
-  SPIKE_OP_ADD = 1,
-  SPIKE_OP_IDLE_LATER = 2,
-  SPIKE_OP_IDLE_RESULT = 3,
-  SPIKE_OP_SPAWN = 4,
-  SPIKE_OP_SPAWN_RESULT = 5,
-  SPIKE_OP_THROW = 6,
-  SPIKE_OP_FSYNC = 7,
-  SPIKE_OP_FSYNC_RESULT = 8,
-  SPIKE_OP_SPAWN_DETACHED = 9,
-  SPIKE_OP_SPAWN_DETACHED_RESULT = 10,
-  SPIKE_OP_SPAWN_NESTED = 11,
-  SPIKE_OP_SPAWN_NESTED_RESULT = 12,
-  SPIKE_OP_PROXY_SYNC = 13,
-  SPIKE_OP_PROXY_SYNC_RESULT = 14,
-  SPIKE_OP_TASK = 15,
-  SPIKE_OP_TASK_RESULT = 16,
-  SPIKE_OP_TIMEOUT = 17,
-  SPIKE_OP_TIMEOUT_RESULT = 18,
-};
+ * -ENOENT before any work started and -EAGAIN while it is pending.
+ *
+ * A list of X(NAME, opcode), which the build also prints for the
+ * TypeScript side. */
+#define SPIKE_OPS(X)                                                           \
+  X(ADD, 1)                                                                    \
+  X(IDLE_LATER, 2)                                                             \
+  X(IDLE_RESULT, 3)                                                            \
+  X(SPAWN, 4)                                                                  \
+  X(SPAWN_RESULT, 5)                                                           \
+  X(THROW, 6)                                                                  \
+  X(FSYNC, 7)                                                                  \
+  X(FSYNC_RESULT, 8)                                                           \
+  X(SPAWN_DETACHED, 9)                                                         \
+  X(SPAWN_DETACHED_RESULT, 10)                                                 \
+  X(SPAWN_NESTED, 11)                                                          \
+  X(SPAWN_NESTED_RESULT, 12)                                                   \
+  X(PROXY_SYNC, 13)                                                            \
+  X(PROXY_SYNC_RESULT, 14)                                                     \
+  X(TASK, 15)                                                                  \
+  X(TASK_RESULT, 16)                                                           \
+  X(TIMEOUT, 17)                                                               \
+  X(TIMEOUT_RESULT, 18)                                                        \
+  X(CRASH_THREAD, 19)
+
+#define SPIKE_OP_ENUM(name, opcode) SPIKE_OP_##name = opcode,
+enum { SPIKE_OPS(SPIKE_OP_ENUM) };
+#undef SPIKE_OP_ENUM
 
 /* Reads the index-th int32 of a payload; FALSE if it is too short. */
 static inline gboolean spike_arg(const uint8_t *payload, uint32_t len,

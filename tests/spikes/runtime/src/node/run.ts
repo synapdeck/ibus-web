@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Usage: node run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
-//                    --pool N [--compare]
+//                    --constants CONSTANTS_JSON --pool N [--compare]
 //
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
 // requests over the control buffer as a page would. The host sleeps in the
-// runtime (ibusweb_wait). With --compare, for the record, the scenarios run
-// again on a host that waits asynchronously while idle, and those that tell
-// the options apart on one that sleeps in Atomics.wait() on the control
-// buffer. Exits 1 if any scenario of the first host fails.
+// runtime (ibusweb_wait); then a host of its own runs the crash scenario.
+// With --compare, for the record, the scenarios run again on a host that
+// waits asynchronously while idle, and those that tell the wake paths apart
+// on one that sleeps in Atomics.wait() on the control buffer. Exits 1 if any
+// scenario of the first two hosts fails.
 
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,13 +25,16 @@ import {
   State,
   takeReply,
   Word,
+  type BuildConstants,
   type HostInit,
   type HostMessage,
   type WaitMode,
 } from "../shared/control.ts";
 import {
+  opsFrom,
   runScenarios,
   scenarios,
+  threadCrash,
   type Client,
   type Env,
   type Result,
@@ -42,6 +46,7 @@ const { values: args } = parseArgs({
     runtime: { type: "string" },
     sides: { type: "string" },
     errno: { type: "string" },
+    constants: { type: "string" },
     pool: { type: "string" },
     compare: { type: "boolean", default: false },
   },
@@ -50,9 +55,12 @@ if (
   args.runtime === undefined ||
   args.sides === undefined ||
   args.errno === undefined ||
+  args.constants === undefined ||
   args.pool === undefined
 ) {
-  throw new Error("--runtime, --sides, --errno and --pool are required");
+  throw new Error(
+    "--runtime, --sides, --errno, --constants and --pool are required",
+  );
 }
 const runtimeJs = args.runtime;
 const sidesDir = args.sides;
@@ -65,9 +73,20 @@ declare const WebAssembly: { compile(bytes: Uint8Array): Promise<object> };
 
 const REPLY_TIMEOUT_MS = 30_000;
 
+interface Host {
+  worker: BrowserWorker;
+  client: Client;
+  startupMs: number;
+  // Messages after "ready", such as a crash report.
+  messages: HostMessage[];
+}
+
 // Blocks this thread until the host replies, as the page's synchronous
 // keystroke path would spin.
-const syncClient = (control: SharedArrayBuffer): Client => {
+const syncClient = (
+  control: SharedArrayBuffer,
+  messages: readonly HostMessage[],
+): Client => {
   const views = controlViews(control);
   return {
     call: (opcode, payload) => {
@@ -91,16 +110,18 @@ const syncClient = (control: SharedArrayBuffer): Client => {
         Atomics.wait(views.words, Word.state, state, left);
       }
     },
+    // The host's messages arrive only while this thread's event loop runs.
+    crashReport: async (timeoutMs) => {
+      const deadline = performance.now() + timeoutMs;
+      for (;;) {
+        const crash = messages.find(({ type }) => type === "crashed");
+        if (crash !== undefined && "message" in crash) return crash.message;
+        if (performance.now() >= deadline) return null;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    },
   };
 };
-
-interface Host {
-  worker: BrowserWorker;
-  client: Client;
-  startupMs: number;
-  // Messages after "ready", such as a crash report.
-  messages: HostMessage[];
-}
 
 const startHost = async (
   wait: WaitMode,
@@ -111,21 +132,27 @@ const startHost = async (
     new URL("../worker/host.js", import.meta.url),
   );
   const messages: HostMessage[] = [];
+  let started = false;
   const ready = new Promise<number>((resolve, reject) => {
     worker.onmessage = ({ data }) => {
       const message = data as HostMessage;
-      if (message.type === "ready") resolve(message.startupMs);
-      else if (message.type === "error")
+      if (message.type === "ready") {
+        started = true;
+        resolve(message.startupMs);
+      } else if (message.type === "error")
         reject(new Error(`host: ${message.message}`));
       else messages.push(message);
     };
-    worker.onerror = ({ message }) => reject(new Error(`host: ${message}`));
+    worker.onerror = ({ message }) => {
+      if (started) messages.push({ type: "error", message });
+      else reject(new Error(`host: ${message}`));
+    };
   });
   const init: HostInit<object> = { ...base, control, wait };
   worker.postMessage(init);
   return {
     worker,
-    client: syncClient(control),
+    client: syncClient(control, messages),
     startupMs: await ready,
     messages,
   };
@@ -162,6 +189,10 @@ const errno = JSON.parse(await readFile(args.errno, "utf8")) as Record<
   string,
   number
 >;
+const constants = JSON.parse(
+  await readFile(args.constants, "utf8"),
+) as BuildConstants;
+const ops = opsFrom(constants);
 const wasm = await WebAssembly.compile(
   await readFile(join(runtimeJs, "..", "ibus-runtime.wasm")),
 );
@@ -191,6 +222,7 @@ const env = (pendingLimitMs: number): Env => ({
   utf8: (text) => encoder.encode(text),
   decode: (bytes) => decoder.decode(bytes),
   errno,
+  ops,
   poolSize,
   fsyncPaths: ["/tmp/fsync-memory.txt", `${mountPath}/fsync-node.txt`],
   pendingLimitMs,
@@ -201,17 +233,29 @@ const base = {
   wasm,
   sides,
   storage: { kind: "node", hostPath: hostDir, mountPath },
+  constants,
 } as const;
+
+const passed = (results: readonly Result[], expected: number): boolean =>
+  results.length === expected && results.every((result) => result.pass);
 
 let failed = false;
 try {
   const host = await startHost("runtime", base);
   const results = await runScenarios(host.client, env(10_000));
-  await report("option 2: the host sleeps in ibusweb_wait()", host, results);
-  failed =
-    results.length !== scenarios.length ||
-    results.some((result) => !result.pass);
+  await report(
+    "runtime: the host sleeps in ibusweb_wait(), woken through the relay for the page",
+    host,
+    results,
+  );
+  failed = !passed(results, scenarios.length);
   host.worker.terminate();
+
+  const crashing = await startHost("runtime", base);
+  const crash = await runScenarios(crashing.client, env(10_000), [threadCrash]);
+  await report("runtime, on a host of its own", crashing, crash);
+  failed ||= !passed(crash, 1);
+  crashing.worker.terminate();
 
   if (args.compare) {
     const idle = await startHost("runtime-async", base);
@@ -222,23 +266,25 @@ try {
     );
     idle.worker.terminate();
 
-    const option1 = await startHost("control", base);
+    const relayless = await startHost("control", base);
     const names = new Set([
       "dispatch",
+      "cold-wake",
       "cross-thread-wake",
       "deadline",
       "sync-proxied",
     ]);
     await report(
-      "option 1, for comparison: the host sleeps in Atomics.wait() on the control buffer",
-      option1,
+      "for comparison, relay-less on the request path: the host sleeps in Atomics.wait() " +
+        "on the control buffer's wake word, which the page bumps",
+      relayless,
       await runScenarios(
-        option1.client,
+        relayless.client,
         env(3_000),
         scenarios.filter(({ name }) => names.has(name)),
       ),
     );
-    option1.worker.terminate();
+    relayless.worker.terminate();
   }
 } finally {
   await rm(hostDir, { recursive: true, force: true });

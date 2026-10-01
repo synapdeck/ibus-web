@@ -32,7 +32,9 @@ export const State = {
   crashed: 3,
 } as const;
 
-// Requests the host answers itself, outside the runtime's opcode space.
+// Spike instruments, not protocol: requests the spike's host answers itself,
+// outside the runtime's opcode space, so scenarios can observe and steer it.
+// A real host has neither.
 export const HostOp = {
   // A UTF-8 JSON HostStats.
   stats: 0xffff_0001,
@@ -41,11 +43,32 @@ export const HostOp = {
   yield: 0xffff_0002,
 } as const;
 
+// A spike instrument: what HostOp.stats reports.
 export interface HostStats {
   // Workers Emscripten created after the runtime started, beyond its pool.
   workersCreated: number;
+  // Emscripten's Workers that host no thread.
+  idleWorkers: number;
   // Bytes malloc() has handed out and not had back.
   heapInUse: number;
+  // Requests the host has served, this one included.
+  requests: number;
+  // Of those, the ones that arrived while the host slept: it found them
+  // when its wait returned rather than before starting one.
+  requestsWhileAsleep: number;
+}
+
+// Values the C side defines, printed by the build for the WebAssembly
+// target.
+export interface BuildConstants {
+  // The spike side modules' opcodes, by their C names without SPIKE_OP_.
+  ops: Readonly<Record<string, number>>;
+  // IBUSWEB_PUMP_ERROR.
+  pumpError: number;
+  // ibusweb_wait()'s -ETIMEDOUT.
+  waitTimedOut: number;
+  // struct mallinfo's size, and the offset of uordblks (bytes in use).
+  mallinfo: { bytes: number; inUseOffset: number };
 }
 
 // How the host sleeps between requests.
@@ -53,8 +76,11 @@ export interface HostStats {
 //    GLib's wake hook bumps; a relay Worker bumps it for the page.
 //  - "runtime-async": in Atomics.waitAsync() on that same word, so the
 //    host's event loop runs while it is idle.
-//  - "control": in Atomics.wait() on Word.wake, which the page bumps; a relay
-//    Worker bumps it for GLib's wake hook.
+//  - "control": in Atomics.wait() on Word.wake, which the page bumps, so a
+//    request reaches the host without the relay; a relay Worker bumps the
+//    word for GLib's wake hook instead. This is the relay-less comparison
+//    for the request path, not a design: the host's sleep runs no proxied
+//    calls.
 export type WaitMode = "runtime" | "runtime-async" | "control";
 
 export type Storage =
@@ -76,6 +102,7 @@ export interface HostInit<Wasm = unknown> {
   sides: SideModule[];
   storage: Storage;
   wait: WaitMode;
+  constants: BuildConstants;
 }
 
 export type HostMessage =

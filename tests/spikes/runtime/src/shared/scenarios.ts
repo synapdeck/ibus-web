@@ -5,32 +5,62 @@
 // measures. They talk to a host only through a Client, so any harness that
 // can post requests over the control buffer runs them.
 
-import { HostOp, type HostStats, type Reply } from "./control.ts";
+import {
+  HostOp,
+  type BuildConstants,
+  type HostStats,
+  type Reply,
+} from "./control.ts";
 
-// The opcodes the spike side modules register.
-export const Op = {
-  add: 1,
-  idleLater: 2,
-  idleResult: 3,
-  spawn: 4,
-  spawnResult: 5,
-  throw: 6,
-  fsync: 7,
-  fsyncResult: 8,
-  spawnDetached: 9,
-  spawnDetachedResult: 10,
-  spawnNested: 11,
-  spawnNestedResult: 12,
-  proxySync: 13,
-  proxySyncResult: 14,
-  task: 15,
-  taskResult: 16,
-  timeout: 17,
-  timeoutResult: 18,
-} as const;
+// The spike side modules' operations scenarios use, under their C names in
+// camel case (SPIKE_OP_SPAWN_DETACHED is spawnDetached).
+const opNames = [
+  "add",
+  "idleLater",
+  "idleResult",
+  "spawn",
+  "spawnResult",
+  "throw",
+  "fsync",
+  "fsyncResult",
+  "spawnDetached",
+  "spawnDetachedResult",
+  "spawnNested",
+  "spawnNestedResult",
+  "proxySync",
+  "proxySyncResult",
+  "task",
+  "taskResult",
+  "timeout",
+  "timeoutResult",
+  "crashThread",
+] as const;
+
+export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
+
+// The opcodes the build printed, by the names scenarios use them under.
+export const opsFrom = ({ ops }: BuildConstants): Ops => {
+  const byName = new Map(
+    Object.entries(ops).map(([name, opcode]) => [
+      name
+        .toLowerCase()
+        .replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()),
+      opcode,
+    ]),
+  );
+  const missing = opNames.filter((name) => !byName.has(name));
+  if (missing.length > 0)
+    throw new Error(`the build defines no opcode for ${missing.join(", ")}`);
+  return Object.fromEntries(
+    opNames.map((name) => [name, byName.get(name)!]),
+  ) as Ops;
+};
 
 export interface Client {
   call(opcode: number, payload?: Uint8Array): Promise<Reply>;
+  // The host's report of why it crashed, or null if none came within
+  // timeoutMs.
+  crashReport(timeoutMs: number): Promise<string | null>;
 }
 
 export interface Env {
@@ -41,6 +71,7 @@ export interface Env {
   decode(bytes: Uint8Array): string;
   // Emscripten's errno values, by name.
   errno: Readonly<Record<string, number>>;
+  ops: Ops;
   poolSize: number;
   // Files to fsync() from a thread, one per storage backend under test.
   fsyncPaths: readonly string[];
@@ -115,27 +146,74 @@ const stats = async (client: Client, env: Env): Promise<HostStats> => {
   return JSON.parse(env.decode(bytes)) as HostStats;
 };
 
+// Round trips of add, each with its sum checked, in microseconds.
+const addRoundTrips = async (
+  client: Client,
+  env: Env,
+  rounds: number,
+  gapMs: number,
+): Promise<{ times: number[]; wrong: number }> => {
+  const times: number[] = [];
+  let wrong = 0;
+  for (let i = 0; i < rounds; i++) {
+    if (gapMs > 0) await env.sleep(gapMs);
+    const start = env.now();
+    const sum = await call32(client, env.ops.add, int32s(i, 1000));
+    times.push((env.now() - start) * 1000);
+    if (sum !== i + 1000) wrong++;
+  }
+  times.sort((a, b) => a - b);
+  return { times, wrong };
+};
+
+const latencies = (sorted: readonly number[]): Record<string, number> => ({
+  p50Us: round(percentile(sorted, 50), 1),
+  p99Us: round(percentile(sorted, 99), 1),
+  maxUs: round(sorted.at(-1) ?? Number.NaN, 1),
+});
+
+// Back to back, the next request often lands before the host has gone back
+// to sleep, so these times mix requests served at once with ones that woke
+// the host; requestsWhileAsleep says how many of each.
 const dispatch: Scenario = {
   name: "dispatch",
-  criterion: "1000 add round trips, every sum right",
+  criterion: "1000 add round trips back to back, every sum right",
   async run(client, env) {
-    const rounds = 1000;
-    const times: number[] = [];
-    let wrong = 0;
-    for (let i = 0; i < rounds; i++) {
-      const start = env.now();
-      const sum = await call32(client, Op.add, int32s(i, 1000));
-      times.push(env.now() - start);
-      if (sum !== i + 1000) wrong++;
-    }
-    times.sort((a, b) => a - b);
+    const before = await stats(client, env);
+    const { times, wrong } = await addRoundTrips(client, env, 1000, 0);
+    const after = await stats(client, env);
     return {
       pass: wrong === 0,
       measurements: {
         wrong,
-        p50Us: round(percentile(times, 50) * 1000, 1),
-        p99Us: round(percentile(times, 99) * 1000, 1),
-        maxUs: round((times.at(-1) ?? Number.NaN) * 1000, 1),
+        ...latencies(times),
+        requestsWhileAsleep: `${after.requestsWhileAsleep - before.requestsWhileAsleep} of ${after.requests - before.requests}`,
+      },
+    };
+  },
+};
+
+// Every request finds the host asleep, so each round trip pays the whole
+// wake path: in "runtime" mode the relay's hop and the host's, in "control"
+// mode the host's alone.
+const coldWake: Scenario = {
+  name: "cold-wake",
+  criterion:
+    "300 add round trips, each sent 2 ms after the last reply: every sum right, and every request found the host asleep",
+  async run(client, env) {
+    const gapMs = 2;
+    const before = await stats(client, env);
+    const { times, wrong } = await addRoundTrips(client, env, 300, gapMs);
+    await env.sleep(gapMs);
+    const after = await stats(client, env);
+    const requests = after.requests - before.requests;
+    const asleep = after.requestsWhileAsleep - before.requestsWhileAsleep;
+    return {
+      pass: wrong === 0 && asleep === requests,
+      measurements: {
+        wrong,
+        ...latencies(times),
+        requestsWhileAsleep: `${asleep} of ${requests}`,
       },
     };
   },
@@ -150,10 +228,10 @@ const crossThreadWake: Scenario = {
   async run(client, env): Promise<Outcome> {
     const epsilons: number[] = [];
     for (let i = 0; i < 20; i++) {
-      const started = await call32(client, Op.idleLater, int32s(50));
+      const started = await call32(client, env.ops.idleLater, int32s(50));
       if (started !== 0) throw new Error(`idle-later: ${started}`);
       await env.sleep(50 + 150);
-      const result = await poll(client, env, Op.idleResult);
+      const result = await poll(client, env, env.ops.idleResult);
       if (result === null)
         return {
           pass: false,
@@ -181,10 +259,10 @@ const deadline: Scenario = {
   async run(client, env): Promise<Outcome> {
     const delays: number[] = [];
     for (let i = 0; i < 5; i++) {
-      const started = await call32(client, Op.timeout, int32s(100));
+      const started = await call32(client, env.ops.timeout, int32s(100));
       if (started !== 0) throw new Error(`timeout: ${started}`);
       await env.sleep(300);
-      const result = await poll(client, env, Op.timeoutResult);
+      const result = await poll(client, env, env.ops.timeoutResult);
       if (result === null)
         return {
           pass: false,
@@ -203,76 +281,109 @@ const deadline: Scenario = {
 const threadCreateBlocked: Scenario = {
   name: "thread-create-blocked",
   criterion:
-    "spawn(pool) and spawn(pool + 1) from a pump start and join every thread without hanging; " +
-    "records the Workers created beyond the pool, and what detached threads leave behind",
+    "spawn(pool) and spawn(pool + 1) from a pump start and join every thread; " +
+    "spawn-nested(idle Workers + 1), whose creations the host runs while it sleeps, " +
+    "starts and joins every thread with at least one Worker created beyond the pool",
   async run(client, env) {
     const measurements: Record<string, Measurement> = {
       poolSize: env.poolSize,
     };
     let pass = true;
-    for (const n of [env.poolSize, env.poolSize + 1]) {
+    const run = async (
+      label: string,
+      start: number,
+      result: number,
+      n: number,
+    ): Promise<number | null> => {
       const before = await stats(client, env);
-      const start = env.now();
-      const started = await call32(client, Op.spawn, int32s(n));
-      if (started !== 0) throw new Error(`spawn(${n}): ${started}`);
-      const result = await poll(client, env, Op.spawnResult);
-      const ms = env.now() - start;
+      const startedAt = env.now();
+      const started = await call32(client, start, int32s(n));
+      if (started !== 0) throw new Error(`${label}: ${started}`);
+      const joined = await poll(client, env, result);
+      const ms = env.now() - startedAt;
       const after = await stats(client, env);
-      if (result === null) {
-        pass = false;
-        measurements[`spawn${n}`] = "hung";
-        continue;
+      if (joined === null) {
+        measurements[label] = "hung";
+        return null;
       }
-      if (result.value !== n) pass = false;
-      measurements[`spawn${n}Joined`] = result.value;
-      measurements[`spawn${n}Ms`] = round(ms, 1);
-      measurements[`spawn${n}WorkersCreated`] =
-        after.workersCreated - before.workersCreated;
+      measurements[`${label}Joined`] = joined.value;
+      measurements[`${label}Ms`] = round(ms, 1);
+      const created = after.workersCreated - before.workersCreated;
+      measurements[`${label}WorkersCreated`] = created;
+      return joined.value === n ? created : null;
+    };
+    for (const n of [env.poolSize, env.poolSize + 1]) {
+      if (
+        (await run(`spawn${n}`, env.ops.spawn, env.ops.spawnResult, n)) === null
+      )
+        pass = false;
     }
 
-    // A detached thread ends without a join on the host's thread, so
-    // Emscripten frees its stack and hands its Worker back only through a
-    // message to that thread's event loop. Rounds of detached threads, first
-    // with the host never returning to its event loop, then with it
-    // returning before each round.
-    const rounds = async (
-      label: string,
-      count: number,
-      yieldFirst: boolean,
-    ): Promise<boolean> => {
-      const created: number[] = [];
-      const heapMiB: number[] = [];
-      for (let i = 0; i < count; i++) {
-        if (yieldFirst) await hostYield(client);
-        const before = await stats(client, env);
-        const n = await call32(client, Op.spawnDetached, int32s(env.poolSize));
-        if (n !== env.poolSize) throw new Error(`spawn-detached: ${n}`);
-        const result = await poll(client, env, Op.spawnDetachedResult);
-        if (result === null) {
-          measurements[label] = "hung";
-          return false;
-        }
-        // Let the threads finish exiting.
-        await env.sleep(50);
-        const after = await stats(client, env);
-        created.push(after.workersCreated - before.workersCreated);
-        heapMiB.push(round(after.heapInUse / 2 ** 20, 2));
-      }
-      measurements[`${label}WorkersCreated`] = created;
-      measurements[`${label}HeapInUseMiB`] = heapMiB;
-      return true;
-    };
-    pass = (await rounds("blocked", 5, false)) && pass;
-    await hostYield(client);
-    measurements.afterOneYieldHeapInUseMiB = round(
-      (await stats(client, env)).heapInUse / 2 ** 20,
-      2,
+    // Each creation from a thread other than the host's waits for the host
+    // to run it, which it does inside its sleep; the thread doing the
+    // creating holds one idle Worker itself.
+    const { idleWorkers } = await stats(client, env);
+    measurements.nestedIdleWorkers = idleWorkers;
+    const created = await run(
+      "nested",
+      env.ops.spawnNested,
+      env.ops.spawnNestedResult,
+      idleWorkers + 1,
     );
-    pass = (await rounds("yielding", 3, true)) && pass;
-    measurements.workersCreatedTotal = (
-      await stats(client, env)
-    ).workersCreated;
+    if (created === null || created === 0) pass = false;
     return { pass, measurements };
+  },
+};
+
+const MiB = 2 ** 20;
+
+// A detached thread ends without a join on the host's thread, as GLib's
+// pool workers do. Rounds of them, the host never returning to its event
+// loop.
+const threadExitBlocked: Scenario = {
+  name: "thread-exit-blocked",
+  criterion:
+    "5 rounds of spawn-detached(pool) with the host never returning to its event loop: " +
+    "heap in use after each round within 0.5 MiB of the first round's, no Worker created " +
+    "in a round that began with enough idle Workers, and nothing left for the event loop to reclaim",
+  async run(client, env): Promise<Outcome> {
+    const n = env.poolSize;
+    const idle: number[] = [];
+    const created: number[] = [];
+    const heap: number[] = [];
+    let pass = true;
+    for (let i = 0; i < 5; i++) {
+      const before = await stats(client, env);
+      const started = await call32(client, env.ops.spawnDetached, int32s(n));
+      if (started !== n) throw new Error(`spawn-detached: ${started}`);
+      const reported = await poll(client, env, env.ops.spawnDetachedResult);
+      if (reported === null)
+        return {
+          pass: false,
+          measurements: { hungInRound: i + 1 },
+        };
+      // Let the threads finish exiting.
+      await env.sleep(50);
+      const after = await stats(client, env);
+      idle.push(before.idleWorkers);
+      created.push(after.workersCreated - before.workersCreated);
+      heap.push(after.heapInUse);
+      if (before.idleWorkers >= n && created.at(-1) !== 0) pass = false;
+    }
+    const first = heap[0]!;
+    if (heap.some((bytes) => Math.abs(bytes - first) > MiB / 2)) pass = false;
+    await hostYield(client);
+    const afterYield = (await stats(client, env)).heapInUse;
+    if (heap.at(-1)! - afterYield > MiB / 2) pass = false;
+    return {
+      pass,
+      measurements: {
+        idleWorkersBefore: idle,
+        workersCreated: created,
+        heapInUseMiB: heap.map((bytes) => round(bytes / MiB, 2)),
+        afterYieldHeapInUseMiB: round(afterYield / MiB, 2),
+      },
+    };
   },
 };
 
@@ -280,7 +391,7 @@ const syncProxied: Scenario = {
   name: "sync-proxied",
   criterion:
     "while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, " +
-    "and a GTask in GLib's thread pool all complete",
+    "and a GTask a thread starts in GLib's thread pool all complete",
   async run(client, env) {
     const measurements: Record<string, Measurement> = {};
     let pass = true;
@@ -309,15 +420,20 @@ const syncProxied: Scenario = {
         measurements[label] = outcome.value;
       }
     };
-    await check("proxySyncUs", Op.proxySync, undefined, Op.proxySyncResult);
+    await check(
+      "proxySyncUs",
+      env.ops.proxySync,
+      undefined,
+      env.ops.proxySyncResult,
+    );
     await check(
       "spawnNestedJoined",
-      Op.spawnNested,
+      env.ops.spawnNested,
       int32s(2),
-      Op.spawnNestedResult,
+      env.ops.spawnNestedResult,
       2,
     );
-    await check("taskUs", Op.task, undefined, Op.taskResult);
+    await check("taskUs", env.ops.task, undefined, env.ops.taskResult);
     return { pass, measurements };
   },
 };
@@ -331,9 +447,9 @@ const promiseProxiedFsync: Scenario = {
     let pass = true;
     for (const path of env.fsyncPaths) {
       const bytes = env.utf8(path);
-      const started = await call32(client, Op.fsync, bytes);
+      const started = await call32(client, env.ops.fsync, bytes);
       if (started !== 0) throw new Error(`fsync(${path}): ${started}`);
-      const result = await poll(client, env, Op.fsyncResult);
+      const result = await poll(client, env, env.ops.fsyncResult);
       if (result === null || result.value !== bytes.length) pass = false;
       measurements[path] =
         result === null
@@ -350,11 +466,42 @@ const exceptions: Scenario = {
   name: "exceptions",
   criterion: "throw replies -ECANCELED, then add still works",
   async run(client, env) {
-    const thrown = await call32(client, Op.throw);
-    const after = await call32(client, Op.add, int32s(1, 1));
+    const thrown = await call32(client, env.ops.throw);
+    const after = await call32(client, env.ops.add, int32s(1, 1));
     return {
       pass: thrown === -env.errno.ECANCELED! && after === 2,
       measurements: { throwReply: thrown, addAfter: after },
+    };
+  },
+};
+
+// Takes the host down, so it runs on a host of its own.
+export const threadCrash: Scenario = {
+  name: "thread-crash",
+  criterion:
+    "a thread that traps takes the host down: requests fail as crashed, and the host reports " +
+    "that thread's error, not only Emscripten's unwinding of the host",
+  async run(client, env) {
+    const started = await call32(client, env.ops.crashThread);
+    if (started !== 0) throw new Error(`crash-thread: ${started}`);
+    const deadline = env.now() + env.pendingLimitMs;
+    let crashed = false;
+    while (!crashed && env.now() < deadline) {
+      try {
+        await client.call(env.ops.add, int32s(1, 1));
+        await env.sleep(10);
+      } catch {
+        crashed = true;
+      }
+    }
+    const report = await client.crashReport(2000);
+    return {
+      pass:
+        crashed &&
+        report !== null &&
+        report.startsWith("a thread crashed: ") &&
+        !report.includes("never arrived"),
+      measurements: { crashed, report: report ?? "none" },
     };
   },
 };
@@ -363,7 +510,9 @@ const exceptions: Scenario = {
 // the pool holds only the Workers it started with.
 export const scenarios: readonly Scenario[] = [
   dispatch,
+  coldWake,
   threadCreateBlocked,
+  threadExitBlocked,
   crossThreadWake,
   deadline,
   syncProxied,
@@ -377,10 +526,6 @@ export interface Result extends Outcome {
   error?: string;
 }
 
-// Between scenarios the host gets a turn of its event loop, which hands
-// back the stacks and Workers of threads that ended without a join on its
-// thread (thread-create-blocked measures what happens without), so each
-// scenario starts from the same memory.
 export const runScenarios = async (
   client: Client,
   env: Env,
@@ -389,7 +534,6 @@ export const runScenarios = async (
   const results: Result[] = [];
   for (const scenario of selected) {
     try {
-      await hostYield(client);
       results.push({
         name: scenario.name,
         criterion: scenario.criterion,

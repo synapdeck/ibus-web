@@ -102,8 +102,20 @@ static void task_done(GObject *source, GAsyncResult *result, gpointer data) {
   task_state = DONE;
 }
 
-/* task(): runs a GTask in GLib's thread pool, whose workers another thread
- * creates, and returns its result to the default context. */
+/* Pushing a task can wait for GLib's pool to create a worker, which takes
+ * a creation proxied to the runtime's thread; pushed from that thread, the
+ * push itself would be what waits, in a futex wait that runs the creation. */
+static gpointer start_task(gpointer data) {
+  (void)data;
+  GTask *t = g_task_new(NULL, NULL, task_done, NULL);
+  g_task_run_in_thread(t, in_thread);
+  g_object_unref(t);
+  return NULL;
+}
+
+/* task(): a thread runs a GTask in GLib's thread pool, whose workers yet
+ * another thread creates, and the task returns its result to the default
+ * context. */
 static void task(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;
@@ -113,9 +125,7 @@ static void task(const uint8_t *payload, uint32_t len, GString *reply) {
   }
   task_state = PENDING;
   task_started = g_get_monotonic_time();
-  GTask *t = g_task_new(NULL, NULL, task_done, NULL);
-  g_task_run_in_thread(t, in_thread);
-  g_object_unref(t);
+  g_thread_unref(g_thread_new("task", start_task, NULL));
   spike_reply(reply, 0);
 }
 

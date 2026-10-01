@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Usage: node smoke.mjs RUNTIME_JS SIDES_DIR
+// Usage: node smoke.mjs RUNTIME_JS SIDES_DIR CONSTANTS_JSON
 // Loads each spike side module into the runtime and calls each of its
 // operations through ibusweb_dispatch(), checking the replies.
 
@@ -10,17 +10,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { errno, int32s, startRuntime, utf8 } from "./harness.mjs";
 
-// The opcodes the side modules register.
-const ADD = 1;
-const IDLE_LATER = 2;
-const IDLE_RESULT = 3;
-const SPAWN = 4;
-const SPAWN_RESULT = 5;
-const THROW = 6;
-const FSYNC = 7;
-const FSYNC_RESULT = 8;
-
-const [runtime, sides] = process.argv.slice(2);
+const [runtime, sides, constants] = process.argv.slice(2);
+// The opcodes the side modules register, as the build printed them.
+const { ADD, IDLE_LATER, IDLE_RESULT, SPAWN, SPAWN_RESULT, THROW, FSYNC, FSYNC_RESULT } = JSON.parse(
+  await readFile(constants, "utf8"),
+).ops;
 const rt = await startRuntime(runtime);
 
 for (const name of ["trivial", "thread", "throw", "fsync"]) {
@@ -45,7 +39,7 @@ assert.ok(delay >= 0, `idle-result ${delay}`);
 console.log(`idle-result: attach to dispatch in ${delay} us`);
 
 // Fewer threads than the pool holds: threads that earlier operations started
-// go back to it only once the event loop has run.
+// may not be back in it yet.
 check("spawn 2", rt.call(SPAWN, int32s(2)), 0);
 check("spawn-result", await rt.settle(() => rt.call(SPAWN_RESULT)), 2);
 

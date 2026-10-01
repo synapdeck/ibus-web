@@ -5,6 +5,7 @@
 // browser's dedicated Worker: it provides self, postMessage, onmessage and a
 // Worker class shaped like the browser's, then imports workerData.entry.
 
+import process from "node:process";
 import {
   parentPort,
   type TransferListItem,
@@ -18,11 +19,14 @@ export interface AdapterData {
 
 type MessageHandler = ((event: { data: unknown }) => void) | null;
 
-// The part of a browser Worker that worker code here uses.
+// The part of a browser Worker that worker code here uses. A Worker that
+// ends without terminate() is reported as an error, as a browser would
+// report the error that ended it.
 export class BrowserWorker {
   onmessage: MessageHandler = null;
   onerror: ((event: { message: string }) => void) | null = null;
   readonly #worker: NodeWorker;
+  #terminated = false;
 
   constructor(url: string | URL) {
     const data: AdapterData = { entry: String(url) };
@@ -35,6 +39,10 @@ export class BrowserWorker {
     this.#worker.on("error", (error: unknown) =>
       this.onerror?.({ message: String(error) }),
     );
+    this.#worker.on("exit", (code: number) => {
+      if (!this.#terminated)
+        this.onerror?.({ message: `exited with code ${code}` });
+    });
   }
 
   postMessage(message: unknown, transfer?: readonly TransferListItem[]): void {
@@ -42,6 +50,7 @@ export class BrowserWorker {
   }
 
   terminate(): void {
+    this.#terminated = true;
     void this.#worker.terminate();
   }
 }
@@ -57,8 +66,51 @@ if (parentPort !== null) {
     message: unknown,
     transfer?: readonly TransferListItem[],
   ) => port.postMessage(message, transfer);
-  port.on("message", (data: unknown) =>
-    (scope.onmessage as MessageHandler | undefined)?.({ data }),
-  );
+
+  // A browser holds messages for a Worker until its script has set a
+  // handler, which a module does only once it has loaded.
+  const queued: unknown[] = [];
+  let handler: MessageHandler = null;
+  const deliver = (): void => {
+    while (handler !== null && queued.length > 0)
+      handler({ data: queued.shift() });
+  };
+  Object.defineProperty(scope, "onmessage", {
+    configurable: true,
+    get: () => handler,
+    set: (value: MessageHandler) => {
+      handler = value;
+      setImmediate(deliver);
+    },
+  });
+  port.on("message", (data: unknown) => {
+    queued.push(data);
+    deliver();
+  });
+
+  // A browser dispatches an uncaught error to the Worker's "error"
+  // listeners instead of ending it; without any, Node's own handling stays.
+  type ErrorListener = (event: {
+    message: string;
+    error: unknown;
+    preventDefault(): void;
+  }) => void;
+  const errorListeners = new Set<ErrorListener>();
+  const dispatchError = (error: unknown): void => {
+    for (const listener of errorListeners)
+      listener({ message: String(error), error, preventDefault: () => {} });
+  };
+  scope.addEventListener = (type: string, listener: ErrorListener) => {
+    if (type !== "error") throw new Error(`no ${type} events here`);
+    if (errorListeners.size === 0)
+      process.on("uncaughtException", dispatchError);
+    errorListeners.add(listener);
+  };
+  scope.removeEventListener = (type: string, listener: ErrorListener) => {
+    if (type !== "error" || !errorListeners.delete(listener)) return;
+    if (errorListeners.size === 0)
+      process.off("uncaughtException", dispatchError);
+  };
+
   await import((workerData as AdapterData).entry);
 }

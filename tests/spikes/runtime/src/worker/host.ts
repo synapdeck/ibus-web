@@ -16,6 +16,7 @@ import {
   requestOpcode,
   State,
   Word,
+  type BuildConstants,
   type ControlViews,
   type HostInit,
   type HostMessage,
@@ -62,6 +63,11 @@ type CreateRuntime = (settings: {
   instantiateWasm?: InstantiateWasm;
 }) => Promise<Runtime>;
 
+// What Emscripten throws to unwind the runtime's thread once another thread
+// has crashed. That thread's own error reaches this one's event loop only
+// afterwards, as an uncaught error.
+const UNWIND = "unwind";
+
 // ES2024's Atomics.waitAsync(), which the WebWorker library this targets
 // doesn't declare.
 const waitAsync = (
@@ -76,9 +82,6 @@ const waitAsync = (
   }
 ).waitAsync;
 
-// IBUSWEB_PUMP_ERROR.
-const PUMP_ERROR = -(2 ** 31);
-
 const post = (message: HostMessage): void => self.postMessage(message);
 
 const describe = (error: unknown): string =>
@@ -87,6 +90,13 @@ const describe = (error: unknown): string =>
     : String(error);
 
 const encoder = new TextEncoder();
+
+// The promise's value, or fallback if it takes longer than ms.
+const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
 
 class Heap {
   readonly rt: Runtime;
@@ -167,6 +177,9 @@ const loadSides = (heap: Heap, sides: readonly SideModule[]): void => {
   }
 };
 
+// Resolves once the relay has started; a failure after that only reaches
+// this thread's event loop, which a sleeping host doesn't run, so the relay
+// also reports one through the control buffer.
 const startRelay = (init: RelayInit): Promise<Worker> =>
   new Promise((resolve, reject) => {
     const relay = new SpawnWorker(new URL("./relay.js", import.meta.url), {
@@ -178,18 +191,45 @@ const startRelay = (init: RelayInit): Promise<Worker> =>
     relay.postMessage(init);
   });
 
-// Counts the Workers Emscripten creates once the runtime runs, which it does
-// through the global Worker class whenever its pool is empty.
-const countWorkers = (): { created: number } => {
-  const counter = { created: 0 };
-  const Base = globalThis.Worker;
-  globalThis.Worker = class extends Base {
-    constructor(...args: ConstructorParameters<typeof Worker>) {
-      super(...args);
-      counter.created++;
-    }
+// A spike instrument: tracks the Workers Emscripten creates, through the
+// global Worker class. Under Node, Emscripten first assigns worker_threads'
+// Worker to the global, so the global becomes an accessor that wraps
+// whichever class it is given. Emscripten marks the Worker hosting a thread
+// with that thread's pointer, and clears it once the Worker is back in its
+// pool.
+interface Workers {
+  // Created since counting started.
+  created: number;
+  counting: boolean;
+  idle(): number;
+}
+
+const trackWorkers = (): Workers => {
+  const all: Worker[] = [];
+  const workers: Workers = {
+    created: 0,
+    counting: false,
+    idle: () =>
+      all.filter((worker) => !(worker as { pthread_ptr?: number }).pthread_ptr)
+        .length,
   };
-  return counter;
+  const wrap = (Base: typeof Worker): typeof Worker =>
+    class extends Base {
+      constructor(...args: ConstructorParameters<typeof Worker>) {
+        super(...args);
+        all.push(this);
+        if (workers.counting) workers.created++;
+      }
+    };
+  let current = wrap(globalThis.Worker);
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    get: () => current,
+    set: (Base: typeof Worker) => {
+      current = wrap(Base);
+    },
+  });
+  return workers;
 };
 
 // Long enough that the loop reaches the messages already queued for it, not
@@ -197,28 +237,37 @@ const countWorkers = (): { created: number } => {
 const yieldToEventLoop = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// struct mallinfo: ten ints, uordblks (bytes in use) the eighth.
-const MALLINFO_WORDS = 10;
-const MALLINFO_IN_USE = 7;
-
-const heapInUse = (heap: Heap, scratch: number): number => {
+const heapInUse = (
+  heap: Heap,
+  constants: BuildConstants,
+  scratch: number,
+): number => {
   heap.rt._mallinfo(scratch);
-  return heap.words[scratch / 4 + MALLINFO_IN_USE]!;
+  return heap.words[(scratch + constants.mallinfo.inUseOffset) / 4]!;
 };
 
-const pump = (rt: Runtime): number => {
+const pump = (rt: Runtime, constants: BuildConstants): number => {
   const delay = rt._ibusweb_pump();
-  if (delay === PUMP_ERROR) throw new Error("pumped off the runtime's thread");
+  if (delay === constants.pumpError)
+    throw new Error("pumped off the runtime's thread");
   return delay;
 };
+
+// Spike instruments: what HostOp.stats reports beyond the Workers.
+interface Counters {
+  requests: number;
+  requestsWhileAsleep: number;
+}
 
 // Answers the request in the slot. Only HostOp.yield answers later, after
 // the returned promise settles.
 const serve = (
   heap: Heap,
   control: ControlViews,
+  constants: BuildConstants,
   buffers: { request: number; reply: number; cap: number; mallinfo: number },
-  workers: { created: number },
+  workers: Workers,
+  counters: Counters,
 ): Promise<void> | undefined => {
   const request = requestBytes(control);
   if (request.length >= 4) {
@@ -226,7 +275,9 @@ const serve = (
       case HostOp.stats: {
         const stats: HostStats = {
           workersCreated: workers.created,
-          heapInUse: heapInUse(heap, buffers.mallinfo),
+          idleWorkers: workers.idle(),
+          heapInUse: heapInUse(heap, constants, buffers.mallinfo),
+          ...counters,
         };
         const json = encoder.encode(JSON.stringify(stats));
         postReply(control, json.length, json);
@@ -251,7 +302,7 @@ const serve = (
     buffers.reply,
     buffers.cap,
   );
-  pump(heap.rt);
+  pump(heap.rt, constants);
   postReply(
     control,
     ret,
@@ -262,26 +313,52 @@ const serve = (
   return undefined;
 };
 
+// Why the runtime stopped. When Emscripten unwound this thread for another
+// thread's crash, that is the other thread's error, once this thread's
+// event loop has delivered it.
+const crashCause = async (error: unknown): Promise<string> => {
+  if (error !== UNWIND) return describe(error);
+  const uncaught = new Promise<string>((resolve) => {
+    self.addEventListener("error", (event) => {
+      event.preventDefault();
+      resolve(describe(event.error ?? event.message));
+    });
+  });
+  return `a thread crashed: ${await within(uncaught, 1000, "its error never arrived")}`;
+};
+
 const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   const startedAt = performance.now();
   const control = controlViews(init.control);
+  const { constants } = init;
   const { default: createRuntime } = (await import(init.runtimeUrl)) as {
     default: CreateRuntime;
   };
+  const workers = trackWorkers();
   const { wasm } = init;
-  const rt = await createRuntime(
-    wasm === undefined
-      ? {}
-      : {
-          instantiateWasm: (imports, done) => {
-            void WebAssembly.instantiate(wasm, imports).then((instance) =>
-              done(instance, wasm),
-            );
-            return {};
+  // Emscripten has no way to hear that instantiateWasm failed, so a failure
+  // ends the wait for the runtime here instead.
+  let failInstantiate: (error: unknown) => void = () => {};
+  const instantiateFailed = new Promise<never>((_, reject) => {
+    failInstantiate = reject;
+  });
+  const rt = await Promise.race([
+    createRuntime(
+      wasm === undefined
+        ? {}
+        : {
+            instantiateWasm: (imports, done) => {
+              WebAssembly.instantiate(wasm, imports).then(
+                (instance) => done(instance, wasm),
+                failInstantiate,
+              );
+              return {};
+            },
           },
-        },
-  );
-  const workers = countWorkers();
+    ),
+    instantiateFailed,
+  ]);
+  workers.counting = true;
   const heap = new Heap(rt);
 
   mount(heap, init.storage);
@@ -299,55 +376,93 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
     index: wakeIndex,
   };
   const controlWord = { buffer: init.control, index: Word.wake };
-  const relay = await startRelay(
-    init.wait === "control"
+  const relay = await startRelay({
+    ...(init.wait === "control"
       ? { from: runtimeWord, to: controlWord }
-      : { from: controlWord, to: runtimeWord },
-  );
-
-  const cap = control.slot.length;
-  const buffers = {
-    request: heap.alloc(cap),
-    reply: heap.alloc(cap),
-    cap,
-    mallinfo: heap.alloc(MALLINFO_WORDS * 4),
-  };
-  post({ type: "ready", startupMs: performance.now() - startedAt });
-
+      : { from: controlWord, to: runtimeWord }),
+    control: init.control,
+  });
   // Each word is read before the state and the pump look, so a wake that
   // lands after them changes it and the sleep returns at once.
   const [sleepWords, sleepIndex] =
     init.wait === "control"
       ? [control.words, Word.wake]
       : [heap.words, wakeIndex];
+  const relayFailed = new Promise<string>((resolve) => {
+    relay.onerror = (event) => {
+      resolve(event.message);
+      postCrash(control);
+      Atomics.add(sleepWords, sleepIndex, 1);
+      Atomics.notify(sleepWords, sleepIndex);
+    };
+  });
+
+  const cap = control.slot.length;
+  const buffers = {
+    request: heap.alloc(cap),
+    reply: heap.alloc(cap),
+    cap,
+    mallinfo: heap.alloc(constants.mallinfo.bytes),
+  };
+  const counters: Counters = { requests: 0, requestsWhileAsleep: 0 };
+  post({ type: "ready", startupMs: performance.now() - startedAt });
+
+  // Whether the last wait ended with its word changed, which is how a
+  // request that arrives while the host sleeps wakes it. ibusweb_wait()
+  // can't tell a word that changed before it slept from one that changed
+  // during, so in "runtime" mode this also counts the rare request that
+  // lands between the pump and the wait.
+  let woken = false;
   try {
     for (;;) {
       const seen = Atomics.load(sleepWords, sleepIndex);
-      if (Atomics.load(control.words, Word.state) === State.request) {
-        const later = serve(heap, control, buffers, workers);
+      const state = Atomics.load(control.words, Word.state);
+      if (state === State.crashed)
+        throw new Error(
+          `relay: ${await within(relayFailed, 1000, "stopped without an error")}`,
+        );
+      if (state === State.request) {
+        counters.requests++;
+        if (woken) counters.requestsWhileAsleep++;
+        woken = false;
+        const later = serve(
+          heap,
+          control,
+          constants,
+          buffers,
+          workers,
+          counters,
+        );
         if (later !== undefined) await later;
         continue;
       }
-      const delay = pump(rt);
-      if (Atomics.load(control.words, Word.state) === State.request) continue;
+      woken = false;
+      const delay = pump(rt, constants);
+      const after = Atomics.load(control.words, Word.state);
+      if (after === State.request || after === State.crashed) continue;
       const timeout = delay < 0 ? Infinity : delay;
       switch (init.wait) {
-        case "runtime":
-          rt._ibusweb_wait(seen, delay);
+        case "runtime": {
+          const ret = rt._ibusweb_wait(seen, delay);
+          if (ret < 0 && ret !== constants.waitTimedOut)
+            throw new Error(`ibusweb_wait: ${ret}`);
+          woken = ret === 0;
           break;
+        }
         case "runtime-async": {
           const result = waitAsync(heap.words, wakeIndex, seen, timeout);
-          if (result.async) await result.value;
+          woken = (result.async ? await result.value : result.value) === "ok";
           break;
         }
         case "control":
-          Atomics.wait(control.words, Word.wake, seen, timeout);
+          woken =
+            Atomics.wait(control.words, Word.wake, seen, timeout) === "ok";
       }
     }
   } catch (error) {
     postCrash(control);
     relay.terminate();
-    post({ type: "crashed", message: describe(error) });
+    post({ type: "crashed", message: await crashCause(error) });
   }
 };
 

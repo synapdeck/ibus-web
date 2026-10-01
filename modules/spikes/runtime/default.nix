@@ -5,7 +5,8 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) runtime typescript;
+      inherit (config.ibusWeb) runtime toolchain typescript;
+      inherit (toolchain) pkgsWasm;
 
       sides =
         map
@@ -44,6 +45,31 @@
             }
           ];
 
+      # The values the TypeScript side shares with the C side, as the
+      # WebAssembly target defines them.
+      constants = pkgsWasm.stdenv.mkDerivation {
+        name = "ibus-web-runtime-spike-constants";
+        src = ../../../tests/spikes/runtime/sides;
+        nativeBuildInputs = [
+          pkgsWasm.pkg-config
+          pkgs.nodejs
+        ];
+        buildInputs = [ runtime.libibusWeb ];
+        dontFixup = true;
+        buildPhase = ''
+          runHook preBuild
+          $CC $($PKG_CONFIG --cflags libibus-web) -c constants.c -o constants.o
+          $CXX ${toolchain.testMainFlags} constants.o -o constants.js
+          node constants.js > constants.json
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          install -Dm644 constants.json -t $out
+          runHook postInstall
+        '';
+      };
+
       sidesDir = pkgs.runCommand "ibus-web-runtime-spike-sides" { } ''
         mkdir $out
         ln -s ${toString (map (side: side.wasm) sides)} $out/
@@ -64,28 +90,35 @@
           ''
             cp ${runtime.nodeHarness}/* .
             cp ${./smoke.mjs} smoke.mjs
-            ${runtime.nodeTimeout} node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js ${sidesDir} > $out
+            ${runtime.nodeTimeout} node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js ${sidesDir} \
+              ${constants}/constants.json > $out
             cat $out
           '';
 
       # The Worker host, from the TypeScript build, runs every scenario under
-      # Node: on the asserting runtime for correctness, then on the released
-      # one, whose timings are the ones to quote, with the comparison against
-      # a host that sleeps in Atomics.wait() on the control buffer.
+      # Node, and the crash scenario on a host of its own: on the asserting
+      # runtime for correctness, then on the released one, whose timings are
+      # the ones to quote, with the comparisons against an idle host that
+      # waits asynchronously and a relay-less one that sleeps in
+      # Atomics.wait() on the control buffer.
       checks.runtime-spike-node =
         pkgs.runCommand "ibus-web-runtime-spike-node"
           {
             nativeBuildInputs = [ typescript.nodejs ];
             # For running the harness by hand from a checkout.
             passthru = {
-              inherit sidesDir;
+              inherit constants sidesDir;
               inherit (runtime) ibusRuntime ibusRuntimeAsserting nodeHarness;
             };
           }
           ''
+            # The exceptions scenario's operation throws on purpose, and the
+            # runtime warns about it on stderr.
             run() {
               ${runtime.nodeTimeout} node ${typescript.workspace}/tests/spikes/runtime/dist/node/run.js \
-                --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json --pool ${poolSize} "$@"
+                --sides ${sidesDir} --errno ${runtime.nodeHarness}/errno.json \
+                --constants ${constants}/constants.json --pool ${poolSize} "$@" \
+                2> >(sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2)
             }
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }

@@ -173,7 +173,7 @@ static gpointer report_and_exit(gpointer data) {
 static void spawn_detached(const uint8_t *payload, uint32_t len,
                            GString *reply) {
   int32_t n;
-  if (!spike_arg(payload, len, 0, &n) || n <= 0 || n > MAX_SPAWN)
+  if (!spike_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
     return;
   if (detached_state == PENDING) {
     spike_reply(reply, -EBUSY);
@@ -266,6 +266,19 @@ static void spawn_nested_result(const uint8_t *payload, uint32_t len,
   }
 }
 
+static gpointer trap(gpointer data) {
+  (void)data;
+  __builtin_trap();
+}
+
+/* crash-thread(): a thread traps, which takes the whole runtime down. */
+static void crash_thread(const uint8_t *payload, uint32_t len, GString *reply) {
+  (void)payload;
+  (void)len;
+  g_thread_unref(g_thread_new("crash", trap, NULL));
+  spike_reply(reply, 0);
+}
+
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, SPIKE_OP_IDLE_LATER, "idle-later", idle_later);
   ibusweb_module_add_op(module, SPIKE_OP_IDLE_RESULT, "idle-result",
@@ -281,4 +294,6 @@ void ibusweb_module_init(IBusWebModule *module) {
                         spawn_nested);
   ibusweb_module_add_op(module, SPIKE_OP_SPAWN_NESTED_RESULT,
                         "spawn-nested-result", spawn_nested_result);
+  ibusweb_module_add_op(module, SPIKE_OP_CRASH_THREAD, "crash-thread",
+                        crash_thread);
 }
