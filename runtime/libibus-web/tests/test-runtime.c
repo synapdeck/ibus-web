@@ -66,6 +66,9 @@ static gpointer hold_default_context(gpointer data) {
   return NULL;
 }
 
+/* Throws a C++ exception. */
+void test_throwing_op(const uint8_t *payload, uint32_t len, GString *reply);
+
 static void echo(const uint8_t *payload, uint32_t len, GString *reply) {
   g_string_append_len(reply, (const char *)payload, len);
 }
@@ -79,6 +82,10 @@ static void register_echo(IBusWebModule *module) {
 static void register_clash(IBusWebModule *module) {
   ibusweb_module_add_op(module, 2, "clash-free", echo);
   ibusweb_module_add_op(module, 1, "clash-taken", echo);
+}
+
+static void register_throwing(IBusWebModule *module) {
+  ibusweb_module_add_op(module, 4, "throwing", test_throwing_op);
 }
 
 static IBusWebModule *echo_module(void) {
@@ -236,6 +243,22 @@ static void test_dispatch_errors(void) {
       -EINVAL);
 }
 
+/* The exception must stop in the runtime and fail only its own dispatch. */
+static void test_dispatch_throw(void) {
+  uint8_t reply[8];
+
+  echo_module();
+  g_assert_cmpint(ibusweb_register_module("throwing", register_throwing, NULL),
+                  ==, 0);
+  memset(reply, 'x', sizeof reply);
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
+                        "Operation 4 threw: thrown by an operation");
+  g_assert_cmpint(call(4, "", reply, sizeof reply), ==, -ECANCELED);
+  g_test_assert_expected_messages();
+  g_assert_cmpint(reply[0], ==, 'x');
+  g_assert_cmpint(call(1, "hi", reply, sizeof reply), ==, 2);
+}
+
 static void test_module_load(void) {
   IBusWebModule *side = NULL;
   uint8_t reply[8];
@@ -297,6 +320,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/module/register", test_module_register);
   g_test_add_func("/dispatch/echo", test_dispatch_echo);
   g_test_add_func("/dispatch/errors", test_dispatch_errors);
+  g_test_add_func("/dispatch/throw", test_dispatch_throw);
   g_test_add_func("/module/load", test_module_load);
   g_test_add_func("/module/load-missing", test_module_load_missing);
   g_test_add_func("/module/load-not-module", test_module_load_not_module);

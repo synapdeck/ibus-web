@@ -75,7 +75,8 @@ IBUSWEB_API int32_t ibusweb_pump(void);
  * code an operation dispatched meanwhile could be running. */
 typedef struct _IBusWebModule IBusWebModule;
 
-/* A spike operation: reads the request's payload and appends its reply. */
+/* A spike operation: reads the request's payload and appends its reply. A
+ * C++ exception it throws fails the dispatch. */
 typedef void (*IBusWebOp)(const uint8_t *payload, uint32_t len, GString *reply);
 
 /* Registers op under opcode for module, for ibusweb_dispatch(). Returns 0,
@@ -110,8 +111,9 @@ IBUSWEB_API int ibusweb_load_module(const char *path,
 /* Spike dispatcher. A request is a little-endian uint32_t opcode followed by
  * the operation's payload; the reply the operation appends is copied into
  * reply. Returns the reply's length, -EINVAL for a request shorter than an
- * opcode, -ENOSYS for an opcode nobody registered, or -ENOBUFS, with nothing
- * written, for a reply longer than reply_cap. */
+ * opcode, -ENOSYS for an opcode nobody registered, -ECANCELED if the operation
+ * threw a C++ exception, or -ENOBUFS for a reply longer than reply_cap;
+ * nothing is written on any failure. */
 IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request,
                                      uint32_t request_len, uint8_t *reply,
                                      uint32_t reply_cap);

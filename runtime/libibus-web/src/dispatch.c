@@ -80,15 +80,16 @@ int32_t ibusweb_dispatch(const uint8_t *request, uint32_t request_len,
     return -ENOSYS;
 
   GString *out = g_string_new(NULL);
-  op(request + sizeof opcode, request_len - sizeof opcode, out);
-
-  int32_t ret;
-  if (out->len > reply_cap || out->len > G_MAXINT32) {
-    ret = -ENOBUFS;
-  } else {
-    if (out->len > 0)
-      memcpy(reply, out->str, out->len);
-    ret = (int32_t)out->len;
+  int32_t ret = ibusweb_ops_call(opcode, op, request + sizeof opcode,
+                                 request_len - sizeof opcode, out);
+  if (ret == 0) {
+    if (out->len > reply_cap || out->len > G_MAXINT32) {
+      ret = -ENOBUFS;
+    } else {
+      if (out->len > 0)
+        memcpy(reply, out->str, out->len);
+      ret = (int32_t)out->len;
+    }
   }
   g_string_free(out, TRUE);
   return ret;

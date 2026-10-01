@@ -1,10 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# A main module links with the C++ driver: it carries the C++ runtime that
-# C++ side modules expect from it.
-add_languages('cpp', native: false)
-
 # Side modules take GLib's symbols from the main module that loads them;
 # linking GLib in again would give them a second copy.
 side_module_deps = [
@@ -27,7 +23,7 @@ endforeach
 test_runtime = executable(
   'test-runtime',
   'test-runtime.c',
-  'main-module.cpp',
+  'throwing-op.cpp',
   dependencies: libibus_web_dep,
   link_args: get_option('test_main_link_args'),
 )

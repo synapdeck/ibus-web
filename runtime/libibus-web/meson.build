@@ -3,14 +3,17 @@
 project(
   'libibus-web',
   'c',
+  'cpp',
   version: '0.0.0',
   license: 'LGPL-2.1-or-later',
   meson_version: '>= 1.1',
-  default_options: ['c_std=c11', 'warning_level=2'],
+  default_options: ['c_std=c11', 'cpp_std=c++17', 'warning_level=2'],
 )
 
 glib = dependency('glib-2.0')
-gmodule = dependency('gmodule-2.0')
+# gmodule-2.0 links its users with --export-dynamic, which would export every
+# symbol of the runtime past its export list.
+gmodule = dependency('gmodule-no-export-2.0')
 
 libibus_web = static_library(
   'ibus-web',
@@ -18,8 +21,10 @@ libibus_web = static_library(
   'src/pump.c',
   'src/module.c',
   'src/dispatch.c',
+  'src/call-op.cpp',
   include_directories: include_directories('include'),
   c_args: '-DG_LOG_DOMAIN="ibus-web"',
+  cpp_args: '-DG_LOG_DOMAIN="ibus-web"',
   gnu_symbol_visibility: 'hidden',
   dependencies: [glib, gmodule],
   install: true,
