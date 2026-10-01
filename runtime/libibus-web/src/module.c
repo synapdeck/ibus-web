@@ -1,0 +1,72 @@
+/* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+ * SPDX-License-Identifier: LGPL-2.1-or-later */
+
+#include "ops.h"
+
+#include <dlfcn.h>
+#include <errno.h>
+
+struct _IBusWebModule {
+  char *name;
+  /* The first failure while adding operations, so a module's init needn't
+   * check each one. */
+  int error;
+};
+
+int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
+                          const char *name, IBusWebOp op) {
+  g_return_val_if_fail(module != NULL, -EINVAL);
+
+  int ret = (name == NULL || op == NULL)
+                ? -EINVAL
+                : ibusweb_ops_add(module, opcode, name, op);
+  if (ret < 0 && module->error == 0)
+    module->error = ret;
+  return ret;
+}
+
+int ibusweb_register_module(const char *name, IBusWebModuleInit init,
+                            IBusWebModule **module_out) {
+  g_return_val_if_fail(name != NULL, -EINVAL);
+  g_return_val_if_fail(init != NULL, -EINVAL);
+
+  IBusWebModule *module = g_new0(IBusWebModule, 1);
+  module->name = g_strdup(name);
+  init(module);
+
+  int error = module->error;
+  if (error < 0) {
+    ibusweb_ops_remove_module(module);
+    g_free(module->name);
+    g_free(module);
+    return error;
+  }
+  if (module_out != NULL)
+    *module_out = module;
+  return 0;
+}
+
+int ibusweb_load_module(const char *path, IBusWebModule **module_out) {
+  g_return_val_if_fail(path != NULL, -EINVAL);
+
+  /* Every side module exports the same entry point; kept out of the global
+   * namespace, each one's dlsym() finds its own. */
+  void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  if (handle == NULL) {
+    g_warning("Can't load side module %s: %s", path, dlerror());
+    return -ENOEXEC;
+  }
+
+  IBusWebModuleInit init =
+      (IBusWebModuleInit)dlsym(handle, "ibusweb_module_init");
+  if (init == NULL) {
+    g_warning("Side module %s has no ibusweb_module_init", path);
+    dlclose(handle);
+    return -ENOENT;
+  }
+
+  int ret = ibusweb_register_module(path, init, module_out);
+  if (ret < 0)
+    dlclose(handle);
+  return ret;
+}

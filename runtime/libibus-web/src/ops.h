@@ -1,0 +1,18 @@
+/* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+ * SPDX-License-Identifier: LGPL-2.1-or-later */
+
+#ifndef IBUS_WEB_OPS_H
+#define IBUS_WEB_OPS_H
+
+#include "ibus-web/runtime.h"
+
+/* The dispatcher's opcode table. */
+
+G_GNUC_INTERNAL
+int ibusweb_ops_add(IBusWebModule *module, uint32_t opcode, const char *name,
+                    IBusWebOp op);
+
+G_GNUC_INTERNAL
+void ibusweb_ops_remove_module(IBusWebModule *module);
+
+#endif /* IBUS_WEB_OPS_H */
