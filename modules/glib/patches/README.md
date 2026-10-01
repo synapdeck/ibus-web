@@ -52,6 +52,11 @@ originals.
 | 0024 gio: Don't query file existence through `faccessat()` on WebAssembly | Alexis Williams | — |
 | 0025 gmain: Wait on a futex-backed GWakeup on WebAssembly | Alexis Williams | — |
 | 0026 tests: Wait on GWakeup without its poll fd on WebAssembly | Alexis Williams | — |
+| 0027 gtimezone: Take zones from Intl on WebAssembly | Alexis Williams | — |
+| 0028 gutils: Don't look the user up on WebAssembly | Alexis Williams | — |
+| 0029 gio, gobject: Fill gaps WebAssembly's GIO build left | Alexis Williams | — |
+| 0030 glib: Give a WebAssembly GWakeup a pipe to poll | Alexis Williams | — |
+| 0031 glib, gio: Restore Unix paths WebAssembly can take | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -123,13 +128,8 @@ record's fd to -1, so that a source polling fd 0 wasn't taken for the
 wakeup. 0025 replaces all of this with a real wakeup and drops the fd -1
 record, which nothing compares against any more.
 
-`g_wakeup_get_pollfd()` still aborts: a futex can't be polled. The main
-context doesn't call it, but `g_cancellable_make_pollfd()` does, so
-**GCancellable file descriptors — `g_cancellable_make_pollfd()` and
-`g_cancellable_get_fd()` — are unsupported on WebAssembly and abort.**
-Their callers are `gsocket.c`, `gasynchelper.c`, `gunixinputstream.c` and
-`gunixoutputstream.c`. A pipe-backed fd for them is possible but not
-built.
+`g_wakeup_get_pollfd()` still aborted after 0025, since a futex can't be
+polled; 0030 gives it a pipe.
 
 0015 fixes GLib's own calls through mismatched function types. Calling a
 function through a pointer type with a different parameter list or return
@@ -460,7 +460,133 @@ loops instead of spinning. `checks.glib` measures it with Node's
 its `getrusage()` is a stub.
 
 0026 makes `gwakeuptest` check and wait for a signal with
-`g_wakeup_wait()` on WebAssembly, where `g_wakeup_get_pollfd()` aborts.
+`g_wakeup_wait()` on WebAssembly, where `g_wakeup_get_pollfd()` aborted
+until 0030.
+
+0027 gives `GTimeZone` IANA zones on WebAssembly from JavaScript's `Intl`
+API rather than from zoneinfo files. 0008 left out every TZif path, so
+only fixed offsets and POSIX rule strings worked, IANA names such as
+`America/Recife` failed, and the default zone was always `UTC0`. A page
+has no zoneinfo files, and the JavaScript engine already carries the
+data (browsers and nixpkgs' Node have full ICU), so nothing is bundled:
+
+- **TZif from Intl.** Where GLib would read a zone's TZif file
+  (`zone_info_unix()`), WebAssembly synthesizes version 2 TZif data for
+  the identifier from `Intl.DateTimeFormat` (an `EM_JS` helper) and hands
+  it to GLib's own parser. An identifier Intl rejects (`RangeError`) gives
+  no data, so it fails as a missing file does and callers fall back to
+  UTC. Paths (`TZ=:/etc/localtime`, an absolute file name) aren't read.
+- **Transitions.** The offset at an instant is the formatted local time
+  minus the instant, exact to the second (Intl keeps local mean time
+  offsets such as -07:52:58). It is sampled weekly from 1800, before any
+  zone left local mean time, to 2100, and each change is narrowed down to
+  the second by bisection: about 20,000 `formatToParts()` calls, 40–70 ms
+  per zone under Node. Outside the range a zone keeps its first or last
+  offset (tzdata's footer rule would keep DST going after 2100), and two
+  changes less than a week apart that cancel out are missed; tzdata has
+  none such in the zones checked.
+- **DST and abbreviations.** A period counts as daylight saving time when
+  its offset is above the lowest offset in both the year before and the
+  year after it began. Requiring both keeps a zone that moved to a new
+  standard offset for good (Istanbul in 2016) out of permanent summer time,
+  at the cost of calling war time that lasted over a year standard time.
+  Abbreviations are Intl's short `en-US` names where alphabetic (`PST`,
+  `PDT`, `GMT`), which ICU has only for some zones and only since 1970;
+  elsewhere they are numeric (`+0100`, `-075258`) or `UTC`, where tzdata
+  has `CET`, `LMT` and the like.
+- **The local zone.** With `TZ` unset, the default zone is
+  `Intl.DateTimeFormat().resolvedOptions().timeZone`; `TZ` is still
+  honoured first.
+- **Caching.** GLib caches a `GTimeZone` only while it is referenced, so
+  the synthesized data is kept per identifier for the life of the
+  program, under a lock, and Intl runs once per zone. The helper hands
+  its bytes back through a second call on the same thread, because
+  Emscripten can't make `malloc()` callable from a C library's `EM_JS`.
+
+Checked against nixpkgs' tzdata 2026c on the 15th of every month from
+1850 to 2099, Los Angeles, New York, London, Berlin, Moscow, Istanbul,
+Tehran, Kolkata, Tokyo, Lord Howe, Apia, Recife and São Paulo give the
+same offsets throughout. Casablanca differs from late 2026, where Node's
+ICU (tzdata 2026a) and tzdata 2026c disagree about Morocco. DST flags
+differ mostly for war time (1940–1945), which lasted over a year and so
+reads as standard time, and for a handful of one-off changes. Of GLib's
+`GTimeZone` and `GDateTime` tests, all pass except
+`/GTimeZone/parse-rfc8536`, which loads TZif files by path.
+
+0028 skips the user database lookup in `g_get_user_name()`,
+`g_get_real_name()` and `g_get_home_dir()` on WebAssembly. Emscripten's
+`getpwnam_r()`, `getpwuid_r()` and `getpwuid()` are stubs that report
+`ENOENT`, so the lookup always failed and warned (a fatal warning in
+tests); the result is the same fallback, "somebody" and "Unknown", without
+the warning. `g_get_home_dir()` still takes `HOME`, which Emscripten's
+default environment sets.
+
+0029 fills three gaps 0008 left in GIO and GObject:
+
+- `g_content_type_is_a()` in 0008's WebAssembly content type backend only
+  compared for equality; every type but an inode is now also an
+  `application/octet-stream`, as with the shared-mime-info backend.
+- No memory monitor was registered on WebAssembly, so
+  `g_memory_monitor_dup_default()` passed `NULL` to `g_object_ref()`. A
+  new `GMemoryMonitorWasm` (`gio/gmemorymonitorwasm.c`), which never
+  warns, is registered at priority 0. Nothing in the browser reports
+  memory pressure.
+- `g_source_set_closure()` refused `GIOChannel` watches, because 0008 left
+  `g_io_watch_funcs` out of source closures while `giounix.c` wasn't
+  built; 0016 builds it again.
+
+0030 gives a WebAssembly `GWakeup` an fd to poll, so
+`g_cancellable_make_pollfd()` and `g_cancellable_get_fd()` work, and their
+callers (`gsocket.c`, `gasynchelper.c`) no longer abort:
+
+- **The pipe.** The first `g_wakeup_get_pollfd()` on a wakeup creates a
+  pipe and publishes it with a compare-and-swap; a thread that loses the
+  race closes its own. From then on `g_wakeup_signal()` also writes a byte
+  to it, and `g_wakeup_acknowledge()` drains it before acknowledging the
+  futex, so a signal landing in between leaves a spurious byte rather than
+  a signalled wakeup that doesn't poll ready. A signal racing with the
+  pipe's creation either sees the pipe or bumped the counter before the
+  creator checks it, and the creator then writes the byte itself.
+- **Emscripten's pipes.** WasmFS's `pipe2()` takes no flag but
+  `O_CLOEXEC`, so `O_NONBLOCK` is set with `fcntl()`. Neither file system
+  blocks on a pipe: an empty pipe reads as `EAGAIN` on the JavaScript file
+  systems, even after every writer has closed (while `poll()` reports
+  `POLLHUP`), and as 0 on WasmFS. The drain stops at either, and never
+  waits for end of file.
+- **Waiting is unchanged.** `g_wakeup_wait()` and main contexts still
+  sleep on the futex, and main contexts never ask for the fd, so they
+  never get a pipe; 0025's loop still probes a context's fds between
+  waits on its wakeup, which a signal ends at once.
+- **`g_poll()` with a timeout** waited on nothing: Emscripten's `poll()`
+  ignores the timeout on the main thread and on WasmFS, and from a pthread
+  on the JavaScript file systems it waits for the main thread to return to
+  its event loop. On WebAssembly `g_poll()` now probes the fds with a zero
+  timeout and sleeps in 10 ms slices (`g_usleep()`, which serves proxied
+  calls) until one is ready or the timeout passes. A cancellable's fd
+  turning ready is noticed within a slice.
+- `gwakeuptest` checks the poll fd again on WebAssembly, and that it
+  agrees with `g_wakeup_wait()`; it still waits with `g_wakeup_wait()`,
+  since its threaded test passes tokens far too often for 10 ms slices.
+
+0031 restores three Unix paths 0008 left out that work on WebAssembly as
+they do elsewhere:
+
+- `g_source_add_unix_fd()`, `g_source_modify_unix_fd()`,
+  `g_source_remove_unix_fd()` and `g_source_query_unix_fd()`, which
+  `gmain.h` declares on every Unix, weren't built, so callers failed to
+  link. They only add fds to a source's poll set, which 0025's loop
+  probes.
+- Local files get `standard::is-hidden` (dotfiles and names in the
+  directory's `.hidden` file) and `standard::is-backup` (names ending in
+  `~`) again. Lost+found directories aren't looked for: that needs the
+  Unix mount table, which isn't built. Reading `.hidden` caches it for a
+  few seconds with a timeout on GLib's worker context, whose thread 0025
+  lets sleep.
+- Files in a `GResource` get a content type again, guessed from the name
+  and data as for local files.
+
+The rest of 0008's WebAssembly guards were reviewed with 0031; the ones
+worth revisiting are listed in the plan's follow-ups.
 
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers

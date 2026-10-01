@@ -1,7 +1,7 @@
 From 46e4b4225e99b8e7ee2c2634d6c23ad27b570f4d Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:06:20 -0700
-Subject: [PATCH 20/26] Define the adapters G_DEFINE_DYNAMIC_TYPE_EXTENDED
+Subject: [PATCH 20/31] Define the adapters G_DEFINE_DYNAMIC_TYPE_EXTENDED
  registers
 
 The dynamic type macro registers type_name##_init_adapter as the

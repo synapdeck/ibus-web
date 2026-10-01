@@ -242,9 +242,17 @@ the mismatch so the engine needs no patch.
   probed with a zero timeout between waits of at most 10 ms. Another
   thread's change to the context (`g_main_context_wakeup`, attaching a
   source, quitting a loop) ends the wait. The runtime's pump still
-  iterates without blocking, which is unchanged. `g_wakeup_get_pollfd`
-  still aborts, so GCancellable fds (`g_cancellable_get_fd`,
-  `g_cancellable_make_pollfd`) are unsupported.
+  iterates without blocking, which is unchanged. A wakeup asked for a
+  poll fd (GCancellable's `g_cancellable_get_fd`,
+  `g_cancellable_make_pollfd`) gets a pipe that mirrors the futex;
+  contexts never ask, so they have none. `g_poll()` with a timeout probes
+  and sleeps in 10 ms slices, since Emscripten's `poll()` can't wait.
+- `GTimeZone` takes IANA zones from JavaScript's `Intl` API, not from
+  zoneinfo files, so the runtime ships no tzdata: GLib's TZif parser gets
+  data synthesized from `Intl.DateTimeFormat` for 1800–2100, and the
+  local zone is the one `Intl` resolves unless `TZ` is set. Abbreviations
+  are `Intl`'s short English names where it has them (`PST`), else
+  numeric (`+0100`).
 - GLib's worker context (`g_get_worker_context()`) runs a blocking loop on
   a thread GLib starts on first use. `GTask`'s type initialization starts
   it, so in practice any GIO asynchronous call does; so do local file
@@ -1209,11 +1217,11 @@ specification and `release.json`.
 2. **Runtime.** GLib's own tests, built by `pkgsWasm.glib`'s recipe and run
    under Node on WasmFS (§10.3) in `checks.glib-tests`.
    `modules/glib/checks/tests/baseline.toml` lists the tests that must pass,
-   every one that passed in three reviewed runs (243 of 300), and the
+   every one that passed in three reviewed runs (252 of 300), and the
    excluded tests with the reason each can't run here: process spawning,
-   sockets, blocking main-context iteration and pipes (24), which are
+   sockets, blocking main-context iteration and pipes (23), which are
    reported but never run. The rest are reported on every run but don't
-   gate: 20 failures from libc, locale and time differences, WasmFS's
+   gate: 12 failures from libc, locale and time differences, WasmFS's
    file-time precision and unchecked directory search permission, and small
    GIO gaps, and 13 skips. Also C tests for `libibus-web` (lifecycle, emitters, pump,
    settings backend) and, if the lazy arity lookup is built (§5.1.2),

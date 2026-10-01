@@ -1,7 +1,7 @@
 From 9ff7ad93baba7063b74b7e97e65b1e64e9d207ca Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Fri, 20 Sep 2019 16:05:00 +0200
-Subject: [PATCH 09/26] Fix function pointer cast issues
+Subject: [PATCH 09/31] Fix function pointer cast issues
 
 It is undefined behavior in C and C++ to cast a function pointer
 to another type and call it that way. This does work in most native

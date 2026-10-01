@@ -14,6 +14,8 @@ tests = [
   "gio - glib:autoptr-gio",
   "gio - glib:buffered-input-stream",
   "gio - glib:buffered-output-stream",
+  "gio - glib:cancellable",
+  "gio - glib:contenttype",
   "gio - glib:contexts",
   "gio - glib:converter",
   "gio - glib:credentials",
@@ -33,6 +35,7 @@ tests = [
   "gio - glib:io-stream",
   "gio - glib:max-version",
   "gio - glib:memory-input-stream",
+  "gio - glib:memory-monitor",
   "gio - glib:memory-output-stream",
   "gio - glib:memory-settings-backend",
   "gio - glib:mount-operation",
@@ -148,6 +151,7 @@ tests = [
   "glib+core - glib:utf8-pointer",
   "glib+core - glib:utf8-private",
   "glib+core - glib:utf8-validate",
+  "glib+core - glib:utils",
   "glib+core - glib:utils-isolated",
   "glib+core - glib:utils-unisolated",
   "glib+core+cc - glib:atomic-c-11",
@@ -160,6 +164,11 @@ tests = [
   "glib+core+cc - glib:macros-c-23",
   "glib+core+cc - glib:macros-c-89",
   "glib+core+cc - glib:macros-c-99",
+  "glib+core+cc - glib:utils-c-11",
+  "glib+core+cc - glib:utils-c-17",
+  "glib+core+cc - glib:utils-c-23",
+  "glib+core+cc - glib:utils-c-89",
+  "glib+core+cc - glib:utils-c-99",
   "glib+core+cpp - glib:cxx",
   "glib+core+cpp - glib:cxx-03",
   "glib+core+cpp - glib:cxx-11",
@@ -257,7 +266,6 @@ tests = [
 # name = "reason it cannot run under Node with Emscripten"
 [excluded]
 "gio - glib:async-splice-output-stream" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"gio - glib:cancellable" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:filenamecompleter" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
 "gio - glib:gdbus-peer" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
 "gio - glib:gdbus-server-auth" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"

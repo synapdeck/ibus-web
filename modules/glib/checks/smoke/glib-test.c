@@ -2,10 +2,12 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
 /* Exercises each GLib library once: GLib (key files, GRegex, threads, a main
- * context, callbacks cast to GCompareFunc), GObject (a property notification,
- * a dynamic type, signal class handlers) and GIO (reading a file back). Also
- * checks that blocking main-context iteration sleeps instead of spinning,
- * and wakes when another thread changes the context. */
+ * context, callbacks cast to GCompareFunc, time zones), GObject (a property
+ * notification, a dynamic type, signal class handlers) and GIO (reading a
+ * file back, file and resource attributes, the memory monitor). Also checks
+ * that blocking main-context iteration sleeps instead of spinning, wakes
+ * when another thread changes the context, with or without fds to watch,
+ * and that a cancellable's fd can be polled. */
 #include <emscripten.h>
 #include <gio/gio.h>
 #include <glib-object.h>
@@ -43,6 +45,48 @@ static gpointer run_loop(gpointer loop) {
 static gboolean quit_loop(gpointer loop) {
   g_main_loop_quit(loop);
   return G_SOURCE_REMOVE;
+}
+
+/* A source watching one fd for input through g_source_add_unix_fd(). */
+typedef struct {
+  GSource source;
+  gpointer tag;
+} FdSource;
+
+static gboolean fd_source_check(GSource *source) {
+  return (g_source_query_unix_fd(source, ((FdSource *)source)->tag) &
+          G_IO_IN) != 0;
+}
+
+static gboolean fd_source_dispatch(GSource *source, GSourceFunc callback,
+                                   gpointer user_data) {
+  (void)source;
+  return callback(user_data);
+}
+
+static GSourceFuncs fd_source_funcs = {
+    NULL, fd_source_check, fd_source_dispatch, NULL, NULL, NULL,
+};
+
+static GSource *fd_source_new(int fd) {
+  GSource *source = g_source_new(&fd_source_funcs, sizeof(FdSource));
+  ((FdSource *)source)->tag = g_source_add_unix_fd(source, fd, G_IO_IN);
+  return source;
+}
+
+static gpointer cancel_later(gpointer cancellable) {
+  g_usleep(50000);
+  g_cancellable_cancel(cancellable);
+  return NULL;
+}
+
+static gboolean query_boolean(const char *path, const char *attribute) {
+  GFile *file = g_file_new_for_path(path);
+  GFileInfo *info = g_file_query_info(file, attribute, 0, NULL, NULL);
+  gboolean value = info && g_file_info_get_attribute_boolean(info, attribute);
+  g_clear_object(&info);
+  g_object_unref(file);
+  return value;
 }
 
 static void task_thread(GTask *task, gpointer source_object, gpointer task_data,
@@ -284,6 +328,56 @@ int main(void) {
   g_main_loop_unref(loop);
   g_main_context_unref(loop_context);
 
+  /* With an fd to watch the loop thread probes it between waits on the
+   * context's wakeup, and must still wake when the wakeup is signalled.
+   * Then the fd turns ready and its source quits a second run. */
+  int fd_pipe[2];
+  int piped = pipe(fd_pipe) == 0;
+  GMainContext *fd_context = g_main_context_new();
+  GMainLoop *fd_loop = g_main_loop_new(fd_context, FALSE);
+  GSource *fd_watch = fd_source_new(fd_pipe[0]);
+  g_source_set_callback(fd_watch, quit_loop, fd_loop, NULL);
+  g_source_attach(fd_watch, fd_context);
+  g_source_unref(fd_watch);
+  GThread *fd_looper = g_thread_new("fd-loop", run_loop, fd_loop);
+  while (!g_main_loop_is_running(fd_loop))
+    g_usleep(1000);
+  g_usleep(50000);
+  gint64 fd_signalled = g_get_monotonic_time();
+  GSource *fd_quitter = g_idle_source_new();
+  g_source_set_callback(fd_quitter, quit_loop, fd_loop, NULL);
+  g_source_attach(fd_quitter, fd_context);
+  g_source_unref(fd_quitter);
+  g_thread_join(fd_looper);
+  printf("fdwait latency %.1f ms\n",
+         (g_get_monotonic_time() - fd_signalled) / 1000.0);
+  int fd_woke = !g_main_loop_is_running(fd_loop);
+  int fd_written = write(fd_pipe[1], "x", 1) == 1;
+  fd_looper = g_thread_new("fd-loop", run_loop, fd_loop);
+  g_thread_join(fd_looper);
+  printf("fdwait %d %d %d\n", piped && fd_written, fd_woke,
+         !g_main_loop_is_running(fd_loop));
+  g_main_loop_unref(fd_loop);
+  g_main_context_unref(fd_context);
+  close(fd_pipe[0]);
+  close(fd_pipe[1]);
+
+  /* A cancellable's fd turns ready once another thread cancels it, g_poll()
+   * waits for that, and resetting the cancellable clears it. */
+  GCancellable *cancellable = g_cancellable_new();
+  GPollFD cancel_fd;
+  int made = g_cancellable_make_pollfd(cancellable, &cancel_fd);
+  GThread *canceller = g_thread_new("cancel", cancel_later, cancellable);
+  int cancel_ready = g_poll(&cancel_fd, 1, -1) == 1 &&
+                     (cancel_fd.revents & G_IO_IN) &&
+                     g_cancellable_is_cancelled(cancellable);
+  g_thread_join(canceller);
+  g_cancellable_reset(cancellable);
+  int cancel_cleared = g_poll(&cancel_fd, 1, 0) == 0;
+  g_cancellable_release_fd(cancellable);
+  g_object_unref(cancellable);
+  printf("cancellable %d %d %d\n", made, cancel_ready, cancel_cleared);
+
   /* A spinning wait would burn as much CPU time as it takes wall time. */
   GMainContext *timed = g_main_context_new();
   gint64 timed_start = g_get_monotonic_time();
@@ -326,6 +420,55 @@ int main(void) {
   g_type_module_unuse(module);
 
   printf("processors %s\n", g_get_num_processors() > 0 ? "yes" : "no");
+
+  /* Zones come from JavaScript's Intl API: Berlin in January and July 2024,
+   * and whatever zone this process is in. */
+  GTimeZone *berlin = g_time_zone_new_identifier("Europe/Berlin");
+  GTimeZone *local = g_time_zone_new_local();
+  int winter = 0, summer = 0;
+  if (berlin) {
+    winter = g_time_zone_get_offset(
+        berlin,
+        g_time_zone_find_interval(berlin, G_TIME_TYPE_UNIVERSAL, 1704067200));
+    summer = g_time_zone_get_offset(
+        berlin,
+        g_time_zone_find_interval(berlin, G_TIME_TYPE_UNIVERSAL, 1719792000));
+  }
+  printf("timezone local %s\n", g_time_zone_get_identifier(local));
+  printf("timezone %s %d %d %d\n",
+         berlin ? g_time_zone_get_identifier(berlin) : "none", winter, summer,
+         g_time_zone_get_identifier(local)[0] != '\0');
+  if (berlin)
+    g_time_zone_unref(berlin);
+  g_time_zone_unref(local);
+
+  gchar *dotfile = g_build_filename(g_get_tmp_dir(), ".glib-test", NULL);
+  gchar *backup = g_build_filename(g_get_tmp_dir(), "glib-test~", NULL);
+  g_file_set_contents(dotfile, "", 0, NULL);
+  g_file_set_contents(backup, "", 0, NULL);
+  printf("attributes %d %d\n",
+         query_boolean(dotfile, G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN),
+         query_boolean(backup, G_FILE_ATTRIBUTE_STANDARD_IS_BACKUP));
+  g_free(dotfile);
+  g_free(backup);
+
+  /* The check compiles this resource from a text file before the run. */
+  GResource *resource = g_resource_load("glib-test.gresource", NULL);
+  if (resource)
+    g_resources_register(resource);
+  GFile *resource_file =
+      g_file_new_for_uri("resource:///org/example/glib-test.txt");
+  GFileInfo *resource_info = g_file_query_info(
+      resource_file, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, 0, NULL, NULL);
+  const char *resource_type =
+      resource_info ? g_file_info_get_content_type(resource_info) : NULL;
+  printf("resource %s\n", resource_type ? resource_type : "none");
+  g_clear_object(&resource_info);
+  g_object_unref(resource_file);
+
+  GMemoryMonitor *memory = g_memory_monitor_dup_default();
+  printf("memory %d\n", memory != NULL);
+  g_clear_object(&memory);
 
   trail = g_string_new(NULL);
   gboolean base_verdict = FALSE, sub_verdict = TRUE;

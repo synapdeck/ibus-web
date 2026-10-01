@@ -1,0 +1,311 @@
+From 2ef4b30e1db67cc20ba8b91b431a5e6685ee16c6 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 16:58:41 -0700
+Subject: [PATCH 27/31] gtimezone: Take zones from Intl on WebAssembly
+
+WebAssembly skipped every TZif path, so only fixed offsets and POSIX
+rule strings worked, IANA names such as "America/Recife" always failed,
+and the default zone was hardcoded to "UTC0".
+
+A page has no zoneinfo files, and shipping tzdata would duplicate what
+the JavaScript engine already has: Intl knows every IANA zone. On
+WebAssembly the TZif data for an identifier is now synthesized from Intl
+and handed to GLib's usual TZif parser, and the default zone is the one
+Intl resolves for the page or process. TZ is still honoured first. An
+identifier Intl doesn't know fails as a missing file does.
+
+The data covers 1800 to 2100: offsets are sampled weekly and each change
+is narrowed down to the second, so changes less than a week apart that
+cancel out are missed, and a zone keeps its 2100 offset afterwards. A
+period counts as daylight saving time when its offset is above the
+lowest offset in both the year before and the year after it began.
+Abbreviations are Intl's short English names where alphabetic ("PST"),
+else numeric ("+0100") or "UTC". Synthesizing a zone takes tens of
+milliseconds, so the data is cached per identifier for good.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/gtimezone.c | 228 +++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 221 insertions(+), 7 deletions(-)
+
+diff --git a/glib/gtimezone.c b/glib/gtimezone.c
+index adb686296..623cdb658 100644
+--- a/glib/gtimezone.c
++++ b/glib/gtimezone.c
+@@ -50,6 +50,10 @@
+ #include <wchar.h>
+ #endif
+ 
++#ifdef G_PLATFORM_WASM
++#include <emscripten/em_js.h>
++#endif
++
+ /**
+  * GTimeZone:
+  *
+@@ -202,7 +206,7 @@ static GTimeZone *tz_local = NULL;
+                            there's no point in getting carried
+                            away. */
+ 
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+ static GTimeZone *parse_footertz (const gchar *, size_t);
+ #endif
+ 
+@@ -503,7 +507,8 @@ zone_identifier_illumos (void)
+ }
+ #endif /* defined(__sun) && defined(__SRVR) */
+ 
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
++#ifndef G_PLATFORM_WASM
+ #define MAX_SYMLINKS 20
+ 
+ /*
+@@ -686,6 +691,217 @@ out:
+   return zoneinfo;
+ }
+ 
++#else /* G_PLATFORM_WASM */
++
++/* A page has no zoneinfo files, but JavaScript's Intl API knows every IANA
++ * zone, so the data a TZif file would hold is synthesized from it and handed
++ * to the usual TZif parser.  Offsets are read to the second from the local
++ * time Intl formats for an instant, sampled weekly from 1800, when every
++ * zone was still on local mean time, to 2100, with each change narrowed down
++ * to the second; a zone keeps its 2100 offset after that, and two changes
++ * less than a week apart that cancel out are missed.  A period counts as
++ * daylight saving time when its offset is above the lowest offset in both
++ * the year before and the year after it began, so that a zone moving to a
++ * new standard offset for good isn't taken for one in permanent summer
++ * time.  Abbreviations are Intl's short English names where they are
++ * alphabetic ("PST"), which it only has for some zones and only since
++ * 1970; elsewhere they are numeric ("+0100"), or "UTC" for a zero offset,
++ * where tzdata often has a name ("CET") or "LMT". */
++EM_JS_DEPS (gtimezone, "$UTF8ToString,$stringToUTF8,$lengthBytesUTF8");
++
++/* Returns the data's length, or 0 for a zone Intl doesn't know, and keeps
++ * the data for zone_info_take_intl() on the same thread: Emscripten can't
++ * make malloc() callable from here when only JavaScript code needs it. */
++EM_JS (size_t, zone_info_from_intl, (const char *identifier), {
++  var clock;
++  var names;
++  try {
++    var id = UTF8ToString(identifier);
++    clock = new Intl.DateTimeFormat("en-US", {
++      timeZone: id, hourCycle: "h23", year: "numeric", month: "numeric",
++      day: "numeric", hour: "numeric", minute: "numeric", second: "numeric"
++    });
++    names = new Intl.DateTimeFormat("en-US", {timeZone: id, timeZoneName: "short"});
++  } catch (e) {
++    return 0;
++  }
++  var offsetAt = function (t) {
++    var p = {};
++    clock.formatToParts(t * 1000).forEach(function (part) { p[part.type] = part.value; });
++    return Date.UTC(+p.year, p.month - 1, +p.day, +p.hour, +p.minute, +p.second) / 1000 - t;
++  };
++  var two = function (n) { return (n < 10 ? "0" : "") + n; };
++  var nameAt = function (t, offset) {
++    var name = names.formatToParts(t * 1000).find(function (part) { return part.type == "timeZoneName"; });
++    if (name && /^[A-Za-z]+$/.test(name.value))
++      return name.value;
++    if (offset == 0)
++      return "UTC";
++    var a = Math.abs(offset);
++    var s = (offset < 0 ? "-" : "+") + two(Math.floor(a / 3600)) + two(Math.floor(a / 60) % 60);
++    return a % 60 ? s + two(a % 60) : s;
++  };
++
++  var step = 7 * 86400;
++  var year = 365 * 86400;
++  var first = Date.UTC(1800, 0, 1) / 1000;
++  var last = Date.UTC(2100, 0, 1) / 1000;
++  var times = [first];
++  var offsets = [offsetAt(first)];
++  for (var t = first + step; t <= last; t += step) {
++    var low = t - step;
++    var offset = offsets[offsets.length - 1];
++    while (offsetAt(t) != offset) {
++      var high = t;
++      while (high - low > 1) {
++        var mid = Math.floor((low + high) / 2);
++        if (offsetAt(mid) == offset)
++          low = mid;
++        else
++          high = mid;
++      }
++      offset = offsetAt(high);
++      times.push(high);
++      offsets.push(offset);
++      low = high;
++    }
++  }
++
++  var lowest = function (from, to) {
++    var m = Infinity;
++    for (var i = 0; i < times.length; i++) {
++      var end = i + 1 < times.length ? times[i + 1] : Infinity;
++      if (times[i] < to && end > from)
++        m = Math.min(m, offsets[i]);
++    }
++    return m;
++  };
++  var types = [];
++  var typeIndex = [];
++  var chars = "";
++  for (var i = 0; i < times.length; i++) {
++    var dst = i > 0 && offsets[i] > lowest(times[i] - year, times[i]) &&
++              offsets[i] > lowest(times[i], times[i] + year) ? 1 : 0;
++    var abbrev = nameAt(times[i], offsets[i]);
++    var key = offsets[i] + "/" + dst + "/" + abbrev;
++    var index = types.findIndex(function (type) { return type.key == key; });
++    if (index < 0) {
++      var at = chars.indexOf(abbrev + "\0");
++      if (at < 0) {
++        at = chars.length;
++        chars += abbrev + "\0";
++      }
++      index = types.length;
++      types.push({key: key, offset: offsets[i], dst: dst, at: at});
++    }
++    typeIndex.push(index);
++  }
++
++  /* Version 2 data with an empty footer; the version 1 block, which
++   * readers of version 2 skip, holds only the first type. */
++  var count = times.length - 1;
++  var firstAbbrev = chars.indexOf("\0") + 1;
++  var v1 = 44 + 6 + firstAbbrev;
++  var bytes = new Uint8Array(v1 + 44 + 9 * count + 6 * types.length + chars.length + 2);
++  var view = new DataView(bytes.buffer);
++  var header = function (at, counts) {
++    bytes.set([84, 90, 105, 102, 50], at);
++    counts.forEach(function (n, i) { view.setUint32(at + 20 + 4 * i, n); });
++    return at + 44;
++  };
++  var ttinfo = function (at, type) {
++    view.setInt32(at, type.offset);
++    bytes[at + 4] = type.dst;
++    bytes[at + 5] = type.at;
++  };
++  var at = header(0, [0, 0, 0, 0, 1, firstAbbrev]);
++  ttinfo(at, types[0]);
++  for (var c = 0; c < firstAbbrev - 1; c++)
++    bytes[at + 6 + c] = chars.charCodeAt(c);
++  at = header(v1, [0, 0, 0, count, types.length, chars.length]);
++  for (var j = 0; j < count; j++) {
++    view.setBigInt64(at + 8 * j, BigInt(times[j + 1]));
++    bytes[at + 8 * count + j] = typeIndex[j + 1];
++  }
++  at += 9 * count;
++  types.forEach(function (type) { ttinfo(at, type); at += 6; });
++  for (var k = 0; k < chars.length; k++)
++    bytes[at + k] = chars.charCodeAt(k);
++  bytes[bytes.length - 2] = 10;
++  bytes[bytes.length - 1] = 10;
++
++  Module.gTimeZoneData = bytes;
++  return bytes.length;
++});
++
++EM_JS (void, zone_info_take_intl, (guint8 *data), {
++  HEAPU8.set(Module.gTimeZoneData, data);
++  delete Module.gTimeZoneData;
++});
++
++/* Writes the zone's identifier, and returns its length. */
++EM_JS (int, zone_identifier_from_intl, (char *buffer, int size), {
++  var id = Intl.DateTimeFormat().resolvedOptions().timeZone;
++  if (!id)
++    return 0;
++  stringToUTF8(id, buffer, size);
++  return lengthBytesUTF8(id);
++});
++
++static gchar *
++zone_identifier_unix (void)
++{
++  char buffer[256];
++  int length = zone_identifier_from_intl (buffer, sizeof buffer);
++
++  return length > 0 && length < (int) sizeof buffer ? g_strdup (buffer) : NULL;
++}
++
++/* Synthesizing a zone takes tens of milliseconds, and GLib forgets a zone
++ * once its last reference goes, so the data is kept for good. */
++G_LOCK_DEFINE_STATIC (intl_zones);
++static GHashTable *intl_zones = NULL;
++
++static GBytes *
++zone_info_unix (const gchar *identifier,
++                const gchar *resolved_identifier)
++{
++  GBytes *zoneinfo;
++
++  if (identifier == NULL)
++    identifier = resolved_identifier;
++  if (identifier == NULL)
++    return NULL;
++  if (*identifier == ':')
++    identifier++;
++
++  G_LOCK (intl_zones);
++
++  if (intl_zones == NULL)
++    intl_zones = g_hash_table_new (g_str_hash, g_str_equal);
++
++  zoneinfo = g_hash_table_lookup (intl_zones, identifier);
++  if (zoneinfo == NULL)
++    {
++      size_t length = zone_info_from_intl (identifier);
++
++      if (length > 0)
++        {
++          guint8 *data = g_malloc (length);
++
++          zone_info_take_intl (data);
++          zoneinfo = g_bytes_new_take (data, length);
++          g_hash_table_insert (intl_zones, g_strdup (identifier), zoneinfo);
++        }
++    }
++
++  G_UNLOCK (intl_zones);
++
++  return zoneinfo != NULL ? g_bytes_ref (zoneinfo) : NULL;
++}
++
++#endif /* G_PLATFORM_WASM */
++
+ static void
+ init_zone_from_iana_info (GTimeZone *gtz,
+                           GBytes    *zoneinfo,
+@@ -1697,7 +1913,7 @@ rules_from_identifier (const gchar   *identifier,
+   return create_ruleset_from_rule (rules, &tzr);
+ }
+ 
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+ static GTimeZone *
+ parse_footertz (const gchar *footer, size_t footerlen)
+ {
+@@ -1856,9 +2072,7 @@ g_time_zone_new_identifier (const gchar *identifier)
+   else
+     {
+       G_LOCK (tz_default);
+-#ifdef G_PLATFORM_WASM
+-      resolved_identifier = g_strdup ("UTC0");
+-#elif defined (G_OS_UNIX)
++#ifdef G_OS_UNIX
+       resolved_identifier = zone_identifier_unix ();
+ #elif defined (G_OS_WIN32)
+       resolved_identifier = windows_default_tzname ();
+@@ -1898,7 +2112,7 @@ g_time_zone_new_identifier (const gchar *identifier)
+ 
+   if (tz->t_info == NULL)
+     {
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+       GBytes *zoneinfo = zone_info_unix (identifier, resolved_identifier);
+       if (zoneinfo != NULL)
+         {

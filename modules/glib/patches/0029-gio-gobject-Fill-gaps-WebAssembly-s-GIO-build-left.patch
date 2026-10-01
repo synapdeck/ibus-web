@@ -1,0 +1,157 @@
+From 38e58a38b9849aff9ab3438a58f67f8dd14d8658 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 16:59:58 -0700
+Subject: [PATCH 29/31] gio, gobject: Fill gaps WebAssembly's GIO build left
+
+Three places where the WebAssembly build fell short of what GLib
+promises everywhere else:
+
+- g_content_type_is_a() only compared types for equality. Every type
+  but an inode is now also an application/octet-stream, as with the
+  shared-mime-info backend.
+
+- g_memory_monitor_dup_default() returned NULL, and passed it to
+  g_object_ref(): the D-Bus, portal, PSI and poll monitors aren't
+  registered on WebAssembly. A monitor that never warns, since nothing
+  reports memory pressure there, is now registered as the fallback.
+
+- g_source_set_closure() refused GIOChannel watches: io watches were
+  left out of source closures when giounix.c wasn't built. It is built
+  again, so they get their closure callback as on other Unixes.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/gcontenttype-wasm.c  |  5 +++++
+ gio/giomodule.c          |  6 ++++++
+ gio/gmemorymonitorwasm.c | 38 ++++++++++++++++++++++++++++++++++++++
+ gio/meson.build          |  1 +
+ gobject/gsourceclosure.c | 10 +++-------
+ 5 files changed, 53 insertions(+), 7 deletions(-)
+ create mode 100644 gio/gmemorymonitorwasm.c
+
+diff --git a/gio/gcontenttype-wasm.c b/gio/gcontenttype-wasm.c
+index 4862a2732..2abf87cf4 100644
+--- a/gio/gcontenttype-wasm.c
++++ b/gio/gcontenttype-wasm.c
+@@ -63,6 +63,11 @@ g_content_type_is_a_impl (const gchar *type,
+   if (g_content_type_equals (type, supertype))
+     return TRUE;
+ 
++  /* Anything but an inode can be handled as a byte stream. */
++  if (g_ascii_strcasecmp (supertype, "application/octet-stream") == 0 &&
++      !g_str_has_prefix (type, "inode/"))
++    return TRUE;
++
+   return FALSE;
+ }
+ 
+diff --git a/gio/giomodule.c b/gio/giomodule.c
+index 311bc9d59..11e246d9c 100644
+--- a/gio/giomodule.c
++++ b/gio/giomodule.c
+@@ -1099,6 +1099,9 @@ extern GType g_memory_monitor_poll_get_type (void);
+ #endif
+ extern GType g_memory_monitor_portal_get_type (void);
+ extern GType g_memory_monitor_win32_get_type (void);
++#ifdef G_PLATFORM_WASM
++extern GType g_memory_monitor_wasm_get_type (void);
++#endif
+ extern GType g_power_profile_monitor_dbus_get_type (void);
+ 
+ #if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+@@ -1403,6 +1406,9 @@ _g_io_modules_ensure_loaded (void)
+       g_type_ensure (g_win32_notification_backend_get_type ());
+       g_type_ensure (_g_winhttp_vfs_get_type ());
+       g_type_ensure (g_memory_monitor_win32_get_type ());
++#endif
++#ifdef G_PLATFORM_WASM
++      g_type_ensure (g_memory_monitor_wasm_get_type ());
+ #endif
+       g_type_ensure (_g_local_vfs_get_type ());
+       g_type_ensure (_g_dummy_proxy_resolver_get_type ());
+diff --git a/gio/gmemorymonitorwasm.c b/gio/gmemorymonitorwasm.c
+new file mode 100644
+index 000000000..a0f4cde4f
+--- /dev/null
++++ b/gio/gmemorymonitorwasm.c
+@@ -0,0 +1,38 @@
++/*
++ * SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
++ * SPDX-License-Identifier: MIT OR Apache-2.0
++ */
++
++#include "config.h"
++
++#include "giomodule-priv.h"
++#include "gmemorymonitor.h"
++#include "gmemorymonitorbase.h"
++
++/* Neither Emscripten nor the browser reports memory pressure, so this
++ * monitor never warns.  It lets g_memory_monitor_dup_default() return a
++ * monitor, as the interface promises, when nothing else is available. */
++
++G_DECLARE_FINAL_TYPE (GMemoryMonitorWasm, g_memory_monitor_wasm, G, MEMORY_MONITOR_WASM, GMemoryMonitorBase)
++
++struct _GMemoryMonitorWasm
++{
++  GMemoryMonitorBase parent_instance;
++};
++
++G_DEFINE_TYPE_WITH_CODE (GMemoryMonitorWasm, g_memory_monitor_wasm, G_TYPE_MEMORY_MONITOR_BASE,
++                         _g_io_modules_ensure_extension_points_registered ();
++                         g_io_extension_point_implement (G_MEMORY_MONITOR_EXTENSION_POINT_NAME,
++                                                         g_define_type_id,
++                                                         "wasm",
++                                                         0))
++
++static void
++g_memory_monitor_wasm_init (GMemoryMonitorWasm *monitor)
++{
++}
++
++static void
++g_memory_monitor_wasm_class_init (GMemoryMonitorWasmClass *klass)
++{
++}
+diff --git a/gio/meson.build b/gio/meson.build
+index b261b2408..132617d04 100644
+--- a/gio/meson.build
++++ b/gio/meson.build
+@@ -502,6 +502,7 @@ elif host_system == 'windows'
+   install_headers(gio_win32_include_headers, subdir : 'gio-win32-2.0/gio')
+ elif host_system == 'emscripten'
+   contenttype_sources += files('gcontenttype-wasm.c')
++  unix_sources += files('gmemorymonitorwasm.c')
+ endif
+ 
+ gio_base_sources = files(
+diff --git a/gobject/gsourceclosure.c b/gobject/gsourceclosure.c
+index c5718d935..c7b03ae36 100644
+--- a/gobject/gsourceclosure.c
++++ b/gobject/gsourceclosure.c
+@@ -200,12 +200,10 @@ closure_callback_get (gpointer     cb_data,
+ 
+   if (!closure_callback)
+     {
+-      if (source->source_funcs == &g_child_watch_funcs)
+-        closure_callback = (GSourceFunc)g_child_watch_closure_callback;
+-#ifndef G_PLATFORM_WASM
+-      else if (source->source_funcs == &g_io_watch_funcs)
++      if (source->source_funcs == &g_io_watch_funcs)
+         closure_callback = (GSourceFunc)io_watch_closure_callback;
+-#endif
++      else if (source->source_funcs == &g_child_watch_funcs)
++        closure_callback = (GSourceFunc)g_child_watch_closure_callback;
+ #if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       else if (source->source_funcs == &g_unix_fd_source_funcs)
+         closure_callback = (GSourceFunc)g_unix_fd_source_closure_callback;
+@@ -268,9 +266,7 @@ g_source_set_closure (GSource  *source,
+       source->source_funcs != &g_unix_signal_funcs &&
+ #endif
+       source->source_funcs != &g_child_watch_funcs &&
+-#ifndef G_PLATFORM_WASM
+       source->source_funcs != &g_io_watch_funcs &&
+-#endif
+       source->source_funcs != &g_timeout_funcs &&
+       source->source_funcs != &g_idle_funcs)
+     {

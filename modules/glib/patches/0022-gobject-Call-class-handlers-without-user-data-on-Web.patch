@@ -1,7 +1,7 @@
 From 01b08a227e70d1a41a1e29d64429275c0c7f2066 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 20:05:09 -0700
-Subject: [PATCH 22/26] gobject: Call class handlers without user data on
+Subject: [PATCH 22/31] gobject: Call class handlers without user data on
  WebAssembly
 
 A signal's C marshaller calls a closure's callback with the instance,
