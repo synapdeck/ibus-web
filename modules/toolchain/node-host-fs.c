@@ -22,7 +22,7 @@
 #include <unistd.h>
 
 EM_JS(int, host_cwd, (char *buf, int size), {
-  var cwd = process.cwd();
+  const cwd = process.cwd();
   return lengthBytesUTF8(cwd) < size ? stringToUTF8(cwd, buf, size) : 0;
 });
 
@@ -32,11 +32,13 @@ EM_JS(int, host_cwd, (char *buf, int size), {
  * write bits this process can't use, so creating something in a read-only /
  * fails with EACCES, as it does natively. */
 EM_JS(int, host_root_mode, (void), {
-  var fs = require('node:fs');
-  var mode = fs.statSync('/').mode & 0o7777;
-  try { fs.accessSync('/', fs.constants.W_OK); }
-  catch(e) { mode &= ~0o222; }
-  return mode;
+  const {accessSync, constants, statSync} = require('node:fs');
+  const mode = statSync('/').mode & 0o7777;
+  try {
+    accessSync('/', constants.W_OK);
+    return mode;
+  }
+  catch { return mode & ~0o222; }
 });
 
 backend_t wasmfs_create_root_dir(void) {

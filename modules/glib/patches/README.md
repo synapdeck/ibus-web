@@ -57,6 +57,9 @@ originals.
 | 0029 gio, gobject: Fill gaps WebAssembly's GIO build left | Alexis Williams | — |
 | 0030 glib: Give a WebAssembly GWakeup a pipe to poll | Alexis Williams | — |
 | 0031 glib, gio: Restore Unix paths WebAssembly can take | Alexis Williams | — |
+| 0032 gconvert, gcharsetconverter: Report characters `iconv()` replaces | Alexis Williams | — |
+| 0033 gmain: Give an ownerless-polling context a wakeup fd on WebAssembly | Alexis Williams | — |
+| 0034 tests: Skip what WebAssembly can't do, and fix what it showed up | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -530,7 +533,8 @@ ICU (tzdata 2026a) and tzdata 2026c disagree about Morocco. DST flags
 differ mostly for war time (1940–1945), which lasted over a year and so
 reads as standard time, and for a handful of one-off changes. Of GLib's
 `GTimeZone` and `GDateTime` tests, all pass except
-`/GTimeZone/parse-rfc8536`, which loads TZif files by path.
+`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0034
+skips on WebAssembly.
 
 0028 skips the user database lookup in `g_get_user_name()`,
 `g_get_real_name()` and `g_get_home_dir()` on WebAssembly. Emscripten's
@@ -573,8 +577,8 @@ callers (`gsocket.c`, `gasynchelper.c`) no longer abort:
   `POLLHUP`), and as 0 on WasmFS. The drain stops at either, and never
   waits for end of file.
 - **Waiting is unchanged.** `g_wakeup_wait()` and main contexts still
-  sleep on the futex, and main contexts never ask for the fd, so they
-  never get a pipe; 0025's loop still probes a context's fds between
+  sleep on the futex, and main contexts only ask for the fd when they are
+  polled without an owner (0033), so the rest never get a pipe; 0025's loop still probes a context's fds between
   waits on its wakeup, which a signal ends at once.
 - **`g_poll()` with a timeout** waited on nothing: Emscripten's `poll()`
   ignores the timeout on the main thread and on WasmFS, and from a pthread
@@ -606,6 +610,67 @@ they do elsewhere:
 
 The rest of 0008's WebAssembly guards were reviewed with 0031; the ones
 worth revisiting are listed in the plan's follow-ups.
+
+0032 makes `g_convert_with_fallback()` and `GCharsetConverter` notice a
+character `iconv()` replaces. musl's `iconv()` (like NetBSD's) converts a
+character the target charset lacks to `*` and counts it as an
+irreversible conversion instead of failing with `EILSEQ`. `g_convert()`
+has reported a positive count as an illegal sequence since 2018, but
+`g_convert_with_fallback()` kept the `*` where the caller asked for its
+fallback, and `GCharsetConverter` neither reported `INVALID_DATA` nor
+used its fallback. Now, when `iconv()` reports an irreversible
+conversion, both convert the same input again a character at a time to
+find the character and treat it as `EILSEQ` there: the fallback replaces
+it, or the error reports it after the text before it. A target that asks
+for transliteration (`//TRANSLIT`), where glibc counts its replacements
+the same way, still gets them; where `iconv()` fails with `EILSEQ`, as
+glibc's does otherwise, nothing changes. `iconv()` can't rewind a shift
+state, so input in a stateful charset (ISO-2022-JP, or UTF-16 with a
+byte order mark) that changes state within the converted chunk may be
+read wrongly up to the replaced character. Nothing here is specific to
+WebAssembly, and it could go upstream.
+
+0033 gives a main context made with `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`
+its wakeup's fd again on WebAssembly. 0025 stopped contexts polling the
+wakeup, since they wait on it, but an ownerless-polling context is polled
+by someone outside it, who can only see a wakeup through an fd. Such a
+context now adds the pipe 0030 provides to its poll fds; other contexts
+still have none.
+
+0034 changes only tests, so that what WebAssembly can do gates:
+
+- **Skipped where the expectation can't hold**, each with its reason:
+  musl has no locale data (collate's lists that sort differently under
+  `en_US`, option-context's decimal comma, date's Polish month names,
+  gdatetime's `en_GB` formats, `de_DE` month names and eras); WasmFS has no
+  sockets (`socket()` fails with `ENOSYS`); Emscripten can't spawn or fork
+  processes, parse an IPv6 scope ID or list network interfaces; WasmFS
+  keeps file times as a double count of milliseconds and checks no
+  directory's search permission; TZif files aren't read by path
+  (`/GTimeZone/parse-rfc8536`); `gio launch` needs desktop applications,
+  and WebAssembly content types know no MIME types.
+- **musl's output expected** where it is right but different: `strftime()`
+  pads years to four digits (`%C`, `%F`, `%G`, `%Y`, `%c`), has no `%k`,
+  `%l` or `%P`, and prints nothing for a bare `%E` or `%O`;
+  `g_convert()`'s illegal-sequence error comes after the input is
+  consumed. mainloop expects no wakeup fd in a context that polls with an
+  owner.
+- **Test bugs fixed**: filenamecompleter connected `g_main_loop_quit()`
+  through `g_signal_connect_swapped()` to a signal with two parameters
+  (which traps) and expected completions in one file system's directory
+  order; gdbus-peer's credentials test assumed credentials on every Unix;
+  socket-listener's mocks and messages-low-memory's `malloc()` looked up
+  the real function with `dlsym(RTLD_NEXT)`, which finds nothing in a
+  static WebAssembly link although Emscripten's `dlfcn.h` defines
+  `RTLD_NEXT`; test-printf's reader expected a pipe read to block;
+  `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its Python
+  tests, which also expected `abort()` to end Node with `SIGABRT` rather
+  than status 1.
+- **Two workarounds for Node**: mainloop's `nfds` test writes a byte to its
+  file, since WasmFS's `poll()` only takes a non-empty regular file for
+  readable, and fileutils' `stdio-wrappers` test works in a temporary
+  directory, since `chmod()` on WasmFS's Node backend doesn't reach the
+  host directory.
 
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers

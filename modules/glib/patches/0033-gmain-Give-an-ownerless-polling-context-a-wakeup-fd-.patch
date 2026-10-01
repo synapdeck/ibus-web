@@ -1,0 +1,41 @@
+From e18fd94a4fb667d3d7992d7e0e671d3c073a607f Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 19:00:40 -0700
+Subject: [PATCH 33/34] gmain: Give an ownerless-polling context a wakeup fd on
+ WebAssembly
+
+A WebAssembly GMainContext waits on its GWakeup rather than polling the
+wakeup's fd, so it has none among its poll fds. A context made with
+G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING is there to be polled by someone
+outside it, who can only see a wakeup through an fd, so such a context
+polls the pipe its GWakeup provides.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/gmain.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/glib/gmain.c b/glib/gmain.c
+index c1c9ff18b..2d7f0cfa4 100644
+--- a/glib/gmain.c
++++ b/glib/gmain.c
+@@ -711,10 +711,16 @@ g_main_context_new_with_flags (GMainContextFlags flags)
+   context->time_is_fresh = FALSE;
+   
+   context->wakeup = g_wakeup_new ();
+-#ifndef G_PLATFORM_WASM
+-  g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
+-  g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
++#ifdef G_PLATFORM_WASM
++  /* A context waits on its wakeup rather than polling it, so the wakeup
++   * only gets a poll fd for whoever polls an ownerless context's fds from
++   * outside. */
++  if (flags & G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING)
+ #endif
++    {
++      g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
++      g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
++    }
+ 
+ #ifdef G_MAIN_POLL_DEBUG
+   if (_g_main_poll_debug)

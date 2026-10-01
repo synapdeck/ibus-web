@@ -1,7 +1,7 @@
 From 50f5f287344e227903934ea0cb1279bd9cf5ec67 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Tue, 8 Oct 2019 11:30:00 +0200
-Subject: [PATCH 01/31] Do not build girepository and the fuzzers
+Subject: [PATCH 01/34] Do not build girepository and the fuzzers
 
 We're only interested in the libraries.
 

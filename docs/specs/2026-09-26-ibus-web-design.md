@@ -1298,13 +1298,16 @@ specification and `release.json`.
 2. **Runtime.** GLib's own tests, built by `pkgsWasm.glib`'s recipe and run
    under Node on WasmFS (§10.3) in `checks.glib-tests`.
    `modules/glib/checks/tests/baseline.toml` lists the tests that must pass,
-   every one that passed in three reviewed runs (252 of 300), and the
-   excluded tests with the reason each can't run here: process spawning,
-   sockets, blocking main-context iteration and pipes (23), which are
-   reported but never run. The rest are reported on every run but don't
-   gate: 12 failures from libc, locale and time differences, WasmFS's
-   file-time precision and unchecked directory search permission, and small
-   GIO gaps, and 13 skips. Also C tests for `libibus-web` (lifecycle, emitters, pump,
+   every one that passed in three reviewed runs (274 of 300), and the
+   excluded tests, no part of which can run on Emscripten, with the reason:
+   process spawning and sockets (12), which are reported but never run.
+   Inside the tests that gate, a subtest whose expectation can't hold here
+   skips with its reason: musl's missing locale data (until the §5.1.4
+   backends), no sockets or processes, IPv6 scope IDs, WasmFS's file-time
+   precision and unchecked search permission. The rest are reported on
+   every run but don't gate: `testfilemonitor`, since there is no
+   file-change notification until §5.1.4's monitor backend, and 13 tests
+   that skip as a whole. Also C tests for `libibus-web` (lifecycle, emitters, pump,
    settings backend) and, if the lazy arity lookup is built (§5.1.2),
    tests for it.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`

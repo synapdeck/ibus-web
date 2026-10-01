@@ -1,0 +1,1246 @@
+From 02708d45e08265bee39c48dd56d8899fd66ca404 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 19:00:52 -0700
+Subject: [PATCH 34/34] tests: Skip what WebAssembly can't do, and fix what it
+ showed up
+
+Where an expectation can't hold on WebAssembly, skip the subtest, or
+the part of it, with the reason:
+- musl takes any locale name but has no locale data: collate's lists
+  that sort differently under en_US, option-context's decimal comma,
+  date's Polish month names, and gdatetime's en_GB formats, de_DE month
+  names and eras.
+- WasmFS has no sockets, and Emscripten can't spawn or fork processes,
+  nor parse an IPv6 scope ID or list network interfaces.
+- WasmFS keeps file times as a double count of milliseconds, and checks
+  no directory's search permission.
+- Time zones come from Intl, so no TZif file is read by path.
+- gio-tool's launch command needs desktop applications and spawning,
+  and WebAssembly's content types know no MIME types.
+
+Where musl's output is right but differs, expect it: strftime() pads
+years to four digits and has no %k, %l or %P, and iconv() reports a
+character the target lacks once it has consumed the input. A
+WebAssembly GMainContext polls no wakeup fd unless it is ownerless, so
+mainloop expects one fewer fd.
+
+Fix the tests themselves where they relied on more than they should:
+- filenamecompleter connected g_main_loop_quit() to a signal with
+  another signature, which traps, and expected completions in the order
+  one file system lists them;
+- gdbus-peer's credentials test assumed credentials on every Unix;
+- socket-listener's mocks and messages-low-memory's malloc() look up the
+  real function with dlsym(RTLD_NEXT), which finds nothing in a static
+  WebAssembly link;
+- test-printf's reader expected a pipe read to block;
+- glib/tests never told the Python tests to run their programs with
+  Node, and those tests expected abort() to end Node with SIGABRT.
+
+Two workarounds keep tests running under Node: mainloop's nfds test
+gives its file a byte, since WasmFS's poll() only takes a non-empty
+file for readable, and fileutils' stdio-wrappers test works in a
+temporary directory, since chmod() doesn't reach a host directory.
+
+Only test sources and test build files change.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/tests/converter-stream.c      |  7 ++++
+ gio/tests/filenamecompleter.c     | 38 +++++++++++++++---
+ gio/tests/g-file-info.c           | 18 +++++++++
+ gio/tests/gdbus-peer.c            | 34 +++++++++++++++-
+ gio/tests/gio-tool.py             |  7 ++++
+ gio/tests/inet-address.c          |  4 +-
+ gio/tests/network-address.c       | 10 +++++
+ gio/tests/socket-listener.c       |  4 +-
+ gio/tests/socket.c                | 48 ++++++++++++++++++++++
+ glib/tests/assert-msg-test.py     |  3 ++
+ glib/tests/collate.c              | 22 ++++++++++
+ glib/tests/convert.c              |  8 ++++
+ glib/tests/date.c                 | 24 +++++++++++
+ glib/tests/fileutils.c            | 35 ++++++++++++++--
+ glib/tests/gdatetime.c            | 28 +++++++++++++
+ glib/tests/mainloop.c             | 30 ++++++++++----
+ glib/tests/mapping.c              |  5 +++
+ glib/tests/meson.build            |  5 +++
+ glib/tests/messages-low-memory.c  | 10 +++++
+ glib/tests/messages-low-memory.py |  3 ++
+ glib/tests/option-context.c       |  7 ++++
+ glib/tests/test-printf.c          |  9 ++++-
+ glib/tests/testing.c              | 67 +++++++++++++++++++++++++++++++
+ gobject/tests/closure.c           |  5 +++
+ 24 files changed, 410 insertions(+), 21 deletions(-)
+
+diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
+index b00d1bf39..69c24be4b 100644
+--- a/gio/tests/converter-stream.c
++++ b/gio/tests/converter-stream.c
+@@ -976,6 +976,13 @@ test_converter_pollable (void)
+   GError *error;
+   gsize i;
+ 
++#ifdef G_PLATFORM_WASM
++  /* Emscripten's WasmFS has no sockets: every socket call fails with
++   * ENOSYS. */
++  g_test_skip ("WasmFS has no sockets");
++  return;
++#endif
++
+   expander = g_expander_converter_new ();
+   expanded = g_malloc (100*1000); /* Large enough */
+   cres = g_converter_convert (expander,
+diff --git a/gio/tests/filenamecompleter.c b/gio/tests/filenamecompleter.c
+index 5849fc5c7..fa88df12e 100644
+--- a/gio/tests/filenamecompleter.c
++++ b/gio/tests/filenamecompleter.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <gio/gio.h>
++#include <stdlib.h>
+ 
+ static void
+ create_files (const GStrv hier)
+@@ -54,6 +55,31 @@ typedef struct
+   const gchar *const dirs_completions[5];
+ } FilenameCompleterTestCase;
+ 
++static int
++compare_strings (const void *a,
++                 const void *b)
++{
++  return g_strcmp0 (*(const gchar * const *) a, *(const gchar * const *) b);
++}
++
++/* Completions come in the order the file system lists the directory. */
++static GStrv
++get_sorted_completions (GFilenameCompleter *completer,
++                        const gchar        *initial_text)
++{
++  GStrv completions = g_filename_completer_get_completions (completer, initial_text);
++
++  qsort (completions, g_strv_length (completions), sizeof (gchar *), compare_strings);
++  return completions;
++}
++
++static void
++got_completion_data_cb (GFilenameCompleter *completer,
++                        gpointer            user_data)
++{
++  g_main_loop_quit (user_data);
++}
++
+ static void
+ run_test_cases (const FilenameCompleterTestCase test_cases[],
+                 guint len)
+@@ -71,15 +97,15 @@ run_test_cases (const FilenameCompleterTestCase test_cases[],
+       GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+ 
+       /* dirs_only = FALSE */
+-      g_signal_connect_swapped (all_completer, "got-completion-data",
+-                                G_CALLBACK (g_main_loop_quit), loop);
++      g_signal_connect (all_completer, "got-completion-data",
++                        G_CALLBACK (got_completion_data_cb), loop);
+       g_filename_completer_set_dirs_only (all_completer, FALSE);
+       g_strfreev (g_filename_completer_get_completions (all_completer, path_to_complete));
+ 
+       g_main_loop_run (loop);
+ 
+       all_expected_completions = prefix_filenames (test_cases[i].all_completions, base_path);
+-      all_results_completions = g_filename_completer_get_completions (all_completer, path_to_complete);
++      all_results_completions = get_sorted_completions (all_completer, path_to_complete);
+       g_assert_cmpstrv (all_expected_completions, all_results_completions);
+       g_strfreev (all_expected_completions);
+       g_strfreev (all_results_completions);
+@@ -90,15 +116,15 @@ run_test_cases (const FilenameCompleterTestCase test_cases[],
+       g_free (completion_suffix);
+ 
+       /* dirs_only = TRUE */
+-      g_signal_connect_swapped (dirs_completer, "got-completion-data",
+-                                G_CALLBACK (g_main_loop_quit), loop);
++      g_signal_connect (dirs_completer, "got-completion-data",
++                        G_CALLBACK (got_completion_data_cb), loop);
+       g_filename_completer_set_dirs_only (dirs_completer, TRUE);
+       g_strfreev (g_filename_completer_get_completions (dirs_completer, path_to_complete));
+ 
+       g_main_loop_run (loop);
+ 
+       dirs_expected_completions = prefix_filenames (test_cases[i].dirs_completions, base_path);
+-      dirs_results_completions = g_filename_completer_get_completions (dirs_completer, path_to_complete);
++      dirs_results_completions = get_sorted_completions (dirs_completer, path_to_complete);
+       g_assert_cmpstrv (dirs_expected_completions, dirs_results_completions);
+ 
+       g_strfreev (dirs_expected_completions);
+diff --git a/gio/tests/g-file-info.c b/gio/tests/g-file-info.c
+index de5c2a949..d7d5ef985 100644
+--- a/gio/tests/g-file-info.c
++++ b/gio/tests/g-file-info.c
+@@ -224,6 +224,15 @@ test_g_file_info_modification_time (void)
+ 
+   /* Try setting the modification time with nsec-precision and it should set the
+    * usecs too. */
++#ifdef G_PLATFORM_WASM
++  /* WasmFS keeps file times as a double count of milliseconds, which at
++   * today's dates are some hundred nanoseconds apart. */
++  if (nsecs_supported)
++    {
++      g_test_skip ("WasmFS file times aren't precise to the nanosecond");
++      nsecs_supported = FALSE;
++    }
++#endif
+   if (nsecs_supported)
+     {
+       gint new_usecs;
+@@ -357,6 +366,15 @@ test_g_file_info_access_time (void)
+ 
+   /* Try setting the access time with nsec-precision and it should set the
+    * usecs too. */
++#ifdef G_PLATFORM_WASM
++  /* WasmFS keeps file times as a double count of milliseconds, which at
++   * today's dates are some hundred nanoseconds apart. */
++  if (nsecs_supported)
++    {
++      g_test_skip ("WasmFS file times aren't precise to the nanosecond");
++      nsecs_supported = FALSE;
++    }
++#endif
+   if (nsecs_supported)
+     {
+       gint new_usecs;
+diff --git a/gio/tests/gdbus-peer.c b/gio/tests/gdbus-peer.c
+index 4cf443987..e2c7944d4 100644
+--- a/gio/tests/gdbus-peer.c
++++ b/gio/tests/gdbus-peer.c
+@@ -53,6 +53,18 @@
+ 
+ #include "gdbus-object-manager-example/objectmanager-gen.h"
+ 
++/* Emscripten's WasmFS has no sockets: every socket call fails with ENOSYS. */
++static gboolean
++skip_without_sockets (void)
++{
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WasmFS has no sockets");
++  return TRUE;
++#else
++  return FALSE;
++#endif
++}
++
+ #ifdef G_OS_UNIX
+ static gboolean is_unix = TRUE;
+ #else
+@@ -1154,6 +1166,9 @@ do_test_peer (void)
+ static void
+ test_peer (void)
+ {
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -1366,6 +1381,9 @@ test_peer_signals (void)
+   PeerData data;
+   GThread *service_thread;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/1620");
+ 
+   test_guid = g_dbus_generate_guid ();
+@@ -1572,6 +1590,9 @@ delayed_message_processing (void)
+   GThread *service_thread;
+   guint n;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -1724,6 +1745,9 @@ test_nonce_tcp (void)
+   const gchar *address;
+   int fd;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -1853,13 +1877,13 @@ test_credentials (void)
+   c2 = g_credentials_new ();
+ 
+   error = NULL;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && G_CREDENTIALS_SUPPORTED
+   if (g_credentials_set_unix_user (c2, getuid (), &error))
+     g_assert_no_error (error);
+ #endif
+ 
+   same = g_credentials_is_same_user (c1, c2, &error);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && G_CREDENTIALS_SUPPORTED
+   g_assert (same);
+   g_assert_no_error (error);
+ #else
+@@ -1932,6 +1956,9 @@ test_tcp_anonymous (void)
+   GDBusConnection *connection;
+   GError *error;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -2109,6 +2136,9 @@ codegen_test_peer (void)
+   GVariant            *value;
+   const gchar         *s;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+diff --git a/gio/tests/gio-tool.py b/gio/tests/gio-tool.py
+index 7034b80ce..44eb24af9 100644
+--- a/gio/tests/gio-tool.py
++++ b/gio/tests/gio-tool.py
+@@ -23,6 +23,7 @@
+ 
+ """Integration tests for the gio utility."""
+ 
++import os
+ import platform
+ import subprocess
+ import sys
+@@ -76,6 +77,8 @@ class TestGioTool(testprogramrunner.TestProgramRunner):
+             )
+             if sys.platform == "darwin":
+                 self.assertIn("standard::content-type: public.text", result.out)
++            elif "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ:
++                self.skipTest("WebAssembly's content types know no MIME types")
+             else:
+                 self.assertIn(
+                     "standard::content-type: application/x-zerosize", result.out
+@@ -83,6 +86,10 @@ class TestGioTool(testprogramrunner.TestProgramRunner):
+ 
+ 
+ @unittest.skipIf(platform.system() == "Darwin", "gio launch not supported on darwin")
++@unittest.skipIf(
++    "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ,
++    "Emscripten has no desktop applications and can't spawn processes",
++)
+ class TestGioLaunchExpandsDesktopEntry(testprogramrunner.TestProgramRunner):
+     """Integration test for `gio launch` with field code %k in the Exec line.
+ 
+diff --git a/gio/tests/inet-address.c b/gio/tests/inet-address.c
+index 799f66b5f..d3b6a8f41 100644
+--- a/gio/tests/inet-address.c
++++ b/gio/tests/inet-address.c
+@@ -53,7 +53,9 @@ test_parse (void)
+   addr = g_inet_address_new_from_string ("204.152.189.116");
+   g_assert (addr != NULL);
+   g_object_unref (addr);
+-#ifndef G_OS_WIN32 /* getaddrinfo on Windows does not support scope-id */
++#if defined(G_PLATFORM_WASM)
++  g_test_skip ("Emscripten's getaddrinfo() takes no IPv6 scope IDs");
++#elif !defined(G_OS_WIN32) /* getaddrinfo on Windows does not support scope-id */
+   addr = g_inet_address_new_from_string ("::1%0");
+   g_assert (addr != NULL);
+   g_object_unref (addr);
+diff --git a/gio/tests/network-address.c b/gio/tests/network-address.c
+index 81dcda7a9..b8bf99b2a 100644
+--- a/gio/tests/network-address.c
++++ b/gio/tests/network-address.c
+@@ -365,6 +365,11 @@ test_host_scope_id (void)
+   GSocketConnectable *addr;
+   char *str;
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten has no network interfaces and its getaddrinfo() takes no IPv6 scope IDs");
++  return;
++#endif
++
+   find_ifname_and_index ();
+ 
+   str = g_strdup_printf ("%s%%%s", SCOPE_ID_TEST_ADDR, SCOPE_ID_TEST_IFNAME);
+@@ -382,6 +387,11 @@ test_uri_scope_id (void)
+   char *uri;
+   GError *error = NULL;
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten has no network interfaces and its getaddrinfo() takes no IPv6 scope IDs");
++  return;
++#endif
++
+   find_ifname_and_index ();
+ 
+   uri = g_strdup_printf ("http://[%s%%%s]:%d/foo",
+diff --git a/gio/tests/socket-listener.c b/gio/tests/socket-listener.c
+index 8c79ec9b0..f3d09a26f 100644
+--- a/gio/tests/socket-listener.c
++++ b/gio/tests/socket-listener.c
+@@ -50,7 +50,9 @@
+  * mocking arbitrary syscalls using dlsym(RTLD_NEXT) should probably be factored
+  * out into a set of internal helpers, because various tests do it for various
+  * syscalls. */
+-#if defined(HAVE_RTLD_NEXT) && !defined(__APPLE__) && !defined(G_OS_WIN32)
++/* A static WebAssembly link has no next definition for dlsym(RTLD_NEXT) to
++ * find, although Emscripten's dlfcn.h defines RTLD_NEXT. */
++#if defined(HAVE_RTLD_NEXT) && !defined(__APPLE__) && !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
+ #include <dlfcn.h>
+ #include <sys/types.h>
+ #include <netinet/in.h>
+diff --git a/gio/tests/socket.c b/gio/tests/socket.c
+index e456b56d0..90c4a9396 100644
+--- a/gio/tests/socket.c
++++ b/gio/tests/socket.c
+@@ -42,6 +42,18 @@
+ 
+ static gboolean ipv6_supported;
+ 
++/* Emscripten's WasmFS has no sockets: every socket call fails with ENOSYS. */
++static gboolean
++skip_without_sockets (void)
++{
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WasmFS has no sockets");
++  return TRUE;
++#else
++  return FALSE;
++#endif
++}
++
+ typedef struct {
+   GSocket *server;  /* (owned) (not nullable) */
+   GSocket *client;  /* (owned) (nullable) */
+@@ -857,6 +869,9 @@ test_ip_sync_dgram_timeouts (GSocketFamily family)
+   GSocketAddress *addr;
+ #endif
+ 
++  if (skip_without_sockets ())
++    return;
++
+   client = g_socket_new (family,
+                          G_SOCKET_TYPE_DATAGRAM,
+                          G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1382,6 +1397,9 @@ test_unix_from_fd (void)
+   GError *error;
+   GSocket *s;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   fd = socket (AF_UNIX, SOCK_STREAM, 0);
+ #ifdef G_OS_WIN32
+   if (fd == -1)
+@@ -1414,6 +1432,9 @@ test_unix_connection (void)
+   GSocket *s;
+   GSocketConnection *c;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   fd = socket (AF_UNIX, SOCK_STREAM, 0);
+ #ifdef G_OS_WIN32
+   if (fd == -1)
+@@ -1463,6 +1484,9 @@ test_unix_connection_ancillary_data (void)
+   char buffer[1024];
+   pid_t pid;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   status = pipe (pv);
+   g_assert_cmpint (status, ==, 0);
+ 
+@@ -1588,6 +1612,9 @@ test_source_postmortem (void)
+   GError *error = NULL;
+   gboolean callback_visited = FALSE;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   socket = g_socket_new (G_SOCKET_FAMILY_UNIX, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_DEFAULT, &error);
+ #ifdef G_OS_WIN32
+   if (error)
+@@ -1628,6 +1655,9 @@ test_reuse_tcp (void)
+   GInetAddress *iaddr;
+   GSocketAddress *addr;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   sock1 = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                         G_SOCKET_TYPE_STREAM,
+                         G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1669,6 +1699,9 @@ test_reuse_udp (void)
+   GInetAddress *iaddr;
+   GSocketAddress *addr;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   sock1 = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                         G_SOCKET_TYPE_DATAGRAM,
+                         G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1710,6 +1743,9 @@ test_get_available (gconstpointer user_data)
+   gchar buf[34];
+   gssize nread;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   listener = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                            socket_type,
+                            G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1915,6 +1951,9 @@ test_read_write (gconstpointer user_data)
+   GThread *write_thread, *read_thread;
+   guint i;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   listener = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                            G_SOCKET_TYPE_STREAM,
+                            G_SOCKET_PROTOCOL_DEFAULT,
+@@ -2552,6 +2591,9 @@ test_accept_cancelled (void)
+   GCancellable *cancellable = NULL;
+   GSocket *socket2 = NULL;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_summary ("Calling g_socket_accept() with a cancelled cancellable "
+                   "should return immediately regardless of whether the socket "
+                   "is blocking");
+@@ -2588,6 +2630,9 @@ test_connect_cancelled (void)
+   GInetAddress *inet_addr = NULL;
+   GSocketAddress *addr = NULL;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_summary ("Calling g_socket_connect() with a cancelled cancellable "
+                   "should return immediately regardless of whether the socket "
+                   "is blocking");
+@@ -2706,6 +2751,9 @@ test_socket_control_message_custom (void)
+   gssize s;
+   GError *err = NULL;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_summary ("Tests that an application can create its own subclass "
+                   "of GSocketControlMessage and that the message can be sent and "
+                   "received using GSocket APIs");
+diff --git a/glib/tests/assert-msg-test.py b/glib/tests/assert-msg-test.py
+index 9d2bde4d3..76d8077cb 100755
+--- a/glib/tests/assert-msg-test.py
++++ b/glib/tests/assert-msg-test.py
+@@ -73,6 +73,9 @@ class TestAssertMessage(testprogramrunner.TestProgramRunner):
+ 
+         if os.name == "nt":
+             self.assertEqual(result.info.returncode, 3)
++        elif "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ:
++            # Emscripten's abort() ends Node with status 1, not SIGABRT.
++            self.assertEqual(result.info.returncode, 1)
+         else:
+             self.assertEqual(result.info.returncode, -6)
+         self.assertIn("assertion failed: (42 < 0)", result.out)
+diff --git a/glib/tests/collate.c b/glib/tests/collate.c
+index bd9ea234f..d27cd0559 100644
+--- a/glib/tests/collate.c
++++ b/glib/tests/collate.c
+@@ -7,6 +7,17 @@
+ 
+ static gboolean missing_locale = FALSE;
+ 
++#ifdef G_PLATFORM_WASM
++static const gchar * const needs_en_us[] = {
++  "/unicode/collate/0",
++  "/unicode/collate/1",
++  "/unicode/collate-key/0",
++  "/unicode/collate-key/1",
++  "/unicode/collate-filename/0",
++  NULL
++};
++#endif
++
+ typedef struct {
+   const gchar **input;
+   const gchar **sorted;
+@@ -55,6 +66,17 @@ do_collate (gboolean for_file, gboolean use_key, const CollateTest *test)
+       return;
+     }
+ 
++#ifdef G_PLATFORM_WASM
++  /* musl takes any locale name but has no locale data, so en_US collates
++   * in byte order, as C.UTF-8 does. Only these lists sort differently under
++   * en_US's rules. */
++  if (g_strv_contains (needs_en_us, g_test_get_path ()))
++    {
++      g_test_skip ("musl has no locale data; lifted by the collation backend (§5.1.4)");
++      return;
++    }
++#endif
++
+   line_array = g_array_new (FALSE, FALSE, sizeof(Line));
+   g_array_set_clear_func (line_array, (GDestroyNotify)clear_line);
+ 
+diff --git a/glib/tests/convert.c b/glib/tests/convert.c
+index 6cf19ad10..80c3a466a 100644
+--- a/glib/tests/convert.c
++++ b/glib/tests/convert.c
+@@ -85,8 +85,16 @@ test_one_half (void)
+ 		   &error);
+ 
+   g_assert_error (error, G_CONVERT_ERROR, G_CONVERT_ERROR_ILLEGAL_SEQUENCE);
++#ifdef G_PLATFORM_WASM
++  /* musl's iconv() writes '*' for a character the target charset lacks and
++   * counts it as an irreversible conversion instead of failing with EILSEQ,
++   * so the error comes once the input is consumed. */
++  g_assert_cmpint (bytes_read, ==, 2);
++  g_assert_cmpint (bytes_written, ==, 1);
++#else
+   g_assert_cmpint (bytes_read, ==, 0);
+   g_assert_cmpint (bytes_written, ==, 0);
++#endif
+   g_assert_cmpstr (out, ==, NULL);
+   g_clear_error (&error);
+   g_free (out);
+diff --git a/glib/tests/date.c b/glib/tests/date.c
+index b2fb38d83..538af2109 100644
+--- a/glib/tests/date.c
++++ b/glib/tests/date.c
+@@ -748,6 +748,17 @@ test_strftime (void)
+     { "%O", "O" },
+     { "%P", "P" },
+     { "%Y", "0001" },
++#elif defined(G_PLATFORM_WASM)
++    /* musl pads years to four digits, as POSIX specifies, has no %P, and
++     * takes a bare %E or %O for a modifier of nothing. */
++    { "%C", "00" },
++    { "%c", "Mon Jan  1 00:00:00 0001" },
++    { "%E", "" },
++    { "%F", "0001-01-01" },
++    { "%G", "0001" },
++    { "%O", "" },
++    { "%P", "" },
++    { "%Y", "0001" },
+ #else
+     { "%C", "0" },
+     { "%c", "Mon Jan  1 00:00:00 1" },
+@@ -760,8 +771,14 @@ test_strftime (void)
+ #endif
+     { "%g", "01" },
+     { "%h", "Jan" },
++#ifdef G_PLATFORM_WASM
++    /* musl has neither of these extensions. */
++    { "%k", "" },
++    { "%l", "" },
++#else
+     { "%k", " 0" },
+     { "%l", "12" },
++#endif
+     { "%r", "12:00:00 AM" },
+     { "%X", "00:00:00" },
+     { "%x", "01/01/01" },
+@@ -1125,6 +1142,13 @@ test_month_substring (void)
+ 
+   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=793550");
+ 
++#ifdef G_PLATFORM_WASM
++  /* musl takes any locale name but has no locale data, so the month names
++   * stay English. */
++  g_test_skip ("musl has no locale data; lifted by the localized dates and times backend (§5.1.4)");
++  return;
++#endif
++
+   if (setlocale (LC_ALL, "pl_PL") == NULL)
+     {
+       g_test_skip ("pl_PL locale not available");
+diff --git a/glib/tests/fileutils.c b/glib/tests/fileutils.c
+index e79b46282..b5761ba01 100644
+--- a/glib/tests/fileutils.c
++++ b/glib/tests/fileutils.c
+@@ -1982,6 +1982,14 @@ test_set_contents_full_read_only_directory (void)
+           g_assert_no_error (error);
+           g_assert_true (ret);
+         }
++#ifdef G_PLATFORM_WASM
++      else if (!(flags & G_FILE_SET_CONTENTS_CONSISTENT))
++        {
++          /* WasmFS checks no directory's search permission, so the file is
++           * opened and rewritten in place. */
++          g_test_skip ("WasmFS doesn't check search permission on directories");
++        }
++#endif
+       else
+         {
+           g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_ACCES);
+@@ -2111,9 +2119,21 @@ test_stdio_wrappers (void)
+   GError *error = NULL;
+   GStatBuf path_statbuf, cwd_statbuf;
+   time_t now;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   gboolean have_cap_dac_override;
+ #endif
++#ifdef G_PLATFORM_WASM
++  gchar *old_cwd, *tmp_cwd;
++
++  /* Under Node the working directory is on WasmFS's Node backend, whose
++   * chmod() changes only WasmFS's record of the mode, so a directory made
++   * there stays shut to the host after chmod() opens it. Temporary
++   * directories are WasmFS's own. */
++  old_cwd = g_get_current_dir ();
++  tmp_cwd = g_dir_make_tmp ("stdio-wrappers-XXXXXX", &error);
++  g_assert_no_error (error);
++  g_assert_no_errno (g_chdir (tmp_cwd));
++#endif
+ 
+   g_remove ("mkdir-test/test-create");
+   ret = g_rmdir ("mkdir-test");
+@@ -2129,7 +2149,7 @@ test_stdio_wrappers (void)
+ 
+   cwd = g_get_current_dir ();
+   path = g_build_filename (cwd, "mkdir-test", NULL);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   have_cap_dac_override = check_cap_dac_override (cwd);
+ #endif
+   g_free (cwd);
+@@ -2138,7 +2158,9 @@ test_stdio_wrappers (void)
+    * It doesn't necessarily mean anything on Unix either: if we have
+    * Linux CAP_DAC_OVERRIDE or equivalent (in particular if we're root),
+    * then we ignore filesystem permissions. */
+-#ifdef G_OS_UNIX
++#if defined(G_PLATFORM_WASM)
++  g_test_skip ("WasmFS doesn't check search permission on directories");
++#elif defined(G_OS_UNIX)
+   if (have_cap_dac_override)
+     {
+       g_test_message ("Cannot test g_chdir() failing with EACCES: we "
+@@ -2207,6 +2229,13 @@ test_stdio_wrappers (void)
+   g_chdir ("..");
+   g_remove ("mkdir-test/test-create");
+   g_rmdir ("mkdir-test");
++
++#ifdef G_PLATFORM_WASM
++  g_assert_no_errno (g_chdir (old_cwd));
++  g_rmdir (tmp_cwd);
++  g_free (tmp_cwd);
++  g_free (old_cwd);
++#endif
+ }
+ 
+ /* Win32 does not support "wb+", but g_fopen() should automatically
+diff --git a/glib/tests/gdatetime.c b/glib/tests/gdatetime.c
+index d003a5445..fa1ce3e9f 100644
+--- a/glib/tests/gdatetime.c
++++ b/glib/tests/gdatetime.c
+@@ -1948,6 +1948,11 @@ test_modifiers (void)
+ #endif
+ 
+   setlocale (LC_ALL, "en_GB.utf-8");
++#ifdef G_PLATFORM_WASM
++  /* setlocale() succeeds, since musl takes any locale name, but there is no
++   * locale data, so en_GB formats as the C locale does. */
++  g_test_skip ("musl has no locale data; lifted by the localized dates and times backend (§5.1.4)");
++#else
+   if (strstr (setlocale (LC_ALL, NULL), "en_GB") != NULL)
+     {
+ #ifndef __APPLE__
+@@ -1981,6 +1986,7 @@ test_modifiers (void)
+     }
+   else
+     g_test_skip ("locale en_GB not available, skipping E modifier tests");
++#endif
+ 
+   setlocale (LC_ALL, oldlocale);
+   g_free (oldlocale);
+@@ -2363,6 +2369,8 @@ test_date_time_eras_japan (void)
+ 
+   setlocale (LC_ALL, oldlocale);
+   g_free (oldlocale);
++#elif defined(G_PLATFORM_WASM)
++  g_test_skip ("musl has no era data; lifted by the localized dates and times backend (§5.1.4)");
+ #else
+   g_test_skip ("nl_langinfo(ERA) not supported, skipping era tests");
+ #endif
+@@ -2395,6 +2403,8 @@ test_date_time_eras_thailand (void)
+ 
+   setlocale (LC_ALL, oldlocale);
+   g_free (oldlocale);
++#elif defined(G_PLATFORM_WASM)
++  g_test_skip ("musl has no era data; lifted by the localized dates and times backend (§5.1.4)");
+ #else
+   g_test_skip ("nl_langinfo(ERA) not supported, skipping era tests");
+ #endif
+@@ -2686,6 +2696,19 @@ static gboolean
+ check_and_set_locale (int          category,
+                       const gchar *name)
+ {
++#ifdef G_PLATFORM_WASM
++  /* musl takes any locale name but has no locale data, so dates format as
++   * they do in C.UTF-8 whatever LC_TIME names, and it reports C.UTF-8 as "C"
++   * outside LC_CTYPE. */
++  if (category == LC_TIME && !g_str_has_prefix (name, "C."))
++    {
++      g_test_skip ("musl has no locale data; lifted by the localized dates and times backend (§5.1.4)");
++      return FALSE;
++    }
++  if (g_str_equal (name, "C.UTF-8"))
++    return setlocale (category, name) != NULL;
++#endif
++
+   setlocale (category, name);
+   if (strstr (setlocale (category, NULL), name) == NULL)
+     {
+@@ -3389,6 +3412,11 @@ test_time_zone_parse_rfc8536 (void)
+   g_test_summary ("Test parsing time zone files in RFC 8536 version 3 format");
+   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2129");
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WebAssembly takes time zones from Intl and reads no time zone files");
++  return;
++#endif
++
+   for (i = 0; i < G_N_ELEMENTS (test_files); i++)
+     {
+       gchar *path = NULL;
+diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
+index 66845ab96..b0d171e9a 100644
+--- a/glib/tests/mainloop.c
++++ b/glib/tests/mainloop.c
+@@ -29,6 +29,14 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++/* The poll fds a context with no sources has: its GWakeup's, which a
++ * WebAssembly context waits on without polling. */
++#ifdef G_PLATFORM_WASM
++#define N_WAKEUP_FDS 0
++#else
++#define N_WAKEUP_FDS 1
++#endif
++
+ static gboolean
+ cb (gpointer data)
+ {
+@@ -1190,7 +1198,7 @@ test_null_default_context (void)
+   g_assert_true (g_main_context_acquire (NULL));
+   g_assert_false (g_main_context_prepare (NULL, NULL));
+   n_poll_fds = g_main_context_query (NULL, 0, NULL, poll_fds, G_N_ELEMENTS (poll_fds));
+-  g_assert_cmpint (n_poll_fds, ==, 1);  /* one pollfd always exists for gwakeup */
++  g_assert_cmpint (n_poll_fds, ==, N_WAKEUP_FDS);
+   g_assert_false (g_main_context_check (NULL, 1000, poll_fds, n_poll_fds));
+   g_main_context_dispatch (NULL);
+   g_main_context_release (NULL);
+@@ -1865,14 +1873,22 @@ test_nfds (void)
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+   /* An "empty" GMainContext will have a single GPollFD, for its
+-   * internal GWakeup.
++   * internal GWakeup, if it polls that.
+    */
+-  g_assert_cmpint (nfds, ==, 1);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS);
+ 
+   fd = g_file_open_tmp (NULL, &tmpfile, &error);
+   g_assert_no_error (error);
+ 
+   io = g_io_channel_unix_new (fd);
++#ifdef G_PLATFORM_WASM
++  /* WasmFS's poll() only takes a regular file for readable once it has
++   * data, where POSIX has regular files always readable. */
++  g_io_channel_write_chars (io, "x", 1, NULL, &error);
++  g_assert_no_error (error);
++  g_io_channel_flush (io, &error);
++  g_assert_no_error (error);
++#endif
+ #ifdef G_OS_WIN32
+   /* The fd in the pollfds won't be the same fd we passed in */
+   g_io_channel_win32_make_pollfd (io, G_IO_IN, out_fds);
+@@ -1888,7 +1904,7 @@ test_nfds (void)
+ 
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
+   else if (out_fds[1].fd == fd)
+@@ -1910,7 +1926,7 @@ test_nfds (void)
+    */
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
+   else if (out_fds[1].fd == fd)
+@@ -1923,7 +1939,7 @@ test_nfds (void)
+    */
+   nfds = g_main_context_query (ctx, G_PRIORITY_DEFAULT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
+   else if (out_fds[1].fd == fd)
+@@ -1940,7 +1956,7 @@ test_nfds (void)
+ 
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
+   else if (out_fds[1].fd == fd)
+diff --git a/glib/tests/mapping.c b/glib/tests/mapping.c
+index 5e4c24f70..acb26e380 100644
+--- a/glib/tests/mapping.c
++++ b/glib/tests/mapping.c
+@@ -216,6 +216,11 @@ test_child_private (void)
+   const char *dir;
+   char *global_filename = NULL, *childname = NULL, *stop_name = NULL;
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten can't spawn processes");
++  return;
++#endif
++
+   dir = g_get_tmp_dir ();
+   global_filename = g_build_filename (dir, "maptest", NULL);
+   childname = g_build_filename (dir, "mapchild", NULL);
+diff --git a/glib/tests/meson.build b/glib/tests/meson.build
+index 581699211..71bca1422 100644
+--- a/glib/tests/meson.build
++++ b/glib/tests/meson.build
+@@ -529,6 +529,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+ if python_test_env_common_path.length() > 0
+   python_test_env.prepend('PATH', python_test_env_common_path)
+ endif
++# Emscripten builds the test programs as .js programs that run under Node.
++if host_system == 'emscripten'
++  python_test_env.set('_G_TEST_PROGRAM_RUNNER_NODE',
++                      find_program('node', native : true).full_path())
++endif
+ 
+ foreach test_name, extra_args : python_tests
+   depends = [extra_args.get('depends', [])]
+diff --git a/glib/tests/messages-low-memory.c b/glib/tests/messages-low-memory.c
+index 8274f3d8b..2bf685b68 100644
+--- a/glib/tests/messages-low-memory.c
++++ b/glib/tests/messages-low-memory.c
+@@ -25,6 +25,10 @@
+ #include <dlfcn.h>
+ #include <glib.h>
+ 
++#ifdef G_PLATFORM_WASM
++#include <emscripten/heap.h>
++#endif
++
+ static gboolean malloc_eom = FALSE;
+ static gboolean our_malloc_called = FALSE;
+ 
+@@ -39,7 +43,13 @@ malloc (size_t size)
+ {
+   static void *(*real_malloc)(size_t);
+   if (!real_malloc)
++#ifdef G_PLATFORM_WASM
++    /* A static WebAssembly link has no next malloc() for dlsym() to find,
++     * but Emscripten gives its own a second name. */
++    real_malloc = emscripten_builtin_malloc;
++#else
+       real_malloc = dlsym (RTLD_NEXT, "malloc");
++#endif
+ 
+   if (malloc_eom)
+     {
+diff --git a/glib/tests/messages-low-memory.py b/glib/tests/messages-low-memory.py
+index 32f066f07..4a6ee2d83 100644
+--- a/glib/tests/messages-low-memory.py
++++ b/glib/tests/messages-low-memory.py
+@@ -51,6 +51,9 @@ class TestMessagesLowMemory(testprogramrunner.TestProgramRunner):
+ 
+         if os.name == "nt":
+             self.assertEqual(result.info.returncode, 3)
++        elif "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ:
++            # Emscripten's abort() ends Node with status 1, not SIGABRT.
++            self.assertEqual(result.info.returncode, 1)
+         else:
+             self.assertEqual(result.info.returncode, -6)
+         self.assertIn("failed to allocate memory", result.err)
+diff --git a/glib/tests/option-context.c b/glib/tests/option-context.c
+index 0e94c6449..e23a8b424 100644
+--- a/glib/tests/option-context.c
++++ b/glib/tests/option-context.c
+@@ -631,6 +631,13 @@ arg_test5 (void)
+     { { "test", 0, 0, G_OPTION_ARG_DOUBLE, &arg_test5_double, NULL, NULL },
+       G_OPTION_ENTRY_NULL };
+ 
++#ifdef G_PLATFORM_WASM
++  /* setlocale() below succeeds, since musl takes any locale name, but there
++   * is no locale data, so the decimal point stays '.'. */
++  g_test_skip ("musl has no locale data; lifted by the language and locale backend (§5.1.4)");
++  return;
++#endif
++
+   context = g_option_context_new (NULL);
+   g_option_context_add_main_entries (context, entries, NULL);
+ 
+diff --git a/glib/tests/test-printf.c b/glib/tests/test-printf.c
+index e99a55228..f138b28b1 100644
+--- a/glib/tests/test-printf.c
++++ b/glib/tests/test-printf.c
+@@ -955,6 +955,12 @@ test_produce_embedded_nulls2 (void)
+                                           test_produce_embedded_nulls2_writing_thread,
+                                           &data);
+ 
++#ifdef G_PLATFORM_WASM
++  /* Emscripten's pipes never block a read: an empty one reads as if at end
++   * of file, so the reader waits for the writer to be done. */
++  g_thread_join (g_steal_pointer (&writing_thread));
++#endif
++
+   char buf[3];
+   char *iter = buf;
+   size_t size = sizeof (buf);
+@@ -975,7 +981,8 @@ test_produce_embedded_nulls2 (void)
+ 
+   g_assert_false (ferror (streams[0]));
+ 
+-  g_thread_join (g_steal_pointer (&writing_thread));
++  if (writing_thread != NULL)
++    g_thread_join (g_steal_pointer (&writing_thread));
+ 
+   g_assert_cmpuint (data.written, ==, 3U);
+   g_assert_cmpint (buf[0], ==, 'a');
+diff --git a/glib/tests/testing.c b/glib/tests/testing.c
+index 536fd56b0..bd7520c77 100644
+--- a/glib/tests/testing.c
++++ b/glib/tests/testing.c
+@@ -43,6 +43,19 @@
+ #include <unistd.h>
+ #endif
+ 
++/* Many tests here run testing-helper, or this program, in another process,
++ * which Emscripten can't start. */
++static gboolean
++skip_without_spawn (void)
++{
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten can't spawn or fork processes");
++  return TRUE;
++#else
++  return FALSE;
++#endif
++}
++
+ #define TAP_VERSION G_STRINGIFY (14)
+ #define TAP_SUBTEST_PREFIX "    "
+ 
+@@ -310,6 +323,9 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+ static void
+ test_fork_fail (void)
+ {
++  if (skip_without_spawn ())
++    return;
++
+   if (g_test_trap_fork (0, G_TEST_TRAP_SILENCE_STDERR))
+     {
+       g_assert_not_reached();
+@@ -322,6 +338,9 @@ test_fork_fail (void)
+ static void
+ test_fork_patterns (void)
+ {
++  if (skip_without_spawn ())
++    return;
++
+   if (g_test_trap_fork (0, G_TEST_TRAP_SILENCE_STDOUT | G_TEST_TRAP_SILENCE_STDERR))
+     {
+       g_print ("some stdout text: somagic17\n");
+@@ -993,6 +1012,9 @@ test_combining (void)
+   GError *error = NULL;
+   int status;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_message ("single test case skipped -> overall status 77");
+   argv = g_ptr_array_new ();
+   g_ptr_array_add (argv, (char *) argv0);
+@@ -1190,6 +1212,9 @@ test_tap (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+ 
+   g_test_message ("pass");
+@@ -1727,6 +1752,9 @@ test_tap_subtest (void)
+   gchar *output;
+   char** envp = NULL;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+ 
+   g_test_message ("pass");
+@@ -2308,6 +2336,9 @@ test_tap_summary (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_summary() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2353,6 +2384,9 @@ test_tap_subtest_summary (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_summary() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2395,6 +2429,9 @@ test_tap_message (void)
+   char **output_lines;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_message() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2459,6 +2496,9 @@ test_tap_subtest_message (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_message() from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2518,6 +2558,9 @@ test_tap_print (void)
+   char **output_lines;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_print() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2571,6 +2614,9 @@ test_tap_subtest_print (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_print() from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2618,6 +2664,9 @@ test_tap_subtest_stdout (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the stdout from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2674,6 +2723,9 @@ test_tap_subtest_stdout_no_new_line (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the stdout from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2724,6 +2776,9 @@ test_tap_error (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2774,6 +2829,9 @@ test_tap_subtest_error (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2820,6 +2878,9 @@ test_tap_error_and_pass (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2868,6 +2929,9 @@ test_tap_subtest_error_and_pass (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2913,6 +2977,9 @@ test_init_no_argv0 (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_test_init() can be called safely with argc == 0.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+diff --git a/gobject/tests/closure.c b/gobject/tests/closure.c
+index fef671e7c..35ad688eb 100644
+--- a/gobject/tests/closure.c
++++ b/gobject/tests/closure.c
+@@ -104,6 +104,11 @@ test_closure_child (void)
+   GError *error = NULL;
+   gchar *argv[3];
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten can't spawn processes");
++  return;
++#endif
++
+   g_assert (g_getenv ("DO_NOT_ACCIDENTALLY_RECURSE") == NULL);
+   g_setenv ("DO_NOT_ACCIDENTALLY_RECURSE", "1", TRUE);
+ 

@@ -1,7 +1,7 @@
 From 05e887d995a6e3408246618dbc3d8a8c887a673a Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 14:55:45 -0700
-Subject: [PATCH 25/31] gmain: Wait on a futex-backed GWakeup on WebAssembly
+Subject: [PATCH 25/34] gmain: Wait on a futex-backed GWakeup on WebAssembly
 
 On WebAssembly g_wakeup_new() returned NULL, the main context never
 waited on anything and every poll used a zero timeout, so a blocking

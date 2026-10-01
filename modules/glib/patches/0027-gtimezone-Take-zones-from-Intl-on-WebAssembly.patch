@@ -1,7 +1,7 @@
-From 15f4905f7c96e7e56f7035f22acce6f977aeac66 Mon Sep 17 00:00:00 2001
+From d7da9ef72ad46fa978eeda4c7fe02d1320ae170c Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:58:41 -0700
-Subject: [PATCH 27/31] gtimezone: Take zones from Intl on WebAssembly
+Subject: [PATCH 27/34] gtimezone: Take zones from Intl on WebAssembly
 
 WebAssembly skipped every TZif path, so only fixed offsets and POSIX
 rule strings worked, IANA names such as "America/Recife" always failed,
@@ -34,7 +34,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  1 file changed, 324 insertions(+), 8 deletions(-)
 
 diff --git a/glib/gtimezone.c b/glib/gtimezone.c
-index adb686296..2db323233 100644
+index adb686296..d71f032d7 100644
 --- a/glib/gtimezone.c
 +++ b/glib/gtimezone.c
 @@ -50,6 +50,10 @@
@@ -84,8 +84,8 @@ index adb686296..2db323233 100644
 + * are listed.  After that the footer carries on with the 2090s' pattern as a
 + * POSIX TZ rule, when it is one: a fixed offset, or one change to daylight
 + * saving time and one back each year on a month-week-weekday date.  Zones
-+ * whose pattern isn't (Morocco's, which follow Ramadan) keep their last
-+ * offset instead.
++ * whose pattern isn't (Chile's, which change on the first Sunday on or after
++ * the 2nd) keep their last offset instead.
 + *
 + * A period counts as daylight saving time when its offset is above the
 + * lowest offset in both the year before and the year after it began, so

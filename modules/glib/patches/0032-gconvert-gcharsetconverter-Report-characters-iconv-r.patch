@@ -1,0 +1,195 @@
+From ff002389843f9fea70c84df2421af7a69036c3b1 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 19:00:40 -0700
+Subject: [PATCH 32/34] gconvert, gcharsetconverter: Report characters iconv()
+ replaces
+
+Some iconv() implementations, musl's among them, convert a character the
+target charset lacks to a replacement ('*' in musl's case) and count it
+as an irreversible conversion instead of failing with EILSEQ.
+g_convert() already reports such a conversion as an illegal sequence,
+but g_convert_with_fallback() kept the replacement where the caller
+asked for its fallback, and GCharsetConverter neither reported an error
+nor used its fallback.
+
+When iconv() reports an irreversible conversion, convert the same input
+again a character at a time to find that character, and treat it as
+EILSEQ there, so the fallback replaces it or the error reports it. A
+target that asks for transliteration ("//TRANSLIT") still gets iconv()'s
+replacements. Where iconv() fails with EILSEQ instead, as glibc's does,
+nothing changes.
+
+Upstream-Status: Pending
+---
+ gio/gcharsetconverter.c | 75 +++++++++++++++++++++++++++++++++++++++--
+ glib/gconvert.c         | 41 +++++++++++++++++++++-
+ 2 files changed, 112 insertions(+), 4 deletions(-)
+
+diff --git a/gio/gcharsetconverter.c b/gio/gcharsetconverter.c
+index c8944f3a3..036670bf3 100644
+--- a/gio/gcharsetconverter.c
++++ b/gio/gcharsetconverter.c
+@@ -25,6 +25,7 @@
+ #include "gcharsetconverter.h"
+ 
+ #include <errno.h>
++#include <string.h>
+ 
+ #include "ginitable.h"
+ #include "gioerror.h"
+@@ -247,6 +248,52 @@ g_charset_converter_reset (GConverter *converter)
+   conv->n_fallback_errors = 0;
+ }
+ 
++/* Converts a character at a time, up to the first one iconv() converts
++ * irreversibly, and fails there with EILSEQ.  Returns 0 once all the input
++ * is converted, or -1 with errno set where it stopped. */
++static gsize
++convert_reversibly (GIConv   cd,
++                    gchar  **inbuf,
++                    gsize   *inbytes_left,
++                    gchar  **outbuf,
++                    gsize   *outbytes_left)
++{
++  while (*inbytes_left > 0)
++    {
++      gchar *in = NULL, *out = NULL;
++      gsize in_size, in_left, out_left = 0;
++      gsize res = (gsize) -1;
++
++      /* The shortest input iconv() takes is one whole character. */
++      for (in_size = 1; in_size <= *inbytes_left; in_size++)
++        {
++          in = *inbuf;
++          in_left = in_size;
++          out = *outbuf;
++          out_left = *outbytes_left;
++          res = g_iconv (cd, &in, &in_left, &out, &out_left);
++          if (res != (gsize) -1 || errno != EINVAL)
++            break;
++        }
++
++      if (res == (gsize) -1)
++        return res;
++
++      if (res != 0)
++        {
++          errno = EILSEQ;
++          return (gsize) -1;
++        }
++
++      *inbytes_left -= (gsize) (in - *inbuf);
++      *inbuf = in;
++      *outbuf = out;
++      *outbytes_left = out_left;
++    }
++
++  return 0;
++}
++
+ static GConverterResult
+ g_charset_converter_convert (GConverter       *converter,
+ 			     const void       *inbuf,
+@@ -303,9 +350,31 @@ g_charset_converter_convert (GConverter       *converter,
+                    NULL, &in_left,
+                    &outbufp, &out_left);
+   else
+-    res = g_iconv (conv->iconv,
+-                   &inbufp, &in_left,
+-                   &outbufp, &out_left);
++    {
++      res = g_iconv (conv->iconv,
++                     &inbufp, &in_left,
++                     &outbufp, &out_left);
++
++      /* Some iconv() implementations, musl's among them, write a replacement
++       * for a character the target charset lacks and count it as an
++       * irreversible conversion instead of failing with EILSEQ.  Converting
++       * this input again a character at a time finds that character, so it
++       * is reported, or replaced by the fallback, as EILSEQ would have it.
++       * iconv() can't rewind a shift state, so input in a stateful charset
++       * that changes state within this input may be read wrongly up to that
++       * character.  A target that asks for transliteration ("//TRANSLIT")
++       * gets its replacements on purpose. */
++      if (res != (gsize) -1 && res != 0 && strstr (conv->to, "//") == NULL)
++        {
++          inbufp = (char *) inbuf;
++          in_left = inbuf_size;
++          outbufp = (char *) outbuf;
++          out_left = outbuf_size;
++          res = convert_reversibly (conv->iconv,
++                                    &inbufp, &in_left,
++                                    &outbufp, &out_left);
++        }
++    }
+ 
+   g_assert (inbufp >= (char *) inbuf);
+   g_assert (outbufp >= (char *) outbuf);
+diff --git a/glib/gconvert.c b/glib/gconvert.c
+index f10aeffde..9f6ce31de 100644
+--- a/glib/gconvert.c
++++ b/glib/gconvert.c
+@@ -572,6 +572,7 @@ g_convert_with_fallback (const gchar *str,
+   gsize outbuf_size;
+   gboolean have_error = FALSE;
+   gboolean done = FALSE;
++  gboolean by_char = FALSE;
+ 
+   GError *local_error = NULL;
+   
+@@ -643,9 +644,43 @@ g_convert_with_fallback (const gchar *str,
+ 
+   while (!done && !have_error)
+     {
++      const gchar *p_start = p;
++      gchar *outp_start = outp;
++      gsize inbytes_start = inbytes_remaining;
++      gsize outbytes_start = outbytes_remaining;
+       gsize inbytes_tmp = inbytes_remaining;
++
++      if (by_char && p && !save_p)
++        inbytes_tmp = MIN (inbytes_remaining, (gsize) (g_utf8_next_char (p) - p));
+       err = g_iconv (cd, (char **)&p, &inbytes_tmp, &outp, &outbytes_remaining);
+-      inbytes_remaining = inbytes_tmp;
++      if (p_start)
++        inbytes_remaining = inbytes_start - (gsize) (p - p_start);
++      else
++        inbytes_remaining = inbytes_tmp;
++
++      /* Some iconv() implementations, musl's among them, write a replacement
++       * for a character the target codeset lacks and count it as an
++       * irreversible conversion instead of failing with EILSEQ.  Converting
++       * the string again a character at a time finds that character, so the
++       * fallback replaces it as it would on EILSEQ.  A target that asks for
++       * transliteration ("//TRANSLIT") gets its replacements on purpose. */
++      if (err != (gsize) -1 && err != 0 && p_start &&
++          strstr (to_codeset, "//") == NULL)
++        {
++          p = p_start;
++          outp = outp_start;
++          inbytes_remaining = inbytes_start;
++          outbytes_remaining = outbytes_start;
++
++          if (!by_char && !save_p)
++            {
++              by_char = TRUE;
++              continue;
++            }
++
++          err = (gsize) -1;
++          errno = EILSEQ;
++        }
+ 
+       if (err == (gsize) -1)
+ 	{
+@@ -719,6 +754,10 @@ g_convert_with_fallback (const gchar *str,
+ 	      inbytes_remaining = save_inbytes;
+ 	      save_p = NULL;
+ 	    }
++	  else if (p && inbytes_remaining > 0)
++	    {
++	      /* Converting a character at a time; go on with the next. */
++	    }
+ 	  else if (p)
+ 	    {
+ 	      /* call g_iconv with NULL inbuf to cleanup shift state */

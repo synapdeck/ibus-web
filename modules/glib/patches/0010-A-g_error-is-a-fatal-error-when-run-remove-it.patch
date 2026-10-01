@@ -1,7 +1,7 @@
 From b73cc065f6eb52db8bcedbb58e06cabd4f7e4d2c Mon Sep 17 00:00:00 2001
 From: Jorge Zapata <jorgeluis.zapata@gmail.com>
 Date: Sun, 28 Apr 2024 19:45:06 +0200
-Subject: [PATCH 10/31] A g_error is a fatal error when run, remove it
+Subject: [PATCH 10/34] A g_error is a fatal error when run, remove it
 
 (cherry picked from commit 75de668d369069a91ec90c18d4b39c74e5d4ca3e)
 ---

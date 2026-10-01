@@ -2,15 +2,16 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 # Tests that must pass for the build to succeed. Filled in from a reviewed
-# run; see the excluded table for tests that cannot work in this runtime.
-# Tests in neither table are reported on every run but don't gate: they
-# are gaps worth fixing (libc, locale and time differences, WasmFS
-# differences, small GIO gaps).
+# run; see the excluded table for tests no part of which can run in this
+# runtime. Tests in neither table are reported on every run but don't
+# gate: those that skip as a whole, and those that test a feature the
+# runtime doesn't have yet.
 
 [must_pass]
 tests = [
   "gio - glib:application-command-line",
   "gio - glib:async-close-output-stream",
+  "gio - glib:async-splice-output-stream",
   "gio - glib:autoptr-gio",
   "gio - glib:buffered-input-stream",
   "gio - glib:buffered-output-stream",
@@ -18,6 +19,7 @@ tests = [
   "gio - glib:contenttype",
   "gio - glib:contexts",
   "gio - glib:converter",
+  "gio - glib:converter-stream",
   "gio - glib:credentials",
   "gio - glib:data-input-stream",
   "gio - glib:data-output-stream",
@@ -25,13 +27,17 @@ tests = [
   "gio - glib:file-enumerator",
   "gio - glib:file-thumbnail",
   "gio - glib:fileattributematcher",
+  "gio - glib:filenamecompleter",
   "gio - glib:filter-streams",
   "gio - glib:g-file",
+  "gio - glib:g-file-info",
   "gio - glib:g-icon",
   "gio - glib:gdbus-addresses",
   "gio - glib:gdbus-message",
+  "gio - glib:gdbus-peer",
   "gio - glib:giomodule",
   "gio - glib:glistmodel",
+  "gio - glib:inet-address",
   "gio - glib:io-stream",
   "gio - glib:max-version",
   "gio - glib:memory-input-stream",
@@ -39,6 +45,7 @@ tests = [
   "gio - glib:memory-output-stream",
   "gio - glib:memory-settings-backend",
   "gio - glib:mount-operation",
+  "gio - glib:network-address",
   "gio - glib:network-monitor",
   "gio - glib:null-settings-backend",
   "gio - glib:permission",
@@ -48,6 +55,7 @@ tests = [
   "gio - glib:simple-async-result",
   "gio - glib:simple-proxy",
   "gio - glib:sleepy-stream",
+  "gio - glib:socket",
   "gio - glib:srvtarget",
   "gio - glib:task",
   "gio - glib:thumbnail-verification",
@@ -66,6 +74,7 @@ tests = [
   "gio+cpp - glib:cxx-23",
   "gio+cpp - glib:cxx-2c",
   "gio+cpp - glib:cxx-98",
+  "gio+no-valgrind - glib:gio-tool.py",
   "gio+no-valgrind+gdbus-codegen+slow - glib:codegen.py",
   "gio+no-valgrind+pkg-config - glib:gio-2.0-pkg-config",
   "glib+core - glib:1bit-mutex",
@@ -80,12 +89,16 @@ tests = [
   "glib+core - glib:cache",
   "glib+core - glib:charset",
   "glib+core - glib:checksum",
+  "glib+core - glib:collate",
   "glib+core - glib:completion",
   "glib+core - glib:cond",
+  "glib+core - glib:convert",
   "glib+core - glib:dataset",
+  "glib+core - glib:date",
   "glib+core - glib:dir",
   "glib+core - glib:environment",
   "glib+core - glib:error",
+  "glib+core - glib:fileutils",
   "glib+core - glib:guuid",
   "glib+core - glib:gwakeup",
   "glib+core - glib:hash",
@@ -97,7 +110,9 @@ tests = [
   "glib+core - glib:list",
   "glib+core - glib:logging",
   "glib+core - glib:macros",
+  "glib+core - glib:mainloop",
   "glib+core - glib:mappedfile",
+  "glib+core - glib:mapping",
   "glib+core - glib:markup",
   "glib+core - glib:markup-collect",
   "glib+core - glib:markup-escape",
@@ -110,6 +125,7 @@ tests = [
   "glib+core - glib:node",
   "glib+core - glib:once",
   "glib+core - glib:onceinit",
+  "glib+core - glib:option-context",
   "glib+core - glib:overflow",
   "glib+core - glib:overflow-fallback",
   "glib+core - glib:pathbuf",
@@ -134,6 +150,8 @@ tests = [
   "glib+core - glib:strfuncs",
   "glib+core - glib:string",
   "glib+core - glib:strvbuilder",
+  "glib+core - glib:test-printf",
+  "glib+core - glib:testing",
   "glib+core - glib:testing-nonfatal",
   "glib+core - glib:thread",
   "glib+core - glib:thread-deprecated",
@@ -178,10 +196,13 @@ tests = [
   "glib+core+cpp - glib:cxx-23",
   "glib+core+cpp - glib:cxx-2c",
   "glib+core+cpp - glib:cxx-98",
+  "glib+core+no-valgrind - glib:assert-msg-test.py",
+  "glib+core+no-valgrind - glib:messages-low-memory.py",
   "glib+core+no-valgrind+pkg-config - glib:glib-2.0-pkg-config",
   "glib+core+slow - glib:1bit-emufutex",
   "glib+core+slow - glib:642026",
   "glib+core+slow - glib:642026-ec",
+  "glib+core+slow - glib:gdatetime",
   "glib+core+slow - glib:gvariant",
   "glib+core+slow - glib:sequence",
   "glib+core+slow - glib:thread-pool-slow",
@@ -205,6 +226,7 @@ tests = [
   "gobject - glib:binding",
   "gobject - glib:bindinggroup",
   "gobject - glib:boxed",
+  "gobject - glib:closure",
   "gobject - glib:custom-dispatch",
   "gobject - glib:defaultiface",
   "gobject - glib:deftype",
@@ -263,28 +285,17 @@ tests = [
   "lint+no-valgrind - glib:check-missing-install-tag.py",
 ]
 
-# name = "reason it cannot run under Node with Emscripten"
+# name = "why no part of it can run on Emscripten"
 [excluded]
-"gio - glib:async-splice-output-stream" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"gio - glib:filenamecompleter" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"gio - glib:gdbus-peer" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:gdbus-server-auth" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:iptosmessage" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:pollable" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:proxy-test" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:socket" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:socket-listener" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio - glib:socket-service" = "no sockets under Node (Emscripten's socket layer needs the ws module); networking is out of scope"
-"gio+no-valgrind - glib:gio-tool.py" = "no process spawning under Emscripten"
-"glib+core - glib:io-channel-basic" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"glib+core - glib:mainloop" = "blocking main-context iteration is unsupported; the runtime only iterates without blocking"
-"glib+core - glib:mapping" = "no process spawning under Emscripten"
-"glib+core - glib:protocol" = "no process spawning under Emscripten"
-"glib+core - glib:spawn-multithreaded" = "no process spawning under Emscripten"
-"glib+core - glib:spawn-path-search" = "no process spawning under Emscripten"
-"glib+core - glib:spawn-singlethread" = "no process spawning under Emscripten"
-"glib+core - glib:spawn-test" = "no process spawning under Emscripten"
-"glib+core - glib:test-printf" = "pipes are not supported under Emscripten"
-"glib+core - glib:testing" = "no process spawning under Emscripten"
-"glib+core+no-valgrind - glib:assert-msg-test.py" = "no process spawning under Emscripten"
-"glib+core+no-valgrind - glib:messages-low-memory.py" = "no process spawning under Emscripten"
+"gio - glib:gdbus-server-auth" = "every subtest runs a D-Bus server on a socket (WasmFS has no sockets: socket() fails with ENOSYS); the two EXTERNAL subtests skip anyway, having no credentials to pass"
+"gio - glib:iptosmessage" = "both subtests send a control message over a UDP socket (WasmFS has no sockets: socket() fails with ENOSYS)"
+"gio - glib:pollable" = "its one subtest built here polls a connected TCP socket pair (WasmFS has no sockets: socket() fails with ENOSYS); the pipe, file and converter subtests use GIO's Unix streams, which the WebAssembly build leaves out"
+"gio - glib:proxy-test" = "main() starts its proxy and server threads on listening sockets before any subtest runs (WasmFS has no sockets: socket() fails with ENOSYS)"
+"gio - glib:socket-listener" = "two subtests listen on sockets (WasmFS has no sockets: socket() fails with ENOSYS); the two listen-failure subtests inject failures into real socket calls, through dlsym(RTLD_NEXT) mocks that find nothing in a static WebAssembly link"
+"gio - glib:socket-service" = "every subtest listens on a socket (WasmFS has no sockets: socket() fails with ENOSYS)"
+"glib+core - glib:io-channel-basic" = "starts its children with system(), expecting them to inherit pipe fds; Emscripten can't spawn processes, and under Node system() runs a host shell that sees none of WasmFS's fds"
+"glib+core - glib:protocol" = "its two tests read the log protocol from copies of itself that they spawn, and Emscripten can't spawn processes; the other seven are the copies' bodies and do nothing otherwise"
+"glib+core - glib:spawn-multithreaded" = "every subtest spawns processes, and Emscripten can't spawn processes"
+"glib+core - glib:spawn-path-search" = "every subtest spawns processes, and Emscripten can't spawn processes"
+"glib+core - glib:spawn-singlethread" = "every subtest spawns processes, and Emscripten can't spawn processes"
+"glib+core - glib:spawn-test" = "every subtest spawns processes, and Emscripten can't spawn processes"
