@@ -19,6 +19,7 @@
 // importer's globals. rootDir and outDir resolve against this file, so every
 // config emits to dist/ with the layout of src/.
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "strict": true,
     "erasableSyntaxOnly": true,
