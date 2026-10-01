@@ -1,0 +1,758 @@
+From de108430fe012fc7318449dcef175a4ee13bcd77 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 23:36:25 -0700
+Subject: [PATCH 12/16] Build the tools and the Unix parts WebAssembly can take
+
+"Add support for WebAssembly" leaves out every Unix-specific source and
+guards out every Unix path. Some of those work under Emscripten as they
+do on other Unixes, others left callers behind, and GLib's tools didn't
+build. Bring back what WebAssembly can take, and work around what it
+lacks.
+
+Resolve the references to the sources that stay out. A static link
+garbage-collects their callers, but a main module keeps every function
+for side modules to import, so the link failed on undefined symbols:
+- Build giounix.c, which is plain POSIX I/O on file descriptors and
+  provides an API giochannel.h declares for every Unix (gtestutils.c and
+  gtestdbus.c call g_io_channel_unix_new()). GIOChannel watches take
+  source closures again.
+- g_unix_connection_send_fd() and the D-Bus command line's stdin used
+  gunixfdmessage.c and gunixinputstream.c. Guard them like the
+  neighbouring receive_fd and GApplicationCommandLine stdin, which
+  already report no support.
+- gappinfo.c called the application database's *_impl functions from
+  gdesktopappinfo.c. Give them empty implementations: there are no
+  applications to find or launch.
+
+Build glib-unix.c and GIO's Unix streams. Emscripten's file descriptors
+(files, pipes, /dev/null) take them as they are; the rest of the Unix
+sources need mounts, desktop files or D-Bus.
+- glib-unix.c is built without the Unix signal sources, which
+  glib-unix.h no longer declares there: gmain.c handles no signals on
+  WebAssembly, where no other process can send one.
+  g_unix_fd_query_path() fails with G_FILE_ERROR_NOSYS, since
+  Emscripten's file systems have no /proc nor another way to name an
+  fd's file. GUnixFDSource takes closures again.
+- gfiledescriptorbased.c, giounix-private.c and the Unix input and
+  output streams are built, and their headers and gio-unix-2.0.pc
+  installed.
+- _g_fd_is_pollable(): Emscripten declares epoll but fails every call,
+  and its poll() only follows pipes and sockets, so those are what is
+  pollable.
+
+Restore three paths that work as on other Unixes:
+- g_source_add_unix_fd(), g_source_modify_unix_fd(),
+  g_source_remove_unix_fd() and g_source_query_unix_fd(), which gmain.h
+  declares on every Unix. They only add fds to the source's poll set.
+- Local files' standard::is-hidden and standard::is-backup: dotfiles,
+  names listed in a directory's .hidden file and names ending in "~".
+  Lost+found directories, which need the Unix mount table, are not
+  looked for.
+- A content type for files in a GResource, guessed from the name and
+  data, as for local files.
+
+Build the tools. Three link against Unix sources that stay out: on
+WebAssembly gtester opens its report pipe with pipe() (spawning the test
+binary then reports that it's unsupported), gio info leaves out the Unix
+mount line, gio launch reports that it isn't supported on this platform,
+as on Windows and macOS, gapplication list finds no D-Bus activatable
+applications, and list-actions reports that it can't find the
+application's desktop file. The tools run under Node with its file
+system, so configure's /proc/self/cmdline run check would pass there,
+although the library also runs in browsers, which have no /proc; take
+its result from the have_proc_self_cmdline cross property on
+Emscripten, as for a cross build that can't run host programs.
+
+Work around what WebAssembly lacks:
+- g_test_trap_subprocess() runs the test binary again as a child,
+  which WebAssembly can't spawn, so a test program aborted at its first
+  subprocess test. Mark the calling test skipped and jump back out of
+  its test function to test_case_run(), so the program goes on with its
+  other tests; returning would leave the caller asserting on a
+  subprocess that never ran. A call from any other thread, or outside a
+  test case, only marks the test skipped.
+- g_local_file_query_exists() calls faccessat() with AT_EACCESS and
+  AT_SYMLINK_NOFOLLOW, which Emscripten doesn't honour: its JavaScript
+  file systems assert that the flags are 0 or AT_EACCESS (so every
+  g_file_query_exists() aborted with runtime assertions) and WasmFS
+  ignores the flag, so a dangling symlink can be reported missing. Leave
+  query_exists unset, as on the platforms whose faccessat() has the same
+  gaps, so it falls back to querying the file's type without following
+  symlinks.
+- With no argv, g_option_context_parse() names the program from the
+  platform's record of its first argument, which WebAssembly had none
+  of. Emscripten's libc sets program_invocation_name from the script
+  Node runs, or from the page's Module.thisProgram.
+- Emscripten's dlfcn.h defines RTLD_NEXT, so HAVE_RTLD_NEXT was set, but
+  dlsym(RTLD_NEXT, ...) finds nothing there: in a static link dlsym()
+  fails for every handle, and with dynamic linking RTLD_NEXT is
+  unsupported (and aborts). Only tests use it.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/gappinfo.c              | 60 +++++++++++++++++++++++++++++++++++++
+ gio/gapplication-tool.c     | 11 +++++++
+ gio/gapplicationimpl-dbus.c |  2 +-
+ gio/gio-tool-info.c         |  6 ++--
+ gio/gio-tool-launch.c       |  6 ++--
+ gio/giounix-private.c       | 16 +++++++++-
+ gio/glocalfile.c            |  9 ++++--
+ gio/glocalfileinfo.c        | 11 +++----
+ gio/gresourcefile.c         |  2 --
+ gio/gunixconnection.c       |  2 +-
+ gio/meson.build             | 18 ++++++++++-
+ glib/glib-unix.c            | 10 +++++++
+ glib/glib-unix.h            |  3 ++
+ glib/gmain.c                |  4 +--
+ glib/goption.c              |  8 +++++
+ glib/gtester.c              |  9 ++++++
+ glib/gtestutils.c           | 30 +++++++++++++++++++
+ glib/meson.build            |  4 +--
+ gobject/gsourceclosure.c    | 20 ++++++-------
+ meson.build                 |  9 ++++--
+ 20 files changed, 203 insertions(+), 37 deletions(-)
+
+diff --git a/gio/gappinfo.c b/gio/gappinfo.c
+index a0aa2c4a5..d098551e8 100644
+--- a/gio/gappinfo.c
++++ b/gio/gappinfo.c
+@@ -2011,3 +2011,63 @@ g_app_info_monitor_fire (void)
+ {
+   g_context_specific_group_emit (&g_app_info_monitor_group, g_app_info_monitor_changed_signal);
+ }
++
++#ifdef G_PLATFORM_WASM
++
++/* There is no application database on WebAssembly: no applications are
++ * installed and none can be launched. */
++
++GAppInfo *
++g_app_info_create_from_commandline_impl (const char           *commandline G_GNUC_UNUSED,
++                                         const char           *application_name G_GNUC_UNUSED,
++                                         GAppInfoCreateFlags   flags G_GNUC_UNUSED,
++                                         GError              **error)
++{
++  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
++                       _("Launching applications is not supported"));
++  return NULL;
++}
++
++GList *
++g_app_info_get_recommended_for_type_impl (const gchar *content_type G_GNUC_UNUSED)
++{
++  return NULL;
++}
++
++GList *
++g_app_info_get_fallback_for_type_impl (const gchar *content_type G_GNUC_UNUSED)
++{
++  return NULL;
++}
++
++GList *
++g_app_info_get_all_for_type_impl (const char *content_type G_GNUC_UNUSED)
++{
++  return NULL;
++}
++
++void
++g_app_info_reset_type_associations_impl (const char *content_type G_GNUC_UNUSED)
++{
++}
++
++GAppInfo *
++g_app_info_get_default_for_type_impl (const char *content_type G_GNUC_UNUSED,
++                                      gboolean    must_support_uris G_GNUC_UNUSED)
++{
++  return NULL;
++}
++
++GAppInfo *
++g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme G_GNUC_UNUSED)
++{
++  return NULL;
++}
++
++GList *
++g_app_info_get_all_impl (void)
++{
++  return NULL;
++}
++
++#endif /* G_PLATFORM_WASM */
+diff --git a/gio/gapplication-tool.c b/gio/gapplication-tool.c
+index 78a57607e..e107597e4 100644
+--- a/gio/gapplication-tool.c
++++ b/gio/gapplication-tool.c
+@@ -211,6 +211,8 @@ app_list (gchar **args)
+     {
+       GDesktopAppInfo *info = apps->data;
+ 
++      /* WebAssembly has no desktop files, so nothing is D-Bus activatable. */
++#ifndef G_PLATFORM_WASM
+       if (G_IS_DESKTOP_APP_INFO (info))
+         if (g_desktop_app_info_get_boolean (info, "DBusActivatable"))
+           {
+@@ -226,6 +228,7 @@ app_list (gchar **args)
+                 g_free (id);
+               }
+           }
++#endif
+ 
+       apps = g_list_delete_link (apps, apps);
+       g_object_unref (info);
+@@ -405,10 +408,12 @@ app_launch (gchar **args)
+ static int
+ app_list_actions (gchar **args)
+ {
++#ifndef G_PLATFORM_WASM
+   const gchar * const *actions;
+   GDesktopAppInfo *app_info;
+   gchar *filename;
+   gint i;
++#endif
+ 
+   if (!app_check_name (args, "list-actions"))
+     return 1;
+@@ -419,6 +424,11 @@ app_list_actions (gchar **args)
+       app_help (FALSE, "list-actions");
+     }
+ 
++#ifdef G_PLATFORM_WASM
++  /* WebAssembly has no desktop files to read actions from. */
++  g_printerr (_("unable to find desktop file for application %s\n"), args[0]);
++  return 1;
++#else
+   filename = g_strconcat (args[0], ".desktop", NULL);
+   app_info = g_desktop_app_info_new (filename);
+   g_free (filename);
+@@ -437,6 +447,7 @@ app_list_actions (gchar **args)
+   g_object_unref (app_info);
+ 
+   return 0;
++#endif
+ }
+ 
+ int
+diff --git a/gio/gapplicationimpl-dbus.c b/gio/gapplicationimpl-dbus.c
+index 90959ecac..19914532a 100644
+--- a/gio/gapplicationimpl-dbus.c
++++ b/gio/gapplicationimpl-dbus.c
+@@ -959,7 +959,7 @@ g_dbus_command_line_printerr_literal (GApplicationCommandLine *cmdline,
+ static GInputStream *
+ g_dbus_command_line_get_stdin (GApplicationCommandLine *cmdline)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GDBusCommandLine *gdbcl = (GDBusCommandLine *) cmdline;
+   GInputStream *result = NULL;
+   GDBusMessage *message;
+diff --git a/gio/gio-tool-info.c b/gio/gio-tool-info.c
+index 64d3c194e..006499e8f 100644
+--- a/gio/gio-tool-info.c
++++ b/gio/gio-tool-info.c
+@@ -24,7 +24,7 @@
+ #include <gio/gio.h>
+ #include <gi18n.h>
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+ #include <gio/gunixmounts.h>
+ #endif
+ 
+@@ -153,7 +153,7 @@ show_info (GFile *file, GFileInfo *info)
+   char *escaped, *uri, *flatten;
+   goffset size;
+   const char *path;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GUnixMountEntry *entry;
+ #endif
+ 
+@@ -214,7 +214,7 @@ show_info (GFile *file, GFileInfo *info)
+       g_print (_("local path: %s\n"), flatten);
+       free (flatten);
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       entry = g_unix_mount_entry_at (path, NULL);
+       if (entry == NULL)
+         entry = g_unix_mount_entry_for (path, NULL);
+diff --git a/gio/gio-tool-launch.c b/gio/gio-tool-launch.c
+index de161580e..e1b668999 100644
+--- a/gio/gio-tool-launch.c
++++ b/gio/gio-tool-launch.c
+@@ -23,7 +23,7 @@
+ 
+ #include <gio/gio.h>
+ 
+-#if defined(G_OS_UNIX) && !defined(__APPLE__)
++#if defined(G_OS_UNIX) && !defined(__APPLE__) && !defined(G_PLATFORM_WASM)
+ #include <gio/gdesktopappinfo.h>
+ #endif
+ 
+@@ -40,7 +40,7 @@ handle_launch (int argc, char *argv[], gboolean do_help)
+ {
+   GOptionContext *context;
+   GError *error = NULL;
+-#if defined(G_OS_UNIX) && !defined(__APPLE__)
++#if defined(G_OS_UNIX) && !defined(__APPLE__) && !defined(G_PLATFORM_WASM)
+   int i;
+   GAppInfo *app = NULL;
+   GAppLaunchContext *app_context = NULL;
+@@ -83,7 +83,7 @@ handle_launch (int argc, char *argv[], gboolean do_help)
+ 
+   g_option_context_free (context);
+ 
+-#if !defined(G_OS_UNIX) || defined(__APPLE__)
++#if !defined(G_OS_UNIX) || defined(__APPLE__) || defined(G_PLATFORM_WASM)
+   print_error (_("The launch command is not currently supported on this platform"));
+   retval = 1;
+ #else
+diff --git a/gio/giounix-private.c b/gio/giounix-private.c
+index b085b2535..27b08e223 100644
+--- a/gio/giounix-private.c
++++ b/gio/giounix-private.c
+@@ -65,7 +65,21 @@ _g_fd_is_pollable (int fd)
+    * absolute certainty:
+    */
+ 
+-#if defined (HAVE_EPOLL_CREATE1)
++#if defined (G_PLATFORM_WASM)
++  /*
++   * WebAssembly
++   *
++   * Emscripten declares epoll but fails every call with ENOSYS.  Its poll()
++   * only follows pipes and sockets; anything else it reports ready at once.
++   */
++
++  struct stat st;
++
++  if (G_TEMP_FAILURE_RETRY (fstat (fd, &st)) == -1)
++    return FALSE;
++
++  return S_ISFIFO (st.st_mode) || S_ISSOCK (st.st_mode);
++#elif defined (HAVE_EPOLL_CREATE1)
+   /*
+    * Linux
+    *
+diff --git a/gio/glocalfile.c b/gio/glocalfile.c
+index 502b8dc06..8ee097642 100644
+--- a/gio/glocalfile.c
++++ b/gio/glocalfile.c
+@@ -1281,9 +1281,14 @@ g_local_file_query_info (GFile                *file,
+  * On Solaris, combining AT_EACCESS and AT_SYMLINK_NOFOLLOW results in EINVAL,
+  * since only AT_EACCESS is supported for faccessat()
+  * https://docs.oracle.com/cd/E86824_01/html/E54765/faccessat-2.html
++ *
++ * On WebAssembly, Emscripten's faccessat() doesn't honour AT_SYMLINK_NOFOLLOW:
++ * its JavaScript filesystems assert on it (or, built without assertions,
++ * ignore it) and WasmFS ignores it, so a dangling symlink can be reported
++ * missing.
+  */
+ #if defined(HAVE_FACCESSAT) && !defined(__FreeBSD__) && !defined(__ANDROID__) && \
+-    !defined(__OpenBSD__) && !defined(__sun__)
++    !defined(__OpenBSD__) && !defined(__sun__) && !defined(G_PLATFORM_WASM)
+ static gboolean
+ g_local_file_query_exists (GFile        *file,
+                            GCancellable *cancellable)
+@@ -3301,7 +3306,7 @@ g_local_file_file_iface_init (GFileIface *iface,
+   iface->monitor_file = g_local_file_monitor_file;
+   iface->measure_disk_usage = g_local_file_measure_disk_usage;
+ #if defined(HAVE_FACCESSAT) && !defined(__FreeBSD__) && !defined(__ANDROID__) && \
+-    !defined(__OpenBSD__) && !defined(__sun__)
++    !defined(__OpenBSD__) && !defined(__sun__) && !defined(G_PLATFORM_WASM)
+   iface->query_exists = g_local_file_query_exists;
+ #endif
+ 
+diff --git a/gio/glocalfileinfo.c b/gio/glocalfileinfo.c
+index 69ff59a0d..f626ca244 100644
+--- a/gio/glocalfileinfo.c
++++ b/gio/glocalfileinfo.c
+@@ -1996,7 +1996,6 @@ _g_local_file_info_get (const char             *basename,
+   if (stat_ok)
+     set_info_from_stat (info, &statbuf, attribute_matcher);
+ 
+-#ifndef G_PLATFORM_WASM
+ #ifndef G_OS_WIN32
+   if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+ 					    G_FILE_ATTRIBUTE_ID_STANDARD_IS_HIDDEN))
+@@ -2004,9 +2003,12 @@ _g_local_file_info_get (const char             *basename,
+       g_file_info_set_is_hidden (info,
+                                  (basename != NULL &&
+                                   (basename[0] == '.' ||
+-                                   file_is_hidden (path, basename) ||
+-                                   (stat_ok &&
+-                                    _g_local_file_is_lost_found_dir (path, _g_stat_dev (&statbuf))))));
++                                   file_is_hidden (path, basename)
++#ifndef G_PLATFORM_WASM
++                                   || (stat_ok &&
++                                       _g_local_file_is_lost_found_dir (path, _g_stat_dev (&statbuf)))
++#endif
++                                   )));
+     }
+ 
+   _g_file_info_set_attribute_boolean_by_id (info,
+@@ -2033,7 +2035,6 @@ _g_local_file_info_get (const char             *basename,
+         _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_REPARSE_POINT_TAG, statbuf.reparse_tag);
+     }
+ #endif
+-#endif /* !G_PLATFORM_WASM */
+ 
+   symlink_target = NULL;
+   if (is_symlink)
+diff --git a/gio/gresourcefile.c b/gio/gresourcefile.c
+index 6ac042204..55f06cbe0 100644
+--- a/gio/gresourcefile.c
++++ b/gio/gresourcefile.c
+@@ -510,7 +510,6 @@ g_resource_file_query_info (GFile                *file,
+       g_file_info_set_file_type (info, G_FILE_TYPE_REGULAR);
+       g_file_info_set_size (info, size);
+ 
+-#ifndef G_PLATFORM_WASM
+       if ((_g_file_attribute_matcher_matches_id (matcher, G_FILE_ATTRIBUTE_ID_STANDARD_CONTENT_TYPE) ||
+            ((~resource_flags & G_RESOURCE_FLAGS_COMPRESSED) && 
+             _g_file_attribute_matcher_matches_id (matcher, G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE))) &&
+@@ -525,7 +524,6 @@ g_resource_file_query_info (GFile                *file,
+           g_bytes_unref (bytes);
+         }
+       else
+-#endif
+         content_type = NULL;
+ 
+       if (content_type)
+diff --git a/gio/gunixconnection.c b/gio/gunixconnection.c
+index e2c3a8145..dea3f56ad 100644
+--- a/gio/gunixconnection.c
++++ b/gio/gunixconnection.c
+@@ -82,7 +82,7 @@ g_unix_connection_send_fd (GUnixConnection  *connection,
+                            GCancellable     *cancellable,
+                            GError          **error)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   GSocketControlMessage *scm;
+   GSocket *socket;
+ 
+diff --git a/gio/meson.build b/gio/meson.build
+index b261b2408..e1d21bce3 100644
+--- a/gio/meson.build
++++ b/gio/meson.build
+@@ -502,6 +502,22 @@ elif host_system == 'windows'
+   install_headers(gio_win32_include_headers, subdir : 'gio-win32-2.0/gio')
+ elif host_system == 'emscripten'
+   contenttype_sources += files('gcontenttype-wasm.c')
++
++  # Emscripten's file descriptors (files, pipes, /dev/null) take the Unix
++  # streams; the rest of the Unix sources need mounts, desktop files or
++  # D-Bus.
++  unix_sources = files(
++    'gfiledescriptorbased.c',
++    'giounix-private.c',
++    'gunixinputstream.c',
++    'gunixoutputstream.c',
++  )
++  gio_unix_include_headers = files(
++    'gfiledescriptorbased.h',
++    'gunixinputstream.h',
++    'gunixoutputstream.h',
++  )
++  install_headers(gio_unix_include_headers, subdir : 'gio-unix-2.0/gio')
+ endif
+ 
+ gio_base_sources = files(
+@@ -977,7 +993,7 @@ if host_system == 'windows'
+     description : 'Windows specific headers for glib I/O library',
+   )
+   meson.override_dependency('gio-windows-2.0', libgio_dep)
+-elif host_system != 'emscripten'
++else
+   pkg.generate(requires : ['gobject-2.0', 'gio-2.0'],
+     subdirs : ['gio-unix-2.0'],
+     version : glib_version,
+diff --git a/glib/glib-unix.c b/glib/glib-unix.c
+index 24a20dfa3..107bbdda2 100644
+--- a/glib/glib-unix.c
++++ b/glib/glib-unix.c
+@@ -192,6 +192,9 @@ g_unix_set_fd_nonblocking (gint       fd,
+ #endif
+ }
+ 
++/* gmain.c handles no Unix signals on WebAssembly, where no other process
++ * can send one, so there are no signal sources. */
++#ifndef G_PLATFORM_WASM
+ /**
+  * g_unix_signal_source_new:
+  * @signum: A signal number
+@@ -294,6 +297,7 @@ g_unix_signal_add (int         signum,
+ {
+   return g_unix_signal_add_full (G_PRIORITY_DEFAULT, signum, handler, user_data, NULL);
+ }
++#endif
+ 
+ typedef struct
+ {
+@@ -1006,6 +1010,12 @@ g_unix_fd_query_path (int      fd,
+   g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_NOSYS,
+                "g_unix_fd_query_path() not supported on HURD");
+   return NULL;
++#elif defined(G_PLATFORM_WASM)
++  /* Emscripten's file systems have no /proc, nor another way to name the
++   * file an fd is open on. */
++  g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_NOSYS,
++               "g_unix_fd_query_path() not supported on WebAssembly");
++  return NULL;
+ #else
+   #error "g_unix_fd_query_path() not supported on this platform"
+ #endif
+diff --git a/glib/glib-unix.h b/glib/glib-unix.h
+index 86f3d61ab..54be660f3 100644
+--- a/glib/glib-unix.h
++++ b/glib/glib-unix.h
+@@ -70,6 +70,8 @@ gboolean g_unix_set_fd_nonblocking (gint       fd,
+                                     gboolean   nonblock,
+                                     GError   **error);
+ 
++/* WebAssembly has no Unix signal sources: no other process can signal it. */
++#ifndef G_PLATFORM_WASM
+ GLIB_AVAILABLE_IN_2_30
+ GSource *g_unix_signal_source_new  (gint signum);
+ 
+@@ -84,6 +86,7 @@ GLIB_AVAILABLE_IN_2_30
+ guint    g_unix_signal_add         (gint        signum,
+                                     GSourceFunc handler,
+                                     gpointer    user_data);
++#endif
+ 
+ /**
+  * GUnixFDSourceFunc:
+diff --git a/glib/gmain.c b/glib/gmain.c
+index 7c5682a18..c5753ebc0 100644
+--- a/glib/gmain.c
++++ b/glib/gmain.c
+@@ -2808,7 +2808,7 @@ g_clear_handle_id (guint            *tag_ptr,
+     }
+ }
+ 
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+ /**
+  * g_source_add_unix_fd:
+  * @source: a source
+@@ -2993,7 +2993,7 @@ g_source_query_unix_fd (GSource  *source,
+ 
+   return poll_fd->revents;
+ }
+-#endif /* G_OS_UNIX && !G_PLATFORM_WASM */
++#endif /* G_OS_UNIX */
+ 
+ /**
+  * g_get_current_time:
+diff --git a/glib/goption.c b/glib/goption.c
+index 5ce33fb98..93cbacd84 100644
+--- a/glib/goption.c
++++ b/glib/goption.c
+@@ -1703,6 +1703,14 @@ platform_get_argv0 (void)
+   base_arg0 = g_path_get_basename (cmdline);
+   g_free (cmdline);
+   return base_arg0;
++#elif defined(G_PLATFORM_WASM)
++  /* Emscripten's libc names the program after the script Node runs, or in
++   * a page after Module.thisProgram, which is "./this.program" unless the
++   * runtime sets it. */
++  if (program_invocation_name == NULL || *program_invocation_name == '\0')
++    return NULL;
++
++  return g_path_get_basename (program_invocation_name);
+ #elif defined __OpenBSD__
+   char **cmdline;
+   char *base_arg0;
+diff --git a/glib/gtester.c b/glib/gtester.c
+index 95f34c964..256115231 100644
+--- a/glib/gtester.c
++++ b/glib/gtester.c
+@@ -305,7 +305,16 @@ launch_test_binary (const char *binary,
+   gboolean loop_pending;
+   gint i = 0;
+ 
++#ifdef G_PLATFORM_WASM
++  /* glib-unix.c isn't built for WebAssembly; spawning the test binary then
++   * reports that it's unsupported. */
++  if (pipe (report_pipe) != 0)
++    g_set_error_literal (&error, G_FILE_ERROR, g_file_error_from_errno (errno),
++                         g_strerror (errno));
++  if (error != NULL)
++#else
+   if (!g_unix_open_pipe (report_pipe, O_CLOEXEC, &error))
++#endif
+     {
+       if (subtest_mode_fatal)
+         g_error ("Failed to open pipe for test binary: %s: %s", binary, error->message);
+diff --git a/glib/gtestutils.c b/glib/gtestutils.c
+index 9296855d4..f2b8dbc90 100644
+--- a/glib/gtestutils.c
++++ b/glib/gtestutils.c
+@@ -58,6 +58,9 @@
+ #ifdef __APPLE__
+ #include <TargetConditionals.h>
+ #endif
++#ifdef G_PLATFORM_WASM
++#include <setjmp.h>
++#endif
+ 
+ #include "gmain.h"
+ #include "gpattern.h"
+@@ -764,6 +767,15 @@ static GPid        test_trap_last_pid = 0;
+ static char       *test_trap_last_subprocess = NULL;
+ static char       *test_trap_last_stdout = NULL;
+ static char       *test_trap_last_stderr = NULL;
++#ifdef G_PLATFORM_WASM
++/* WebAssembly can't run the test binary again as a subprocess, so a test
++ * that asks for one is skipped by jumping back out of its test function:
++ * returning would leave it asserting on a subprocess that never ran. The
++ * rest of the test function, its cleanup included, doesn't run, so what it
++ * allocated is leaked. */
++static jmp_buf    *test_trap_skip_jmp = NULL;
++static GThread    *test_trap_skip_thread = NULL;
++#endif
+ static char       *test_uri_base = NULL;
+ static gboolean    test_debug_log = FALSE;
+ static gboolean    test_tap_log = TRUE;  /* default to TAP as of GLib 2.62; see #1619; the non-TAP output mode is deprecated */
+@@ -3167,12 +3179,23 @@ test_case_run (GTestCase  *tc,
+               test_run_seed (test_run_seedstr);
+               if (tc->fixture_setup)
+                 tc->fixture_setup (fixture, tc->test_data);
++#ifdef G_PLATFORM_WASM
++              jmp_buf skip_jmp;
++              if (setjmp (skip_jmp) == 0)
++                {
++                  test_trap_skip_jmp = &skip_jmp;
++                  test_trap_skip_thread = g_thread_self ();
++#endif
+               if (tc->test_func)
+                 tc->test_func ();
+               else if (tc->data_test_func)
+                 tc->data_test_func (tc->test_data);
+               else
+                 tc->fixture_test (fixture, tc->test_data);
++#ifdef G_PLATFORM_WASM
++                }
++              test_trap_skip_jmp = NULL;
++#endif
+               test_trap_clear();
+               while (test_destroy_queue)
+                 {
+@@ -4199,6 +4222,13 @@ g_test_trap_subprocess_with_envp (const char           *test_path,
+   /* Sanity check that they used GTestSubprocessFlags, not GTestTrapFlags */
+   g_assert ((test_flags & (G_TEST_TRAP_INHERIT_STDIN | G_TEST_TRAP_SILENCE_STDOUT | G_TEST_TRAP_SILENCE_STDERR)) == 0);
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("g_test_trap_subprocess() is not supported on WebAssembly");
++  if (test_trap_skip_jmp != NULL && test_trap_skip_thread == g_thread_self ())
++    longjmp (*test_trap_skip_jmp, 1);
++  return;
++#endif
++
+   if (test_path)
+     {
+       if (!g_test_suite_case_exists (g_test_get_root (), test_path))
+diff --git a/glib/meson.build b/glib/meson.build
+index d3d184f04..df8056d73 100644
+--- a/glib/meson.build
++++ b/glib/meson.build
+@@ -380,9 +380,7 @@ if host_system == 'windows'
+     glib_sources += files('dirent/wdirent.c')
+   endif
+ else
+-  if host_system != 'emscripten'
+-    glib_sources += files('glib-unix.c', 'giounix.c')
+-  endif
++  glib_sources += files('giounix.c', 'glib-unix.c')
+   if process_spawn_allowed
+     glib_sources += files('gspawn-posix.c')
+   else
+diff --git a/gobject/gsourceclosure.c b/gobject/gsourceclosure.c
+index c5718d935..37c0d737e 100644
+--- a/gobject/gsourceclosure.c
++++ b/gobject/gsourceclosure.c
+@@ -25,7 +25,7 @@
+ #include "gmarshal.h"
+ #include "gvalue.h"
+ #include "gvaluetypes.h"
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+ #include "glib-unix.h"
+ #endif
+ 
+@@ -142,7 +142,7 @@ g_child_watch_closure_callback (GPid     pid,
+   return result;
+ }
+ 
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+ static gboolean
+ g_unix_fd_source_closure_callback (int           fd,
+                                    GIOCondition  condition,
+@@ -200,13 +200,11 @@ closure_callback_get (gpointer     cb_data,
+ 
+   if (!closure_callback)
+     {
+-      if (source->source_funcs == &g_child_watch_funcs)
+-        closure_callback = (GSourceFunc)g_child_watch_closure_callback;
+-#ifndef G_PLATFORM_WASM
+-      else if (source->source_funcs == &g_io_watch_funcs)
++      if (source->source_funcs == &g_io_watch_funcs)
+         closure_callback = (GSourceFunc)io_watch_closure_callback;
+-#endif
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++      else if (source->source_funcs == &g_child_watch_funcs)
++        closure_callback = (GSourceFunc)g_child_watch_closure_callback;
++#ifdef G_OS_UNIX
+       else if (source->source_funcs == &g_unix_fd_source_funcs)
+         closure_callback = (GSourceFunc)g_unix_fd_source_closure_callback;
+ #endif
+@@ -263,14 +261,14 @@ g_source_set_closure (GSource  *source,
+   g_return_if_fail (closure != NULL);
+ 
+   if (!source->source_funcs->closure_callback &&
+-#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
++#ifdef G_OS_UNIX
+       source->source_funcs != &g_unix_fd_source_funcs &&
++#endif
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+       source->source_funcs != &g_unix_signal_funcs &&
+ #endif
+       source->source_funcs != &g_child_watch_funcs &&
+-#ifndef G_PLATFORM_WASM
+       source->source_funcs != &g_io_watch_funcs &&
+-#endif
+       source->source_funcs != &g_timeout_funcs &&
+       source->source_funcs != &g_idle_funcs)
+     {
+diff --git a/meson.build b/meson.build
+index c4dbd8789..2781bf8df 100644
+--- a/meson.build
++++ b/meson.build
+@@ -964,7 +964,10 @@ if cc.has_header_symbol('dlfcn.h', 'RTLD_GLOBAL')
+ endif
+ 
+ have_rtld_next = false
+-if cc.has_header_symbol('dlfcn.h', 'RTLD_NEXT', args: '-D_GNU_SOURCE')
++# Emscripten's dlfcn.h defines RTLD_NEXT, but its dlsym() never finds a next
++# definition: a static link has no dynamic linker to ask, and with dynamic
++# linking RTLD_NEXT isn't supported.
++if host_system != 'emscripten' and cc.has_header_symbol('dlfcn.h', 'RTLD_NEXT', args: '-D_GNU_SOURCE')
+   have_rtld_next = true
+   glib_conf.set('HAVE_RTLD_NEXT', 1)
+ endif
+@@ -2510,7 +2513,9 @@ main (void)
+   exit (__getcmdline ());
+ }'''
+ 
+-if cc_can_run
++# The tools run under Node, whose filesystem has the host's
++# /proc/self/cmdline, but the library also runs in browsers, which don't.
++if cc_can_run and host_system != 'emscripten'
+   rres = cc.run(cmdline_test_code, name : '/proc/self/cmdline')
+   have_proc_self_cmdline = rres.compiled() and rres.returncode() == 0
+ else

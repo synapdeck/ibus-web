@@ -18,9 +18,8 @@ Every patch keeps its original author.
 
 The series was built by cherry-picking onto a branch made of upstream `2.88.3`
 plus nixpkgs' patches, then exported with `git format-patch`. Commit
-messages carry `(cherry picked from commit …)` with the source hash, or
-`(adapted from commit …)` on 0011 and 0012, whose hunks differ from the
-originals.
+messages of the ported commits carry `(cherry picked from commit …)` with
+the source hash.
 
 ## The series
 
@@ -35,34 +34,16 @@ originals.
 | 0007 Use vsnprintf/snprintf/printf from musl libc | Wolthuizen | `c0bb73dd62bf` |
 | 0008 Add support for WebAssembly | Wolthuizen | `fc0d03194fb2` |
 | 0009 Fix function pointer cast issues | Wolthuizen | `1afd0d285774` |
-| 0010 A g_error is a fatal error when run, remove it | Jorge Zapata (Fluendo) | `75de668d3690` |
-| 0011 Initial main loop support (partial) | Jorge Zapata (Fluendo) | `4c360061dda3` |
-| 0012 gmain: emscripten: Use 0 timeout | Fabian Orccon (Fluendo) | `990ffd85fe41` |
-| 0013 glist: Fix function signatures in internals of glist/gslist | Jorge Zapata (Fluendo) | `86387bcf5b85` |
-| 0014 gwakeup: Make acknowledging and freeing no-ops on WebAssembly | Alexis Williams | — |
-| 0015 Call internally-forwarded callbacks through their own function types | Alexis Williams | — |
-| 0016 Resolve references to Unix sources that WebAssembly doesn't build | Alexis Williams | — |
-| 0017 Build the tools on Emscripten | Alexis Williams | — |
-| 0018 Build the tests on Emscripten | Alexis Williams | — |
-| 0019 Call more callbacks through their own function types | Alexis Williams | — |
-| 0020 Define the adapters `G_DEFINE_DYNAMIC_TYPE_EXTENDED` registers | Alexis Williams | — |
-| 0021 gtestutils: Skip subprocess tests on WebAssembly | Alexis Williams | — |
-| 0022 gobject: Call class handlers without user data on WebAssembly | Alexis Williams | — |
-| 0023 tests: Give signal handlers the parameters they're called with | Alexis Williams | — |
-| 0024 gio: Don't query file existence through `faccessat()` on WebAssembly | Alexis Williams | — |
-| 0025 gmain: Wait on a futex-backed GWakeup on WebAssembly | Alexis Williams | — |
-| 0026 tests: Wait on GWakeup without its poll fd on WebAssembly | Alexis Williams | — |
-| 0027 gtimezone: Take zones from Intl on WebAssembly | Alexis Williams | — |
-| 0028 gutils: Don't look the user up on WebAssembly | Alexis Williams | — |
-| 0029 gio, gobject: Fill gaps WebAssembly's GIO build left | Alexis Williams | — |
-| 0030 glib: Give a WebAssembly GWakeup a pipe to poll | Alexis Williams | — |
-| 0031 glib, gio: Restore Unix paths WebAssembly can take | Alexis Williams | — |
-| 0032 gconvert, gcharsetconverter: Report characters `iconv()` replaces | Alexis Williams | — |
-| 0033 gmain: Give an ownerless-polling context a wakeup fd on WebAssembly | Alexis Williams | — |
-| 0034 glib, gio: Build glib-unix and GIO's Unix streams on WebAssembly | Alexis Williams | — |
-| 0035 goption: Take the program name from Emscripten on WebAssembly | Alexis Williams | — |
-| 0036 meson: Don't take `RTLD_NEXT` for usable on Emscripten | Alexis Williams | — |
-| 0037 tests: Skip what WebAssembly can't do, and fix what it showed up | Alexis Williams | — |
+| 0010 glist: Fix function signatures in internals of glist/gslist | Jorge Zapata (Fluendo) | `86387bcf5b85` |
+| 0011 Call callbacks through their own function types | Alexis Williams | — |
+| 0012 Build the tools and the Unix parts WebAssembly can take | Alexis Williams | — |
+| 0013 gmain, gwakeup: Wait on a futex-backed GWakeup on WebAssembly | Alexis Williams | — |
+| 0014 Give WebAssembly time zones, a memory monitor, content types and a user | Alexis Williams | — |
+| 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces | Alexis Williams | — |
+| 0016 tests: Build and run GLib's tests on WebAssembly | Alexis Williams | — |
+
+Each of 0011–0016 covers one topic, described in its message and below.
+0016 holds every change to GLib's tests, and nothing else.
 
 ### Dropped from Wolthuizen's branch
 
@@ -93,9 +74,10 @@ tools build as `.js` programs run under Node. Leaving them out also removes
 the conflict with nixpkgs' `split-dev-programs.patch`, which adds
 `install_dir : get_option('devbindir')` to those executables.
 
-All later patches applied to the nixpkgs-patched tree without conflicts and
-with unchanged content (`git range-diff` against the full 0001 shows no
-differences), and the exported series applies there with `--fuzz=0`.
+The other Wolthuizen commits and 0010 applied to the nixpkgs-patched tree
+without conflicts and with unchanged content (`git range-diff` against the
+full 0001 shows no differences), and the series applies there with
+`--fuzz=0`.
 
 ### Fluendo's commits
 
@@ -104,46 +86,34 @@ its own commits was checked against the rebased tree:
 
 | Commit | Decision | Reason |
 |---|---|---|
-| `75de668d3690` A g_error is a fatal error when run, remove it | **Ported** as 0010, unchanged | `g_wakeup_new()` and `g_wakeup_signal()` still call `g_error()` on `G_PLATFORM_WASM` in the rebased tree. Every `GMainContext` creates a wakeup, so creating any main context aborted, and `g_main_loop_quit()`, `g_main_context_wakeup()` and cross-thread source changes signal it. |
-| `4c360061dda3` Initial main loop support | **Ported in part** as 0011 | Kept: skipping `g_wakeup_get_pollfd()`/`g_main_context_add_poll_unlocked()` for the wakeup in `g_main_context_new_with_flags()`, which would otherwise hit `g_error()` in `g_wakeup_get_pollfd()`. Guarded by `G_PLATFORM_WASM` instead of `G_WITH_EMSCRIPTEN`. Dropped: the `emscripten.h` include and running `g_main_loop_run()` through `emscripten_set_main_loop_arg()`; this runtime never hands control back to the browser event loop from its Worker, and pumps the context itself. |
-| `89a193f7e7da` emscripten: fix deadlock in GMainContext-related code | **Skipped** | Changes only the `emscripten_set_main_loop_arg()` path dropped from 0011. |
-| `990ffd85fe41` gmain: emscripten: Use 0 timeout | **Ported** as 0012 | Guarded by `G_PLATFORM_WASM`; applied to `timeout_usec` in `g_main_context_iterate_unlocked()`, which is what 2.88 calls the timeout. Emscripten's `poll()` sends a zero timeout to a synchronous, non-suspending probe. A non-zero timeout is ignored on the main thread and, from a pthread, becomes an asynchronous call proxied to the main thread, which only completes when that thread returns to its event loop. With no wakeup fd and the timeout forced to 0, a blocking `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` busy-spun, including GLib's own worker-context thread; 0025 restores the timeout and waits on a futex instead. |
-| `86387bcf5b85` glist: Fix function signatures in internals of glist/gslist | **Ported** as 0013, all hunks | The Wolthuizen series doesn't touch `glist.c` or `gslist.c`, so none of its hunks were already covered. |
-| `b45d3dc05781` Differentiate wasm from emscripten | **Skipped** | Adds a `G_WITH_EMSCRIPTEN` define; the ported hunks use the series' own `G_PLATFORM_WASM`. |
+| `75de668d3690` A g_error is a fatal error when run, remove it | **Superseded** by 0013 | 0008 makes every `GWakeup` function a `g_error()` on WebAssembly, and every `GMainContext` creates, signals and frees a wakeup, so any main context aborted. This commit made `g_wakeup_new()` return `NULL` and `g_wakeup_signal()` do nothing; 0013 gives WebAssembly a working wakeup instead, and none of its lines remain. |
+| `4c360061dda3` Initial main loop support | **Superseded** by 0013 | It skipped registering the wakeup's poll fd in `g_main_context_new_with_flags()`, and ran `g_main_loop_run()` through `emscripten_set_main_loop_arg()`. 0013 waits on the wakeup instead of polling it, and registers its fd only for ownerless-polling contexts. This runtime never hands control back to the browser event loop from its Worker, and pumps the context itself, so the `emscripten_set_main_loop_arg()` path has no use here. |
+| `89a193f7e7da` emscripten: fix deadlock in GMainContext-related code | **Skipped** | Changes only the `emscripten_set_main_loop_arg()` path. |
+| `990ffd85fe41` gmain: emscripten: Use 0 timeout | **Superseded** by 0013 | It forced every poll's timeout to zero. Emscripten's `poll()` sends a zero timeout to a synchronous, non-suspending probe; a non-zero timeout is ignored on the main thread and, from a pthread, becomes an asynchronous call proxied to the main thread, which only completes when that thread returns to its event loop. With no wakeup and the timeout forced to 0, a blocking `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` busy-spun, GLib's own worker-context thread included. 0013 keeps the real timeout and waits on a futex. |
+| `86387bcf5b85` glist: Fix function signatures in internals of glist/gslist | **Ported** as 0010, all hunks | The Wolthuizen series doesn't touch `glist.c` or `gslist.c`, so none of its hunks were already covered. |
+| `b45d3dc05781` Differentiate wasm from emscripten | **Skipped** | Adds a `G_WITH_EMSCRIPTEN` define; the series uses its own `G_PLATFORM_WASM`. |
 | `93fe7aa6231d` Be able to pass the canvas to the thread creation | **Skipped** | Shares WebGL canvases with new threads (GStreamer/WebGL only). |
 | `0e30d1cf504e` Revert "Fix function pointer cast issues" | **Skipped** | Relies on Fluendo's patched Clang; this runtime uses nixpkgs' Emscripten unmodified. |
 | `5a0ebc47f6b7` Revert "Remove GRegex pre-emptively" | **Skipped** | The removal is never applied. |
 
-0013 only changes source-level types. The internal calls were already cast
+0010 only changes source-level types. The internal calls were already cast
 back to `GCompareDataFunc`, so the generated indirect calls are the same.
 `g_list_sort()`, `g_slist_sort()`, `g_list_insert_sorted()` and
 `g_slist_insert_sorted()` still called a two-argument `GCompareFunc` with
 three arguments, and `g_list_free_full()`, `g_slist_free_full()` and
 `g_queue_free_full()` still called a `GDestroyNotify` as a `GFunc`. Under
 WebAssembly, both kinds of call trap with "function signature mismatch";
-0015 fixes them.
+0011 fixes them.
 
-### Added here
+## 0011: function types
 
-0014 finishes 0010. The rebased tree still called `g_error()` from
-`g_wakeup_free()` and `g_wakeup_acknowledge()`. `g_main_context_unref()`
-frees the context's wakeup when the last reference goes, so every context
-that was ever freed aborted. With 0010's `g_wakeup_new()` returning `NULL`
-there was nothing to release. 0014 also set the unregistered wakeup
-record's fd to -1, so that a source polling fd 0 wasn't taken for the
-wakeup. 0025 replaces all of this with a real wakeup and drops the fd -1
-record, which nothing compares against any more.
-
-`g_wakeup_get_pollfd()` still aborted after 0025, since a futex can't be
-polled; 0030 gives it a pipe.
-
-0015 fixes GLib's own calls through mismatched function types. Calling a
-function through a pointer type with a different parameter list or return
-type is undefined behaviour; native ABIs tolerate it, but WebAssembly checks
-every indirect call and traps. Each site now calls the function through its
-own type: a direct loop, a small wrapper, or a trampoline that takes the real
-function as user data. The fixes apply on every platform and don't change
-behaviour, except where noted.
+Calling a function through a pointer type with a different parameter list
+or return type is undefined behaviour; native ABIs tolerate it, but
+WebAssembly checks every indirect call and traps. 0011 makes each site in
+the library call the function through its own type: a direct loop, a small
+wrapper, or a trampoline that takes the real function as user data. The
+fixes apply on every platform and don't change behaviour, except where
+noted.
 
 - `glist.c`, `gslist.c`, `gqueue.c`, `gasyncqueue.c`: `g_list_free_full()`,
   `g_slist_free_full()`, `g_queue_free_full()`, `g_queue_clear_full()` and
@@ -175,111 +145,6 @@ behaviour, except where noted.
   `g_list_foreach()`/`g_ptr_array_foreach()` as `GFunc`.
 - `gsettingsbackend.c`, `gkeyfilesettingsbackend.c`: `strcmp()` passed to
   `g_tree_new_full()` as a `GCompareDataFunc`.
-
-0016 resolves the symbols that 0008's exclusion of Unix-specific sources
-left undefined. A static link garbage-collects their callers, but a main
-module (`-sMAIN_MODULE=1`) keeps every function for side modules, so linking
-GLib into one failed on them:
-
-- `giounix.c` (`g_io_channel_unix_new()`, called by `gtestutils.c` and
-  `gtestdbus.c`) is built again. It is plain POSIX I/O on file descriptors
-  and `giochannel.h` declares it on every Unix.
-- `g_unix_connection_send_fd()` and the D-Bus command line's stdin used
-  `gunixfdmessage.c` and `gunixinputstream.c`. They are guarded like
-  `g_unix_connection_receive_fd()` and `GApplicationCommandLine`'s own stdin
-  already were: sending an fd reports `G_IO_ERROR_NOT_SUPPORTED`, and stdin
-  is `NULL`.
-- `gappinfo.c` called the application database's `*_impl` functions from
-  `gdesktopappinfo.c`. On WebAssembly they find no applications, and
-  `g_app_info_create_from_commandline()` reports `G_IO_ERROR_NOT_SUPPORTED`.
-
-0017 lets the tools link. The overlay installs each as `<tool>.js` and
-`<tool>.wasm` with a `<tool>` wrapper beside them that runs it under the
-build machine's Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give
-exist. Three of the tools call into Unix sources that 0008 excludes; on
-WebAssembly each reports the feature as unsupported at run time instead:
-
-- `gtester` opens its report pipe with `pipe()` instead of
-  `g_unix_open_pipe()`; spawning the test binary then fails as unsupported.
-- `gio info` leaves out the Unix mount line, and `gio launch` reports "not
-  currently supported on this platform", as on Windows and macOS.
-- `gapplication list` finds no D-Bus activatable applications, and
-  `gapplication list-actions` reports that it can't find the application's
-  desktop file.
-
-The tools get Node link flags, and Meson links configure's run checks with
-them too. Only one result changed: the `/proc/self/cmdline` check passed
-under Node, which reads the host's `/proc`, although the library also runs
-in browsers, which have none. 0017 takes that result from the
-`have_proc_self_cmdline` cross property on Emscripten (default false), as a
-cross build without an exe wrapper does, so the libraries build exactly as
-before.
-
-0018 lets GLib's own tests configure and build with `-Dtests=true`. It
-changes only test sources and test build files (`glib/tests`,
-`gobject/tests`, `gio/tests`, `tests/lib`), so the library is built exactly
-as before. The tools' own tests (`gobject-query.py`, `gio-tool.py`,
-`gdbus-tool.py`) run the `.js` tools: `tests/lib/testprogramrunner.py`
-looks for `<tool>.js` and runs it with the Node that
-`_G_TEST_PROGRAM_RUNNER_NODE` names, which the gobject and gio test meson
-files set on Emscripten from `find_program('node', native : true)`. What it
-leaves out on Emscripten, each worth revisiting if the reason goes away:
-
-- The Unix-only blocks in `glib/tests` (`include`, `poll-fdset`, `unix`,
-  `gutils-user-database`) and `gio/tests` (the large Unix test block,
-  `gdbus-example-unix-fd-client`, the `dbus-launch` helper,
-  `GIO_LAUNCH_DESKTOP`): 0008 excludes the Unix sources they test.
-- `gio-unix-2.0-pkg-config`: Emscripten had no `gio-unix-2.0`; 0037 runs
-  it again now that 0034 builds it.
-- `constructor`: its helpers are shared libraries, which Meson can't link
-  for Emscripten.
-- `tests/lib`'s `glibconfig.py`: only girepository's tests read it, and
-  girepository isn't built (0001).
-- `appmonitor`, `gsubprocess`, `unix-fd`: they need `GDesktopAppInfo`,
-  process spawning and fd passing.
-- `dynamictype`, `dynamictests`: `G_DEFINE_DYNAMIC_TYPE_EXTENDED` refers to a
-  `type_name##_init_adapter` that 0009 never defines in `gtypemodule.h`, so
-  they don't compile. 0020 defines it and builds them again.
-- Subtests calling the glib-unix and gio-unix APIs: mainloop's unix-fd
-  tests, closure's `/closure/fd` and `/closure/signal`, pollable's Unix
-  stream tests and `/pollable/converter`, and testing's subprocess stdin
-  test. 0037 builds all but the last again, now that 0034 builds the APIs.
-- thread's CPU affinity subtest: it calls `pthread_getaffinity_np()` and
-  `pthread_setaffinity_np()` itself, which Emscripten declares but doesn't
-  define. The library doesn't: 0008 already makes `g_get_num_processors()`
-  return `emscripten_num_logical_cores()` on WebAssembly.
-
-Two tests are adapted instead: `spawn-singlethread` and `test-printf` open
-their pipe with `pipe()` instead of `g_unix_open_pipe()`, and `param`'s
-custom `instance_init` takes the class data argument that 0009 adds to
-`GParamSpecTypeInfo`.
-
-Test code that registers callbacks with the wrong signature is fixed too,
-since each such call traps on WebAssembly. Class, instance and interface
-init functions take their data argument (`gobject/tests` and GIO's test
-converters, TLS backend and proxies), notify handlers in
-`properties-refcount*` take their user data, and small wrappers replace
-library functions passed through another callback type: `g_strdup` as
-`GCopyFunc`/`GDuplicateFunc` (`array-test`, `qdata`), `g_free` as `GFunc`
-(`option-context`), `g_usleep` as `GFunc` (`thread-pool-slow`),
-`g_main_loop_quit` as `GSourceFunc` (`mainloop`, `resolver`),
-`g_cancellable_cancel` as `GThreadFunc` and a one-argument callback
-passed to `g_cancellable_connect()` (`cancellable`), and
-`g_object_unref` as `GWeakNotify` (`signalgroup`). Two-argument compare
-functions get three-argument wrappers (`list`, `slist`, `tree`,
-`glistmodel`), `node`'s traversal callback a void one for
-`g_node_children_foreach()`, `dataset`'s notify a `GDataForeachFunc`,
-`binding` and `bindinggroup` their `GClosureNotify`s, and `hook` swaps
-its hooks' functions between `g_hook_list_invoke()` and
-`g_hook_list_invoke_check()`, which call them through different types.
-
-0019 fixes the library sites the test run and a cast audit found after
-0015. The audit compiled every library source with
-`-Wcast-function-type-strict` and kept the casts whose WebAssembly
-signatures (parameter count and `i32`/`i64`/`f32`/`f64` types, return
-type) differ; the remaining ones are GLib's own round trips, such as a
-`GSourceFunc` that the source's dispatch casts back to its real type.
-
 - `gtypemodule.c`: `GTypeModule`'s one-argument `class_init`, so every GIO
   extension point (and any `GTypeModule`) trapped on first use.
 - `gbookmarkfile.c`: `g_bookmark_file_copy()` passed `g_strdup()` and
@@ -291,12 +156,53 @@ type) differ; the remaining ones are GLib's own round trips, such as a
   and the interface init functions `gdbus-codegen` generates: one-argument
   `GInterfaceInitFunc`s.
 - `gtester.c`: `g_free()` passed to `g_slist_foreach()` as a `GFunc`.
+- `gtypemodule.h`: `G_DEFINE_DYNAMIC_TYPE_EXTENDED` registers a
+  `type_name##_init_adapter` that 0009 never defines, so code using the
+  macro (GLib's `dynamictype` and `dynamictests` tests among it) didn't
+  compile. 0011 defines it and adds an adapter for `class_finalize`, which
+  the macro also cast to the two-argument `GClassFinalizeFunc`.
 
-The `gdbus-codegen` fix only reaches code generated with this GLib's
-`gdbus-codegen`, the Python script in `pkgsWasm.glib.dev/bin`. A cross
-build runs its tools on the build machine, and the build machine's GLib
-(nixpkgs' native `glib`, unpatched) has its own. So that consumers run
-this GLib's tools:
+The sites came from the test run's traps and from a cast audit, which
+compiled every library source with `-Wcast-function-type-strict` and kept
+the casts whose WebAssembly signatures (parameter count and
+`i32`/`i64`/`f32`/`f64` types, return type) differ; the remaining ones are
+GLib's own round trips, such as a `GSourceFunc` that the source's dispatch
+casts back to its real type.
+
+**Class handlers.** A signal's C marshaller calls a closure's callback
+with the instance, the signal's parameters *and* the closure's user data,
+while class handlers (`klass->activate`, `klass->notify` and every other
+signal vfunc registered by offset, and handlers given to
+`g_signal_new_class_handler()` or `g_signal_override_class_handler()`) take
+no user data. Native ABIs ignore the extra argument; on WebAssembly
+emitting any signal whose class handler was set trapped, in GLib's own
+classes as in user code. On WebAssembly only, the closures GLib makes for
+class handlers (`g_signal_type_cclosure_new()` and the two class-handler
+functions) get their own marshaller when they are created: the libffi
+generic marshaller, and its va form, with the trailing user data left off
+the call. A closure that already has a marshaller keeps it when it becomes
+a signal's class closure, so the signal's C and va marshallers are never
+installed on these; every path that runs a class closure — emission,
+`g_signal_chain_from_overridden()`,
+`g_signal_chain_from_overridden_handler()` — reaches the handler through
+libffi with exactly the instance and the signal's parameters, and returns
+its value. Other platforms compile the same code as before. Closures that
+callers make themselves and pass to `g_signal_newv()` or
+`g_signal_override_class_closure()`, such as `g_cclosure_new (handler,
+NULL, NULL)`, may take user data, so they are unchanged, as are connected
+handlers.
+
+On Emscripten, libffi's `ffi_call` calls the function from JavaScript,
+which pads or drops arguments rather than trapping, so a class handler
+declaring fewer parameters than its signal would still run. That is
+libffi's behaviour, not a guarantee of 0011; nothing in this series
+relies on it.
+
+**`gdbus-codegen`'s reach.** Its fix only reaches code generated with this
+GLib's `gdbus-codegen`, the Python script in `pkgsWasm.glib.dev/bin`. A
+cross build runs its tools on the build machine, and the build machine's
+GLib (nixpkgs' native `glib`, unpatched) has its own. So that consumers
+run this GLib's tools:
 
 - Autotools projects that take a tool from the host's `.pc` files
   (`PKG_CHECK_VAR([GDBUS_CODEGEN], [gio-2.0], [gdbus_codegen])`, as IBus
@@ -323,75 +229,146 @@ this GLib's tools:
   the interface init functions its `gdbus-codegen` emits trap on
   WebAssembly.
 
-0020 defines the instance init adapter `G_DEFINE_DYNAMIC_TYPE_EXTENDED`
-registers and adds one for `class_finalize`, which the macro also cast to
-the two-argument `GClassFinalizeFunc`, and builds the `dynamictype` and
-`dynamictests` tests again.
+Not covered: callbacks that *users* pass with fewer parameters than the
+API documents (including signal handlers connected with `G_CALLBACK`,
+which the audit can't see), the one-argument `iface_init`/`class_init`
+functions users pass through `G_IMPLEMENT_INTERFACE` or hand-written
+`GTypeInfo` (as GLib's tests did), `(GFunc)` casts in the unbuilt
+`TEST_COMPLETION` block of `deprecated/gcompletion.c`, and Windows-, macOS-
+and Unix-only files that WebAssembly doesn't build.
 
-0021 changes GTest. `g_test_trap_subprocess()` runs the test binary again
-as a child, which WebAssembly can't spawn, so the first subprocess test
-aborted the whole program. On WebAssembly it now marks the calling test
-skipped and `longjmp()`s back to `test_case_run()`, which ends that test
-and goes on with the next; returning would leave the caller asserting on
-a subprocess that never ran. The rest of the test function, its cleanup
+## 0012: the Unix parts and the tools
+
+0008 leaves out every Unix-specific source and guards out every Unix
+path. 0012 brings back what works on WebAssembly as on other Unixes,
+builds the tools, and works around what Emscripten lacks.
+
+**Symbols the excluded sources left undefined.** A static link
+garbage-collects their callers, but a main module (`-sMAIN_MODULE=1`)
+keeps every function for side modules, so linking GLib into one failed on
+them:
+
+- `giounix.c` (`g_io_channel_unix_new()`, called by `gtestutils.c` and
+  `gtestdbus.c`) is built again. It is plain POSIX I/O on file descriptors
+  and `giochannel.h` declares it on every Unix. `g_source_set_closure()`
+  takes `GIOChannel` watches again, which 0008 left out of source closures
+  while `giounix.c` wasn't built.
+- `g_unix_connection_send_fd()` and the D-Bus command line's stdin used
+  `gunixfdmessage.c` and `gunixinputstream.c`. They are guarded like
+  `g_unix_connection_receive_fd()` and `GApplicationCommandLine`'s own stdin
+  already were: sending an fd reports `G_IO_ERROR_NOT_SUPPORTED`, and stdin
+  is `NULL`.
+- `gappinfo.c` called the application database's `*_impl` functions from
+  `gdesktopappinfo.c`. On WebAssembly they find no applications, and
+  `g_app_info_create_from_commandline()` reports `G_IO_ERROR_NOT_SUPPORTED`.
+
+**glib-unix and GIO's Unix streams.** `glib-unix.h`'s functions were
+declared but failed to link, and there was no `GUnixInputStream`,
+`GUnixOutputStream` or `GFileDescriptorBased`. Emscripten's file
+descriptors (files, pipes, `/dev/null`) take them as they are.
+
+- **glib-unix** is built without the Unix signal sources, which
+  `glib-unix.h` no longer declares there either, since `gmain.c` handles
+  no signals on WebAssembly (no other process can send one).
+  `g_unix_fd_query_path()` fails with `G_FILE_ERROR_NOSYS`: Emscripten's
+  file systems have no `/proc` nor another way to name an fd's file.
+  `GUnixFDSource` takes closures again.
+- **GIO** builds `gfiledescriptorbased.c`, `giounix-private.c` and the
+  Unix input and output streams, and installs their headers and
+  `gio-unix-2.0.pc`. The rest of the Unix sources need mounts, desktop
+  files or D-Bus.
+- **Pollable fds.** Emscripten declares epoll but fails every call with
+  `ENOSYS`, and its `poll()` only follows pipes and sockets; anything else
+  it reports ready at once. So `_g_fd_is_pollable()` takes a FIFO or a
+  socket for pollable, which needs the toolchain's Emscripten fix that
+  gives WasmFS's pipes `S_IFIFO`.
+
+**Restored paths.**
+
+- `g_source_add_unix_fd()`, `g_source_modify_unix_fd()`,
+  `g_source_remove_unix_fd()` and `g_source_query_unix_fd()`, which
+  `gmain.h` declares on every Unix, weren't built, so callers failed to
+  link. They only add fds to a source's poll set, which 0013's loop
+  probes.
+- Local files get `standard::is-hidden` (dotfiles and names in the
+  directory's `.hidden` file) and `standard::is-backup` (names ending in
+  `~`) again. Lost+found directories aren't looked for: that needs the
+  Unix mount table, which isn't built. Reading `.hidden` caches it for a
+  few seconds with a timeout on GLib's worker context, whose thread 0013
+  lets sleep.
+- Files in a `GResource` get a content type again, guessed from the name
+  and data as for local files.
+
+The rest of 0008's WebAssembly guards were reviewed for 0012; the ones
+worth revisiting are listed in the plan's follow-ups.
+
+**The tools.** The overlay installs each as `<tool>.js` and `<tool>.wasm`
+with a `<tool>` wrapper beside them that runs it under the build machine's
+Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give exist. Three of the
+tools reach features WebAssembly doesn't have; each reports them as
+unsupported at run time instead:
+
+- `gtester` opens its report pipe with `pipe()`; spawning the test binary
+  then fails as unsupported. Its comment says `glib-unix.c` isn't built,
+  which no longer holds: `g_unix_open_pipe()` would do, as it would for
+  the tests that use `pipe()` (see 0016).
+- `gio info` leaves out the Unix mount line, and `gio launch` reports "not
+  currently supported on this platform", as on Windows and macOS.
+- `gapplication list` finds no D-Bus activatable applications, and
+  `gapplication list-actions` reports that it can't find the application's
+  desktop file.
+
+The tools get Node link flags, and Meson links configure's run checks with
+them too. Only one result changed: the `/proc/self/cmdline` check passed
+under Node, which reads the host's `/proc`, although the library also runs
+in browsers, which have none. 0012 takes that result from the
+`have_proc_self_cmdline` cross property on Emscripten (default false), as a
+cross build without an exe wrapper does, so the libraries build exactly as
+before.
+
+**Subprocess tests.** `g_test_trap_subprocess()` runs the test binary
+again as a child, which WebAssembly can't spawn, so the first subprocess
+test aborted the whole program. On WebAssembly it now marks the calling
+test skipped and `longjmp()`s back to `test_case_run()`, which ends that
+test and goes on with the next; returning would leave the caller asserting
+on a subprocess that never ran. The rest of the test function, its cleanup
 included, doesn't run, so what it allocated leaks. A call from another
 thread, or outside a test case, only marks the test skipped.
 
-0022 fixes signal class handlers. A signal's C marshaller calls a
-closure's callback with the instance, the signal's parameters *and* the
-closure's user data, while class handlers (`klass->activate`,
-`klass->notify` and every other signal vfunc registered by offset, and
-handlers given to `g_signal_new_class_handler()` or
-`g_signal_override_class_handler()`) take no user data. Native ABIs
-ignore the extra argument; on WebAssembly emitting any signal whose class
-handler was set trapped, in GLib's own classes as in user code. On
-WebAssembly only, the closures GLib makes for class handlers
-(`g_signal_type_cclosure_new()` and the two class-handler functions) now
-get their own marshaller when they are created: the libffi generic
-marshaller, and its va form, with the trailing user data left off the
-call. A closure that already has a marshaller keeps it when it becomes a
-signal's class closure, so the signal's C and va marshallers are never
-installed on these; every path that runs a class closure — emission,
-`g_signal_chain_from_overridden()`,
-`g_signal_chain_from_overridden_handler()` — reaches the handler through
-libffi with exactly the instance and the signal's parameters, and returns
-its value. Other platforms compile the same code as before. Closures that
-callers make themselves and pass to `g_signal_newv()` or
-`g_signal_override_class_closure()`, such as `g_cclosure_new (handler,
-NULL, NULL)`, may take user data, so they are unchanged, as are connected
-handlers.
-
-On Emscripten, libffi's `ffi_call` calls the function from JavaScript,
-which pads or drops arguments rather than trapping, so a class handler
-declaring fewer parameters than its signal would still run. That is
-libffi's behaviour, not a guarantee of 0022; nothing in this series
-relies on it.
-
-0023 fixes test code the same way 0018 did: handlers connected to
-`accumulator`'s and `signals`' signals, and the class closures `override`
-creates with `g_cclosure_new()`, now take the user data their
-marshallers pass, and `performance`'s signal with arguments gets a class
-handler and a connected handler that take them.
-
-0024 stops `g_file_query_exists()` from calling `faccessat()` on
-WebAssembly. GLib asks for `AT_EACCESS | AT_SYMLINK_NOFOLLOW`, but
+**File existence.** `g_file_query_exists()` no longer calls `faccessat()`
+on WebAssembly. GLib asks for `AT_EACCESS | AT_SYMLINK_NOFOLLOW`, but
 Emscripten doesn't honour `AT_SYMLINK_NOFOLLOW`: its JavaScript
 filesystems assert that the flags are 0 or `AT_EACCESS` (so with runtime
-assertions every `g_file_query_exists()` aborted) and otherwise ignore
-it, and WasmFS ignores it too, so a dangling symlink can be reported
-missing. GLib already
-leaves `query_exists` unset on platforms with the same gap (Android,
-Solaris, the BSDs); the fallback queries the file's type, which
-reports a dangling symlink as existing. `access()`, `g_access()` and `g_file_test()` pass
-no flags and are unaffected. Under Node's raw filesystem
-(`-sNODERAWFS`, which the tools use), path lookups never follow
-symlinks, so `access()` finds a dangling symlink; WasmFS, which the
-tests and the browser use, is not affected by that.
+assertions every `g_file_query_exists()` aborted) and otherwise ignore it,
+and WasmFS ignores it too, so a dangling symlink can be reported missing.
+GLib already leaves `query_exists` unset on platforms with the same gap
+(Android, Solaris, the BSDs); the fallback queries the file's type, which
+reports a dangling symlink as existing. `access()`, `g_access()` and
+`g_file_test()` pass no flags and are unaffected. Under Node's raw
+filesystem (`-sNODERAWFS`, which the tools use), path lookups never follow
+symlinks, so `access()` finds a dangling symlink; WasmFS, which the tests
+and the browser use, is not affected by that.
 
-0025 gives `GMainContext` a wakeup it can sleep on, so a blocking
-`g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` no longer
-busy-spins. It supersedes the wakeup parts of 0010, 0011, 0012 and 0014
-without editing them:
+**The program name.** `g_option_context_parse()` with no argv names the
+program from the platform's record of its first argument. On WebAssembly
+that is Emscripten's `program_invocation_name`, which its libc sets from
+the script Node runs, or in a page from `Module.thisProgram`, which is
+`./this.program` unless the runtime sets it.
+
+**`RTLD_NEXT`.** `HAVE_RTLD_NEXT` stays unset on Emscripten. Its `dlfcn.h`
+defines `RTLD_NEXT`, but `dlsym(RTLD_NEXT, …)` finds nothing there: a
+static link's `dlsym()` fails for every handle, and with dynamic linking
+`RTLD_NEXT` is unsupported and aborts. Only tests use it, to wrap a libc
+function.
+
+## 0013: main context and wakeup
+
+0008 turns every `GWakeup` function into a `g_error()` on WebAssembly,
+and every `GMainContext` creates, signals and frees a wakeup. 0013 gives
+`GMainContext` a wakeup it can sleep on, so a blocking
+`g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` neither
+aborts nor busy-spins. It replaces Fluendo's three main loop commits (see
+above).
 
 - **The wakeup.** On WebAssembly a `GWakeup` holds two atomic counters.
   `g_wakeup_signal()` increments `signals` and wakes every waiter on it
@@ -421,16 +398,15 @@ without editing them:
   `fsync()`s before the rename, while the main thread sleeps in
   `g_main_loop_run()`. The tests run on WasmFS, where it completes.
 - **The main context.** `g_main_context_iterate_unlocked()` passes the
-  computed timeout on again (0012's forced zero is gone), and
-  `g_main_context_poll_unlocked()` hands it to a WebAssembly-only loop
-  instead of `poll()`/`ppoll()`. With no fds it waits on the context's
-  wakeup until it is signalled or the deadline passes, rechecking the
-  deadline after early returns (a futex wait also ends when the thread is
-  handed proxied work). With fds, it probes them with `poll_func (fds, n,
-  0)` and waits on the wakeup between probes in slices of at most 10 ms,
-  until an fd is ready, the wakeup is signalled or the deadline passes.
-  `g_main_context_check()` acknowledges the wakeup, since it isn't among
-  the fds.
+  computed timeout on, and `g_main_context_poll_unlocked()` hands it to a
+  WebAssembly-only loop instead of `poll()`/`ppoll()`. With no fds it
+  waits on the context's wakeup until it is signalled or the deadline
+  passes, rechecking the deadline after early returns (a futex wait also
+  ends when the thread is handed proxied work). With fds, it probes them
+  with `poll_func (fds, n, 0)` and waits on the wakeup between probes in
+  slices of at most 10 ms, until an fd is ready, the wakeup is signalled
+  or the deadline passes. `g_main_context_check()` acknowledges the
+  wakeup, since it isn't among the fds.
 - **The slice.** An fd turning ready signals nothing, so the slice bounds
   how late it is noticed. Each probe from a pthread is a call proxied to
   the main thread, so the slice also bounds how often that thread is
@@ -439,11 +415,42 @@ without editing them:
   here (sockets, pipes and ttys are mostly unsupported), so the common
   case is the no-fd wait, which has no slices.
 - **Non-blocking iteration** (`g_main_context_iteration (ctx, FALSE)`,
-  what the runtime's pump calls) is unchanged: fds are probed once with a
-  zero timeout, and with none nothing is called. Only the acknowledgement
-  in `g_main_context_check()` is new, an atomic store.
+  what the runtime's pump calls) probes fds once with a zero timeout, and
+  with none nothing is called. Only the acknowledgement in
+  `g_main_context_check()` is added, an atomic store.
 - **Custom poll functions** (`g_main_context_set_poll_func()`) are only
   ever asked to probe, with a zero timeout; the wait is on the wakeup.
+- **A pipe to poll.** The first `g_wakeup_get_pollfd()` on a wakeup
+  creates a pipe and publishes it with a compare-and-swap; a thread that
+  loses the race closes its own. From then on `g_wakeup_signal()` also
+  writes a byte to it, and `g_wakeup_acknowledge()` drains it before
+  acknowledging the futex, so a signal landing in between leaves a
+  spurious byte rather than a signalled wakeup that doesn't poll ready. A
+  signal racing with the pipe's creation either sees the pipe or bumped
+  the counter before the creator checks it, and the creator then writes
+  the byte itself. So `g_cancellable_make_pollfd()` and
+  `g_cancellable_get_fd()` work, and their callers (`gsocket.c`,
+  `gasynchelper.c`) don't abort.
+- **Emscripten's pipes.** WasmFS's `pipe2()` takes no flag but
+  `O_CLOEXEC`, so `O_NONBLOCK` is set with `fcntl()`. Neither file system
+  blocks on a pipe: an empty pipe reads as `EAGAIN` on the JavaScript file
+  systems, even after every writer has closed (while `poll()` reports
+  `POLLHUP`), and as 0 on WasmFS. The drain stops at either, and never
+  waits for end of file.
+- **Who gets the pipe.** `g_wakeup_wait()` and main contexts sleep on the
+  futex, so a context has no wakeup fd among its poll fds, except one made
+  with `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`: that one is polled by
+  someone outside it, who can only see a wakeup through an fd, so it adds
+  the pipe to its poll fds. Other contexts never get a pipe. The loop
+  above still probes a context's fds between waits on its wakeup, which a
+  signal ends at once.
+- **`g_poll()` with a timeout** waited on nothing: Emscripten's `poll()`
+  ignores the timeout on the main thread and on WasmFS, and from a pthread
+  on the JavaScript file systems it waits for the main thread to return to
+  its event loop. On WebAssembly `g_poll()` probes the fds with a zero
+  timeout and sleeps in 10 ms slices (`g_usleep()`, which serves proxied
+  calls) until one is ready or the timeout passes. A cancellable's fd
+  turning ready is noticed within a slice.
 - **The pump hook** (the runtime's Worker host waits on its own request
   word, and `g_wakeup_signal()` on the pumped context's wakeup must also
   bump and notify that word) fits without changing any of this: add a
@@ -466,16 +473,15 @@ loops instead of spinning. `checks.glib` measures it with Node's
 `process.cpuUsage()`, since Emscripten's `clock()` counts wall time and
 its `getrusage()` is a stub.
 
-0026 makes `gwakeuptest` check and wait for a signal with
-`g_wakeup_wait()` on WebAssembly, where `g_wakeup_get_pollfd()` aborted
-until 0030.
+## 0014: platform backends
 
-0027 gives `GTimeZone` IANA zones on WebAssembly from JavaScript's `Intl`
-API rather than from zoneinfo files. 0008 left out every TZif path, so
-only fixed offsets and POSIX rule strings worked, IANA names such as
-`America/Recife` failed, and the default zone was always `UTC0`. A page
-has no zoneinfo files, and the JavaScript engine already carries the
-data (browsers and nixpkgs' Node have full ICU), so nothing is bundled:
+**Time zones.** 0014 gives `GTimeZone` IANA zones on WebAssembly from
+JavaScript's `Intl` API rather than from zoneinfo files. 0008 left out
+every TZif path, so only fixed offsets and POSIX rule strings worked, IANA
+names such as `America/Recife` failed, and the default zone was always
+`UTC0`. A page has no zoneinfo files, and the JavaScript engine already
+carries the data (browsers and nixpkgs' Node have full ICU), so nothing is
+bundled:
 
 - **TZif from Intl.** Where GLib would read a zone's TZif file
   (`zone_info_unix()`), WebAssembly synthesizes version 2 TZif data for
@@ -537,10 +543,20 @@ ICU (tzdata 2026a) and tzdata 2026c disagree about Morocco. DST flags
 differ mostly for war time (1940–1945), which lasted over a year and so
 reads as standard time, and for a handful of one-off changes. Of GLib's
 `GTimeZone` and `GDateTime` tests, all pass except
-`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0037
+`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0016
 skips on WebAssembly.
 
-0028 skips the user database lookup in `g_get_user_name()`,
+**The memory monitor.** No memory monitor was registered on WebAssembly,
+so `g_memory_monitor_dup_default()` passed `NULL` to `g_object_ref()`. A
+new `GMemoryMonitorWasm` (`gio/gmemorymonitorwasm.c`), which never warns,
+is registered at priority 0. Nothing in the browser reports memory
+pressure.
+
+**Content types.** `g_content_type_is_a()` in 0008's WebAssembly content
+type backend only compared for equality; every type but an inode is now
+also an `application/octet-stream`, as with the shared-mime-info backend.
+
+**The user.** 0014 skips the user database lookup in `g_get_user_name()`,
 `g_get_real_name()` and `g_get_home_dir()` on WebAssembly. Emscripten's
 `getpwnam_r()`, `getpwuid_r()` and `getpwuid()` are stubs that report
 `ENOENT`, so the lookup always failed and warned (a fatal warning in
@@ -548,74 +564,9 @@ tests); the result is the same fallback, "somebody" and "Unknown", without
 the warning. `g_get_home_dir()` still takes `HOME`, which Emscripten's
 default environment sets.
 
-0029 fills three gaps 0008 left in GIO and GObject:
+## 0015: characters `iconv()` replaces
 
-- `g_content_type_is_a()` in 0008's WebAssembly content type backend only
-  compared for equality; every type but an inode is now also an
-  `application/octet-stream`, as with the shared-mime-info backend.
-- No memory monitor was registered on WebAssembly, so
-  `g_memory_monitor_dup_default()` passed `NULL` to `g_object_ref()`. A
-  new `GMemoryMonitorWasm` (`gio/gmemorymonitorwasm.c`), which never
-  warns, is registered at priority 0. Nothing in the browser reports
-  memory pressure.
-- `g_source_set_closure()` refused `GIOChannel` watches, because 0008 left
-  `g_io_watch_funcs` out of source closures while `giounix.c` wasn't
-  built; 0016 builds it again.
-
-0030 gives a WebAssembly `GWakeup` an fd to poll, so
-`g_cancellable_make_pollfd()` and `g_cancellable_get_fd()` work, and their
-callers (`gsocket.c`, `gasynchelper.c`) no longer abort:
-
-- **The pipe.** The first `g_wakeup_get_pollfd()` on a wakeup creates a
-  pipe and publishes it with a compare-and-swap; a thread that loses the
-  race closes its own. From then on `g_wakeup_signal()` also writes a byte
-  to it, and `g_wakeup_acknowledge()` drains it before acknowledging the
-  futex, so a signal landing in between leaves a spurious byte rather than
-  a signalled wakeup that doesn't poll ready. A signal racing with the
-  pipe's creation either sees the pipe or bumped the counter before the
-  creator checks it, and the creator then writes the byte itself.
-- **Emscripten's pipes.** WasmFS's `pipe2()` takes no flag but
-  `O_CLOEXEC`, so `O_NONBLOCK` is set with `fcntl()`. Neither file system
-  blocks on a pipe: an empty pipe reads as `EAGAIN` on the JavaScript file
-  systems, even after every writer has closed (while `poll()` reports
-  `POLLHUP`), and as 0 on WasmFS. The drain stops at either, and never
-  waits for end of file.
-- **Waiting is unchanged.** `g_wakeup_wait()` and main contexts still
-  sleep on the futex, and main contexts only ask for the fd when they are
-  polled without an owner (0033), so the rest never get a pipe; 0025's loop still probes a context's fds between
-  waits on its wakeup, which a signal ends at once.
-- **`g_poll()` with a timeout** waited on nothing: Emscripten's `poll()`
-  ignores the timeout on the main thread and on WasmFS, and from a pthread
-  on the JavaScript file systems it waits for the main thread to return to
-  its event loop. On WebAssembly `g_poll()` now probes the fds with a zero
-  timeout and sleeps in 10 ms slices (`g_usleep()`, which serves proxied
-  calls) until one is ready or the timeout passes. A cancellable's fd
-  turning ready is noticed within a slice.
-- `gwakeuptest` checks the poll fd again on WebAssembly, and that it
-  agrees with `g_wakeup_wait()`; it still waits with `g_wakeup_wait()`,
-  since its threaded test passes tokens far too often for 10 ms slices.
-
-0031 restores three Unix paths 0008 left out that work on WebAssembly as
-they do elsewhere:
-
-- `g_source_add_unix_fd()`, `g_source_modify_unix_fd()`,
-  `g_source_remove_unix_fd()` and `g_source_query_unix_fd()`, which
-  `gmain.h` declares on every Unix, weren't built, so callers failed to
-  link. They only add fds to a source's poll set, which 0025's loop
-  probes.
-- Local files get `standard::is-hidden` (dotfiles and names in the
-  directory's `.hidden` file) and `standard::is-backup` (names ending in
-  `~`) again. Lost+found directories aren't looked for: that needs the
-  Unix mount table, which isn't built. Reading `.hidden` caches it for a
-  few seconds with a timeout on GLib's worker context, whose thread 0025
-  lets sleep.
-- Files in a `GResource` get a content type again, guessed from the name
-  and data as for local files.
-
-The rest of 0008's WebAssembly guards were reviewed with 0031; the ones
-worth revisiting are listed in the plan's follow-ups.
-
-0032 makes GLib notice a character `iconv()` replaces. musl's `iconv()`
+0015 makes GLib notice a character `iconv()` replaces. musl's `iconv()`
 (like NetBSD's) converts a character the target charset lacks to `*` and
 counts it as an irreversible conversion instead of failing with
 `EILSEQ`, and forgets the count when a later character ends the same
@@ -675,101 +626,121 @@ test a replaced character followed by an incomplete one and by a full
 output buffer, UTF-16 with a byte order mark and ISO-2022-JP across calls
 and a full buffer, and a fallback between kanji in ISO-2022-JP.
 
-0033 gives a main context made with `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`
-its wakeup's fd again on WebAssembly. 0025 stopped contexts polling the
-wakeup, since they wait on it, but an ownerless-polling context is polled
-by someone outside it, who can only see a wakeup through an fd. Such a
-context now adds the pipe 0030 provides to its poll fds; other contexts
-still have none.
+## 0016: tests
 
-0034 builds `glib-unix.c` and GIO's Unix streams on WebAssembly, which
-0008 left out: `glib-unix.h`'s functions were declared but failed to
-link, and there was no `GUnixInputStream`, `GUnixOutputStream` or
-`GFileDescriptorBased`. Emscripten's file descriptors (files, pipes,
-`/dev/null`) take them as they are.
+0016 lets GLib's own tests configure and build with `-Dtests=true`, and
+makes them pass where WebAssembly can do what they test. It changes only
+test sources and test build files (`glib/tests`, `gobject/tests`,
+`gio/tests`, `tests/lib`), so the library is built exactly as without it.
 
-- **glib-unix** is built without the Unix signal sources, which
-  `glib-unix.h` no longer declares there either, since `gmain.c` handles
-  no signals on WebAssembly (no other process can send one).
-  `g_unix_fd_query_path()` fails with `G_FILE_ERROR_NOSYS`: Emscripten's
-  file systems have no `/proc` nor another way to name an fd's file.
-  `GUnixFDSource` takes closures again.
-- **GIO** builds `gfiledescriptorbased.c`, `giounix-private.c` and the
-  Unix input and output streams, and installs their headers and
-  `gio-unix-2.0.pc`. The rest of the Unix sources need mounts, desktop
-  files or D-Bus.
-- **Pollable fds.** Emscripten declares epoll but fails every call with
-  `ENOSYS`, and its `poll()` only follows pipes and sockets; anything else
-  it reports ready at once. So `_g_fd_is_pollable()` takes a FIFO or a
-  socket for pollable, which needs the toolchain's Emscripten fix that
-  gives WasmFS's pipes `S_IFIFO`.
+**Running the tools' tests.** `gobject-query.py`, `gio-tool.py` and
+`gdbus-tool.py` run the `.js` tools: `tests/lib/testprogramrunner.py`
+looks for `<tool>.js` and runs it with the Node that
+`_G_TEST_PROGRAM_RUNNER_NODE` names, which the glib, gobject and gio test
+meson files set on Emscripten from `find_program('node', native : true)`.
+Where the Python tests expect `abort()` to end the program with
+`SIGABRT`, they expect status 1 under Node, which is how Emscripten's
+`abort()` ends it.
 
-0035 gives `g_option_context_parse()` a program name on WebAssembly when
-it has no argv: Emscripten's libc sets `program_invocation_name` from the
-script Node runs, or in a page from `Module.thisProgram`, which is
-`./this.program` unless the runtime sets it.
+**Left out on Emscripten**, each worth revisiting if the reason goes away:
 
-0036 leaves `HAVE_RTLD_NEXT` unset on Emscripten. Its `dlfcn.h` defines
-`RTLD_NEXT`, but `dlsym(RTLD_NEXT, …)` finds nothing there: a static link's
-`dlsym()` fails for every handle, and with dynamic linking `RTLD_NEXT` is
-unsupported and aborts. Only tests use it, to wrap a libc function.
+- The Unix-only blocks in `glib/tests` (`include`, `poll-fdset`, `unix`,
+  `gutils-user-database`) and `gio/tests` (the large Unix test block,
+  `gdbus-example-unix-fd-client`, the `dbus-launch` helper,
+  `GIO_LAUNCH_DESKTOP`): most need Unix sources 0012 doesn't build;
+  `unix` also tests the Unix signal sources, which stay out, and GIO's
+  `unix-streams` reads pipes WasmFS never blocks on.
+- `constructor`: its helpers are shared libraries, which Meson can't link
+  for Emscripten.
+- `tests/lib`'s `glibconfig.py`: only girepository's tests read it, and
+  girepository isn't built (0001).
+- `appmonitor`, `gsubprocess`, `unix-fd`: they need `GDesktopAppInfo`,
+  process spawning and fd passing.
+- testing's subprocess stdin test, which spawns a subprocess with a pipe
+  on its stdin.
+- thread's CPU affinity subtest: it calls `pthread_getaffinity_np()` and
+  `pthread_setaffinity_np()` itself, which Emscripten declares but doesn't
+  define. The library doesn't: 0008 already makes `g_get_num_processors()`
+  return `emscripten_num_logical_cores()` on WebAssembly.
 
-0037 changes only tests, so that what WebAssembly can do gates:
+**Function types in tests.** Test code that registers callbacks with the
+wrong signature is fixed, since each such call traps on WebAssembly.
+Class, instance and interface init functions take their data argument
+(`gobject/tests` and GIO's test converters, TLS backend and proxies), and
+`param`'s custom `instance_init` the class data argument that 0009 adds
+to `GParamSpecTypeInfo`; notify handlers in `properties-refcount*` take
+their user data; and small wrappers replace library functions passed
+through another callback type: `g_strdup` as `GCopyFunc`/`GDuplicateFunc`
+(`array-test`, `qdata`), `g_free` as `GFunc` (`option-context`),
+`g_usleep` as `GFunc` (`thread-pool-slow`), `g_main_loop_quit` as
+`GSourceFunc` (`mainloop`, `resolver`), `g_cancellable_cancel` as
+`GThreadFunc` and a one-argument callback passed to
+`g_cancellable_connect()` (`cancellable`), and `g_object_unref` as
+`GWeakNotify` (`signalgroup`). Two-argument compare functions get
+three-argument wrappers (`list`, `slist`, `tree`, `glistmodel`), `node`'s
+traversal callback a void one for `g_node_children_foreach()`,
+`dataset`'s notify a `GDataForeachFunc`, `binding` and `bindinggroup`
+their `GClosureNotify`s, and `hook` swaps its hooks' functions between
+`g_hook_list_invoke()` and `g_hook_list_invoke_check()`, which call them
+through different types. Handlers connected to `accumulator`'s and
+`signals`' signals, and the class closures `override` creates with
+`g_cclosure_new()`, take the user data their marshallers pass, and
+`performance`'s signal with arguments gets a class handler and a
+connected handler that take them. filenamecompleter connected
+`g_main_loop_quit()` through `g_signal_connect_swapped()` to a signal with
+two parameters.
 
-- **Skipped where the expectation can't hold**, each with its reason:
-  musl has no locale data (collate's lists that sort differently under
-  `en_US`, option-context's decimal comma, date's Polish month names,
-  gdatetime's `en_GB` formats, `de_DE` month names and eras); WasmFS has no
-  sockets (`socket()` fails with `ENOSYS`); Emscripten can't spawn or fork
-  processes, parse an IPv6 scope ID or list network interfaces, and
-  nothing can send it a signal; WasmFS keeps file times as a double count
-  of milliseconds and gives pipes no capacity; TZif files aren't read by
-  path
-  (`/GTimeZone/parse-rfc8536`); `gio launch` needs desktop applications,
-  and WebAssembly content types know no MIME types.
-- **musl's output expected** where it is right but different: `strftime()`
-  pads years to four digits (`%C`, `%F`, `%G`, `%Y`, `%c`), has no `%k`,
-  `%l` or `%P`, and prints nothing for a bare `%E` or `%O`;
-  `g_convert()`'s illegal-sequence error comes after the input is
-  consumed. mainloop expects no wakeup fd in a context that polls with an
-  owner, and option-argv0 a program named after its `.js` script.
-- **Subtests built again** with 0034: pollable's pipe, file, `/dev/null` and
-  converter tests, mainloop's and closure's fd sources, and the
-  `gio-unix-2.0` pkg-config test.
-- **Test bugs fixed**: filenamecompleter connected `g_main_loop_quit()`
-  through `g_signal_connect_swapped()` to a signal with two parameters
-  (which traps) and expected completions in one file system's directory
-  order; gdbus-peer's credentials test assumed credentials on every Unix;
-  messages-low-memory's `malloc()` looked up the real one with
-  `dlsym(RTLD_NEXT)`, and now calls `emscripten_builtin_malloc()` on
-  WebAssembly, where it is built without `HAVE_RTLD_NEXT` (0036);
-  `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its
-  Python tests, which also expected `abort()` to end Node with `SIGABRT`
-  rather than status 1.
-- **Workaround for the platform**: test-printf's reader waits for its
-  writer to finish, since Emscripten's pipe reads never block.
-- **A race on every platform**: asyncqueue's threads test pushed its items
-  as soon as it had created its ten consumers and expected each to get
-  some. Under load a pthread can start 200–560 ms after it is created,
-  once the queue has drained (about one loaded run in five failed
-  `sums_i > 0`), so the test now waits until every consumer is running.
-- **Left to the toolchain's Emscripten fixes**: mainloop's `nfds`,
-  `unix-file-poll` and `unix-fd-priority`, closure's `fd` and pollable's
-  `/dev/null` test poll empty files and devices; fileutils' `chdir()` and
-  read-only-directory checks rely on directory search and write
-  permission, and its `stdio-wrappers` test on `chmod()` reaching the
-  host; pollable's pseudo-terminal test fails to open one cleanly
-  and skips as upstream does ("Unable to open PTY").
+**The wakeup.** `gwakeuptest` checks that a WebAssembly wakeup's poll fd
+agrees with `g_wakeup_wait()`, and waits with `g_wakeup_wait()`, since its
+threaded test passes tokens far too often for 10 ms slices.
+
+**Skipped where the expectation can't hold**, each with its reason: musl
+has no locale data (collate's lists that sort differently under `en_US`,
+option-context's decimal comma, date's Polish month names, gdatetime's
+`en_GB` formats, `de_DE` month names and eras); WasmFS has no sockets
+(`socket()` fails with `ENOSYS`); Emscripten can't spawn or fork
+processes, parse an IPv6 scope ID or list network interfaces, and nothing
+can send it a signal; WasmFS keeps file times as a double count of
+milliseconds and gives pipes no capacity; TZif files aren't read by path
+(`/GTimeZone/parse-rfc8536`); `gio launch` needs desktop applications, and
+WebAssembly content types know no MIME types.
+
+**musl's output expected** where it is right but different: `strftime()`
+pads years to four digits (`%C`, `%F`, `%G`, `%Y`, `%c`), has no `%k`, `%l`
+or `%P`, and prints nothing for a bare `%E` or `%O`; `g_convert()`'s
+illegal-sequence error comes after the input is consumed. mainloop
+expects no wakeup fd in a context that polls with an owner, and
+option-argv0 a program named after its `.js` script.
+
+**Built because 0012 builds glib-unix and GIO's Unix streams**: pollable's
+pipe, file, `/dev/null` and converter tests, mainloop's and closure's fd
+sources, and the `gio-unix-2.0` pkg-config test.
+
+**Test bugs fixed**: filenamecompleter expected completions in one file
+system's directory order; gdbus-peer's credentials test assumed
+credentials on every Unix; messages-low-memory's `malloc()` looked up the
+real one with `dlsym(RTLD_NEXT)`, and calls `emscripten_builtin_malloc()`
+on WebAssembly, where it is built without `HAVE_RTLD_NEXT`.
+
+**A race on every platform**: asyncqueue's threads test pushed its items
+as soon as it had created its ten consumers and expected each to get
+some. Under load a pthread can start 200–560 ms after it is created, once
+the queue has drained (about one loaded run in five failed
+`sums_i > 0`), so the test waits until every consumer is running.
+
+**Workarounds for the platform**: spawn-singlethread and test-printf open
+their pipe with `pipe()` instead of `g_unix_open_pipe()`, and
+test-printf's reader waits for its writer to finish, since Emscripten's
+pipe reads never block.
+
+**Left to the toolchain's Emscripten fixes**: mainloop's `nfds`,
+`unix-file-poll` and `unix-fd-priority`, closure's `fd` and pollable's
+`/dev/null` test poll empty files and devices; fileutils' `chdir()` and
+read-only-directory checks rely on directory search and write
+permission, and its `stdio-wrappers` test on `chmod()` reaching the
+host; pollable's pseudo-terminal test fails to open one cleanly
+and skips as upstream does ("Unable to open PTY").
 
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers
 shut down at exit. It is Emscripten's diagnostic, not a GLib failure.
-
-Not covered either: callbacks that *users* pass with fewer parameters
-than the API documents (including signal handlers connected with
-`G_CALLBACK`, which the audit can't see), the one-argument
-`iface_init`/`class_init` functions users pass through
-`G_IMPLEMENT_INTERFACE` or hand-written `GTypeInfo` (as GLib's tests did),
-`(GFunc)` casts in the unbuilt `TEST_COMPLETION` block of
-`deprecated/gcompletion.c`, and Windows-, macOS- and Unix-only files
-that WebAssembly doesn't build.

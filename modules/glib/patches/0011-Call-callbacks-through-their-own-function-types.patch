@@ -1,8 +1,7 @@
-From 34d57fe7d033273b12769da4f0743f64cf2b7690 Mon Sep 17 00:00:00 2001
+From 7c96181c6219282ca3bb4c5ca678a66c9d5dc776 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
-Date: Tue, 29 Sep 2026 17:08:30 -0700
-Subject: [PATCH 15/37] Call internally-forwarded callbacks through their own
- function types
+Date: Wed, 30 Sep 2026 23:35:52 -0700
+Subject: [PATCH 11/16] Call callbacks through their own function types
 
 Calling a function through a pointer to a type with a different
 parameter list or return type is undefined behaviour. Most native ABIs
@@ -12,7 +11,8 @@ traps with "function signature mismatch".
 Where GLib forwards a callback it was given, or one of its own
 functions, to an iterator or notifier of another type, call it through
 its own type instead: with a direct loop, a small wrapper, or a
-trampoline that takes the real function as user data.
+trampoline that takes the real function as user data. These apply on
+every platform and don't change behaviour.
 
 - glist, gslist, gqueue, gasyncqueue: *_free_full() and
   g_async_queue_unref() called a GDestroyNotify as a GFunc.
@@ -34,31 +34,78 @@ trampoline that takes the real function as user data.
   g_list_foreach()/g_ptr_array_foreach() as GFunc.
 - gsettingsbackend, gkeyfilesettingsbackend: strcmp() used as a
   GCompareDataFunc for GTree keys.
+- gtypemodule: GTypeModule's class_init took one argument, so every GIO
+  extension point (and any GTypeModule) trapped on first use.
+- gbookmarkfile: g_bookmark_file_copy() passed g_strdup() and one-
+  argument copy functions to g_list_copy_deep() as GCopyFunc.
+- gsourceclosure: g_closure_ref(), which returns the closure, was the
+  void-returning ref function of a closure source's callback funcs.
+- gdbusinterfaceskeleton, gdbusobjectmanagerserver, gdbusobjectproxy,
+  gdbusobjectskeleton, gmemorymonitorbase, and the interface init
+  functions gdbus-codegen emits: one-argument GInterfaceInitFunc.
+- gtester: g_free() passed to g_slist_foreach() as a GFunc.
+
+G_DEFINE_DYNAMIC_TYPE_EXTENDED registers type_name##_init_adapter as the
+instance init function but never defines it, so any code using
+G_DEFINE_DYNAMIC_TYPE failed to compile. Define it, and register the
+one-argument class_finalize through an adapter too, instead of calling
+it as a two-argument GClassFinalizeFunc.
+
+A signal's C marshaller calls a closure's callback with the instance,
+the signal's parameters and a trailing user data pointer. Class
+handlers - the functions in class structures that g_signal_new()
+registers by offset, and those given to g_signal_new_class_handler()
+and g_signal_override_class_handler() - never declare that pointer, so
+on WebAssembly every emission that ran a class handler trapped, in
+GLib's own classes and in every library built on GObject. On
+WebAssembly, give the closures made for class handlers (those from
+g_signal_type_cclosure_new(), g_signal_new_class_handler() and
+g_signal_override_class_handler()) a marshaller of their own when they
+are created: a variant of the libffi generic marshaller, and of its va
+form, that leaves the user data out. Signals then keep the closure's
+marshaller instead of installing theirs, so every emission of a class
+closure, including chaining up with g_signal_chain_from_overridden()
+and g_signal_chain_from_overridden_handler(), calls the handler with
+exactly the instance and the signal's parameters. Closures connected as
+handlers, or passed as class closures by the caller, are unchanged:
+they may take user data.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- gio/gcancellable.c             |  44 +++++++++++-
- gio/gdbusintrospection.c       |  33 ++++++---
- gio/gdbusobjectmanagerclient.c |  16 ++++-
- gio/gdbusobjectproxy.c         |   3 +-
- gio/gdbusobjectskeleton.c      |   6 +-
- gio/gdbusprivate.c             |   3 +-
- gio/gdbusserver.c              |  11 ++-
- gio/gkeyfilesettingsbackend.c  |   2 +-
- gio/gsettingsbackend.c         |   2 +-
- gio/gsettingsbackendinternal.h |  12 ++++
- gio/gtestdbus.c                |  11 ++-
- glib/garray.c                  |   8 +--
- glib/gasyncqueue.c             |   4 +-
- glib/glist.c                   |  15 +++-
- glib/gqueue.c                  |  25 ++++++-
- glib/gslist.c                  |  15 +++-
- glib/gtestutils.c              | 126 ++++++++++++++++++++++-----------
- glib/gtree.c                   |   3 +-
- glib/gutilsprivate.h           |  13 ++++
- gobject/gbinding.c             |  13 +++-
- gobject/gobject.c              |  41 +++++++++--
- 21 files changed, 319 insertions(+), 87 deletions(-)
+ gio/gcancellable.c               |  44 ++++++++++-
+ gio/gdbus-2.0/codegen/codegen.py |  22 +++---
+ gio/gdbusinterfaceskeleton.c     |   6 +-
+ gio/gdbusintrospection.c         |  33 +++++---
+ gio/gdbusobjectmanagerclient.c   |  16 +++-
+ gio/gdbusobjectmanagerserver.c   |   6 +-
+ gio/gdbusobjectproxy.c           |   9 ++-
+ gio/gdbusobjectskeleton.c        |  12 ++-
+ gio/gdbusprivate.c               |   3 +-
+ gio/gdbusserver.c                |  11 ++-
+ gio/gkeyfilesettingsbackend.c    |   2 +-
+ gio/gmemorymonitorbase.c         |  12 ++-
+ gio/gsettingsbackend.c           |   2 +-
+ gio/gsettingsbackendinternal.h   |  12 +++
+ gio/gtestdbus.c                  |  11 ++-
+ glib/garray.c                    |   8 +-
+ glib/gasyncqueue.c               |   4 +-
+ glib/gbookmarkfile.c             |  29 ++++++-
+ glib/glist.c                     |  15 +++-
+ glib/gqueue.c                    |  25 +++++-
+ glib/gslist.c                    |  15 +++-
+ glib/gtester.c                   |   3 +-
+ glib/gtestutils.c                | 126 +++++++++++++++++++----------
+ glib/gtree.c                     |   3 +-
+ glib/gutilsprivate.h             |  13 +++
+ gobject/gbinding.c               |  13 ++-
+ gobject/gclosure.c               | 131 +++++++++++++++++++++++++++++++
+ gobject/gobject.c                |  41 +++++++++-
+ gobject/gsignal.c                |   8 ++
+ gobject/gsourceclosure.c         |  11 ++-
+ gobject/gtype-private.h          |   3 +
+ gobject/gtypemodule.c            |   3 +-
+ gobject/gtypemodule.h            |  12 ++-
+ 33 files changed, 545 insertions(+), 119 deletions(-)
 
 diff --git a/gio/gcancellable.c b/gio/gcancellable.c
 index 44b8bc463..12c6274f7 100644
@@ -130,6 +177,111 @@ index 44b8bc463..12c6274f7 100644
        if (g_cancellable_is_cancelled (cancellable))
          g_source_set_ready_time (source, 0);
      }
+diff --git a/gio/gdbus-2.0/codegen/codegen.py b/gio/gdbus-2.0/codegen/codegen.py
+index 2add4c810..fd2ac2ed9 100644
+--- a/gio/gdbus-2.0/codegen/codegen.py
++++ b/gio/gdbus-2.0/codegen/codegen.py
+@@ -3148,7 +3148,7 @@ class CodeGenerator:
+         )
+ 
+         self.outfile.write(
+-            "static void %s_proxy_iface_init (%sIface *iface);\n"
++            "static void %s_proxy_iface_init (%sIface *iface, gpointer iface_data);\n"
+             "\n" % (i.name_lower, i.camel_name)
+         )
+         self.outfile.write("#if GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_38\n")
+@@ -3526,9 +3526,8 @@ class CodeGenerator:
+             "%s_proxy_iface_init (%sIface *iface" % (i.name_lower, i.camel_name)
+         )
+         if len(i.properties) == 0:
+-            self.outfile.write(" G_GNUC_UNUSED)\n")
+-        else:
+-            self.outfile.write(")\n")
++            self.outfile.write(" G_GNUC_UNUSED")
++        self.outfile.write(", gpointer iface_data G_GNUC_UNUSED)\n")
+         self.outfile.write("{\n")
+         for p in i.properties:
+             self.outfile.write(
+@@ -4135,7 +4134,7 @@ class CodeGenerator:
+             self.outfile.write("}\n" "\n")
+ 
+         self.outfile.write(
+-            "static void %s_skeleton_iface_init (%sIface *iface);\n"
++            "static void %s_skeleton_iface_init (%sIface *iface, gpointer iface_data);\n"
+             % (i.name_lower, i.camel_name)
+         )
+ 
+@@ -4530,9 +4529,8 @@ class CodeGenerator:
+             "%s_skeleton_iface_init (%sIface *iface" % (i.name_lower, i.camel_name)
+         )
+         if len(i.signals) == 0 and len(i.properties) == 0:
+-            self.outfile.write(" G_GNUC_UNUSED)\n")
+-        else:
+-            self.outfile.write(")\n")
++            self.outfile.write(" G_GNUC_UNUSED")
++        self.outfile.write(", gpointer iface_data G_GNUC_UNUSED)\n")
+         self.outfile.write("{\n")
+         for s in i.signals:
+             self.outfile.write(
+@@ -4799,14 +4797,14 @@ class CodeGenerator:
+         # class boilerplate
+         self.outfile.write(
+             "static void\n"
+-            "%sobject_proxy__%sobject_iface_init (%sObjectIface *iface G_GNUC_UNUSED)\n"
++            "%sobject_proxy__%sobject_iface_init (%sObjectIface *iface G_GNUC_UNUSED, gpointer iface_data G_GNUC_UNUSED)\n"
+             "{\n"
+             "}\n"
+             "\n" % (self.ns_lower, self.ns_lower, self.namespace)
+         )
+         self.outfile.write(
+             "static void\n"
+-            "%sobject_proxy__g_dbus_object_iface_init (GDBusObjectIface *iface)\n"
++            "%sobject_proxy__g_dbus_object_iface_init (GDBusObjectIface *iface, gpointer iface_data G_GNUC_UNUSED)\n"
+             "{\n"
+             "  iface->interface_added = %sobject_notify;\n"
+             "  iface->interface_removed = %sobject_notify;\n"
+@@ -4951,7 +4949,7 @@ class CodeGenerator:
+         # class boilerplate
+         self.outfile.write(
+             "static void\n"
+-            "%sobject_skeleton__%sobject_iface_init (%sObjectIface *iface G_GNUC_UNUSED)\n"
++            "%sobject_skeleton__%sobject_iface_init (%sObjectIface *iface G_GNUC_UNUSED, gpointer iface_data G_GNUC_UNUSED)\n"
+             "{\n"
+             "}\n"
+             "\n" % (self.ns_lower, self.ns_lower, self.namespace)
+@@ -4959,7 +4957,7 @@ class CodeGenerator:
+         self.outfile.write("\n")
+         self.outfile.write(
+             "static void\n"
+-            "%sobject_skeleton__g_dbus_object_iface_init (GDBusObjectIface *iface)\n"
++            "%sobject_skeleton__g_dbus_object_iface_init (GDBusObjectIface *iface, gpointer iface_data G_GNUC_UNUSED)\n"
+             "{\n"
+             "  iface->interface_added = %sobject_notify;\n"
+             "  iface->interface_removed = %sobject_notify;\n"
+diff --git a/gio/gdbusinterfaceskeleton.c b/gio/gdbusinterfaceskeleton.c
+index ba4430259..34bec28b3 100644
+--- a/gio/gdbusinterfaceskeleton.c
++++ b/gio/gdbusinterfaceskeleton.c
+@@ -75,7 +75,8 @@ enum
+ 
+ static guint signals[LAST_SIGNAL] = {0};
+ 
+-static void     dbus_interface_interface_init                      (GDBusInterfaceIface    *iface);
++static void     dbus_interface_interface_init                      (GDBusInterfaceIface    *iface,
++                                                                    gpointer                iface_data);
+ 
+ static void     set_object_path_locked                             (GDBusInterfaceSkeleton *interface_,
+                                                                     const gchar            *object_path);
+@@ -451,7 +452,8 @@ g_dbus_interface_skeleton_set_object (GDBusInterface *interface_,
+ }
+ 
+ static void
+-dbus_interface_interface_init (GDBusInterfaceIface *iface)
++dbus_interface_interface_init (GDBusInterfaceIface *iface,
++                               gpointer             iface_data)
+ {
+   iface->get_info    = _g_dbus_interface_skeleton_get_info;
+   iface->get_object  = g_dbus_interface_skeleton_get_object;
 diff --git a/gio/gdbusintrospection.c b/gio/gdbusintrospection.c
 index df5daa32c..0bd46b84c 100644
 --- a/gio/gdbusintrospection.c
@@ -297,11 +449,45 @@ index 9edaeb3ec..3f620036a 100644
    g_mutex_unlock (&manager->priv->lock);
  
    return ret;
+diff --git a/gio/gdbusobjectmanagerserver.c b/gio/gdbusobjectmanagerserver.c
+index aec199fbb..10f0ffea3 100644
+--- a/gio/gdbusobjectmanagerserver.c
++++ b/gio/gdbusobjectmanagerserver.c
+@@ -108,7 +108,8 @@ enum
+   PROP_OBJECT_PATH
+ };
+ 
+-static void dbus_object_manager_interface_init (GDBusObjectManagerIface *iface);
++static void dbus_object_manager_interface_init (GDBusObjectManagerIface *iface,
++                                                gpointer                 iface_data);
+ 
+ G_DEFINE_TYPE_WITH_CODE (GDBusObjectManagerServer, g_dbus_object_manager_server, G_TYPE_OBJECT,
+                          G_ADD_PRIVATE (GDBusObjectManagerServer)
+@@ -1088,7 +1089,8 @@ g_dbus_object_manager_server_get_interface  (GDBusObjectManager  *_manager,
+ }
+ 
+ static void
+-dbus_object_manager_interface_init (GDBusObjectManagerIface *iface)
++dbus_object_manager_interface_init (GDBusObjectManagerIface *iface,
++                                    gpointer                 iface_data)
+ {
+   iface->get_object_path = g_dbus_object_manager_server_get_object_path;
+   iface->get_objects     = g_dbus_object_manager_server_get_objects;
 diff --git a/gio/gdbusobjectproxy.c b/gio/gdbusobjectproxy.c
-index dcdfe5b29..3ea7e440a 100644
+index dcdfe5b29..dd7b953f4 100644
 --- a/gio/gdbusobjectproxy.c
 +++ b/gio/gdbusobjectproxy.c
-@@ -249,7 +249,8 @@ g_dbus_object_proxy_get_interfaces (GDBusObject *object)
+@@ -57,7 +57,8 @@ enum
+   PROP_G_CONNECTION
+ };
+ 
+-static void dbus_object_interface_init (GDBusObjectIface *iface);
++static void dbus_object_interface_init (GDBusObjectIface *iface,
++                                        gpointer          iface_data);
+ 
+ G_DEFINE_TYPE_WITH_CODE (GDBusObjectProxy, g_dbus_object_proxy, G_TYPE_OBJECT,
+                          G_ADD_PRIVATE (GDBusObjectProxy)
+@@ -249,7 +250,8 @@ g_dbus_object_proxy_get_interfaces (GDBusObject *object)
  
    g_mutex_lock (&proxy->priv->lock);
    ret = g_hash_table_get_values (proxy->priv->map_name_to_iface);
@@ -311,11 +497,31 @@ index dcdfe5b29..3ea7e440a 100644
    g_mutex_unlock (&proxy->priv->lock);
  
    return ret;
+@@ -344,7 +346,8 @@ _g_dbus_object_proxy_remove_interface (GDBusObjectProxy *proxy,
+ }
+ 
+ static void
+-dbus_object_interface_init (GDBusObjectIface *iface)
++dbus_object_interface_init (GDBusObjectIface *iface,
++                            gpointer          iface_data)
+ {
+   iface->get_object_path       = g_dbus_object_proxy_get_object_path;
+   iface->get_interfaces        = g_dbus_object_proxy_get_interfaces;
 diff --git a/gio/gdbusobjectskeleton.c b/gio/gdbusobjectskeleton.c
-index f1376757c..066d332e9 100644
+index f1376757c..6b79838cd 100644
 --- a/gio/gdbusobjectskeleton.c
 +++ b/gio/gdbusobjectskeleton.c
-@@ -452,7 +452,8 @@ g_dbus_object_skeleton_get_interfaces (GDBusObject *_object)
+@@ -66,7 +66,8 @@ enum
+ 
+ static guint signals[LAST_SIGNAL] = {0};
+ 
+-static void dbus_object_interface_init (GDBusObjectIface *iface);
++static void dbus_object_interface_init (GDBusObjectIface *iface,
++                                        gpointer          iface_data);
+ 
+ G_DEFINE_TYPE_WITH_CODE (GDBusObjectSkeleton, g_dbus_object_skeleton, G_TYPE_OBJECT,
+                          G_ADD_PRIVATE (GDBusObjectSkeleton)
+@@ -452,7 +453,8 @@ g_dbus_object_skeleton_get_interfaces (GDBusObject *_object)
  
    g_mutex_lock (&object->priv->lock);
    ret = g_hash_table_get_values (object->priv->map_name_to_iface);
@@ -325,7 +531,7 @@ index f1376757c..066d332e9 100644
    g_mutex_unlock (&object->priv->lock);
  
    return ret;
-@@ -475,7 +476,8 @@ g_dbus_object_skeleton_flush (GDBusObjectSkeleton *object)
+@@ -475,7 +477,8 @@ g_dbus_object_skeleton_flush (GDBusObjectSkeleton *object)
  
    g_mutex_lock (&object->priv->lock);
    to_flush = g_hash_table_get_values_as_ptr_array (object->priv->map_name_to_iface);
@@ -335,6 +541,16 @@ index f1376757c..066d332e9 100644
    g_ptr_array_set_free_func (to_flush, g_object_unref);
    g_mutex_unlock (&object->priv->lock);
  
+@@ -489,7 +492,8 @@ g_dbus_object_skeleton_flush (GDBusObjectSkeleton *object)
+ }
+ 
+ static void
+-dbus_object_interface_init (GDBusObjectIface *iface)
++dbus_object_interface_init (GDBusObjectIface *iface,
++                            gpointer          iface_data)
+ {
+   iface->get_object_path = g_dbus_object_skeleton_get_object_path;
+   iface->get_interfaces  = g_dbus_object_skeleton_get_interfaces;
 diff --git a/gio/gdbusprivate.c b/gio/gdbusprivate.c
 index f34fac90e..12ee04024 100644
 --- a/gio/gdbusprivate.c
@@ -391,6 +607,40 @@ index daa33bc81..6b7b62c20 100644
                                g_free, g_free);
  
        keyfiles[0] = kfsb->keyfile;
+diff --git a/gio/gmemorymonitorbase.c b/gio/gmemorymonitorbase.c
+index 56b083f7e..b0a3aa7ec 100644
+--- a/gio/gmemorymonitorbase.c
++++ b/gio/gmemorymonitorbase.c
+@@ -50,8 +50,10 @@
+ 
+ #define G_MEMORY_MONITOR_BASE_GET_INITABLE_IFACE(o) (G_TYPE_INSTANCE_GET_INTERFACE ((o), G_TYPE_INITABLE, GInitable))
+ 
+-static void g_memory_monitor_base_iface_init (GMemoryMonitorInterface *iface);
+-static void g_memory_monitor_base_initable_iface_init (GInitableIface *iface);
++static void g_memory_monitor_base_iface_init (GMemoryMonitorInterface *iface,
++                                              gpointer                 iface_data);
++static void g_memory_monitor_base_initable_iface_init (GInitableIface *iface,
++                                                       gpointer        iface_data);
+ 
+ typedef struct
+ {
+@@ -190,12 +192,14 @@ g_memory_monitor_base_class_init (GMemoryMonitorBaseClass *klass)
+ }
+ 
+ static void
+-g_memory_monitor_base_iface_init (GMemoryMonitorInterface *monitor_iface)
++g_memory_monitor_base_iface_init (GMemoryMonitorInterface *monitor_iface,
++                                  gpointer                 iface_data)
+ {
+ }
+ 
+ static void
+-g_memory_monitor_base_initable_iface_init (GInitableIface *iface)
++g_memory_monitor_base_initable_iface_init (GInitableIface *iface,
++                                           gpointer        iface_data)
+ {
+   iface->init = g_memory_monitor_base_initable_init;
+ }
 diff --git a/gio/gsettingsbackend.c b/gio/gsettingsbackend.c
 index a1245f4e0..988facc27 100644
 --- a/gio/gsettingsbackend.c
@@ -497,6 +747,68 @@ index c8b914c88..ec769cfd7 100644
        g_free (queue);
      }
  }
+diff --git a/glib/gbookmarkfile.c b/glib/gbookmarkfile.c
+index 7392b1e07..6c344e4e3 100644
+--- a/glib/gbookmarkfile.c
++++ b/glib/gbookmarkfile.c
+@@ -355,6 +355,22 @@ bookmark_metadata_free (BookmarkMetadata *metadata)
+   g_slice_free (BookmarkMetadata, metadata);
+ }
+ 
++/* The copy functions as #GCopyFunc: calling them through that
++ * two-argument type is undefined behaviour, and traps on WebAssembly. */
++static gpointer
++copy_string (gconstpointer src,
++             gpointer      data)
++{
++  return g_strdup (src);
++}
++
++static gpointer
++copy_app_info (gconstpointer src,
++               gpointer      data)
++{
++  return bookmark_app_info_copy ((BookmarkAppInfo *) src);
++}
++
+ static BookmarkMetadata *
+ bookmark_metadata_copy (BookmarkMetadata *metadata)
+ {
+@@ -370,9 +386,9 @@ bookmark_metadata_copy (BookmarkMetadata *metadata)
+   copy->icon_href = g_strdup (metadata->icon_href);
+   copy->icon_mime = g_strdup (metadata->icon_mime);
+ 
+-  copy->groups = g_list_copy_deep (metadata->groups, (GCopyFunc) g_strdup, NULL);
++  copy->groups = g_list_copy_deep (metadata->groups, copy_string, NULL);
+   copy->applications =
+-    g_list_copy_deep (metadata->applications, (GCopyFunc) bookmark_app_info_copy, NULL);
++    g_list_copy_deep (metadata->applications, copy_app_info, NULL);
+ 
+   for (l = copy->applications; l; l = l->next)
+     {
+@@ -1716,6 +1732,13 @@ g_bookmark_file_new (void)
+   return bookmark;
+ }
+ 
++static gpointer
++copy_item (gconstpointer src,
++           gpointer      data)
++{
++  return bookmark_item_copy ((BookmarkItem *) src);
++}
++
+ /**
+  * g_bookmark_file_copy:
+  * @bookmark: A #GBookmarkFile
+@@ -1738,7 +1761,7 @@ g_bookmark_file_copy (GBookmarkFile *bookmark)
+   copy = g_bookmark_file_new ();
+   copy->title = g_strdup (bookmark->title);
+   copy->description = g_strdup (bookmark->description);
+-  copy->items = g_list_copy_deep (bookmark->items, (GCopyFunc) bookmark_item_copy, NULL);
++  copy->items = g_list_copy_deep (bookmark->items, copy_item, NULL);
+ 
+   for (l = copy->items; l; l = l->next)
+     {
 diff --git a/glib/glist.c b/glib/glist.c
 index f3dcc0107..03b32ec56 100644
 --- a/glib/glist.c
@@ -641,6 +953,20 @@ index 92d13c676..76f620a17 100644
  }
  
  /**
+diff --git a/glib/gtester.c b/glib/gtester.c
+index 24f84f6c9..95f34c964 100644
+--- a/glib/gtester.c
++++ b/glib/gtester.c
+@@ -386,8 +386,7 @@ launch_test_binary (const char *binary,
+                             NULL,       /* standard_output */
+                             NULL,       /* standard_error */
+                             &error);
+-  g_slist_foreach (free_list, (void(*)(void*,void*)) g_free, NULL);
+-  g_slist_free (free_list);
++  g_slist_free_full (free_list, g_free);
+   free_list = NULL;
+   close (report_pipe[1]);
+ 
 diff --git a/glib/gtestutils.c b/glib/gtestutils.c
 index 867604d0e..9296855d4 100644
 --- a/glib/gtestutils.c
@@ -942,6 +1268,208 @@ index aef23761b..26118a111 100644
        binding->target_notify = g_signal_connect_closure_by_id (target,
                                                                 gobject_notify_signal_id,
                                                                 target_property_detail,
+diff --git a/gobject/gclosure.c b/gobject/gclosure.c
+index cefa845e8..01e867cc3 100644
+--- a/gobject/gclosure.c
++++ b/gobject/gclosure.c
+@@ -1099,6 +1099,28 @@ g_cclosure_new_swap (GCallback      callback_func,
+   return closure;
+ }
+ 
++#ifdef G_PLATFORM_WASM
++/* Class handlers are the functions of a class structure, or ones given to
++ * g_signal_new_class_handler() or g_signal_override_class_handler(), and none
++ * of them declares the trailing user data a signal's C marshaller passes.
++ * WebAssembly traps on a call whose arguments don't match the callee's, so
++ * their closures call them through libffi with just the instance and the
++ * signal's parameters instead. */
++static void class_handler_marshal (GClosure     *closure,
++                                   GValue       *return_gvalue,
++                                   guint         n_param_values,
++                                   const GValue *param_values,
++                                   gpointer      invocation_hint,
++                                   gpointer      marshal_data);
++static void class_handler_marshal_va (GClosure *closure,
++                                      GValue   *return_value,
++                                      gpointer  instance,
++                                      va_list   args_list,
++                                      gpointer  marshal_data,
++                                      int       n_params,
++                                      GType    *param_types);
++#endif
++
+ static void
+ g_type_class_meta_marshal (GClosure       *closure,
+ 			   GValue /*out*/ *return_value,
+@@ -1272,6 +1294,10 @@ g_signal_type_cclosure_new (GType    itype,
+       g_closure_set_meta_marshal (closure, GUINT_TO_POINTER (struct_offset), g_type_class_meta_marshal);
+       g_closure_set_meta_va_marshal (closure, g_type_class_meta_marshalv);
+     }
++#ifdef G_PLATFORM_WASM
++  g_closure_set_marshal (closure, class_handler_marshal);
++  _g_closure_set_va_marshal (closure, class_handler_marshal_va);
++#endif
+   return closure;
+ }
+ 
+@@ -1550,6 +1576,16 @@ va_to_ffi_type (GType gtype,
+  *
+  * Since: 2.30
+  */
++#ifdef G_PLATFORM_WASM
++static void
++marshal_generic (GClosure     *closure,
++                 GValue       *return_gvalue,
++                 guint         n_param_values,
++                 const GValue *param_values,
++                 gpointer      invocation_hint,
++                 gpointer      marshal_data,
++                 gboolean      pass_data)
++#else
+ void
+ g_cclosure_marshal_generic (GClosure     *closure,
+                             GValue       *return_gvalue,
+@@ -1557,6 +1593,7 @@ g_cclosure_marshal_generic (GClosure     *closure,
+                             const GValue *param_values,
+                             gpointer      invocation_hint,
+                             gpointer      marshal_data)
++#endif
+ {
+   ffi_type *rtype;
+   void *rvalue;
+@@ -1618,6 +1655,16 @@ g_cclosure_marshal_generic (GClosure     *closure,
+                                      &tmpval_used);
+     }
+ 
++#ifdef G_PLATFORM_WASM
++  /* Unswapped, the data is the last argument, so dropping it leaves the
++   * instance and the parameters. */
++  if (!pass_data)
++    {
++      g_assert (!G_CCLOSURE_SWAP_DATA (closure));
++      n_args--;
++    }
++#endif
++
+   g_assert (n_args <= UINT_MAX);
+ 
+   if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, (unsigned int) n_args, rtype, atypes) != FFI_OK)
+@@ -1629,6 +1676,32 @@ g_cclosure_marshal_generic (GClosure     *closure,
+     value_from_ffi_type (return_gvalue, rvalue);
+ }
+ 
++#ifdef G_PLATFORM_WASM
++void
++g_cclosure_marshal_generic (GClosure     *closure,
++                            GValue       *return_gvalue,
++                            guint         n_param_values,
++                            const GValue *param_values,
++                            gpointer      invocation_hint,
++                            gpointer      marshal_data)
++{
++  marshal_generic (closure, return_gvalue, n_param_values, param_values,
++                   invocation_hint, marshal_data, TRUE);
++}
++
++static void
++class_handler_marshal (GClosure     *closure,
++                       GValue       *return_gvalue,
++                       guint         n_param_values,
++                       const GValue *param_values,
++                       gpointer      invocation_hint,
++                       gpointer      marshal_data)
++{
++  marshal_generic (closure, return_gvalue, n_param_values, param_values,
++                   invocation_hint, marshal_data, FALSE);
++}
++#endif
++
+ /**
+  * g_cclosure_marshal_generic_va:
+  * @closure: the #GClosure to which the marshaller belongs
+@@ -1650,6 +1723,17 @@ g_cclosure_marshal_generic (GClosure     *closure,
+  *
+  * Since: 2.30
+  */
++#ifdef G_PLATFORM_WASM
++static void
++marshal_generic_va (GClosure *closure,
++		    GValue   *return_value,
++		    gpointer  instance,
++		    va_list   args_list,
++		    gpointer  marshal_data,
++		    int       n_params,
++		    GType    *param_types,
++		    gboolean  pass_data)
++#else
+ void
+ g_cclosure_marshal_generic_va (GClosure *closure,
+ 			       GValue   *return_value,
+@@ -1658,6 +1742,7 @@ g_cclosure_marshal_generic_va (GClosure *closure,
+ 			       gpointer  marshal_data,
+ 			       int       n_params,
+ 			       GType    *param_types)
++#endif
+ {
+   ffi_type *rtype;
+   void *rvalue;
+@@ -1739,6 +1824,14 @@ g_cclosure_marshal_generic_va (GClosure *closure,
+ 
+   va_end (args_copy);
+ 
++#ifdef G_PLATFORM_WASM
++  if (!pass_data)
++    {
++      g_assert (!G_CCLOSURE_SWAP_DATA (closure));
++      n_args--;
++    }
++#endif
++
+   g_assert (n_args <= UINT_MAX);
+ 
+   if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, (unsigned int) n_args, rtype, atypes) != FFI_OK)
+@@ -1770,3 +1863,41 @@ g_cclosure_marshal_generic_va (GClosure *closure,
+   if (return_value && G_VALUE_TYPE (return_value))
+     value_from_ffi_type (return_value, rvalue);
+ }
++
++#ifdef G_PLATFORM_WASM
++void
++g_cclosure_marshal_generic_va (GClosure *closure,
++			       GValue   *return_value,
++			       gpointer  instance,
++			       va_list   args_list,
++			       gpointer  marshal_data,
++			       int       n_params,
++			       GType    *param_types)
++{
++  marshal_generic_va (closure, return_value, instance, args_list,
++		      marshal_data, n_params, param_types, TRUE);
++}
++
++static void
++class_handler_marshal_va (GClosure *closure,
++			  GValue   *return_value,
++			  gpointer  instance,
++			  va_list   args_list,
++			  gpointer  marshal_data,
++			  int       n_params,
++			  GType    *param_types)
++{
++  marshal_generic_va (closure, return_value, instance, args_list,
++		      marshal_data, n_params, param_types, FALSE);
++}
++
++GClosure *
++_g_cclosure_new_class_handler (GCallback class_handler)
++{
++  GClosure *closure = g_cclosure_new (class_handler, NULL, NULL);
++
++  g_closure_set_marshal (closure, class_handler_marshal);
++  _g_closure_set_va_marshal (closure, class_handler_marshal_va);
++  return closure;
++}
++#endif
 diff --git a/gobject/gobject.c b/gobject/gobject.c
 index 2ed51da4a..fccb55954 100644
 --- a/gobject/gobject.c
@@ -1022,3 +1550,112 @@ index 2ed51da4a..fccb55954 100644
  
    _g_datalist_id_update_atomic (&object->qdata,
                                  quark_closure_array,
+diff --git a/gobject/gsignal.c b/gobject/gsignal.c
+index 9aba8b28b..6c07e8b40 100644
+--- a/gobject/gsignal.c
++++ b/gobject/gsignal.c
+@@ -1510,7 +1510,11 @@ g_signal_new_class_handler (const gchar        *signal_name,
+   va_start (args, n_params);
+ 
+   signal_id = g_signal_new_valist (signal_name, itype, signal_flags,
++#ifdef G_PLATFORM_WASM
++                                   class_handler ? _g_cclosure_new_class_handler (class_handler) : NULL,
++#else
+                                    class_handler ? g_cclosure_new (class_handler, NULL, NULL) : NULL,
++#endif
+                                    accumulator, accu_data, c_marshaller,
+                                    return_type, n_params, args);
+ 
+@@ -2048,7 +2052,11 @@ g_signal_override_class_handler (const gchar *signal_name,
+ 
+   if (signal_id)
+     g_signal_override_class_closure (signal_id, instance_type,
++#ifdef G_PLATFORM_WASM
++                                     _g_cclosure_new_class_handler (class_handler));
++#else
+                                      g_cclosure_new (class_handler, NULL, NULL));
++#endif
+   else
+     g_critical ("%s: signal name '%s' is invalid for type id '%"G_GUINTPTR_FORMAT"'",
+                 G_STRLOC, signal_name, (guintptr) instance_type);
+diff --git a/gobject/gsourceclosure.c b/gobject/gsourceclosure.c
+index f4076abdc..c5718d935 100644
+--- a/gobject/gsourceclosure.c
++++ b/gobject/gsourceclosure.c
+@@ -222,8 +222,17 @@ closure_callback_get (gpointer     cb_data,
+   *data = cb_data;
+ }
+ 
++/* g_closure_ref() returns the closure, so calling it through the
++ * void-returning ref type is undefined behaviour, and traps on
++ * WebAssembly. */
++static void
++closure_callback_ref (gpointer cb_data)
++{
++  g_closure_ref (cb_data);
++}
++
+ static GSourceCallbackFuncs closure_callback_funcs = {
+-  (void (*) (gpointer)) g_closure_ref,
++  closure_callback_ref,
+   (void (*) (gpointer)) g_closure_unref,
+   closure_callback_get
+ };
+diff --git a/gobject/gtype-private.h b/gobject/gtype-private.h
+index 53fb4af43..b95b06038 100644
+--- a/gobject/gtype-private.h
++++ b/gobject/gtype-private.h
+@@ -94,6 +94,9 @@ void        _g_closure_invoke_va (GClosure       *closure,
+ 				  va_list         args,
+ 				  int             n_params,
+ 				  GType          *param_types);
++#ifdef G_PLATFORM_WASM
++GClosure   *_g_cclosure_new_class_handler (GCallback class_handler);
++#endif
+ 
+ gboolean    _g_object_has_signal_handler     (GObject     *object);
+ void        _g_object_set_has_signal_handler (GObject     *object,
+diff --git a/gobject/gtypemodule.c b/gobject/gtypemodule.c
+index f06f521bc..c6a5ef6b4 100644
+--- a/gobject/gtypemodule.c
++++ b/gobject/gtypemodule.c
+@@ -123,7 +123,8 @@ g_type_module_finalize (GObject *object)
+ }
+ 
+ static void
+-g_type_module_class_init (GTypeModuleClass *class)
++g_type_module_class_init (GTypeModuleClass *class,
++                          gpointer          class_data)
+ {
+   GObjectClass *gobject_class = G_OBJECT_CLASS (class);
+ 
+diff --git a/gobject/gtypemodule.h b/gobject/gtypemodule.h
+index 55c02470c..70ec3b489 100644
+--- a/gobject/gtypemodule.h
++++ b/gobject/gtypemodule.h
+@@ -176,6 +176,16 @@ struct _GTypeModuleClass
+ static void     type_name##_init              (TypeName        *self); \
+ static void     type_name##_class_init        (TypeName##Class *klass); \
+ static void     type_name##_class_finalize    (TypeName##Class *klass); \
++static void     type_name##_init_adapter      (TypeName        *self, \
++                                               gpointer         g_class G_GNUC_UNUSED) \
++{ \
++  type_name##_init (self); \
++} \
++static void     type_name##_class_finalize_adapter (TypeName##Class *klass, \
++                                                    gpointer         class_data G_GNUC_UNUSED) \
++{ \
++  type_name##_class_finalize (klass); \
++} \
+ static gpointer type_name##_parent_class = NULL; \
+ static GType    type_name##_type_id = 0; \
+ static gint     TypeName##_private_offset; \
+@@ -203,7 +213,7 @@ type_name##_register_type (GTypeModule *type_module) \
+     (GBaseInitFunc) NULL, \
+     (GBaseFinalizeFunc) NULL, \
+     (GClassInitFunc) type_name##_class_intern_init, \
+-    (GClassFinalizeFunc) type_name##_class_finalize, \
++    (GClassFinalizeFunc) type_name##_class_finalize_adapter, \
+     NULL,   /* class_data */ \
+     sizeof (TypeName), \
+     0,      /* n_preallocs */ \

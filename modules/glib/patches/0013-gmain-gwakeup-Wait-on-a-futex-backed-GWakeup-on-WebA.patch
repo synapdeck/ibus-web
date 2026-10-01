@@ -1,0 +1,474 @@
+From b9047605d06dd0f345976062b162bc10add5c246 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 23:36:42 -0700
+Subject: [PATCH 13/16] gmain, gwakeup: Wait on a futex-backed GWakeup on
+ WebAssembly
+
+"Add support for WebAssembly" turns every GWakeup function into a
+g_error() on WebAssembly. Every GMainContext creates a wakeup, signals
+it from g_main_loop_quit(), g_main_context_wakeup() and cross-thread
+source changes, and frees it with the context, so any main context
+aborted. Fluendo's gst.wasm branch made the wakeup a no-op, stopped
+registering its fd and forced every poll's timeout to zero ("A g_error
+is a fatal error when run, remove it", "Initial main loop support",
+"gmain: emscripten: Use 0 timeout"), after which a blocking
+g_main_context_iteration() or g_main_loop_run() busy-spun, GLib's worker
+context and GDBus's shared thread included. This replaces both with a
+wakeup a context can sleep on.
+
+A GWakeup there is a counter that g_wakeup_signal() bumps and wakes with
+emscripten_futex_wake(), and the new g_wakeup_wait() sleeps on it with
+emscripten_futex_wait() until it moves past the value
+g_wakeup_acknowledge() last recorded or a timeout passes: eventfd's
+contract, with only equality compared so the counter may wrap.
+emscripten_futex_wait() rather than a bare atomic wait, because other
+threads hand a sleeping thread work and wait for it: the main thread
+runs the calls pthreads proxy to it, and dlopen() blocks until every
+thread has loaded the new module; the futex wait serves both.
+
+A blocking iteration waits on the context's wakeup with the computed
+timeout instead of calling poll(), which on Emscripten can't wait: it
+ignores a timeout on the main thread and, from a pthread, is proxied to
+the main thread and only returns once that thread gets back to its
+event loop. With fds to watch, they are probed with a zero timeout
+between waits of at most 10 ms, which bounds how late a ready fd is
+noticed and how often a probing thread interrupts the main thread.
+g_main_context_check() acknowledges the wakeup, which is not among the
+polled fds. Non-blocking iteration is unchanged: fds are probed once
+with a zero timeout, and with none nothing is called.
+
+The first g_wakeup_get_pollfd() on a wakeup creates a pipe and returns
+its read end, so GCancellable's fds and everything polling them work.
+From then on g_wakeup_signal() also writes a byte to it and
+g_wakeup_acknowledge() drains it before acknowledging the futex, so the
+fd polls ready whenever the futex is signalled. The drain stops at the
+first read that returns nothing, which is EAGAIN on Emscripten's
+JavaScript file systems (even at end of file) and 0 on WasmFS. Waiting
+is unchanged: g_wakeup_wait() and main contexts still sleep on the
+futex. Only a context made with G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING
+asks for the fd and polls it, since whoever polls it from outside can
+only see a wakeup through an fd; other contexts never get a pipe.
+
+g_poll() with a timeout didn't wait either: Emscripten's poll() ignores
+the timeout on the main thread and on WasmFS, and from a pthread on the
+JavaScript file systems it waits for the main thread to return to its
+event loop. It now probes the fds without waiting and sleeps in 10 ms
+slices between probes until one is ready or the timeout passes.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/gmain.c   |  75 +++++++++++++++++++++++++-
+ glib/gpoll.c   |  52 ++++++++++++++++++
+ glib/gwakeup.c | 139 ++++++++++++++++++++++++++++++++++++++++++++++---
+ glib/gwakeup.h |   4 ++
+ 4 files changed, 260 insertions(+), 10 deletions(-)
+
+diff --git a/glib/gmain.c b/glib/gmain.c
+index c5753ebc0..da655051f 100644
+--- a/glib/gmain.c
++++ b/glib/gmain.c
+@@ -711,8 +711,16 @@ g_main_context_new_with_flags (GMainContextFlags flags)
+   context->time_is_fresh = FALSE;
+   
+   context->wakeup = g_wakeup_new ();
+-  g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
+-  g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
++#ifdef G_PLATFORM_WASM
++  /* A context waits on its wakeup rather than polling it, so the wakeup
++   * only gets a poll fd for whoever polls an ownerless context's fds from
++   * outside. */
++  if (flags & G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING)
++#endif
++    {
++      g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
++      g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
++    }
+ 
+ #ifdef G_MAIN_POLL_DEBUG
+   if (_g_main_poll_debug)
+@@ -4257,6 +4265,13 @@ g_main_context_check_unlocked (GMainContext *context,
+ 
+   TRACE (GLIB_MAIN_CONTEXT_BEFORE_CHECK (context, max_priority, fds, n_fds));
+ 
++#ifdef G_PLATFORM_WASM
++  /* The wakeup is waited on rather than polled; only an ownerless-polling
++   * context lists its fd, for pollers outside the context.  Whatever
++   * signalled it did so after changing what the next prepare will look at,
++   * so acknowledging it here, whatever its fd reported, loses nothing. */
++  g_wakeup_acknowledge (context->wakeup);
++#else
+   for (i = 0; i < n_fds; i++)
+     {
+       if (fds[i].fd == context->wake_up_rec.fd)
+@@ -4269,6 +4284,7 @@ g_main_context_check_unlocked (GMainContext *context,
+           break;
+         }
+     }
++#endif
+ 
+   /* If the set of poll file descriptors changed, bail out
+    * and let the main loop rerun
+@@ -4789,6 +4805,54 @@ g_main_loop_get_context (GMainLoop *loop)
+   return loop->context;
+ }
+ 
++#ifdef G_PLATFORM_WASM
++/* Between probes of the fds, when there are any.  An fd turning ready
++ * doesn't signal the wakeup, so this bounds how late it is noticed; each
++ * probe is a call proxied to the main thread, so shorter slices cost the
++ * main thread more. */
++#define WASM_POLL_SLICE_USEC (10 * G_TIME_SPAN_MILLISECOND)
++
++/* Emscripten's poll() can't wait: on the main thread it ignores the
++ * timeout, and from a pthread it is proxied to the main thread, where a
++ * wait only ends once that thread returns to its event loop.  So the fds
++ * are only ever probed, and the wait happens on the context's wakeup,
++ * which every change to the context from another thread signals. */
++static int
++g_main_context_poll_wasm (GWakeup  *wakeup,
++                          GPollFunc poll_func,
++                          GPollFD  *fds,
++                          int       n_fds,
++                          gint64    timeout_usec)
++{
++  gint64 deadline = -1;
++
++  if (timeout_usec > 0)
++    deadline = g_get_monotonic_time () + timeout_usec;
++
++  for (;;)
++    {
++      gint64 wait_usec = -1;
++      int ret = n_fds ? (*poll_func) (fds, n_fds, 0) : 0;
++
++      if (ret != 0 || timeout_usec == 0)
++        return ret;
++
++      if (deadline >= 0)
++        {
++          wait_usec = deadline - g_get_monotonic_time ();
++          if (wait_usec <= 0)
++            return 0;
++        }
++
++      if (n_fds && (wait_usec < 0 || wait_usec > WASM_POLL_SLICE_USEC))
++        wait_usec = WASM_POLL_SLICE_USEC;
++
++      if (g_wakeup_wait (wakeup, wait_usec))
++        return 0;
++    }
++}
++#endif
++
+ /* HOLDS: context's lock */
+ static void
+ g_main_context_poll_unlocked (GMainContext *context,
+@@ -4820,6 +4884,12 @@ g_main_context_poll_unlocked (GMainContext *context,
+ #endif
+       poll_func = context->poll_func;
+ 
++#ifdef G_PLATFORM_WASM
++      UNLOCK_CONTEXT (context);
++      ret = g_main_context_poll_wasm (context->wakeup, poll_func, fds, n_fds,
++                                      timeout_usec);
++      LOCK_CONTEXT (context);
++#else
+ #if defined(HAVE_PPOLL) && defined(HAVE_POLL)
+       if (poll_func == g_poll)
+         {
+@@ -4846,6 +4916,7 @@ g_main_context_poll_unlocked (GMainContext *context,
+           ret = (*poll_func) (fds, n_fds, timeout_msec);
+           LOCK_CONTEXT (context);
+         }
++#endif /* !G_PLATFORM_WASM */
+ 
+       errsv = errno;
+       if (ret < 0 && errsv != EINTR)
+diff --git a/glib/gpoll.c b/glib/gpoll.c
+index 293e7111a..208c34ca9 100644
+--- a/glib/gpoll.c
++++ b/glib/gpoll.c
+@@ -93,6 +93,54 @@ extern gboolean _g_main_poll_debug;
+ 
+ #ifdef HAVE_POLL
+ 
++#ifdef G_PLATFORM_WASM
++#include "gdatetime.h"
++#include "gmain.h"
++#include "gtimer.h"
++
++/* Between probes of the fds.  Each probe from a pthread is a call proxied
++ * to the main thread, so this bounds both how late a ready fd is noticed
++ * and how often the main thread is interrupted. */
++#define WASM_POLL_SLICE_USEC (10 * G_TIME_SPAN_MILLISECOND)
++
++/* Emscripten's poll() can't wait.  On the main thread, and on WasmFS
++ * anywhere, it ignores the timeout; from a pthread on the JavaScript file
++ * systems it is proxied to the main thread, where a wait only ends once
++ * that thread returns to its event loop, which a thread blocked in GLib
++ * never does.  So the fds are only ever probed, with sleeps in between
++ * until one is ready or the timeout passes. */
++static gint
++g_poll_wasm (GPollFD *fds,
++             guint    nfds,
++             gint     timeout)
++{
++  gint64 deadline = -1;
++
++  if (timeout > 0)
++    deadline = g_get_monotonic_time () + timeout * G_TIME_SPAN_MILLISECOND;
++
++  for (;;)
++    {
++      gint64 sleep_usec = WASM_POLL_SLICE_USEC;
++      gint ret = poll ((struct pollfd *) fds, nfds, 0);
++
++      if (ret != 0 || timeout == 0)
++        return ret;
++
++      if (deadline >= 0)
++        {
++          gint64 remaining = deadline - g_get_monotonic_time ();
++
++          if (remaining <= 0)
++            return 0;
++          sleep_usec = MIN (sleep_usec, remaining);
++        }
++
++      g_usleep (sleep_usec);
++    }
++}
++#endif
++
+ /**
+  * g_poll:
+  * @fds: file descriptors to poll
+@@ -128,7 +176,11 @@ g_poll (GPollFD *fds,
+ 	guint    nfds,
+ 	gint     timeout)
+ {
++#ifdef G_PLATFORM_WASM
++  return g_poll_wasm (fds, nfds, timeout);
++#else
+   return poll ((struct pollfd *)fds, nfds, timeout);
++#endif
+ }
+ 
+ #else	/* !HAVE_POLL */
+diff --git a/glib/gwakeup.c b/glib/gwakeup.c
+index 1f6140e00..af79b8fa5 100644
+--- a/glib/gwakeup.c
++++ b/glib/gwakeup.c
+@@ -112,8 +112,19 @@ g_wakeup_free (GWakeup *wakeup)
+ 
+ #ifdef G_PLATFORM_WASM
+ #ifdef GLIB_COMPILATION
++#include "gatomic.h"
++#include "giochannel.h"
++#include "gmem.h"
+ #include "gmessages.h"
++#include "gslice.h"
++#include "gstrfuncs.h"
+ #endif
++#include <emscripten/threading.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <limits.h>
++#include <math.h>
++#include <unistd.h>
+ #else /* !G_PLATFORM_WASM */
+ #include "glib-unix.h"
+ #include <fcntl.h>
+@@ -123,9 +134,23 @@ g_wakeup_free (GWakeup *wakeup)
+ #endif
+ #endif /*G_PLATFORM_WASM*/
+ 
++/* Emscripten's poll() can't wait on a file descriptor, so on WebAssembly
++ * a wakeup is a futex: signalling bumps @signals and wakes its waiters, and
++ * g_wakeup_wait() sleeps while @signals still equals the value last
++ * acknowledged.  Only equality is compared, so the counter may wrap.
++ *
++ * Callers that need something to poll (GCancellable's fds) get a pipe,
++ * created by the first g_wakeup_get_pollfd(): from then on each signal
++ * also writes a byte to it, and acknowledging drains it.  Wakeups nobody
++ * polls, such as those of main contexts not made for ownerless polling,
++ * never create one. */
+ struct _GWakeup
+ {
+-#ifndef G_PLATFORM_WASM
++#ifdef G_PLATFORM_WASM
++  gint signals;       /* (atomic) */
++  gint acknowledged;  /* (atomic) */
++  gint *pipe;         /* (atomic) (nullable): read end, then write end */
++#else
+   gint fds[2];
+ #endif
+ };
+@@ -145,8 +170,7 @@ GWakeup *
+ g_wakeup_new (void)
+ {
+ #ifdef G_PLATFORM_WASM
+-  g_error ("g_wakeup_new is no-op on WebAssembly");
+-  return NULL;
++  return g_slice_new0 (GWakeup);
+ #else
+   GError *error = NULL;
+   GWakeup *wakeup;
+@@ -198,7 +222,39 @@ g_wakeup_get_pollfd (GWakeup *wakeup,
+                      GPollFD *poll_fd)
+ {
+ #ifdef G_PLATFORM_WASM
+-  g_error ("g_wakeup_get_pollfd is no-op on WebAssembly");
++  gint *fds = g_atomic_pointer_get (&wakeup->pipe);
++
++  if (fds == NULL)
++    {
++      fds = g_new (gint, 2);
++
++      /* WasmFS's pipe2() takes no flag but O_CLOEXEC. */
++      if (pipe2 (fds, O_CLOEXEC) != 0)
++        g_error ("Creating pipes for GWakeup: %s", g_strerror (errno));
++      fcntl (fds[0], F_SETFL, O_NONBLOCK);
++      fcntl (fds[1], F_SETFL, O_NONBLOCK);
++
++      if (g_atomic_pointer_compare_and_exchange (&wakeup->pipe, NULL, fds))
++        {
++          uint8_t one = 1;
++
++          /* A signal racing with the publication above either saw the
++           * pipe and wrote to it, or bumped the counter before this reads
++           * it; a spare byte only costs a spurious wakeup. */
++          if (g_atomic_int_get (&wakeup->signals) != g_atomic_int_get (&wakeup->acknowledged))
++            (void) write (fds[1], &one, sizeof one);
++        }
++      else
++        {
++          close (fds[0]);
++          close (fds[1]);
++          g_free (fds);
++          fds = g_atomic_pointer_get (&wakeup->pipe);
++        }
++    }
++
++  poll_fd->fd = fds[0];
++  poll_fd->events = G_IO_IN;
+ #else
+   poll_fd->fd = wakeup->fds[0];
+   poll_fd->events = G_IO_IN;
+@@ -223,7 +279,24 @@ void
+ g_wakeup_acknowledge (GWakeup *wakeup)
+ {
+ #ifdef G_PLATFORM_WASM
+-  g_error ("g_wakeup_acknowledge is no-op on WebAssembly");
++  gint *fds = g_atomic_pointer_get (&wakeup->pipe);
++
++  /* Draining first means a signal landing in between leaves a byte
++   * behind, a spurious wakeup, rather than a signalled wakeup whose fd
++   * doesn't poll ready.  An empty pipe reads as EAGAIN on Emscripten's
++   * JavaScript file systems, even once every writer has closed, and as 0
++   * on WasmFS; either ends the loop. */
++  if (fds != NULL)
++    {
++      uint8_t buffer[64];
++      int res;
++
++      do
++        res = read (fds[0], buffer, sizeof buffer);
++      while (res > 0 || G_UNLIKELY (res == -1 && errno == EINTR));
++    }
++
++  g_atomic_int_set (&wakeup->acknowledged, g_atomic_int_get (&wakeup->signals));
+ #else
+   int res;
+ 
+@@ -266,7 +339,21 @@ void
+ g_wakeup_signal (GWakeup *wakeup)
+ {
+ #ifdef G_PLATFORM_WASM
+-  g_error ("g_wakeup_signal is no-op on WebAssembly");
++  gint *fds;
++
++  g_atomic_int_inc (&wakeup->signals);
++  emscripten_futex_wake (&wakeup->signals, INT_MAX);
++
++  fds = g_atomic_pointer_get (&wakeup->pipe);
++  if (fds != NULL)
++    {
++      uint8_t one = 1;
++      int res;
++
++      do
++        res = write (fds[1], &one, sizeof one);
++      while (G_UNLIKELY (res == -1 && errno == EINTR));
++    }
+ #else
+   int res;
+ 
+@@ -306,15 +393,51 @@ void
+ g_wakeup_free (GWakeup *wakeup)
+ {
+ #ifdef G_PLATFORM_WASM
+-  g_error ("g_wakeup_free is no-op on WebAssembly");
++  if (wakeup->pipe != NULL)
++    {
++      close (wakeup->pipe[0]);
++      close (wakeup->pipe[1]);
++      g_free (wakeup->pipe);
++    }
+ #else
+   close (wakeup->fds[0]);
+ 
+   if (wakeup->fds[1] != -1)
+     close (wakeup->fds[1]);
++#endif
+ 
+   g_slice_free (GWakeup, wakeup);
+-#endif
+ }
+ 
++#ifdef G_PLATFORM_WASM
++/*< private >
++ * g_wakeup_wait:
++ * @wakeup: a #GWakeup
++ * @timeout_usec: the longest to wait, in microseconds, or -1 for no limit
++ *
++ * Waits until @wakeup is signalled or @timeout_usec passes, returning at
++ * once if it was signalled since the last g_wakeup_acknowledge().  The wait
++ * may also end early for no reason, so callers recheck their own deadline.
++ *
++ * Returns: %TRUE if @wakeup is signalled
++ */
++gboolean
++g_wakeup_wait (GWakeup *wakeup,
++               gint64   timeout_usec)
++{
++  gint acknowledged = g_atomic_int_get (&wakeup->acknowledged);
++
++  /* A bare atomic wait would sleep through work other threads hand this
++   * one and wait on: the main thread runs the calls pthreads proxy to it
++   * (their file system calls among them), and dlopen() blocks until every
++   * thread has loaded the new module.  emscripten_futex_wait() is woken
++   * for both and does the work before returning. */
++  if (timeout_usec != 0 && g_atomic_int_get (&wakeup->signals) == acknowledged)
++    emscripten_futex_wait (&wakeup->signals, (guint32) acknowledged,
++                           timeout_usec < 0 ? INFINITY : timeout_usec / 1000.0);
++
++  return g_atomic_int_get (&wakeup->signals) != acknowledged;
++}
++#endif
++
+ #endif /* !_WIN32 */
+diff --git a/glib/gwakeup.h b/glib/gwakeup.h
+index 0905fde2f..f5d37ec20 100644
+--- a/glib/gwakeup.h
++++ b/glib/gwakeup.h
+@@ -33,5 +33,9 @@ void            g_wakeup_get_pollfd     (GWakeup *wakeup,
+                                          GPollFD *poll_fd);
+ void            g_wakeup_signal         (GWakeup *wakeup);
+ void            g_wakeup_acknowledge    (GWakeup *wakeup);
++#ifdef G_PLATFORM_WASM
++gboolean        g_wakeup_wait           (GWakeup *wakeup,
++                                         gint64   timeout_usec);
++#endif
+ 
+ #endif

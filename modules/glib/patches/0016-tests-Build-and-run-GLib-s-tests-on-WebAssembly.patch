@@ -1,0 +1,3434 @@
+From 15d31468fa4ec44b121e320bef13da96f92224db Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 23:37:37 -0700
+Subject: [PATCH 16/16] tests: Build and run GLib's tests on WebAssembly
+
+Only test sources and test build files change.
+
+The tests' meson files treat every non-Windows host as Unix, while the
+library build leaves most Unix sources out on Emscripten, so
+configuring with -Dtests=true failed and several tests didn't link.
+Leave out what Emscripten can't build or run: the Unix-only test blocks
+and programs in glib/tests and gio/tests, GIO_LAUNCH_DESKTOP and the
+dbus-launch helper; the constructor test, whose shared libraries Meson
+can't link here; tests/lib's glibconfig.py, which only girepository's
+tests read; and appmonitor (GDesktopAppInfo), gsubprocess (spawning)
+and unix-fd (fd passing). The tool tests' runner looks for <tool>.js and
+runs it with the Node that _G_TEST_PROGRAM_RUNNER_NODE names, which the
+meson files set on Emscripten, glib/tests' included.
+
+WebAssembly traps on any call through a function pointer of another
+type, so test code that registers callbacks with the wrong signature
+now passes functions of the right type: class, instance and interface
+init functions take their data argument, notify and signal handlers
+their user data and the signal's parameters, class closures made with
+g_cclosure_new() the user data their marshallers pass, and small
+wrappers stand in where a test passed a library function (g_strdup,
+g_free, g_usleep, g_main_loop_quit, g_cancellable_cancel,
+g_object_unref) or one of its own functions through another callback
+type. hook's hooks swap functions between g_hook_list_invoke() and
+g_hook_list_invoke_check(), which call them through different types;
+filenamecompleter connected g_main_loop_quit() to a signal with another
+signature. param's instance_init takes the class data argument
+GParamSpecTypeInfo gives it here.
+
+Where an expectation can't hold on WebAssembly, skip the subtest, or
+the part of it, with the reason:
+- musl takes any locale name but has no locale data: collate's lists
+  that sort differently under en_US, option-context's decimal comma,
+  date's Polish month names, and gdatetime's en_GB formats, de_DE month
+  names and eras.
+- WasmFS has no sockets, and Emscripten can't spawn or fork processes,
+  parse an IPv6 scope ID or list network interfaces; nothing can send it
+  a Unix signal. thread's CPU affinity subtest calls
+  pthread_getaffinity_np(), which Emscripten declares but doesn't
+  define.
+- WasmFS keeps file times as a double count of milliseconds and gives
+  pipes no capacity.
+- Time zones come from Intl, so no TZif file is read by path.
+- gio-tool's launch command needs desktop applications and spawning,
+  and WebAssembly's content types know no MIME types.
+
+Where musl's output is right but differs, expect it: strftime() pads
+years to four digits and has no %k, %l or %P, and iconv() reports a
+character the target lacks once it has consumed the input. A
+WebAssembly GMainContext polls no wakeup fd unless it is ownerless, so
+mainloop expects one fewer fd. The program is named after the .js
+script Node runs. gwakeuptest checks that the wakeup's poll fd agrees
+with g_wakeup_wait(), and waits with g_wakeup_wait(), since its threaded
+test passes tokens far too often for the 10 ms slices a polling wait
+takes.
+
+Fix the tests themselves where they relied on more than they should:
+- filenamecompleter expected completions in the order one file system
+  lists them;
+- gdbus-peer's credentials test assumed credentials on every Unix;
+- messages-low-memory's malloc() looks up the real one with
+  dlsym(RTLD_NEXT), which WebAssembly can't do; there it calls
+  emscripten_builtin_malloc() instead;
+- the Python tests expected abort() to end Node with SIGABRT;
+- spawn-singlethread and test-printf open their pipe with pipe(), and
+  test-printf's reader waits for its writer, since Emscripten's pipe
+  reads never block;
+- asyncqueue's threads test pushed its items as soon as it had created
+  its consumers, and expected each consumer to get some. Under load a
+  thread can start hundreds of milliseconds after it is created, once
+  the queue has drained, so the test now waits until every consumer is
+  running. This race is the same on every platform.
+
+convert and converter-stream check that a replaced character is found
+also when the conversion runs out of output room or ends in an
+incomplete character, and check stateful charsets: a byte order mark and
+ISO-2022-JP's shift state across calls and full output, and a fallback
+between kanji in ISO-2022-JP.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ gio/tests/cancellable.c                 |  27 +++++--
+ gio/tests/converter-stream.c            | 102 ++++++++++++++++++++++--
+ gio/tests/filenamecompleter.c           |  38 +++++++--
+ gio/tests/g-file-info.c                 |  18 +++++
+ gio/tests/gdbus-peer.c                  |  34 +++++++-
+ gio/tests/gio-tool.py                   |   7 ++
+ gio/tests/glistmodel.c                  |   8 +-
+ gio/tests/gtesttlsbackend.c             |  20 ++---
+ gio/tests/inet-address.c                |   4 +-
+ gio/tests/meson.build                   |  26 +++++-
+ gio/tests/network-address.c             |  10 +++
+ gio/tests/pollable.c                    |   7 ++
+ gio/tests/proxy-test.c                  |  16 ++--
+ gio/tests/resolver.c                    |   9 ++-
+ gio/tests/socket.c                      |  48 +++++++++++
+ glib/tests/array-test.c                 |  11 ++-
+ glib/tests/assert-msg-test.py           |   3 +
+ glib/tests/asyncqueue.c                 |  17 ++++
+ glib/tests/collate.c                    |  22 +++++
+ glib/tests/convert.c                    |  55 +++++++++++++
+ glib/tests/dataset.c                    |  12 ++-
+ glib/tests/date.c                       |  24 ++++++
+ glib/tests/gdatetime.c                  |  28 +++++++
+ glib/tests/gwakeuptest.c                |  14 +++-
+ glib/tests/hook.c                       |  19 +++++
+ glib/tests/list.c                       |  10 ++-
+ glib/tests/mainloop.c                   |  40 +++++++---
+ glib/tests/mapping.c                    |   5 ++
+ glib/tests/meson.build                  |  14 +++-
+ glib/tests/messages-low-memory.c        |  10 +++
+ glib/tests/messages-low-memory.py       |   3 +
+ glib/tests/node.c                       |  13 ++-
+ glib/tests/option-argv0.c               |   6 +-
+ glib/tests/option-context.c             |   9 ++-
+ glib/tests/slist.c                      |  10 ++-
+ glib/tests/spawn-singlethread.c         |   4 +-
+ glib/tests/test-printf.c                |  13 ++-
+ glib/tests/testing.c                    |  69 +++++++++++++++-
+ glib/tests/thread-pool-slow.c           |  11 ++-
+ glib/tests/thread.c                     |   4 +-
+ glib/tests/tree.c                       |  12 ++-
+ gobject/tests/accumulator.c             |   8 +-
+ gobject/tests/basic-signals.c           |   2 +-
+ gobject/tests/basics-gobject.c          |  16 ++--
+ gobject/tests/binding.c                 |  13 ++-
+ gobject/tests/bindinggroup.c            |  11 ++-
+ gobject/tests/closure.c                 |  12 +++
+ gobject/tests/defaultiface.c            |   6 +-
+ gobject/tests/dynamictests.c            |   6 +-
+ gobject/tests/dynamictype.c             |   4 +-
+ gobject/tests/ifaceproperties.c         |  10 +--
+ gobject/tests/meson.build               |   5 ++
+ gobject/tests/objects-refcount2.c       |   8 +-
+ gobject/tests/override.c                |  28 ++++---
+ gobject/tests/param.c                   |   8 +-
+ gobject/tests/performance/performance.c |  23 +++++-
+ gobject/tests/properties-refcount1.c    |  11 +--
+ gobject/tests/properties-refcount2.c    |  11 +--
+ gobject/tests/properties-refcount3.c    |   3 +-
+ gobject/tests/properties-refcount4.c    |   6 +-
+ gobject/tests/qdata.c                   |   9 ++-
+ gobject/tests/signalgroup.c             |   9 ++-
+ gobject/tests/signals-refcount.c        |   8 +-
+ gobject/tests/signals.c                 |  23 +++---
+ gobject/tests/testmodule.c              |   2 +-
+ gobject/tests/threadtests.c             |   2 +-
+ gobject/tests/type.c                    |   4 +-
+ gobject/tests/value.c                   |   4 +-
+ tests/lib/meson.build                   |  28 ++++---
+ tests/lib/testprogramrunner.py          |  10 ++-
+ 70 files changed, 921 insertions(+), 181 deletions(-)
+
+diff --git a/gio/tests/cancellable.c b/gio/tests/cancellable.c
+index 0347d4cc7..6956e87e0 100644
+--- a/gio/tests/cancellable.c
++++ b/gio/tests/cancellable.c
+@@ -505,6 +505,13 @@ connecting_thread (gpointer user_data)
+   return NULL;
+ }
+ 
++static gpointer
++cancel_in_thread (gpointer cancellable)
++{
++  g_cancellable_cancel (cancellable);
++  return NULL;
++}
++
+ static void
+ test_cancellable_disconnect_on_cancelled_callback_hangs (void)
+ {
+@@ -562,7 +569,7 @@ test_cancellable_disconnect_on_cancelled_callback_hangs (void)
+    * similar) to GLib. So it will keep hanging until the test subprocess exits.
+    */
+   cancelling_thread = g_thread_new ("/cancellable/disconnect-on-cancelled-callback-hangs",
+-                                    (GThreadFunc) g_cancellable_cancel,
++                                    cancel_in_thread,
+                                     cancellable);
+ 
+   while (!g_cancellable_is_cancelled (cancellable) ||
+@@ -657,7 +664,7 @@ test_cancellable_reset_on_cancelled_callback_hangs (void)
+    * similar) to GLib. So it will keep hanging until the test subprocess exits.
+    */
+   cancelling_thread = g_thread_new ("/cancellable/reset-on-cancelled-callback-hangs",
+-                                    (GThreadFunc) g_cancellable_cancel,
++                                    cancel_in_thread,
+                                     cancellable);
+ 
+   while (!g_cancellable_is_cancelled (cancellable) ||
+@@ -832,6 +839,12 @@ do_nothing (G_GNUC_UNUSED void *user_data)
+   /* An empty timeout/idle once callback function */
+ }
+ 
++static void
++do_nothing_cancelled (G_GNUC_UNUSED GCancellable *cancellable,
++                      G_GNUC_UNUSED void         *user_data)
++{
++}
++
+ static void
+ test_cancellable_source_can_be_fired_multiple_times (void)
+ {
+@@ -896,14 +909,14 @@ test_connect_data_is_destroyed_on_disconnect_and_dispose (void)
+   cancellable = g_cancellable_new ();
+ 
+   data_cleanup_called = FALSE;
+-  id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing),
++  id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing_cancelled),
+                               &data_cleanup_called, data_cleanup_cb);
+   g_assert_cmpuint (id, >, 0);
+   g_cancellable_disconnect (cancellable, id);
+   g_assert_true (data_cleanup_called);
+ 
+   data_cleanup_called = FALSE;
+-  id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing),
++  id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing_cancelled),
+                               &data_cleanup_called, data_cleanup_cb);
+   g_assert_cmpuint (id, >, 0);
+   g_clear_object (&cancellable);
+@@ -920,7 +933,7 @@ test_connect_cancelled_data_is_destroyed (void)
+   cancellable = g_cancellable_new ();
+   data_cleanup_called = FALSE;
+   g_cancellable_cancel (cancellable);
+-  id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing),
++  id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing_cancelled),
+                               &data_cleanup_called, data_cleanup_cb);
+   g_assert_cmpuint (id, ==, 0);
+   g_assert_true (data_cleanup_called);
+@@ -1050,7 +1063,7 @@ cancelled_toggle_reference_cb (gpointer data,
+            * "toggle-up" does not happen while we're locked
+            */
+           g_cancellable_disconnect (cancellable, toggle_data->id);
+-          id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing), NULL, NULL);
++          id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing_cancelled), NULL, NULL);
+           g_assert_cmpuint (id, ==, 0);
+           return;
+         }
+@@ -1058,7 +1071,7 @@ cancelled_toggle_reference_cb (gpointer data,
+       /* Connect and disconnect to the signal so that we can verify that the
+        * "toggle-up" does not happen while we're locked
+        */
+-      id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing), NULL, NULL);
++      id = g_cancellable_connect (cancellable, G_CALLBACK (do_nothing_cancelled), NULL, NULL);
+       g_cancellable_disconnect (cancellable, id);
+       return;
+     }
+diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
+index 2c6befba3..05b773ecb 100644
+--- a/gio/tests/converter-stream.c
++++ b/gio/tests/converter-stream.c
+@@ -47,7 +47,7 @@ GConverter *g_expander_converter_new      (void);
+ 
+ 
+ 
+-static void g_expander_converter_iface_init          (GConverterIface *iface);
++static void g_expander_converter_iface_init          (GConverterIface *iface, gpointer iface_data);
+ 
+ struct _GExpanderConverter
+ {
+@@ -137,7 +137,7 @@ g_expander_converter_convert (GConverter *converter,
+ }
+ 
+ static void
+-g_expander_converter_iface_init (GConverterIface *iface)
++g_expander_converter_iface_init (GConverterIface *iface, gpointer iface_data)
+ {
+   iface->convert = g_expander_converter_convert;
+   iface->reset = g_expander_converter_reset;
+@@ -163,7 +163,7 @@ GConverter *g_compressor_converter_new      (void);
+ 
+ 
+ 
+-static void g_compressor_converter_iface_init          (GConverterIface *iface);
++static void g_compressor_converter_iface_init          (GConverterIface *iface, gpointer iface_data);
+ 
+ struct _GCompressorConverter
+ {
+@@ -278,7 +278,7 @@ g_compressor_converter_convert (GConverter *converter,
+ }
+ 
+ static void
+-g_compressor_converter_iface_init (GConverterIface *iface)
++g_compressor_converter_iface_init (GConverterIface *iface, gpointer iface_data)
+ {
+   iface->convert = g_compressor_converter_convert;
+   iface->reset = g_compressor_converter_reset;
+@@ -587,7 +587,7 @@ GConverter *g_leftover_converter_new      (void);
+ 
+ 
+ 
+-static void g_leftover_converter_iface_init          (GConverterIface *iface);
++static void g_leftover_converter_iface_init          (GConverterIface *iface, gpointer iface_data);
+ 
+ struct _GLeftoverConverter
+ {
+@@ -655,7 +655,7 @@ g_leftover_converter_convert (GConverter *converter,
+ }
+ 
+ static void
+-g_leftover_converter_iface_init (GConverterIface *iface)
++g_leftover_converter_iface_init (GConverterIface *iface, gpointer iface_data)
+ {
+   iface->convert = g_leftover_converter_convert;
+   iface->reset = g_leftover_converter_reset;
+@@ -887,6 +887,86 @@ test_charset (gconstpointer data)
+ }
+ 
+ 
++/* A character the target charset lacks stops the conversion before it, also
++ * when the same call goes on to run out of input in the middle of a
++ * character or out of room for the output. */
++static void
++test_charset_unrepresentable (void)
++{
++  GConverter *conv;
++  GConverterResult res;
++  gchar out[16];
++  gsize bytes_read, bytes_written;
++  GError *error = NULL;
++
++  conv = (GConverter *) g_charset_converter_new ("ISO-8859-15", "UTF-8", NULL);
++
++  /* "a½" and the first byte of "é". */
++  res = g_converter_convert (conv, "a\xc2\xbd\xc3", 4, out, sizeof out,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 1);
++  g_assert_cmpmem (out, bytes_written, "a", 1);
++
++  res = g_converter_convert (conv, "\xc2\xbd\xc3", 3, out, sizeof out,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);
++  g_assert_cmpint (res, ==, G_CONVERTER_ERROR);
++  g_clear_error (&error);
++
++  /* Room for three bytes of "ab*cd". */
++  g_converter_reset (conv);
++  res = g_converter_convert (conv, "ab\xc2\xbd" "cd", 6, out, 3,
++                             G_CONVERTER_INPUT_AT_END, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 2);
++  g_assert_cmpmem (out, bytes_written, "ab", 2);
++
++  g_object_unref (conv);
++}
++
++/* A source charset with state reads the same however the input is cut into
++ * calls and however little room the output has. */
++static void
++test_charset_stateful (void)
++{
++  GConverter *conv;
++  GConverterResult res;
++  gchar out[16];
++  gsize bytes_read, bytes_written;
++  GError *error = NULL;
++
++  /* A byte order mark and "abcd", with room for "abc". */
++  conv = (GConverter *) g_charset_converter_new ("UTF-8", "UTF-16", NULL);
++  res = g_converter_convert (conv, "\xff\xfe" "a\0b\0c\0d\0", 10, out, 3,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 8);
++  g_assert_cmpmem (out, bytes_written, "abc", 3);
++  g_object_unref (conv);
++
++  /* "亜", then "唖" in the state the first call left and "abcdef" after a
++   * switch back to ASCII, with room for "唖abc". */
++  conv = (GConverter *) g_charset_converter_new ("UTF-8", "ISO-2022-JP", NULL);
++  res = g_converter_convert (conv, "\x1b$B0!", 5, out, sizeof out,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 5);
++  g_assert_cmpmem (out, bytes_written, "\xe4\xba\x9c", 3);
++
++  res = g_converter_convert (conv, "0\"\x1b(Babcdef", 11, out, 6,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 8);
++  g_assert_cmpmem (out, bytes_written, "\xe5\x94\x96" "abc", 6);
++  g_object_unref (conv);
++}
++
+ static void
+ client_connected (GObject      *source,
+ 		  GAsyncResult *result,
+@@ -976,6 +1056,13 @@ test_converter_pollable (void)
+   GError *error;
+   gsize i;
+ 
++#ifdef G_PLATFORM_WASM
++  /* Emscripten's WasmFS has no sockets: every socket call fails with
++   * ENOSYS. */
++  g_test_skip ("WasmFS has no sockets");
++  return;
++#endif
++
+   expander = g_expander_converter_new ();
+   expanded = g_malloc (100*1000); /* Large enough */
+   cres = g_converter_convert (expander,
+@@ -1210,6 +1297,7 @@ main (int   argc,
+     { "/converter-input-stream/charset/utf8->latin1", "UTF-8", "\303\205rr Sant\303\251", "ISO-8859-1", "\305rr Sant\351", 0 },
+     { "/converter-input-stream/charset/latin1->utf8", "ISO-8859-1", "\305rr Sant\351", "UTF-8", "\303\205rr Sant\303\251", 0 },
+     { "/converter-input-stream/charset/fallbacks", "UTF-8", "Some characters just don't fit into latin1: πא", "ISO-8859-1", "Some characters just don't fit into latin1: \\CF\\80\\D7\\90", 4 },
++    { "/converter-input-stream/charset/fallbacks-invalid", "UTF-8", "π\xff", "ISO-8859-1", "\\CF\\80\\FF", 3 },
+   };
+ 
+   gsize i;
+@@ -1231,6 +1319,8 @@ main (int   argc,
+ 
+   g_test_add_func ("/converter-stream/pollable", test_converter_pollable);
+   g_test_add_func ("/converter-stream/leftover", test_converter_leftover);
++  g_test_add_func ("/converter-input-stream/charset/unrepresentable", test_charset_unrepresentable);
++  g_test_add_func ("/converter-input-stream/charset/stateful", test_charset_stateful);
+ 
+   return g_test_run();
+ }
+diff --git a/gio/tests/filenamecompleter.c b/gio/tests/filenamecompleter.c
+index 5849fc5c7..fa88df12e 100644
+--- a/gio/tests/filenamecompleter.c
++++ b/gio/tests/filenamecompleter.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <gio/gio.h>
++#include <stdlib.h>
+ 
+ static void
+ create_files (const GStrv hier)
+@@ -54,6 +55,31 @@ typedef struct
+   const gchar *const dirs_completions[5];
+ } FilenameCompleterTestCase;
+ 
++static int
++compare_strings (const void *a,
++                 const void *b)
++{
++  return g_strcmp0 (*(const gchar * const *) a, *(const gchar * const *) b);
++}
++
++/* Completions come in the order the file system lists the directory. */
++static GStrv
++get_sorted_completions (GFilenameCompleter *completer,
++                        const gchar        *initial_text)
++{
++  GStrv completions = g_filename_completer_get_completions (completer, initial_text);
++
++  qsort (completions, g_strv_length (completions), sizeof (gchar *), compare_strings);
++  return completions;
++}
++
++static void
++got_completion_data_cb (GFilenameCompleter *completer,
++                        gpointer            user_data)
++{
++  g_main_loop_quit (user_data);
++}
++
+ static void
+ run_test_cases (const FilenameCompleterTestCase test_cases[],
+                 guint len)
+@@ -71,15 +97,15 @@ run_test_cases (const FilenameCompleterTestCase test_cases[],
+       GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+ 
+       /* dirs_only = FALSE */
+-      g_signal_connect_swapped (all_completer, "got-completion-data",
+-                                G_CALLBACK (g_main_loop_quit), loop);
++      g_signal_connect (all_completer, "got-completion-data",
++                        G_CALLBACK (got_completion_data_cb), loop);
+       g_filename_completer_set_dirs_only (all_completer, FALSE);
+       g_strfreev (g_filename_completer_get_completions (all_completer, path_to_complete));
+ 
+       g_main_loop_run (loop);
+ 
+       all_expected_completions = prefix_filenames (test_cases[i].all_completions, base_path);
+-      all_results_completions = g_filename_completer_get_completions (all_completer, path_to_complete);
++      all_results_completions = get_sorted_completions (all_completer, path_to_complete);
+       g_assert_cmpstrv (all_expected_completions, all_results_completions);
+       g_strfreev (all_expected_completions);
+       g_strfreev (all_results_completions);
+@@ -90,15 +116,15 @@ run_test_cases (const FilenameCompleterTestCase test_cases[],
+       g_free (completion_suffix);
+ 
+       /* dirs_only = TRUE */
+-      g_signal_connect_swapped (dirs_completer, "got-completion-data",
+-                                G_CALLBACK (g_main_loop_quit), loop);
++      g_signal_connect (dirs_completer, "got-completion-data",
++                        G_CALLBACK (got_completion_data_cb), loop);
+       g_filename_completer_set_dirs_only (dirs_completer, TRUE);
+       g_strfreev (g_filename_completer_get_completions (dirs_completer, path_to_complete));
+ 
+       g_main_loop_run (loop);
+ 
+       dirs_expected_completions = prefix_filenames (test_cases[i].dirs_completions, base_path);
+-      dirs_results_completions = g_filename_completer_get_completions (dirs_completer, path_to_complete);
++      dirs_results_completions = get_sorted_completions (dirs_completer, path_to_complete);
+       g_assert_cmpstrv (dirs_expected_completions, dirs_results_completions);
+ 
+       g_strfreev (dirs_expected_completions);
+diff --git a/gio/tests/g-file-info.c b/gio/tests/g-file-info.c
+index de5c2a949..d7d5ef985 100644
+--- a/gio/tests/g-file-info.c
++++ b/gio/tests/g-file-info.c
+@@ -224,6 +224,15 @@ test_g_file_info_modification_time (void)
+ 
+   /* Try setting the modification time with nsec-precision and it should set the
+    * usecs too. */
++#ifdef G_PLATFORM_WASM
++  /* WasmFS keeps file times as a double count of milliseconds, which at
++   * today's dates are some hundred nanoseconds apart. */
++  if (nsecs_supported)
++    {
++      g_test_skip ("WasmFS file times aren't precise to the nanosecond");
++      nsecs_supported = FALSE;
++    }
++#endif
+   if (nsecs_supported)
+     {
+       gint new_usecs;
+@@ -357,6 +366,15 @@ test_g_file_info_access_time (void)
+ 
+   /* Try setting the access time with nsec-precision and it should set the
+    * usecs too. */
++#ifdef G_PLATFORM_WASM
++  /* WasmFS keeps file times as a double count of milliseconds, which at
++   * today's dates are some hundred nanoseconds apart. */
++  if (nsecs_supported)
++    {
++      g_test_skip ("WasmFS file times aren't precise to the nanosecond");
++      nsecs_supported = FALSE;
++    }
++#endif
+   if (nsecs_supported)
+     {
+       gint new_usecs;
+diff --git a/gio/tests/gdbus-peer.c b/gio/tests/gdbus-peer.c
+index 4cf443987..e2c7944d4 100644
+--- a/gio/tests/gdbus-peer.c
++++ b/gio/tests/gdbus-peer.c
+@@ -53,6 +53,18 @@
+ 
+ #include "gdbus-object-manager-example/objectmanager-gen.h"
+ 
++/* Emscripten's WasmFS has no sockets: every socket call fails with ENOSYS. */
++static gboolean
++skip_without_sockets (void)
++{
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WasmFS has no sockets");
++  return TRUE;
++#else
++  return FALSE;
++#endif
++}
++
+ #ifdef G_OS_UNIX
+ static gboolean is_unix = TRUE;
+ #else
+@@ -1154,6 +1166,9 @@ do_test_peer (void)
+ static void
+ test_peer (void)
+ {
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -1366,6 +1381,9 @@ test_peer_signals (void)
+   PeerData data;
+   GThread *service_thread;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/1620");
+ 
+   test_guid = g_dbus_generate_guid ();
+@@ -1572,6 +1590,9 @@ delayed_message_processing (void)
+   GThread *service_thread;
+   guint n;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -1724,6 +1745,9 @@ test_nonce_tcp (void)
+   const gchar *address;
+   int fd;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -1853,13 +1877,13 @@ test_credentials (void)
+   c2 = g_credentials_new ();
+ 
+   error = NULL;
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && G_CREDENTIALS_SUPPORTED
+   if (g_credentials_set_unix_user (c2, getuid (), &error))
+     g_assert_no_error (error);
+ #endif
+ 
+   same = g_credentials_is_same_user (c1, c2, &error);
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && G_CREDENTIALS_SUPPORTED
+   g_assert (same);
+   g_assert_no_error (error);
+ #else
+@@ -1932,6 +1956,9 @@ test_tcp_anonymous (void)
+   GDBusConnection *connection;
+   GError *error;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+@@ -2109,6 +2136,9 @@ codegen_test_peer (void)
+   GVariant            *value;
+   const gchar         *s;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   test_guid = g_dbus_generate_guid ();
+   loop = g_main_loop_new (NULL, FALSE);
+ 
+diff --git a/gio/tests/gio-tool.py b/gio/tests/gio-tool.py
+index 7034b80ce..44eb24af9 100644
+--- a/gio/tests/gio-tool.py
++++ b/gio/tests/gio-tool.py
+@@ -23,6 +23,7 @@
+ 
+ """Integration tests for the gio utility."""
+ 
++import os
+ import platform
+ import subprocess
+ import sys
+@@ -76,6 +77,8 @@ class TestGioTool(testprogramrunner.TestProgramRunner):
+             )
+             if sys.platform == "darwin":
+                 self.assertIn("standard::content-type: public.text", result.out)
++            elif "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ:
++                self.skipTest("WebAssembly's content types know no MIME types")
+             else:
+                 self.assertIn(
+                     "standard::content-type: application/x-zerosize", result.out
+@@ -83,6 +86,10 @@ class TestGioTool(testprogramrunner.TestProgramRunner):
+ 
+ 
+ @unittest.skipIf(platform.system() == "Darwin", "gio launch not supported on darwin")
++@unittest.skipIf(
++    "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ,
++    "Emscripten has no desktop applications and can't spawn processes",
++)
+ class TestGioLaunchExpandsDesktopEntry(testprogramrunner.TestProgramRunner):
+     """Integration test for `gio launch` with field code %k in the Exec line.
+ 
+diff --git a/gio/tests/glistmodel.c b/gio/tests/glistmodel.c
+index cd6ae91e2..129ba9ea8 100644
+--- a/gio/tests/glistmodel.c
++++ b/gio/tests/glistmodel.c
+@@ -577,6 +577,12 @@ cmp_action_by_name (GAction *a, GAction *b, gpointer user_data)
+   return g_strcmp0 (g_action_get_name (a), g_action_get_name (b));
+ }
+ 
++static gint
++cmp_action_by_name_values (gconstpointer a, gconstpointer b)
++{
++  return cmp_action_by_name ((GAction *) a, (GAction *) b, NULL);
++}
++
+ /* Test if sort() works */
+ static void
+ test_store_sort (void)
+@@ -607,7 +613,7 @@ test_store_sort (void)
+   g_assert_true (model_array_equal (model, array));
+ 
+   /* Sort both and check if the result is the same */
+-  g_ptr_array_sort_values (array, (GCompareFunc)cmp_action_by_name);
++  g_ptr_array_sort_values (array, cmp_action_by_name_values);
+   g_assert_false (model_array_equal (model, array));
+   g_list_store_sort (store, (GCompareDataFunc) cmp_action_by_name, NULL);
+   g_assert_true (model_array_equal (model, array));
+diff --git a/gio/tests/gtesttlsbackend.c b/gio/tests/gtesttlsbackend.c
+index 6a105afd7..3cbf874e4 100644
+--- a/gio/tests/gtesttlsbackend.c
++++ b/gio/tests/gtesttlsbackend.c
+@@ -31,7 +31,7 @@ struct _GTestTlsBackend {
+   GObject parent_instance;
+ };
+ 
+-static void g_test_tls_backend_iface_init (GTlsBackendInterface *iface);
++static void g_test_tls_backend_iface_init (GTlsBackendInterface *iface, gpointer iface_data);
+ 
+ #define g_test_tls_backend_get_type _g_test_tls_backend_get_type
+ G_DEFINE_TYPE_WITH_CODE (GTestTlsBackend, g_test_tls_backend, G_TYPE_OBJECT,
+@@ -56,7 +56,7 @@ g_test_tls_backend_class_init (GTestTlsBackendClass *backend_class)
+ }
+ 
+ static void
+-g_test_tls_backend_iface_init (GTlsBackendInterface *iface)
++g_test_tls_backend_iface_init (GTlsBackendInterface *iface, gpointer iface_data)
+ {
+   iface->get_certificate_type = _g_test_tls_certificate_get_type;
+   iface->get_client_connection_type = _g_test_tls_connection_get_type;
+@@ -120,7 +120,7 @@ enum
+   PROP_CERT_IP_ADDRESSES,
+ };
+ 
+-static void g_test_tls_certificate_initable_iface_init (GInitableIface *iface);
++static void g_test_tls_certificate_initable_iface_init (GInitableIface *iface, gpointer iface_data);
+ 
+ #define g_test_tls_certificate_get_type _g_test_tls_certificate_get_type
+ G_DEFINE_TYPE_WITH_CODE (GTestTlsCertificate, g_test_tls_certificate, G_TYPE_TLS_CERTIFICATE,
+@@ -284,7 +284,7 @@ g_test_tls_certificate_initable_init (GInitable       *initable,
+ }
+ 
+ static void
+-g_test_tls_certificate_initable_iface_init (GInitableIface  *iface)
++g_test_tls_certificate_initable_iface_init (GInitableIface  *iface, gpointer iface_data)
+ {
+   iface->init = g_test_tls_certificate_initable_init;
+ }
+@@ -322,7 +322,7 @@ enum
+   PROP_CONN_AUTHENTICATION_MODE
+ };
+ 
+-static void g_test_tls_connection_initable_iface_init (GInitableIface *iface);
++static void g_test_tls_connection_initable_iface_init (GInitableIface *iface, gpointer iface_data);
+ 
+ #define g_test_tls_connection_get_type _g_test_tls_connection_get_type
+ G_DEFINE_TYPE_WITH_CODE (GTestTlsConnection, g_test_tls_connection, G_TYPE_TLS_CONNECTION,
+@@ -404,7 +404,7 @@ g_test_tls_connection_initable_init (GInitable       *initable,
+ }
+ 
+ static void
+-g_test_tls_connection_initable_iface_init (GInitableIface  *iface)
++g_test_tls_connection_initable_iface_init (GInitableIface  *iface, gpointer iface_data)
+ {
+   iface->init = g_test_tls_connection_initable_init;
+ }
+@@ -428,8 +428,8 @@ enum
+   PROP_DATABASE_ANCHORS = 1,
+ };
+ 
+-static void g_test_tls_database_initable_iface_init (GInitableIface *iface);
+-static void g_test_tls_file_database_file_database_interface_init (GInitableIface *iface);
++static void g_test_tls_database_initable_iface_init (GInitableIface *iface, gpointer iface_data);
++static void g_test_tls_file_database_file_database_interface_init (GInitableIface *iface, gpointer iface_data);
+ 
+ #define g_test_tls_database_get_type _g_test_tls_database_get_type
+ G_DEFINE_TYPE_WITH_CODE (GTestTlsDatabase, g_test_tls_database, G_TYPE_TLS_DATABASE,
+@@ -513,12 +513,12 @@ g_test_tls_database_initable_init (GInitable       *initable,
+ }
+ 
+ static void
+-g_test_tls_file_database_file_database_interface_init (GInitableIface *iface)
++g_test_tls_file_database_file_database_interface_init (GInitableIface *iface, gpointer iface_data)
+ {
+ }
+ 
+ static void
+-g_test_tls_database_initable_iface_init (GInitableIface  *iface)
++g_test_tls_database_initable_iface_init (GInitableIface  *iface, gpointer iface_data)
+ {
+   iface->init = g_test_tls_database_initable_init;
+ }
+diff --git a/gio/tests/inet-address.c b/gio/tests/inet-address.c
+index 799f66b5f..d3b6a8f41 100644
+--- a/gio/tests/inet-address.c
++++ b/gio/tests/inet-address.c
+@@ -53,7 +53,9 @@ test_parse (void)
+   addr = g_inet_address_new_from_string ("204.152.189.116");
+   g_assert (addr != NULL);
+   g_object_unref (addr);
+-#ifndef G_OS_WIN32 /* getaddrinfo on Windows does not support scope-id */
++#if defined(G_PLATFORM_WASM)
++  g_test_skip ("Emscripten's getaddrinfo() takes no IPv6 scope IDs");
++#elif !defined(G_OS_WIN32) /* getaddrinfo on Windows does not support scope-id */
+   addr = g_inet_address_new_from_string ("::1%0");
+   g_assert (addr != NULL);
+   g_object_unref (addr);
+diff --git a/gio/tests/meson.build b/gio/tests/meson.build
+index 23b967d6d..68894d0f7 100644
+--- a/gio/tests/meson.build
++++ b/gio/tests/meson.build
+@@ -151,7 +151,7 @@ gio_tests = {
+   'tls-bindings' : {'extra_sources' : ['gtesttlsbackend.c']},
+   'unix-fd' : {},
+   'gdbus-address-get-session' : {
+-    'extra_programs': host_system != 'windows' ? ['dbus-launch'] : [],
++    'extra_programs': host_system not in ['windows', 'emscripten'] ? ['dbus-launch'] : [],
+     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/1392
+     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+     'can_fail' : host_system in ['darwin', 'gnu'],
+@@ -229,7 +229,7 @@ test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
+ test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
+ test_env.set('GIO_MODULE_DIR', '')
+ 
+-if host_system != 'windows' and not glib_have_cocoa
++if host_system not in ['windows', 'emscripten'] and not glib_have_cocoa
+   test_env.set('GIO_LAUNCH_DESKTOP', gio_launch_desktop.full_path())
+ endif
+ 
+@@ -276,7 +276,7 @@ if have_dbus_daemon
+ endif
+ 
+ #  Test programs buildable on UNIX only
+-if host_machine.system() != 'windows'
++if host_machine.system() not in ['windows', 'emscripten']
+   gio_tests += {
+     'file' : {
+       # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+@@ -745,7 +745,7 @@ if cc.get_id() != 'msvc' and cc.get_id() != 'clang-cl'
+   }
+ endif
+ 
+-if host_machine.system() != 'windows'
++if host_machine.system() not in ['windows', 'emscripten']
+   test_extra_programs += {
+     'gdbus-example-unix-fd-client' : {
+       'install' : false,
+@@ -1144,6 +1144,19 @@ foreach program_name, extra_args : test_extra_programs
+   }
+ endforeach
+ 
++if host_system == 'emscripten'
++  # appmonitor needs GDesktopAppInfo, gsubprocess spawns processes and
++  # unix-fd passes file descriptors over sockets; Emscripten has none of these.
++  emscripten_unsupported = ['appmonitor', 'gsubprocess', 'unix-fd']
++  supported_tests = {}
++  foreach test_name, extra_args : gio_tests
++    if test_name not in emscripten_unsupported
++      supported_tests += {test_name : extra_args}
++    endif
++  endforeach
++  gio_tests = supported_tests
++endif
++
+ foreach test_name, extra_args : gio_tests
+   source = extra_args.get('source', test_name + '.c')
+   extra_sources = extra_args.get('extra_sources', [])
+@@ -1216,6 +1229,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+ if python_test_env_common_path.length() > 0
+   python_test_env.prepend('PATH', python_test_env_common_path)
+ endif
++# Emscripten builds the tools as .js programs that run under Node.
++if host_system == 'emscripten'
++  python_test_env.set('_G_TEST_PROGRAM_RUNNER_NODE',
++                      find_program('node', native : true).full_path())
++endif
+ 
+ foreach test_name, extra_args : python_tests
+   depends = [extra_args.get('depends', [])]
+diff --git a/gio/tests/network-address.c b/gio/tests/network-address.c
+index 81dcda7a9..b8bf99b2a 100644
+--- a/gio/tests/network-address.c
++++ b/gio/tests/network-address.c
+@@ -365,6 +365,11 @@ test_host_scope_id (void)
+   GSocketConnectable *addr;
+   char *str;
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten has no network interfaces and its getaddrinfo() takes no IPv6 scope IDs");
++  return;
++#endif
++
+   find_ifname_and_index ();
+ 
+   str = g_strdup_printf ("%s%%%s", SCOPE_ID_TEST_ADDR, SCOPE_ID_TEST_IFNAME);
+@@ -382,6 +387,11 @@ test_uri_scope_id (void)
+   char *uri;
+   GError *error = NULL;
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten has no network interfaces and its getaddrinfo() takes no IPv6 scope IDs");
++  return;
++#endif
++
+   find_ifname_and_index ();
+ 
+   uri = g_strdup_printf ("http://[%s%%%s]:%d/foo",
+diff --git a/gio/tests/pollable.c b/gio/tests/pollable.c
+index 87449c353..6cd4c474d 100644
+--- a/gio/tests/pollable.c
++++ b/gio/tests/pollable.c
+@@ -348,6 +348,13 @@ test_pollable_socket (void)
+   GPollableInputStream *in = NULL;
+   GOutputStream *out = NULL;
+ 
++#ifdef G_PLATFORM_WASM
++  /* Emscripten's WasmFS has no sockets: every socket call fails with
++   * ENOSYS. */
++  g_test_skip ("WasmFS has no sockets");
++  return;
++#endif
++
+   iaddr = g_inet_address_new_loopback (G_SOCKET_FAMILY_IPV4);
+   saddr = g_inet_socket_address_new (iaddr, 0);
+   g_object_unref (iaddr);
+diff --git a/gio/tests/proxy-test.c b/gio/tests/proxy-test.c
+index ca3f4b3d4..496022a9e 100644
+--- a/gio/tests/proxy-test.c
++++ b/gio/tests/proxy-test.c
+@@ -97,7 +97,7 @@ typedef struct {
+   GObjectClass parent_class;
+ } GTestProxyResolverClass;
+ 
+-static void g_test_proxy_resolver_iface_init (GProxyResolverInterface *iface);
++static void g_test_proxy_resolver_iface_init (GProxyResolverInterface *iface, gpointer iface_data);
+ 
+ static GType _g_test_proxy_resolver_get_type (void);
+ #define g_test_proxy_resolver_get_type _g_test_proxy_resolver_get_type
+@@ -219,7 +219,7 @@ g_test_proxy_resolver_class_init (GTestProxyResolverClass *resolver_class)
+ }
+ 
+ static void
+-g_test_proxy_resolver_iface_init (GProxyResolverInterface *iface)
++g_test_proxy_resolver_iface_init (GProxyResolverInterface *iface, gpointer iface_data)
+ {
+   iface->is_supported = g_test_proxy_resolver_is_supported;
+   iface->lookup = g_test_proxy_resolver_lookup;
+@@ -234,7 +234,7 @@ g_test_proxy_resolver_iface_init (GProxyResolverInterface *iface)
+ typedef GTestProxyResolver GTestAltProxyResolver;
+ typedef GTestProxyResolverClass GTestAltProxyResolverClass;
+ 
+-static void g_test_alt_proxy_resolver_iface_init (GProxyResolverInterface *iface);
++static void g_test_alt_proxy_resolver_iface_init (GProxyResolverInterface *iface, gpointer iface_data);
+ 
+ static GType _g_test_alt_proxy_resolver_get_type (void);
+ #define g_test_alt_proxy_resolver_get_type _g_test_alt_proxy_resolver_get_type
+@@ -272,7 +272,7 @@ g_test_alt_proxy_resolver_class_init (GTestProxyResolverClass *resolver_class)
+ }
+ 
+ static void
+-g_test_alt_proxy_resolver_iface_init (GProxyResolverInterface *iface)
++g_test_alt_proxy_resolver_iface_init (GProxyResolverInterface *iface, gpointer iface_data)
+ {
+   iface->lookup = g_test_alt_proxy_resolver_lookup;
+ }
+@@ -394,7 +394,7 @@ g_proxy_base_class_init (GProxyBaseClass *class)
+ typedef GProxyBase GProxyA;
+ typedef GProxyBaseClass GProxyAClass;
+ 
+-static void g_proxy_a_iface_init (GProxyInterface *proxy_iface);
++static void g_proxy_a_iface_init (GProxyInterface *proxy_iface, gpointer iface_data);
+ 
+ static GType _g_proxy_a_get_type (void);
+ #define g_proxy_a_get_type _g_proxy_a_get_type
+@@ -424,7 +424,7 @@ g_proxy_a_class_init (GProxyAClass *class)
+ }
+ 
+ static void
+-g_proxy_a_iface_init (GProxyInterface *proxy_iface)
++g_proxy_a_iface_init (GProxyInterface *proxy_iface, gpointer iface_data)
+ {
+   proxy_iface->connect = g_proxy_base_connect;
+   proxy_iface->connect_async = g_proxy_base_connect_async;
+@@ -439,7 +439,7 @@ g_proxy_a_iface_init (GProxyInterface *proxy_iface)
+ typedef GProxyBase GProxyB;
+ typedef GProxyBaseClass GProxyBClass;
+ 
+-static void g_proxy_b_iface_init (GProxyInterface *proxy_iface);
++static void g_proxy_b_iface_init (GProxyInterface *proxy_iface, gpointer iface_data);
+ 
+ static GType _g_proxy_b_get_type (void);
+ #define g_proxy_b_get_type _g_proxy_b_get_type
+@@ -469,7 +469,7 @@ g_proxy_b_class_init (GProxyBClass *class)
+ }
+ 
+ static void
+-g_proxy_b_iface_init (GProxyInterface *proxy_iface)
++g_proxy_b_iface_init (GProxyInterface *proxy_iface, gpointer iface_data)
+ {
+   proxy_iface->connect = g_proxy_base_connect;
+   proxy_iface->connect_async = g_proxy_base_connect_async;
+diff --git a/gio/tests/resolver.c b/gio/tests/resolver.c
+index b8adb4a36..9689fd195 100644
+--- a/gio/tests/resolver.c
++++ b/gio/tests/resolver.c
+@@ -58,6 +58,13 @@ usage (void)
+ 
+ G_LOCK_DEFINE_STATIC (response);
+ 
++static gboolean
++quit_loop (gpointer data)
++{
++  g_main_loop_quit (data);
++  return G_SOURCE_REMOVE;
++}
++
+ static void
+ done_lookup (void)
+ {
+@@ -67,7 +74,7 @@ done_lookup (void)
+       /* In the sync case we need to make sure we don't call
+        * g_main_loop_quit before the loop is actually running...
+        */
+-      g_idle_add ((GSourceFunc)g_main_loop_quit, loop);
++      g_idle_add (quit_loop, loop);
+     }
+ }
+ 
+diff --git a/gio/tests/socket.c b/gio/tests/socket.c
+index e456b56d0..90c4a9396 100644
+--- a/gio/tests/socket.c
++++ b/gio/tests/socket.c
+@@ -42,6 +42,18 @@
+ 
+ static gboolean ipv6_supported;
+ 
++/* Emscripten's WasmFS has no sockets: every socket call fails with ENOSYS. */
++static gboolean
++skip_without_sockets (void)
++{
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WasmFS has no sockets");
++  return TRUE;
++#else
++  return FALSE;
++#endif
++}
++
+ typedef struct {
+   GSocket *server;  /* (owned) (not nullable) */
+   GSocket *client;  /* (owned) (nullable) */
+@@ -857,6 +869,9 @@ test_ip_sync_dgram_timeouts (GSocketFamily family)
+   GSocketAddress *addr;
+ #endif
+ 
++  if (skip_without_sockets ())
++    return;
++
+   client = g_socket_new (family,
+                          G_SOCKET_TYPE_DATAGRAM,
+                          G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1382,6 +1397,9 @@ test_unix_from_fd (void)
+   GError *error;
+   GSocket *s;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   fd = socket (AF_UNIX, SOCK_STREAM, 0);
+ #ifdef G_OS_WIN32
+   if (fd == -1)
+@@ -1414,6 +1432,9 @@ test_unix_connection (void)
+   GSocket *s;
+   GSocketConnection *c;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   fd = socket (AF_UNIX, SOCK_STREAM, 0);
+ #ifdef G_OS_WIN32
+   if (fd == -1)
+@@ -1463,6 +1484,9 @@ test_unix_connection_ancillary_data (void)
+   char buffer[1024];
+   pid_t pid;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   status = pipe (pv);
+   g_assert_cmpint (status, ==, 0);
+ 
+@@ -1588,6 +1612,9 @@ test_source_postmortem (void)
+   GError *error = NULL;
+   gboolean callback_visited = FALSE;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   socket = g_socket_new (G_SOCKET_FAMILY_UNIX, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_DEFAULT, &error);
+ #ifdef G_OS_WIN32
+   if (error)
+@@ -1628,6 +1655,9 @@ test_reuse_tcp (void)
+   GInetAddress *iaddr;
+   GSocketAddress *addr;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   sock1 = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                         G_SOCKET_TYPE_STREAM,
+                         G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1669,6 +1699,9 @@ test_reuse_udp (void)
+   GInetAddress *iaddr;
+   GSocketAddress *addr;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   sock1 = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                         G_SOCKET_TYPE_DATAGRAM,
+                         G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1710,6 +1743,9 @@ test_get_available (gconstpointer user_data)
+   gchar buf[34];
+   gssize nread;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   listener = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                            socket_type,
+                            G_SOCKET_PROTOCOL_DEFAULT,
+@@ -1915,6 +1951,9 @@ test_read_write (gconstpointer user_data)
+   GThread *write_thread, *read_thread;
+   guint i;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   listener = g_socket_new (G_SOCKET_FAMILY_IPV4,
+                            G_SOCKET_TYPE_STREAM,
+                            G_SOCKET_PROTOCOL_DEFAULT,
+@@ -2552,6 +2591,9 @@ test_accept_cancelled (void)
+   GCancellable *cancellable = NULL;
+   GSocket *socket2 = NULL;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_summary ("Calling g_socket_accept() with a cancelled cancellable "
+                   "should return immediately regardless of whether the socket "
+                   "is blocking");
+@@ -2588,6 +2630,9 @@ test_connect_cancelled (void)
+   GInetAddress *inet_addr = NULL;
+   GSocketAddress *addr = NULL;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_summary ("Calling g_socket_connect() with a cancelled cancellable "
+                   "should return immediately regardless of whether the socket "
+                   "is blocking");
+@@ -2706,6 +2751,9 @@ test_socket_control_message_custom (void)
+   gssize s;
+   GError *err = NULL;
+ 
++  if (skip_without_sockets ())
++    return;
++
+   g_test_summary ("Tests that an application can create its own subclass "
+                   "of GSocketControlMessage and that the message can be sent and "
+                   "received using GSocket APIs");
+diff --git a/glib/tests/array-test.c b/glib/tests/array-test.c
+index eba5b8016..0d7e6d694 100644
+--- a/glib/tests/array-test.c
++++ b/glib/tests/array-test.c
+@@ -1711,6 +1711,13 @@ pointer_array_new_from_array_overflow (void)
+ #endif
+ }
+ 
++static gpointer
++copy_string (gconstpointer src,
++             gpointer      data)
++{
++  return g_strdup (src);
++}
++
+ static void
+ pointer_array_new_from_array_with_copy_and_free_func (void)
+ {
+@@ -1727,7 +1734,7 @@ pointer_array_new_from_array_with_copy_and_free_func (void)
+   g_assert_nonnull (source_array->pdata);
+ 
+   gparray = g_ptr_array_new_from_array (source_array->pdata, source_array->len,
+-                                        (GCopyFunc) g_strdup, NULL, g_free);
++                                        copy_string, NULL, g_free);
+ 
+   old_pdata_copy =
+     g_memdup2 (source_array->pdata, source_array->len * sizeof (gpointer));
+@@ -1869,7 +1876,7 @@ pointer_array_new_from_null_terminated_array_with_copy_and_free_func (void)
+   g_clear_pointer (&source_array, g_ptr_array_unref);
+ 
+   gparray = g_ptr_array_new_from_null_terminated_array (
+-    (gpointer* ) old_pdata_copy, (GCopyFunc) g_strdup, NULL, g_free);
++    (gpointer* ) old_pdata_copy, copy_string, NULL, g_free);
+   g_assert_true (g_ptr_array_is_null_terminated (gparray));
+   assert_ptr_array_null_terminated (gparray, TRUE);
+ 
+diff --git a/glib/tests/assert-msg-test.py b/glib/tests/assert-msg-test.py
+index 9d2bde4d3..76d8077cb 100755
+--- a/glib/tests/assert-msg-test.py
++++ b/glib/tests/assert-msg-test.py
+@@ -73,6 +73,9 @@ class TestAssertMessage(testprogramrunner.TestProgramRunner):
+ 
+         if os.name == "nt":
+             self.assertEqual(result.info.returncode, 3)
++        elif "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ:
++            # Emscripten's abort() ends Node with status 1, not SIGABRT.
++            self.assertEqual(result.info.returncode, 1)
+         else:
+             self.assertEqual(result.info.returncode, -6)
+         self.assertIn("assertion failed: (42 < 0)", result.out)
+diff --git a/glib/tests/asyncqueue.c b/glib/tests/asyncqueue.c
+index 210d0ae84..ed1d3eadd 100644
+--- a/glib/tests/asyncqueue.c
++++ b/glib/tests/asyncqueue.c
+@@ -138,6 +138,9 @@ static GAsyncQueue *global_queue;
+ static GThread *threads[10];
+ static gint counts[10];  /* (atomic) */
+ static gint sums[10];  /* (atomic) */
++static GMutex started_mutex;
++static GCond started_cond;
++static gint started;  /* (locked-by started_mutex) */
+ 
+ static gpointer
+ thread_func (gpointer data)
+@@ -145,6 +148,11 @@ thread_func (gpointer data)
+   gint pos = GPOINTER_TO_INT (data);
+   gint value;
+ 
++  g_mutex_lock (&started_mutex);
++  started++;
++  g_cond_signal (&started_cond);
++  g_mutex_unlock (&started_mutex);
++
+   while (1)
+     {
+       value = GPOINTER_TO_INT (g_async_queue_pop (global_queue));
+@@ -170,10 +178,19 @@ test_async_queue_threads (void)
+   int total = 0;
+ 
+   global_queue = g_async_queue_new ();
++  started = 0;
+ 
+   for (i = 0; i < 10; i++)
+     threads[i] = g_thread_new ("test", thread_func, GINT_TO_POINTER (i));
+ 
++  /* Every consumer must get some items, but a thread can start running long
++   * after it is created on a loaded machine, and one that starts after the
++   * queue has drained gets none.  Push only once they are all running. */
++  g_mutex_lock (&started_mutex);
++  while (started < 10)
++    g_cond_wait (&started_cond, &started_mutex);
++  g_mutex_unlock (&started_mutex);
++
+   for (i = 0; i < 100; i++)
+     {
+       g_async_queue_lock (global_queue);
+diff --git a/glib/tests/collate.c b/glib/tests/collate.c
+index bd9ea234f..d27cd0559 100644
+--- a/glib/tests/collate.c
++++ b/glib/tests/collate.c
+@@ -7,6 +7,17 @@
+ 
+ static gboolean missing_locale = FALSE;
+ 
++#ifdef G_PLATFORM_WASM
++static const gchar * const needs_en_us[] = {
++  "/unicode/collate/0",
++  "/unicode/collate/1",
++  "/unicode/collate-key/0",
++  "/unicode/collate-key/1",
++  "/unicode/collate-filename/0",
++  NULL
++};
++#endif
++
+ typedef struct {
+   const gchar **input;
+   const gchar **sorted;
+@@ -55,6 +66,17 @@ do_collate (gboolean for_file, gboolean use_key, const CollateTest *test)
+       return;
+     }
+ 
++#ifdef G_PLATFORM_WASM
++  /* musl takes any locale name but has no locale data, so en_US collates
++   * in byte order, as C.UTF-8 does. Only these lists sort differently under
++   * en_US's rules. */
++  if (g_strv_contains (needs_en_us, g_test_get_path ()))
++    {
++      g_test_skip ("musl has no locale data; lifted by the collation backend (§5.1.4)");
++      return;
++    }
++#endif
++
+   line_array = g_array_new (FALSE, FALSE, sizeof(Line));
+   g_array_set_clear_func (line_array, (GDestroyNotify)clear_line);
+ 
+diff --git a/glib/tests/convert.c b/glib/tests/convert.c
+index 6cf19ad10..4b96c6e1c 100644
+--- a/glib/tests/convert.c
++++ b/glib/tests/convert.c
+@@ -85,8 +85,16 @@ test_one_half (void)
+ 		   &error);
+ 
+   g_assert_error (error, G_CONVERT_ERROR, G_CONVERT_ERROR_ILLEGAL_SEQUENCE);
++#ifdef G_PLATFORM_WASM
++  /* musl's iconv() writes '*' for a character the target charset lacks and
++   * counts it as an irreversible conversion instead of failing with EILSEQ,
++   * so the error comes once the input is consumed. */
++  g_assert_cmpint (bytes_read, ==, 2);
++  g_assert_cmpint (bytes_written, ==, 1);
++#else
+   g_assert_cmpint (bytes_read, ==, 0);
+   g_assert_cmpint (bytes_written, ==, 0);
++#endif
+   g_assert_cmpstr (out, ==, NULL);
+   g_clear_error (&error);
+   g_free (out);
+@@ -104,6 +112,52 @@ test_one_half (void)
+   g_free (out);
+ }
+ 
++/* A character the target charset lacks is found also when the conversion
++ * runs out of room for its output, or ends in an incomplete character. */
++static void
++test_unrepresentable (void)
++{
++  gchar *out;
++  gsize bytes_read;
++  GError *error = NULL;
++
++  /* "½漢": ISO-2022-JP takes more bytes for the kanji than UTF-8 does. */
++  out = g_convert ("\xc2\xbd\xe6\xbc\xa2", -1, "ISO-2022-JP", "UTF-8",
++                   NULL, NULL, &error);
++  g_assert_error (error, G_CONVERT_ERROR, G_CONVERT_ERROR_ILLEGAL_SEQUENCE);
++  g_assert_null (out);
++  g_clear_error (&error);
++
++  out = g_convert_with_fallback ("\xc2\xbd\xe6\xbc\xa2", -1, "ISO-2022-JP", "UTF-8",
++                                 "?", NULL, NULL, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (out[0], ==, '?');
++  g_assert_null (strchr (out, '*'));
++  g_free (out);
++
++  /* "漢½漢": the fallback takes ISO-2022-JP back to ASCII between kanji. */
++  out = g_convert_with_fallback ("\xe6\xbc\xa2\xc2\xbd\xe6\xbc\xa2", -1,
++                                 "ISO-2022-JP", "UTF-8", "?", NULL, NULL, &error);
++  g_assert_no_error (error);
++  g_assert_cmpstr (out, ==, "\x1b$B4A\x1b(B?\x1b$B4A\x1b(B");
++  g_free (out);
++
++  /* A fallback the target lacks, "½" followed by kanji that take more room. */
++  out = g_convert_with_fallback ("\xc2\xbd", -1, "ISO-2022-JP", "UTF-8",
++                                 "\xc2\xbd\xe6\xbc\xa2\xe6\xbc\xa2\xe6\xbc\xa2",
++                                 NULL, NULL, &error);
++  g_assert_error (error, G_CONVERT_ERROR, G_CONVERT_ERROR_ILLEGAL_SEQUENCE);
++  g_assert_null (out);
++  g_clear_error (&error);
++
++  /* "a½" and the first byte of "é". */
++  out = g_convert ("a\xc2\xbd\xc3", 4, "ISO-8859-15", "UTF-8",
++                   &bytes_read, NULL, &error);
++  g_assert_error (error, G_CONVERT_ERROR, G_CONVERT_ERROR_ILLEGAL_SEQUENCE);
++  g_assert_null (out);
++  g_clear_error (&error);
++}
++
+ static void
+ test_byte_order (void)
+ {
+@@ -996,6 +1050,7 @@ main (int argc, char *argv[])
+   g_test_add_func ("/conversion/no-conv", test_no_conv);
+   g_test_add_func ("/conversion/iconv-state", test_iconv_state);
+   g_test_add_func ("/conversion/illegal-sequence", test_one_half);
++  g_test_add_func ("/conversion/unrepresentable", test_unrepresentable);
+   g_test_add_func ("/conversion/byte-order", test_byte_order);
+   g_test_add_func ("/conversion/unicode", test_unicode_conversions);
+   g_test_add_func ("/conversion/filename-utf8", test_filename_utf8);
+diff --git a/glib/tests/dataset.c b/glib/tests/dataset.c
+index 8fbefdfed..8d7b2f511 100644
+--- a/glib/tests/dataset.c
++++ b/glib/tests/dataset.c
+@@ -107,6 +107,14 @@ notify (gpointer data)
+   destroy_count++;
+ }
+ 
++static void
++notify_foreach (GQuark   key_id,
++                gpointer data,
++                gpointer user_data)
++{
++  notify (data);
++}
++
+ static void
+ test_dataset_full (void)
+ {
+@@ -315,13 +323,13 @@ test_datalist_id_remove_multiple (void)
+   g_datalist_id_set_data (&list, three, GINT_TO_POINTER (3));
+ 
+   destroy_count = 0;
+-  g_datalist_foreach (&list, (GDataForeachFunc) notify, NULL);
++  g_datalist_foreach (&list, notify_foreach, NULL);
+   g_assert_cmpuint (destroy_count, ==, 3);
+ 
+   g_datalist_id_remove_multiple (&list, keys, G_N_ELEMENTS (keys));
+ 
+   destroy_count = 0;
+-  g_datalist_foreach (&list, (GDataForeachFunc) notify, NULL);
++  g_datalist_foreach (&list, notify_foreach, NULL);
+   g_assert_cmpuint (destroy_count, ==, 0);
+ }
+ 
+diff --git a/glib/tests/date.c b/glib/tests/date.c
+index b2fb38d83..538af2109 100644
+--- a/glib/tests/date.c
++++ b/glib/tests/date.c
+@@ -748,6 +748,17 @@ test_strftime (void)
+     { "%O", "O" },
+     { "%P", "P" },
+     { "%Y", "0001" },
++#elif defined(G_PLATFORM_WASM)
++    /* musl pads years to four digits, as POSIX specifies, has no %P, and
++     * takes a bare %E or %O for a modifier of nothing. */
++    { "%C", "00" },
++    { "%c", "Mon Jan  1 00:00:00 0001" },
++    { "%E", "" },
++    { "%F", "0001-01-01" },
++    { "%G", "0001" },
++    { "%O", "" },
++    { "%P", "" },
++    { "%Y", "0001" },
+ #else
+     { "%C", "0" },
+     { "%c", "Mon Jan  1 00:00:00 1" },
+@@ -760,8 +771,14 @@ test_strftime (void)
+ #endif
+     { "%g", "01" },
+     { "%h", "Jan" },
++#ifdef G_PLATFORM_WASM
++    /* musl has neither of these extensions. */
++    { "%k", "" },
++    { "%l", "" },
++#else
+     { "%k", " 0" },
+     { "%l", "12" },
++#endif
+     { "%r", "12:00:00 AM" },
+     { "%X", "00:00:00" },
+     { "%x", "01/01/01" },
+@@ -1125,6 +1142,13 @@ test_month_substring (void)
+ 
+   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=793550");
+ 
++#ifdef G_PLATFORM_WASM
++  /* musl takes any locale name but has no locale data, so the month names
++   * stay English. */
++  g_test_skip ("musl has no locale data; lifted by the localized dates and times backend (§5.1.4)");
++  return;
++#endif
++
+   if (setlocale (LC_ALL, "pl_PL") == NULL)
+     {
+       g_test_skip ("pl_PL locale not available");
+diff --git a/glib/tests/gdatetime.c b/glib/tests/gdatetime.c
+index d003a5445..fa1ce3e9f 100644
+--- a/glib/tests/gdatetime.c
++++ b/glib/tests/gdatetime.c
+@@ -1948,6 +1948,11 @@ test_modifiers (void)
+ #endif
+ 
+   setlocale (LC_ALL, "en_GB.utf-8");
++#ifdef G_PLATFORM_WASM
++  /* setlocale() succeeds, since musl takes any locale name, but there is no
++   * locale data, so en_GB formats as the C locale does. */
++  g_test_skip ("musl has no locale data; lifted by the localized dates and times backend (§5.1.4)");
++#else
+   if (strstr (setlocale (LC_ALL, NULL), "en_GB") != NULL)
+     {
+ #ifndef __APPLE__
+@@ -1981,6 +1986,7 @@ test_modifiers (void)
+     }
+   else
+     g_test_skip ("locale en_GB not available, skipping E modifier tests");
++#endif
+ 
+   setlocale (LC_ALL, oldlocale);
+   g_free (oldlocale);
+@@ -2363,6 +2369,8 @@ test_date_time_eras_japan (void)
+ 
+   setlocale (LC_ALL, oldlocale);
+   g_free (oldlocale);
++#elif defined(G_PLATFORM_WASM)
++  g_test_skip ("musl has no era data; lifted by the localized dates and times backend (§5.1.4)");
+ #else
+   g_test_skip ("nl_langinfo(ERA) not supported, skipping era tests");
+ #endif
+@@ -2395,6 +2403,8 @@ test_date_time_eras_thailand (void)
+ 
+   setlocale (LC_ALL, oldlocale);
+   g_free (oldlocale);
++#elif defined(G_PLATFORM_WASM)
++  g_test_skip ("musl has no era data; lifted by the localized dates and times backend (§5.1.4)");
+ #else
+   g_test_skip ("nl_langinfo(ERA) not supported, skipping era tests");
+ #endif
+@@ -2686,6 +2696,19 @@ static gboolean
+ check_and_set_locale (int          category,
+                       const gchar *name)
+ {
++#ifdef G_PLATFORM_WASM
++  /* musl takes any locale name but has no locale data, so dates format as
++   * they do in C.UTF-8 whatever LC_TIME names, and it reports C.UTF-8 as "C"
++   * outside LC_CTYPE. */
++  if (category == LC_TIME && !g_str_has_prefix (name, "C."))
++    {
++      g_test_skip ("musl has no locale data; lifted by the localized dates and times backend (§5.1.4)");
++      return FALSE;
++    }
++  if (g_str_equal (name, "C.UTF-8"))
++    return setlocale (category, name) != NULL;
++#endif
++
+   setlocale (category, name);
+   if (strstr (setlocale (category, NULL), name) == NULL)
+     {
+@@ -3389,6 +3412,11 @@ test_time_zone_parse_rfc8536 (void)
+   g_test_summary ("Test parsing time zone files in RFC 8536 version 3 format");
+   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2129");
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WebAssembly takes time zones from Intl and reads no time zone files");
++  return;
++#endif
++
+   for (i = 0; i < G_N_ELEMENTS (test_files); i++)
+     {
+       gchar *path = NULL;
+diff --git a/glib/tests/gwakeuptest.c b/glib/tests/gwakeuptest.c
+index ab36c858a..d993f128b 100644
+--- a/glib/tests/gwakeuptest.c
++++ b/glib/tests/gwakeuptest.c
+@@ -1,22 +1,34 @@
+ #include <glib.h>
+ #include <glib/gwakeup.h>
+ 
++/* On WebAssembly a wakeup is waited on directly, and its poll fd, a pipe,
++ * only mirrors it, so checks compare the two. */
+ static gboolean
+ check_signaled (GWakeup *wakeup)
+ {
+   GPollFD fd;
++  gboolean polled;
+ 
+   g_wakeup_get_pollfd (wakeup, &fd);
+-  return g_poll (&fd, 1, 0);
++  polled = g_poll (&fd, 1, 0);
++#ifdef G_PLATFORM_WASM
++  g_assert_cmpint (polled, ==, g_wakeup_wait (wakeup, 0));
++#endif
++  return polled;
+ }
+ 
+ static void
+ wait_for_signaled (GWakeup *wakeup)
+ {
++#ifdef G_PLATFORM_WASM
++  while (!g_wakeup_wait (wakeup, -1))
++    ;
++#else
+   GPollFD fd;
+ 
+   g_wakeup_get_pollfd (wakeup, &fd);
+   g_poll (&fd, 1, -1);
++#endif
+ }
+ 
+ static void
+diff --git a/glib/tests/hook.c b/glib/tests/hook.c
+index 5b9d5442b..dcb48d1c0 100644
+--- a/glib/tests/hook.c
++++ b/glib/tests/hook.c
+@@ -30,6 +30,23 @@ hook_func (gpointer data)
+ {
+ }
+ 
++static gboolean
++hook_check_func (gpointer data)
++{
++  return TRUE;
++}
++
++/* g_hook_list_invoke() and g_hook_list_invoke_check() call a hook's func
++ * through different types, so the hooks swap functions in between. */
++static void
++set_hook_funcs (GHookList *hl, gpointer func)
++{
++  GHook *hook;
++
++  for (hook = hl->hooks; hook != NULL; hook = hook->next)
++    hook->func = func;
++}
++
+ static void
+ hook_destroy (gpointer data)
+ {
+@@ -179,7 +196,9 @@ test_hook_basics (void)
+ 
+   /* Hook list is built, let's dig into it now */
+   g_hook_list_invoke (hl, TRUE);
++  set_hook_funcs (hl, hook_check_func);
+   g_hook_list_invoke_check (hl, TRUE);
++  set_hook_funcs (hl, hook_func);
+ 
+   g_assert_null (g_hook_find (hl, FALSE, hook_find_false, NULL));
+   g_assert_nonnull (g_hook_find (hl, TRUE, hook_find_true, NULL));
+diff --git a/glib/tests/list.c b/glib/tests/list.c
+index 20d01db08..8d70fe8a6 100644
+--- a/glib/tests/list.c
++++ b/glib/tests/list.c
+@@ -20,6 +20,12 @@ sort (gconstpointer p1, gconstpointer p2)
+   return (a > b ? +1 : a == b ? 0 : -1);
+ }
+ 
++static gint
++sort_with_data (gconstpointer p1, gconstpointer p2, gpointer user_data)
++{
++  return sort (p1, p2);
++}
++
+ /*
+  * glist sort tests
+  */
+@@ -55,7 +61,7 @@ test_list_sort_with_data (void)
+   for (i = 0; i < SIZE; i++)
+     list = g_list_append (list, GINT_TO_POINTER (array[i]));
+ 
+-  list = g_list_sort_with_data (list, (GCompareDataFunc)sort, NULL);
++  list = g_list_sort_with_data (list, sort_with_data, NULL);
+   for (i = 0; i < SIZE - 1; i++)
+     {
+       gpointer p1, p2;
+@@ -132,7 +138,7 @@ test_list_insert_sorted_with_data (void)
+   for (i = 0; i < SIZE; i++)
+     list = g_list_insert_sorted_with_data (list,
+                                            GINT_TO_POINTER (array[i]),
+-                                           (GCompareDataFunc)sort,
++                                           sort_with_data,
+                                            NULL);
+ 
+   for (i = 0; i < SIZE - 1; i++)
+diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
+index 2435a0aae..ab41e60b0 100644
+--- a/glib/tests/mainloop.c
++++ b/glib/tests/mainloop.c
+@@ -29,6 +29,14 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++/* The poll fds a context with no sources has: its GWakeup's, which a
++ * WebAssembly context waits on without polling. */
++#ifdef G_PLATFORM_WASM
++#define N_WAKEUP_FDS 0
++#else
++#define N_WAKEUP_FDS 1
++#endif
++
+ static gboolean
+ cb (gpointer data)
+ {
+@@ -231,6 +239,8 @@ count_calls (gpointer data)
+   return TRUE;
+ }
+ 
++static gboolean quit_loop (gpointer data);
++
+ static void
+ test_timeouts (void)
+ {
+@@ -265,7 +275,7 @@ test_timeouts (void)
+   g_source_unref (source);
+ 
+   source = g_timeout_source_new (1050);
+-  g_source_set_callback (source, (GSourceFunc)g_main_loop_quit, loop, NULL);
++  g_source_set_callback (source, quit_loop, loop, NULL);
+   g_source_attach (source, ctx);
+   g_source_unref (source);
+ 
+@@ -626,7 +636,7 @@ test_recursive_child_sources (void)
+   g_source_attach (parent, ctx);
+ 
+   end = counter_source_new (2010);
+-  g_source_set_callback (end, (GSourceFunc)g_main_loop_quit, loop, NULL);
++  g_source_set_callback (end, quit_loop, loop, NULL);
+   g_source_attach (end, ctx);
+   g_source_unref (end);
+ 
+@@ -1188,7 +1198,7 @@ test_null_default_context (void)
+   g_assert_true (g_main_context_acquire (NULL));
+   g_assert_false (g_main_context_prepare (NULL, NULL));
+   n_poll_fds = g_main_context_query (NULL, 0, NULL, poll_fds, G_N_ELEMENTS (poll_fds));
+-  g_assert_cmpint (n_poll_fds, ==, 1);  /* one pollfd always exists for gwakeup */
++  g_assert_cmpint (n_poll_fds, ==, N_WAKEUP_FDS);
+   g_assert_false (g_main_context_check (NULL, 1000, poll_fds, n_poll_fds));
+   g_main_context_dispatch (NULL);
+   g_main_context_release (NULL);
+@@ -1333,6 +1343,12 @@ test_unix_fd (void)
+   GSource *source_a;
+   GSource *source_b;
+ 
++#ifdef G_PLATFORM_WASM
++  /* fill_a_pipe() writes until the pipe is full. */
++  g_test_skip ("WasmFS's pipes have no capacity, so they never fill");
++  return;
++#endif
++
+   s = pipe (fds);
+   g_assert_cmpint (s, ==, 0);
+ 
+@@ -1406,7 +1422,7 @@ assert_main_context_state (gint n_to_poll,
+   immediate = g_main_context_prepare (context, &max_priority);
+   g_assert_false (immediate);
+   n = g_main_context_query (context, max_priority, &timeout, poll_fds, 10);
+-  g_assert_cmpint (n, ==, n_to_poll + 1); /* one will be the gwakeup */
++  g_assert_cmpint (n, ==, n_to_poll + N_WAKEUP_FDS);
+ 
+   va_start (ap, n_to_poll);
+   for (i = 0; i < n_to_poll; i++)
+@@ -1863,9 +1879,9 @@ test_nfds (void)
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+   /* An "empty" GMainContext will have a single GPollFD, for its
+-   * internal GWakeup.
++   * internal GWakeup, if it polls that.
+    */
+-  g_assert_cmpint (nfds, ==, 1);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS);
+ 
+   fd = g_file_open_tmp (NULL, &tmpfile, &error);
+   g_assert_no_error (error);
+@@ -1886,7 +1902,7 @@ test_nfds (void)
+ 
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
+   else if (out_fds[1].fd == fd)
+@@ -1908,7 +1924,7 @@ test_nfds (void)
+    */
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
+   else if (out_fds[1].fd == fd)
+@@ -1921,7 +1937,7 @@ test_nfds (void)
+    */
+   nfds = g_main_context_query (ctx, G_PRIORITY_DEFAULT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
+   else if (out_fds[1].fd == fd)
+@@ -1938,7 +1954,7 @@ test_nfds (void)
+ 
+   nfds = g_main_context_query (ctx, G_MAXINT, NULL,
+                                out_fds, G_N_ELEMENTS (out_fds));
+-  g_assert_cmpint (nfds, ==, 2);
++  g_assert_cmpint (nfds, ==, N_WAKEUP_FDS + 1);
+   if (out_fds[0].fd == fd)
+     g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
+   else if (out_fds[1].fd == fd)
+@@ -2754,9 +2770,11 @@ main (int argc, char *argv[])
+   g_test_add_func ("/mainloop/unix-fd", test_unix_fd);
+   g_test_add_func ("/mainloop/unix-fd-source", test_unix_fd_source);
+   g_test_add_func ("/mainloop/source-unix-fd-api", test_source_unix_fd_api);
+-  g_test_add_func ("/mainloop/wait", test_mainloop_wait);
+   g_test_add_func ("/mainloop/unix-file-poll", test_unix_file_poll);
+   g_test_add_func ("/mainloop/unix-fd-priority", test_unix_fd_priority);
++#endif
++#ifdef G_OS_UNIX
++  g_test_add_func ("/mainloop/wait", test_mainloop_wait);
+ #endif
+   g_test_add_func ("/mainloop/nfds", test_nfds);
+   g_test_add_func ("/mainloop/steal-fd", test_steal_fd);
+diff --git a/glib/tests/mapping.c b/glib/tests/mapping.c
+index 5e4c24f70..acb26e380 100644
+--- a/glib/tests/mapping.c
++++ b/glib/tests/mapping.c
+@@ -216,6 +216,11 @@ test_child_private (void)
+   const char *dir;
+   char *global_filename = NULL, *childname = NULL, *stop_name = NULL;
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten can't spawn processes");
++  return;
++#endif
++
+   dir = g_get_tmp_dir ();
+   global_filename = g_build_filename (dir, "maptest", NULL);
+   childname = g_build_filename (dir, "mapchild", NULL);
+diff --git a/glib/tests/meson.build b/glib/tests/meson.build
+index 9e5628030..34619a455 100644
+--- a/glib/tests/meson.build
++++ b/glib/tests/meson.build
+@@ -258,7 +258,7 @@ if host_machine.system() == 'windows'
+       'dependencies' : [winsock2],
+     },
+   }
+-else
++elif host_system != 'emscripten'
+   glib_tests += {
+     'include' : {},
+     'poll-fdset' : {},
+@@ -338,7 +338,9 @@ test_extra_programs = {
+   'test-spawn-echo' : {},
+ }
+ 
+-if have_dlopen_dlsym and have_rtld_next
++# On Emscripten the test wraps malloc() through emscripten_builtin_malloc()
++# instead.
++if have_dlopen_dlsym and (have_rtld_next or host_system == 'emscripten')
+   test_extra_programs += {
+     'messages-low-memory' : {
+       'dependencies' : libdl_dep,
+@@ -355,7 +357,8 @@ if host_machine.system() == 'windows'
+   }
+ endif
+ 
+-if host_machine.system() == 'windows' or have_dlopen_dlsym
++# Meson can't link shared libraries for Emscripten.
++if (host_machine.system() == 'windows' or have_dlopen_dlsym) and host_system != 'emscripten'
+   constructor_helper = shared_library('constructor-helper',
+                                       'constructor-helper.c',
+                                       dependencies: [libglib_dep],
+@@ -528,6 +531,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+ if python_test_env_common_path.length() > 0
+   python_test_env.prepend('PATH', python_test_env_common_path)
+ endif
++# Emscripten builds the test programs as .js programs that run under Node.
++if host_system == 'emscripten'
++  python_test_env.set('_G_TEST_PROGRAM_RUNNER_NODE',
++                      find_program('node', native : true).full_path())
++endif
+ 
+ foreach test_name, extra_args : python_tests
+   depends = [extra_args.get('depends', [])]
+diff --git a/glib/tests/messages-low-memory.c b/glib/tests/messages-low-memory.c
+index 8274f3d8b..2bf685b68 100644
+--- a/glib/tests/messages-low-memory.c
++++ b/glib/tests/messages-low-memory.c
+@@ -25,6 +25,10 @@
+ #include <dlfcn.h>
+ #include <glib.h>
+ 
++#ifdef G_PLATFORM_WASM
++#include <emscripten/heap.h>
++#endif
++
+ static gboolean malloc_eom = FALSE;
+ static gboolean our_malloc_called = FALSE;
+ 
+@@ -39,7 +43,13 @@ malloc (size_t size)
+ {
+   static void *(*real_malloc)(size_t);
+   if (!real_malloc)
++#ifdef G_PLATFORM_WASM
++    /* A static WebAssembly link has no next malloc() for dlsym() to find,
++     * but Emscripten gives its own a second name. */
++    real_malloc = emscripten_builtin_malloc;
++#else
+       real_malloc = dlsym (RTLD_NEXT, "malloc");
++#endif
+ 
+   if (malloc_eom)
+     {
+diff --git a/glib/tests/messages-low-memory.py b/glib/tests/messages-low-memory.py
+index 32f066f07..4a6ee2d83 100644
+--- a/glib/tests/messages-low-memory.py
++++ b/glib/tests/messages-low-memory.py
+@@ -51,6 +51,9 @@ class TestMessagesLowMemory(testprogramrunner.TestProgramRunner):
+ 
+         if os.name == "nt":
+             self.assertEqual(result.info.returncode, 3)
++        elif "_G_TEST_PROGRAM_RUNNER_NODE" in os.environ:
++            # Emscripten's abort() ends Node with status 1, not SIGABRT.
++            self.assertEqual(result.info.returncode, 1)
+         else:
+             self.assertEqual(result.info.returncode, -6)
+         self.assertIn("failed to allocate memory", result.err)
+diff --git a/glib/tests/node.c b/glib/tests/node.c
+index effec5669..a5a1b86fe 100644
+--- a/glib/tests/node.c
++++ b/glib/tests/node.c
+@@ -54,6 +54,13 @@ node_build_string (GNode    *node,
+   return FALSE;
+ }
+ 
++static void
++node_build_string_foreach (GNode    *node,
++                           gpointer  data)
++{
++  node_build_string (node, data);
++}
++
+ typedef struct {
+     GTraverseType   traverse;
+     GTraverseFlags  flags;
+@@ -378,17 +385,17 @@ misc_test (void)
+ 
+   data.s = g_string_new ("");
+   data.count = -1;
+-  g_node_children_foreach (root, G_TRAVERSE_ALL, (GNodeForeachFunc)node_build_string, &data);
++  g_node_children_foreach (root, G_TRAVERSE_ALL, node_build_string_foreach, &data);
+   g_assert_cmpstr (data.s->str, ==, "BCD");
+ 
+   g_string_set_size (data.s, 0);
+   data.count = -1;
+-  g_node_children_foreach (root, G_TRAVERSE_LEAVES, (GNodeForeachFunc)node_build_string, &data);
++  g_node_children_foreach (root, G_TRAVERSE_LEAVES, node_build_string_foreach, &data);
+   g_assert_cmpstr (data.s->str, ==, "BD");
+ 
+   g_string_set_size (data.s, 0);
+   data.count = -1;
+-  g_node_children_foreach (root, G_TRAVERSE_NON_LEAVES, (GNodeForeachFunc)node_build_string, &data);
++  g_node_children_foreach (root, G_TRAVERSE_NON_LEAVES, node_build_string_foreach, &data);
+   g_assert_cmpstr (data.s->str, ==, "C");
+   g_string_free (data.s, TRUE);
+ 
+diff --git a/glib/tests/option-argv0.c b/glib/tests/option-argv0.c
+index 736a992e5..53cfe88a5 100644
+--- a/glib/tests/option-argv0.c
++++ b/glib/tests/option-argv0.c
+@@ -43,6 +43,9 @@ test_platform_argv0 (void)
+       "option-argv0",
+ #ifdef G_OS_WIN32
+       "option-argv0.exe",
++#endif
++#ifdef G_PLATFORM_WASM
++      "option-argv0.js",
+ #endif
+       NULL,
+     };
+@@ -65,7 +68,8 @@ test_platform_argv0 (void)
+ #if !defined HAVE_PROC_SELF_CMDLINE && \
+     !defined __OpenBSD__ && \
+     !defined __linux && \
+-    !defined G_OS_WIN32
++    !defined G_OS_WIN32 && \
++    !defined G_PLATFORM_WASM
+   fatal_errors = FALSE;
+ #endif
+ 
+diff --git a/glib/tests/option-context.c b/glib/tests/option-context.c
+index b9a31b730..e23a8b424 100644
+--- a/glib/tests/option-context.c
++++ b/glib/tests/option-context.c
+@@ -631,6 +631,13 @@ arg_test5 (void)
+     { { "test", 0, 0, G_OPTION_ARG_DOUBLE, &arg_test5_double, NULL, NULL },
+       G_OPTION_ENTRY_NULL };
+ 
++#ifdef G_PLATFORM_WASM
++  /* setlocale() below succeeds, since musl takes any locale name, but there
++   * is no locale data, so the decimal point stays '.'. */
++  g_test_skip ("musl has no locale data; lifted by the language and locale backend (§5.1.4)");
++  return;
++#endif
++
+   context = g_option_context_new (NULL);
+   g_option_context_add_main_entries (context, entries, NULL);
+ 
+@@ -1125,7 +1132,7 @@ callback_remaining_test1 (void)
+   g_assert_cmpstr (callback_remaining_args->pdata[0], ==, "foo.txt");
+   g_assert_cmpstr (callback_remaining_args->pdata[1], ==, "blah.txt");
+ 
+-  g_ptr_array_foreach (callback_remaining_args, (GFunc) g_free, NULL);
++  g_ptr_array_set_free_func (callback_remaining_args, g_free);
+   g_ptr_array_free (callback_remaining_args, TRUE);
+ 
+   g_strfreev (argv_copy);
+diff --git a/glib/tests/slist.c b/glib/tests/slist.c
+index 7c17573d5..8f4ada775 100644
+--- a/glib/tests/slist.c
++++ b/glib/tests/slist.c
+@@ -19,6 +19,12 @@ sort (gconstpointer p1, gconstpointer p2)
+   return (a > b ? +1 : a == b ? 0 : -1);
+ }
+ 
++static gint
++sort_with_data (gconstpointer p1, gconstpointer p2, gpointer user_data)
++{
++  return sort (p1, p2);
++}
++
+ /*
+  * gslist sort tests
+  */
+@@ -54,7 +60,7 @@ test_slist_sort_with_data (void)
+   for (i = 0; i < SIZE; i++)
+     slist = g_slist_append (slist, GINT_TO_POINTER (array[i]));
+ 
+-  slist = g_slist_sort_with_data (slist, (GCompareDataFunc)sort, NULL);
++  slist = g_slist_sort_with_data (slist, sort_with_data, NULL);
+   for (i = 0; i < SIZE - 1; i++)
+     {
+       gpointer p1, p2;
+@@ -131,7 +137,7 @@ test_slist_insert_sorted_with_data (void)
+   for (i = 0; i < SIZE; i++)
+     slist = g_slist_insert_sorted_with_data (slist,
+                                            GINT_TO_POINTER (array[i]),
+-                                           (GCompareDataFunc)sort,
++                                           sort_with_data,
+                                            NULL);
+ 
+   for (i = 0; i < SIZE - 1; i++)
+diff --git a/glib/tests/spawn-singlethread.c b/glib/tests/spawn-singlethread.c
+index 33b44d650..d73b2c5b7 100644
+--- a/glib/tests/spawn-singlethread.c
++++ b/glib/tests/spawn-singlethread.c
+@@ -236,7 +236,9 @@ test_spawn_async_with_fds (void)
+               test_pipe[j][1] = -5;
+               break;
+             case PIPE:
+-#ifdef G_OS_UNIX
++#if defined(G_PLATFORM_WASM)
++              g_assert_no_errno (pipe (test_pipe[j]));
++#elif defined(G_OS_UNIX)
+               g_unix_open_pipe (test_pipe[j], O_CLOEXEC, &error);
+               g_assert_no_error (error);
+ #else
+diff --git a/glib/tests/test-printf.c b/glib/tests/test-printf.c
+index d572e9479..f138b28b1 100644
+--- a/glib/tests/test-printf.c
++++ b/glib/tests/test-printf.c
+@@ -925,7 +925,9 @@ test_produce_embedded_nulls2 (void)
+                   "(%c) with value '\0'. Test that printing such strings via "
+                   "g_fprintf() works as expected.");
+ 
+-#ifdef G_OS_UNIX
++#if defined(G_PLATFORM_WASM)
++  g_assert_no_errno (pipe (fds));
++#elif defined(G_OS_UNIX)
+   GError *error = NULL;
+   g_unix_open_pipe (fds, O_CLOEXEC, &error);
+   g_assert_no_error (error);
+@@ -953,6 +955,12 @@ test_produce_embedded_nulls2 (void)
+                                           test_produce_embedded_nulls2_writing_thread,
+                                           &data);
+ 
++#ifdef G_PLATFORM_WASM
++  /* Emscripten's pipes never block a read: an empty one reads as if at end
++   * of file, so the reader waits for the writer to be done. */
++  g_thread_join (g_steal_pointer (&writing_thread));
++#endif
++
+   char buf[3];
+   char *iter = buf;
+   size_t size = sizeof (buf);
+@@ -973,7 +981,8 @@ test_produce_embedded_nulls2 (void)
+ 
+   g_assert_false (ferror (streams[0]));
+ 
+-  g_thread_join (g_steal_pointer (&writing_thread));
++  if (writing_thread != NULL)
++    g_thread_join (g_steal_pointer (&writing_thread));
+ 
+   g_assert_cmpuint (data.written, ==, 3U);
+   g_assert_cmpint (buf[0], ==, 'a');
+diff --git a/glib/tests/testing.c b/glib/tests/testing.c
+index eaa5b0878..bd7520c77 100644
+--- a/glib/tests/testing.c
++++ b/glib/tests/testing.c
+@@ -43,6 +43,19 @@
+ #include <unistd.h>
+ #endif
+ 
++/* Many tests here run testing-helper, or this program, in another process,
++ * which Emscripten can't start. */
++static gboolean
++skip_without_spawn (void)
++{
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten can't spawn or fork processes");
++  return TRUE;
++#else
++  return FALSE;
++#endif
++}
++
+ #define TAP_VERSION G_STRINGIFY (14)
+ #define TAP_SUBTEST_PREFIX "    "
+ 
+@@ -310,6 +323,9 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+ static void
+ test_fork_fail (void)
+ {
++  if (skip_without_spawn ())
++    return;
++
+   if (g_test_trap_fork (0, G_TEST_TRAP_SILENCE_STDERR))
+     {
+       g_assert_not_reached();
+@@ -322,6 +338,9 @@ test_fork_fail (void)
+ static void
+ test_fork_patterns (void)
+ {
++  if (skip_without_spawn ())
++    return;
++
+   if (g_test_trap_fork (0, G_TEST_TRAP_SILENCE_STDOUT | G_TEST_TRAP_SILENCE_STDERR))
+     {
+       g_print ("some stdout text: somagic17\n");
+@@ -448,7 +467,7 @@ test_subprocess_envp (void)
+ static void
+ test_subprocess_stdin (void)
+ {
+-#ifdef G_OS_UNIX
++#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+   int old_stdin_fd = -1;
+   int pipe_fd[2] = { -1, -1 };
+   const char *test_string = "*hello there*";
+@@ -993,6 +1012,9 @@ test_combining (void)
+   GError *error = NULL;
+   int status;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_message ("single test case skipped -> overall status 77");
+   argv = g_ptr_array_new ();
+   g_ptr_array_add (argv, (char *) argv0);
+@@ -1190,6 +1212,9 @@ test_tap (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+ 
+   g_test_message ("pass");
+@@ -1727,6 +1752,9 @@ test_tap_subtest (void)
+   gchar *output;
+   char** envp = NULL;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+ 
+   g_test_message ("pass");
+@@ -2308,6 +2336,9 @@ test_tap_summary (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_summary() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2353,6 +2384,9 @@ test_tap_subtest_summary (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_summary() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2395,6 +2429,9 @@ test_tap_message (void)
+   char **output_lines;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_message() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2459,6 +2496,9 @@ test_tap_subtest_message (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_message() from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2518,6 +2558,9 @@ test_tap_print (void)
+   char **output_lines;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_print() from the TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2571,6 +2614,9 @@ test_tap_subtest_print (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the output of g_test_print() from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2618,6 +2664,9 @@ test_tap_subtest_stdout (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the stdout from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2674,6 +2723,9 @@ test_tap_subtest_stdout_no_new_line (void)
+   gchar *output;
+   char **output_lines;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test the stdout from the TAP output of a sub-test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2724,6 +2776,9 @@ test_tap_error (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2774,6 +2829,9 @@ test_tap_subtest_error (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2820,6 +2878,9 @@ test_tap_error_and_pass (void)
+   gchar *output;
+   char **envp;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2868,6 +2929,9 @@ test_tap_subtest_error_and_pass (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+@@ -2913,6 +2977,9 @@ test_init_no_argv0 (void)
+   int status;
+   gchar *output;
+ 
++  if (skip_without_spawn ())
++    return;
++
+   g_test_summary ("Test that g_test_init() can be called safely with argc == 0.");
+ 
+   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+diff --git a/glib/tests/thread-pool-slow.c b/glib/tests/thread-pool-slow.c
+index 7b6937330..03f5e6ac4 100644
+--- a/glib/tests/thread-pool-slow.c
++++ b/glib/tests/thread-pool-slow.c
+@@ -51,6 +51,13 @@ test_threadpool_functions (void)
+   g_assert_cmpint (g_thread_pool_get_max_idle_time (), ==, 0);
+ }
+ 
++static void
++sleep_usec (gpointer data,
++            gpointer user_data)
++{
++  g_usleep (GPOINTER_TO_SIZE (data));
++}
++
+ static void
+ test_threadpool_stop_unused (void)
+ {
+@@ -60,7 +67,7 @@ test_threadpool_stop_unused (void)
+ 
+   /* Spawn a few threads. */
+   g_thread_pool_set_max_unused_threads (-1);
+-  pool = g_thread_pool_new ((GFunc) g_usleep, NULL, -1, FALSE, NULL);
++  pool = g_thread_pool_new (sleep_usec, NULL, -1, FALSE, NULL);
+ 
+   for (i = 0; i < limit; i++)
+     g_thread_pool_push (pool, GUINT_TO_POINTER (1000), NULL);
+@@ -101,7 +108,7 @@ test_threadpool_stop_unused_multiple (void)
+ 
+   for (i = 0; i < G_N_ELEMENTS (pools); i++)
+     {
+-      pools[i] = g_thread_pool_new ((GFunc) g_usleep, NULL, -1, FALSE, NULL);
++      pools[i] = g_thread_pool_new (sleep_usec, NULL, -1, FALSE, NULL);
+ 
+       for (j = 0; j < limit; j++)
+         g_thread_pool_push (pools[i], GUINT_TO_POINTER (100), NULL);
+diff --git a/glib/tests/thread.c b/glib/tests/thread.c
+index ba34485af..0316570f0 100644
+--- a/glib/tests/thread.c
++++ b/glib/tests/thread.c
+@@ -217,7 +217,7 @@ test_thread6 (void)
+   g_thread_join (thread);
+ }
+ 
+-#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
++#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP) && !defined(G_PLATFORM_WASM)
+ static gpointer
+ thread7_func (gpointer data)
+ {
+@@ -248,7 +248,7 @@ thread7_func (gpointer data)
+ static void
+ test_thread7 (void)
+ {
+-#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
++#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP) && !defined(G_PLATFORM_WASM)
+   GThread *thread = g_thread_new ("mask", thread7_func, NULL);
+   gpointer result = g_thread_join (thread);
+ 
+diff --git a/glib/tests/tree.c b/glib/tests/tree.c
+index 6e7fc0b5a..71b1f7f07 100644
+--- a/glib/tests/tree.c
++++ b/glib/tests/tree.c
+@@ -47,6 +47,14 @@ my_compare (gconstpointer a,
+   return *cha - *chb;
+ }
+ 
++static gint
++my_compare_ignore_data (gconstpointer a,
++                        gconstpointer b,
++                        gpointer      user_data)
++{
++  return my_compare (a, b);
++}
++
+ static gint
+ my_compare_with_data (gconstpointer a,
+                       gconstpointer b,
+@@ -243,7 +251,7 @@ test_tree_remove (void)
+   GTreeNode *node;
+   gchar *remove;
+ 
+-  tree = g_tree_new_full ((GCompareDataFunc)my_compare, NULL,
++  tree = g_tree_new_full (my_compare_ignore_data, NULL,
+                           my_key_destroy,
+                           my_value_destroy);
+ 
+@@ -308,7 +316,7 @@ test_tree_remove_all (void)
+   GTree *tree;
+   gsize i;
+ 
+-  tree = g_tree_new_full ((GCompareDataFunc)my_compare, NULL,
++  tree = g_tree_new_full (my_compare_ignore_data, NULL,
+                           my_key_destroy,
+                           my_value_destroy);
+ 
+diff --git a/gobject/tests/accumulator.c b/gobject/tests/accumulator.c
+index 18251f220..f62e4e75a 100644
+--- a/gobject/tests/accumulator.c
++++ b/gobject/tests/accumulator.c
+@@ -100,7 +100,8 @@ test_object_signal1_callback_after (TestObject *tobject,
+ 
+ static gboolean
+ test_object_signal2_callback_before (TestObject *tobject,
+-                                     gint        param)
++                                     gint        param,
++                                     gpointer    data)
+ {
+   switch (param)
+     {
+@@ -132,7 +133,8 @@ test_object_real_signal2 (TestObject *tobject,
+ 
+ static gboolean
+ test_object_signal2_callback_after (TestObject *tobject,
+-                                    gint        param)
++                                    gint        param,
++                                    gpointer    data)
+ {
+   switch (param)
+     {
+@@ -205,7 +207,7 @@ test_object_real_signal3 (TestObject *tobject,
+ }
+ 
+ static void
+-test_object_class_init (TestObjectClass *class)
++test_object_class_init (TestObjectClass *class, gpointer class_data)
+ {
+   class->test_signal1 = test_object_real_signal1;
+   class->test_signal2 = test_object_real_signal2;
+diff --git a/gobject/tests/basic-signals.c b/gobject/tests/basic-signals.c
+index cb889eb98..889a2de45 100644
+--- a/gobject/tests/basic-signals.c
++++ b/gobject/tests/basic-signals.c
+@@ -87,7 +87,7 @@ test_object_signal_callback1 (TestObject *object,
+ }
+ 
+ static void
+-test_object_class_init (TestObjectClass *class)
++test_object_class_init (TestObjectClass *class, gpointer class_data)
+ {
+   class->test_signal = test_object_real_signal;
+ 
+diff --git a/gobject/tests/basics-gobject.c b/gobject/tests/basics-gobject.c
+index ec1b34c81..5f8b54bf1 100644
+--- a/gobject/tests/basics-gobject.c
++++ b/gobject/tests/basics-gobject.c
+@@ -152,8 +152,8 @@ struct _TestObjectPrivate
+   int     dummy1;
+   gdouble dummy2;
+ };
+-static void     test_object_class_init  (TestObjectClass        *class);
+-static void     test_object_init        (TestObject             *tobject);
++static void     test_object_class_init  (TestObjectClass        *class, gpointer class_data);
++static void     test_object_init        (TestObject             *tobject, gpointer g_class);
+ static gboolean test_signal_accumulator (GSignalInvocationHint  *ihint,
+                                          GValue                 *return_accu,
+                                          const GValue           *handler_return,
+@@ -200,7 +200,7 @@ test_object_get_type (void)
+   return test_object_type;
+ }
+ static void
+-test_object_class_init (TestObjectClass *class)
++test_object_class_init (TestObjectClass *class, gpointer class_data)
+ {
+   /*  GObjectClass *gobject_class = G_OBJECT_CLASS (class); */
+   g_type_class_adjust_private_offset (class, &TestObject_private_offset);
+@@ -216,7 +216,7 @@ test_object_class_init (TestObjectClass *class)
+                 G_TYPE_STRING, 2, TEST_TYPE_IFACE, G_TYPE_POINTER);
+ }
+ static void
+-test_object_init (TestObject *tobject)
++test_object_init (TestObject *tobject, gpointer g_class)
+ {
+   TestObjectPrivate *priv = test_object_get_instance_private (tobject);
+   g_assert_nonnull (priv);
+@@ -326,8 +326,8 @@ struct _DerivedObjectPrivate
+ {
+   char dummy;
+ };
+-static void derived_object_class_init (DerivedObjectClass *class);
+-static void derived_object_init       (DerivedObject      *dobject);
++static void derived_object_class_init (DerivedObjectClass *class, gpointer class_data);
++static void derived_object_init       (DerivedObject      *dobject, gpointer g_class);
+ static gint DerivedObject_private_offset;
+ static inline gpointer
+ derived_object_get_instance_private (DerivedObject *self)
+@@ -365,12 +365,12 @@ derived_object_get_type (void)
+   return derived_object_type;
+ }
+ static void
+-derived_object_class_init (DerivedObjectClass *class)
++derived_object_class_init (DerivedObjectClass *class, gpointer class_data)
+ {
+   g_type_class_adjust_private_offset (class, &DerivedObject_private_offset);
+ }
+ static void
+-derived_object_init (DerivedObject *dobject)
++derived_object_init (DerivedObject *dobject, gpointer g_class)
+ {
+   TestObjectPrivate *test_priv;
+   DerivedObjectPrivate *derived_priv;
+diff --git a/gobject/tests/binding.c b/gobject/tests/binding.c
+index 70cf6d6cd..d211d5a18 100644
+--- a/gobject/tests/binding.c
++++ b/gobject/tests/binding.c
+@@ -48,7 +48,7 @@ typedef struct {
+ } BaaClass;
+ 
+ static void
+-baa_init_foo (FooInterface *iface)
++baa_init_foo (FooInterface *iface, gpointer iface_data)
+ {
+ }
+ 
+@@ -477,6 +477,13 @@ data_free (gpointer data)
+   *b = TRUE;
+ }
+ 
++static void
++data_free_closure_notify (gpointer  data,
++                          GClosure *closure)
++{
++  data_free (data);
++}
++
+ static void
+ binding_transform_default (void)
+ {
+@@ -557,9 +564,9 @@ binding_transform_closure (void)
+   gboolean unused_data_1 = FALSE, unused_data_2 = FALSE;
+   GClosure *c2f_clos, *f2c_clos;
+ 
+-  c2f_clos = g_cclosure_new (G_CALLBACK (celsius_to_fahrenheit), &unused_data_1, (GClosureNotify) data_free);
++  c2f_clos = g_cclosure_new (G_CALLBACK (celsius_to_fahrenheit), &unused_data_1, data_free_closure_notify);
+ 
+-  f2c_clos = g_cclosure_new (G_CALLBACK (fahrenheit_to_celsius), &unused_data_2, (GClosureNotify) data_free);
++  f2c_clos = g_cclosure_new (G_CALLBACK (fahrenheit_to_celsius), &unused_data_2, data_free_closure_notify);
+ 
+   binding = g_object_bind_property_with_closures (source, "double-value",
+                                                   target, "double-value",
+diff --git a/gobject/tests/bindinggroup.c b/gobject/tests/bindinggroup.c
+index 7f7f6cbe4..a89eb7155 100644
+--- a/gobject/tests/bindinggroup.c
++++ b/gobject/tests/bindinggroup.c
+@@ -450,6 +450,13 @@ transform_destroy_notify (gpointer data)
+   *transform_destroy_called = TRUE;
+ }
+ 
++static void
++transform_destroy_notify_closure_notify (gpointer  data,
++                                         GClosure *closure)
++{
++  transform_destroy_notify (data);
++}
++
+ static void
+ test_binding_group_transform (void)
+ {
+@@ -498,10 +505,10 @@ test_binding_group_transform_closures (void)
+ 
+   c2f_closure = g_cclosure_new (G_CALLBACK (celsius_to_fahrenheit),
+                                 &transform_destroy_called_1,
+-                                (GClosureNotify) transform_destroy_notify);
++                                transform_destroy_notify_closure_notify);
+   f2c_closure = g_cclosure_new (G_CALLBACK (fahrenheit_to_celsius),
+                                 &transform_destroy_called_2,
+-                                (GClosureNotify) transform_destroy_notify);
++                                transform_destroy_notify_closure_notify);
+ 
+   g_binding_group_set_source (group, source);
+   g_binding_group_bind_with_closures (group, "value",
+diff --git a/gobject/tests/closure.c b/gobject/tests/closure.c
+index b76182513..7ccf37f51 100644
+--- a/gobject/tests/closure.c
++++ b/gobject/tests/closure.c
+@@ -104,6 +104,11 @@ test_closure_child (void)
+   GError *error = NULL;
+   gchar *argv[3];
+ 
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("Emscripten can't spawn processes");
++  return;
++#endif
++
+   g_assert (g_getenv ("DO_NOT_ACCIDENTALLY_RECURSE") == NULL);
+   g_setenv ("DO_NOT_ACCIDENTALLY_RECURSE", "1", TRUE);
+ 
+@@ -162,6 +167,7 @@ test_closure_fd (void)
+   close (fd);
+ }
+ 
++#ifndef G_PLATFORM_WASM
+ static gboolean
+ send_usr1 (gpointer user_data)
+ {
+@@ -179,9 +185,14 @@ closure_quit_callback (gpointer     user_data)
+   return TRUE;
+ }
+ 
++#endif
++
+ static void
+ test_closure_signal (void)
+ {
++#ifdef G_PLATFORM_WASM
++  g_test_skip ("WebAssembly has no Unix signal sources: no other process can signal it");
++#else
+   GSource *source;
+ 
+   g_idle_add_full (G_PRIORITY_LOW, send_usr1, NULL, NULL);
+@@ -189,6 +200,7 @@ test_closure_signal (void)
+   source = g_unix_signal_source_new (SIGUSR1);
+   test_source (source, G_CALLBACK (closure_quit_callback));
+   g_source_unref (source);
++#endif
+ }
+ #endif
+ 
+diff --git a/gobject/tests/defaultiface.c b/gobject/tests/defaultiface.c
+index 92f9087fd..e0d368934 100644
+--- a/gobject/tests/defaultiface.c
++++ b/gobject/tests/defaultiface.c
+@@ -45,7 +45,7 @@ GType test_static_iface_get_type (void);
+ #define TEST_TYPE_STATIC_IFACE (test_static_iface_get_type ())
+ 
+ static void
+-test_static_iface_default_init (TestStaticIfaceClass *iface)
++test_static_iface_default_init (TestStaticIfaceClass *iface, gpointer class_data)
+ {
+   iface->val = 42;
+ }
+@@ -99,14 +99,14 @@ static gboolean dynamic_iface_init = FALSE;
+ #define TEST_TYPE_DYNAMIC_IFACE (test_dynamic_iface_type)
+ 
+ static void
+-test_dynamic_iface_default_init (TestStaticIfaceClass *iface)
++test_dynamic_iface_default_init (TestStaticIfaceClass *iface, gpointer class_data)
+ {
+   dynamic_iface_init = TRUE;
+   iface->val = 42;
+ }
+ 
+ static void
+-test_dynamic_iface_default_finalize (TestStaticIfaceClass *iface)
++test_dynamic_iface_default_finalize (TestStaticIfaceClass *iface, gpointer class_data)
+ {
+   dynamic_iface_init = FALSE;
+ }
+diff --git a/gobject/tests/dynamictests.c b/gobject/tests/dynamictests.c
+index 14346705a..67968a659 100644
+--- a/gobject/tests/dynamictests.c
++++ b/gobject/tests/dynamictests.c
+@@ -72,7 +72,7 @@ test_module_unload (GTypeModule *module)
+ }
+ 
+ static void
+-test_module_class_init (TestModuleClass *class)
++test_module_class_init (TestModuleClass *class, gpointer class_data)
+ {
+   GTypeModuleClass *module_class = G_TYPE_MODULE_CLASS (class);
+ 
+@@ -252,7 +252,7 @@ struct _DynIfaceInterface
+   GTypeInterface iface;
+ };
+ 
+-static void dyn_obj_iface_init (DynIfaceInterface *iface);
++static void dyn_obj_iface_init (DynIfaceInterface *iface, gpointer iface_data);
+ 
+ static GType dyn_iface_get_type (void);
+ G_DEFINE_INTERFACE (DynIface, dyn_iface, G_TYPE_OBJECT)
+@@ -270,7 +270,7 @@ dyn_iface_default_init (DynIfaceInterface *iface)
+ }
+ 
+ static void
+-dyn_obj_iface_init (DynIfaceInterface *iface)
++dyn_obj_iface_init (DynIfaceInterface *iface, gpointer iface_data)
+ {
+ }
+ 
+diff --git a/gobject/tests/dynamictype.c b/gobject/tests/dynamictype.c
+index 214211816..cac1e133b 100644
+--- a/gobject/tests/dynamictype.c
++++ b/gobject/tests/dynamictype.c
+@@ -69,7 +69,7 @@ struct _DynamicObjectClass
+   guint val;
+ };
+ 
+-static void dynamic_object_iface_init (TestIface *iface);
++static void dynamic_object_iface_init (TestIface *iface, gpointer iface_data);
+ 
+ G_DEFINE_DYNAMIC_TYPE_EXTENDED(DynamicObject, dynamic_object, G_TYPE_OBJECT, 0,
+                                G_IMPLEMENT_INTERFACE_DYNAMIC (TEST_TYPE_IFACE,
+@@ -89,7 +89,7 @@ dynamic_object_class_finalize (DynamicObjectClass *class)
+ }
+ 
+ static void
+-dynamic_object_iface_init (TestIface *iface)
++dynamic_object_iface_init (TestIface *iface, gpointer iface_data)
+ {
+ }
+ 
+diff --git a/gobject/tests/ifaceproperties.c b/gobject/tests/ifaceproperties.c
+index 9ee09cbfa..69fd0d186 100644
+--- a/gobject/tests/ifaceproperties.c
++++ b/gobject/tests/ifaceproperties.c
+@@ -113,7 +113,7 @@ static GParamSpec *iface_spec1, *iface_spec2, *iface_spec3;
+ static GParamSpec *inherited_spec1, *inherited_spec2, *inherited_spec3, *inherited_spec4;
+ 
+ static void
+-test_iface_default_init (TestIfaceClass *iface_vtable)
++test_iface_default_init (TestIfaceClass *iface_vtable, gpointer class_data)
+ {
+   inherited_spec1 = iface_spec1 = g_param_spec_int ("prop1",
+                                                     "Prop1",
+@@ -276,7 +276,7 @@ base_object_notify (GObject    *object,
+ }
+ 
+ static void
+-base_object_class_init (BaseObjectClass *class)
++base_object_class_init (BaseObjectClass *class, gpointer class_data)
+ {
+   GObjectClass *object_class = G_OBJECT_CLASS (class);
+ 
+@@ -315,7 +315,7 @@ base_object_class_init (BaseObjectClass *class)
+ }
+ 
+ static void
+-base_object_init (BaseObject *base_object)
++base_object_init (BaseObject *base_object, gpointer g_class)
+ {
+   base_object->val1 = 42;
+ }
+@@ -374,7 +374,7 @@ derived_object_get_property (GObject    *object,
+ }
+ 
+ static void
+-derived_object_class_init (DerivedObjectClass *class)
++derived_object_class_init (DerivedObjectClass *class, gpointer class_data)
+ {
+   GObjectClass *object_class = G_OBJECT_CLASS (class);
+ 
+@@ -532,7 +532,7 @@ typedef struct _Base2Object        Base2Object;
+ typedef struct _Base2ObjectClass   Base2ObjectClass;
+ 
+ static void
+-base2_object_test_iface_init (TestIfaceClass *iface)
++base2_object_test_iface_init (TestIfaceClass *iface, gpointer iface_data)
+ {
+ }
+ 
+diff --git a/gobject/tests/meson.build b/gobject/tests/meson.build
+index 199339e7e..b10099583 100644
+--- a/gobject/tests/meson.build
++++ b/gobject/tests/meson.build
+@@ -217,6 +217,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+ if python_test_env_common_path.length() > 0
+   python_test_env.prepend('PATH', python_test_env_common_path)
+ endif
++# Emscripten builds the tools as .js programs that run under Node.
++if host_system == 'emscripten'
++  python_test_env.set('_G_TEST_PROGRAM_RUNNER_NODE',
++                      find_program('node', native : true).full_path())
++endif
+ 
+ foreach test_name, extra_args : python_tests
+   depends = [extra_args.get('depends', [])]
+diff --git a/gobject/tests/objects-refcount2.c b/gobject/tests/objects-refcount2.c
+index 2e7c03836..9f47a65c1 100644
+--- a/gobject/tests/objects-refcount2.c
++++ b/gobject/tests/objects-refcount2.c
+@@ -27,8 +27,8 @@ struct _GTestClass
+ 
+ static GType my_test_get_type (void);
+ 
+-static void my_test_class_init (GTestClass * klass);
+-static void my_test_init (GTest * test);
++static void my_test_class_init (GTestClass * klass, gpointer class_data);
++static void my_test_init (GTest * test, gpointer g_class);
+ static void my_test_dispose (GObject * object);
+ 
+ static GObjectClass *parent_class = NULL;
+@@ -59,7 +59,7 @@ my_test_get_type (void)
+ }
+ 
+ static void
+-my_test_class_init (GTestClass * klass)
++my_test_class_init (GTestClass * klass, gpointer class_data)
+ {
+   GObjectClass *gobject_class;
+ 
+@@ -71,7 +71,7 @@ my_test_class_init (GTestClass * klass)
+ }
+ 
+ static void
+-my_test_init (GTest * test)
++my_test_init (GTest * test, gpointer g_class)
+ {
+   g_test_message ("init %p\n", test);
+ }
+diff --git a/gobject/tests/override.c b/gobject/tests/override.c
+index deaa96130..c8621cc6b 100644
+--- a/gobject/tests/override.c
++++ b/gobject/tests/override.c
+@@ -46,13 +46,14 @@ struct _TestIClass
+ };
+ 
+ static void
+-test_i_foo (TestI *self)
++test_i_foo (TestI    *self,
++            gpointer  data)
+ {
+   record ("TestI::foo");
+ }
+ 
+ static void
+-test_i_default_init (gpointer g_class)
++test_i_default_init (gpointer g_class, gpointer class_data)
+ {
+   foo_signal_id = g_signal_newv ("foo",
+                                  TEST_TYPE_I,
+@@ -81,7 +82,8 @@ struct _TestAClass {
+ };
+ 
+ static void
+-test_a_foo (TestI *self)
++test_a_foo (TestI    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -118,7 +120,7 @@ test_a_baz (TestA    *self,
+ }
+ 
+ static void
+-test_a_class_init (TestAClass *class)
++test_a_class_init (TestAClass *class, gpointer class_data)
+ {
+   class->bar = test_a_bar;
+ 
+@@ -143,7 +145,7 @@ test_a_class_init (TestAClass *class)
+ }
+ 
+ static void
+-test_a_interface_init (TestIClass *iface)
++test_a_interface_init (TestIClass *iface, gpointer iface_data)
+ {
+   g_signal_override_class_closure (foo_signal_id,
+                                    TEST_TYPE_A,
+@@ -169,7 +171,8 @@ struct _TestBClass {
+ };
+ 
+ static void
+-test_b_foo (TestI *self)
++test_b_foo (TestI    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -187,7 +190,8 @@ test_b_foo (TestI *self)
+ }
+ 
+ static void
+-test_b_bar (TestA *self)
++test_b_bar (TestA    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -229,7 +233,7 @@ test_b_baz (TestA    *self,
+ }
+ 
+ static void
+-test_b_class_init (TestBClass *class)
++test_b_class_init (TestBClass *class, gpointer class_data)
+ {
+   g_signal_override_class_closure (foo_signal_id,
+                                    TEST_TYPE_B,
+@@ -261,7 +265,8 @@ struct _TestCClass {
+ };
+ 
+ static void
+-test_c_foo (TestI *self)
++test_c_foo (TestI    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -279,7 +284,8 @@ test_c_foo (TestI *self)
+ }
+ 
+ static void
+-test_c_bar (TestA *self)
++test_c_bar (TestA    *self,
++            gpointer  data)
+ {
+   GValue args[1] = { G_VALUE_INIT };
+ 
+@@ -321,7 +327,7 @@ test_c_baz (TestA    *self,
+ }
+ 
+ static void
+-test_c_class_init (TestBClass *class)
++test_c_class_init (TestBClass *class, gpointer class_data)
+ {
+   g_signal_override_class_closure (foo_signal_id,
+                                    TEST_TYPE_C,
+diff --git a/gobject/tests/param.c b/gobject/tests/param.c
+index bd6d46aa3..9ca6c5bff 100644
+--- a/gobject/tests/param.c
++++ b/gobject/tests/param.c
+@@ -1333,7 +1333,7 @@ typedef GObjectClass TestImplementationClass;
+ typedef GObject TestImplementation;
+ 
+ static void test_implementation_init (TestImplementation *impl) { }
+-static void test_implementation_iface_init (TestInterfaceInterface *iface) { }
++static void test_implementation_iface_init (TestInterfaceInterface *iface, gpointer iface_data) { }
+ 
+ static GType test_implementation_get_type (void);
+ G_DEFINE_TYPE_WITH_CODE (TestImplementation, test_implementation, G_TYPE_OBJECT,
+@@ -1549,8 +1549,14 @@ test_param_is_valid_name (void)
+     g_assert_false (g_param_spec_is_valid_name (invalid_names[i]));
+ }
+ 
++#ifdef G_PLATFORM_WASM
++static void
++param_int_init (GParamSpec *pspec,
++                gpointer    class_data)
++#else
+ static void
+ param_int_init (GParamSpec *pspec)
++#endif
+ {
+   GParamSpecInt *ispec = (GParamSpecInt *)pspec;
+ 
+diff --git a/gobject/tests/performance/performance.c b/gobject/tests/performance/performance.c
+index c620d0001..e2f74eaae 100644
+--- a/gobject/tests/performance/performance.c
++++ b/gobject/tests/performance/performance.c
+@@ -337,6 +337,9 @@ struct _ComplexObjectClass
+ 
+   void (*signal) (ComplexObject *obj);
+   void (*signal_empty) (ComplexObject *obj);
++  void (*signal_args) (ComplexObject *obj,
++                       guint          arg1,
++                       gpointer       arg2);
+ };
+ 
+ static void complex_test_iface_init (gpointer         g_iface,
+@@ -432,6 +435,13 @@ complex_object_real_signal (ComplexObject *obj)
+ {
+ }
+ 
++static void
++complex_object_real_signal_args (ComplexObject *obj,
++                                 guint          arg1,
++                                 gpointer       arg2)
++{
++}
++
+ static void
+ complex_object_class_init (ComplexObjectClass *class)
+ {
+@@ -442,6 +452,7 @@ complex_object_class_init (ComplexObjectClass *class)
+   object_class->get_property = complex_object_get_property;
+ 
+   class->signal = complex_object_real_signal;
++  class->signal_args = complex_object_real_signal_args;
+ 
+   complex_signals[COMPLEX_SIGNAL] =
+     g_signal_new ("signal",
+@@ -482,7 +493,7 @@ complex_object_class_init (ComplexObjectClass *class)
+     g_signal_new ("signal-args",
+                   G_TYPE_FROM_CLASS (object_class),
+                   G_SIGNAL_RUN_FIRST,
+-                  G_STRUCT_OFFSET (ComplexObjectClass, signal),
++                  G_STRUCT_OFFSET (ComplexObjectClass, signal_args),
+                   NULL, NULL,
+                   g_cclosure_marshal_VOID__UINT_POINTER,
+                   G_TYPE_NONE, 2, G_TYPE_UINT, G_TYPE_POINTER);
+@@ -906,6 +917,14 @@ test_emission_handled_handler (ComplexObject *obj, gpointer data)
+ {
+ }
+ 
++static void
++test_emission_handled_args_handler (ComplexObject *obj,
++                                    guint          arg1,
++                                    gpointer       arg2,
++                                    gpointer       data)
++{
++}
++
+ static gpointer
+ test_emission_handled_setup (PerformanceTest *test)
+ {
+@@ -927,7 +946,7 @@ test_emission_handled_setup (PerformanceTest *test)
+                     G_CALLBACK (test_emission_handled_handler),
+                     NULL);
+   g_signal_connect (data->object, "signal-args",
+-                    G_CALLBACK (test_emission_handled_handler),
++                    G_CALLBACK (test_emission_handled_args_handler),
+                     NULL);
+ 
+   return data;
+diff --git a/gobject/tests/properties-refcount1.c b/gobject/tests/properties-refcount1.c
+index 532e15048..38e929e05 100644
+--- a/gobject/tests/properties-refcount1.c
++++ b/gobject/tests/properties-refcount1.c
+@@ -37,8 +37,8 @@ struct _GTestClass
+ static GType my_test_get_type (void);
+ static gboolean stopping;
+ 
+-static void my_test_class_init (GTestClass * klass);
+-static void my_test_init (GTest * test);
++static void my_test_class_init (GTestClass * klass, gpointer class_data);
++static void my_test_init (GTest * test, gpointer g_class);
+ static void my_test_dispose (GObject * object);
+ static void my_test_get_property (GObject    *object,
+                                   guint       prop_id,
+@@ -76,7 +76,7 @@ my_test_get_type (void)
+ }
+ 
+ static void
+-my_test_class_init (GTestClass * klass)
++my_test_class_init (GTestClass * klass, gpointer class_data)
+ {
+   GObjectClass *gobject_class;
+ 
+@@ -98,7 +98,7 @@ my_test_class_init (GTestClass * klass)
+ }
+ 
+ static void
+-my_test_init (GTest * test)
++my_test_init (GTest * test, gpointer g_class)
+ {
+   static guint static_id = 1;
+   test->id = static_id++;
+@@ -154,7 +154,8 @@ my_test_set_property (GObject      *object,
+ 
+ static void
+ dummy_notify (GObject    *object,
+-              GParamSpec *pspec)
++              GParamSpec *pspec,
++              gpointer user_data)
+ {
+   GTest *test;
+ 
+diff --git a/gobject/tests/properties-refcount2.c b/gobject/tests/properties-refcount2.c
+index 9536b5144..d7b0f854a 100644
+--- a/gobject/tests/properties-refcount2.c
++++ b/gobject/tests/properties-refcount2.c
+@@ -34,8 +34,8 @@ struct _GTestClass
+ 
+ static GType my_test_get_type (void);
+ 
+-static void my_test_class_init (GTestClass * klass);
+-static void my_test_init (GTest * test);
++static void my_test_class_init (GTestClass * klass, gpointer class_data);
++static void my_test_init (GTest * test, gpointer g_class);
+ static void my_test_dispose (GObject * object);
+ static void my_test_get_property (GObject    *object,
+                                   guint       prop_id,
+@@ -74,7 +74,7 @@ my_test_get_type (void)
+ }
+ 
+ static void
+-my_test_class_init (GTestClass * klass)
++my_test_class_init (GTestClass * klass, gpointer class_data)
+ {
+   GObjectClass *gobject_class;
+ 
+@@ -96,7 +96,7 @@ my_test_class_init (GTestClass * klass)
+ }
+ 
+ static void
+-my_test_init (GTest * test)
++my_test_init (GTest * test, gpointer g_class)
+ {
+   g_test_message ("init %p\n", test);
+ }
+@@ -159,7 +159,8 @@ static gint count = 0;
+ 
+ static void
+ dummy_notify (GObject    *object,
+-              GParamSpec *pspec)
++              GParamSpec *pspec,
++              gpointer user_data)
+ {
+   count++;
+   if (count % 10000 == 0)
+diff --git a/gobject/tests/properties-refcount3.c b/gobject/tests/properties-refcount3.c
+index fd55f0c0d..5e078d22b 100644
+--- a/gobject/tests/properties-refcount3.c
++++ b/gobject/tests/properties-refcount3.c
+@@ -115,7 +115,8 @@ my_test_set_property (GObject      *object,
+ 
+ static void
+ dummy_notify (GObject    *object,
+-	      GParamSpec *pspec)
++	      GParamSpec *pspec,
++              gpointer user_data)
+ {
+   GTest *test;
+ 
+diff --git a/gobject/tests/properties-refcount4.c b/gobject/tests/properties-refcount4.c
+index 462f9e3cd..f15ed9e20 100644
+--- a/gobject/tests/properties-refcount4.c
++++ b/gobject/tests/properties-refcount4.c
+@@ -44,7 +44,8 @@ static void my_badger_set_property (GObject      *object,
+ 				    GParamSpec   *pspec);
+ 
+ static void my_badger_mama_notify (GObject    *object,
+-				   GParamSpec *pspec);
++				   GParamSpec *pspec,
++                                   gpointer user_data);
+ 
+ static void
+ my_badger_class_init (MyBadgerClass * klass)
+@@ -138,7 +139,8 @@ my_badger_set_property (GObject      *object,
+ 
+ static void
+ my_badger_mama_notify (GObject    *object,
+-                       GParamSpec *pspec)
++                       GParamSpec *pspec,
++                       gpointer user_data)
+ {
+   MyBadger *self;
+ 
+diff --git a/gobject/tests/qdata.c b/gobject/tests/qdata.c
+index 864f8893c..2af37dd20 100644
+--- a/gobject/tests/qdata.c
++++ b/gobject/tests/qdata.c
+@@ -84,6 +84,13 @@ test_qdata_threaded (void)
+   g_object_unref (object);
+ }
+ 
++static gpointer
++dup_string (gpointer data,
++            gpointer user_data)
++{
++  return g_strdup (data);
++}
++
+ static void
+ test_qdata_dup (void)
+ {
+@@ -96,7 +103,7 @@ test_qdata_dup (void)
+   s = g_strdup ("s");
+   g_object_set_qdata_full (object, quark, s, g_free);
+ 
+-  s2 = g_object_dup_qdata (object, quark, (GDuplicateFunc)g_strdup, NULL);
++  s2 = g_object_dup_qdata (object, quark, dup_string, NULL);
+ 
+   g_assert_cmpstr (s, ==, s2);
+   g_assert (s != s2);
+diff --git a/gobject/tests/signalgroup.c b/gobject/tests/signalgroup.c
+index c4d98062f..1864279bb 100644
+--- a/gobject/tests/signalgroup.c
++++ b/gobject/tests/signalgroup.c
+@@ -193,6 +193,13 @@ connect_data_weak_notify_cb (gboolean     *weak_notify_called,
+   g_assert_true (*weak_notify_called);
+ }
+ 
++static void
++unref_weak_notify (gpointer  data,
++                   GObject  *where_the_object_was)
++{
++  g_object_unref (data);
++}
++
+ static void
+ connect_all_signals (GSignalGroup *group)
+ {
+@@ -224,7 +231,7 @@ connect_all_signals (GSignalGroup *group)
+                                  object,
+                                  0);
+   g_object_weak_ref (G_OBJECT (group),
+-                     (GWeakNotify)g_object_unref,
++                     unref_weak_notify,
+                      object);
+ 
+   /* Check that a detailed signal is handled correctly */
+diff --git a/gobject/tests/signals-refcount.c b/gobject/tests/signals-refcount.c
+index 46ddbf25b..484f43b66 100644
+--- a/gobject/tests/signals-refcount.c
++++ b/gobject/tests/signals-refcount.c
+@@ -50,8 +50,8 @@ enum
+   ARG_TEST_PROP
+ };
+ 
+-static void my_test_class_init (GTestClass * klass);
+-static void my_test_init (GTest * test);
++static void my_test_class_init (GTestClass * klass, gpointer class_data);
++static void my_test_init (GTest * test, gpointer g_class);
+ static void my_test_dispose (GObject * object);
+ 
+ static void signal2_handler (GTest * test, gint anint);
+@@ -92,7 +92,7 @@ my_test_get_type (void)
+ }
+ 
+ static void
+-my_test_class_init (GTestClass * klass)
++my_test_class_init (GTestClass * klass, gpointer class_data)
+ {
+   GObjectClass *gobject_class;
+ 
+@@ -126,7 +126,7 @@ my_test_class_init (GTestClass * klass)
+ }
+ 
+ static void
+-my_test_init (GTest * test)
++my_test_init (GTest * test, gpointer g_class)
+ {
+   g_test_message ("init %p\n", test);
+ 
+diff --git a/gobject/tests/signals.c b/gobject/tests/signals.c
+index cd7da12b2..12f04db1a 100644
+--- a/gobject/tests/signals.c
++++ b/gobject/tests/signals.c
+@@ -157,7 +157,7 @@ typedef struct {
+ } BaaClass;
+ 
+ static void
+-baa_init_foo (FooInterface *iface)
++baa_init_foo (FooInterface *iface, gpointer iface_data)
+ {
+ }
+ 
+@@ -630,7 +630,8 @@ on_generic_marshaller_2 (Test *obj,
+ 			 TestEnum    v_enum,
+ 			 gint        v_int2,
+ 			 TestUnsignedEnum v_uenum,
+-			 gint        v_int3)
++			 gint        v_int3,
++			 gpointer    data)
+ {
+   g_assert_cmpint (v_int1, ==, 42);
+   g_assert_cmpint (v_enum, ==, TEST_ENUM_BAR);
+@@ -653,13 +654,13 @@ test_generic_marshaller_signal_2 (void)
+ }
+ 
+ static TestEnum
+-on_generic_marshaller_enum_return_signed_1 (Test *obj)
++on_generic_marshaller_enum_return_signed_1 (Test *obj, gpointer data)
+ {
+   return TEST_ENUM_NEGATIVE;
+ }
+ 
+ static TestEnum
+-on_generic_marshaller_enum_return_signed_2 (Test *obj)
++on_generic_marshaller_enum_return_signed_2 (Test *obj, gpointer data)
+ {
+   return TEST_ENUM_BAR;
+ }
+@@ -696,13 +697,13 @@ test_generic_marshaller_signal_enum_return_signed (void)
+ }
+ 
+ static TestUnsignedEnum
+-on_generic_marshaller_enum_return_unsigned_1 (Test *obj)
++on_generic_marshaller_enum_return_unsigned_1 (Test *obj, gpointer data)
+ {
+   return TEST_UNSIGNED_ENUM_FOO;
+ }
+ 
+ static TestUnsignedEnum
+-on_generic_marshaller_enum_return_unsigned_2 (Test *obj)
++on_generic_marshaller_enum_return_unsigned_2 (Test *obj, gpointer data)
+ {
+   return TEST_UNSIGNED_ENUM_BAR;
+ }
+@@ -741,13 +742,13 @@ test_generic_marshaller_signal_enum_return_unsigned (void)
+ /**********************/
+ 
+ static gint
+-on_generic_marshaller_int_return_signed_1 (Test *obj)
++on_generic_marshaller_int_return_signed_1 (Test *obj, gpointer data)
+ {
+   return -30;
+ }
+ 
+ static gint
+-on_generic_marshaller_int_return_signed_2 (Test *obj)
++on_generic_marshaller_int_return_signed_2 (Test *obj, gpointer data)
+ {
+   return 2;
+ }
+@@ -805,13 +806,13 @@ test_generic_marshaller_signal_int_return (void)
+ }
+ 
+ static guint
+-on_generic_marshaller_uint_return_1 (Test *obj)
++on_generic_marshaller_uint_return_1 (Test *obj, gpointer data)
+ {
+   return 1;
+ }
+ 
+ static guint
+-on_generic_marshaller_uint_return_2 (Test *obj)
++on_generic_marshaller_uint_return_2 (Test *obj, gpointer data)
+ {
+   return G_MAXUINT;
+ }
+@@ -865,7 +866,7 @@ test_generic_marshaller_signal_uint_return (void)
+ }
+ 
+ static gpointer
+-on_generic_marshaller_interface_return (Test *test)
++on_generic_marshaller_interface_return (Test *test, gpointer data)
+ {
+   return g_object_new (baa_get_type (), NULL);
+ }
+diff --git a/gobject/tests/testmodule.c b/gobject/tests/testmodule.c
+index 610059986..563b7f621 100644
+--- a/gobject/tests/testmodule.c
++++ b/gobject/tests/testmodule.c
+@@ -25,7 +25,7 @@ static gboolean test_module_load   (GTypeModule *module);
+ static void     test_module_unload (GTypeModule *module);
+ 
+ static void
+-test_module_class_init (TestModuleClass *class)
++test_module_class_init (TestModuleClass *class, gpointer class_data)
+ {
+   GTypeModuleClass *module_class = G_TYPE_MODULE_CLASS (class);
+ 
+diff --git a/gobject/tests/threadtests.c b/gobject/tests/threadtests.c
+index 2ae257859..8d4690233 100644
+--- a/gobject/tests/threadtests.c
++++ b/gobject/tests/threadtests.c
+@@ -49,7 +49,7 @@ call_counter_init (gpointer tclass)
+     }
+ }
+ 
+-static void interface_per_class_init (void) { call_counter_init (NULL); }
++static void interface_per_class_init (gpointer iface, gpointer iface_data) { call_counter_init (NULL); }
+ 
+ /* define 3 test interfaces */
+ typedef GTypeInterface MyFace0Interface;
+diff --git a/gobject/tests/type.c b/gobject/tests/type.c
+index 372596e39..6b40d7a61 100644
+--- a/gobject/tests/type.c
++++ b/gobject/tests/type.c
+@@ -146,7 +146,7 @@ typedef struct {
+ } BazoClass;
+ 
+ GType bazo_get_type (void);
+-static void bazo_iface_init (BazInterface *i);
++static void bazo_iface_init (BazInterface *i, gpointer iface_data);
+ 
+ G_DEFINE_TYPE_WITH_CODE (Bazo, bazo, G_TYPE_INITIALLY_UNOWNED,
+                          G_IMPLEMENT_INTERFACE (baz_get_type (),
+@@ -163,7 +163,7 @@ bazo_class_init (BazoClass *c)
+ }
+ 
+ static void
+-bazo_iface_init (BazInterface *i)
++bazo_iface_init (BazInterface *i, gpointer iface_data)
+ {
+ }
+ 
+diff --git a/gobject/tests/value.c b/gobject/tests/value.c
+index e1c647d71..360dc73cb 100644
+--- a/gobject/tests/value.c
++++ b/gobject/tests/value.c
+@@ -736,7 +736,7 @@ static void test_object_a_init (TestObjectA *a) { }
+ 
+ static GType test_object_b_get_type (void);
+ typedef GObject TestObjectB; typedef GObjectClass TestObjectBClass;
+-static void test_object_b_iface_init (TestInterfaceInterface *iface) { }
++static void test_object_b_iface_init (TestInterfaceInterface *iface, gpointer iface_data) { }
+ G_DEFINE_TYPE_WITH_CODE (TestObjectB, test_object_b, G_TYPE_OBJECT,
+                          G_IMPLEMENT_INTERFACE (test_interface_get_type (), test_object_b_iface_init))
+ static void test_object_b_class_init (TestObjectBClass *class) { }
+@@ -750,7 +750,7 @@ static void test_object_a1_init (TestObjectA1 *c) { }
+ 
+ static GType test_object_a2_get_type (void);
+ typedef GObject TestObjectA2; typedef GObjectClass TestObjectA2Class;
+-static void test_object_a2_iface_init (TestInterfaceInterface *iface) { }
++static void test_object_a2_iface_init (TestInterfaceInterface *iface, gpointer iface_data) { }
+ G_DEFINE_TYPE_WITH_CODE (TestObjectA2, test_object_a2, test_object_a_get_type (),
+                          G_IMPLEMENT_INTERFACE (test_interface_get_type (), test_object_a2_iface_init))
+ static void test_object_a2_class_init (TestObjectA2Class *class) { }
+diff --git a/tests/lib/meson.build b/tests/lib/meson.build
+index 9e7ca4052..e867e77ce 100644
+--- a/tests/lib/meson.build
++++ b/tests/lib/meson.build
+@@ -13,16 +13,20 @@ if installed_tests_enabled
+   )
+ endif
+ 
+-tests_conf = configuration_data()
+-tests_conf.set('gir_suffix', gir_suffix)
+-tests_conf.set('glib_datadir', glib_datadir)
+-tests_conf.set('glib_girdir', glib_girdir)
++# Only girepository's tests read this, and girepository isn't built for
++# Emscripten.
++if host_system != 'emscripten'
++  tests_conf = configuration_data()
++  tests_conf.set('gir_suffix', gir_suffix)
++  tests_conf.set('glib_datadir', glib_datadir)
++  tests_conf.set('glib_girdir', glib_girdir)
+ 
+-configure_file(
+-  configuration: tests_conf,
+-  input: 'glibconfig.py.in',
+-  output: 'glibconfig.py',
+-  install: installed_tests_enabled,
+-  install_dir: installed_tests_execdir,
+-  install_tag: 'tests',
+-)
++  configure_file(
++    configuration: tests_conf,
++    input: 'glibconfig.py.in',
++    output: 'glibconfig.py',
++    install: installed_tests_enabled,
++    install_dir: installed_tests_execdir,
++    install_tag: 'tests',
++  )
++endif
+diff --git a/tests/lib/testprogramrunner.py b/tests/lib/testprogramrunner.py
+index aa8d4ea47..7b782e3ba 100644
+--- a/tests/lib/testprogramrunner.py
++++ b/tests/lib/testprogramrunner.py
+@@ -71,6 +71,14 @@ class TestProgramRunner(unittest.TestCase):
+         if cls.PROGRAM_TYPE == ProgramType.NATIVE and os.name == "nt":
+             ext = ".exe"
+ 
++        # Emscripten builds a program as <name>.js, to be run by Node.
++        cls.__node = []
++        if cls.PROGRAM_TYPE == ProgramType.NATIVE:
++            node = os.environ.get("_G_TEST_PROGRAM_RUNNER_NODE")
++            if node:
++                ext = ".js"
++                cls.__node = [node]
++
+         cls._program_name = f"{cls.PROGRAM_NAME}{ext}"
+ 
+         if "_G_TEST_PROGRAM_RUNNER_PATH" in os.environ:
+@@ -114,7 +122,7 @@ class TestProgramRunner(unittest.TestCase):
+         if self.PROGRAM_TYPE == ProgramType.INTERPRETED and os.name == "nt":
+             argv.insert(0, self.INTERPRETER if self.INTERPRETER else sys.executable)
+ 
+-        argv = wrapper_args + argv
++        argv = wrapper_args + self.__node + argv
+ 
+         env = os.environ.copy()
+         env["LC_ALL"] = "C.UTF-8"
