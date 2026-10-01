@@ -6,6 +6,18 @@ killed the program. Flush the host fd.
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-node-fsync.md
 
+diff --git a/src/lib/libsigs.js b/src/lib/libsigs.js
+index 89e5cba..2d88e24 100644
+--- a/src/lib/libsigs.js
++++ b/src/lib/libsigs.js
+@@ -421,6 +421,7 @@ sigs = {
+   _wasmfs_jsimpl_write__sig: 'ippppj',
+   _wasmfs_node_close__sig: 'ii',
+   _wasmfs_node_fstat_size__sig: 'iip',
++  _wasmfs_node_fsync__sig: 'ii',
+   _wasmfs_node_ftruncate__sig: 'iij',
+   _wasmfs_node_get_mode__sig: 'ipp',
+   _wasmfs_node_insert_directory__sig: 'ipi',
 diff --git a/src/lib/libwasmfs_node.js b/src/lib/libwasmfs_node.js
 index 82888a9..cfbe66d 100644
 --- a/src/lib/libwasmfs_node.js

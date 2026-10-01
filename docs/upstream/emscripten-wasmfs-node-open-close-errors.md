@@ -201,13 +201,46 @@ End of search list.
 `_wasmfs_node_open` returns a negated errno. `close` negates its helper's
 result like the other callers do.
 
+Reporting a failed `open` uncovers a second bug that the bogus descriptor
+hid. `insertDataFile` creates the file with `'ax'` and closes it, then the
+`open()` that follows reopens it by path, where the new file's own mode can
+refuse it: `open(path, O_CREAT | O_RDONLY, 0)` gets `EACCES`, though POSIX
+lets the creating open through whatever the mode. Fixed alone, the sign
+change makes `wasmfs.test_fcntl_open_nodefs`, `wasmfs.test_fcntl_open_rawfs`
+and `other.test_wasmfs_getdents_node` fail on that. So the file is created
+with `'wx+'`, read-write, and that descriptor is kept for the first open
+(closed with the file if nothing opens it). That also drops `'a'`, which
+would make every `pwrite` to the descriptor append on Linux.
+
 ```diff
 --- a/src/lib/libwasmfs_node.js
 +++ b/src/lib/libwasmfs_node.js
-@@ -167,9 +167,15 @@
+@@ -121,12 +121,16 @@
+     // implicitly return 0
+   },
+ 
+-  _wasmfs_node_insert_file__deps: ['$wasmfsTry'],
++  _wasmfs_node_insert_file__deps: ['$wasmfsNodeConvertNodeCode'],
+   _wasmfs_node_insert_file: (path_p, mode) => {
+-    return wasmfsTry(() => {
+-      fs.closeSync(fs.openSync(UTF8ToString(path_p), 'ax', mode));
+-      // implicitly return 0
+-    });
++    // A file descriptor open for reading and writing, whatever `mode` allows,
++    // or a negated errno.
++    try {
++      return fs.openSync(UTF8ToString(path_p), 'wx+', mode);
++    } catch (e) {
++      if (!e.code) throw e;
++      return -wasmfsNodeConvertNodeCode(e);
++    }
+   },
+ 
+   _wasmfs_node_insert_directory__deps: ['$wasmfsTry'],
+@@ -167,9 +171,15 @@
      return wasmfsTry(() => fs.ftruncateSync(fd, len));
    },
-
+ 
 -  _wasmfs_node_open__deps: ['$wasmfsTry'],
 +  _wasmfs_node_open__deps: ['$wasmfsNodeConvertNodeCode'],
    _wasmfs_node_open: (path_p, mode_p) => {
@@ -220,11 +253,50 @@ result like the other callers do.
 +      return -wasmfsNodeConvertNodeCode(e);
 +    }
    },
-
+ 
    _wasmfs_node_rename__deps: ['$wasmfsTry'],
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
-@@ -90,7 +90,7 @@
+@@ -21,6 +21,8 @@
+   size_t openCount = 0;
+   oflags_t openFlags = 0;
+   int fd = -1;
++  // The descriptor that created the file, until its first open takes it.
++  int created = -1;
+ 
+ public:
+   std::string path;
+@@ -34,10 +36,29 @@
+ 
+   bool isOpen() { return openCount > 0; }
+ 
++  // Keep the read-write descriptor that created the file for the open that
++  // follows: the file's mode doesn't bind the open that creates it, but would
++  // refuse a second one.
++  void keepCreated(int createdFD) { created = createdFD; }
++
++  void closeCreated() {
++    if (created >= 0) {
++      (void)_wasmfs_node_close(created);
++      created = -1;
++    }
++  }
++
+   // Attempt to open the file with the given flags, returning 0 on success or an
+   // error code.
+   int open(oflags_t flags) {
+     int result = 0;
++    if (openCount == 0 && created >= 0) {
++      fd = created;
++      created = -1;
++      openFlags = O_RDWR;
++      ++openCount;
++      return 0;
++    }
+     if (openCount == 0) {
+       // No existing fd, so open a fresh one.
+       switch (flags) {
+@@ -90,7 +111,7 @@
    int close() {
      int ret = 0;
      if (--openCount == 0) {
@@ -233,6 +305,47 @@ result like the other callers do.
        *this = NodeState(path);
      }
      return ret;
+@@ -104,6 +125,8 @@
+   NodeFile(mode_t mode, backend_t backend, std::string path)
+     : DataFile(mode, backend), state(path) {}
+ 
++  ~NodeFile() { state.closeCreated(); }
++
+ private:
+   off_t getSize() override {
+     // TODO: This should really be using a 64-bit file size type.
+@@ -220,10 +243,13 @@
+   std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+                                            mode_t mode) override {
+     auto childPath = getChildPath(name);
+-    if (_wasmfs_node_insert_file(childPath.c_str(), mode)) {
++    int fd = _wasmfs_node_insert_file(childPath.c_str(), mode);
++    if (fd < 0) {
+       return nullptr;
+     }
+-    return std::make_shared<NodeFile>(mode, getBackend(), childPath);
++    auto file = std::make_shared<NodeFile>(mode, getBackend(), childPath);
++    file->state.keepCreated(fd);
++    return file;
+   }
+ 
+   std::shared_ptr<Directory> insertDirectory(const std::string& name,
+--- a/system/lib/wasmfs/backends/node_backend.h
++++ b/system/lib/wasmfs/backends/node_backend.h
+@@ -19,8 +19,11 @@
+ int _wasmfs_node_stat_size(const char* path, uint32_t* size);
+ int _wasmfs_node_fstat_size(int fd, uint32_t* size);
+ 
+-// Create a new file system entry and return 0 or an error code.
+-int _wasmfs_node_insert_file(const char* path, mode_t mode);
++// Create a new file and return a file descriptor open for reading and
++// writing, or a negative error code.
++[[nodiscard]] int _wasmfs_node_insert_file(const char* path, mode_t mode);
++
++// Create a new directory and return 0 or an error code.
+ int _wasmfs_node_insert_directory(const char* path, mode_t mode);
+ 
+ // Unlink the given file and return 0 or an error code.
 ```
 
 With this applied to 6.0.9, test case 1 prints:
@@ -262,7 +375,14 @@ and return the underlying file descriptor") could say so too.
   error, `close` never sees one. The `close` change is by inspection: every
   other helper caller negates.
 - **How the fix was tested.** The "with this applied" run used a 6.0.9 tree
-  with all of this set's candidate fixes applied at once.
+  with all of this set's candidate fixes applied at once. With the
+  creation change, the three tests above pass again, and a 96-test WasmFS
+  selection (stat, chmod, utime, access, links, `fcntl_open`, readdir,
+  `unistd_*`, `other.test_wasmfs_*`, ...) gives results identical to
+  unpatched 6.0.9.
+- **Latent, not fixed here:** `NodeState::open` maps `O_WRONLY` to `"r+"` (the
+  TODO says so), so a write-only file (mode `0200`) can't be opened for
+  writing once it exists. A fix would pass numeric flags to `fs.openSync`.
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`: the open
   mix-up shows the same at both, and the `close` assertion shows only at `-O0`.
 - **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are

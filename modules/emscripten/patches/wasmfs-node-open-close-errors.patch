@@ -8,10 +8,32 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-node-open-close-errors.md
 
 diff --git a/src/lib/libwasmfs_node.js b/src/lib/libwasmfs_node.js
-index 82888a9..0148421 100644
+index 82888a9..260add8 100644
 --- a/src/lib/libwasmfs_node.js
 +++ b/src/lib/libwasmfs_node.js
-@@ -167,9 +167,15 @@ var wasmFSNodeLibrary = {
+@@ -121,12 +121,16 @@ var wasmFSNodeLibrary = {
+     // implicitly return 0
+   },
+ 
+-  _wasmfs_node_insert_file__deps: ['$wasmfsTry'],
++  _wasmfs_node_insert_file__deps: ['$wasmfsNodeConvertNodeCode'],
+   _wasmfs_node_insert_file: (path_p, mode) => {
+-    return wasmfsTry(() => {
+-      fs.closeSync(fs.openSync(UTF8ToString(path_p), 'ax', mode));
+-      // implicitly return 0
+-    });
++    // A file descriptor open for reading and writing, whatever `mode` allows,
++    // or a negated errno.
++    try {
++      return fs.openSync(UTF8ToString(path_p), 'wx+', mode);
++    } catch (e) {
++      if (!e.code) throw e;
++      return -wasmfsNodeConvertNodeCode(e);
++    }
+   },
+ 
+   _wasmfs_node_insert_directory__deps: ['$wasmfsTry'],
+@@ -167,9 +171,15 @@ var wasmFSNodeLibrary = {
      return wasmfsTry(() => fs.ftruncateSync(fd, len));
    },
  
@@ -30,10 +52,49 @@ index 82888a9..0148421 100644
  
    _wasmfs_node_rename__deps: ['$wasmfsTry'],
 diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
-index 4bfd0f1..b4adb94 100644
+index 4bfd0f1..636fee1 100644
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
-@@ -90,7 +90,7 @@ public:
+@@ -21,6 +21,8 @@ class NodeState {
+   size_t openCount = 0;
+   oflags_t openFlags = 0;
+   int fd = -1;
++  // The descriptor that created the file, until its first open takes it.
++  int created = -1;
+ 
+ public:
+   std::string path;
+@@ -34,10 +36,29 @@ public:
+ 
+   bool isOpen() { return openCount > 0; }
+ 
++  // Keep the read-write descriptor that created the file for the open that
++  // follows: the file's mode doesn't bind the open that creates it, but would
++  // refuse a second one.
++  void keepCreated(int createdFD) { created = createdFD; }
++
++  void closeCreated() {
++    if (created >= 0) {
++      (void)_wasmfs_node_close(created);
++      created = -1;
++    }
++  }
++
+   // Attempt to open the file with the given flags, returning 0 on success or an
+   // error code.
+   int open(oflags_t flags) {
+     int result = 0;
++    if (openCount == 0 && created >= 0) {
++      fd = created;
++      created = -1;
++      openFlags = O_RDWR;
++      ++openCount;
++      return 0;
++    }
+     if (openCount == 0) {
+       // No existing fd, so open a fresh one.
+       switch (flags) {
+@@ -90,7 +111,7 @@ public:
    int close() {
      int ret = 0;
      if (--openCount == 0) {
@@ -42,3 +103,46 @@ index 4bfd0f1..b4adb94 100644
        *this = NodeState(path);
      }
      return ret;
+@@ -104,6 +125,8 @@ public:
+   NodeFile(mode_t mode, backend_t backend, std::string path)
+     : DataFile(mode, backend), state(path) {}
+ 
++  ~NodeFile() { state.closeCreated(); }
++
+ private:
+   off_t getSize() override {
+     // TODO: This should really be using a 64-bit file size type.
+@@ -220,10 +243,13 @@ private:
+   std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+                                            mode_t mode) override {
+     auto childPath = getChildPath(name);
+-    if (_wasmfs_node_insert_file(childPath.c_str(), mode)) {
++    int fd = _wasmfs_node_insert_file(childPath.c_str(), mode);
++    if (fd < 0) {
+       return nullptr;
+     }
+-    return std::make_shared<NodeFile>(mode, getBackend(), childPath);
++    auto file = std::make_shared<NodeFile>(mode, getBackend(), childPath);
++    file->state.keepCreated(fd);
++    return file;
+   }
+ 
+   std::shared_ptr<Directory> insertDirectory(const std::string& name,
+diff --git a/system/lib/wasmfs/backends/node_backend.h b/system/lib/wasmfs/backends/node_backend.h
+index 7e6e496..60ff185 100644
+--- a/system/lib/wasmfs/backends/node_backend.h
++++ b/system/lib/wasmfs/backends/node_backend.h
+@@ -19,8 +19,11 @@ int _wasmfs_node_get_mode(const char* path, mode_t* mode);
+ int _wasmfs_node_stat_size(const char* path, uint32_t* size);
+ int _wasmfs_node_fstat_size(int fd, uint32_t* size);
+ 
+-// Create a new file system entry and return 0 or an error code.
+-int _wasmfs_node_insert_file(const char* path, mode_t mode);
++// Create a new file and return a file descriptor open for reading and
++// writing, or a negative error code.
++[[nodiscard]] int _wasmfs_node_insert_file(const char* path, mode_t mode);
++
++// Create a new directory and return 0 or an error code.
+ int _wasmfs_node_insert_directory(const char* path, mode_t mode);
+ 
+ // Unlink the given file and return 0 or an error code.

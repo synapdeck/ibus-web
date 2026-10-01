@@ -150,6 +150,12 @@ static void check_node_errors(void) {
   CHECK(fd >= 0 && write(fd, "synced", 6) == 6 && fsync(fd) == 0,
         "fsync a host file");
   CHECK(close(fd) == 0, "close");
+
+  /* The open that creates a file isn't bound by the mode it gives it. */
+  snprintf(path, sizeof path, "%s/no-access", host);
+  fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0);
+  CHECK(fd >= 0 && write(fd, "x", 1) == 1, "create a file with mode 0");
+  CHECK(close(fd) == 0, "close");
 }
 
 static int dir_c;

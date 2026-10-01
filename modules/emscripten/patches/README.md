@@ -23,11 +23,17 @@ there, so changing a patch rebuilds the cache and everything in `pkgsWasm`.
 | `wasmfs-pipe-fifo-mode.patch` | pipes report `S_IFREG` instead of `S_IFIFO` | not filed; draft `emscripten-wasmfs-pipe-fifo-mode.md` | a release contains the fix |
 | `wasmfs-node-fsync.patch` | Node backend: `fsync()` hits `WASMFS_UNREACHABLE` | not filed; draft `emscripten-wasmfs-node-fsync.md` | a release contains the fix |
 | `wasmfs-node-rename.patch` | Node backend: a renamed file or directory, and everything already looked up below a directory, keeps its old host path | not filed; draft `emscripten-wasmfs-node-rename.md` | a release contains the fix, for directories too |
-| `wasmfs-node-open-close-errors.patch` | Node backend: a host error from `open()` is taken for a file descriptor, and one from `close()` trips an assertion | not filed; draft `emscripten-wasmfs-node-open-close-errors.md` | a release contains the fix |
+| `wasmfs-node-open-close-errors.patch` | Node backend: a host error from `open()` is taken for a file descriptor, and one from `close()` trips an assertion; a new file is opened through the descriptor that created it, since its own mode may refuse a reopen | not filed; draft `emscripten-wasmfs-node-open-close-errors.md` | a release contains the fix |
 | `noderawfs-fstat-stdio.patch` | `-sNODERAWFS`: `fstat()` on fds 0–2 throws a `TypeError` | [#27628](https://github.com/emscripten-core/emscripten/issues/27628), fixed by [#27632](https://github.com/emscripten-core/emscripten/pull/27632) (backported without its test); draft `emscripten-noderawfs-fstat-stdio.md` | Emscripten 6.0.10 |
 
 As of 6.0.10 (2026-09-18) only #27632 is in a release; the drafts record
 that the code the others change is unchanged there and on `main`.
+
+`wasmfs-node-fsync.patch` adds the new import's signature to `libsigs.js`,
+which `other.test_gen_sig_info` and wasm64 builds need. Emscripten's own
+`other.test_gen_sig_info`, `other.test_wasmfs_getdents_node` and
+`wasmfs.test_fcntl_open_{nodefs,rawfs}` pass with all the patches, and a
+96-test WasmFS selection gives the same results as unpatched 6.0.9.
 
 `wasmfs-node-rename.patch` goes further than its draft's first, files-only
 hunk: a renamed directory's loaded descendants are rewritten too, with the

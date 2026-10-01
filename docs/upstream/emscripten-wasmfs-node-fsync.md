@@ -125,6 +125,33 @@ NodeFile::flush")`
 **Suggested fix:** forward to `fs.fsyncSync` on the open host descriptor.
 
 ```diff
+--- a/src/lib/libsigs.js
++++ b/src/lib/libsigs.js
+@@ -421,6 +421,7 @@
+   _wasmfs_jsimpl_write__sig: 'ippppj',
+   _wasmfs_node_close__sig: 'ii',
+   _wasmfs_node_fstat_size__sig: 'iip',
++  _wasmfs_node_fsync__sig: 'ii',
+   _wasmfs_node_ftruncate__sig: 'iij',
+   _wasmfs_node_get_mode__sig: 'ipp',
+   _wasmfs_node_insert_directory__sig: 'ipi',
+--- a/src/lib/libwasmfs_node.js
++++ b/src/lib/libwasmfs_node.js
+@@ -190,6 +190,14 @@
+     });
+   },
+ 
++  _wasmfs_node_fsync__deps: ['$wasmfsTry'],
++  _wasmfs_node_fsync: (fd) => {
++    return wasmfsTry(() => {
++      fs.fsyncSync(fd);
++      // implicitly return 0
++    });
++  },
++
+   _wasmfs_node_close__deps: ['$wasmfsTry'],
+   _wasmfs_node_close: (fd) => {
+     return wasmfsTry(() => {
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
 @@ -150,9 +150,7 @@
@@ -143,30 +170,13 @@ NodeFile::flush")`
 @@ -42,6 +42,9 @@
  // Close the underlying file descriptor.
  [[nodiscard]] int _wasmfs_node_close(int fd);
-
+ 
 +// Flush the underlying file descriptor and return 0 or an error code.
 +[[nodiscard]] int _wasmfs_node_fsync(int fd);
 +
  // Read up to `size` bytes into `buf` from position `pos` in the file, writing
  // the number of bytes read to `nread`. Return 0 on success or an error code.
  int _wasmfs_node_read(
---- a/src/lib/libwasmfs_node.js
-+++ b/src/lib/libwasmfs_node.js
-@@ -190,6 +190,14 @@
-     });
-   },
-
-+  _wasmfs_node_fsync__deps: ['$wasmfsTry'],
-+  _wasmfs_node_fsync: (fd) => {
-+    return wasmfsTry(() => {
-+      fs.fsyncSync(fd);
-+      // implicitly return 0
-+    });
-+  },
-+
-   _wasmfs_node_close__deps: ['$wasmfsTry'],
-   _wasmfs_node_close: (fd) => {
-     return wasmfsTry(() => {
 ```
 
 With this applied to 6.0.9 (and `cat host/file` added after the run):
@@ -188,6 +198,9 @@ data
 - **FAQ.** Nothing in the FAQ covers this. A `WASMFS_UNREACHABLE` with a TODO
   is plainly unimplemented, not intended. Run at `-O0` and `-O2`, which crash
   the same way.
+- **`libsigs.js`.** The new import needs its signature there, which
+  `tools/maint/gen_sig_info.py` would add; without it `other.test_gen_sig_info`
+  fails and wasm64 builds break. The hunk includes it, and the test passes.
 - **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
   included. Bitcode is left out because the fault is in `libwasmfs`. The fix is
   small and could go straight to a PR, with a `test/` case that `fsync`s a
