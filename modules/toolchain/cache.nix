@@ -26,6 +26,11 @@
       mainLinkNodeWasmfs =
         object: "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sEXIT_RUNTIME=1 ${nodeHostFsFlags object}";
 
+      # A fixed memory for Node-run tests: with pthreads, a memory that grows
+      # has let threads fault out of bounds, and a test that outgrows a fixed
+      # one fails plainly instead. GLib's largest test peaks at 280 MiB.
+      testMemoryFlags = "-sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=512MB";
+
       emscriptenCache = pkgs.stdenvNoCC.mkDerivation {
         pname = "emscripten-cache";
         inherit (emscripten) version;
@@ -52,9 +57,10 @@
             emcc ${commonFlags} $opt $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
             em++ ${commonFlags} $opt probe.cpp -o $TMPDIR/probe-plain-cpp.js
             # GLib's tests are plain executables on WasmFS.
-            emcc ${commonFlags} $opt ${nodeHostFsFlags "$TMPDIR/node-host-fs.o"} $TMPDIR/probe.o \
-              -o $TMPDIR/probe-plain-wasmfs.js
-            for link in "${mainLinkNode}" "${mainLinkWasmfs}" "${mainLinkNodeWasmfs "$TMPDIR/node-host-fs.o"}"; do
+            emcc ${commonFlags} $opt ${nodeHostFsFlags "$TMPDIR/node-host-fs.o"} ${testMemoryFlags} \
+              $TMPDIR/probe.o -o $TMPDIR/probe-plain-wasmfs.js
+            for link in "${mainLinkNode}" "${mainLinkWasmfs}" \
+              "${mainLinkNodeWasmfs "$TMPDIR/node-host-fs.o"} ${testMemoryFlags}"; do
               em++ ${commonFlags} $opt $link $TMPDIR/probe.o -o $TMPDIR/probe-c.js
               em++ ${commonFlags} $opt $link probe.cpp -o $TMPDIR/probe-cpp.js
             done
@@ -91,10 +97,10 @@
     in
     {
       ibusWeb.toolchain = {
-        inherit commonFlags emscriptenCache;
+        inherit commonFlags emscriptenCache testMemoryFlags;
         # Every link inherits the wrapper's -O2, which turns Emscripten's
         # runtime assertions off; test programs want them back.
-        testMainFlags = "-O2 -sASSERTIONS=1 ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"}";
+        testMainFlags = "-O2 -sASSERTIONS=1 ${testMemoryFlags} ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"}";
         nodeHostFsFlags = nodeHostFsFlags "${nodeHostFs}/node-host-fs.o";
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";
@@ -124,7 +130,8 @@
             test "$(node probe-cpp.js)" = "probe 2"
             em++ ${toolchain.commonFlags} -O2 ${mainLinkWasmfs} probe.o -o probe-wasmfs.js
             test "$(node probe-wasmfs.js)" = "probe 7"
-            emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} probe.o -o probe-plain-wasmfs.js
+            emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} \
+              ${toolchain.testMemoryFlags} probe.o -o probe-plain-wasmfs.js
             test "$(node probe-plain-wasmfs.js)" = "probe 7"
 
             emcc ${toolchain.commonFlags} probe.o -o probe-plain.js

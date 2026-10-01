@@ -42,6 +42,7 @@
         exit $status
       '';
       nodeRawFs = "-sNODERAWFS=1";
+      memoryGrowth = "-sALLOW_MEMORY_GROWTH=1";
       testsCrossFile = pkgsBuildBuild.writeText "glib-tests-cross.ini" ''
         [binaries]
         exe_wrapper = ['${nodeToFiles}']
@@ -56,12 +57,17 @@
         # The tests link against WasmFS, the file system the runtime ships,
         # rather than the tools' JavaScript one. So does every executable this
         # build links, including the in-tree tools Meson runs while building;
-        # they only ever write fresh outputs here, which WasmFS handles. If the C and C++ link
-        # arguments stop naming the latter, evaluation fails instead of the
-        # tests quietly staying on it.
+        # they only ever write fresh outputs here, which WasmFS handles. They
+        # also get the tests' fixed memory in place of growth. If the C and
+        # C++ link arguments stop naming either setting, evaluation fails
+        # instead of the tests quietly keeping it.
         mesonFlags =
           assert lib.count (lib.hasInfix nodeRawFs) old.mesonFlags == 2;
-          map (lib.replaceStrings [ nodeRawFs ] [ toolchain.nodeHostFsFlags ]) old.mesonFlags
+          assert lib.count (lib.hasInfix memoryGrowth) old.mesonFlags == 2;
+          map (lib.replaceStrings
+            [ nodeRawFs memoryGrowth ]
+            [ toolchain.nodeHostFsFlags toolchain.testMemoryFlags ]
+          ) old.mesonFlags
           ++ [ "-Dtests=true" ];
         # After the toolchain's cross file, whose exe_wrapper this replaces.
         preConfigure = (old.preConfigure or "") + ''

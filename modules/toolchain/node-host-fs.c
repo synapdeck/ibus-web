@@ -8,11 +8,12 @@
  * directory, so an absolute path such as /nix/store/... resolves under it.
  * Here the root is the host's /, and the working directory is Node's.
  *
- * WasmFS's Node backend traps on fsync(), and a file renamed over another
- * keeps its old host path, so reopening it fails. Files the browser keeps in
- * WasmFS's memory backend, temporary ones above all, would break here where
- * they work there, so a TMPDIR the host doesn't have is created in memory.
- * Host programs that give TMPDIR a directory of their own are unaffected. */
+ * WasmFS's Node backend changes only its own record of a file's mode, never
+ * the host's, so a directory chmod() opens up stays shut to the host. Files
+ * the browser keeps in WasmFS's memory backend, temporary ones above all,
+ * would break here where they work there, so a TMPDIR the host doesn't have
+ * is created in memory. Host programs that give TMPDIR a directory of their
+ * own are unaffected. */
 
 #include <emscripten/em_js.h>
 #include <emscripten/wasmfs.h>

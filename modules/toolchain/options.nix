@@ -15,7 +15,11 @@
       };
       testMainFlags = lib.mkOption {
         type = lib.types.str;
-        description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers. Point TMPDIR at a directory missing on the host so temporary files live in memory: WasmFS's Node backend mishandles fsync and renames.";
+        description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers. Point TMPDIR at a directory missing on the host so temporary files live in memory, as in the browser: WasmFS's Node backend keeps chmod() to itself, so a directory made on the host can't be opened up again.";
+      };
+      testMemoryFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "Link flags giving Node-run test programs a fixed memory large enough for GLib's tests, in place of memory growth.";
       };
       nodeHostFsFlags = lib.mkOption {
         type = lib.types.str;
