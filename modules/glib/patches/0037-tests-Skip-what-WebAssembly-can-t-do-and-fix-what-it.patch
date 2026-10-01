@@ -1,7 +1,7 @@
-From 9e1dc0acecf79b217bfa06376bd2f16fd5b8f7a1 Mon Sep 17 00:00:00 2001
+From 92525bb3e8b24a12c5fd52d9259c664fd8cf76bb Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:52 -0700
-Subject: [PATCH 36/36] tests: Skip what WebAssembly can't do, and fix what it
+Subject: [PATCH 37/37] tests: Skip what WebAssembly can't do, and fix what it
  showed up
 
 Where an expectation can't hold on WebAssembly, skip the subtest, or
@@ -11,11 +11,10 @@ the part of it, with the reason:
   date's Polish month names, and gdatetime's en_GB formats, de_DE month
   names and eras.
 - WasmFS has no sockets, and Emscripten can't spawn or fork processes,
-  open a pseudo-terminal, parse an IPv6 scope ID or list network
-  interfaces; nothing can send it a Unix signal.
-- WasmFS keeps file times as a double count of milliseconds, checks no
-  directory's search permission, gives pipes no capacity, and takes an
-  empty file or device for unreadable in poll().
+  parse an IPv6 scope ID or list network interfaces; nothing can send it
+  a Unix signal.
+- WasmFS keeps file times as a double count of milliseconds and gives
+  pipes no capacity.
 - Time zones come from Intl, so no TZif file is read by path.
 - gio-tool's launch command needs desktop applications and spawning,
   and WebAssembly's content types know no MIME types.
@@ -39,22 +38,20 @@ Fix the tests themselves where they relied on more than they should:
   another signature, which traps, and expected completions in the order
   one file system lists them;
 - gdbus-peer's credentials test assumed credentials on every Unix;
-- socket-listener's mocks and messages-low-memory's malloc() look up the
-  real function with dlsym(RTLD_NEXT), which finds nothing in a static
-  WebAssembly link;
+- messages-low-memory's malloc() looks up the real one with
+  dlsym(RTLD_NEXT), which WebAssembly can't do; there it calls
+  emscripten_builtin_malloc() instead, so it is built without
+  HAVE_RTLD_NEXT;
 - glib/tests never told the Python tests to run their programs with
   Node, and those tests expected abort() to end Node with SIGABRT.
 
 Workarounds keep tests running: test-printf's reader waits for its
-writer, since Emscripten's pipe reads never block; mainloop's nfds test
-gives its file a byte, and its unix-fd-priority test and closure's fd
-test read a pipe holding a byte instead of /dev/random or /dev/null,
-since WasmFS's poll() only takes a file or device for readable while it
-holds data; and fileutils' stdio-wrappers test works in a temporary
-directory, since chmod() on WasmFS's Node backend doesn't reach the
-host. convert and converter-stream also check stateful charsets: a
-byte order mark and ISO-2022-JP's shift state across calls and full
-output, and a fallback between kanji in ISO-2022-JP.
+writer, since Emscripten's pipe reads never block; and fileutils'
+stdio-wrappers test works in a temporary directory, since chmod() on
+WasmFS's Node backend doesn't reach the host. convert and
+converter-stream also check stateful charsets: a byte order mark and
+ISO-2022-JP's shift state across calls and full output, and a fallback
+between kanji in ISO-2022-JP.
 
 Only test sources and test build files change.
 
@@ -68,26 +65,25 @@ Upstream-Status: Inappropriate [Wasm-specific]
  gio/tests/inet-address.c          |  4 +-
  gio/tests/meson.build             | 35 ++++++------
  gio/tests/network-address.c       | 10 ++++
- gio/tests/pollable.c              | 18 ++++++-
- gio/tests/socket-listener.c       |  4 +-
+ gio/tests/pollable.c              | 11 +++-
  gio/tests/socket.c                | 48 +++++++++++++++++
  glib/tests/assert-msg-test.py     |  3 ++
  glib/tests/collate.c              | 22 ++++++++
  glib/tests/convert.c              | 55 +++++++++++++++++++
  glib/tests/date.c                 | 24 +++++++++
- glib/tests/fileutils.c            | 35 ++++++++++--
+ glib/tests/fileutils.c            | 19 +++++++
  glib/tests/gdatetime.c            | 28 ++++++++++
- glib/tests/mainloop.c             | 73 ++++++++++++++++++++-----
+ glib/tests/mainloop.c             | 34 ++++++++----
  glib/tests/mapping.c              |  5 ++
- glib/tests/meson.build            |  5 ++
+ glib/tests/meson.build            |  9 +++-
  glib/tests/messages-low-memory.c  | 10 ++++
  glib/tests/messages-low-memory.py |  3 ++
  glib/tests/option-argv0.c         |  6 ++-
  glib/tests/option-context.c       |  7 +++
  glib/tests/test-printf.c          |  9 +++-
  glib/tests/testing.c              | 67 +++++++++++++++++++++++
- gobject/tests/closure.c           | 37 +++++++++++--
- 27 files changed, 644 insertions(+), 51 deletions(-)
+ gobject/tests/closure.c           | 16 +++++-
+ 26 files changed, 567 insertions(+), 45 deletions(-)
 
 diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
 index b00d1bf39..05b773ecb 100644
@@ -551,7 +547,7 @@ index 81dcda7a9..b8bf99b2a 100644
  
    uri = g_strdup_printf ("http://[%s%%%s]:%d/foo",
 diff --git a/gio/tests/pollable.c b/gio/tests/pollable.c
-index c46269ad6..51684dc2d 100644
+index c46269ad6..6cd4c474d 100644
 --- a/gio/tests/pollable.c
 +++ b/gio/tests/pollable.c
 @@ -167,7 +167,7 @@ test_streams (GPollableInputStream *in,
@@ -563,21 +559,7 @@ index c46269ad6..51684dc2d 100644
  
  #define g_assert_not_pollable(fd) \
    G_STMT_START {                                                        \
-@@ -218,6 +218,13 @@ test_pollable_unix_pty (void)
-   g_test_summary ("Test that PTYs are considered pollable");
- 
- #ifdef HAVE_OPENPTY
-+#ifdef G_PLATFORM_WASM
-+  /* openpty() opens /dev/ptmx with O_NOCTTY, a flag WasmFS asserts it is
-+   * never given. */
-+  g_test_skip ("Emscripten has no pseudo-terminals");
-+  return;
-+#endif
-+
-   status = openpty (&a, &b, NULL, NULL, NULL);
- 
-   if (status == -1)
-@@ -348,6 +355,13 @@ test_pollable_socket (void)
+@@ -348,6 +348,13 @@ test_pollable_socket (void)
    GPollableInputStream *in = NULL;
    GOutputStream *out = NULL;
  
@@ -591,7 +573,7 @@ index c46269ad6..51684dc2d 100644
    iaddr = g_inet_address_new_loopback (G_SOCKET_FAMILY_IPV4);
    saddr = g_inet_socket_address_new (iaddr, 0);
    g_object_unref (iaddr);
-@@ -391,7 +405,7 @@ main (int   argc,
+@@ -391,7 +398,7 @@ main (int   argc,
  {
    g_test_init (&argc, &argv, NULL);
  
@@ -600,21 +582,6 @@ index c46269ad6..51684dc2d 100644
    g_test_add_func ("/pollable/unix/pipe", test_pollable_unix_pipe);
    g_test_add_func ("/pollable/unix/pty", test_pollable_unix_pty);
    g_test_add_func ("/pollable/unix/file", test_pollable_unix_file);
-diff --git a/gio/tests/socket-listener.c b/gio/tests/socket-listener.c
-index 8c79ec9b0..f3d09a26f 100644
---- a/gio/tests/socket-listener.c
-+++ b/gio/tests/socket-listener.c
-@@ -50,7 +50,9 @@
-  * mocking arbitrary syscalls using dlsym(RTLD_NEXT) should probably be factored
-  * out into a set of internal helpers, because various tests do it for various
-  * syscalls. */
--#if defined(HAVE_RTLD_NEXT) && !defined(__APPLE__) && !defined(G_OS_WIN32)
-+/* A static WebAssembly link has no next definition for dlsym(RTLD_NEXT) to
-+ * find, although Emscripten's dlfcn.h defines RTLD_NEXT. */
-+#if defined(HAVE_RTLD_NEXT) && !defined(__APPLE__) && !defined(G_OS_WIN32) && !defined(G_PLATFORM_WASM)
- #include <dlfcn.h>
- #include <sys/types.h>
- #include <netinet/in.h>
 diff --git a/gio/tests/socket.c b/gio/tests/socket.c
 index e456b56d0..90c4a9396 100644
 --- a/gio/tests/socket.c
@@ -946,30 +913,11 @@ index b2fb38d83..538af2109 100644
      {
        g_test_skip ("pl_PL locale not available");
 diff --git a/glib/tests/fileutils.c b/glib/tests/fileutils.c
-index e79b46282..b5761ba01 100644
+index e79b46282..85bfcefa0 100644
 --- a/glib/tests/fileutils.c
 +++ b/glib/tests/fileutils.c
-@@ -1982,6 +1982,14 @@ test_set_contents_full_read_only_directory (void)
-           g_assert_no_error (error);
-           g_assert_true (ret);
-         }
-+#ifdef G_PLATFORM_WASM
-+      else if (!(flags & G_FILE_SET_CONTENTS_CONSISTENT))
-+        {
-+          /* WasmFS checks no directory's search permission, so the file is
-+           * opened and rewritten in place. */
-+          g_test_skip ("WasmFS doesn't check search permission on directories");
-+        }
-+#endif
-       else
-         {
-           g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_ACCES);
-@@ -2111,9 +2119,21 @@ test_stdio_wrappers (void)
-   GError *error = NULL;
-   GStatBuf path_statbuf, cwd_statbuf;
-   time_t now;
--#ifdef G_OS_UNIX
-+#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
+@@ -2114,6 +2114,18 @@ test_stdio_wrappers (void)
+ #ifdef G_OS_UNIX
    gboolean have_cap_dac_override;
  #endif
 +#ifdef G_PLATFORM_WASM
@@ -987,27 +935,7 @@ index e79b46282..b5761ba01 100644
  
    g_remove ("mkdir-test/test-create");
    ret = g_rmdir ("mkdir-test");
-@@ -2129,7 +2149,7 @@ test_stdio_wrappers (void)
- 
-   cwd = g_get_current_dir ();
-   path = g_build_filename (cwd, "mkdir-test", NULL);
--#ifdef G_OS_UNIX
-+#if defined(G_OS_UNIX) && !defined(G_PLATFORM_WASM)
-   have_cap_dac_override = check_cap_dac_override (cwd);
- #endif
-   g_free (cwd);
-@@ -2138,7 +2158,9 @@ test_stdio_wrappers (void)
-    * It doesn't necessarily mean anything on Unix either: if we have
-    * Linux CAP_DAC_OVERRIDE or equivalent (in particular if we're root),
-    * then we ignore filesystem permissions. */
--#ifdef G_OS_UNIX
-+#if defined(G_PLATFORM_WASM)
-+  g_test_skip ("WasmFS doesn't check search permission on directories");
-+#elif defined(G_OS_UNIX)
-   if (have_cap_dac_override)
-     {
-       g_test_message ("Cannot test g_chdir() failing with EACCES: we "
-@@ -2207,6 +2229,13 @@ test_stdio_wrappers (void)
+@@ -2207,6 +2219,13 @@ test_stdio_wrappers (void)
    g_chdir ("..");
    g_remove ("mkdir-test/test-create");
    g_rmdir ("mkdir-test");
@@ -1096,7 +1024,7 @@ index d003a5445..fa1ce3e9f 100644
      {
        gchar *path = NULL;
 diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
-index 66845ab96..ed5edde83 100644
+index 66845ab96..ab41e60b0 100644
 --- a/glib/tests/mainloop.c
 +++ b/glib/tests/mainloop.c
 @@ -29,6 +29,14 @@
@@ -1154,66 +1082,7 @@ index 66845ab96..ed5edde83 100644
  
    va_start (ap, n_to_poll);
    for (i = 0; i < n_to_poll; i++)
-@@ -1680,6 +1694,14 @@ test_unix_file_poll (void)
-   GSource *source;
-   GMainLoop *loop;
- 
-+#ifdef G_PLATFORM_WASM
-+  /* WasmFS's poll() takes a file or device for readable only while it holds
-+   * data, where POSIX has /dev/null, /dev/random and regular files always
-+   * readable. */
-+  g_test_skip ("WasmFS's poll() takes an empty file or device for unreadable");
-+  return;
-+#endif
-+
-   fd = open ("/dev/null", O_RDONLY);
-   g_assert_cmpint (fd, >=, 0);
- 
-@@ -1703,6 +1725,25 @@ test_unix_file_poll (void)
-   close (fd);
- }
- 
-+/* Opens @path, a device that is always readable, for reading.  WasmFS's
-+ * poll() takes a file or device for readable only while it holds data, so on
-+ * WebAssembly this is a pipe holding a byte instead. */
-+static int
-+open_always_readable (const char *path)
-+{
-+#ifdef G_PLATFORM_WASM
-+  int fds[2];
-+
-+  g_assert_no_errno (pipe (fds));
-+  g_assert_cmpint (write (fds[1], "x", 1), ==, 1);
-+  close (fds[1]);
-+
-+  return fds[0];
-+#else
-+  return open (path, O_RDONLY);
-+#endif
-+}
-+
- static void
- test_unix_fd_priority (void)
- {
-@@ -1723,7 +1764,7 @@ test_unix_fd_priority (void)
-   g_source_attach (source, NULL);
-   g_source_unref (source);
- 
--  fd1 = open ("/dev/random", O_RDONLY);
-+  fd1 = open_always_readable ("/dev/random");
-   g_assert_cmpint (fd1, >=, 0);
-   source = g_unix_fd_source_new (fd1, G_IO_IN);
-   g_source_set_callback (source, G_SOURCE_FUNC (flag_bool), &s2, NULL);
-@@ -1731,7 +1772,7 @@ test_unix_fd_priority (void)
-   g_source_attach (source, NULL);
-   g_source_unref (source);
- 
--  fd2 = open ("/dev/random", O_RDONLY);
-+  fd2 = open_always_readable ("/dev/random");
-   g_assert_cmpint (fd2, >=, 0);
-   source = g_unix_fd_source_new (fd2, G_IO_IN);
-   g_source_set_callback (source, G_SOURCE_FUNC (flag_bool), &s3, NULL);
-@@ -1865,14 +1906,22 @@ test_nfds (void)
+@@ -1865,9 +1879,9 @@ test_nfds (void)
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
    /* An "empty" GMainContext will have a single GPollFD, for its
@@ -1225,20 +1094,7 @@ index 66845ab96..ed5edde83 100644
  
    fd = g_file_open_tmp (NULL, &tmpfile, &error);
    g_assert_no_error (error);
- 
-   io = g_io_channel_unix_new (fd);
-+#ifdef G_PLATFORM_WASM
-+  /* WasmFS's poll() only takes a regular file for readable once it has
-+   * data, where POSIX has regular files always readable. */
-+  g_io_channel_write_chars (io, "x", 1, NULL, &error);
-+  g_assert_no_error (error);
-+  g_io_channel_flush (io, &error);
-+  g_assert_no_error (error);
-+#endif
- #ifdef G_OS_WIN32
-   /* The fd in the pollfds won't be the same fd we passed in */
-   g_io_channel_win32_make_pollfd (io, G_IO_IN, out_fds);
-@@ -1888,7 +1937,7 @@ test_nfds (void)
+@@ -1888,7 +1902,7 @@ test_nfds (void)
  
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1247,7 +1103,7 @@ index 66845ab96..ed5edde83 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
    else if (out_fds[1].fd == fd)
-@@ -1910,7 +1959,7 @@ test_nfds (void)
+@@ -1910,7 +1924,7 @@ test_nfds (void)
     */
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1256,7 +1112,7 @@ index 66845ab96..ed5edde83 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
    else if (out_fds[1].fd == fd)
-@@ -1923,7 +1972,7 @@ test_nfds (void)
+@@ -1923,7 +1937,7 @@ test_nfds (void)
     */
    nfds = g_main_context_query (ctx, G_PRIORITY_DEFAULT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1265,7 +1121,7 @@ index 66845ab96..ed5edde83 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
    else if (out_fds[1].fd == fd)
-@@ -1940,7 +1989,7 @@ test_nfds (void)
+@@ -1940,7 +1954,7 @@ test_nfds (void)
  
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1274,7 +1130,7 @@ index 66845ab96..ed5edde83 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
    else if (out_fds[1].fd == fd)
-@@ -2752,7 +2801,7 @@ main (int argc, char *argv[])
+@@ -2752,7 +2766,7 @@ main (int argc, char *argv[])
    g_test_add_func ("/mainloop/remove-invalid", test_remove_invalid);
    g_test_add_func ("/mainloop/unref-while-pending", test_unref_while_pending);
    g_test_add_func ("/mainloop/null-default-context", test_null_default_context);
@@ -1300,10 +1156,21 @@ index 5e4c24f70..acb26e380 100644
    global_filename = g_build_filename (dir, "maptest", NULL);
    childname = g_build_filename (dir, "mapchild", NULL);
 diff --git a/glib/tests/meson.build b/glib/tests/meson.build
-index 581699211..71bca1422 100644
+index 581699211..34619a455 100644
 --- a/glib/tests/meson.build
 +++ b/glib/tests/meson.build
-@@ -529,6 +529,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+@@ -338,7 +338,9 @@ test_extra_programs = {
+   'test-spawn-echo' : {},
+ }
+ 
+-if have_dlopen_dlsym and have_rtld_next
++# On Emscripten the test wraps malloc() through emscripten_builtin_malloc()
++# instead.
++if have_dlopen_dlsym and (have_rtld_next or host_system == 'emscripten')
+   test_extra_programs += {
+     'messages-low-memory' : {
+       'dependencies' : libdl_dep,
+@@ -529,6 +531,11 @@ python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
  if python_test_env_common_path.length() > 0
    python_test_env.prepend('PATH', python_test_env_common_path)
  endif
@@ -1632,7 +1499,7 @@ index 536fd56b0..bd7520c77 100644
  
    testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
 diff --git a/gobject/tests/closure.c b/gobject/tests/closure.c
-index fef671e7c..4ac6a1275 100644
+index fef671e7c..7ccf37f51 100644
 --- a/gobject/tests/closure.c
 +++ b/gobject/tests/closure.c
 @@ -104,6 +104,11 @@ test_closure_child (void)
@@ -1656,41 +1523,7 @@ index fef671e7c..4ac6a1275 100644
  static gboolean
  fd_quit_callback (gint         fd,
                    GIOCondition condition,
-@@ -146,13 +151,32 @@ fd_quit_callback (gint         fd,
-   return TRUE;
- }
- 
-+/* Opens @path, a device that is always readable, for reading.  WasmFS's
-+ * poll() takes a file or device for readable only while it holds data, so on
-+ * WebAssembly this is a pipe holding a byte instead. */
-+static int
-+open_always_readable (const char *path)
-+{
-+#ifdef G_PLATFORM_WASM
-+  int fds[2];
-+
-+  g_assert_no_errno (pipe (fds));
-+  g_assert_cmpint (write (fds[1], "x", 1), ==, 1);
-+  close (fds[1]);
-+
-+  return fds[0];
-+#else
-+  return open (path, O_RDONLY);
-+#endif
-+}
-+
- static void
- test_closure_fd (void)
- {
-   gint fd;
-   GSource *source;
- 
--  fd = open ("/dev/null", O_RDONLY);
-+  fd = open_always_readable ("/dev/null");
-   g_assert (fd != -1);
- 
-   source = g_unix_fd_source_new (fd, G_IO_IN);
-@@ -162,6 +186,7 @@ test_closure_fd (void)
+@@ -162,6 +167,7 @@ test_closure_fd (void)
    close (fd);
  }
  
@@ -1698,7 +1531,7 @@ index fef671e7c..4ac6a1275 100644
  static gboolean
  send_usr1 (gpointer user_data)
  {
-@@ -179,9 +204,14 @@ closure_quit_callback (gpointer     user_data)
+@@ -179,9 +185,14 @@ closure_quit_callback (gpointer     user_data)
    return TRUE;
  }
  
@@ -1713,7 +1546,7 @@ index fef671e7c..4ac6a1275 100644
    GSource *source;
  
    g_idle_add_full (G_PRIORITY_LOW, send_usr1, NULL, NULL);
-@@ -189,6 +219,7 @@ test_closure_signal (void)
+@@ -189,6 +200,7 @@ test_closure_signal (void)
    source = g_unix_signal_source_new (SIGUSR1);
    test_source (source, G_CALLBACK (closure_quit_callback));
    g_source_unref (source);
@@ -1721,7 +1554,7 @@ index fef671e7c..4ac6a1275 100644
  }
  #endif
  
-@@ -214,7 +245,7 @@ main (int argc,
+@@ -214,7 +226,7 @@ main (int argc,
    g_test_add_func ("/closure/timeout", test_closure_timeout);
    g_test_add_func ("/closure/iochannel", test_closure_iochannel);
    g_test_add_func ("/closure/child", test_closure_child);

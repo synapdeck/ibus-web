@@ -1,7 +1,7 @@
-From 41367552839c19bc32ee199dd870a21dae737ff5 Mon Sep 17 00:00:00 2001
+From 8d463acb093e65f8dab6a91fee95066e6ece48ee Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:42:03 -0700
-Subject: [PATCH 34/36] glib, gio: Build glib-unix and GIO's Unix streams on
+Subject: [PATCH 34/37] glib, gio: Build glib-unix and GIO's Unix streams on
  WebAssembly
 
 0008 left out glib-unix.c and GIO's Unix sources, so glib-unix.h's
@@ -18,26 +18,25 @@ rest of the Unix sources need mounts, desktop files or D-Bus.
 - Build gfiledescriptorbased.c, giounix-private.c and the Unix input and
   output streams, install their headers and gio-unix-2.0.pc.
 - _g_fd_is_pollable(): Emscripten declares epoll but fails every call, and
-  its poll() only follows pipes. WasmFS gives a pipe a regular file's
-  type but no seeking, so a FIFO or an unseekable file other than a
-  character device is pollable.
+  its poll() only follows pipes and sockets, so those are what is
+  pollable.
 - Let GUnixFDSource take closures again.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- gio/giounix-private.c    | 22 +++++++++++++++++++++-
+ gio/giounix-private.c    | 16 +++++++++++++++-
  gio/meson.build          | 18 +++++++++++++++++-
  glib/glib-unix.c         | 10 ++++++++++
  glib/glib-unix.h         |  3 +++
  glib/meson.build         |  5 +----
  gobject/gsourceclosure.c | 10 ++++++----
- 6 files changed, 58 insertions(+), 10 deletions(-)
+ 6 files changed, 52 insertions(+), 10 deletions(-)
 
 diff --git a/gio/giounix-private.c b/gio/giounix-private.c
-index b085b2535..c16bf0ad9 100644
+index b085b2535..27b08e223 100644
 --- a/gio/giounix-private.c
 +++ b/gio/giounix-private.c
-@@ -65,7 +65,27 @@ _g_fd_is_pollable (int fd)
+@@ -65,7 +65,21 @@ _g_fd_is_pollable (int fd)
     * absolute certainty:
     */
  
@@ -46,22 +45,16 @@ index b085b2535..c16bf0ad9 100644
 +  /*
 +   * WebAssembly
 +   *
-+   * Emscripten declares epoll but fails every call with ENOSYS.  Its file
-+   * systems only follow pipes when polling; for anything else poll() reports
-+   * readiness from the open mode and the file's size alone.  WasmFS gives a
-+   * pipe a regular file's type, but unlike a regular file it can't seek;
-+   * devices that can't seek either are character devices.
++   * Emscripten declares epoll but fails every call with ENOSYS.  Its poll()
++   * only follows pipes and sockets; anything else it reports ready at once.
 +   */
 +
 +  struct stat st;
 +
-+  if (fstat (fd, &st) == -1 || S_ISCHR (st.st_mode))
++  if (G_TEMP_FAILURE_RETRY (fstat (fd, &st)) == -1)
 +    return FALSE;
 +
-+  if (S_ISFIFO (st.st_mode))
-+    return TRUE;
-+
-+  return lseek (fd, 0, SEEK_CUR) == -1 && errno == ESPIPE;
++  return S_ISFIFO (st.st_mode) || S_ISSOCK (st.st_mode);
 +#elif defined (HAVE_EPOLL_CREATE1)
    /*
     * Linux

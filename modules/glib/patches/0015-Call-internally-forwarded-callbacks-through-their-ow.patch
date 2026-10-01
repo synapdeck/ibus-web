@@ -1,7 +1,7 @@
 From 34d57fe7d033273b12769da4f0743f64cf2b7690 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 17:08:30 -0700
-Subject: [PATCH 15/36] Call internally-forwarded callbacks through their own
+Subject: [PATCH 15/37] Call internally-forwarded callbacks through their own
  function types
 
 Calling a function through a pointer to a type with a different

@@ -1,7 +1,7 @@
-From a4159a7f77bb785a8730e004c7ba4fb34ed9581a Mon Sep 17 00:00:00 2001
+From 2ccbe8a0407594e6cf3c388fc7589948594e38f4 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:42:03 -0700
-Subject: [PATCH 35/36] goption: Take the program name from Emscripten on
+Subject: [PATCH 35/37] goption: Take the program name from Emscripten on
  WebAssembly
 
 With no argv, g_option_context_parse() names the program from the

@@ -1,7 +1,7 @@
 From 2b70ca842785214be370ba84836e2eac1c16f6eb Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 20:05:09 -0700
-Subject: [PATCH 23/36] tests: Give signal handlers the parameters they're
+Subject: [PATCH 23/37] tests: Give signal handlers the parameters they're
  called with
 
 Several GObject tests connect handlers, or pass class closures made

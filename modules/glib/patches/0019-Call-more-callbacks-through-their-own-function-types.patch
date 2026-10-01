@@ -1,7 +1,7 @@
 From d411f7abae2d6a3af954b1e4d5891e7d527b4f6a Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Tue, 29 Sep 2026 19:05:00 -0700
-Subject: [PATCH 19/36] Call more callbacks through their own function types
+Subject: [PATCH 19/37] Call more callbacks through their own function types
 
 Calling a function through a pointer to a type with a different
 parameter list or return type is undefined behaviour; WebAssembly

@@ -1,7 +1,7 @@
 From f17fc7d37e68bb2b41cf6d2272006b13a8350c3e Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 17:01:55 -0700
-Subject: [PATCH 31/36] glib, gio: Restore Unix paths WebAssembly can take
+Subject: [PATCH 31/37] glib, gio: Restore Unix paths WebAssembly can take
 
 Three of the paths the WebAssembly port left out work there as they do
 on other Unixes:

@@ -1,7 +1,7 @@
 From 6ab14f0636a9e3223dc62f36c7cc8e4c86fd53e1 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:40 -0700
-Subject: [PATCH 33/36] gmain: Give an ownerless-polling context a wakeup fd on
+Subject: [PATCH 33/37] gmain: Give an ownerless-polling context a wakeup fd on
  WebAssembly
 
 A WebAssembly GMainContext waits on its GWakeup rather than polling the

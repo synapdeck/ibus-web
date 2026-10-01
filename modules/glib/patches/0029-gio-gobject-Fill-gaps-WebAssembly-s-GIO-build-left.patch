@@ -1,7 +1,7 @@
 From 122208f150b3419154a0780b0d6fbf52e8012b7f Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:59:58 -0700
-Subject: [PATCH 29/36] gio, gobject: Fill gaps WebAssembly's GIO build left
+Subject: [PATCH 29/37] gio, gobject: Fill gaps WebAssembly's GIO build left
 
 Three places where the WebAssembly build fell short of what GLib
 promises everywhere else:

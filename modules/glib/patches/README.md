@@ -61,7 +61,8 @@ originals.
 | 0033 gmain: Give an ownerless-polling context a wakeup fd on WebAssembly | Alexis Williams | — |
 | 0034 glib, gio: Build glib-unix and GIO's Unix streams on WebAssembly | Alexis Williams | — |
 | 0035 goption: Take the program name from Emscripten on WebAssembly | Alexis Williams | — |
-| 0036 tests: Skip what WebAssembly can't do, and fix what it showed up | Alexis Williams | — |
+| 0036 meson: Don't take `RTLD_NEXT` for usable on Emscripten | Alexis Williams | — |
+| 0037 tests: Skip what WebAssembly can't do, and fix what it showed up | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -228,7 +229,7 @@ leaves out on Emscripten, each worth revisiting if the reason goes away:
   `gutils-user-database`) and `gio/tests` (the large Unix test block,
   `gdbus-example-unix-fd-client`, the `dbus-launch` helper,
   `GIO_LAUNCH_DESKTOP`): 0008 excludes the Unix sources they test.
-- `gio-unix-2.0-pkg-config`: Emscripten had no `gio-unix-2.0`; 0036 runs
+- `gio-unix-2.0-pkg-config`: Emscripten had no `gio-unix-2.0`; 0037 runs
   it again now that 0034 builds it.
 - `constructor`: its helpers are shared libraries, which Meson can't link
   for Emscripten.
@@ -242,7 +243,7 @@ leaves out on Emscripten, each worth revisiting if the reason goes away:
 - Subtests calling the glib-unix and gio-unix APIs: mainloop's unix-fd
   tests, closure's `/closure/fd` and `/closure/signal`, pollable's Unix
   stream tests and `/pollable/converter`, and testing's subprocess stdin
-  test. 0036 builds all but the last again, now that 0034 builds the APIs.
+  test. 0037 builds all but the last again, now that 0034 builds the APIs.
 - thread's CPU affinity subtest: it calls `pthread_getaffinity_np()` and
   `pthread_setaffinity_np()` itself, which Emscripten declares but doesn't
   define. The library doesn't: 0008 already makes `g_get_num_processors()`
@@ -536,7 +537,7 @@ ICU (tzdata 2026a) and tzdata 2026c disagree about Morocco. DST flags
 differ mostly for war time (1940–1945), which lasted over a year and so
 reads as standard time, and for a handful of one-off changes. Of GLib's
 `GTimeZone` and `GDateTime` tests, all pass except
-`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0036
+`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0037
 skips on WebAssembly.
 
 0028 skips the user database lookup in `g_get_user_name()`,
@@ -688,29 +689,32 @@ link, and there was no `GUnixInputStream`, `GUnixOutputStream` or
   `gio-unix-2.0.pc`. The rest of the Unix sources need mounts, desktop
   files or D-Bus.
 - **Pollable fds.** Emscripten declares epoll but fails every call with
-  `ENOSYS`, and its `poll()` only follows pipes; for other files it
-  reports readiness from the open mode and the size alone. WasmFS gives a
-  pipe a regular file's type but no seeking, so `_g_fd_is_pollable()`
-  takes a FIFO, or an unseekable file that isn't a character device, for
-  pollable.
+  `ENOSYS`, and its `poll()` only follows pipes and sockets; anything else
+  it reports ready at once. So `_g_fd_is_pollable()` takes a FIFO or a
+  socket for pollable, which needs the toolchain's Emscripten fix that
+  gives WasmFS's pipes `S_IFIFO`.
 
 0035 gives `g_option_context_parse()` a program name on WebAssembly when
 it has no argv: Emscripten's libc sets `program_invocation_name` from the
 script Node runs, or in a page from `Module.thisProgram`, which is
 `./this.program` unless the runtime sets it.
 
-0036 changes only tests, so that what WebAssembly can do gates:
+0036 leaves `HAVE_RTLD_NEXT` unset on Emscripten. Its `dlfcn.h` defines
+`RTLD_NEXT`, but `dlsym(RTLD_NEXT, …)` finds nothing there: a static link's
+`dlsym()` fails for every handle, and with dynamic linking `RTLD_NEXT` is
+unsupported and aborts. Only tests use it, to wrap a libc function.
+
+0037 changes only tests, so that what WebAssembly can do gates:
 
 - **Skipped where the expectation can't hold**, each with its reason:
   musl has no locale data (collate's lists that sort differently under
   `en_US`, option-context's decimal comma, date's Polish month names,
   gdatetime's `en_GB` formats, `de_DE` month names and eras); WasmFS has no
   sockets (`socket()` fails with `ENOSYS`); Emscripten can't spawn or fork
-  processes, open a pseudo-terminal, parse an IPv6 scope ID or list
-  network interfaces, and nothing can send it a signal; WasmFS keeps file
-  times as a double count of milliseconds, checks no directory's search
-  permission, gives pipes no capacity, and takes an empty file or device
-  for unreadable in `poll()`; TZif files aren't read by path
+  processes, parse an IPv6 scope ID or list network interfaces, and
+  nothing can send it a signal; WasmFS keeps file times as a double count
+  of milliseconds and gives pipes no capacity; TZif files aren't read by
+  path
   (`/GTimeZone/parse-rfc8536`); `gio launch` needs desktop applications,
   and WebAssembly content types know no MIME types.
 - **musl's output expected** where it is right but different: `strftime()`
@@ -726,21 +730,22 @@ script Node runs, or in a page from `Module.thisProgram`, which is
   through `g_signal_connect_swapped()` to a signal with two parameters
   (which traps) and expected completions in one file system's directory
   order; gdbus-peer's credentials test assumed credentials on every Unix;
-  socket-listener's mocks and messages-low-memory's `malloc()` looked up
-  the real function with `dlsym(RTLD_NEXT)`, which finds nothing in a
-  static WebAssembly link although Emscripten's `dlfcn.h` defines
-  `RTLD_NEXT`; `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its
+  messages-low-memory's `malloc()` looked up the real one with
+  `dlsym(RTLD_NEXT)`, and now calls `emscripten_builtin_malloc()` on
+  WebAssembly, where it is built without `HAVE_RTLD_NEXT` (0036);
+  `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its
   Python tests, which also expected `abort()` to end Node with `SIGABRT`
   rather than status 1.
 - **Workarounds for the platform**: test-printf's reader waits for its
-  writer to finish, since Emscripten's pipe reads never block; mainloop's
-  `nfds` test writes a byte to its file, and its `unix-fd-priority` test
-  and closure's `fd` test read a pipe holding a byte instead of
-  `/dev/random` or `/dev/null`, since WasmFS's `poll()` only takes a file
-  or device for readable while it holds data (`/mainloop/unix-file-poll`,
-  which tests exactly that, skips); and fileutils'
-  `stdio-wrappers` test works in a temporary directory, since `chmod()`
-  on WasmFS's Node backend doesn't reach the host directory.
+  writer to finish, since Emscripten's pipe reads never block; and
+  fileutils' `stdio-wrappers` test works in a temporary directory, since
+  `chmod()` on WasmFS's Node backend doesn't reach the host directory.
+- **Left to the toolchain's Emscripten fixes**: mainloop's `nfds`,
+  `unix-file-poll` and `unix-fd-priority`, closure's `fd` and pollable's
+  `/dev/null` test poll empty files and devices; fileutils' `chdir()` and
+  read-only-directory checks rely on directory search and write
+  permission; pollable's pseudo-terminal test fails to open one cleanly
+  and skips as upstream does ("Unable to open PTY").
 
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers
