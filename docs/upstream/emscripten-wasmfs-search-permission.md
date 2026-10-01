@@ -199,7 +199,8 @@ results with and without the patch. We didn't run the full suite.
   says user and group permissions "are defined but ignored" and that "the
   caller is always treated as the owner", which is about which bits apply, not
   about skipping checks. The test clears every execute bit (mode `0666`), so
-  it doesn't depend on ownership, which WasmFS ignores. Run at `-O0` and `-O2`, with the same result.
+  it doesn't depend on ownership, which WasmFS ignores. Run at `-O0` and
+  `-O2`, with the same result.
 - **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
   included. Bitcode is left out because the fault is in `libwasmfs`. Small
   enough to send as a PR (with a `test/wasmfs` case) if preferred.

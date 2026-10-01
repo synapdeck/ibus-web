@@ -139,8 +139,8 @@ suggests. Data files are readable by default; only pipes override it:
    // on success or a negative error code.
    virtual int flush() = 0;
  
-+  // Whether read() would return at once, with data or at EOF. Files whose
-+  // readiness can change, like pipes, override this.
++  // Whether poll() should report the file readable. Files whose readiness can
++  // change, like pipes, override this.
 +  virtual bool isReadReady() { return true; }
 +
  public:
@@ -197,14 +197,18 @@ empty pipe           POLLIN=0
 pipe with data       POLLIN=1
 ```
 
-One thing changes beyond the test case. Stdin, which never polled readable
-before (size 0), now always does, since `StdinFile` keeps the default. WasmFS
-has no way to tell whether input is waiting (`_wasmfs_stdin_get_char` reads
-synchronously), so either answer is a guess. If "never" is preferred,
-`StdinFile` can override the hook to return false.
+One thing changes beyond the test case. Stdin never polled readable before
+(size 0); now it always does, since `StdinFile` keeps the default. That matches
+the JS file system, where TTY streams have no poll handler and so report
+`POLLIN|POLLOUT`
+([libsyscall.js#L611-L613](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libsyscall.js#L611-L613)).
+The consequence: a poll-driven loop that watches stdin will now go on to read
+it. That read is synchronous: a blocking `fs.readSync` under Node, and
+`window.prompt()` in a browser. If that's unwanted, `StdinFile` can override
+the hook to return false.
 
 The hook also answers the TODO above the check: for a regular file, the
-position doesn't matter. Pipes could later use the same hook to report
+position doesn't matter. A similar hook could later let pipes report
 `POLLHUP`.
 
 ---

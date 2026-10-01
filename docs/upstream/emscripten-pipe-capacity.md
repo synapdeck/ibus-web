@@ -136,7 +136,8 @@ End of search list.
 </details>
 
 **Where:**
-- JS FS: `PIPEFS.stream_ops.write` always appends a new bucket
+- JS FS: `PIPEFS.stream_ops.write` accepts every write, adding buckets without
+  limit
   ([libpipefs.js#L205-L277](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpipefs.js#L205-L277)).
 - WasmFS: `PipeFile::write` pushes every byte onto an unbounded
   `std::queue<uint8_t>`

@@ -105,7 +105,8 @@ opening with O_NOCTTY
 open = 3 (no error)
 ```
 
-`O_SYNC` (and so `O_DSYNC`/`O_RSYNC`) trips the same assertion.
+`O_SYNC`, `O_DSYNC` and `O_RSYNC` (all outside the list) trip the same
+assertion; only `O_SYNC` was run.
 
 <details>
 <summary>Full compile and link output with <code>-v</code> appended (cache and scratch paths shortened)</summary>
