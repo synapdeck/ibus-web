@@ -202,4 +202,4 @@ builds a `FILE*`'s path the same way, and the fix covers both.
   rounding; the cited `getcwd` code is unchanged, two lines further down. The
   latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from
   the diff; `main` wasn't rebuilt. #18112 and #23756 were open on 2026-09-30.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-getcwd-mount.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0002-wasmfs-getcwd-mount.patch`.

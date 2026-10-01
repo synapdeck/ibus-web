@@ -228,4 +228,4 @@ results with and without the patch. We didn't run the full suite.
   few lines further down. The latest release, 6.0.10 (tagged 2026-09-18),
   matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build
   is nixpkgs' 6.0.9 with LLVM 22.1.8.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-search-permission.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0006-wasmfs-search-permission.patch`.

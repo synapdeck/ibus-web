@@ -404,4 +404,4 @@ and return the underlying file descriptor") could say so too.
   fix since 6.0.9 is #27806, for `fdatasync`. The latest release, 6.0.10 (tagged
   2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
   rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-node-open-close-errors.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0010-wasmfs-node-open-close-errors.patch`.

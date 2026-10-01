@@ -520,7 +520,7 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
 - **#27684/#27685.** The lock-order deadlock in `renameat`'s ancestor walk
   is separate and pre-existing; the fix here locks only downward from the
   moved file, so it neither needs nor conflicts with #27685.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-node-rename.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0011-wasmfs-node-rename.patch`.
 - **Duplicate search.** "wasmfs node backend rename", "wasmfs rename node",
   "wasmfs rename", "insertMove", "wasmfs node backend" and "node_backend.cpp",
   plus a scan of all open "wasmfs" issues, turned up:
@@ -534,8 +534,7 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
   `bookmarkfile`, `keyfile`, `mappedfile`, `sandbox` and
   `async-splice-output-stream` hit it (through the `fd_close` assertion), and
   so did the GLib smoke test. The tests kept `TMPDIR` in memory to avoid it;
-  with this fix (and the `fsync` one) a host `TMPDIR` passes everything but
-  a test that needs the Node backend's `chmod()` to reach the host.
+  with this fix and the other Node backend ones, they use a host `TMPDIR`.
 - **Caveat maintainers may raise.** #19417 notes that WasmFS assumes it has
   complete control over the file system. The reproduction changes files only
   through WasmFS, so it doesn't depend on outside changes.

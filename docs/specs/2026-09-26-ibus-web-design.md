@@ -1107,9 +1107,11 @@ artifacts; WASM builds of nixpkgs packages are reached through
   once an Emscripten release has it; the patches' README says which
   release that is. They fix WasmFS (`getcwd()` under a mount, `poll()` of
   files and devices, directory search and create permission, `O_NOCTTY`,
-  pipes as FIFOs), its Node backend (`fsync()`, renames, host errors from
-  `open()` and `close()`) and, backported from 6.0.10, `-sNODERAWFS`
-  `fstat()` on the standard streams. nixpkgs installs the patched tree, so
+  pipes as FIFOs, `futimens()`, a backend's error when creating a file),
+  its Node backend (`fsync()`, renames, host errors from `open()` and
+  `close()`, `chmod()` and `utimensat()` reaching the host) and,
+  backported from 6.0.10, `-sNODERAWFS` `fstat()` on the standard
+  streams. nixpkgs installs the patched tree, so
   the cache and every link see them; `checks.emscripten-fixes` checks
   each one's behaviour.
 - **`emscriptenCache`.** nixpkgs precompiles system libraries only for non-PIC
@@ -1221,17 +1223,13 @@ artifacts; WASM builds of nixpkgs packages are reached through
     -sNODE_HOST_ENV=1` and an object that roots WasmFS at the host's `/`
     through its Node backend and starts in Node's working directory.
     Emscripten's `-sNODERAWFS` under WasmFS roots the tree at the working
-    directory instead, so absolute paths miss the build tree. Each test's
-    `TMPDIR` names a directory the host lacks, which the object creates
-    in WasmFS's memory backend, so temporary files live in memory as in
-    the browser. With the toolchain's fixes to the Node backend (`fsync()`
-    and renames) a host `TMPDIR` passes too, except fileutils'
-    `stdio-wrappers`, which needs a directory `chmod()` can open up, and
-    the Node backend's `chmod()` never reaches the host. The tests link
+    directory instead, so absolute paths miss the build tree. Each test
+    gets a `TMPDIR` of its own on the host; with the toolchain's fixes to
+    the Node backend (`fsync()`, renames, `chmod()` and `utimensat()`,
+    create errors) nothing needs it kept in memory. The tests link
     with a fixed memory (`ibusWeb.toolchain.testMemoryFlags`, 512 MiB)
     in place of growth (§5.3). `ibusWeb.toolchain.testMainFlags` links the
-    other Node-run checks the same way, and the GLib smoke check keeps
-    its file in such a `TMPDIR` too.
+    other Node-run checks the same way.
   - **Tools in consumers' builds.** A cross build runs its tools on the
     build machine, whose GLib has unpatched ones (its `gdbus-codegen`
     emits interface init functions WebAssembly traps on). `pkgsWasm.glib`

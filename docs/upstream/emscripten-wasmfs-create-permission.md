@@ -187,4 +187,4 @@ open("/ro/new", O_CREAT|O_WRONLY)        Permission denied
   2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
   rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8. #18033 was open on
   2026-09-30.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-create-permission.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0007-wasmfs-create-permission.patch`.

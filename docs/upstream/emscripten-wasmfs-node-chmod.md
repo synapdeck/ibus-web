@@ -129,11 +129,304 @@ End of search list.
   the host once, when it first looks the file up
   ([node_backend.cpp#L191](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L191)).
 
-**Possible fix:** give `File` a virtual `setMode` (and `setTimes`) hook that
-backends can override and that may fail. The Node backend would implement it
-with `fs.chmodSync`/`fs.utimesSync` (or the `f*` variants when the file is
-open). The memory backend keeps the current behaviour. We haven't written this,
-since it touches the backend API.
+**Suggested fix:** give `File` virtual `setMode` and `setTimes` hooks that
+backends can override and that may fail; the default keeps today's
+behaviour. `File::Handle::setMode` and a new `setTimes` call the hook first
+and change WasmFS's record only once the backend has accepted the change,
+and `chmod`, `fchmod` and `utimensat` return its error. The Node backend
+implements the hooks with `fs.(f)chmodSync` and `fs.(f)utimesSync`,
+through the open descriptor when there is one (so a file whose path has
+been unlinked still works). Node can't leave one of the two times alone,
+so an omitted time (`UTIME_OMIT`) is read back from the host and set again.
+The new imports get their `libsigs.js` signatures.
+
+```diff
+--- a/src/lib/libsigs.js
++++ b/src/lib/libsigs.js
+@@ -419,10 +419,13 @@
+   _wasmfs_jsimpl_read__sig: 'ippppj',
+   _wasmfs_jsimpl_set_size__sig: 'ippj',
+   _wasmfs_jsimpl_write__sig: 'ippppj',
++  _wasmfs_node_chmod__sig: 'ipi',
+   _wasmfs_node_close__sig: 'ii',
++  _wasmfs_node_fchmod__sig: 'iii',
+   _wasmfs_node_fstat_size__sig: 'iip',
+   _wasmfs_node_fsync__sig: 'ii',
+   _wasmfs_node_ftruncate__sig: 'iij',
++  _wasmfs_node_futimes__sig: 'iidd',
+   _wasmfs_node_get_mode__sig: 'ipp',
+   _wasmfs_node_insert_directory__sig: 'ipi',
+   _wasmfs_node_insert_file__sig: 'ipi',
+@@ -436,6 +439,7 @@
+   _wasmfs_node_symlink__sig: 'ipp',
+   _wasmfs_node_truncate__sig: 'ipj',
+   _wasmfs_node_unlink__sig: 'ip',
++  _wasmfs_node_utimes__sig: 'ipdd',
+   _wasmfs_node_write__sig: 'iipiip',
+   _wasmfs_opfs_close_access__sig: 'vpip',
+   _wasmfs_opfs_close_blob__sig: 'vi',
+--- a/src/lib/libwasmfs_node.js
++++ b/src/lib/libwasmfs_node.js
+@@ -157,6 +157,36 @@
+     });
+   },
+ 
++  _wasmfs_node_chmod__deps: ['$wasmfsTry'],
++  _wasmfs_node_chmod: (path_p, mode) =>
++    wasmfsTry(() => fs.chmodSync(UTF8ToString(path_p), mode)),
++
++  _wasmfs_node_fchmod__deps: ['$wasmfsTry'],
++  _wasmfs_node_fchmod: (fd, mode) => wasmfsTry(() => fs.fchmodSync(fd, mode)),
++
++  // `target` is a path for `fs.utimesSync` or an fd for `fs.futimesSync`, and
++  // `stat` the matching stat function. Node can't leave one of the times
++  // alone, so an omitted time (Infinity) is read back from the file and set
++  // again, which preserves it to within a microsecond or so.
++  $wasmfsNodeUtimes__deps: ['$wasmfsTry'],
++  $wasmfsNodeUtimes: (utimes, stat, target, atime, mtime) => wasmfsTry(() => {
++    if (atime === Infinity || mtime === Infinity) {
++      const st = stat(target);
++      if (atime === Infinity) atime = st.atimeMs;
++      if (mtime === Infinity) mtime = st.mtimeMs;
++    }
++    // Numbers are taken as seconds, and keep the sub-millisecond part.
++    utimes(target, atime / 1000, mtime / 1000);
++  }),
++
++  _wasmfs_node_utimes__deps: ['$wasmfsNodeUtimes'],
++  _wasmfs_node_utimes: (path_p, atime, mtime) =>
++    wasmfsNodeUtimes(fs.utimesSync, fs.statSync, UTF8ToString(path_p), atime, mtime),
++
++  _wasmfs_node_futimes__deps: ['$wasmfsNodeUtimes'],
++  _wasmfs_node_futimes: (fd, atime, mtime) =>
++    wasmfsNodeUtimes(fs.futimesSync, fs.fstatSync, fd, atime, mtime),
++
+   _wasmfs_node_truncate__i53abi: true,
+   _wasmfs_node_truncate__deps: ['$wasmfsTry'],
+   _wasmfs_node_truncate: (path_p, len) => {
+--- a/system/lib/wasmfs/backends/node_backend.cpp
++++ b/system/lib/wasmfs/backends/node_backend.cpp
+@@ -116,6 +116,18 @@
+     }
+     return ret;
+   }
++
++  // Metadata changes go through the fd while there is one, so they still reach
++  // an open file after its path has been unlinked.
++  int setMode(mode_t mode) {
++    return -(isOpen() ? _wasmfs_node_fchmod(fd, mode)
++                      : _wasmfs_node_chmod(path.c_str(), mode));
++  }
++
++  int setTimes(double atime, double mtime) {
++    return -(isOpen() ? _wasmfs_node_futimes(fd, atime, mtime)
++                      : _wasmfs_node_utimes(path.c_str(), atime, mtime));
++  }
+ };
+ 
+ class NodeFile : public DataFile {
+@@ -152,6 +164,12 @@
+     return -_wasmfs_node_truncate(state.path.c_str(), size);
+   }
+ 
++  int setMode(mode_t mode) override { return state.setMode(mode); }
++
++  int setTimes(double atime, double mtime) override {
++    return state.setTimes(atime, mtime);
++  }
++
+   int open(oflags_t flags) override { return state.open(flags); }
+ 
+   int close() override { return state.close(); }
+@@ -200,6 +218,12 @@
+     : Directory(mode, backend), state(path) {}
+ 
+ private:
++  int setMode(mode_t mode) override { return state.setMode(mode); }
++
++  int setTimes(double atime, double mtime) override {
++    return state.setTimes(atime, mtime);
++  }
++
+   std::string getChildPath(const std::string& name) {
+     return state.path + '/' + name;
+   }
+--- a/system/lib/wasmfs/backends/node_backend.h
++++ b/system/lib/wasmfs/backends/node_backend.h
+@@ -30,6 +30,13 @@
+ int _wasmfs_node_unlink(const char* path);
+ int _wasmfs_node_rmdir(const char* path);
+ 
++// Change the mode, or the access and modification times (in ms; INFINITY
++// leaves that time unchanged), and return 0 or an error code.
++int _wasmfs_node_chmod(const char* path, mode_t mode);
++int _wasmfs_node_fchmod(int fd, mode_t mode);
++int _wasmfs_node_utimes(const char* path, double atime, double mtime);
++int _wasmfs_node_futimes(int fd, double atime, double mtime);
++
+ int _wasmfs_node_truncate(const char* path, off_t len);
+ int _wasmfs_node_ftruncate(int fd, off_t len);
+ 
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -9,6 +9,7 @@
+ 
+ #include "support.h"
+ #include <assert.h>
++#include <cmath>
+ #include <emscripten.h>
+ #include <emscripten/html5.h>
+ #include <map>
+@@ -106,6 +107,17 @@
+   // called on files that have not been opened.
+   virtual off_t getSize() = 0;
+ 
++  // Apply new permission bits to the underlying file, for backends that store
++  // them. Returns 0 on success or a negative error code. May be called on files
++  // that have not been opened.
++  virtual int setMode(mode_t mode) { return 0; }
++
++  // Set the underlying file's access and modification times, in ms, for
++  // backends that store them. INFINITY leaves that time unchanged. Returns 0 on
++  // success or a negative error code. May be called on files that have not been
++  // opened.
++  virtual int setTimes(double atime, double mtime) { return 0; }
++
+   mode_t mode = 0; // User and group mode bits for access permission.
+ 
+   double atime; // Time when the content was last accessed, in ms.
+@@ -341,10 +353,15 @@
+     : lock(file->mutex, std::defer_lock), file(file) {}
+   off_t getSize() { return file->getSize(); }
+   mode_t getMode() { return file->mode; }
+-  void setMode(mode_t mode) {
++  [[nodiscard]] int setMode(mode_t mode) {
+     // The type bits can never be changed (whether something is a file or a
+     // directory, for example).
+-    file->mode = (file->mode & S_IFMT) | (mode & ~S_IFMT);
++    mode &= ~S_IFMT;
++    if (auto err = file->setMode(mode)) {
++      return err;
++    }
++    file->mode = (file->mode & S_IFMT) | mode;
++    return 0;
+   }
+   double getCTime() {
+     return file->ctime;
+@@ -370,6 +387,23 @@
+   void updateATime() {
+     file->atime = emscripten_date_now();
+   }
++  // Set the access and modification times, in ms. INFINITY leaves that time
++  // unchanged.
++  [[nodiscard]] int setTimes(double atime, double mtime) {
++    if (atime == INFINITY && mtime == INFINITY) {
++      return 0;
++    }
++    if (auto err = file->setTimes(atime, mtime)) {
++      return err;
++    }
++    if (atime != INFINITY) {
++      file->atime = atime;
++    }
++    if (mtime != INFINITY) {
++      file->mtime = mtime;
++    }
++    return 0;
++  }
+ 
+   // Note: parent.lock() creates a new shared_ptr to the same Directory
+   // specified by the parent weak_ptr.
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -1177,15 +1177,7 @@
+     mTime = timespec_to_ms(times[1]);
+   }
+ 
+-  auto locked = parsed.getFile()->locked();
+-  if (aTime != INFINITY) {
+-    locked.setATime(aTime);
+-  }
+-  if (mTime != INFINITY) {
+-    locked.setMTime(mTime);
+-  }
+-
+-  return 0;
++  return parsed.getFile()->locked().setTimes(aTime, mTime);
+ }
+ 
+ // TODO: Test this with non-AT_FDCWD values.
+@@ -1199,7 +1191,9 @@
+     return err;
+   }
+   auto lockedFile = parsed.getFile()->locked();
+-  lockedFile.setMode(mode);
++  if (auto err = lockedFile.setMode(mode)) {
++    return err;
++  }
+   // On POSIX, ctime is updated on metadata changes, like chmod.
+   lockedFile.updateCTime();
+   return 0;
+@@ -1215,7 +1209,9 @@
+     return -EBADF;
+   }
+   auto lockedFile = openFile->locked().getFile()->locked();
+-  lockedFile.setMode(mode);
++  if (auto err = lockedFile.setMode(mode)) {
++    return err;
++  }
+   lockedFile.updateCTime();
+   return 0;
+ }
+```
+
+A separate one-line fix turned up on the way: musl's `futimens()` calls
+`utimensat(fd, NULL, …)`, and `__syscall_utimensat` builds a
+`std::string_view` from that null path, which libc++'s hardening assertions
+reject (`-O0`), so `futimens()` never worked under WasmFS with assertions.
+It deserves its own PR:
+
+```diff
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -1156,13 +1156,14 @@
+   }
+ 
+   // Add AT_EMPTY_PATH as Linux (and so, musl, and us) has a nonstandard
+-  // behavior in which an empty path means to operate on whatever is in dirFD
+-  // (directory or not), which is exactly the behavior of AT_EMPTY_PATH (but
+-  // without passing that in). See "C library/kernel ABI differences" in
+-  // https://man7.org/linux/man-pages/man2/utimensat.2.html
++  // behavior in which a null path (which futimens passes) means to operate on
++  // whatever is in dirFD (directory or not), which is exactly the behavior of
++  // AT_EMPTY_PATH (but without passing that in). See "C library/kernel ABI
++  // differences" in https://man7.org/linux/man-pages/man2/utimensat.2.html
+   //
+   // TODO: Handle AT_SYMLINK_NOFOLLOW once we traverse symlinks correctly.
+-  auto parsed = path::getFileAt(dirfd, path, flags | AT_EMPTY_PATH);
++  auto parsed =
++    path::getFileAt(dirfd, path ? path : "", flags | AT_EMPTY_PATH);
+   if (auto err = parsed.getError()) {
+     return err;
+   }
+```
+
+With both applied to 6.0.9 (and the other WasmFS fixes reported
+separately), the test cases print, at `-O0` and `-O2`:
+
+```
+chmod("/host/file", 0600) = 0; WasmFS now reports 600
+host mode: 600
+utimensat = 0; WasmFS now reports mtime 1000000000
+host mtime: 1000000000
+```
+
+They were also tested with `fchmod` and `futimens` on open files, on
+directories, with each of `UTIME_OMIT` and `UTIME_NOW`, and with host
+errors (`EPERM` on a root-owned file, `EROFS` on a read-only mount), which
+now come back to the caller with WasmFS's record unchanged. Emscripten's
+own WasmFS tests (a 96-test selection) give the same results as without
+it, and `other.test_gen_sig_info` passes.
 
 ---
 
@@ -145,9 +438,13 @@ since it touches the backend API.
   in memory, and NODEFS/NODERAWFS do pass them through. So this reads as a
   missing feature worth an issue, not a bug report against documented
   behaviour. Run at `-O0` and `-O2`, with the same result.
-- **bug_reports.rst.** The source, `emcc -v` and the symptoms are included. The
-  proposed solution is a design sketch, not a tested patch: it changes the
-  backend interface, which the maintainers will want to shape.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
+  are included. It adds to the backend interface, which the maintainers may
+  want to shape differently; symlinks themselves aren't covered.
+- **Limitations.** `UTIME_NOW` is sent as an explicit time, so on a file the
+  user can write but doesn't own the host refuses with `EPERM`, as legacy
+  NODEFS does. Carry it with the `open`/`close` fix: without it a failed
+  open yields fd 2 and `fchmod` would reach the host's real stderr.
 - **Duplicate search.** "wasmfs chmod", "wasmfs node chmod", "chmod node host",
   "chmod not persisted", "NODEFS chmod", "wasmfs node mode", "wasmfs node
   backend", "wasmfs_create_node_backend", "node_backend.cpp" and "chmod", plus a
@@ -160,10 +457,10 @@ since it touches the backend API.
   caveat doesn't apply, but expect it to come up.
 - **Why it matters to us.** Under Node, GLib's `/fileutils/stdio-wrappers` hit
   this: `chmod(0777)` on a Node-backed directory never reached the host, and
-  the next `g_creat()` there failed. `modules/toolchain/node-host-fs.c` relies
-  on the same quirk on purpose: it `chmod`s the WasmFS root to the host's mode,
-  knowing only WasmFS's record changes. If upstream fixes this, that `chmod`
-  will start changing the host's `/`, or fail.
+  the next `g_creat()` there failed. With the fix it runs as upstream has it,
+  and GLib's tests keep their temporary files on the host.
+  `modules/toolchain/node-host-fs.c` no longer `chmod`s the WasmFS root to
+  the host's mode.
 - **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
   `node_backend.cpp` and `file.h` are unchanged between 6.0.9 and `main`
   (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s
@@ -171,3 +468,4 @@ since it touches the backend API.
   unchanged, a few lines further down. The latest release, 6.0.10 (tagged
   2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
   rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- ibus-web carries this fix as `modules/emscripten/patches/0013-wasmfs-node-chmod.patch`, and the `futimens` fix as `modules/emscripten/patches/0008-wasmfs-futimens-null-path.patch`.

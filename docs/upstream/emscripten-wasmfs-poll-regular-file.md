@@ -250,4 +250,4 @@ position doesn't matter. A similar hook could later let pipes report
   cited code is unchanged, a few lines further down. The latest release, 6.0.10
   (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
   wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-poll-regular-file.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0003-wasmfs-poll-regular-file.patch`.

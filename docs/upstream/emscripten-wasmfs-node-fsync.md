@@ -226,4 +226,4 @@ data
   rounding; the cited code is unchanged, a few lines further down. The latest
   release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the
   diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
-- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-node-fsync.patch`.
+- ibus-web carries this fix as `modules/emscripten/patches/0009-wasmfs-node-fsync.patch`.

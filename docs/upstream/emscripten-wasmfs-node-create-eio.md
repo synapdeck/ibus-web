@@ -112,10 +112,330 @@ End of search list.
 - The Node backend has the host's errno in hand and drops it
   ([node_backend.cpp#L220-L236](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L220-L236)).
 
-**Possible fix:** let the `Directory` insert functions (and `Backend::create*`)
-return an error code alongside the file, the way `getEntries` returns
-`MaybeEntries`. Have the Node backend pass the host errno through. That changes
-the backend interface, so we haven't written it.
+**Suggested fix:** let `Directory`'s insert functions return a
+`MaybeFile`: still a `std::shared_ptr`, so callers that only check for null
+don't change, but able to carry a negative error code, much as `getEntries`
+returns `MaybeEntries`. `doOpen` and `doMkdir` return that code; a backend
+that returns plain null still gets `EIO`. The Node backend passes the host's
+errno through, and inserting into an unlinked directory is `ENOENT`.
+`Backend::create*` (used for mounts) is left alone.
+
+```diff
+--- a/system/lib/wasmfs/backends/fetch_backend.cpp
++++ b/system/lib/wasmfs/backends/fetch_backend.cpp
+@@ -58,8 +58,8 @@
+                  emscripten::ProxyWorker& proxy)
+     : MemoryDirectory(mode, backend), dirPath(path), proxy(proxy) {}
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     auto childPath = getChildPath(name);
+     auto child =
+       std::make_shared<FetchFile>(childPath, mode, getBackend(), proxy);
+@@ -67,8 +67,8 @@
+     return child;
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     auto childPath = getChildPath(name);
+     auto childDir =
+       std::make_shared<FetchDirectory>(childPath, mode, getBackend(), proxy);
+--- a/system/lib/wasmfs/backends/ignore_case_backend.cpp
++++ b/system/lib/wasmfs/backends/ignore_case_backend.cpp
+@@ -47,10 +47,10 @@
+     : VirtualDirectory(real, backend) {}
+ 
+   std::shared_ptr<File> getChild(const std::string& name) override;
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override;
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override;
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override;
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override;
+   std::shared_ptr<Symlink> insertSymlink(const std::string& name,
+                                          const std::string& target) override;
+   int insertMove(const std::string& name, std::shared_ptr<File> file) override;
+@@ -103,24 +103,24 @@
+   return child;
+ }
+ 
+-std::shared_ptr<DataFile>
++Directory::MaybeFile<DataFile>
+ IgnoreCaseDirectory::insertDataFile(const std::string& name, mode_t mode) {
+   auto normalized = normalize(name);
+   auto file = real->locked().insertDataFile(normalized, mode);
+   if (!file) {
+-    return nullptr;
++    return file;
+   }
+   file = virtualize(file, getBackend());
+   children[normalized] = {name, file};
+   return file;
+ }
+ 
+-std::shared_ptr<Directory>
++Directory::MaybeFile<Directory>
+ IgnoreCaseDirectory::insertDirectory(const std::string& name, mode_t mode) {
+   auto normalized = normalize(name);
+   auto dir = real->locked().insertDirectory(normalized, mode);
+   if (!dir) {
+-    return nullptr;
++    return dir;
+   }
+   dir = virtualize(dir, getBackend());
+   children[normalized] = {name, dir};
+--- a/system/lib/wasmfs/backends/node_backend.cpp
++++ b/system/lib/wasmfs/backends/node_backend.cpp
+@@ -263,23 +263,23 @@
+     return 0;
+   }
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     auto childPath = getChildPath(name);
+     int fd = _wasmfs_node_insert_file(childPath.c_str(), mode);
+     if (fd < 0) {
+-      return nullptr;
++      return fd;
+     }
+     auto file = std::make_shared<NodeFile>(mode, getBackend(), childPath);
+     file->state.keepCreated(fd);
+     return file;
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     auto childPath = getChildPath(name);
+-    if (_wasmfs_node_insert_directory(childPath.c_str(), mode)) {
+-      return nullptr;
++    if (auto err = _wasmfs_node_insert_directory(childPath.c_str(), mode)) {
++      return -err;
+     }
+     return std::make_shared<NodeDirectory>(mode, getBackend(), childPath);
+   }
+--- a/system/lib/wasmfs/backends/opfs_backend.cpp
++++ b/system/lib/wasmfs/backends/opfs_backend.cpp
+@@ -293,8 +293,8 @@
+     }
+   }
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     int childID = 0;
+     proxy([&](auto ctx) {
+       _wasmfs_opfs_insert_file(ctx.ctx, dirID, name.c_str(), &childID);
+@@ -306,8 +306,8 @@
+     return std::make_shared<OPFSFile>(mode, getBackend(), childID, proxy);
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     int childID = 0;
+     proxy([&](auto ctx) {
+       _wasmfs_opfs_insert_directory(ctx.ctx, dirID, name.c_str(), &childID);
+--- a/system/lib/wasmfs/file.cpp
++++ b/system/lib/wasmfs/file.cpp
+@@ -88,30 +88,30 @@
+   return true;
+ }
+ 
+-std::shared_ptr<DataFile>
++Directory::MaybeFile<DataFile>
+ Directory::Handle::insertDataFile(const std::string& name, mode_t mode) {
+   // Cannot insert into an unlinked directory.
+   if (!getParent()) {
+-    return nullptr;
++    return -ENOENT;
+   }
+   auto child = getDir()->insertDataFile(name, mode);
+   if (!child) {
+-    return nullptr;
++    return child;
+   }
+   cacheChild(name, child, DCacheKind::Normal);
+   updateMTime();
+   return child;
+ }
+ 
+-std::shared_ptr<Directory>
++Directory::MaybeFile<Directory>
+ Directory::Handle::insertDirectory(const std::string& name, mode_t mode) {
+   // Cannot insert into an unlinked directory.
+   if (!getParent()) {
+-    return nullptr;
++    return -ENOENT;
+   }
+   auto child = getDir()->insertDirectory(name, mode);
+   if (!child) {
+-    return nullptr;
++    return child;
+   }
+   cacheChild(name, child, DCacheKind::Normal);
+   updateMTime();
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -194,6 +194,21 @@
+     }
+   };
+ 
++  // A newly created file, or null and a negative error code. It is still a
++  // `std::shared_ptr`, so callers that only check for null need not change.
++  template<class T> class MaybeFile : public std::shared_ptr<T> {
++    int err = 0;
++
++  public:
++    MaybeFile(std::nullptr_t = nullptr) {}
++    template<class U>
++    MaybeFile(std::shared_ptr<U> file) : std::shared_ptr<T>(std::move(file)) {}
++    MaybeFile(int err) : err(err) { assert(err < 0); }
++
++    // A backend that returned null without saying why gets EIO.
++    int getError() const { return *this ? 0 : err ? err : -EIO; }
++  };
++
+ private:
+   // The directory cache, or `dcache`, stores `File` objects for the children of
+   // each directory so that subsequent lookups do not need to query the backend.
+@@ -228,11 +243,11 @@
+   // Inserts a file with the given name, kind, and mode. Returns a `File` object
+   // corresponding to the newly created file or nullptr if the new file could
+   // not be created. Assumes a child with this name does not already exist.
+-  // If the operation failed, returns nullptr.
+-  virtual std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                                   mode_t mode) = 0;
+-  virtual std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                                     mode_t mode) = 0;
++  // If the operation failed, returns nullptr or a negative error code.
++  virtual MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                             mode_t mode) = 0;
++  virtual MaybeFile<Directory> insertDirectory(const std::string& name,
++                                               mode_t mode) = 0;
+   virtual std::shared_ptr<Symlink> insertSymlink(const std::string& name,
+                                                  const std::string& target) = 0;
+ 
+@@ -417,11 +432,9 @@
+   // Insert a child of the given name, kind, and mode in the underlying backend,
+   // which will allocate and return a corresponding `File` on success or return
+   // nullptr otherwise. Assumes a child with this name does not already exist.
+-  // If the operation failed, returns nullptr.
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode);
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode);
++  // If the operation failed, returns nullptr and an error code.
++  MaybeFile<DataFile> insertDataFile(const std::string& name, mode_t mode);
++  MaybeFile<Directory> insertDirectory(const std::string& name, mode_t mode);
+   std::shared_ptr<Symlink> insertSymlink(const std::string& name,
+                                          const std::string& target);
+ 
+--- a/system/lib/wasmfs/memory_backend.h
++++ b/system/lib/wasmfs/memory_backend.h
+@@ -69,15 +69,15 @@
+ 
+   int removeChild(const std::string& name) override;
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     auto child = getBackend()->createFile(mode);
+     insertChild(name, child);
+     return child;
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     auto child = getBackend()->createDirectory(mode);
+     insertChild(name, child);
+     return child;
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -480,12 +480,12 @@
+       }
+       std::shared_ptr<File> created;
+       if (backend == parent->getBackend()) {
+-        created = lockedParent.insertDataFile(std::string(childName), mode);
+-        if (!created) {
+-          // TODO Receive a specific error code, and report it here. For now,
+-          //      report a generic error.
+-          return -EIO;
++        auto inserted =
++          lockedParent.insertDataFile(std::string(childName), mode);
++        if (auto err = inserted.getError()) {
++          return err;
+         }
++        created = inserted;
+       } else {
+         created = backend->createFile(mode);
+         if (!created) {
+@@ -645,10 +645,8 @@
+   }
+ 
+   if (backend == parent->getBackend()) {
+-    if (!lockedParent.insertDirectory(childName, mode)) {
+-      // TODO Receive a specific error code, and report it here. For now, report
+-      //      a generic error.
+-      return -EIO;
++    if (auto err = lockedParent.insertDirectory(childName, mode).getError()) {
++      return err;
+     }
+   } else {
+     auto created = backend->createDirectory(mode);
+--- a/system/lib/wasmfs/virtual.h
++++ b/system/lib/wasmfs/virtual.h
+@@ -62,12 +62,12 @@
+   virtual std::shared_ptr<File> getChild(const std::string& name) override {
+     return real->locked().getChild(name);
+   }
+-  virtual std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                                   mode_t mode) override {
++  virtual MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                             mode_t mode) override {
+     return real->locked().insertDataFile(name, mode);
+   }
+-  virtual std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                                     mode_t mode) override {
++  virtual MaybeFile<Directory> insertDirectory(const std::string& name,
++                                               mode_t mode) override {
+     return real->locked().insertDirectory(name, mode);
+   }
+   virtual std::shared_ptr<Symlink>
+```
+
+(The Node backend's `insertDataFile` here builds on the `open`/`close` fix
+reported separately, where `_wasmfs_node_insert_file` returns the
+descriptor that created the file, or a negated errno.)
+
+With this applied to 6.0.9, the test case prints, at `-O0` and `-O2`:
+
+```
+1000
+mkdir = -1 (Permission denied)
+open(O_CREAT) = -1 (Permission denied)
+```
+
+It was also tested for `EROFS` (a read-only mount), `EEXIST` (a FIFO in the
+way, which WasmFS doesn't list), `ENOENT` (a parent removed behind WasmFS's
+back, and an unlinked directory), `ENAMETOOLONG` and `ENOSPC` (a full
+tmpfs). Emscripten's own WasmFS tests (a 96-test selection) give the same
+results as without it.
 
 ---
 
@@ -124,9 +444,9 @@ the backend interface, so we haven't written it.
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same
   result. The TODOs show the maintainers know. Whether a tracking issue is
   welcome is a judgement call; `bug_reports.rst` doesn't say.
-- **bug_reports.rst.** The source, `emcc -v` and the symptoms are included. The
-  proposed solution is a design sketch, not a tested patch: it changes the
-  backend interface.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
+  are included. The `MaybeFile` type is one way to shape the interface
+  change; maintainers may prefer another.
 - **Test needs a non-root user.** Root would create the files.
 - **Overlap with other drafts.** For `open(O_CREAT)`, fixing #18033 (see
   `emscripten-wasmfs-create-permission.md`) makes WasmFS answer `EACCES` itself
@@ -140,7 +460,8 @@ the backend interface, so we haven't written it.
 - **Why it matters to us.** GLib's `/fileutils/mkdir-with-parents` expects
   `EACCES` creating under `/usr` in the build sandbox. It got `EIO` until
   `modules/toolchain/node-host-fs.c` started `chmod`ing the WasmFS root to the
-  host's mode.
+  host's mode; with this fix that emulation is gone, and the chmod fix
+  needs this one, or the test gets `EIO` again.
 - **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
   `node_backend.cpp` and `libwasmfs_node.js` are unchanged between 6.0.9 and
   `main` (2151200, 139 commits later). `syscalls.cpp` changed only in
@@ -148,3 +469,4 @@ the backend interface, so we haven't written it.
   cited code is unchanged, a few lines further down. The latest release, 6.0.10
   (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
   wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- ibus-web carries this fix as `modules/emscripten/patches/0012-wasmfs-node-create-eio.patch`.
