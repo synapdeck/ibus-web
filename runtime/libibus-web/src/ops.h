@@ -1,8 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
-#ifndef IBUS_WEB_OPS_H
-#define IBUS_WEB_OPS_H
+#pragma once
 
 #include "ibus-web/runtime.h"
 
@@ -14,5 +13,3 @@ int ibusweb_ops_add(IBusWebModule *module, uint32_t opcode, const char *name,
 
 G_GNUC_INTERNAL
 void ibusweb_ops_remove_module(IBusWebModule *module);
-
-#endif /* IBUS_WEB_OPS_H */

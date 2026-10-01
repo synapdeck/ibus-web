@@ -1,8 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
-#ifndef IBUS_WEB_RUNTIME_H
-#define IBUS_WEB_RUNTIME_H
+#pragma once
 
 #include <glib.h>
 #include <stdint.h>
@@ -82,5 +81,3 @@ int32_t ibusweb_dispatch(const uint8_t *request, uint32_t request_len,
                          uint8_t *reply, uint32_t reply_cap);
 
 G_END_DECLS
-
-#endif /* IBUS_WEB_RUNTIME_H */
