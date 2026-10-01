@@ -161,3 +161,4 @@ way, by giving the streams a node.
   6.0.10 and `main` (2151200) carry #27632's change to `libnoderawfs.js`. That
   it fixes our case is inferred from the code and #27632's test; neither was
   built here.
+- ibus-web carries this fix as `modules/emscripten/patches/noderawfs-fstat-stdio.patch`.

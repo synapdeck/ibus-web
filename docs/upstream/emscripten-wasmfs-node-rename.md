@@ -1,10 +1,10 @@
-# WasmFS Node backend: a renamed file keeps its old host path
+# WasmFS Node backend: a renamed file or directory keeps its old host path
 
 **Draft: new issue.** No existing issue covers it.
 
 ## Issue title
 
-WasmFS Node backend: after rename(), the file still refers to its old host path (reads/writes go to the wrong file)
+WasmFS Node backend: after rename(), a file (or anything already looked up under a renamed directory) still refers to its old host path
 
 ## Issue body
 
@@ -150,43 +150,350 @@ End of search list.
 - Node directories don't maintain file identity, so the moved `File` stays in
   the new parent's dcache, path and all.
 - A directory's cached children each carry a full host path built from the
-  directory's old path.
+  directory's old path, and so do theirs, all the way down.
+- Moving a symlink takes the `else` branch and casts it to `NodeDirectory`.
 
-**Suggested fix (files):** update the path after a successful rename.
+**Suggested fix:** rewrite the cached host path of the moved file and of
+every file the backend has already loaded below it, with all of them locked
+across the host's rename.
 
 ```diff
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
-@@ -256,7 +256,15 @@
-     }
-
+@@ -183,6 +183,31 @@
+     return state.path + '/' + name;
+   }
+ 
++  // The host path a file, directory or symlink of this backend refers to.
++  static std::string& getHostPath(const std::shared_ptr<File>& file) {
++    if (file->is<DataFile>()) {
++      return std::static_pointer_cast<NodeFile>(file)->state.path;
++    }
++    if (file->is<Directory>()) {
++      return std::static_pointer_cast<NodeDirectory>(file)->state.path;
++    }
++    return std::static_pointer_cast<NodeSymlink>(file)->path;
++  }
++
++  // Lock `file` and every file below it that this backend has loaded, each
++  // before its children, as path lookups do. Every one of them caches a host
++  // path under the one being renamed.
++  static void lockLoaded(const std::shared_ptr<File>& file,
++                         std::vector<File::Handle>& locked) {
++    locked.push_back(file->locked());
++    if (file->is<Directory>()) {
++      auto dir = std::static_pointer_cast<NodeDirectory>(file);
++      for (auto& child : dir->getLoadedChildren()) {
++        lockLoaded(child, locked);
++      }
++    }
++  }
++
+   std::shared_ptr<File> getChild(const std::string& name) override {
+     static_assert(std::is_same_v<mode_t, unsigned int>);
+     // TODO: also retrieve and set ctime, atime, ino, etc.
+@@ -245,18 +270,20 @@
+   }
+ 
+   int insertMove(const std::string& name, std::shared_ptr<File> file) override {
+-    std::string fromPath;
+-
+-    if (file->is<DataFile>()) {
+-      auto nodeFile = std::static_pointer_cast<NodeFile>(file);
+-      fromPath = nodeFile->state.path;
+-    } else {
+-      auto nodeDir = std::static_pointer_cast<NodeDirectory>(file);
+-      fromPath = nodeDir->state.path;
+-    }
++    // Holding the locks across the host's rename means no operation on a moved
++    // file sees its host path change under it.
++    std::vector<File::Handle> locked;
++    lockLoaded(file, locked);
+ 
++    auto fromPath = getHostPath(file);
      auto childPath = getChildPath(name);
 -    return -_wasmfs_node_rename(fromPath.c_str(), childPath.c_str());
 +    if (auto err = _wasmfs_node_rename(fromPath.c_str(), childPath.c_str())) {
 +      return -err;
 +    }
-+    if (file->is<DataFile>()) {
-+      std::static_pointer_cast<NodeFile>(file)->state.path = childPath;
-+    } else {
-+      std::static_pointer_cast<NodeDirectory>(file)->state.path = childPath;
++    for (auto& handle : locked) {
++      getHostPath(handle.unlocked()).replace(0, fromPath.size(), childPath);
 +    }
 +    return 0;
    }
-
+ 
    ssize_t getNumEntries() override {
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -204,6 +204,19 @@
+   std::map<std::string, DCacheEntry> dcache;
+ 
+ protected:
++  // The children this directory's backend has returned that are still in the
++  // dcache. Mount points belong to other backends and are left out. The
++  // directory must be locked.
++  std::vector<std::shared_ptr<File>> getLoadedChildren() {
++    std::vector<std::shared_ptr<File>> children;
++    for (auto& [name, entry] : dcache) {
++      if (entry.kind == DCacheKind::Normal) {
++        children.push_back(entry.file);
++      }
++    }
++    return children;
++  }
++
+   // Return the `File` object corresponding to the file with the given name or
+   // null if there is none.
+   virtual std::shared_ptr<File> getChild(const std::string& name) = 0;
 ```
 
-With this applied to 6.0.9, the file case prints:
+Why this shape:
+
+- **Rewriting rather than deriving.** The other way to fix it is to stop
+  caching absolute host paths and build each one from the parent chain when
+  it's needed. But an operation on a file runs with the file locked, and
+  reading its parent and its name in the parent's dcache would then lock
+  the parent too: child before parent, the order #27684 shows deadlocking
+  against path lookups. It would also deadlock against `rename()` itself,
+  which holds both parents and then locks the moved file. Rewriting touches
+  only `insertMove`, and only a rename pays for it.
+- **The walk.** Node directories don't maintain file identity, so every
+  file the backend has handed out that is still linked is in its parent's
+  dcache. `Directory`'s dcache is private, so the patch adds a protected
+  `getLoadedChildren()` for backends. Mount points are skipped: they belong
+  to other backends and carry their own paths.
+- **Locking.** `lockLoaded` locks the moved file and then each loaded file
+  below it, each before its children: the order path lookups use (and the
+  order #27685 moves `renameat` to). `renameat` already holds both parents
+  and serializes renames. Holding the locks across the host's `rename`
+  means an operation already running on one of those files finishes with
+  the old path, and one that starts afterwards sees the new one. Rewriting
+  the paths after the host's rename, each under its own lock, isn't enough:
+  in the racing part of the test below, 876 of the reader's lookups failed
+  with `ENOENT` in one run.
+
+With this applied to 6.0.9 (together with the `fsync` fix and the
+`open`/`close` fix reported separately, which the third test uses), the
+first test case prints:
 
 ```
 rename("/host/a", "/host/b") = 0
 read("/host/b") = 14: contents of a
 ```
 
-It does **not** fix the directory case, whose cached children keep their old
-paths. A complete fix would stop storing full host paths: build each file's
-host path from its parent's path and its name when it's needed. Alternatively,
-walk the moved directory's dcache and rewrite the cached descendants.
+the second:
+
+```
+rename dir = 0
+read("/host/e/f") = 5 (ok) in f
+```
+
+and this test (`node_rename_tree.c`), which renames a directory holding open
+and closed files, a symlink, subdirectories and the working directory, then
+reads, writes and stats through the old descriptors and through fresh
+opens, checks with Node's own `fs` that the old names are gone, does nested
+and cross-directory renames, and finally renames a directory back and forth
+2000 times while another thread opens a file relative to it:
+
+<details>
+<summary><code>node_rename_tree.c</code></summary>
+
+```c
+#include <emscripten/em_js.h>
+#include <emscripten/wasmfs.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+/* What the host sees, through Node's own fs. */
+EM_JS(int, host_exists, (const char *path), {
+  return require('fs').existsSync(UTF8ToString(path)) ? 1 : 0;
+});
+EM_JS(int, host_read, (const char *path, char *buf, int size), {
+  try {
+    return stringToUTF8(require('fs').readFileSync(UTF8ToString(path), 'utf8'), buf, size);
+  } catch (e) {
+    return -1;
+  }
+});
+
+static const char *hostdir;
+static int failures;
+
+#define CHECK(cond, ...)                                                       \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      failures++;                                                              \
+      printf("FAIL %s:%d: ", __FILE__, __LINE__);                              \
+      printf(__VA_ARGS__);                                                     \
+      printf(" (errno %s)\n", strerror(errno));                                \
+    }                                                                          \
+  } while (0)
+
+static void put(const char *path, const char *text) {
+  int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  CHECK(fd >= 0, "create %s", path);
+  CHECK(write(fd, text, strlen(text)) == (ssize_t)strlen(text), "write %s", path);
+  close(fd);
+}
+
+static void expect_file(const char *path, const char *text) {
+  char buf[64] = {0};
+  struct stat st;
+  CHECK(stat(path, &st) == 0 && st.st_size == (off_t)strlen(text), "stat %s", path);
+  int fd = open(path, O_RDONLY);
+  CHECK(fd >= 0, "open %s", path);
+  ssize_t n = read(fd, buf, sizeof buf - 1);
+  CHECK(n == (ssize_t)strlen(text) && strcmp(buf, text) == 0, "read %s: %zd \"%s\"", path, n, buf);
+  CHECK(close(fd) == 0, "close %s", path);
+}
+
+static void expect_host(const char *rel, const char *text) {
+  char path[256], buf[64] = {0};
+  snprintf(path, sizeof path, "%s/%s", hostdir, rel);
+  if (text == NULL) {
+    CHECK(!host_exists(path), "host still has %s", rel);
+    return;
+  }
+  CHECK(host_read(path, buf, sizeof buf) >= 0 && strcmp(buf, text) == 0, "host %s: \"%s\"", rel, buf);
+}
+
+static int dirfd_c;
+static volatile int done;
+static int thread_failures;
+
+static void *reader(void *arg) {
+  /* The directory renames under us, but an fd-relative open goes through the
+   * directory object and must always find its file. */
+  for (int i = 0; !done; i++) {
+    int fd = openat(dirfd_c, "f", O_RDONLY);
+    char c = 0;
+    if (fd < 0 || read(fd, &c, 1) != 1 || c != 'c') {
+      thread_failures++;
+      printf("reader: iteration %d: fd %d, %s\n", i, fd, strerror(errno));
+    }
+    if (fd >= 0)
+      close(fd);
+  }
+  return NULL;
+}
+
+int main(int argc, char **argv) {
+  hostdir = argv[1];
+  wasmfs_create_directory("/host", 0777, wasmfs_create_node_backend(hostdir));
+
+  mkdir("/host/d", 0777);
+  mkdir("/host/d/sub", 0777);
+  mkdir("/host/d/sub/deep", 0777);
+  put("/host/d/f", "f1");
+  put("/host/d/g", "g1");
+  put("/host/d/sub/h", "h1");
+  put("/host/d/sub/i", "i1");
+  put("/host/d/sub/deep/j", "j1");
+  symlink("g", "/host/d/link");
+
+  /* Kept open across the renames: one file at the top, one nested. */
+  int f = open("/host/d/f", O_RDWR);
+  int h = open("/host/d/sub/h", O_RDWR);
+  CHECK(f >= 0 && h >= 0, "open f, h");
+  /* Looked up (and so cached) but closed. */
+  struct stat st;
+  CHECK(stat("/host/d/g", &st) == 0, "stat g");
+  CHECK(stat("/host/d/sub/i", &st) == 0, "stat i");
+  CHECK(stat("/host/d/sub/deep/j", &st) == 0, "stat j");
+  /* A working directory inside the tree. */
+  CHECK(chdir("/host/d/sub") == 0, "chdir");
+
+  printf("rename d -> e: %d\n", rename("/host/d", "/host/e"));
+  expect_host("d", NULL);
+
+  /* Old handles. */
+  CHECK(pwrite(f, "F2", 2, 0) == 2, "pwrite old f");
+  CHECK(fstat(f, &st) == 0 && st.st_size == 2, "fstat old f");
+  CHECK(pwrite(h, "H2", 2, 0) == 2, "pwrite old h");
+  CHECK(fsync(h) == 0, "fsync old h");
+  expect_host("e/f", "F2");
+  expect_host("e/sub/h", "H2");
+  /* Fresh opens of every file, open or not. */
+  expect_file("/host/e/f", "F2");
+  expect_file("/host/e/g", "g1");
+  expect_file("/host/e/link", "g1");
+  expect_file("/host/e/sub/h", "H2");
+  expect_file("/host/e/sub/i", "i1");
+  expect_file("/host/e/sub/deep/j", "j1");
+  expect_file("i", "i1");
+  put("/host/e/sub/deep/new", "n1");
+  expect_host("e/sub/deep/new", "n1");
+  put("k", "k1");
+  expect_host("e/sub/k", "k1");
+  CHECK(open("/host/d/f", O_RDONLY) < 0 && errno == ENOENT, "old name still opens");
+
+  /* Nested renames: a subdirectory, then its parent, then across parents. */
+  printf("rename e/sub -> e/sub2: %d\n", rename("/host/e/sub", "/host/e/sub2"));
+  printf("rename e -> x: %d\n", rename("/host/e", "/host/x"));
+  mkdir("/host/p", 0777);
+  printf("rename x/sub2/deep -> p/moved: %d\n", rename("/host/x/sub2/deep", "/host/p/moved"));
+  printf("rename x/g -> x/sub2/g: %d\n", rename("/host/x/g", "/host/x/sub2/g"));
+  expect_host("e", NULL);
+  expect_host("x/sub", NULL);
+  expect_host("x/sub2/deep", NULL);
+  expect_host("x/g", NULL);
+  CHECK(pwrite(h, "H3", 2, 0) == 2, "pwrite old h");
+  expect_host("x/sub2/h", "H3");
+  expect_file("/host/x/f", "F2");
+  expect_file("/host/x/sub2/g", "g1");
+  expect_file("/host/x/sub2/h", "H3");
+  expect_file("/host/x/sub2/i", "i1");
+  expect_file("/host/p/moved/j", "j1");
+  expect_file("/host/p/moved/new", "n1");
+  expect_file("k", "k1");
+  char cwd[256];
+  CHECK(getcwd(cwd, sizeof cwd) && strcmp(cwd, "/host/x/sub2") == 0, "getcwd %s", cwd);
+  CHECK(close(f) == 0 && close(h) == 0, "close f, h");
+
+  /* Renames racing an fd-relative open in another thread. */
+  mkdir("/host/c1", 0777);
+  put("/host/c1/f", "c");
+  dirfd_c = open("/host/c1", O_RDONLY | O_DIRECTORY);
+  CHECK(dirfd_c >= 0, "open c1");
+  pthread_t t;
+  pthread_create(&t, NULL, reader, NULL);
+  int renames = 0;
+  for (int i = 0; i < 2000; i++) {
+    CHECK(rename(i % 2 ? "/host/c2" : "/host/c1", i % 2 ? "/host/c1" : "/host/c2") == 0, "rename c");
+    renames++;
+  }
+  done = 1;
+  pthread_join(t, NULL);
+  printf("racing renames: %d, reader failures: %d\n", renames, thread_failures);
+  failures += thread_failures;
+  expect_file("/host/c1/f", "c");
+
+  printf("%s (%d failures)\n", failures ? "FAILED" : "PASSED", failures);
+  return failures != 0;
+}
+```
+
+</details>
+
+```
+$ emcc -O0 -pthread -sWASMFS -sPTHREAD_POOL_SIZE=2 -sEXIT_RUNTIME=1 node_rename_tree.c -o node_rename_tree.js && mkdir host && node node_rename_tree.js "$PWD/host"
+rename d -> e: 0
+rename e/sub -> e/sub2: 0
+rename e -> x: 0
+rename x/sub2/deep -> p/moved: 0
+rename x/g -> x/sub2/g: 0
+racing renames: 2000, reader failures: 0
+PASSED (0 failures)
+```
+
+The same at `-O2`, and 20 runs of each passed. With only the moved file's
+own path updated, it fails 54 checks after the first directory rename and
+the reader fails 1418 lookups.
 
 **Related symptom:** when the stale path doesn't exist, the failed host `open`
 isn't reported as a failure. `open()` returns a descriptor, `read()` then fails
@@ -202,9 +509,18 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
   paragraph if you post this one first.
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same
   result.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
-  (files only) are included. Bitcode is left out because the fault is in
-  `libwasmfs`. The directory case has only a sketched fix.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix,
+  for files and directories, are included. Bitcode is left out because the
+  fault is in `libwasmfs`. A PR would want `node_rename_tree.c` as a
+  `test/wasmfs` case.
+- **The fix was tested** on a 6.0.9 tree with all of our carried fixes, at
+  `-O0` and `-O2`, 20 runs each, and is part of the toolchain whose GLib
+  test suite runs on it. The racing part distinguishes the locking: the
+  unlocked rewrite failed 876 lookups in one run, the files-only fix 1418.
+- **#27684/#27685.** The lock-order deadlock in `renameat`'s ancestor walk
+  is separate and pre-existing; the fix here locks only downward from the
+  moved file, so it neither needs nor conflicts with #27685.
+- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-node-rename.patch`.
 - **Duplicate search.** "wasmfs node backend rename", "wasmfs rename node",
   "wasmfs rename", "insertMove", "wasmfs node backend" and "node_backend.cpp",
   plus a scan of all open "wasmfs" issues, turned up:
@@ -217,7 +533,9 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
   file and renames it over the target. Under Node with host temp files,
   `bookmarkfile`, `keyfile`, `mappedfile`, `sandbox` and
   `async-splice-output-stream` hit it (through the `fd_close` assertion), and
-  so did the GLib smoke test. The tests keep `TMPDIR` in memory to avoid it.
+  so did the GLib smoke test. The tests kept `TMPDIR` in memory to avoid it;
+  with this fix (and the `fsync` one) a host `TMPDIR` passes everything but
+  a test that needs the Node backend's `chmod()` to reach the host.
 - **Caveat maintainers may raise.** #19417 notes that WasmFS assumes it has
   complete control over the file system. The reproduction changes files only
   through WasmFS, so it doesn't depend on outside changes.

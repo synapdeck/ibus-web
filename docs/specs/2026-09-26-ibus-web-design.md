@@ -451,12 +451,15 @@ doorbell `postMessage` (§6.2.3).
   engine manifest records the version it was built against, and a mismatch is
   a load failure (§8).
 - **Memory.** Memory growth with pthreads is unresolved. In GLib's tests a
-  pthread of a test with many threads occasionally faults out of bounds
+  pthread of a test with many threads occasionally faulted out of bounds
   (13 of 300 runs under load); the same test linked with a fixed memory
   just above its peak never did (0 of 300), but a GLib-free reproduction
-  hasn't shown it yet. The runtime's link chooses fixed memory per Worker,
-  sized for the side modules it loads later (R3), or growth with a
-  mitigation found by then.
+  hasn't shown it yet. GLib's tests and the other Node-run checks now link
+  with a fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; the largest
+  test, `mainloop`, peaks at 280 MiB), so a fault can't hide behind the
+  gate's rerun; GLib's tools still grow. The runtime's link chooses fixed
+  memory per Worker, sized for the side modules it loads later (R3), or
+  growth with a mitigation found by then.
 - **Sharing.** The page compiles `ibus-runtime.wasm` once and sends the
   `WebAssembly.Module` to each Worker. Each Worker instantiates its own copy
   with its own memory.
@@ -1096,8 +1099,19 @@ artifacts; WASM builds of nixpkgs packages are reached through
 
 ### 10.3 Toolchain and overrides
 
-- **Emscripten from nixpkgs** (6.0.9 at `8ce4ef6`). nixpkgs builds it against
-  nixpkgs' LLVM rather than the revision upstream Emscripten pins (R12).
+- **Emscripten from nixpkgs** (6.0.9 at `8ce4ef6`) plus the patches in
+  `modules/emscripten/patches`, as `ibusWeb.toolchain.emscripten`. nixpkgs
+  builds it against nixpkgs' LLVM rather than the revision upstream
+  Emscripten pins (R12). Each patch is a small fix tracked upstream (an
+  issue, a pull request or a draft report in `docs/upstream/`), dropped
+  once an Emscripten release has it; the patches' README says which
+  release that is. They fix WasmFS (`getcwd()` under a mount, `poll()` of
+  files and devices, directory search and create permission, `O_NOCTTY`,
+  pipes as FIFOs), its Node backend (`fsync()`, renames, host errors from
+  `open()` and `close()`) and, backported from 6.0.10, `-sNODERAWFS`
+  `fstat()` on the standard streams. nixpkgs installs the patched tree, so
+  the cache and every link see them; `checks.emscripten-fixes` checks
+  each one's behaviour.
 - **`emscriptenCache`.** nixpkgs precompiles system libraries only for non-PIC
   variants, and builds otherwise use a per-build cache, so every PIC build
   would recompile libc and libc++. A dedicated derivation fills the cache by
@@ -1130,8 +1144,10 @@ artifacts; WASM builds of nixpkgs packages are reached through
   - `isStatic` makes nixpkgs apply its `makeStatic` adapter to the cross
     stdenv: static libraries only, every build input propagated, and
     `-static` at link time. The frozen-cache hook is part of the stdenv.
-  - Emscripten comes from `pkgsBuildBuild`. `buildPackages` gives it a WASM
-    target platform, which rehashes it and misses the binary cache.
+  - Emscripten is the toolchain's, built for the build machine as
+    `pkgsBuildBuild`'s would be. `buildPackages` would give it a WASM
+    target platform, which rehashes it and everything under it, so even
+    its dependencies would miss the binary cache.
   - `config.allowUnsupportedSystem` is set, because recipes' platform lists
     predate this target.
   - A setup hook gives every Meson build a second cross file setting
@@ -1167,7 +1183,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
   `pkgsWasm.glib` by `flake.overlays.glib`, after nixpkgs' own `glib`
   patches, which are all kept. The patches README lists each patch with its
   source and the reason for it.
-  - **Series.** 26 patches. Kleis Auke Wolthuizen's series from his
+  - **Series.** 37 patches. Kleis Auke Wolthuizen's series from his
     `wasm-vips-<version>` branches of GLib (the one wasm-vips uses), rebased
     from 2.88.1 onto 2.88.3, without its GRegex removal and with its tool
     removal cut down to girepository and the fuzzers. Fluendo's main-context
@@ -1194,10 +1210,11 @@ artifacts; WASM builds of nixpkgs packages are reached through
     with `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8
     -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the
     libraries don't see these. The tools keep Node's raw filesystem, one of
-    Emscripten's JavaScript file systems, because WasmFS under Node breaks
-    them: its Node backend traps on `fsync()`, which GLib issues when it
-    replaces a non-empty file (a second `glib-compile-schemas` into the
-    same directory), and its stdout turns a NUL byte into a line break.
+    Emscripten's JavaScript file systems, because WasmFS's stdout turns a
+    NUL byte into a line break (`gresource extract` of `a\0b\nc` prints
+    `a\nb\nc\n`). Its Node backend's `fsync()` trap, which a second
+    `glib-compile-schemas` into the same directory hit, is fixed by the
+    toolchain's Emscripten patches.
   - **Tests' file system.** `checks.glib-tests` links GLib's tests with
     WasmFS, the file system the runtime ships, in place of
     `-sNODERAWFS=1`: `ibusWeb.toolchain.nodeHostFsFlags` is `-sWASMFS=1
@@ -1207,9 +1224,12 @@ artifacts; WASM builds of nixpkgs packages are reached through
     directory instead, so absolute paths miss the build tree. Each test's
     `TMPDIR` names a directory the host lacks, which the object creates
     in WasmFS's memory backend, so temporary files live in memory as in
-    the browser and never meet the Node backend's gaps: it traps on
-    `fsync()`, and a file renamed over another keeps its old host path,
-    so reopening it fails. `ibusWeb.toolchain.testMainFlags` links the
+    the browser. With the toolchain's fixes to the Node backend (`fsync()`
+    and renames) a host `TMPDIR` passes too, except fileutils'
+    `stdio-wrappers`, which needs a directory `chmod()` can open up, and
+    the Node backend's `chmod()` never reaches the host. The tests link
+    with a fixed memory (`ibusWeb.toolchain.testMemoryFlags`, 512 MiB)
+    in place of growth (§5.3). `ibusWeb.toolchain.testMainFlags` links the
     other Node-run checks the same way, and the GLib smoke check keeps
     its file in such a `TMPDIR` too.
   - **Tools in consumers' builds.** A cross build runs its tools on the
@@ -1316,8 +1336,8 @@ specification and `release.json`.
    Inside the tests that gate, a subtest whose expectation can't hold here
    skips with its reason: musl's missing locale data (until the §5.1.4
    backends); no sockets, processes, pseudo-terminals or Unix signals;
-   IPv6 scope IDs and network interfaces; WasmFS's file-time precision, unchecked search
-   permission, unbounded pipes and `poll()` of empty files and devices;
+   IPv6 scope IDs and network interfaces; WasmFS's file-time precision and
+   unbounded pipes;
    TZif files read by path (`/GTimeZone/parse-rfc8536`, since zones come
    from `Intl`); and, for `gio-tool.py`, no desktop applications to launch
    and content types without MIME types. The rest are reported on every

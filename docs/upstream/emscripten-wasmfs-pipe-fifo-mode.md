@@ -151,3 +151,4 @@ affects only what `fstat()` reports.
   (2151200, 139 commits later). The latest release, 6.0.10 (tagged 2026-09-18),
   matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build
   is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- ibus-web carries this fix as `modules/emscripten/patches/wasmfs-pipe-fifo-mode.patch`.
