@@ -149,6 +149,18 @@ behaves as before. The exiting thread can't proxy the cleanup with
 `emscripten_proxy_async()` instead: by then it has given up its thread state,
 and proxying can block and allocate.
 
+Reclaiming threads early makes an existing race likelier. With dynamic
+linking, a joined thread's "finished" message can arrive after a new thread
+has taken over its `pthread_t`; it then marks the running thread finished,
+and every later `dlopen()` skips that thread. `ibusweb_load_module()` loads
+engines with `dlopen()` while GLib's pool threads may be alive, so this
+affects the runtime. A second patch,
+`0015-pthread-finished-mark-reused.patch` (15 lines added, 1 removed; draft
+`docs/upstream/emscripten-pthread-finished-mark-reused.md`), marks a thread
+only if it is still known and has actually exited. `checks.emscripten-fixes`
+reproduces the race deterministically: without 0015, the new thread traps
+calling into the module loaded after it started.
+
 The harness no longer gives the host an event-loop turn between scenarios.
 `thread-exit-blocked` runs five rounds of four detached threads
 (`spawn-detached(4)`) with the host never returning to its event loop, and
