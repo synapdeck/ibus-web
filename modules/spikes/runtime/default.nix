@@ -5,30 +5,36 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) toolchain runtime;
-      inherit (toolchain) pkgsWasm;
+      inherit (config.ibusWeb) runtime;
 
-      sides = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-web-runtime-spike-sides";
-        src = ../../../tests/spikes/runtime/sides;
-        nativeBuildInputs = [ pkgsWasm.pkg-config ];
-        buildInputs = [ runtime.libibusWeb ];
-        buildPhase = ''
-          runHook preBuild
-          cflags="$($PKG_CONFIG --cflags libibus-web) ${toolchain.sideModuleFlags}"
-          for side in trivial thread fsync; do
-            $CC $cflags $side.c -o $side.wasm
-          done
-          $CXX $cflags throw.cpp -o throw.wasm
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          mkdir -p $out
-          cp *.wasm $out/
-          runHook postInstall
-        '';
-      };
+      sides =
+        map
+          (
+            { name, source }:
+            runtime.mkSideModule {
+              inherit name;
+              src = ../../../tests/spikes/runtime/sides;
+              sources = [ source ];
+            }
+          )
+          [
+            {
+              name = "trivial";
+              source = "trivial.c";
+            }
+            {
+              name = "thread";
+              source = "thread.c";
+            }
+            {
+              name = "throw";
+              source = "throw.cpp";
+            }
+            {
+              name = "fsync";
+              source = "fsync.c";
+            }
+          ];
     in
     {
       # The asserting runtime loads every spike side module and runs each
@@ -41,18 +47,15 @@
           ''
             cp ${runtime.nodeHarness}/* .
             cp ${./smoke.mjs} smoke.mjs
-            node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js ${sides} > $out
+            mkdir sides
+            ln -s ${toString (map (side: side.wasm) sides)} sides/
+            node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js sides > $out
             cat $out
           '';
 
       checks.runtime-spike-side-imports = runtime.checkSideModuleImports {
         name = "runtime-spike";
-        modules = map (side: "${sides}/${side}.wasm") [
-          "trivial"
-          "thread"
-          "throw"
-          "fsync"
-        ];
+        modules = map (side: side.wasm) sides;
       };
     };
 }

@@ -36,21 +36,13 @@
           '';
 
       # A side module of the runtime's own, for checks of the runtime alone.
-      testSide = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-runtime-test-side";
-        src = ./tests;
-        nativeBuildInputs = [ pkgsWasm.pkg-config ];
-        buildInputs = [ runtime.libibusWeb ];
-        buildPhase = ''
-          runHook preBuild
-          $CC $($PKG_CONFIG --cflags libibus-web) ${toolchain.sideModuleFlags} side.c -o side.wasm
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          install -Dm644 side.wasm $out/side.wasm
-          runHook postInstall
-        '';
+      testSide = runtime.mkSideModule {
+        name = "side";
+        src = lib.fileset.toSource {
+          root = ./tests;
+          fileset = ./tests/side.c;
+        };
+        sources = [ "side.c" ];
       };
 
       # The manifest's two files must agree, each library must be at the
@@ -115,14 +107,11 @@
             cp ${nodeHarness}/* .
             cp ${./tests/load.mjs} load.mjs
             for build in ${runtime.ibusRuntime} ${runtime.ibusRuntimeAsserting}; do
-              node load.mjs $build/ibus-runtime.js ${testSide}/side.wasm >> $out
+              node load.mjs $build/ibus-runtime.js ${testSide.wasm} >> $out
             done
             cat $out
           '';
 
-      checks.ibus-runtime-side-imports = runtime.checkSideModuleImports {
-        name = "ibus-runtime-test-side";
-        modules = [ "${testSide}/side.wasm" ];
-      };
+      checks.ibus-runtime-side-imports = testSide.importsCheck;
     };
 }

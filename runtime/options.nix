@@ -29,6 +29,15 @@
         type = lib.types.functionTo lib.types.package;
         description = "Given { name, modules }, a check that fails if any of the side modules (.wasm paths) imports a symbol the export list lacks.";
       };
+      mkSideModule = lib.mkOption {
+        type = lib.types.functionTo lib.types.package;
+        description = ''
+          Given { name, src, sources }, builds the side module name.wasm from sources (paths
+          relative to src; .c with $CC, .cpp/.cc/.cxx with $CXX) against libibus-web, with
+          toolchain.sideModuleFlags. The result has passthru.wasm, the module's path, and
+          passthru.importsCheck, its checkSideModuleImports check.
+        '';
+      };
       nodeHarness = lib.mkOption {
         type = lib.types.package;
         description = "harness.mjs, which drives the runtime at the C level from Node, and the errno.json it reads.";
