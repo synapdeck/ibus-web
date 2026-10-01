@@ -281,7 +281,9 @@ each moves the GLib subtests it fixes from platform-difference skips into
 
 - **Language and locale.** `g_get_language_names()` and the default locale
   from `navigator.languages`: musl's locales exist in name only, and this
-  decides the language an engine's own messages use.
+  decides the language an engine's own messages use. The locale's numeric
+  conventions (`localeconv()`'s decimal point and grouping, which GLib's
+  option parsing and number formatting read) come from `Intl.NumberFormat`.
 - **Collation.** `g_utf8_collate()` and `g_utf8_collate_key()` through
   `Intl.Collator`, for engines that sort candidates or dictionary entries.
 - **Localized dates and times.** The locale-dependent parts of
