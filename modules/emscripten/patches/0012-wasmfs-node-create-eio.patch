@@ -85,7 +85,7 @@ index bd49036..3a5b723 100644
    dir = virtualize(dir, getBackend());
    children[normalized] = {name, dir};
 diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
-index e2b9fb4..47e13b0 100644
+index a036bee..fdf589f 100644
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
 @@ -263,23 +263,23 @@ private:
@@ -269,7 +269,7 @@ index e499515..f8e1b8a 100644
      insertChild(name, child);
      return child;
 diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
-index 334c6a5..fd1eac4 100644
+index 453f9fd..3354fda 100644
 --- a/system/lib/wasmfs/syscalls.cpp
 +++ b/system/lib/wasmfs/syscalls.cpp
 @@ -480,12 +480,12 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,
@@ -290,7 +290,7 @@ index 334c6a5..fd1eac4 100644
        } else {
          created = backend->createFile(mode);
          if (!created) {
-@@ -645,10 +645,8 @@ doMkdir(path::ParsedParent parsed, mode_t mode, backend_t backend = NullBackend)
+@@ -654,10 +654,8 @@ doMkdir(path::ParsedParent parsed, mode_t mode, backend_t backend = NullBackend)
    }
  
    if (backend == parent->getBackend()) {

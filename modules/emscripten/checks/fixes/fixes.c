@@ -42,11 +42,31 @@ EM_JS(double, host_mtime, (const char *path), {
 catch { return -1; }
 });
 
+/* Whether the host lets this process past file permissions, as root or
+ * with CAP_DAC_OVERRIDE: it can read probe, a new file of mode 0. */
+EM_JS(int, host_ignores_permissions, (const char *probe), {
+  const fs = require('node:fs');
+  const path = UTF8ToString(probe);
+  fs.writeFileSync(path, "x", {mode : 0});
+  try {
+    fs.closeSync(fs.openSync(path, "r"));
+    return 1;
+  }
+  catch { return 0; }
+  finally { fs.unlinkSync(path); }
+});
+
+/* How many descriptors the Node process has open. */
+EM_JS(int, host_open_fds, (void),
+      { return require('node:fs').readdirSync('/proc/self/fd').length; });
+
 EM_JS(void, host_chmod, (const char *path, int mode),
       { require('node:fs').chmodSync(UTF8ToString(path), mode); });
 
 static const char *host;
 static int failures;
+/* Permission checks the host doesn't make for this process can't fail. */
+static int privileged;
 
 #define CHECK(cond, ...)                                                       \
   do {                                                                         \
@@ -145,6 +165,12 @@ static void check_memory_fs(void) {
   CHECK(fstat(fds[0], &st) == 0 && S_ISFIFO(st.st_mode), "a pipe is a FIFO");
   close(fds[0]);
   close(fds[1]);
+
+  /* A mount point inside a host directory can't be renamed, as on Linux. */
+  char moved[300];
+  snprintf(moved, sizeof moved, "%s/mem-moved", host);
+  CHECK(rename(mem, moved) < 0 && errno == EBUSY, "rename a mount point");
+  CHECK(stat(AT("mnt/sub"), &st) == 0, "the mount stays where it was");
 #undef AT
 }
 
@@ -157,10 +183,12 @@ static void check_node_errors(void) {
   put(path, "locked");
   CHECK(stat(path, &st) == 0, "stat");
   /* Only the host refuses, so the error comes from the host's open(). */
-  host_chmod(path, 0);
-  fd = open(path, O_RDONLY);
-  CHECK(fd < 0 && errno == EACCES, "open a file the host refuses: %d", fd);
-  host_chmod(path, 0644);
+  if (!privileged) {
+    host_chmod(path, 0);
+    fd = open(path, O_RDONLY);
+    CHECK(fd < 0 && errno == EACCES, "open a file the host refuses: %d", fd);
+    host_chmod(path, 0644);
+  }
 
   fd = open(path, O_RDWR);
   CHECK(fd >= 0 && write(fd, "synced", 6) == 6 && fsync(fd) == 0,
@@ -182,24 +210,35 @@ static void check_node_errors(void) {
             host_mtime(path) == 1200000000,
         "utimensat: host has %.0f", host_mtime(path));
 
-  /* The host's own reason a file can't be created, rather than EIO: WasmFS
-   * still takes the directory for writable. */
-  snprintf(path, sizeof path, "%s/shut", host);
-  CHECK(mkdir(path, 0755) == 0, "mkdir");
-  CHECK(stat(path, &st) == 0, "stat");
-  host_chmod(path, 0555);
-  strcat(path, "/file");
-  fd = open(path, O_CREAT | O_WRONLY, 0644);
-  CHECK(fd < 0 && errno == EACCES, "create in a directory the host shuts: %d",
-        fd);
-  path[strlen(path) - strlen("/file")] = '\0';
-  host_chmod(path, 0755);
+  if (!privileged) {
+    /* The host's own reason a file can't be created, rather than EIO: WasmFS
+     * still takes the directory for writable. */
+    snprintf(path, sizeof path, "%s/shut", host);
+    CHECK(mkdir(path, 0755) == 0, "mkdir");
+    CHECK(stat(path, &st) == 0, "stat");
+    host_chmod(path, 0555);
+    strcat(path, "/file");
+    fd = open(path, O_CREAT | O_WRONLY, 0644);
+    CHECK(fd < 0 && errno == EACCES, "create in a directory the host shuts: %d",
+          fd);
+    path[strlen(path) - strlen("/file")] = '\0';
+    host_chmod(path, 0755);
 
-  /* The open that creates a file isn't bound by the mode it gives it. */
-  snprintf(path, sizeof path, "%s/no-access", host);
-  fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0);
-  CHECK(fd >= 0 && write(fd, "x", 1) == 1, "create a file with mode 0");
-  CHECK(close(fd) == 0, "close");
+    /* The open that creates a file isn't bound by the mode it gives it. */
+    snprintf(path, sizeof path, "%s/no-access", host);
+    fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0);
+    CHECK(fd >= 0 && write(fd, "x", 1) == 1, "create a file with mode 0");
+    CHECK(close(fd) == 0, "close");
+  }
+
+  /* A file created without being opened keeps no host descriptor. */
+  int before = host_open_fds();
+  for (int i = 0; i < 4; i++) {
+    snprintf(path, sizeof path, "%s/node-%d", host, i);
+    CHECK(mknod(path, S_IFREG | 0644, 0) == 0, "mknod");
+  }
+  CHECK(host_open_fds() == before, "mknod left %d descriptors open",
+        host_open_fds() - before);
 }
 
 static int dir_c;
@@ -321,6 +360,11 @@ static void check_node_rename(void) {
 
 int main(int argc, char **argv) {
   host = argv[1];
+  char probe[256];
+  snprintf(probe, sizeof probe, "%s/permission-probe", host);
+  privileged = host_ignores_permissions(probe);
+  if (privileged)
+    printf("the host ignores file permissions here; skipping their checks\n");
   check_memory_fs();
   check_node_errors();
   check_node_rename();

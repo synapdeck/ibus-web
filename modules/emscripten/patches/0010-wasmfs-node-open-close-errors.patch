@@ -2,7 +2,10 @@ WasmFS Node backend: open() and close() take host errors for success
 
 _wasmfs_node_open() returned a positive errno, which NodeState::open()
 took for a file descriptor, and NodeState::close() passed on a positive
-errno, which tripped __wasi_fd_close()'s assertion.
+errno, which tripped __wasi_fd_close()'s assertion. Reporting the open
+error exposed that a new file was reopened by path, which its own mode
+can refuse, so the descriptor that created it is kept for the first
+open, and released when the create opens nothing (mknod).
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-node-open-close-errors.md
@@ -146,3 +149,23 @@ index a53453d..c13b6e1 100644
  int _wasmfs_node_insert_directory(const char* path, mode_t mode);
  
  // Unlink the given file and return 0 or an error code.
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index 334c6a5..453f9fd 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -499,6 +499,15 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,
+       }
+       // TODO: Check that the insert actually succeeds.
+       if (returnMode == OpenReturnMode::Nothing) {
++        // A backend may keep a new file open for the open that usually
++        // follows creation (the Node backend does, since the file's own mode
++        // may refuse a reopen). With none to follow, let it go.
++        if (auto dataFile = created->dynCast<DataFile>()) {
++          auto lockedFile = dataFile->locked();
++          if (lockedFile.open(O_RDONLY) == 0) {
++            (void)lockedFile.close();
++          }
++        }
+         return 0;
+       }
+ 

@@ -4,13 +4,15 @@ NodeDirectory::insertMove() renamed on the host but left the moved
 file's cached host path, and those of everything already looked up below a
 moved directory, at the old name. Rewrite them, holding each file's lock
 across the host's rename so no operation sees a path that is no longer
-there. Moving a symlink no longer treats it as a directory.
+there. Moving a symlink no longer treats it as a directory, and moving a
+mount point of another backend fails with EBUSY instead of treating it
+as a Node directory.
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-node-rename.md
 
 diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
-index 84b381c..e2b9fb4 100644
+index 84b381c..a036bee 100644
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
 @@ -204,6 +204,31 @@ private:
@@ -45,7 +47,7 @@ index 84b381c..e2b9fb4 100644
    std::shared_ptr<File> getChild(const std::string& name) override {
      static_assert(std::is_same_v<mode_t, unsigned int>);
      // TODO: also retrieve and set ctime, atime, ino, etc.
-@@ -269,18 +294,20 @@ private:
+@@ -269,18 +294,26 @@ private:
    }
  
    int insertMove(const std::string& name, std::shared_ptr<File> file) override {
@@ -57,12 +59,17 @@ index 84b381c..e2b9fb4 100644
 -    } else {
 -      auto nodeDir = std::static_pointer_cast<NodeDirectory>(file);
 -      fromPath = nodeDir->state.path;
--    }
++    // A mount point of another backend has no host path here to move; Linux
++    // refuses to rename a mount point too.
++    if (file->getBackend() != getBackend()) {
++      return -EBUSY;
+     }
+ 
 +    // Holding the locks across the host's rename means no operation on a moved
 +    // file sees its host path change under it.
 +    std::vector<File::Handle> locked;
 +    lockLoaded(file, locked);
- 
++
 +    auto fromPath = getHostPath(file);
      auto childPath = getChildPath(name);
 -    return -_wasmfs_node_rename(fromPath.c_str(), childPath.c_str());

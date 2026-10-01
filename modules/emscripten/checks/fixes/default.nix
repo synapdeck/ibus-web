@@ -23,7 +23,8 @@
             emcc ${toolchain.commonFlags} -O2 -c ${./fixes.c} -o fixes.o
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} fixes.o -o fixes.js
             mkdir host
-            node fixes.js $PWD/host
+            # A lock-order regression in the racing renames would hang.
+            timeout 300 node fixes.js $PWD/host
 
             emcc ${toolchain.commonFlags} -O2 -c ${./fstat-stdio.c} -o fstat-stdio.o
             emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1 \
