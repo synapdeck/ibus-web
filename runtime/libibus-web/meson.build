@@ -20,6 +20,7 @@ libibus_web = static_library(
   'src/dispatch.c',
   include_directories: include_directories('include'),
   c_args: '-DG_LOG_DOMAIN="ibus-web"',
+  gnu_symbol_visibility: 'hidden',
   dependencies: [glib, gmodule],
   install: true,
 )

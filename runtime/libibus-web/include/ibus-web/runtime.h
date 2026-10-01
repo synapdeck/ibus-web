@@ -8,6 +8,11 @@
 
 G_BEGIN_DECLS
 
+/* Marks the runtime's API. The library is built with every other symbol
+ * hidden, so only these reach a main module's exports and its side
+ * modules. */
+#define IBUSWEB_API __attribute__((visibility("default"))) extern
+
 /* Runtime ABI version; the runtime's export list is versioned by it. */
 #define IBUSWEB_RUNTIME_ABI 0
 
@@ -29,7 +34,7 @@ G_BEGIN_DECLS
  *
  * Returns 0, -EINVAL without a word, -EALREADY if already set up, or -EBUSY
  * if another thread owns the default context. */
-int ibusweb_runtime_init(int32_t *wake_word);
+IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
 
 /* ibusweb_pump()'s return value when called from a thread that doesn't own
  * the default context; no delay is ever this value. */
@@ -58,7 +63,7 @@ int ibusweb_runtime_init(int32_t *wake_word);
  * mid-iteration can return a delay that is already stale, or -1. Either
  * way the word no longer holds the value read, so the wait returns at once
  * and the host pumps again; read after the pump, the wake would be lost. */
-int32_t ibusweb_pump(void);
+IBUSWEB_API int32_t ibusweb_pump(void);
 
 /* A side module, or a set of operations registered as one.
  *
@@ -75,8 +80,8 @@ typedef void (*IBusWebOp)(const uint8_t *payload, uint32_t len, GString *reply);
 /* Registers op under opcode for module, for ibusweb_dispatch(). Returns 0,
  * -EINVAL, or -EEXIST if the opcode is taken; a failure also fails the
  * registration in progress. */
-int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
-                          const char *name, IBusWebOp op);
+IBUSWEB_API int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
+                                      const char *name, IBusWebOp op);
 
 /* Registers a module's operations by calling its init. */
 typedef void (*IBusWebModuleInit)(IBusWebModule *module);
@@ -86,25 +91,28 @@ typedef void (*IBusWebModuleInit)(IBusWebModule *module);
  * registered and that failure is returned; otherwise returns 0. name is the
  * module's name in diagnostics. If module_out is given, it receives the
  * module, which lives as long as the runtime, or NULL on failure. */
-int ibusweb_register_module(const char *name, IBusWebModuleInit init,
-                            IBusWebModule **module_out);
+IBUSWEB_API int ibusweb_register_module(const char *name,
+                                        IBusWebModuleInit init,
+                                        IBusWebModule **module_out);
 
 /* Every side module defines this entry point. */
-void ibusweb_module_init(IBusWebModule *module);
+IBUSWEB_API void ibusweb_module_init(IBusWebModule *module);
 
 /* Loads a side module with dlopen() and registers it as
  * ibusweb_register_module() does, through its ibusweb_module_init(), under
  * its path. Returns 0, -ENOENT if path names no file, -ENOEXEC if the file
  * can't be loaded or lacks the entry point, or the registration's failure;
  * the module is closed again on any failure. */
-int ibusweb_load_module(const char *path, IBusWebModule **module_out);
+IBUSWEB_API int ibusweb_load_module(const char *path,
+                                    IBusWebModule **module_out);
 
 /* Spike dispatcher. A request is a little-endian uint32_t opcode followed by
  * the operation's payload; the reply the operation appends is copied into
  * reply. Returns the reply's length, -EINVAL for a request shorter than an
  * opcode, -ENOSYS for an opcode nobody registered, or -ENOBUFS, with nothing
  * written, for a reply longer than reply_cap. */
-int32_t ibusweb_dispatch(const uint8_t *request, uint32_t request_len,
-                         uint8_t *reply, uint32_t reply_cap);
+IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request,
+                                     uint32_t request_len, uint8_t *reply,
+                                     uint32_t reply_cap);
 
 G_END_DECLS
