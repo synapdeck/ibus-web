@@ -9,8 +9,7 @@
 //   src/worker/  WebWorker globals. The Worker host runs in browser Workers and
 //                in Node's worker_threads, so it uses nothing Node-specific.
 //   src/page/    DOM globals.
-//   src/node/    Node globals: harnesses and the adapter that runs the Worker
-//                host in worker_threads.
+//   src/node/    Node globals: harnesses.
 //   src/shared/  no environment's globals, only the language. The other three
 //                configs include it too, so their imports of it resolve.
 //

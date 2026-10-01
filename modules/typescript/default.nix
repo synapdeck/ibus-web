@@ -101,11 +101,11 @@
           map (name: "${parent}/${name}") (lib.attrNames (lib.filterAttrs isPackage entries))
       ) workspaceYaml.globs;
 
-      # What a package gives the TypeScript build: its TypeScript and JSON
-      # files, and any other files it lists in package.json under
-      # `ibusWeb.assets` (paths relative to the package, such as an HTML page).
-      # The rest of its directory, such as C sources, stays out, so editing it
-      # rebuilds nothing here.
+      # What tsc reads from a package, selected by extension anywhere in its
+      # directory (.ts, .mts, .cts, .json), plus the files it lists in
+      # package.json under `ibusWeb.assets` (paths relative to the package,
+      # such as an HTML page). Anything else, such as C sources, stays out, so
+      # editing it rebuilds nothing here.
       packageSources =
         dir:
         let
@@ -208,6 +208,8 @@
           ) specs
         );
 
+      # peerDependencies are held to the exact pins too, not a compatible range:
+      # the workspace has one toolchain.
       dependencyFields = [
         "dependencies"
         "devDependencies"
@@ -215,11 +217,13 @@
         "peerDependencies"
       ];
 
-      # An override's key selects a package as `[<parent>>]<name>[@<range>]`;
-      # it applies to the dependency named after the last `>`.
+      # An override's key selects a package as
+      # `[<parent>[@<range>]>]<name>[@<range>]`. A range can contain `>` too
+      # (`>=5`, `^1||>2`, `>=1 >2`), but there it follows `@`, `|` or a space,
+      # so only a `>` after any other character separates the parent.
       overrideTarget =
         selector:
-        builtins.head (builtins.match "(@?[^@]+)(@.*)?" (lib.last (lib.splitString ">" selector)));
+        builtins.elemAt (builtins.match "(.*[^@|[:space:]]>)?(@?[^@>=[:space:]][^@>]*)(@.*)?" selector) 1;
 
       rootManifest = lib.importJSON (root + "/package.json");
       versionMismatches =
