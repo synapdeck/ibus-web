@@ -203,6 +203,26 @@
         );
       };
 
+      # The browser behaviour the spike depends on, measured without the
+      # runtime: when nested Workers start, which OPFS calls wait for the
+      # page's main thread, and which sync access handles can be open on one
+      # file at once.
+      apps.runtime-spike-experiments = {
+        type = "app";
+        meta.description = "Browser experiments behind the runtime spike: nested Workers, OPFS and sync access handle locks";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "runtime-spike-experiments";
+            runtimeInputs = [ typescript.nodejs ];
+            text = ''
+              ${lib.toShellVars playwright.env}
+              export ${lib.concatStringsSep " " (lib.attrNames playwright.env)}
+              node ${dist}/node/experiments.js "$@"
+            '';
+          }
+        );
+      };
+
       checks.runtime-spike-side-imports = runtime.checkSideModuleImports {
         name = "runtime-spike";
         modules = map (side: side.wasm) sides;
