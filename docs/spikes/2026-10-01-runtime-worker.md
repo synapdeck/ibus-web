@@ -135,7 +135,7 @@ such Worker and block, so the first version of this spike gave the host an
 event-loop turn between scenarios to stay within 32 MiB.
 
 The toolchain now carries an Emscripten patch,
-`modules/emscripten/patches/0014-pthread-cleanup-blocked-main.patch` (108 lines
+`modules/emscripten/patches/0014-pthread-cleanup-blocked-main.patch` (118 lines
 added, 15 removed, in `libpthread.js`,
 `library_pthread.c` and `threading_internal.h`), tracked upstream by the draft
 `docs/upstream/emscripten-pthread-cleanup-blocked-main.md` (the symptom was
