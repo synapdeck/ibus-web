@@ -14,11 +14,10 @@
       pnpm = pkgs.pnpm_11;
       root = ../..;
 
-      # pnpm-workspace.yaml's `packages:` block list and `overrides:` block
-      # mapping. Nix has no YAML reader, so this reads those two keys line by
-      # line, and inside them any line it doesn't recognise throws: a form it
-      # can't read must not be skipped silently.
-      workspaceYaml =
+      # pnpm-workspace.yaml's `packages:` block list. Nix has no YAML reader, so
+      # this reads that one key line by line, and inside it any line it doesn't
+      # recognise throws: a form it can't read must not be skipped silently.
+      workspaceGlobs =
         let
           file = "pnpm-workspace.yaml";
           # A quoted or plain scalar; the first matching group of the three
@@ -27,7 +26,6 @@
           valueOf = groups: lib.findFirst (group: group != null) null groups;
           comment = "([[:space:]]+#.*)?[[:space:]]*";
           matchItem = builtins.match "[[:space:]]*-[[:space:]]+${scalar "[^\"'#[:space:]][^#[:space:]]*"}${comment}";
-          matchEntry = builtins.match "[[:space:]]+${scalar "[^\"'#:[:space:]][^#:[:space:]]*"}:[[:space:]]+${scalar "[^\"'#[:space:]][^#[:space:]]*"}${comment}";
           matchKey = builtins.match "([^[:space:]#][^:]*):(.*)";
           isBlank = line: builtins.match "[[:space:]]*(#.*)?" line != null;
           isIndented = line: builtins.match "[[:space:]].*" line != null;
@@ -36,14 +34,12 @@
             state: line:
             let
               item = matchItem line;
-              entry = matchEntry line;
               key = matchKey line;
               keyName = builtins.elemAt key 0;
-              unreadable = throw "${file}: can't read this line under `${state.section}:`: ${line}";
             in
             if isBlank line then
               state
-            else if state.section == "packages" && item != null then
+            else if state.inPackages && item != null then
               let
                 glob = valueOf (lib.sublist 1 3 item);
               in
@@ -51,38 +47,25 @@
                 throw "${file}: negated package globs are not supported: ${glob}"
               else
                 state // { globs = state.globs ++ [ glob ]; }
-            else if state.section == "overrides" && entry != null then
-              state
-              // {
-                overrides = state.overrides // {
-                  ${valueOf (lib.sublist 1 3 entry)} = valueOf (lib.sublist 5 3 entry);
-                };
-              }
             else if !isIndented line && key != null then
-              if
-                lib.elem keyName [
-                  "packages"
-                  "overrides"
-                ]
-              then
-                if isBlank (builtins.elemAt key 1) then
-                  state // { section = keyName; }
-                else
-                  throw "${file}: `${keyName}:` must be in block style, not ${line}"
+              if keyName != "packages" then
+                state // { inPackages = false; }
+              else if isBlank (builtins.elemAt key 1) then
+                state // { inPackages = true; }
               else
-                state // { section = null; }
-            else if state.section != null then
-              unreadable
+                throw "${file}: `packages:` must be in block style, not ${line}"
+            else if state.inPackages then
+              throw "${file}: can't read this line under `packages:`: ${line}"
             else
               state;
 
-          parsed = lib.foldl' step {
-            section = null;
-            globs = [ ];
-            overrides = { };
-          } (lib.splitString "\n" (builtins.readFile (root + "/${file}")));
+          globs =
+            (lib.foldl' step {
+              inPackages = false;
+              globs = [ ];
+            } (lib.splitString "\n" (builtins.readFile (root + "/${file}")))).globs;
         in
-        if parsed.globs == [ ] then throw "${file}: no `packages:` list found" else parsed;
+        if globs == [ ] then throw "${file}: no `packages:` list found" else globs;
 
       # Repository-relative directories of the workspace's packages.
       packageDirs = lib.concatMap (
@@ -99,7 +82,7 @@
           [ ]
         else
           map (name: "${parent}/${name}") (lib.attrNames (lib.filterAttrs isPackage entries))
-      ) workspaceYaml.globs;
+      ) workspaceGlobs;
 
       # What tsc reads from a package, selected by extension anywhere in its
       # directory (.ts, .mts, .cts, .json), plus the files it lists in
@@ -132,11 +115,50 @@
           ++ map assetPath assets
         );
 
-      workspaceFiles = map (file: root + "/${file}") [
-        "package.json"
-        "pnpm-workspace.yaml"
-        "pnpm-lock.yaml"
-      ];
+      rootManifest = lib.importJSON (root + "/package.json");
+
+      # pnpm compares itself with `packageManager` and, offline, can't fetch a
+      # different version, so it has to name the pnpm nixpkgs provides.
+      workspaceFiles =
+        lib.throwIfNot (rootManifest.packageManager or null == "pnpm@${pnpm.version}")
+          "package.json: packageManager is ${
+            builtins.toJSON (rootManifest.packageManager or null)
+          }, but nixpkgs' pnpm_11 is ${pnpm.version}"
+          (
+            map (file: root + "/${file}") [
+              "package.json"
+              "pnpm-workspace.yaml"
+              "pnpm-lock.yaml"
+            ]
+          );
+
+      # Each Playwright release expects specific browser builds, and the
+      # browsers come from nixpkgs' playwright-driver, so the installed npm
+      # package has to be that exact version. Node resolves it from each
+      # package that depends on it.
+      playwrightDependents = lib.filter (
+        dir:
+        lib.any (field: (lib.importJSON (root + "/${dir}/package.json")).${field} or { } ? playwright) [
+          "dependencies"
+          "devDependencies"
+          "optionalDependencies"
+          "peerDependencies"
+        ]
+      ) ([ "." ] ++ packageDirs);
+      assertPlaywrightVersion = lib.concatMapStrings (dir: ''
+        (
+          cd ${lib.escapeShellArg dir}
+          installed=$(node -p "
+            const { createRequire } = require('node:module');
+            createRequire(process.cwd() + '/package.json')('playwright/package.json').version
+          ")
+          if [ "$installed" != ${lib.escapeShellArg pkgs.playwright-driver.version} ]; then
+            echo "${dir}: playwright resolves to $installed, but its browsers come from" \\
+              "nixpkgs' playwright-driver ${pkgs.playwright-driver.version}; pin playwright to exactly that version" >&2
+            exit 1
+          fi
+        )
+      '') playwrightDependents;
 
       # Installing needs only the manifests, so editing a source leaves the
       # dependency fetch's inputs alone.
@@ -167,83 +189,11 @@
               pnpm
               pkgs.pnpmConfigHook
             ];
+            preBuild = assertPlaywrightVersion;
           }
           // attrs
         );
 
-      # The versions nixpkgs decides, which the manifests pin rather than
-      # resolve independently.
-      pinnedVersions = {
-        playwright = pkgs.playwright-driver.version;
-        typescript = pkgs.typescript.version;
-      };
-      isExactVersion = version: builtins.match "[0-9]+\\.[0-9]+\\.[0-9]+" version != null;
-      nodeMajor = lib.versions.major nodejs.version;
-
-      # Why `name` at `spec` disagrees with nixpkgs, or null. @types/node isn't
-      # published for every Node patch release, so it needs only an exact
-      # version with Node's major.
-      versionProblem =
-        name: spec:
-        if pinnedVersions ? ${name} then
-          if spec == pinnedVersions.${name} then
-            null
-          else
-            "is ${spec}, but nixpkgs has ${pinnedVersions.${name}}"
-        else if name == "@types/node" && !(isExactVersion spec && lib.versions.major spec == nodeMajor) then
-          "is ${spec}, but needs an exact ${nodeMajor}.x.y for Node ${nodejs.version}"
-        else
-          null;
-
-      # One line per entry of `specs` (name -> version spec) that disagrees.
-      problemsIn =
-        where: specs:
-        lib.concatLists (
-          lib.mapAttrsToList (
-            name: spec:
-            let
-              problem = versionProblem name spec;
-            in
-            lib.optional (problem != null) "${where}: ${name} ${problem}"
-          ) specs
-        );
-
-      # peerDependencies are held to the exact pins too, not a compatible range:
-      # the workspace has one toolchain.
-      dependencyFields = [
-        "dependencies"
-        "devDependencies"
-        "optionalDependencies"
-        "peerDependencies"
-      ];
-
-      # An override's key selects a package as
-      # `[<parent>[@<range>]>]<name>[@<range>]`. A range can contain `>` too
-      # (`>=5`, `^1||>2`, `>=1 >2`), but there it follows `@`, `|` or a space,
-      # so only a `>` after any other character separates the parent.
-      overrideTarget =
-        selector:
-        builtins.elemAt (builtins.match "(.*[^@|[:space:]]>)?(@?[^@>=[:space:]][^@>]*)(@.*)?" selector) 1;
-
-      rootManifest = lib.importJSON (root + "/package.json");
-      versionMismatches =
-        lib.optional (rootManifest.packageManager or null != "pnpm@${pnpm.version}")
-          "package.json: packageManager is ${
-            builtins.toJSON (rootManifest.packageManager or null)
-          }, but nixpkgs' pnpm_11 is ${pnpm.version}"
-        ++ lib.concatMap (
-          file:
-          let
-            manifest = lib.importJSON (root + "/${file}");
-          in
-          lib.concatMap (field: problemsIn "${file}: ${field}" (manifest.${field} or { })) dependencyFields
-        ) ([ "package.json" ] ++ map (dir: "${dir}/package.json") packageDirs)
-        ++ lib.concatLists (
-          lib.mapAttrsToList (
-            selector: spec:
-            problemsIn "pnpm-workspace.yaml: overrides.\"${selector}\"" { ${overrideTarget selector} = spec; }
-          ) workspaceYaml.overrides
-        );
     in
     {
       ibusWeb.typescript = {
@@ -276,16 +226,6 @@
         '';
         installPhase = "touch $out";
       };
-
-      checks.typescript-versions = pkgs.runCommand "ibus-web-typescript-versions" { } (
-        if versionMismatches == [ ] then
-          "touch $out"
-        else
-          ''
-            printf '%s\n' ${lib.escapeShellArgs versionMismatches} >&2
-            exit 1
-          ''
-      );
 
       devshells.default.packages = [
         nodejs

@@ -11,13 +11,13 @@ importers:
   tests/spikes/runtime:
     devDependencies:
       '@types/node':
-        specifier: 24.19.0
+        specifier: ^24.19.0
         version: 24.19.0
       playwright:
         specifier: 1.61.1
         version: 1.61.1
       typescript:
-        specifier: 7.0.2
+        specifier: ^7.0.2
         version: 7.0.2
 
 packages:

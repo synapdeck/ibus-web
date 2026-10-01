@@ -7,8 +7,8 @@
     "typecheck": "status=0; for env in shared worker page node; do tsc --noEmit -p src/$env || status=1; done; exit $status"
   },
   "devDependencies": {
-    "@types/node": "24.19.0",
+    "@types/node": "^24.19.0",
     "playwright": "1.61.1",
-    "typescript": "7.0.2"
+    "typescript": "^7.0.2"
   }
 }
