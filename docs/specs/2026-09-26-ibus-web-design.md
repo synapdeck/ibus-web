@@ -87,7 +87,7 @@ of in engine code, fix it there.
 | D6 | Keystroke answer | Main thread spin-waits on a SAB reply with a time budget; consume-and-replay on timeout | Always consume and re-implement editing; predict from composition state |
 | D7 | Instances | One engine instance per input context via `IBusFactory` | Shared instance |
 | D8 | Linking | Shared `ibus-runtime.wasm` main module; engines as side modules | Static GLib in every engine |
-| D9 | GLib base | nixpkgs `glib` plus Wolthuizen's per-release Emscripten patches, rebased onto nixpkgs' GLib, as a patch series; nixpkgs Emscripten, no compiler patches | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
+| D9 | GLib base | nixpkgs `glib` plus Wolthuizen's per-release Emscripten patches, rebased onto nixpkgs' GLib, as a patch series; nixpkgs Emscripten with small fixes tracked upstream, no forked compiler or LLVM | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
 | D10 | Settings | GSettings backend bridge and API only | Generated forms; per-engine UI |
 | D11 | UI | Headless core plus separate default panel package | Headless only; built-in themed panel |
 | D12 | Surfaces | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in | Textarea only; CodeMirror adapter in v1 |
