@@ -64,6 +64,14 @@
           for flag in ${toolchain.commonFlags}; do
             echo "    - \"$flag\""
           done
+          # emcc hands clang its LLVM's builtin headers with -resource-dir,
+          # which the driver query doesn't report. clangd's own resolves
+          # through that LLVM's symlinks to a second path to the same headers,
+          # and a header listed twice include_next's itself: <stdatomic.h>
+          # then declares nothing.
+          for dir in ${emscripten.llvmEnv}/lib/clang/*; do
+            echo "    - \"-resource-dir=$dir\""
+          done
           modules=""
           for dir in ''${PKG_CONFIG_PATH//:/ }; do
             for pc in "$dir"/*.pc; do
