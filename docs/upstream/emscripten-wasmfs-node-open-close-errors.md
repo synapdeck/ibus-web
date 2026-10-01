@@ -208,8 +208,10 @@ refuse it: `open(path, O_CREAT | O_RDONLY, 0)` gets `EACCES`, though POSIX
 lets the creating open through whatever the mode. Fixed alone, the sign
 change makes `wasmfs.test_fcntl_open_nodefs`, `wasmfs.test_fcntl_open_rawfs`
 and `other.test_wasmfs_getdents_node` fail on that. So the file is created
-with `'wx+'`, read-write, and that descriptor is kept for the first open
-(closed with the file if nothing opens it). That also drops `'a'`, which
+with `'wx+'`, read-write, and that descriptor is kept for the first open.
+`mknod()` creates a file without opening it, so `doOpen` opens and closes
+a file it created when it returns no descriptor, which lets the kept one
+go (a no-op for backends that keep nothing). That also drops `'a'`, which
 would make every `pwrite` to the descriptor append on Linux.
 
 ```diff
@@ -314,7 +316,7 @@ would make every `pwrite` to the descriptor append on Linux.
  private:
    off_t getSize() override {
      // TODO: This should really be using a 64-bit file size type.
-@@ -220,10 +243,13 @@
+@@ -218,10 +241,13 @@
    std::shared_ptr<DataFile> insertDataFile(const std::string& name,
                                             mode_t mode) override {
      auto childPath = getChildPath(name);
@@ -346,6 +348,24 @@ would make every `pwrite` to the descriptor append on Linux.
  int _wasmfs_node_insert_directory(const char* path, mode_t mode);
  
  // Unlink the given file and return 0 or an error code.
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -499,6 +499,15 @@
+       }
+       // TODO: Check that the insert actually succeeds.
+       if (returnMode == OpenReturnMode::Nothing) {
++        // A backend may keep a new file open for the open that usually
++        // follows creation (the Node backend does, since the file's own mode
++        // may refuse a reopen). With none to follow, let it go.
++        if (auto dataFile = created->dynCast<DataFile>()) {
++          auto lockedFile = dataFile->locked();
++          if (lockedFile.open(O_RDONLY) == 0) {
++            (void)lockedFile.close();
++          }
++        }
+         return 0;
+       }
+ 
 ```
 
 With this applied to 6.0.9, test case 1 prints:

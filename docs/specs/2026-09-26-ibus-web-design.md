@@ -454,10 +454,13 @@ doorbell `postMessage` (§6.2.3).
   pthread of a test with many threads occasionally faulted out of bounds
   (13 of 300 runs under load); the same test linked with a fixed memory
   just above its peak never did (0 of 300), but a GLib-free reproduction
-  hasn't shown it yet. GLib's tests and the other Node-run checks now link
-  with a fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; the largest
-  test, `mainloop`, peaks at 280 MiB), so a fault can't hide behind the
-  gate's rerun; GLib's tools still grow. The runtime's link chooses fixed
+  hasn't shown it yet. GLib's tests and the checks that link with
+  `ibusWeb.toolchain.testMainFlags` (the GLib smoke check, libhangul, the
+  dynamic-linking spike, the toolchain and Emscripten-fix checks) use a
+  fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; the largest test,
+  `mainloop`, peaks at 280 MiB), so a fault can't hide behind the gate's
+  rerun. The Meson and Autotools consumer checks keep Emscripten's default,
+  a fixed 16 MiB; GLib's tools grow. The runtime's link chooses fixed
   memory per Worker, sized for the side modules it loads later (R3), or
   growth with a mitigation found by then.
 - **Sharing.** The page compiles `ibus-runtime.wasm` once and sends the
@@ -1229,7 +1232,8 @@ artifacts; WASM builds of nixpkgs packages are reached through
     create errors) nothing needs it kept in memory. The tests link
     with a fixed memory (`ibusWeb.toolchain.testMemoryFlags`, 512 MiB)
     in place of growth (§5.3). `ibusWeb.toolchain.testMainFlags` links the
-    other Node-run checks the same way.
+    GLib smoke, libhangul, dynamic-linking, toolchain and Emscripten-fix
+    checks the same way.
   - **Tools in consumers' builds.** A cross build runs its tools on the
     build machine, whose GLib has unpatched ones (its `gdbus-codegen`
     emits interface init functions WebAssembly traps on). `pkgsWasm.glib`

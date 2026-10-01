@@ -160,7 +160,7 @@ across the host's rename.
 ```diff
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
-@@ -183,6 +183,31 @@
+@@ -204,6 +204,31 @@
      return state.path + '/' + name;
    }
  
@@ -192,7 +192,7 @@ across the host's rename.
    std::shared_ptr<File> getChild(const std::string& name) override {
      static_assert(std::is_same_v<mode_t, unsigned int>);
      // TODO: also retrieve and set ctime, atime, ino, etc.
-@@ -245,18 +270,20 @@
+@@ -269,18 +294,26 @@
    }
  
    int insertMove(const std::string& name, std::shared_ptr<File> file) override {
@@ -204,12 +204,17 @@ across the host's rename.
 -    } else {
 -      auto nodeDir = std::static_pointer_cast<NodeDirectory>(file);
 -      fromPath = nodeDir->state.path;
--    }
++    // A mount point of another backend has no host path here to move; Linux
++    // refuses to rename a mount point too.
++    if (file->getBackend() != getBackend()) {
++      return -EBUSY;
+     }
+ 
 +    // Holding the locks across the host's rename means no operation on a moved
 +    // file sees its host path change under it.
 +    std::vector<File::Handle> locked;
 +    lockLoaded(file, locked);
- 
++
 +    auto fromPath = getHostPath(file);
      auto childPath = getChildPath(name);
 -    return -_wasmfs_node_rename(fromPath.c_str(), childPath.c_str());
@@ -225,7 +230,7 @@ across the host's rename.
    ssize_t getNumEntries() override {
 --- a/system/lib/wasmfs/file.h
 +++ b/system/lib/wasmfs/file.h
-@@ -204,6 +204,19 @@
+@@ -208,6 +208,19 @@
    std::map<std::string, DCacheEntry> dcache;
  
  protected:
@@ -257,6 +262,12 @@ Why this shape:
   against path lookups. It would also deadlock against `rename()` itself,
   which holds both parents and then locks the moved file. Rewriting touches
   only `insertMove`, and only a rename pays for it.
+- **Mount points.** A mount point inside a Node directory reaches
+  `insertMove` too, as a file of another backend; casting it to a Node type
+  would write through the wrong object. It fails with `EBUSY`, Linux's
+  answer for renaming a mount point (6.0.9 asks the host to rename a path
+  that doesn't exist and gets `ENOENT`, after a cast that is undefined
+  behaviour).
 - **The walk.** Node directories don't maintain file identity, so every
   file the backend has handed out that is still linked is in its parent's
   dcache. `Directory`'s dcache is private, so the patch adds a protected
