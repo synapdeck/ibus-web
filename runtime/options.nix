@@ -42,6 +42,10 @@
         type = lib.types.package;
         description = "harness.mjs, which drives the runtime at the C level from Node, and the errno.json it reads.";
       };
+      nodeTimeout = lib.mkOption {
+        type = lib.types.str;
+        description = "A command prefix that bounds a Node check's run from outside Node.";
+      };
     };
   };
 }

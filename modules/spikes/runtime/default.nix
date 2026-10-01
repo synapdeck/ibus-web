@@ -38,8 +38,7 @@
     in
     {
       # The asserting runtime loads every spike side module and runs each
-      # operation once. A main thread blocked in a join never gets back to
-      # Node's event loop for a timer to fire, so the limit is outside Node.
+      # operation once.
       checks.runtime-spike-smoke =
         pkgs.runCommand "ibus-web-runtime-spike-smoke"
           {
@@ -50,7 +49,7 @@
             cp ${./smoke.mjs} smoke.mjs
             mkdir sides
             ln -s ${toString (map (side: side.wasm) sides)} sides/
-            timeout --kill-after=10 300 node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js sides > $out
+            ${runtime.nodeTimeout} node smoke.mjs ${runtime.ibusRuntimeAsserting}/ibus-runtime.js sides > $out
             cat $out
           '';
 
