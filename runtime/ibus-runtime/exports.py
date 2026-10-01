@@ -131,10 +131,9 @@ def header_declarations(tree, header, probe):
             yield node.get("mangledName", node["name"]), visible
 
 
-def parse_header(header, flags, tmp):
-    """header's declarations, parsed as C; "c++" if only C++ can parse it,
-    or None if neither can."""
-    probe = os.path.join(tmp, f"{header.replace('/', '_')}.c")
+def parse_header(header, flags, probe):
+    """header's declarations, parsed as C from a source file at probe that
+    includes it; "c++" if only C++ can parse it, or None if neither can."""
     with open(probe, "w") as source:
         source.write(f"#include <{header}>\n")
     dump = subprocess.run(
@@ -164,8 +163,12 @@ def declarations(rule):
     names = {}
     failed = {"cxxOnly": set(), "unparseable": set()}
     with tempfile.TemporaryDirectory() as tmp:
-        with concurrent.futures.ThreadPoolExecutor(os.cpu_count()) as pool:
-            parsed = pool.map(lambda header: parse_header(header, flags, tmp), headers)
+        workers = int(os.environ.get("NIX_BUILD_CORES") or 0) or os.cpu_count()
+        with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+            probes = [os.path.join(tmp, f"{index}.c") for index in range(len(headers))]
+            parsed = pool.map(
+                lambda header, probe: parse_header(header, flags, probe), headers, probes
+            )
             for header, declared in zip(headers, parsed):
                 if declared == "c++":
                     failed["cxxOnly"].add(header)
@@ -269,10 +272,10 @@ def system_archives(lines, libraries):
 
 def javascript_symbols(lines):
     """The C symbols Emscripten's JavaScript library implements for the link
-    em++ -v logged with EMCC_DEBUG set. Before linking, Emscripten runs its
-    JavaScript compiler on the link's settings to list them; EMCC_DEBUG logs
-    that command and keeps the settings, so running it again gives the same
-    list."""
+    em++ -v logged with EMCC_DEBUG set, and those of them that need ASYNCIFY.
+    Before linking, Emscripten runs its JavaScript compiler on the link's
+    settings to list them; EMCC_DEBUG logs that command and keeps the
+    settings, so running it again gives the same list."""
     index, args = logged_command(
         lines,
         lambda args: len(args) > 1
@@ -282,10 +285,15 @@ def javascript_symbols(lines):
     saved = [m[1] for m in map(SAVED_SETTINGS.search, lines[:index]) if m is not None]
     if not saved:
         sys.exit("the link log names no settings before the JavaScript symbol list")
-    with open(saved[-1]) as settings:
-        listing = json.loads(run(args, stdin=settings))
+    with open(saved[-1]) as source:
+        settings = json.load(source)
+    listing = json.loads(run(args, input=json.dumps(settings)))
+    # The compiler names the functions that suspend the program only when
+    # ASYNCIFY is on; without it, they're there too, as stubs that abort.
+    asyncify = json.loads(run(args, input=json.dumps({**settings, "ASYNCIFY": 1})))
     # Keys with a $ are JavaScript helpers, not C symbols.
-    return {name for name in listing["deps"] if not name.startswith("$")}
+    implemented = {name for name in listing["deps"] if not name.startswith("$")}
+    return implemented, set(asyncify["asyncFuncs"])
 
 
 def version_of(source):
@@ -319,8 +327,12 @@ def manifest(args):
         lines = log.read().splitlines()
     versions = {name: version_of(source) for name, source in spec["versions"].items()}
     abi = int(versions[spec["abi"]])
-    javascript = javascript_symbols(lines)
-    print(f"JavaScript library: {len(javascript)} C symbols", file=sys.stderr)
+    javascript, asynchronous = javascript_symbols(lines)
+    print(
+        f"JavaScript library: {len(javascript)} C symbols,",
+        f"{len(asynchronous)} of them needing ASYNCIFY",
+        file=sys.stderr,
+    )
 
     parsed = {}
 
@@ -358,6 +370,10 @@ def manifest(args):
             symbols |= implemented
         if "declaredIn" in library:
             symbols &= declared(library["declaredIn"])
+        if library.get("javascript", {}).get("withoutAsyncify"):
+            removed = symbols & asynchronous
+            print(f"{name}: needing ASYNCIFY: {' '.join(sorted(removed))}", file=sys.stderr)
+            symbols -= removed
         # A symbol two libraries define is the first one's, in the order they
         # are listed.
         for symbol in sorted(symbols & owner.keys()):
@@ -427,6 +443,10 @@ def verify(args):
         name, version = expected.split("=", 1)
         if versions.get(name) != version:
             fail(f"{name} is at {versions.get(name)}, expected {version}")
+    for expected in args.expect_major:
+        name, major = expected.split("=", 1)
+        if versions.get(name, "").split(".")[0] != major:
+            fail(f"{name} is at {versions.get(name)}, expected major release {major}")
 
     apis = [symbols for name, _, _, symbols in sections if name == args.api_library]
     if len(apis) != 1:
@@ -470,6 +490,9 @@ def main():
     command = commands.add_parser("verify")
     command.add_argument("--dir", required=True, help="the manifest's directory")
     command.add_argument("--expect", action="append", default=[], help="NAME=VERSION")
+    command.add_argument(
+        "--expect-major", action="append", default=[], help="NAME=MAJOR, the first part of VERSION"
+    )
     command.add_argument("--api-library", required=True)
     command.add_argument("--api-header", required=True)
     command.add_argument("--api-pkg-config", action="append", default=[])

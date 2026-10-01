@@ -90,16 +90,25 @@
               packages = [ "libffi" ];
             };
           }
-          # Emscripten's own API, as its core headers declare it, implemented
-          # partly in C, in whichever system library, and partly in
-          # JavaScript. It comes before the libraries that implement it, so
-          # its names are its own. Weak definitions are hooks a program
-          # overrides at its own link, which a side module can't.
+          # Emscripten's own API, implemented partly in C, in whichever system
+          # library, and partly in JavaScript. It comes before the libraries
+          # that implement it, so its names are its own.
+          #
+          # These eleven headers are the part of it a runtime serves. html5,
+          # webgl, wget, fetch and websocket are browser APIs engines don't
+          # use, and listing them would put their JavaScript in every
+          # runtime; syscalls.h is out because side modules make system calls
+          # only through libc.
+          #
+          # Weak definitions are hooks a program overrides at its own link,
+          # which a side module can't. Functions that need ASYNCIFY are stubs
+          # that abort in a runtime built without it; off the list, an engine
+          # that calls one fails its import check when it is built.
           {
             name = "emscripten";
             version = "{emscripten}";
             systemLibraries = "*";
-            javascript = { };
+            javascript.withoutAsyncify = true;
             declaredIn.headers = map (header: "emscripten/${header}.h") [
               "emscripten"
               "em_asm"

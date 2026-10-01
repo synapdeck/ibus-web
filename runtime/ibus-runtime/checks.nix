@@ -68,8 +68,10 @@
           musl=$(< ${emscripten}/share/emscripten/system/lib/libc/musl/VERSION)
           # libc++ numbers its release XXYYZZ.
           libcxx=$(macro --lang c++ --include version _LIBCPP_VERSION)
-          # compiler-rt is the compiler's own runtime, from its release.
-          clang=$(macro __clang_major__).$(macro __clang_minor__).$(macro __clang_patchlevel__)
+          # compiler-rt is the compiler's own runtime, tied to it by the LLVM
+          # major release; only that is compared, so a patch release of one
+          # without the other doesn't fail the check.
+          clang=$(macro __clang_major__)
           python3 ${./exports.py} verify --dir $manifest \
             --expect libibus-web=$abi \
             ${
@@ -83,7 +85,7 @@
             --expect libffi=${pkgsWasm.libffi.version} \
             --expect "libc=$musl+emscripten.${emscripten.version}" \
             --expect "libc++=$((libcxx / 10000)).$((libcxx / 100 % 100)).$((libcxx % 100))" \
-            --expect compiler-rt=$clang \
+            --expect-major compiler-rt=$clang \
             --expect emscripten=${emscripten.version} \
             --api-library libibus-web --api-header ibus-web/runtime.h --api-pkg-config libibus-web \
             --api-side-defined ibusweb_module_init \
