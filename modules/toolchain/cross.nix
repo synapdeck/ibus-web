@@ -32,11 +32,12 @@ in
       replaceCrossStdenv =
         { buildPackages, baseStdenv }:
         let
-          # buildPackages (pkgsBuildHost) gives Emscripten a WASM target
+          # buildPackages (pkgsBuildHost) gives what it builds a WASM target
           # platform, which rehashes it and everything under it, openjdk
-          # included, so none of it comes from the binary cache.
+          # included, so none of it comes from the binary cache. The
+          # toolchain's Emscripten is the build machine's too.
           pkgsBuildBuild = buildPackages.buildPackages;
-          inherit (pkgsBuildBuild) emscripten;
+          inherit (toolchain) emscripten;
 
           # cc-wrapper keys clang feature checks off the compiler's version,
           # which here is the clang Emscripten was built against.
@@ -125,9 +126,9 @@ in
             '';
           };
         in
-        # The frozen cache is built from the perSystem Emscripten; a different
-        # one would leave the wrapper's emcc with a stale cache.
-        assert emscripten.drvPath == pkgs.emscripten.drvPath;
+        # A different Emscripten from the one that built the frozen cache would
+        # leave the wrapper's emcc with a stale cache.
+        assert emscripten.drvPath == toolchain.emscriptenCache.emscripten.drvPath;
         baseStdenv.override (old: {
           inherit cc;
           extraNativeBuildInputs = old.extraNativeBuildInputs ++ [

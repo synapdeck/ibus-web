@@ -1,0 +1,23 @@
+WasmFS: open(O_CREAT) ignores the parent directory's write permission
+
+A file could be created in a directory without write permission, where
+mkdir(), unlink() and rename() already refuse with EACCES.
+
+Upstream: https://github.com/emscripten-core/emscripten/issues/18033 (open)
+Draft: docs/upstream/emscripten-wasmfs-create-permission.md
+
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index 8d098b1..46f0caf 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -475,7 +475,9 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,
+         backend = parent->getBackend();
+       }
+ 
+-      // TODO: Check write permissions on the parent directory.
++      if (!(lockedParent.getMode() & WASMFS_PERM_WRITE)) {
++        return -EACCES;
++      }
+       std::shared_ptr<File> created;
+       if (backend == parent->getBackend()) {
+         created = lockedParent.insertDataFile(std::string(childName), mode);

@@ -1,0 +1,21 @@
+WasmFS: pipes report S_IFREG instead of S_IFIFO
+
+fstat() on either end of a pipe() said regular file, so code that tells
+pipes apart by S_ISFIFO() took them for files.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-pipe-fifo-mode.md
+
+diff --git a/system/lib/wasmfs/pipe_backend.h b/system/lib/wasmfs/pipe_backend.h
+index 3336f28..1d28248 100644
+--- a/system/lib/wasmfs/pipe_backend.h
++++ b/system/lib/wasmfs/pipe_backend.h
+@@ -55,7 +55,7 @@ public:
+   // PipeFiles do not have or need a backend. Pass NullBackend to the parent for
+   // that.
+   PipeFile(mode_t mode, std::shared_ptr<PipeData> data)
+-    : DataFile(mode, NullBackend), data(data) {
++    : DataFile(mode, NullBackend, S_IFIFO), data(data) {
+     // Reads are always from the front; writes always to the end.
+     seekable = false;
+   }

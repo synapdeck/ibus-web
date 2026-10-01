@@ -15,7 +15,7 @@
     {
       devshells.default = {
         packages = [
-          pkgs.emscripten
+          config.ibusWeb.toolchain.emscripten
           pkgs.nodejs
           config.treefmt.build.wrapper
         ];

@@ -5,6 +5,10 @@
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
     options.ibusWeb.toolchain = {
+      emscripten = lib.mkOption {
+        type = lib.types.package;
+        description = "nixpkgs' Emscripten with the upstream-tracked fixes this project carries; every WASM build's compiler.";
+      };
       commonFlags = lib.mkOption {
         type = lib.types.str;
         description = "Compiler flags every WASM object is built with.";

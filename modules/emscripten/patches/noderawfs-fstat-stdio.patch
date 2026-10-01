@@ -1,0 +1,33 @@
+NODERAWFS: fstat() on fds 0-2 throws a TypeError
+
+Backport of the libnoderawfs.js change of upstream commit
+f4f5003c3452e195ec1967d11a37f7d3a56f2c93 ("Fix fstat on stdio streams under
+NODERAWFS"), without its test.
+
+Upstream: https://github.com/emscripten-core/emscripten/issues/27628, fixed by https://github.com/emscripten-core/emscripten/pull/27632
+Draft: docs/upstream/emscripten-noderawfs-fstat-stdio.md
+
+diff --git a/src/lib/libnoderawfs.js b/src/lib/libnoderawfs.js
+index d9a4eed..ce4afbd 100644
+--- a/src/lib/libnoderawfs.js
++++ b/src/lib/libnoderawfs.js
+@@ -65,10 +65,15 @@ addToLibrary({
+       return { path, node: { id: st.ino, mode, node_ops: NODERAWFS, path }};
+     },
+     createStandardStreams() {
+-      FS.createStream({ nfd: 0, position: 0, path: '/dev/stdin', flags: 0 }, 0);
+-      var paths = [,'/dev/stdout', '/dev/stderr'];
+-      for (var i = 1; i < 3; i++) {
+-        FS.createStream({ nfd: i, position: 0, path: paths[i], flags: {{{ cDefs.O_TRUNC | cDefs.O_CREAT | cDefs.O_WRONLY }}} }, i);
++      var paths = ['/dev/stdin', '/dev/stdout', '/dev/stderr'];
++      for (var i = 0; i < 3; i++) {
++        // Like open() below, give the stream a node carrying the identity of
++        // whatever the inherited descriptor refers to (tty, pipe, file, ...):
++        // every stream has a node.
++        var st = fs.fstatSync(i);
++        var node = { id: st.ino, mode: st.mode, node_ops: NODERAWFS, path: paths[i] };
++        var flags = i ? {{{ cDefs.O_TRUNC | cDefs.O_CREAT | cDefs.O_WRONLY }}} : 0;
++        FS.createStream({ nfd: i, position: 0, path: paths[i], flags, node }, i);
+       }
+     },
+     // generic function for all node creation

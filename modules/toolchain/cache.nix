@@ -5,8 +5,8 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (pkgs) emscripten;
       inherit (config.ibusWeb) toolchain;
+      inherit (toolchain) emscripten;
 
       # -O2 over -Os: engine data, not code, dominates download size, and
       # keystrokes have a latency budget.
@@ -30,6 +30,7 @@
         pname = "emscripten-cache";
         inherit (emscripten) version;
         src = ./probes;
+        passthru = { inherit emscripten; };
         nativeBuildInputs = [
           emscripten
           pkgs.nodejs

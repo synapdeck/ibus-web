@@ -1,0 +1,46 @@
+WasmFS: path lookup and chdir() ignore directory search permission
+
+Resolving a path checked no execute bit on the directories it passed
+through, and chdir() didn't check the target's.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-search-permission.md
+
+diff --git a/system/lib/wasmfs/paths.cpp b/system/lib/wasmfs/paths.cpp
+index 3d1fbf4..430d49a 100644
+--- a/system/lib/wasmfs/paths.cpp
++++ b/system/lib/wasmfs/paths.cpp
+@@ -93,6 +93,11 @@ ParsedParent doParseParent(std::string_view path,
+       path.remove_prefix(1);
+     }
+ 
++    // Looking up anything in a directory needs search permission on it.
++    if (!(curr->locked().getMode() & S_IXUGO)) {
++      return -EACCES;
++    }
++
+     // If this is the leaf segment, return.
+     size_t segment_end = path.find_first_of('/');
+     if (segment_end == std::string_view::npos) {
+@@ -100,7 +105,6 @@ ParsedParent doParseParent(std::string_view path,
+     }
+ 
+     // Try to descend into the child segment.
+-    // TODO: Check permissions on intermediate directories.
+     auto segment = path.substr(0, segment_end);
+     auto child = getChild(curr, segment, FollowLinks, recursions);
+     if (auto err = child.getError()) {
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index 8d098b1..ba8e202 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -733,6 +733,9 @@ static int doChdir(std::shared_ptr<File>& file) {
+   if (!dir) {
+     return -ENOTDIR;
+   }
++  if (!(dir->locked().getMode() & WASMFS_PERM_EXECUTE)) {
++    return -EACCES;
++  }
+   wasmFS.setCWD(dir);
+   return 0;
+ }

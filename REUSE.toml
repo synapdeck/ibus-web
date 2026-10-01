@@ -24,3 +24,8 @@ SPDX-FileCopyrightText = [
 SPDX-License-Identifier = "LGPL-2.1-or-later"
 # Patch 0008 adds a file that carries its own SPDX tag inside the diff.
 precedence = "override"
+
+[[annotations]]
+path = "modules/emscripten/patches/*.patch"
+SPDX-FileCopyrightText = ["Emscripten authors", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "MIT OR NCSA"

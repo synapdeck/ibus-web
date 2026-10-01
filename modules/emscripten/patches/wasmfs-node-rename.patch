@@ -1,0 +1,102 @@
+WasmFS Node backend: a renamed file or directory keeps its old host path
+
+NodeDirectory::insertMove() renamed on the host but left the moved
+file's cached host path, and those of everything already looked up below a
+moved directory, at the old name. Rewrite them, holding each file's lock
+across the host's rename so no operation sees a path that is no longer
+there. Moving a symlink no longer treats it as a directory.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-node-rename.md
+
+diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
+index 4bfd0f1..90f7f70 100644
+--- a/system/lib/wasmfs/backends/node_backend.cpp
++++ b/system/lib/wasmfs/backends/node_backend.cpp
+@@ -183,6 +183,31 @@ private:
+     return state.path + '/' + name;
+   }
+ 
++  // The host path a file, directory or symlink of this backend refers to.
++  static std::string& getHostPath(const std::shared_ptr<File>& file) {
++    if (file->is<DataFile>()) {
++      return std::static_pointer_cast<NodeFile>(file)->state.path;
++    }
++    if (file->is<Directory>()) {
++      return std::static_pointer_cast<NodeDirectory>(file)->state.path;
++    }
++    return std::static_pointer_cast<NodeSymlink>(file)->path;
++  }
++
++  // Lock `file` and every file below it that this backend has loaded, each
++  // before its children, as path lookups do. Every one of them caches a host
++  // path under the one being renamed.
++  static void lockLoaded(const std::shared_ptr<File>& file,
++                         std::vector<File::Handle>& locked) {
++    locked.push_back(file->locked());
++    if (file->is<Directory>()) {
++      auto dir = std::static_pointer_cast<NodeDirectory>(file);
++      for (auto& child : dir->getLoadedChildren()) {
++        lockLoaded(child, locked);
++      }
++    }
++  }
++
+   std::shared_ptr<File> getChild(const std::string& name) override {
+     static_assert(std::is_same_v<mode_t, unsigned int>);
+     // TODO: also retrieve and set ctime, atime, ino, etc.
+@@ -245,18 +270,20 @@ private:
+   }
+ 
+   int insertMove(const std::string& name, std::shared_ptr<File> file) override {
+-    std::string fromPath;
+-
+-    if (file->is<DataFile>()) {
+-      auto nodeFile = std::static_pointer_cast<NodeFile>(file);
+-      fromPath = nodeFile->state.path;
+-    } else {
+-      auto nodeDir = std::static_pointer_cast<NodeDirectory>(file);
+-      fromPath = nodeDir->state.path;
+-    }
++    // Holding the locks across the host's rename means no operation on a moved
++    // file sees its host path change under it.
++    std::vector<File::Handle> locked;
++    lockLoaded(file, locked);
+ 
++    auto fromPath = getHostPath(file);
+     auto childPath = getChildPath(name);
+-    return -_wasmfs_node_rename(fromPath.c_str(), childPath.c_str());
++    if (auto err = _wasmfs_node_rename(fromPath.c_str(), childPath.c_str())) {
++      return -err;
++    }
++    for (auto& handle : locked) {
++      getHostPath(handle.unlocked()).replace(0, fromPath.size(), childPath);
++    }
++    return 0;
+   }
+ 
+   ssize_t getNumEntries() override {
+diff --git a/system/lib/wasmfs/file.h b/system/lib/wasmfs/file.h
+index 7e299cd..703143b 100644
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -204,6 +204,19 @@ private:
+   std::map<std::string, DCacheEntry> dcache;
+ 
+ protected:
++  // The children this directory's backend has returned that are still in the
++  // dcache. Mount points belong to other backends and are left out. The
++  // directory must be locked.
++  std::vector<std::shared_ptr<File>> getLoadedChildren() {
++    std::vector<std::shared_ptr<File>> children;
++    for (auto& [name, entry] : dcache) {
++      if (entry.kind == DCacheKind::Normal) {
++        children.push_back(entry.file);
++      }
++    }
++    return children;
++  }
++
+   // Return the `File` object corresponding to the file with the given name or
+   // null if there is none.
+   virtual std::shared_ptr<File> getChild(const std::string& name) = 0;

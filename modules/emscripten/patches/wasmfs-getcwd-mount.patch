@@ -1,0 +1,35 @@
+WasmFS: getcwd() drops the name of a mount point in a memory directory
+
+Directory::Handle::getName() asks a directory that maintains file identity
+for the name itself, and such a directory never knows the mount points in
+its dcache, so getcwd() under a mount returned "/" or "//sub". Look in the
+dcache first.
+
+Upstream: https://github.com/emscripten-core/emscripten/issues/18112 (open; fix proposed in https://github.com/emscripten-core/emscripten/pull/23756)
+Draft: docs/upstream/emscripten-wasmfs-getcwd-mount.md
+
+diff --git a/system/lib/wasmfs/file.cpp b/system/lib/wasmfs/file.cpp
+index c16af93..7fee432 100644
+--- a/system/lib/wasmfs/file.cpp
++++ b/system/lib/wasmfs/file.cpp
+@@ -207,15 +207,17 @@ int Directory::Handle::removeChild(const std::string& name) {
+ }
+ 
+ std::string Directory::Handle::getName(std::shared_ptr<File> file) {
+-  if (getDir()->maintainsFileIdentity()) {
+-    return getDir()->getName(file);
+-  }
++  // Mount points are always in the dcache, even in directories that maintain
++  // file identity themselves, so look there first.
+   auto& dcache = getDir()->dcache;
+   for (auto it = dcache.begin(); it != dcache.end(); ++it) {
+     if (it->second.file == file) {
+       return it->first;
+     }
+   }
++  if (getDir()->maintainsFileIdentity()) {
++    return getDir()->getName(file);
++  }
+   return "";
+ }
+ 

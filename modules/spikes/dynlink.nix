@@ -13,7 +13,7 @@
         name = "ibus-web-dynlink-spike";
         src = ../../tests/spikes/dynlink;
         nativeBuildInputs = [
-          pkgs.emscripten
+          toolchain.emscripten
           pkgs.nodejs
           toolchain.emscriptenCacheHook
         ];

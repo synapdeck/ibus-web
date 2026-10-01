@@ -1,0 +1,61 @@
+WasmFS: poll() takes empty files and devices for unreadable
+
+poll() reported POLLIN only for a file whose size was above zero, so an
+empty regular file, /dev/null and /dev/random never polled readable. Give
+data files a readiness hook that defaults to readable, and let pipes report
+whether they hold data.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-poll-regular-file.md
+
+diff --git a/system/lib/wasmfs/file.h b/system/lib/wasmfs/file.h
+index 7e299cd..88d5f57 100644
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -152,6 +152,10 @@ protected:
+   // on success or a negative error code.
+   virtual int flush() = 0;
+ 
++  // Whether poll() should report the file readable. Files whose readiness can
++  // change, like pipes, override this.
++  virtual bool isReadReady() { return true; }
++
+ public:
+   static constexpr FileKind expectedKind = File::DataFileKind;
+   DataFile(mode_t mode, backend_t backend)
+@@ -366,6 +370,8 @@ public:
+ 
+   [[nodiscard]] int setSize(off_t size) { return getFile()->setSize(size); }
+ 
++  bool isReadReady() { return getFile()->isReadReady(); }
++
+   // TODO: Design a proper API for flushing files.
+   [[nodiscard]] int flush() { return getFile()->flush(); }
+ 
+diff --git a/system/lib/wasmfs/pipe_backend.h b/system/lib/wasmfs/pipe_backend.h
+index 3336f28..3fe653b 100644
+--- a/system/lib/wasmfs/pipe_backend.h
++++ b/system/lib/wasmfs/pipe_backend.h
+@@ -46,6 +46,8 @@ class PipeFile : public DataFile {
+ 
+   int flush() override { return 0; }
+ 
++  bool isReadReady() override { return !data->empty(); }
++
+   off_t getSize() override { return data->size(); }
+ 
+   // TODO: Should this return an error?
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index 8d098b1..55f6a00 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -1428,7 +1428,8 @@ int __syscall_poll(struct pollfd* fds, nfds_t nfds, int timeout) {
+         // TODO: Does this need to consider the position as well? That is, if
+         // the position is at the end, we can't read from the current position
+         // at least. If we update this, make sure the size isn't an error!
+-        if (openFile->locked().getFile()->locked().getSize() > 0) {
++        auto dataFile = openFile->locked().getFile()->dynCast<DataFile>();
++        if (!dataFile || dataFile->locked().isReadReady()) {
+           mask |= writeBit;
+         }
+       }

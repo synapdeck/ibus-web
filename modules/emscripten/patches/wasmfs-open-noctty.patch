@@ -1,0 +1,21 @@
+WasmFS: open() with O_NOCTTY trips doOpen()'s flag assertion
+
+musl's openpty() opens /dev/ptmx with O_NOCTTY, which aborted builds
+with assertions instead of failing. O_NOCTTY means nothing to WasmFS.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-open-noctty.md
+
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index 8d098b1..38ffae3 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -438,7 +438,7 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,
+   // TODO: remove assert when all functionality is complete.
+   assert((flags & ~(O_CREAT | O_EXCL | O_DIRECTORY | O_TRUNC | O_APPEND |
+                     O_RDWR | O_WRONLY | O_RDONLY | O_LARGEFILE | O_NOFOLLOW |
+-                    O_CLOEXEC | O_NONBLOCK)) == 0);
++                    O_CLOEXEC | O_NONBLOCK | O_NOCTTY)) == 0);
+ 
+   if (auto err = parsed.getError()) {
+     return err;

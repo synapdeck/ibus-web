@@ -13,7 +13,7 @@
       inherit (config.ibusWeb) toolchain;
       inherit (toolchain.pkgsWasm.stdenv) cc;
       inherit (cc) targetPrefix;
-      inherit (pkgs) emscripten;
+      inherit (toolchain) emscripten;
       pkgConfig = toolchain.pkgsWasm.buildPackages.pkg-config;
 
       # The cross pkg-config always resolves static linking, which needs
