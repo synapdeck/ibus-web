@@ -7,10 +7,10 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-pipe-fifo-mode.md
 
 diff --git a/system/lib/wasmfs/pipe_backend.h b/system/lib/wasmfs/pipe_backend.h
-index 3336f28..1d28248 100644
+index 3fe653b..17be1cf 100644
 --- a/system/lib/wasmfs/pipe_backend.h
 +++ b/system/lib/wasmfs/pipe_backend.h
-@@ -55,7 +55,7 @@ public:
+@@ -57,7 +57,7 @@ public:
    // PipeFiles do not have or need a backend. Pass NullBackend to the parent for
    // that.
    PipeFile(mode_t mode, std::shared_ptr<PipeData> data)

@@ -8,38 +8,19 @@
  * directory, so an absolute path such as /nix/store/... resolves under it.
  * Here the root is the host's /, and the working directory is Node's.
  *
- * WasmFS's Node backend changes only its own record of a file's mode, never
- * the host's, so a directory chmod() opens up stays shut to the host. Files
- * the browser keeps in WasmFS's memory backend, temporary ones above all,
- * would break here where they work there, so a TMPDIR the host doesn't have
- * is created in memory. Host programs that give TMPDIR a directory of their
- * own are unaffected. */
+ * A TMPDIR the host doesn't have is created in WasmFS's memory backend, where
+ * the browser keeps temporary files. Host programs that give TMPDIR a
+ * directory of their own are unaffected. */
 
 #include <emscripten/em_js.h>
 #include <emscripten/wasmfs.h>
 #include <limits.h>
 #include <stdlib.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 EM_JS(int, host_cwd, (char *buf, int size), {
   const cwd = process.cwd();
   return lengthBytesUTF8(cwd) < size ? stringToUTF8(cwd, buf, size) : 0;
-});
-
-/* WasmFS gives its root a fixed, writable mode and checks permissions itself
- * before asking the backend, and the Node backend reports any host failure to
- * create a file as EIO. The root takes the host's mode instead, less the
- * write bits this process can't use, so creating something in a read-only /
- * fails with EACCES, as it does natively. */
-EM_JS(int, host_root_mode, (void), {
-  const {accessSync, constants, statSync} = require('node:fs');
-  const mode = statSync('/').mode & 0o7777;
-  try {
-    accessSync('/', constants.W_OK);
-    return mode;
-  }
-  catch { return mode & ~0o222; }
 });
 
 backend_t wasmfs_create_root_dir(void) {
@@ -49,8 +30,6 @@ backend_t wasmfs_create_root_dir(void) {
 /* After WasmFS and the environment are set up, which both happen in
  * higher-priority constructors. */
 __attribute__((constructor)) static void follow_host(void) {
-  chmod("/", host_root_mode());
-
   char cwd[PATH_MAX];
   if (host_cwd(cwd, sizeof cwd) > 0)
     chdir(cwd);

@@ -8,7 +8,7 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-node-open-close-errors.md
 
 diff --git a/src/lib/libwasmfs_node.js b/src/lib/libwasmfs_node.js
-index 82888a9..260add8 100644
+index cfbe66d..7b32fcc 100644
 --- a/src/lib/libwasmfs_node.js
 +++ b/src/lib/libwasmfs_node.js
 @@ -121,12 +121,16 @@ var wasmFSNodeLibrary = {
@@ -52,7 +52,7 @@ index 82888a9..260add8 100644
  
    _wasmfs_node_rename__deps: ['$wasmfsTry'],
 diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
-index 4bfd0f1..636fee1 100644
+index 8593763..84b381c 100644
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
 @@ -21,6 +21,8 @@ class NodeState {
@@ -112,7 +112,7 @@ index 4bfd0f1..636fee1 100644
  private:
    off_t getSize() override {
      // TODO: This should really be using a 64-bit file size type.
-@@ -220,10 +243,13 @@ private:
+@@ -218,10 +241,13 @@ private:
    std::shared_ptr<DataFile> insertDataFile(const std::string& name,
                                             mode_t mode) override {
      auto childPath = getChildPath(name);
@@ -129,7 +129,7 @@ index 4bfd0f1..636fee1 100644
  
    std::shared_ptr<Directory> insertDirectory(const std::string& name,
 diff --git a/system/lib/wasmfs/backends/node_backend.h b/system/lib/wasmfs/backends/node_backend.h
-index 7e6e496..60ff185 100644
+index a53453d..c13b6e1 100644
 --- a/system/lib/wasmfs/backends/node_backend.h
 +++ b/system/lib/wasmfs/backends/node_backend.h
 @@ -19,8 +19,11 @@ int _wasmfs_node_get_mode(const char* path, mode_t* mode);

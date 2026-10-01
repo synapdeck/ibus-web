@@ -7,7 +7,7 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-open-noctty.md
 
 diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
-index 8d098b1..38ffae3 100644
+index 55f6a00..d0a600a 100644
 --- a/system/lib/wasmfs/syscalls.cpp
 +++ b/system/lib/wasmfs/syscalls.cpp
 @@ -438,7 +438,7 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,

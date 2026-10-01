@@ -31,7 +31,7 @@ index 3d1fbf4..430d49a 100644
      auto child = getChild(curr, segment, FollowLinks, recursions);
      if (auto err = child.getError()) {
 diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
-index 8d098b1..ba8e202 100644
+index d0a600a..bfffe30 100644
 --- a/system/lib/wasmfs/syscalls.cpp
 +++ b/system/lib/wasmfs/syscalls.cpp
 @@ -733,6 +733,9 @@ static int doChdir(std::shared_ptr<File>& file) {

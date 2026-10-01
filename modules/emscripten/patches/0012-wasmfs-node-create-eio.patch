@@ -1,0 +1,326 @@
+WasmFS: backend failures to create a file or directory are reported as EIO
+
+Directory::insertDataFile() and insertDirectory() could only return null,
+so open(O_CREAT) and mkdir() turned every backend failure into EIO. They
+now return a MaybeFile, which carries a negative error code; the Node
+backend reports the host's (EACCES, EROFS, EEXIST, ENOENT, ENAMETOOLONG,
+ENOSPC), and inserting into an unlinked directory is ENOENT. Backends that
+still return plain null get EIO, as before.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-node-create-eio.md
+
+diff --git a/system/lib/wasmfs/backends/fetch_backend.cpp b/system/lib/wasmfs/backends/fetch_backend.cpp
+index c4cad7f..ace3a76 100644
+--- a/system/lib/wasmfs/backends/fetch_backend.cpp
++++ b/system/lib/wasmfs/backends/fetch_backend.cpp
+@@ -58,8 +58,8 @@ public:
+                  emscripten::ProxyWorker& proxy)
+     : MemoryDirectory(mode, backend), dirPath(path), proxy(proxy) {}
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     auto childPath = getChildPath(name);
+     auto child =
+       std::make_shared<FetchFile>(childPath, mode, getBackend(), proxy);
+@@ -67,8 +67,8 @@ public:
+     return child;
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     auto childPath = getChildPath(name);
+     auto childDir =
+       std::make_shared<FetchDirectory>(childPath, mode, getBackend(), proxy);
+diff --git a/system/lib/wasmfs/backends/ignore_case_backend.cpp b/system/lib/wasmfs/backends/ignore_case_backend.cpp
+index bd49036..3a5b723 100644
+--- a/system/lib/wasmfs/backends/ignore_case_backend.cpp
++++ b/system/lib/wasmfs/backends/ignore_case_backend.cpp
+@@ -47,10 +47,10 @@ public:
+     : VirtualDirectory(real, backend) {}
+ 
+   std::shared_ptr<File> getChild(const std::string& name) override;
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override;
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override;
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override;
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override;
+   std::shared_ptr<Symlink> insertSymlink(const std::string& name,
+                                          const std::string& target) override;
+   int insertMove(const std::string& name, std::shared_ptr<File> file) override;
+@@ -103,24 +103,24 @@ std::shared_ptr<File> IgnoreCaseDirectory::getChild(const std::string& name) {
+   return child;
+ }
+ 
+-std::shared_ptr<DataFile>
++Directory::MaybeFile<DataFile>
+ IgnoreCaseDirectory::insertDataFile(const std::string& name, mode_t mode) {
+   auto normalized = normalize(name);
+   auto file = real->locked().insertDataFile(normalized, mode);
+   if (!file) {
+-    return nullptr;
++    return file;
+   }
+   file = virtualize(file, getBackend());
+   children[normalized] = {name, file};
+   return file;
+ }
+ 
+-std::shared_ptr<Directory>
++Directory::MaybeFile<Directory>
+ IgnoreCaseDirectory::insertDirectory(const std::string& name, mode_t mode) {
+   auto normalized = normalize(name);
+   auto dir = real->locked().insertDirectory(normalized, mode);
+   if (!dir) {
+-    return nullptr;
++    return dir;
+   }
+   dir = virtualize(dir, getBackend());
+   children[normalized] = {name, dir};
+diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
+index e2b9fb4..47e13b0 100644
+--- a/system/lib/wasmfs/backends/node_backend.cpp
++++ b/system/lib/wasmfs/backends/node_backend.cpp
+@@ -263,23 +263,23 @@ private:
+     return 0;
+   }
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     auto childPath = getChildPath(name);
+     int fd = _wasmfs_node_insert_file(childPath.c_str(), mode);
+     if (fd < 0) {
+-      return nullptr;
++      return fd;
+     }
+     auto file = std::make_shared<NodeFile>(mode, getBackend(), childPath);
+     file->state.keepCreated(fd);
+     return file;
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     auto childPath = getChildPath(name);
+-    if (_wasmfs_node_insert_directory(childPath.c_str(), mode)) {
+-      return nullptr;
++    if (auto err = _wasmfs_node_insert_directory(childPath.c_str(), mode)) {
++      return -err;
+     }
+     return std::make_shared<NodeDirectory>(mode, getBackend(), childPath);
+   }
+diff --git a/system/lib/wasmfs/backends/opfs_backend.cpp b/system/lib/wasmfs/backends/opfs_backend.cpp
+index f5a014f..b5398e1 100644
+--- a/system/lib/wasmfs/backends/opfs_backend.cpp
++++ b/system/lib/wasmfs/backends/opfs_backend.cpp
+@@ -293,8 +293,8 @@ private:
+     }
+   }
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     int childID = 0;
+     proxy([&](auto ctx) {
+       _wasmfs_opfs_insert_file(ctx.ctx, dirID, name.c_str(), &childID);
+@@ -306,8 +306,8 @@ private:
+     return std::make_shared<OPFSFile>(mode, getBackend(), childID, proxy);
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     int childID = 0;
+     proxy([&](auto ctx) {
+       _wasmfs_opfs_insert_directory(ctx.ctx, dirID, name.c_str(), &childID);
+diff --git a/system/lib/wasmfs/file.cpp b/system/lib/wasmfs/file.cpp
+index 7fee432..eda3dbc 100644
+--- a/system/lib/wasmfs/file.cpp
++++ b/system/lib/wasmfs/file.cpp
+@@ -88,30 +88,30 @@ bool Directory::Handle::mountChild(const std::string& name,
+   return true;
+ }
+ 
+-std::shared_ptr<DataFile>
++Directory::MaybeFile<DataFile>
+ Directory::Handle::insertDataFile(const std::string& name, mode_t mode) {
+   // Cannot insert into an unlinked directory.
+   if (!getParent()) {
+-    return nullptr;
++    return -ENOENT;
+   }
+   auto child = getDir()->insertDataFile(name, mode);
+   if (!child) {
+-    return nullptr;
++    return child;
+   }
+   cacheChild(name, child, DCacheKind::Normal);
+   updateMTime();
+   return child;
+ }
+ 
+-std::shared_ptr<Directory>
++Directory::MaybeFile<Directory>
+ Directory::Handle::insertDirectory(const std::string& name, mode_t mode) {
+   // Cannot insert into an unlinked directory.
+   if (!getParent()) {
+-    return nullptr;
++    return -ENOENT;
+   }
+   auto child = getDir()->insertDirectory(name, mode);
+   if (!child) {
+-    return nullptr;
++    return child;
+   }
+   cacheChild(name, child, DCacheKind::Normal);
+   updateMTime();
+diff --git a/system/lib/wasmfs/file.h b/system/lib/wasmfs/file.h
+index 6ebe873..2b1e560 100644
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -194,6 +194,21 @@ public:
+     }
+   };
+ 
++  // A newly created file, or null and a negative error code. It is still a
++  // `std::shared_ptr`, so callers that only check for null need not change.
++  template<class T> class MaybeFile : public std::shared_ptr<T> {
++    int err = 0;
++
++  public:
++    MaybeFile(std::nullptr_t = nullptr) {}
++    template<class U>
++    MaybeFile(std::shared_ptr<U> file) : std::shared_ptr<T>(std::move(file)) {}
++    MaybeFile(int err) : err(err) { assert(err < 0); }
++
++    // A backend that returned null without saying why gets EIO.
++    int getError() const { return *this ? 0 : err ? err : -EIO; }
++  };
++
+ private:
+   // The directory cache, or `dcache`, stores `File` objects for the children of
+   // each directory so that subsequent lookups do not need to query the backend.
+@@ -228,11 +243,11 @@ protected:
+   // Inserts a file with the given name, kind, and mode. Returns a `File` object
+   // corresponding to the newly created file or nullptr if the new file could
+   // not be created. Assumes a child with this name does not already exist.
+-  // If the operation failed, returns nullptr.
+-  virtual std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                                   mode_t mode) = 0;
+-  virtual std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                                     mode_t mode) = 0;
++  // If the operation failed, returns nullptr or a negative error code.
++  virtual MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                             mode_t mode) = 0;
++  virtual MaybeFile<Directory> insertDirectory(const std::string& name,
++                                               mode_t mode) = 0;
+   virtual std::shared_ptr<Symlink> insertSymlink(const std::string& name,
+                                                  const std::string& target) = 0;
+ 
+@@ -417,11 +432,9 @@ public:
+   // Insert a child of the given name, kind, and mode in the underlying backend,
+   // which will allocate and return a corresponding `File` on success or return
+   // nullptr otherwise. Assumes a child with this name does not already exist.
+-  // If the operation failed, returns nullptr.
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode);
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode);
++  // If the operation failed, returns nullptr and an error code.
++  MaybeFile<DataFile> insertDataFile(const std::string& name, mode_t mode);
++  MaybeFile<Directory> insertDirectory(const std::string& name, mode_t mode);
+   std::shared_ptr<Symlink> insertSymlink(const std::string& name,
+                                          const std::string& target);
+ 
+diff --git a/system/lib/wasmfs/memory_backend.h b/system/lib/wasmfs/memory_backend.h
+index e499515..f8e1b8a 100644
+--- a/system/lib/wasmfs/memory_backend.h
++++ b/system/lib/wasmfs/memory_backend.h
+@@ -69,15 +69,15 @@ protected:
+ 
+   int removeChild(const std::string& name) override;
+ 
+-  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                           mode_t mode) override {
++  MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                     mode_t mode) override {
+     auto child = getBackend()->createFile(mode);
+     insertChild(name, child);
+     return child;
+   }
+ 
+-  std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                             mode_t mode) override {
++  MaybeFile<Directory> insertDirectory(const std::string& name,
++                                       mode_t mode) override {
+     auto child = getBackend()->createDirectory(mode);
+     insertChild(name, child);
+     return child;
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index 334c6a5..fd1eac4 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -480,12 +480,12 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,
+       }
+       std::shared_ptr<File> created;
+       if (backend == parent->getBackend()) {
+-        created = lockedParent.insertDataFile(std::string(childName), mode);
+-        if (!created) {
+-          // TODO Receive a specific error code, and report it here. For now,
+-          //      report a generic error.
+-          return -EIO;
++        auto inserted =
++          lockedParent.insertDataFile(std::string(childName), mode);
++        if (auto err = inserted.getError()) {
++          return err;
+         }
++        created = inserted;
+       } else {
+         created = backend->createFile(mode);
+         if (!created) {
+@@ -645,10 +645,8 @@ doMkdir(path::ParsedParent parsed, mode_t mode, backend_t backend = NullBackend)
+   }
+ 
+   if (backend == parent->getBackend()) {
+-    if (!lockedParent.insertDirectory(childName, mode)) {
+-      // TODO Receive a specific error code, and report it here. For now, report
+-      //      a generic error.
+-      return -EIO;
++    if (auto err = lockedParent.insertDirectory(childName, mode).getError()) {
++      return err;
+     }
+   } else {
+     auto created = backend->createDirectory(mode);
+diff --git a/system/lib/wasmfs/virtual.h b/system/lib/wasmfs/virtual.h
+index 238cd2d..08448a9 100644
+--- a/system/lib/wasmfs/virtual.h
++++ b/system/lib/wasmfs/virtual.h
+@@ -62,12 +62,12 @@ protected:
+   virtual std::shared_ptr<File> getChild(const std::string& name) override {
+     return real->locked().getChild(name);
+   }
+-  virtual std::shared_ptr<DataFile> insertDataFile(const std::string& name,
+-                                                   mode_t mode) override {
++  virtual MaybeFile<DataFile> insertDataFile(const std::string& name,
++                                             mode_t mode) override {
+     return real->locked().insertDataFile(name, mode);
+   }
+-  virtual std::shared_ptr<Directory> insertDirectory(const std::string& name,
+-                                                     mode_t mode) override {
++  virtual MaybeFile<Directory> insertDirectory(const std::string& name,
++                                               mode_t mode) override {
+     return real->locked().insertDirectory(name, mode);
+   }
+   virtual std::shared_ptr<Symlink>

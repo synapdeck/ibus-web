@@ -10,10 +10,10 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-node-rename.md
 
 diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
-index 4bfd0f1..90f7f70 100644
+index 84b381c..e2b9fb4 100644
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
-@@ -183,6 +183,31 @@ private:
+@@ -204,6 +204,31 @@ private:
      return state.path + '/' + name;
    }
  
@@ -45,7 +45,7 @@ index 4bfd0f1..90f7f70 100644
    std::shared_ptr<File> getChild(const std::string& name) override {
      static_assert(std::is_same_v<mode_t, unsigned int>);
      // TODO: also retrieve and set ctime, atime, ino, etc.
-@@ -245,18 +270,20 @@ private:
+@@ -269,18 +294,20 @@ private:
    }
  
    int insertMove(const std::string& name, std::shared_ptr<File> file) override {
@@ -77,10 +77,10 @@ index 4bfd0f1..90f7f70 100644
  
    ssize_t getNumEntries() override {
 diff --git a/system/lib/wasmfs/file.h b/system/lib/wasmfs/file.h
-index 7e299cd..703143b 100644
+index 88d5f57..6ebe873 100644
 --- a/system/lib/wasmfs/file.h
 +++ b/system/lib/wasmfs/file.h
-@@ -204,6 +204,19 @@ private:
+@@ -208,6 +208,19 @@ private:
    std::map<std::string, DCacheEntry> dcache;
  
  protected:

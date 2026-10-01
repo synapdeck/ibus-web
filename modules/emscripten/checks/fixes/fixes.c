@@ -26,6 +26,22 @@ EM_JS(int, host_read, (const char *path, char *buf, int size), {
 catch { return -1; }
 });
 
+/* The host's mode bits of path, or -1. */
+EM_JS(int, host_mode, (const char *path), {
+  try {
+    return require('node:fs').statSync(UTF8ToString(path)).mode & 0o7777;
+}
+catch { return -1; }
+});
+
+/* The host's modification time of path, in whole seconds, or -1. */
+EM_JS(double, host_mtime, (const char *path), {
+  try {
+    return Math.floor(require('node:fs').statSync(UTF8ToString(path)).mtimeMs / 1000);
+}
+catch { return -1; }
+});
+
 EM_JS(void, host_chmod, (const char *path, int mode),
       { require('node:fs').chmodSync(UTF8ToString(path), mode); });
 
@@ -150,6 +166,34 @@ static void check_node_errors(void) {
   CHECK(fd >= 0 && write(fd, "synced", 6) == 6 && fsync(fd) == 0,
         "fsync a host file");
   CHECK(close(fd) == 0, "close");
+
+  /* Mode and time changes reach the host, by path and through an fd. */
+  CHECK(chmod(path, 0600) == 0 && host_mode(path) == 0600, "chmod: host has %o",
+        host_mode(path));
+  fd = open(path, O_RDONLY);
+  CHECK(fd >= 0 && fchmod(fd, 0640) == 0 && host_mode(path) == 0640,
+        "fchmod: host has %o", host_mode(path));
+  struct timespec times[2] = {{.tv_sec = 1000000000}, {.tv_sec = 1100000000}};
+  CHECK(futimens(fd, times) == 0 && host_mtime(path) == 1100000000,
+        "futimens: host has %.0f", host_mtime(path));
+  CHECK(close(fd) == 0, "close");
+  times[1].tv_sec = 1200000000;
+  CHECK(utimensat(AT_FDCWD, path, times, 0) == 0 &&
+            host_mtime(path) == 1200000000,
+        "utimensat: host has %.0f", host_mtime(path));
+
+  /* The host's own reason a file can't be created, rather than EIO: WasmFS
+   * still takes the directory for writable. */
+  snprintf(path, sizeof path, "%s/shut", host);
+  CHECK(mkdir(path, 0755) == 0, "mkdir");
+  CHECK(stat(path, &st) == 0, "stat");
+  host_chmod(path, 0555);
+  strcat(path, "/file");
+  fd = open(path, O_CREAT | O_WRONLY, 0644);
+  CHECK(fd < 0 && errno == EACCES, "create in a directory the host shuts: %d",
+        fd);
+  path[strlen(path) - strlen("/file")] = '\0';
+  host_chmod(path, 0755);
 
   /* The open that creates a file isn't bound by the mode it gives it. */
   snprintf(path, sizeof path, "%s/no-access", host);
