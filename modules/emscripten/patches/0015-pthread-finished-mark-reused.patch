@@ -12,7 +12,7 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-pthread-finished-mark-reused.md
 
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
-index 063675f..5d353cb 100644
+index d7ee618..986679b 100644
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -86,6 +86,7 @@ var LibraryPThread = {
@@ -38,10 +38,10 @@ index 063675f..5d353cb 100644
  #endif
            case {{{ CMD_LOADED }}}:
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
-index 98b1068..dd46baa 100644
+index e46e7b0..eeae2b6 100644
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
-@@ -133,6 +133,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
+@@ -153,6 +153,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
    return thread->self == thread;
  }
  
@@ -54,10 +54,10 @@ index 98b1068..dd46baa 100644
  weak_alias(dummy_tsd, __pthread_tsd_main);
  
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
-index 09963f9..523fc69 100644
+index 01d53d5..94c75bf 100644
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
-@@ -88,6 +88,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);
+@@ -93,6 +93,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);
  // we can pass more of the posixtest suite than vanilla musl.
  int _emscripten_thread_is_valid(pthread_t thread);
  

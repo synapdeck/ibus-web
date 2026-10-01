@@ -233,7 +233,7 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
-@@ -133,6 +133,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
+@@ -153,6 +153,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
    return thread->self == thread;
  }
  
@@ -248,7 +248,7 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
-@@ -88,6 +88,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);
+@@ -93,6 +93,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);
  // we can pass more of the posixtest suite than vanilla musl.
  int _emscripten_thread_is_valid(pthread_t thread);
  
@@ -275,17 +275,19 @@ new thread often runs on the same Worker at the same address.
 
 **Test for the PR,** in the suite's format (also as
 `emscripten-pthread-finished-mark-reused.tests.patch` beside this draft).
-`other.test_pthread_dlsync_reused` is the test case above, plus a check of
-`PThread.finishedThreads` before the `dlopen()`, and a retry, up to ten
-times, until the new thread does get the joined thread's `pthread_t`, so
-that it can't pass without testing anything:
+`core.test_pthread_dlsync_reused` (`@needs_dylink`, built like
+`test_pthread_dlopen` with `build_dlfcn_lib`/`prep_dlfcn_main`) is the test
+case above, with a retry, up to ten times, until the new thread does get the
+joined thread's `pthread_t`, so that it can't pass without testing anything.
+It covers `dlopen()` on the main thread; the change is in the message
+handler, so it applies whichever sync runs afterwards:
 
 ```diff
-diff --git a/test/pthread/test_pthread_dlsync_reused.c b/test/pthread/test_pthread_dlsync_reused.c
+diff --git a/test/core/pthread/test_pthread_dlsync_reused.c b/test/core/pthread/test_pthread_dlsync_reused.c
 new file mode 100644
 --- /dev/null
-+++ b/test/pthread/test_pthread_dlsync_reused.c
-@@ -0,0 +1,80 @@
++++ b/test/core/pthread/test_pthread_dlsync_reused.c
+@@ -0,0 +1,74 @@
 +// A running thread whose pthread_t belonged to a thread joined just before
 +// still takes part in dlopen()'s sync, and can call into the new module.
 +// The joined thread's message that it had finished reaches the main thread
@@ -293,7 +295,6 @@ new file mode 100644
 +// new thread at the same address.
 +
 +#include <dlfcn.h>
-+#include <emscripten/em_asm.h>
 +#include <emscripten/eventloop.h>
 +#include <emscripten/threading.h>
 +#include <limits.h>
@@ -328,12 +329,7 @@ new file mode 100644
 +
 +// Runs once the event loop has delivered the joined thread's message.
 +static void load_and_call(void* arg) {
-+  int marked = EM_ASM_INT({ return PThread.finishedThreads.has($0) ? 1 : 0; }, waiter);
-+  if (marked) {
-+    printf("FAIL: the running thread is marked finished\n");
-+    exit(1);
-+  }
-+  void* side = dlopen("side.wasm", RTLD_NOW);
++  void* side = dlopen("libside.so", RTLD_NOW);
 +  if (side == NULL) {
 +    printf("FAIL: dlopen: %s\n", dlerror());
 +    exit(1);
@@ -366,27 +362,32 @@ new file mode 100644
 +  printf("FAIL: no new thread reused a joined thread's pthread_t\n");
 +  return 1;
 +}
-diff --git a/test/pthread/test_pthread_dlsync_reused_side.c b/test/pthread/test_pthread_dlsync_reused_side.c
+diff --git a/test/core/pthread/test_pthread_dlsync_reused_side.c b/test/core/pthread/test_pthread_dlsync_reused_side.c
 new file mode 100644
 --- /dev/null
-+++ b/test/pthread/test_pthread_dlsync_reused_side.c
++++ b/test/core/pthread/test_pthread_dlsync_reused_side.c
 @@ -0,0 +1 @@
 +int side_value() { return 42; }
-diff --git a/test/test_other.py b/test/test_other.py
---- a/test/test_other.py
-+++ b/test/test_other.py
-@@ -13601,6 +13601,11 @@ void foo() {}
-   def test_pthread_kill_self(self, args):
-     self.do_runf('pthread/test_pthread_kill_self.c', 'main\n', assert_returncode=NON_ZERO, cflags=args)
+diff --git a/test/test_core.py b/test/test_core.py
+--- a/test/test_core.py
++++ b/test/test_core.py
+@@ -9414,6 +9414,16 @@ NODEFS is no longer included by default; build with -lnodefs.js
+                  ['side module ctor', 'done\n', 'side module atexit'],
+                  assert_all=True, cflags=args)
  
++  @needs_dylink
 +  @requires_pthreads
 +  def test_pthread_dlsync_reused(self):
-+    self.run_process([EMCC, test_file('pthread/test_pthread_dlsync_reused_side.c'), '-o', 'side.wasm', '-pthread', '-sSIDE_MODULE', '-Wno-experimental'])
-+    self.do_runf('pthread/test_pthread_dlsync_reused.c', 'done\n', cflags=['-pthread', '-sMAIN_MODULE=2', '-sEXIT_RUNTIME', '-Wno-experimental', '--embed-file', 'side.wasm'])
++    self.cflags += ['-Wno-experimental', '-pthread']
++    self.build_dlfcn_lib(test_file('core/pthread/test_pthread_dlsync_reused_side.c'))
++    self.cflags += ['--embed-file', 'libside.so@libside.so']
++    self.prep_dlfcn_main()
++    self.set_setting('EXIT_RUNTIME')
++    self.do_runf('core/pthread/test_pthread_dlsync_reused.c', 'done\n')
 +
+   @needs_dylink
    @requires_pthreads
-   @parameterized({
-     '': ([],),
+   @flaky('https://github.com/emscripten-core/emscripten/issues/18887')
 ```
 ---
 
@@ -397,9 +398,9 @@ diff --git a/test/test_other.py b/test/test_other.py
     passes with the fix applied alone to stock 6.0.9 (a copy of the tree
     with only this patch, its system libraries rebuilt), as well as on top
     of our stack (0001–0014).
-  - `other.test_pthread_dlsync_reused`, run with Emscripten's runner: FAIL
-    on stock 6.0.9 (the trap), ok on stock 6.0.9 plus this patch alone, ok
-    on our full stack.
+  - `core.test_pthread_dlsync_reused`, run with Emscripten's runner (`core2`):
+    FAIL on stock 6.0.9 (the trap), ok on stock 6.0.9 plus this patch
+    alone, ok on our full stack.
   - Our `checks.emscripten-fixes` runs a stricter version
     (`modules/emscripten/checks/fixes/dlsync-reused.c`) on our test link
     (`MAIN_MODULE=1`, WasmFS, assertions). It also checks

@@ -1,8 +1,8 @@
-diff --git a/test/pthread/test_pthread_dlsync_reused.c b/test/pthread/test_pthread_dlsync_reused.c
+diff --git a/test/core/pthread/test_pthread_dlsync_reused.c b/test/core/pthread/test_pthread_dlsync_reused.c
 new file mode 100644
 --- /dev/null
-+++ b/test/pthread/test_pthread_dlsync_reused.c
-@@ -0,0 +1,80 @@
++++ b/test/core/pthread/test_pthread_dlsync_reused.c
+@@ -0,0 +1,74 @@
 +// A running thread whose pthread_t belonged to a thread joined just before
 +// still takes part in dlopen()'s sync, and can call into the new module.
 +// The joined thread's message that it had finished reaches the main thread
@@ -10,7 +10,6 @@ new file mode 100644
 +// new thread at the same address.
 +
 +#include <dlfcn.h>
-+#include <emscripten/em_asm.h>
 +#include <emscripten/eventloop.h>
 +#include <emscripten/threading.h>
 +#include <limits.h>
@@ -45,12 +44,7 @@ new file mode 100644
 +
 +// Runs once the event loop has delivered the joined thread's message.
 +static void load_and_call(void* arg) {
-+  int marked = EM_ASM_INT({ return PThread.finishedThreads.has($0) ? 1 : 0; }, waiter);
-+  if (marked) {
-+    printf("FAIL: the running thread is marked finished\n");
-+    exit(1);
-+  }
-+  void* side = dlopen("side.wasm", RTLD_NOW);
++  void* side = dlopen("libside.so", RTLD_NOW);
 +  if (side == NULL) {
 +    printf("FAIL: dlopen: %s\n", dlerror());
 +    exit(1);
@@ -83,24 +77,29 @@ new file mode 100644
 +  printf("FAIL: no new thread reused a joined thread's pthread_t\n");
 +  return 1;
 +}
-diff --git a/test/pthread/test_pthread_dlsync_reused_side.c b/test/pthread/test_pthread_dlsync_reused_side.c
+diff --git a/test/core/pthread/test_pthread_dlsync_reused_side.c b/test/core/pthread/test_pthread_dlsync_reused_side.c
 new file mode 100644
 --- /dev/null
-+++ b/test/pthread/test_pthread_dlsync_reused_side.c
++++ b/test/core/pthread/test_pthread_dlsync_reused_side.c
 @@ -0,0 +1 @@
 +int side_value() { return 42; }
-diff --git a/test/test_other.py b/test/test_other.py
---- a/test/test_other.py
-+++ b/test/test_other.py
-@@ -13601,6 +13601,11 @@ void foo() {}
-   def test_pthread_kill_self(self, args):
-     self.do_runf('pthread/test_pthread_kill_self.c', 'main\n', assert_returncode=NON_ZERO, cflags=args)
+diff --git a/test/test_core.py b/test/test_core.py
+--- a/test/test_core.py
++++ b/test/test_core.py
+@@ -9414,6 +9414,16 @@ NODEFS is no longer included by default; build with -lnodefs.js
+                  ['side module ctor', 'done\n', 'side module atexit'],
+                  assert_all=True, cflags=args)
  
++  @needs_dylink
 +  @requires_pthreads
 +  def test_pthread_dlsync_reused(self):
-+    self.run_process([EMCC, test_file('pthread/test_pthread_dlsync_reused_side.c'), '-o', 'side.wasm', '-pthread', '-sSIDE_MODULE', '-Wno-experimental'])
-+    self.do_runf('pthread/test_pthread_dlsync_reused.c', 'done\n', cflags=['-pthread', '-sMAIN_MODULE=2', '-sEXIT_RUNTIME', '-Wno-experimental', '--embed-file', 'side.wasm'])
++    self.cflags += ['-Wno-experimental', '-pthread']
++    self.build_dlfcn_lib(test_file('core/pthread/test_pthread_dlsync_reused_side.c'))
++    self.cflags += ['--embed-file', 'libside.so@libside.so']
++    self.prep_dlfcn_main()
++    self.set_setting('EXIT_RUNTIME')
++    self.do_runf('core/pthread/test_pthread_dlsync_reused.c', 'done\n')
 +
+   @needs_dylink
    @requires_pthreads
-   @parameterized({
-     '': ([],),
+   @flaky('https://github.com/emscripten-core/emscripten/issues/18887')

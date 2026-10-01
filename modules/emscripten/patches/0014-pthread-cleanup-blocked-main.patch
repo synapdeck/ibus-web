@@ -11,14 +11,16 @@ including inside emscripten_futex_wait(); the message is still sent, for
 a main thread that is idle in its event loop.
 
 Since a wait on the main thread can now free a thread, dlopen()'s sync,
-which waits on each thread of a list it took first, skips the ones that
-are gone by their turn instead of syncing them through freed memory.
+which waits on each thread of a list it took first, holds the cleanups
+off until it has been through the list, then runs them. A thread that
+has ended meanwhile stays allocated and refuses the proxy, as it did
+before; one already gone at its turn is skipped as well.
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-pthread-cleanup-blocked-main.md
 
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
-index a975f21..063675f 100644
+index a975f21..d7ee618 100644
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -93,6 +93,7 @@ var LibraryPThread = {
@@ -66,30 +68,86 @@ index a975f21..063675f 100644
    },
  
    _emscripten_thread_set_strongref: (thread) => {
-@@ -1256,7 +1266,9 @@ var LibraryPThread = {
+@@ -1230,7 +1240,9 @@ var LibraryPThread = {
+ 
+   // Asynchronous version _emscripten_dlsync_threads.
+   // This is always called on the main thread. This work happens asynchronously.
+-  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise'],
++  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise',
++                              '_emscripten_thread_hold_cleanups',
++                              '_emscripten_thread_release_cleanups'],
+   $dlsyncThreadsAsync: async () => {
+     const caller = PThread.currentProxiedOperationCallerThread;
+ #if PTHREADS_DEBUG
+@@ -1254,14 +1266,23 @@ var LibraryPThread = {
+     // Any new threads that are created after this call will automatically be
+     // in sync because we call `__emscripten_dlsync_self` in
      // invokeEntryPoint before the threads entry point is called.
-     for (const ptr of Object.keys(PThread.pthreads)) {
-       const pthread_ptr = Number(ptr);
+-    for (const ptr of Object.keys(PThread.pthreads)) {
+-      const pthread_ptr = Number(ptr);
 -      if (pthread_ptr !== caller && !PThread.finishedThreads.has(pthread_ptr)) {
-+      // Proxying can wait, and a wait on the main thread cleans up threads
-+      // that have ended, so one listed above may be gone (and freed) by now.
-+      if (pthread_ptr !== caller && ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
-         info = makePromise();
-         __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
-         PThread.outstandingPromises[pthread_ptr] = info;
-@@ -1290,7 +1302,9 @@ var LibraryPThread = {
-     }
-     for (const ptr of Object.keys(PThread.pthreads)) {
-       const pthread_ptr = Number(ptr);
--      if (!PThread.finishedThreads.has(pthread_ptr)) {
-+      // Each sync waits, and a wait on the main thread cleans up threads that
-+      // have ended, so one listed above may be gone (and freed) by now.
-+      if (ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
-         __emscripten_proxy_dlsync(pthread_ptr);
+-        info = makePromise();
+-        __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
+-        PThread.outstandingPromises[pthread_ptr] = info;
+-        promises.push(info.promise);
++    // Proxying can wait, and a wait on the main thread cleans up threads
++    // that have ended, which would free structs this list still names; hold
++    // that off until the list is done. A thread that has ended but isn't
++    // cleaned up yet refuses the proxy.
++    __emscripten_thread_hold_cleanups();
++    try {
++      for (const ptr of Object.keys(PThread.pthreads)) {
++        const pthread_ptr = Number(ptr);
++        if (pthread_ptr !== caller && ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
++          info = makePromise();
++          __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
++          PThread.outstandingPromises[pthread_ptr] = info;
++          promises.push(info.promise);
++        }
        }
++    } finally {
++      __emscripten_thread_release_cleanups();
      }
+ 
+ #if PTHREADS_DEBUG
+@@ -1280,7 +1301,9 @@ var LibraryPThread = {
+   // synchronously block the main thread until all other threads are in sync.
+   // When `dlopen` is called from a worker, the worker itself is blocked but
+   // the operation its waiting on (on the main thread) can be async.
+-  _emscripten_dlsync_threads__deps: ['_emscripten_proxy_dlsync', '$dlsyncThreadsAsync'],
++  _emscripten_dlsync_threads__deps: ['_emscripten_proxy_dlsync', '$dlsyncThreadsAsync',
++                                   '_emscripten_thread_hold_cleanups',
++                                   '_emscripten_thread_release_cleanups'],
+   _emscripten_dlsync_threads__async: 'auto',
+   _emscripten_dlsync_threads__proxy: 'sync',
+   _emscripten_dlsync_threads: () => {
+@@ -1288,11 +1311,20 @@ var LibraryPThread = {
+     if (callingThread) {
+       return dlsyncThreadsAsync();
+     }
+-    for (const ptr of Object.keys(PThread.pthreads)) {
+-      const pthread_ptr = Number(ptr);
+-      if (!PThread.finishedThreads.has(pthread_ptr)) {
+-        __emscripten_proxy_dlsync(pthread_ptr);
++    // Each sync waits, and a wait on the main thread cleans up threads that
++    // have ended, which would free structs this list still names; hold that
++    // off until the list is done. A thread that has ended but isn't cleaned
++    // up yet refuses the proxy.
++    __emscripten_thread_hold_cleanups();
++    try {
++      for (const ptr of Object.keys(PThread.pthreads)) {
++        const pthread_ptr = Number(ptr);
++        if (ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
++          __emscripten_proxy_dlsync(pthread_ptr);
++        }
+       }
++    } finally {
++      __emscripten_thread_release_cleanups();
+     }
+   },
+ #endif // MAIN_MODULE
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
-index b8a48cb..98b1068 100644
+index b8a48cb..e46e7b0 100644
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
 @@ -10,6 +10,7 @@
@@ -100,7 +158,7 @@ index b8a48cb..98b1068 100644
  #include <threads.h>
  #include <unistd.h>
  
-@@ -95,8 +96,36 @@ void emscripten_current_thread_process_queued_calls() {
+@@ -95,8 +96,56 @@ void emscripten_current_thread_process_queued_calls() {
    emscripten_proxy_execute_queue(emscripten_proxy_get_system_queue());
  }
  
@@ -121,8 +179,28 @@ index b8a48cb..98b1068 100644
 +  _emscripten_thread_notify(emscripten_main_runtime_thread_id());
 +}
 +
++// Held while the main runtime thread walks a list of threads it took
++// earlier, where cleaning one up would free a struct the list still names.
++static int cleanup_holds;
++
++void _emscripten_thread_hold_cleanups(void) {
++  assert(emscripten_is_main_runtime_thread());
++  cleanup_holds++;
++}
++
++void _emscripten_thread_release_cleanups(void) {
++  assert(emscripten_is_main_runtime_thread());
++  assert(cleanup_holds > 0);
++  if (--cleanup_holds == 0) {
++    _emscripten_thread_run_deferred_cleanups();
++  }
++}
++
 +void _emscripten_thread_run_deferred_cleanups(void) {
 +  assert(emscripten_is_main_runtime_thread());
++  if (cleanup_holds) {
++    return;
++  }
 +  pthread_t thread = atomic_exchange(&exited_threads, NULL);
 +  while (thread) {
 +    pthread_t next = thread->next;
@@ -138,10 +216,10 @@ index b8a48cb..98b1068 100644
  }
  
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
-index 097595e..09963f9 100644
+index 097595e..01d53d5 100644
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
-@@ -63,6 +63,13 @@ void _emscripten_init_main_thread_js(void* tb);
+@@ -63,6 +63,18 @@ void _emscripten_init_main_thread_js(void* tb);
  void _emscripten_thread_profiler_enable();
  void _emscripten_thread_cleanup(pthread_t thread);
  
@@ -149,8 +227,13 @@ index 097595e..09963f9 100644
 +// `_emscripten_thread_cleanup`, from any other thread, even one that no longer
 +// has a thread state of its own.
 +void _emscripten_thread_defer_cleanup(pthread_t thread);
-+// Runs the cleanups deferred so far. Main runtime thread only.
++// Runs the cleanups deferred so far, unless they are held. Main runtime
++// thread only.
 +void _emscripten_thread_run_deferred_cleanups(void);
++// Hold deferred cleanups until a matching release, which runs them. Main
++// runtime thread only.
++void _emscripten_thread_hold_cleanups(void);
++void _emscripten_thread_release_cleanups(void);
 +
  hidden void* _emscripten_tls_init(void);
  hidden void _emscripten_tls_free(void);

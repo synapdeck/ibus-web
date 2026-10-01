@@ -45,6 +45,11 @@
             emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-freed.c} -o dlsync-freed.o
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} dlsync-freed.o -o dlsync-freed.js
             timeout 120 node dlsync-freed.js $PWD/dlsync-side.wasm
+
+            cp dlsync-side.wasm dlsync-side2.wasm
+            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-held.c} -o dlsync-held.o
+            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} dlsync-held.o -o dlsync-held.js
+            timeout 120 node dlsync-held.js $PWD/dlsync-side.wasm $PWD/dlsync-side2.wasm
             touch $out
           '';
     };
