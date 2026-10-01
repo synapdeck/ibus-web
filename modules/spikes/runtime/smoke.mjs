@@ -1,0 +1,60 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Usage: node smoke.mjs RUNTIME_JS SIDES_DIR
+// Loads each spike side module into the runtime and calls each of its
+// operations through ibusweb_dispatch(), checking the replies.
+
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { errno, int32s, startRuntime, utf8 } from "./harness.mjs";
+
+// The opcodes the side modules register.
+const ADD = 1;
+const IDLE_LATER = 2;
+const IDLE_RESULT = 3;
+const SPAWN = 4;
+const SPAWN_RESULT = 5;
+const THROW = 6;
+const FSYNC = 7;
+const FSYNC_RESULT = 8;
+
+const [runtime, sides] = process.argv.slice(2);
+const rt = await startRuntime(runtime);
+
+for (const name of ["trivial", "thread", "throw", "fsync"]) {
+  const path = `/tmp/${name}.wasm`;
+  rt.writeFile(path, await readFile(join(sides, `${name}.wasm`)));
+  assert.equal(rt.loadModule(path), 0, `load ${name}`);
+}
+
+const check = (label, actual, expected) => {
+  assert.equal(actual, expected, label);
+  console.log(`${label}: ${actual}`);
+};
+
+check("add 2 40", rt.call(ADD, int32s(2, 40)), 42);
+check("add -5 3", rt.call(ADD, int32s(-5, 3)), -2);
+
+check("idle-result before", rt.call(IDLE_RESULT), -errno.ENOENT);
+check("idle-later 50", rt.call(IDLE_LATER, int32s(50)), 0);
+check("idle-later again", rt.call(IDLE_LATER, int32s(50)), -errno.EBUSY);
+const delay = await rt.settle(() => rt.call(IDLE_RESULT));
+assert.ok(delay >= 0, `idle-result ${delay}`);
+console.log(`idle-result: attach to dispatch in ${delay} us`);
+
+// Fewer threads than the pool holds: threads that earlier operations started
+// go back to it only once the event loop has run.
+check("spawn 2", rt.call(SPAWN, int32s(2)), 0);
+check("spawn-result", await rt.settle(() => rt.call(SPAWN_RESULT)), 2);
+
+check("throw", rt.call(THROW), -errno.ECANCELED);
+check("add after throw", rt.call(ADD, int32s(1, 1)), 2);
+
+// The writer writes the file's own path into it.
+const file = "/tmp/fsync-spike.txt";
+check("fsync", rt.call(FSYNC, utf8(file)), 0);
+check("fsync-result", await rt.settle(() => rt.call(FSYNC_RESULT)), utf8(file).length);
+
+check("unknown opcode", rt.call(99), -errno.ENOSYS);
