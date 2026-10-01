@@ -11,15 +11,18 @@ side_module_deps = [
   glib.partial_dependency(compile_args: true, includes: true),
 ]
 
-test_side = shared_module(
-  'test-side',
-  'test-side.c',
-  name_prefix: '',
-  name_suffix: 'wasm',
-  include_directories: include_directories('../include'),
-  dependencies: side_module_deps,
-  link_args: get_option('test_side_module_link_args'),
-)
+side_modules = []
+foreach name : ['test-side', 'test-side-bare']
+  side_modules += shared_module(
+    name,
+    name + '.c',
+    name_prefix: '',
+    name_suffix: 'wasm',
+    include_directories: include_directories('../include'),
+    dependencies: side_module_deps,
+    link_args: get_option('test_side_module_link_args'),
+  )
+endforeach
 
 test_runtime = executable(
   'test-runtime',
@@ -38,5 +41,5 @@ test(
   test_runtime,
   protocol: 'tap',
   env: test_env,
-  depends: test_side,
+  depends: side_modules,
 )

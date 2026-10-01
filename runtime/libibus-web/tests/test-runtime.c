@@ -22,6 +22,11 @@ static gboolean count_dispatch(gpointer counter) {
   return G_SOURCE_REMOVE;
 }
 
+static gboolean count_forever(gpointer counter) {
+  (*(int *)counter)++;
+  return G_SOURCE_CONTINUE;
+}
+
 static gboolean count_readable(gint fd, GIOCondition condition,
                                gpointer counter) {
   (void)fd;
@@ -32,6 +37,31 @@ static gboolean count_readable(gint fd, GIOCondition condition,
 
 static gpointer add_idle(gpointer counter) {
   g_idle_add(count_dispatch, counter);
+  return NULL;
+}
+
+static gpointer pump_elsewhere(gpointer delay) {
+  *(int32_t *)delay = ibusweb_pump();
+  return NULL;
+}
+
+static GMutex holder_lock;
+static GCond holder_cond;
+static gboolean holding, released;
+
+/* Owns the default context until told to let go, as a thread running its
+ * own main loop would. */
+static gpointer hold_default_context(gpointer data) {
+  (void)data;
+  gboolean acquired = g_main_context_acquire(NULL);
+  g_mutex_lock(&holder_lock);
+  holding = acquired;
+  g_cond_signal(&holder_cond);
+  while (!released)
+    g_cond_wait(&holder_cond, &holder_lock);
+  g_mutex_unlock(&holder_lock);
+  if (acquired)
+    g_main_context_release(NULL);
   return NULL;
 }
 
@@ -70,6 +100,16 @@ static int32_t call(uint32_t opcode, const char *payload, uint8_t *reply,
 }
 
 static void test_init(void) {
+  GThread *holder = g_thread_new("holder", hold_default_context, NULL);
+  g_mutex_lock(&holder_lock);
+  while (!holding)
+    g_cond_wait(&holder_cond, &holder_lock);
+  g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, -EBUSY);
+  released = TRUE;
+  g_cond_signal(&holder_cond);
+  g_mutex_unlock(&holder_lock);
+  g_thread_join(holder);
+
   g_assert_cmpint(ibusweb_runtime_init(NULL), ==, -EINVAL);
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, -EALREADY);
@@ -78,6 +118,30 @@ static void test_init(void) {
 static void test_pump_empty(void) {
   runtime_ready();
   g_assert_cmpint(ibusweb_pump(), ==, -1);
+}
+
+/* A source that stays ready would keep the pump from returning; it must
+ * hand control back to the host instead, with nothing to wait for. */
+static void test_pump_always_ready(void) {
+  int dispatched = 0;
+
+  runtime_ready();
+  guint id = g_idle_add(count_forever, &dispatched);
+  g_assert_cmpint(ibusweb_pump(), ==, 0);
+  g_assert_cmpint(dispatched, >, 0);
+  g_source_remove(id);
+  g_assert_cmpint(ibusweb_pump(), ==, -1);
+}
+
+static void test_pump_wrong_thread(void) {
+  int32_t delay = 0;
+
+  runtime_ready();
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_CRITICAL,
+                        "*off the thread that owns*");
+  g_thread_join(g_thread_new("pump", pump_elsewhere, &delay));
+  g_test_assert_expected_messages();
+  g_assert_cmpint(delay, ==, IBUSWEB_PUMP_ERROR);
 }
 
 /* The host sleeps on the wake word, so an attach from another thread must
@@ -127,11 +191,15 @@ static void test_pump_fd(void) {
   close(pipe_fds[1]);
 }
 
+/* Stands for a stale module from an earlier call, which failures clear. */
+#define STALE_MODULE ((IBusWebModule *)&wake_word)
+
 static void test_module_register(void) {
-  IBusWebModule *clash = NULL;
+  IBusWebModule *clash = STALE_MODULE;
 
   g_assert_nonnull(echo_module());
-  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "Opcode 1 *taken*");
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
+                        "Module clash *clash-taken*opcode 1*module echo*");
   g_assert_cmpint(ibusweb_register_module("clash", register_clash, &clash), ==,
                   -EEXIST);
   g_test_assert_expected_messages();
@@ -176,21 +244,47 @@ static void test_module_load(void) {
 }
 
 static void test_module_load_missing(void) {
-  IBusWebModule *missing = NULL;
+  IBusWebModule *missing = STALE_MODULE;
 
-  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*side module*");
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING, "*side module*");
   g_assert_cmpint(ibusweb_load_module("/nonexistent/side.wasm", &missing), ==,
-                  -ENOEXEC);
+                  -ENOENT);
   g_test_assert_expected_messages();
   g_assert_null(missing);
+}
+
+static void test_module_load_not_module(void) {
+  IBusWebModule *module = STALE_MODULE;
+
+  const gchar *path = g_test_get_filename(G_TEST_DIST, "test-side.c", NULL);
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING, "*side module*");
+  g_assert_cmpint(ibusweb_load_module(path, &module), ==, -ENOEXEC);
+  g_test_assert_expected_messages();
+  g_assert_null(module);
+}
+
+static void test_module_load_no_entry_point(void) {
+  IBusWebModule *module = STALE_MODULE;
+
+  gchar *path =
+      g_test_build_filename(G_TEST_BUILT, "test-side-bare.wasm", NULL);
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
+                        "*has no ibusweb_module_init*");
+  g_assert_cmpint(ibusweb_load_module(path, &module), ==, -ENOEXEC);
+  g_test_assert_expected_messages();
+  g_assert_null(module);
+  g_free(path);
 }
 
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
-  /* First, while nothing has set the runtime up yet. */
+  /* First, while nothing has set the runtime up or owns the default
+   * context. */
   g_test_add_func("/runtime/init", test_init);
   g_test_add_func("/pump/empty", test_pump_empty);
+  g_test_add_func("/pump/always-ready", test_pump_always_ready);
+  g_test_add_func("/pump/wrong-thread", test_pump_wrong_thread);
   g_test_add_func("/pump/wake", test_pump_wake);
   g_test_add_func("/pump/deadline", test_pump_deadline);
   g_test_add_func("/pump/fd", test_pump_fd);
@@ -199,6 +293,9 @@ int main(int argc, char **argv) {
   g_test_add_func("/dispatch/errors", test_dispatch_errors);
   g_test_add_func("/module/load", test_module_load);
   g_test_add_func("/module/load-missing", test_module_load_missing);
+  g_test_add_func("/module/load-not-module", test_module_load_not_module);
+  g_test_add_func("/module/load-no-entry-point",
+                  test_module_load_no_entry_point);
 
   return g_test_run();
 }

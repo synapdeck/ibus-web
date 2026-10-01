@@ -5,6 +5,7 @@
 
 #include <dlfcn.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 struct _IBusWebModule {
   char *name;
@@ -12,6 +13,10 @@ struct _IBusWebModule {
    * check each one. */
   int error;
 };
+
+const char *ibusweb_module_get_name(IBusWebModule *module) {
+  return module->name;
+}
 
 int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
                           const char *name, IBusWebOp op) {
@@ -27,6 +32,8 @@ int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
 
 int ibusweb_register_module(const char *name, IBusWebModuleInit init,
                             IBusWebModule **module_out) {
+  if (module_out != NULL)
+    *module_out = NULL;
   g_return_val_if_fail(name != NULL, -EINVAL);
   g_return_val_if_fail(init != NULL, -EINVAL);
 
@@ -47,6 +54,8 @@ int ibusweb_register_module(const char *name, IBusWebModuleInit init,
 }
 
 int ibusweb_load_module(const char *path, IBusWebModule **module_out) {
+  if (module_out != NULL)
+    *module_out = NULL;
   g_return_val_if_fail(path != NULL, -EINVAL);
 
   /* Every side module exports the same entry point; kept out of the global
@@ -54,7 +63,9 @@ int ibusweb_load_module(const char *path, IBusWebModule **module_out) {
   void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (handle == NULL) {
     g_warning("Can't load side module %s: %s", path, dlerror());
-    return -ENOEXEC;
+    /* dlerror() only describes the failure in prose. */
+    struct stat st;
+    return stat(path, &st) != 0 && errno == ENOENT ? -ENOENT : -ENOEXEC;
   }
 
   IBusWebModuleInit init =
@@ -62,7 +73,7 @@ int ibusweb_load_module(const char *path, IBusWebModule **module_out) {
   if (init == NULL) {
     g_warning("Side module %s has no ibusweb_module_init", path);
     dlclose(handle);
-    return -ENOENT;
+    return -ENOEXEC;
   }
 
   int ret = ibusweb_register_module(path, init, module_out);

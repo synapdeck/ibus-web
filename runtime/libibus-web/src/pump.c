@@ -20,7 +20,11 @@ int32_t ibusweb_pump(void) {
   gint n_allocated = G_N_ELEMENTS(stack_fds);
   gint32 delay = 0;
 
-  g_return_val_if_fail(g_main_context_is_owner(context), -1);
+  if (!g_main_context_is_owner(context)) {
+    g_critical("ibusweb_pump() called off the thread that owns the default "
+               "main context");
+    return IBUSWEB_PUMP_ERROR;
+  }
 
   /* An iteration taken apart, as g_main_context_iteration() would run it
    * without blocking, to keep the timeout its query computes. */

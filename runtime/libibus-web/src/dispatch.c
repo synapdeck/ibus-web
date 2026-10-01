@@ -31,8 +31,10 @@ int ibusweb_ops_add(IBusWebModule *module, uint32_t opcode, const char *name,
 
   Entry *taken = g_hash_table_lookup(entries, GUINT_TO_POINTER(opcode));
   if (taken != NULL) {
-    g_warning("Opcode %" G_GUINT32_FORMAT " (%s) is taken by %s", opcode, name,
-              taken->name);
+    g_warning("Module %s can't register %s as opcode %" G_GUINT32_FORMAT
+              ": module %s holds it for %s",
+              ibusweb_module_get_name(module), name, opcode,
+              ibusweb_module_get_name(taken->module), taken->name);
     ret = -EEXIST;
   } else {
     Entry *entry = g_new(Entry, 1);

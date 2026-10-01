@@ -13,3 +13,6 @@ int ibusweb_ops_add(IBusWebModule *module, uint32_t opcode, const char *name,
 
 G_GNUC_INTERNAL
 void ibusweb_ops_remove_module(IBusWebModule *module);
+
+G_GNUC_INTERNAL
+const char *ibusweb_module_get_name(IBusWebModule *module);
