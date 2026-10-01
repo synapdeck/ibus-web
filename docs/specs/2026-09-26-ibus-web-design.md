@@ -1026,9 +1026,10 @@ holds its patch files and a README recording their provenance; `checks/`
 holds its checks, `checks/<name>.nix` or, with sources of its own,
 `checks/<name>/default.nix` with its files beside it. The runtime and
 each engine are components too, living at the repository root with their
-flake-parts modules beside the sources they build: `runtime/` holds
-`libibus-web`'s sources, the modules that build `libibus-web` and
-`ibus-runtime`, and its `checks/`; `engines/<name>/` has the same shape as
+flake-parts modules beside the sources they build. Each part of the
+runtime has one directory, `runtime/<part>/`, holding its sources, its
+modules (`package.nix`, `checks.nix`) and its tests, with runtime-wide
+options in `runtime/options.nix`; `engines/<name>/` has the same shape as
 `modules/<component>/` plus its manifest template and data. `flake.nix`
 passes `./modules`, `./runtime` and `./engines` to import-tree.
 
@@ -1044,8 +1045,9 @@ ibus-web/
 │  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
 │  └─ release.nix                  the release set
 ├─ docs/                           specs, plans, spike reports
-├─ runtime/                        the runtime component: *.nix modules building libibus-web and ibus-runtime, checks/
-│  └─ libibus-web/                 C sources and ibus.h-compatible headers
+├─ runtime/                        the runtime component; options.nix
+│  ├─ libibus-web/                 C sources, ibus.h-compatible headers, package.nix, checks.nix, tests/
+│  └─ ibus-runtime/                the main-module link: package.nix, exports.nix, checks.nix
 ├─ engines/<name>/                 one component per engine: overlay.nix, patches/{port,casts}, checks/, manifest template, data
 ├─ packages/                       protocol, core, ibus-web, panel, worker-host
 └─ tests/                          conformance harness, Playwright suites, benchmarks, spikes

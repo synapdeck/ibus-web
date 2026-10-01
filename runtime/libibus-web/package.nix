@@ -16,25 +16,25 @@
               m = builtins.match " *version: '([^']*)',?" line;
             in
             lib.optional (m != null) (builtins.head m)
-          ) (lib.splitString "\n" (builtins.readFile ./libibus-web/meson.build));
+          ) (lib.splitString "\n" (builtins.readFile ./meson.build));
         in
         assert lib.length versions == 1;
         builtins.head versions;
 
-      # What the library builds from; its tests, their check and editor
+      # What the library builds from; its tests, the Nix modules and editor
       # configuration stay out, so changing them doesn't rebuild it.
       fileset = lib.fileset.unions [
-        ./libibus-web/meson.build
-        ./libibus-web/meson.options
-        ./libibus-web/include
-        ./libibus-web/src
+        ./meson.build
+        ./meson.options
+        ./include
+        ./src
       ];
 
       libibusWeb = pkgsWasm.stdenv.mkDerivation {
         pname = "libibus-web";
         inherit version;
         src = lib.fileset.toSource {
-          root = ./libibus-web;
+          root = ./.;
           inherit fileset;
         };
         passthru = { inherit fileset; };

@@ -17,7 +17,7 @@ runtime's memory choice (§5.3).
 `pkgsWasm.stdenv`) holding the pump, the side-module loader and a spike
 dispatcher. A GLib patch lets the default context's wakeup also
 notify a word the Worker host waits on (the pump hook, §5.1.3/§5.2.4).
-`runtime/ibus-runtime.nix` links `ibus-runtime.wasm` with a derived, versioned
+`runtime/ibus-runtime/` links `ibus-runtime.wasm` with a derived, versioned
 export list. Spike side modules and a spike Worker host
 (`tests/spikes/runtime/`) exercise the R2 scenarios under Node
 (`worker_threads`) and under Playwright in Chromium and Firefox against a
@@ -36,7 +36,7 @@ nixpkgs' Chromium and Firefox.
 - Emscripten is `ibusWeb.toolchain.emscripten` (nixpkgs' build plus `modules/emscripten/patches`), used by the cache, the cross stdenv, the dev shell and clangd; never `pkgs.emscripten` or `pkgsBuildBuild.emscripten` directly. Small fixes to Emscripten are allowed when tracked upstream; no forked compiler or LLVM; never `-sEMULATE_FUNCTION_POINTER_CASTS`.
 - Every WASM object is compiled with `ibusWeb.toolchain.commonFlags` (`-O2 -fPIC -pthread -fwasm-exceptions`); check and test links add `-sASSERTIONS=1`.
 - **Derive, don't hardcode:** versions, target prefixes, triples, store paths and symbol lists come from Nix evaluation or the build, never literals.
-- Dendritic layout: every `.nix` file under `modules/` is a flake-parts module; modules share values only through `ibusWeb.*` per-system options and flake outputs. One directory per component (`modules/<component>/` with `overlay.nix`, `patches/`, `checks/`). The runtime is a component at the repository root, `runtime/`, like an engine's `engines/<name>/`: its `.nix` files are flake-parts modules beside the sources they build (`*.nix` at its top, `checks/` below), and `flake.nix` passes `./runtime` to import-tree; nothing under `modules/` builds runtime sources. Non-Nix files sit beside their module under plain names.
+- Dendritic layout: every `.nix` file under `modules/` is a flake-parts module; modules share values only through `ibusWeb.*` per-system options and flake outputs. One directory per component (`modules/<component>/` with `overlay.nix`, `patches/`, `checks/`). The runtime is a component at the repository root, `runtime/`, like an engine's `engines/<name>/`: each part has one directory, `runtime/<part>/`, holding its sources, its flake-parts modules (`package.nix`, `checks.nix`, and any others the part needs) and its tests; runtime-wide options are `runtime/options.nix`; `flake.nix` passes `./runtime` to import-tree; nothing under `modules/` builds runtime sources. Non-Nix files sit beside their module under plain names.
 - Outputs: `packages.<system>` holds only ibus-web's own artifacts (`ibus-runtime` and its parts); WASM builds of nixpkgs packages are reached through `legacyPackages.<system>.pkgsWasm`.
 - Main modules are linked with `em++` (`$CXX`); C sources are compiled with `$CC -c` first.
 - §9.2 boundary rules: Workers load by URL, never inlined; **the page communicates only through the dedicated SAB and `postMessage`, never touches WASM memory, and the protocol never carries pointers into it.** A spike design that needs to break this stops for the user's decision.
@@ -56,8 +56,8 @@ nixpkgs' Chromium and Firefox.
 | `modules/glib/patches/0017-*.patch`, `README.md` | create / modify (Task 1) | WebAssembly pump hook: the default context's wakeup also notifies a host word |
 | `flake.nix` | modify (Task 2) | import-tree over `./modules` and `./runtime` |
 | `runtime/libibus-web/` (`meson.build`, `include/ibus-web/runtime.h`, `src/*.c`) | create (Task 2) | pump, side-module loader, spike dispatcher |
-| `runtime/libibus-web.nix`, `runtime/checks/libibus-web/` | create (Task 2) | build and C tests |
-| `runtime/ibus-runtime.nix`, `runtime/exports.nix`, `runtime/checks/runtime-link/` | create (Task 3) | the main-module link, its derived, versioned export list, and its check |
+| `runtime/options.nix`, `runtime/libibus-web/{package.nix,checks.nix,tests/}` | create (Task 2) | options, build and C tests |
+| `runtime/ibus-runtime/{package.nix,exports.nix,checks.nix,tests/}` | create (Task 3) | the main-module link, its derived, versioned export list, and its check |
 | `tests/spikes/runtime/sides/*` | create (Task 3) | spike side modules |
 | `modules/toolchain/cache.nix` | modify (Task 3) | cache variants the runtime link needs |
 | `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `modules/typescript/default.nix` | create (Task 4) | the pnpm workspace and its offline Nix build |
@@ -98,7 +98,7 @@ Task 5's question; this task provides the mechanism in GLib.
 
 The minimal C library the Worker host drives. No IBus types yet (M1).
 
-**Files:** `runtime/libibus-web/meson.build`, `runtime/libibus-web/include/ibus-web/runtime.h`, `runtime/libibus-web/src/{runtime.c,pump.c,module.c,dispatch.c}`, `runtime/libibus-web.nix` (derivation exposed as `ibusWeb.runtime.libibusWeb` and `packages.libibus-web`), `runtime/checks/libibus-web/{default.nix,test-runtime.c}`, `flake.nix` (import-tree over `[ ./modules ./runtime ]`).
+**Files:** `runtime/libibus-web/meson.build`, `runtime/libibus-web/include/ibus-web/runtime.h`, `runtime/libibus-web/src/{runtime.c,pump.c,module.c,dispatch.c}`, `runtime/libibus-web/package.nix` (derivation exposed as `ibusWeb.runtime.libibusWeb` and `packages.libibus-web`), `runtime/libibus-web/checks.nix` and `runtime/libibus-web/tests/` (GTest suite run by `meson test`), `runtime/options.nix`, `flake.nix` (import-tree over `[ ./modules ./runtime ]`).
 
 **Interfaces (Produces, `ibus-web/runtime.h`):**
 ```c
@@ -135,7 +135,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 ### Task 3: `ibus-runtime.wasm` and spike side modules
 
-**Files:** `runtime/ibus-runtime.nix` (`packages.ibus-runtime`: `ibus-runtime.js`, `ibus-runtime.wasm`, `exports.txt`), `runtime/exports.nix` (derives the export list), `modules/toolchain/cache.nix` (new probe variants), `tests/spikes/runtime/sides/{trivial.c,thread.c,throw.cpp,fsync.c}`, `runtime/checks/runtime-link/{default.nix,…}`.
+**Files:** `runtime/ibus-runtime/package.nix` (`packages.ibus-runtime`: `ibus-runtime.js`, `ibus-runtime.wasm`, `exports.txt`), `runtime/ibus-runtime/exports.nix` (derives the export list), `modules/toolchain/cache.nix` (new probe variants), `tests/spikes/runtime/sides/{trivial.c,thread.c,throw.cpp,fsync.c}`, `runtime/ibus-runtime/checks.nix` (with any check sources in `runtime/ibus-runtime/tests/`).
 
 **Requirements:**
 - Link: `em++` with `-sMAIN_MODULE=2`, the export list, `-sWASMFS=1` with the OPFS backend available (`wasmfs_create_opfs_backend` reachable from JS/C), `-sPTHREAD_POOL_SIZE=<n>` (choose and justify; the pool is pre-allocated so thread creation never yields, R2), `-sSTACK_SIZE=1MB` and `-sDEFAULT_PTHREAD_STACK_SIZE=1MB` (GRegex, §5.3), `-sMODULARIZE=1 -sEXPORT_ES6=1`, `-sENVIRONMENT=web,worker,node`, `-sEXIT_RUNTIME=0`. Memory: start with growth off and a fixed size large enough for the spike (`-sINITIAL_MEMORY` chosen from measured needs); Task 7 settles the final rule. Release build without `-sASSERTIONS`; a second, asserting build for the checks.
@@ -191,7 +191,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 ### Task 7: Memory growth (§5.3)
 
-**Files:** `tests/spikes/runtime/sides/memstress.c` (or a standalone program), `tests/spikes/runtime/src/scenarios.ts` (stress scenario), `runtime/ibus-runtime.nix` (final memory flags), spike report.
+**Files:** `tests/spikes/runtime/sides/memstress.c` (or a standalone program), `tests/spikes/runtime/src/scenarios.ts` (stress scenario), `runtime/ibus-runtime/package.nix` (final memory flags), spike report.
 
 **Requirements:** reproduce the GLib-suite trap pattern without GLib (many pthreads allocating and touching fresh memory while memory grows) and with GLib (the `1bit-emufutex`-style workload), under memory growth and under fixed memory, in Node (≥ 300 runs), Chromium and Firefox (≥ 50 runs each). Decision rule (user-approved): **if growth traps in any engine, the runtime uses fixed per-Worker memory, sized from the manifest (runtime + side module + data, with margin); otherwise growth.** Implement the chosen rule in the link (and, for fixed memory, how the size is chosen — a manifest field the host passes, or a per-engine link), record the evidence. If a GLib-free reproduction appears, add it to `docs/upstream/` as a draft (V8/SpiderMonkey/Node or Emscripten, per the evidence).
 - [ ] Steps: stress harness, runs, decision, link change, `nix flake check`, commit.
