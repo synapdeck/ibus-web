@@ -22,11 +22,10 @@
         # GRegex outgrows Emscripten's 64 KiB default stack, on any thread.
         "-sSTACK_SIZE=1MB"
         "-sDEFAULT_PTHREAD_STACK_SIZE=1MB"
-        # A fixed memory: with threads, a growing one occasionally faults a
-        # thread out of bounds, and a fixed one hasn't. The runtime starts
-        # at 2.3 MiB and each running thread adds about 1 MiB, mostly its
-        # stack, so the pool's four threads and one more peak at 8.4 MiB;
-        # 32 MiB leaves four times that.
+        # A fixed memory, without growth until what engines need sets a
+        # sizing rule. The runtime starts at 2.3 MiB and each running thread
+        # adds about 1 MiB, mostly its stack, so the pool's four threads and
+        # one more peak at 8.4 MiB; 32 MiB leaves four times that.
         "-sALLOW_MEMORY_GROWTH=0"
         "-sINITIAL_MEMORY=32MB"
         "-sMODULARIZE=1"
