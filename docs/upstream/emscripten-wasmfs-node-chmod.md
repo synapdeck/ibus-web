@@ -119,6 +119,7 @@ End of search list.
 </details>
 
 **Where:**
+
 - `chmod`/`fchmod` only call `File::Handle::setMode`, which updates the
   in-memory `mode`
   ([syscalls.cpp#L1188-L1217](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1188-L1217),
@@ -170,7 +171,7 @@ The new imports get their `libsigs.js` signatures.
 @@ -157,6 +157,36 @@
      });
    },
- 
+
 +  _wasmfs_node_chmod__deps: ['$wasmfsTry'],
 +  _wasmfs_node_chmod: (path_p, mode) =>
 +    wasmfsTry(() => fs.chmodSync(UTF8ToString(path_p), mode)),
@@ -223,12 +224,12 @@ The new imports get their `libsigs.js` signatures.
 +                      : _wasmfs_node_utimes(path.c_str(), atime, mtime));
 +  }
  };
- 
+
  class NodeFile : public DataFile {
 @@ -152,6 +164,12 @@
      return -_wasmfs_node_truncate(state.path.c_str(), size);
    }
- 
+
 +  int setMode(mode_t mode) override { return state.setMode(mode); }
 +
 +  int setTimes(double atime, double mtime) override {
@@ -236,11 +237,11 @@ The new imports get their `libsigs.js` signatures.
 +  }
 +
    int open(oflags_t flags) override { return state.open(flags); }
- 
+
    int close() override { return state.close(); }
 @@ -200,6 +218,12 @@
      : Directory(mode, backend), state(path) {}
- 
+
  private:
 +  int setMode(mode_t mode) override { return state.setMode(mode); }
 +
@@ -256,7 +257,7 @@ The new imports get their `libsigs.js` signatures.
 @@ -30,6 +30,13 @@
  int _wasmfs_node_unlink(const char* path);
  int _wasmfs_node_rmdir(const char* path);
- 
+
 +// Change the mode, or the access and modification times (in ms; INFINITY
 +// leaves that time unchanged), and return 0 or an error code.
 +int _wasmfs_node_chmod(const char* path, mode_t mode);
@@ -266,11 +267,11 @@ The new imports get their `libsigs.js` signatures.
 +
  int _wasmfs_node_truncate(const char* path, off_t len);
  int _wasmfs_node_ftruncate(int fd, off_t len);
- 
+
 --- a/system/lib/wasmfs/file.h
 +++ b/system/lib/wasmfs/file.h
 @@ -9,6 +9,7 @@
- 
+
  #include "support.h"
  #include <assert.h>
 +#include <cmath>
@@ -280,7 +281,7 @@ The new imports get their `libsigs.js` signatures.
 @@ -106,6 +107,17 @@
    // called on files that have not been opened.
    virtual off_t getSize() = 0;
- 
+
 +  // Apply new permission bits to the underlying file, for backends that store
 +  // them. Returns 0 on success or a negative error code. May be called on files
 +  // that have not been opened.
@@ -293,7 +294,7 @@ The new imports get their `libsigs.js` signatures.
 +  virtual int setTimes(double atime, double mtime) { return 0; }
 +
    mode_t mode = 0; // User and group mode bits for access permission.
- 
+
    double atime; // Time when the content was last accessed, in ms.
 @@ -341,10 +353,15 @@
      : lock(file->mutex, std::defer_lock), file(file) {}
@@ -334,7 +335,7 @@ The new imports get their `libsigs.js` signatures.
 +    }
 +    return 0;
 +  }
- 
+
    // Note: parent.lock() creates a new shared_ptr to the same Directory
    // specified by the parent weak_ptr.
 --- a/system/lib/wasmfs/syscalls.cpp
@@ -342,7 +343,7 @@ The new imports get their `libsigs.js` signatures.
 @@ -1177,15 +1177,7 @@
      mTime = timespec_to_ms(times[1]);
    }
- 
+
 -  auto locked = parsed.getFile()->locked();
 -  if (aTime != INFINITY) {
 -    locked.setATime(aTime);
@@ -354,7 +355,7 @@ The new imports get their `libsigs.js` signatures.
 -  return 0;
 +  return parsed.getFile()->locked().setTimes(aTime, mTime);
  }
- 
+
  // TODO: Test this with non-AT_FDCWD values.
 @@ -1199,7 +1191,9 @@
      return err;
@@ -391,7 +392,7 @@ It deserves its own PR:
 +++ b/system/lib/wasmfs/syscalls.cpp
 @@ -1156,13 +1156,14 @@
    }
- 
+
    // Add AT_EMPTY_PATH as Linux (and so, musl, and us) has a nonstandard
 -  // behavior in which an empty path means to operate on whatever is in dirFD
 -  // (directory or not), which is exactly the behavior of AT_EMPTY_PATH (but

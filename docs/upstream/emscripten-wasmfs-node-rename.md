@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
 ```
 $ emcc -O0 -sWASMFS node_rename_dir.c -o node_rename_dir.js && mkdir host && node node_rename_dir.js "$PWD/host"
 rename dir = 0
-read("/host/e/f") = -1 (Bad file descriptor) 
+read("/host/e/f") = -1 (Bad file descriptor)
 ```
 
 <details>
@@ -142,6 +142,7 @@ End of search list.
 </details>
 
 **Where:**
+
 - `NodeDirectory::insertMove` renames on the host but never updates the moved
   file's `state.path`
   ([node_backend.cpp#L247-L260](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L247-L260)).
@@ -163,7 +164,7 @@ across the host's rename.
 @@ -204,6 +204,31 @@
      return state.path + '/' + name;
    }
- 
+
 +  // The host path a file, directory or symlink of this backend refers to.
 +  static std::string& getHostPath(const std::shared_ptr<File>& file) {
 +    if (file->is<DataFile>()) {
@@ -194,7 +195,7 @@ across the host's rename.
      // TODO: also retrieve and set ctime, atime, ino, etc.
 @@ -269,18 +294,26 @@
    }
- 
+
    int insertMove(const std::string& name, std::shared_ptr<File> file) override {
 -    std::string fromPath;
 -
@@ -209,7 +210,7 @@ across the host's rename.
 +    if (file->getBackend() != getBackend()) {
 +      return -EBUSY;
      }
- 
+
 +    // Holding the locks across the host's rename means no operation on a moved
 +    // file sees its host path change under it.
 +    std::vector<File::Handle> locked;
@@ -226,13 +227,13 @@ across the host's rename.
 +    }
 +    return 0;
    }
- 
+
    ssize_t getNumEntries() override {
 --- a/system/lib/wasmfs/file.h
 +++ b/system/lib/wasmfs/file.h
 @@ -208,6 +208,19 @@
    std::map<std::string, DCacheEntry> dcache;
- 
+
  protected:
 +  // The children this directory's backend has returned that are still in the
 +  // dcache. Mount points belong to other backends and are left out. The
@@ -539,7 +540,7 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
     not the path.
   - #24162 and #27684/#27685, which are about OPFS and lock-order rename bugs.
   - #15943 (closed, rename cycles).
-  None is this bug.
+    None is this bug.
 - **Why it matters to us.** GLib's `g_file_set_contents()` writes a temporary
   file and renames it over the target. Under Node with host temp files,
   `bookmarkfile`, `keyfile`, `mappedfile`, `sandbox` and

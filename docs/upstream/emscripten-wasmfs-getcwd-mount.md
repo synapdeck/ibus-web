@@ -132,7 +132,7 @@ dcache holds only mounts, so the extra scan is short:
 +++ b/system/lib/wasmfs/file.cpp
 @@ -207,15 +207,17 @@
  }
- 
+
  std::string Directory::Handle::getName(std::shared_ptr<File> file) {
 -  if (getDir()->maintainsFileIdentity()) {
 -    return getDir()->getName(file);
@@ -150,7 +150,7 @@ dcache holds only mounts, so the extra scan is short:
 +  }
    return "";
  }
- 
+
 ```
 
 With this applied to 6.0.9, the test case prints:

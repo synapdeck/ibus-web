@@ -187,7 +187,7 @@ become "ignore unknown flags" outright.
   - #15524: NODERAWFS `tcgetattr`, unrelated.
   - #26728 (merged): `fcntl(F_SETFL)` flag masking, which quotes `O_NOCTTY` in
     the man page but doesn't touch `open`.
-  None covers WasmFS's assertion.
+    None covers WasmFS's assertion.
 - **Why it matters to us.** GLib's `/pollable/unix/pty` calls `openpty()`. musl
   opens `/dev/ptmx` with `O_NOCTTY`, and under `-sASSERTIONS` the test aborts
   instead of failing cleanly. Our GLib test patch skips the subtest. With the

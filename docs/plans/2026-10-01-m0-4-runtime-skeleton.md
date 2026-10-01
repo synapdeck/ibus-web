@@ -51,20 +51,20 @@ nixpkgs' Chromium and Firefox.
 
 ## File map
 
-| Path | Change | Responsibility |
-|---|---|---|
-| `modules/glib/patches/0017-*.patch`, `README.md` | create / modify (Task 1) | WebAssembly pump hook: the default context's wakeup also notifies a host word |
-| `flake.nix` | modify (Task 2) | import-tree over `./modules` and `./runtime` |
-| `runtime/libibus-web/` (`meson.build`, `include/ibus-web/runtime.h`, `src/*.c`) | create (Task 2) | pump, side-module loader, spike dispatcher |
-| `runtime/options.nix`, `runtime/libibus-web/{package.nix,checks.nix,tests/}` | create (Task 2) | options, build and C tests |
-| `runtime/ibus-runtime/{package.nix,exports.nix,checks.nix,tests/}` | create (Task 3) | the main-module link, its derived, versioned export list, and its check |
-| `tests/spikes/runtime/sides/*` | create (Task 3) | spike side modules |
-| `modules/toolchain/cache.nix` | modify (Task 3) | cache variants the runtime link needs |
-| `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `modules/typescript/default.nix` | create (Task 4) | the pnpm workspace and its offline Nix build |
-| `tests/spikes/runtime/{package.json,tsconfig.json,src/**}` | create (Tasks 4–6) | spike Worker host, scenarios, Node and browser harnesses |
-| `modules/spikes/runtime/default.nix` | create (Tasks 5–6) | `checks.runtime-spike-node`, `checks.runtime-spike-browser` |
-| `docs/spikes/2026-10-01-runtime-worker.md` | create (Tasks 5–7) | spike report |
-| `docs/specs/2026-09-26-ibus-web-design.md`, `docs/plans/…` | modify (Task 8) | R2, R3, §5.2.4, §5.3, M0 rows |
+| Path                                                                                      | Change                   | Responsibility                                                                |
+| ----------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `modules/glib/patches/0017-*.patch`, `README.md`                                          | create / modify (Task 1) | WebAssembly pump hook: the default context's wakeup also notifies a host word |
+| `flake.nix`                                                                               | modify (Task 2)          | import-tree over `./modules` and `./runtime`                                  |
+| `runtime/libibus-web/` (`meson.build`, `include/ibus-web/runtime.h`, `src/*.c`)           | create (Task 2)          | pump, side-module loader, spike dispatcher                                    |
+| `runtime/options.nix`, `runtime/libibus-web/{package.nix,checks.nix,tests/}`              | create (Task 2)          | options, build and C tests                                                    |
+| `runtime/ibus-runtime/{package.nix,exports.nix,checks.nix,tests/}`                        | create (Task 3)          | the main-module link, its derived, versioned export list, and its check       |
+| `tests/spikes/runtime/sides/*`                                                            | create (Task 3)          | spike side modules                                                            |
+| `modules/toolchain/cache.nix`                                                             | modify (Task 3)          | cache variants the runtime link needs                                         |
+| `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `modules/typescript/default.nix` | create (Task 4)          | the pnpm workspace and its offline Nix build                                  |
+| `tests/spikes/runtime/{package.json,tsconfig.json,src/**}`                                | create (Tasks 4–6)       | spike Worker host, scenarios, Node and browser harnesses                      |
+| `modules/spikes/runtime/default.nix`                                                      | create (Tasks 5–6)       | `checks.runtime-spike-node`, `checks.runtime-spike-browser`                   |
+| `docs/spikes/2026-10-01-runtime-worker.md`                                                | create (Tasks 5–7)       | spike report                                                                  |
+| `docs/specs/2026-09-26-ibus-web-design.md`, `docs/plans/…`                                | modify (Task 8)          | R2, R3, §5.2.4, §5.3, M0 rows                                                 |
 
 ---
 
@@ -79,7 +79,9 @@ Task 5's question; this task provides the mechanism in GLib.
 **Files:** scratch clone (new commit of ours), `modules/glib/patches/0017-*.patch`, `modules/glib/patches/README.md`, `modules/glib/checks/smoke/glib-test.c`.
 
 **Interfaces:**
+
 - Produces (WebAssembly only, declared in a GLib header installed with the library, e.g. `glib/gwakeup-wasm.h` or a section of `gmain.h` under `#ifdef G_PLATFORM_WASM`):
+
   ```c
   /* Called from whichever thread signals the context's wakeup, after the
    * wakeup's own futex has been woken. */
@@ -88,10 +90,11 @@ Task 5's question; this task provides the mechanism in GLib.
                                           GWasmWakeHook  hook,
                                           gpointer       user_data);
   ```
+
   A C hook (not a raw word) keeps the choice of word and memory out of GLib: `libibus-web` decides what the hook does (Task 2/5).
 
 - [ ] **Step 1:** Tag the clone's tip `ibus-web-pre-m0-4`. Add the hook to the WebAssembly `GWakeup`: a hook pointer and user data, set through `g_main_context_wasm_set_wake_hook()` on the context's wakeup, called from `g_wakeup_signal()` after `emscripten_futex_wake()`. Thread-safe publication (set once before use; read with an atomic load). No effect on other platforms (compile-time guard).
-- [ ] **Step 2:** Smoke test (`glib-test.c`): set a hook on the default context that counts calls atomically; acquire the default context on the main thread; from a `GThread`, `g_idle_add()` a source; assert the hook ran (counter > 0) and the source dispatches on the next `g_main_context_iteration(NULL, FALSE)`. Also assert that with the context *not* acquired, an attach from another thread does not call the hook (documents why the pump must own the context). Print `wakehook 1 0` and grep it in the check.
+- [ ] **Step 2:** Smoke test (`glib-test.c`): set a hook on the default context that counts calls atomically; acquire the default context on the main thread; from a `GThread`, `g_idle_add()` a source; assert the hook ran (counter > 0) and the source dispatches on the next `g_main_context_iteration(NULL, FALSE)`. Also assert that with the context _not_ acquired, an attach from another thread does not call the hook (documents why the pump must own the context). Print `wakehook 1 0` and grep it in the check.
 - [ ] **Step 3:** Re-export the series (`git format-patch --no-signature -o <repo>/modules/glib/patches nixpkgs-2.88.3..ibus-web`), document 0017 in the README, run `checks.glib-patches`, `checks.glib`, `checks.glib-tests` (results unchanged), `nix flake check`. Commit.
 
 ### Task 2: `libibus-web` skeleton
@@ -101,6 +104,7 @@ The minimal C library the Worker host drives. No IBus types yet (M1).
 **Files:** `runtime/libibus-web/meson.build`, `runtime/libibus-web/include/ibus-web/runtime.h`, `runtime/libibus-web/src/{runtime.c,pump.c,module.c,dispatch.c}`, `runtime/libibus-web/package.nix` (derivation exposed as `ibusWeb.runtime.libibusWeb` and `packages.libibus-web`), `runtime/libibus-web/checks.nix` and `runtime/libibus-web/tests/` (GTest suite run by `meson test`), `runtime/options.nix`, `flake.nix` (import-tree over `[ ./modules ./runtime ]`).
 
 **Interfaces (Produces, `ibus-web/runtime.h`):**
+
 ```c
 /* Runtime ABI version; the export list (Task 3) is versioned by it. */
 #define IBUSWEB_RUNTIME_ABI 0
@@ -127,6 +131,7 @@ int ibusweb_load_module (const char *path, IBusWebModule **module_out);
 int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
                           uint8_t *reply, uint32_t reply_cap);
 ```
+
 `IBusWebModule` (opaque) lets a side module register named spike operations (`void (*)(const uint8_t *, uint32_t, GString *)`), so scenarios live in side modules, not the runtime.
 
 - [ ] **Step 1: Failing test.** `test-runtime.c` (linked with `toolchain.testMainFlags`, run under Node) asserts: `ibusweb_runtime_init(&word)` returns 0; a `GThread` that `g_idle_add`s a source increments `word` (wake hook) and the next `ibusweb_pump()` dispatches it; `ibusweb_pump()` returns the remaining delay for a `g_timeout_add(250, …)` source (200–250 ms) and -1 with no sources; `ibusweb_dispatch` returns an error for an unknown opcode. Build it to see it fail (no library yet).
@@ -138,6 +143,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 **Files:** `runtime/ibus-runtime/package.nix` (`packages.ibus-runtime`: `ibus-runtime.js`, `ibus-runtime.wasm`, `exports.txt`), `runtime/ibus-runtime/exports.nix` (derives the export list), `modules/toolchain/cache.nix` (new probe variants), `tests/spikes/runtime/sides/{trivial.c,thread.c,throw.cpp,fsync.c}`, `runtime/ibus-runtime/checks.nix` (with any check sources in `runtime/ibus-runtime/tests/`).
 
 **Requirements:**
+
 - Link: `em++` with `-sMAIN_MODULE=2`, the export list, `-sWASMFS=1` with the OPFS backend available (`wasmfs_create_opfs_backend` reachable from JS/C), `-sPTHREAD_POOL_SIZE=<n>` (choose and justify; the pool is pre-allocated so thread creation never yields, R2), `-sSTACK_SIZE=1MB` and `-sDEFAULT_PTHREAD_STACK_SIZE=1MB` (GRegex, §5.3), `-sMODULARIZE=1 -sEXPORT_ES6=1`, `-sENVIRONMENT=web,worker,node`, `-sEXIT_RUNTIME=0`. Memory: start with growth off and a fixed size large enough for the spike (`-sINITIAL_MEMORY` chosen from measured needs); Task 7 settles the final rule. Release build without `-sASSERTIONS`; a second, asserting build for the checks.
 - **Export list, derived:** every global function and data symbol of `libibus-web`, `libglib-2.0`, `libgobject-2.0`, `libgmodule-2.0`, `libgio-2.0` (the GIO subset built), `libffi`, plus the C/C++ runtime symbols side modules need (libc, libc++/libc++abi — derive from Emscripten's own system library symbol lists or from what the spike side modules import, and justify the choice). Generate it in a derivation (e.g. `llvm-nm --defined-only --extern-only` over the static libraries from `ibusWeb.toolchain.emscripten.llvmEnv`), sorted, with a header line naming `IBUSWEB_RUNTIME_ABI`. A check fails if a side module imports a symbol the list lacks (`wasm-objdump`/`llvm-nm` on the side modules vs the list).
 - **Side modules** (`-sSIDE_MODULE=1`, `commonFlags`), each exporting `ibusweb_module_init` that registers spike operations:
@@ -153,6 +159,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 **Files:** `package.json` (root, private, `packageManager: pnpm@<pnpm_11 version>`), `pnpm-workspace.yaml` (`packages: ["tests/spikes/*", "packages/*"]`), `pnpm-lock.yaml`, `tests/spikes/runtime/package.json` (`@ibus-web/spike-runtime`, private; devDependencies `typescript`, `@types/node`, `playwright` = nixpkgs `playwright-driver` version, derived and checked), `tests/spikes/runtime/tsconfig.json` (`strict`, `erasableSyntaxOnly`, `module`/`moduleResolution` `nodenext`, `target` ES2023, `lib` with DOM and WebWorker), `modules/typescript/default.nix`.
 
 **Interfaces:**
+
 - Produces `ibusWeb.typescript.workspace`: a derivation that installs the workspace offline (`fetchPnpmDeps` with `pnpm_11`, `fetcherVersion = 4`, `pnpmConfigHook`), runs `pnpm -r exec tsc -p .` and outputs each package's `dist/` (the JavaScript browsers load) and sources; `checks.typescript` runs `tsc --noEmit` across the workspace. Node in checks runs the emitted `dist/` (deterministic); developers may run sources directly with Node 24 while iterating.
 - The dev shell gains `pnpm_11` and Node 24 (spec §10.6).
 - [ ] Steps: a placeholder `src/index.ts` that type-checks, the Nix module with the deps hash, `checks.typescript` failing on an introduced type error then passing, a check that the `playwright` version equals `pkgs.playwright-driver.version`, `nix flake check`, commit.
@@ -164,11 +171,13 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 **Host (spec §5.5 steps 1–4, spike-sized):** receives the compiled runtime module (or its URL), a dedicated control SAB and the side-module list by `postMessage`; instantiates the runtime; mounts storage (memory in Node; OPFS in browsers, Task 6); loads the side modules; calls `ibusweb_runtime_init`; enters the request loop — `Atomics.wait` with the pump deadline as timeout, then dispatch or pump, write the reply, repeat. Requests use a minimal spike layout of §6.2.1's control header (`state`, `reqSeq`, `reqLen`, `replyRet`, plus a request/reply slot); no ring or GVariant yet.
 
 **The open design question — the wake word (decide here, with evidence):** the host must sleep on one word and be woken both by the page (a request) and by GLib (the Task 1 hook, from any pthread). §9.2 forbids the page touching WASM memory. Try, in order, and record each result in the spike report:
+
 1. **Hook notifies the control SAB:** the wake hook (`EM_JS`) does `Atomics.add`/`Atomics.notify` on the control SAB's wake word, made reachable from every pthread's JS realm (e.g. passed to pthread Workers at startup through an Emscripten hook such as `Module` settings propagated to workers, or `emscripten_pthread`-level init code). Host waits on the control SAB word. Keeps §9.2.
 2. **C wait loop:** the host calls into the runtime (`ibusweb_wait(timeout)`), which waits with `emscripten_futex_wait` on a word in WASM memory (processing the proxy queue — spec R2's first option), and a relay maps page requests to that word without the page touching WASM memory. Record whether such a relay exists without a JS event loop turn.
 3. If neither works without breaking §9.2, **stop and report** with the evidence; the user decides (e.g. placing the control header in WASM memory changes §6.2/§9.2).
 
 **Scenarios** (each with a pass criterion and a measured number, Node first):
+
 - `dispatch`: 1000 `add` round trips; report p50/p99 latency.
 - `cross-thread-wake`: `idle-later(50)`, host idle with a long deadline; the source is dispatched within 50 ms + ε of the attach (report ε; fail above 20 ms).
 - `deadline`: `g_timeout_add(100)` with no requests; dispatched at 100 ms ± 10.
@@ -183,6 +192,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 **Files:** `tests/spikes/runtime/src/browser/{server.ts,page.ts,index.html,run.ts}`, `modules/spikes/runtime/default.nix` (`checks.runtime-spike-browser`), optionally `modules/playwright/default.nix` exposing `ibusWeb.testing.playwright` (browsers path, env) for reuse in M1.
 
 **Requirements:**
+
 - `server.ts`: Node HTTP server serving the runtime, side modules and `dist/` with COOP/COEP headers (Global constraints) and correct MIME types (`application/wasm`, `text/javascript`).
 - `page.ts`: creates the Worker by URL (`new Worker(url, { type: "module" })`), sends the compiled `WebAssembly.Module` and SAB, runs `scenarios.ts`, reports JSON results.
 - `run.ts`: Playwright (`playwright` package, `chromium` and `firefox` from `PLAYWRIGHT_BROWSERS_PATH` = nixpkgs' `playwright-driver.browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`), headless, asserting `crossOriginIsolated === true`, then each scenario's pass criterion. Plus an `opfs` scenario: mount WasmFS's OPFS backend at `/engines/spike/`, write, `fsync`, read back, and `promise-proxied-fsync` on the OPFS mount.
@@ -194,6 +204,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 **Files:** `tests/spikes/runtime/sides/memstress.c` (or a standalone program), `tests/spikes/runtime/src/scenarios.ts` (stress scenario), `runtime/ibus-runtime/package.nix` (final memory flags), spike report.
 
 **Requirements:** reproduce the GLib-suite trap pattern without GLib (many pthreads allocating and touching fresh memory while memory grows) and with GLib (the `1bit-emufutex`-style workload), under memory growth and under fixed memory, in Node (≥ 300 runs), Chromium and Firefox (≥ 50 runs each). Decision rule (user-approved): **if growth traps in any engine, the runtime uses fixed per-Worker memory, sized from the manifest (runtime + side module + data, with margin); otherwise growth.** Implement the chosen rule in the link (and, for fixed memory, how the size is chosen — a manifest field the host passes, or a per-engine link), record the evidence. If a GLib-free reproduction appears, add it to `docs/upstream/` as a draft (V8/SpiderMonkey/Node or Emscripten, per the evidence).
+
 - [ ] Steps: stress harness, runs, decision, link change, `nix flake check`, commit.
 
 ### Task 8: Settle R2 and R3; spec and plan

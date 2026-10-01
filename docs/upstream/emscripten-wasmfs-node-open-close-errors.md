@@ -185,6 +185,7 @@ End of search list.
 </details>
 
 **Where:**
+
 - `wasmfsTry` returns `ERRNO_CODES[code]`, which is positive
   ([libwasmfs_node.js#L19-L27](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libwasmfs_node.js#L19-L27)).
 - `_wasmfs_node_open` returns either an fd or that errno
@@ -220,7 +221,7 @@ would make every `pwrite` to the descriptor append on Linux.
 @@ -121,12 +121,16 @@
      // implicitly return 0
    },
- 
+
 -  _wasmfs_node_insert_file__deps: ['$wasmfsTry'],
 +  _wasmfs_node_insert_file__deps: ['$wasmfsNodeConvertNodeCode'],
    _wasmfs_node_insert_file: (path_p, mode) => {
@@ -237,12 +238,12 @@ would make every `pwrite` to the descriptor append on Linux.
 +      return -wasmfsNodeConvertNodeCode(e);
 +    }
    },
- 
+
    _wasmfs_node_insert_directory__deps: ['$wasmfsTry'],
 @@ -167,9 +171,15 @@
      return wasmfsTry(() => fs.ftruncateSync(fd, len));
    },
- 
+
 -  _wasmfs_node_open__deps: ['$wasmfsTry'],
 +  _wasmfs_node_open__deps: ['$wasmfsNodeConvertNodeCode'],
    _wasmfs_node_open: (path_p, mode_p) => {
@@ -255,7 +256,7 @@ would make every `pwrite` to the descriptor append on Linux.
 +      return -wasmfsNodeConvertNodeCode(e);
 +    }
    },
- 
+
    _wasmfs_node_rename__deps: ['$wasmfsTry'],
 --- a/system/lib/wasmfs/backends/node_backend.cpp
 +++ b/system/lib/wasmfs/backends/node_backend.cpp
@@ -265,13 +266,13 @@ would make every `pwrite` to the descriptor append on Linux.
    int fd = -1;
 +  // The descriptor that created the file, until its first open takes it.
 +  int created = -1;
- 
+
  public:
    std::string path;
 @@ -34,10 +36,29 @@
- 
+
    bool isOpen() { return openCount > 0; }
- 
+
 +  // Keep the read-write descriptor that created the file for the open that
 +  // follows: the file's mode doesn't bind the open that creates it, but would
 +  // refuse a second one.
@@ -310,7 +311,7 @@ would make every `pwrite` to the descriptor append on Linux.
 @@ -104,6 +125,8 @@
    NodeFile(mode_t mode, backend_t backend, std::string path)
      : DataFile(mode, backend), state(path) {}
- 
+
 +  ~NodeFile() { state.closeCreated(); }
 +
  private:
@@ -330,14 +331,14 @@ would make every `pwrite` to the descriptor append on Linux.
 +    file->state.keepCreated(fd);
 +    return file;
    }
- 
+
    std::shared_ptr<Directory> insertDirectory(const std::string& name,
 --- a/system/lib/wasmfs/backends/node_backend.h
 +++ b/system/lib/wasmfs/backends/node_backend.h
 @@ -19,8 +19,11 @@
  int _wasmfs_node_stat_size(const char* path, uint32_t* size);
  int _wasmfs_node_fstat_size(int fd, uint32_t* size);
- 
+
 -// Create a new file system entry and return 0 or an error code.
 -int _wasmfs_node_insert_file(const char* path, mode_t mode);
 +// Create a new file and return a file descriptor open for reading and
@@ -346,7 +347,7 @@ would make every `pwrite` to the descriptor append on Linux.
 +
 +// Create a new directory and return 0 or an error code.
  int _wasmfs_node_insert_directory(const char* path, mode_t mode);
- 
+
  // Unlink the given file and return 0 or an error code.
 --- a/system/lib/wasmfs/syscalls.cpp
 +++ b/system/lib/wasmfs/syscalls.cpp
@@ -365,7 +366,7 @@ would make every `pwrite` to the descriptor append on Linux.
 +        }
          return 0;
        }
- 
+
 ```
 
 With this applied to 6.0.9, test case 1 prints:

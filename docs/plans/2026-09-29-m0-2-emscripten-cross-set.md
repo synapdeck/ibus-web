@@ -50,43 +50,45 @@ through the cross `pkg-config`, and composed 한 with it.
 
 ## File map
 
-| Path | Change | Responsibility |
-|---|---|---|
-| `modules/toolchain/options.nix` | modify | add `pkgsWasm`; remove `wasmStdenv` |
-| `modules/toolchain/cross.nix` | create | the Emscripten cross package set |
-| `modules/toolchain/cross-check.nix` | create | `checks.cross-toolchain` |
-| `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh` | delete | superseded by the cross set |
-| `modules/toolchain/cache.nix` | modify | WasmFS main-module link in `checks.toolchain-cache` |
-| `modules/wasm-packages/*` | create (Task 2), delete (Task 3) | alias layer, replaced by overlays |
-| `modules/checks/libhangul/{default.nix,_libhangul-test.c}` | create (Task 3) | `checks.libhangul-wasm` through the cross `pkg-config` |
-| `modules/spikes/dynlink.nix`, `modules/toolchain/cache.nix` | modify (Task 3) | read `pkgsWasm.libhangul`; cache under `legacyPackages` |
-| `modules/checks/meson-consumer/{default.nix,src/}` | create (Task 4) | Meson + `pkg-config` + zlib + libffi check |
-| `modules/flake/formatting.nix`, `.clang-format` | modify, create | clang-format and shfmt |
-| `modules/flake/systems.nix`, `flake.nix`, `flake.lock` | modify | systems from `nix-systems/triplet` |
-| `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md` | modify | describe the cross set; resolve R17 |
+| Path                                                                            | Change                           | Responsibility                                          |
+| ------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------- |
+| `modules/toolchain/options.nix`                                                 | modify                           | add `pkgsWasm`; remove `wasmStdenv`                     |
+| `modules/toolchain/cross.nix`                                                   | create                           | the Emscripten cross package set                        |
+| `modules/toolchain/cross-check.nix`                                             | create                           | `checks.cross-toolchain`                                |
+| `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh`    | delete                           | superseded by the cross set                             |
+| `modules/toolchain/cache.nix`                                                   | modify                           | WasmFS main-module link in `checks.toolchain-cache`     |
+| `modules/wasm-packages/*`                                                       | create (Task 2), delete (Task 3) | alias layer, replaced by overlays                       |
+| `modules/checks/libhangul/{default.nix,_libhangul-test.c}`                      | create (Task 3)                  | `checks.libhangul-wasm` through the cross `pkg-config`  |
+| `modules/spikes/dynlink.nix`, `modules/toolchain/cache.nix`                     | modify (Task 3)                  | read `pkgsWasm.libhangul`; cache under `legacyPackages` |
+| `modules/checks/meson-consumer/{default.nix,src/}`                              | create (Task 4)                  | Meson + `pkg-config` + zlib + libffi check              |
+| `modules/flake/formatting.nix`, `.clang-format`                                 | modify, create                   | clang-format and shfmt                                  |
+| `modules/flake/systems.nix`, `flake.nix`, `flake.lock`                          | modify                           | systems from `nix-systems/triplet`                      |
+| `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md` | modify                           | describe the cross set; resolve R17                     |
 
 ## Shared options
 
-| Option (under `perSystem`) | Type | After this plan |
-|---|---|---|
-| `ibusWeb.toolchain.commonFlags` | `str` | unchanged |
-| `ibusWeb.toolchain.testMainFlags` | `str` | unchanged |
-| `ibusWeb.toolchain.emscriptenCache` | `package` | unchanged |
-| `ibusWeb.toolchain.emscriptenCacheHook` | `package` | unchanged; now also part of the cross stdenv |
-| `ibusWeb.toolchain.wasmStdenv` | — | **removed** (Task 2) |
-| `ibusWeb.toolchain.pkgsWasm` | `raw` | **new** (Task 1): nixpkgs for `wasm32-unknown-none` with Emscripten |
-| `ibusWeb.wasmPackages` | — | **removed** (Task 3); use `pkgsWasm.<name>` |
-| flake output `overlays` | attrset of overlays | applied to `pkgsWasm` (Task 3); none defined in this plan |
+| Option (under `perSystem`)              | Type                | After this plan                                                     |
+| --------------------------------------- | ------------------- | ------------------------------------------------------------------- |
+| `ibusWeb.toolchain.commonFlags`         | `str`               | unchanged                                                           |
+| `ibusWeb.toolchain.testMainFlags`       | `str`               | unchanged                                                           |
+| `ibusWeb.toolchain.emscriptenCache`     | `package`           | unchanged                                                           |
+| `ibusWeb.toolchain.emscriptenCacheHook` | `package`           | unchanged; now also part of the cross stdenv                        |
+| `ibusWeb.toolchain.wasmStdenv`          | —                   | **removed** (Task 2)                                                |
+| `ibusWeb.toolchain.pkgsWasm`            | `raw`               | **new** (Task 1): nixpkgs for `wasm32-unknown-none` with Emscripten |
+| `ibusWeb.wasmPackages`                  | —                   | **removed** (Task 3); use `pkgsWasm.<name>`                         |
+| flake output `overlays`                 | attrset of overlays | applied to `pkgsWasm` (Task 3); none defined in this plan           |
 
 ---
 
 ### Task 1: The Emscripten cross package set
 
 **Files:**
+
 - Modify: `modules/toolchain/options.nix`
 - Create: `modules/toolchain/cross-check.nix`, `modules/toolchain/cross.nix`
 
 **Interfaces:**
+
 - Consumes: `ibusWeb.toolchain.{commonFlags, testMainFlags, emscriptenCacheHook}`.
 - Produces: `ibusWeb.toolchain.pkgsWasm`, a nixpkgs package set whose `stdenv` targets `wasm32-unknown-none` (static) with `stdenv.cc` wrapping `emcc`/`em++`; `checks.cross-toolchain`.
 
@@ -290,12 +292,14 @@ git commit -m "Add an Emscripten-backed wasm32 cross package set"
 ### Task 2: Move libhangul to the cross set and remove `wasmStdenv`
 
 **Files:**
+
 - Create: `modules/wasm-packages/libhangul-check.nix`
 - Rewrite: `modules/wasm-packages/libhangul.nix`
 - Modify: `modules/wasm-packages/options.nix`, `modules/toolchain/options.nix`
 - Delete: `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh`
 
 **Interfaces:**
+
 - Consumes: `ibusWeb.toolchain.{pkgsWasm, testMainFlags}` (Task 1); `modules/wasm-packages/_tests/libhangul-test.c` (exists; prints `preedit U+D55C`).
 - Produces: `ibusWeb.wasmPackages.libhangul = pkgsWasm.libhangul` (unmodified recipe); `packages.libhangul-wasm`; `checks.libhangul-wasm`. `checks.dynlink-spike` keeps reading `wasmPackages.libhangul` (`include/hangul-1.0`, `lib/libhangul.a`).
 
@@ -402,12 +406,14 @@ depend on it inside `pkgsWasm`. Recipe changes therefore become overlays
 applied to `pkgsWasm` itself, and the alias layer goes away.
 
 **Files:**
+
 - Modify: `modules/toolchain/cross.nix`, `modules/toolchain/cache.nix`, `modules/spikes/dynlink.nix`
 - Create: `modules/checks/libhangul/default.nix`
 - Move: `modules/wasm-packages/_tests/libhangul-test.c` → `modules/checks/libhangul/_libhangul-test.c`
 - Delete: `modules/wasm-packages/` (`options.nix`, `libhangul.nix`, `libhangul-check.nix`)
 
 **Interfaces:**
+
 - Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1).
 - Produces:
   - `pkgsWasm.stdenv.cc.cc.isEmscripten = true` (a marker on the unwrapped compiler).
@@ -561,10 +567,12 @@ from `pkgsWasm`'s unmodified zlib and libffi, that Meson's cross setup, the
 cross `pkg-config`, a recipe's `NIX_CFLAGS_COMPILE` and both libraries work.
 
 **Files:**
+
 - Create: `modules/checks/meson-consumer/default.nix`, `modules/checks/meson-consumer/src/meson.build`, `modules/checks/meson-consumer/src/main.c`, `modules/toolchain/emscripten-cc-wrapper-hook.sh`
 - Modify: `modules/toolchain/cross.nix`, `modules/toolchain/cross-check.nix`
 
 **Interfaces:**
+
 - Consumes: `ibusWeb.toolchain.pkgsWasm` (Task 1), `pkgsWasm.zlib`, `pkgsWasm.libffi`.
 - Produces: `checks.meson-consumer` (output contains `zlib ok` and `ffi 42`; compiling at all proves a recipe's `NIX_CFLAGS_COMPILE` reaches `emcc`). The wrapped compiler drops flags that clang/lld accept but `emcc`/`wasm-ld` reject, and `checks.cross-toolchain` tests that.
 
@@ -762,9 +770,11 @@ The runtime will be a `-sMAIN_MODULE=2` WasmFS main module. The cache is
 built for that link setting, but no check links it.
 
 **Files:**
+
 - Modify: `modules/toolchain/cache.nix`
 
 **Interfaces:**
+
 - Consumes: the `mainLinkWasmfs` binding already in `modules/toolchain/cache.nix`.
 - Produces: `checks.toolchain-cache` also links and runs a WasmFS main module.
 
@@ -797,12 +807,14 @@ git commit -m "Check a WasmFS main-module link against the cache"
 ### Task 6: Plain names and formatting for non-Nix sources
 
 **Files:**
+
 - Rename: `modules/toolchain/_probes/` → `modules/toolchain/probes/`, `modules/toolchain/_emscripten-cache-hook.sh` → `modules/toolchain/emscripten-cache-hook.sh`, `modules/checks/libhangul/_libhangul-test.c` → `modules/checks/libhangul/libhangul-test.c`
 - Modify: every `.nix` file that references them (`modules/toolchain/cache.nix`, `modules/toolchain/cross-check.nix`, `modules/checks/libhangul/default.nix`), `modules/flake/formatting.nix`
 - Create: `.clang-format`
 - Reformatted by the tool: C, C++ and shell files under `modules/` and `tests/`
 
 **Interfaces:**
+
 - Produces: no `_`-prefixed non-Nix paths remain under `modules/`; `nix fmt` and `checks.treefmt` cover `*.c`, `*.cpp`, `*.h` and `*.sh`.
 
 - [ ] **Step 0: Drop the underscores**
@@ -878,9 +890,11 @@ WASM, so that reason is gone. Darwin builds can't be verified here (no Darwin
 builder), so the gate is evaluation.
 
 **Files:**
+
 - Modify: `flake.nix` (`systems` input URL), `flake.lock`
 
 **Interfaces:**
+
 - Produces: systems `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`.
 
 - [ ] **Step 1: Switch the input**
@@ -919,9 +933,11 @@ git commit -m "Evaluate on Darwin again: systems from nix-systems/triplet"
 ### Task 8: Update the spec and the spike findings
 
 **Files:**
+
 - Modify: `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-09-26-dynlink.md`
 
 **Interfaces:**
+
 - Consumes: the results of Tasks 1–7 (read their commits with `git log`, and the reports if you have them).
 
 - [ ] **Step 1: Rewrite the WASM-builds paragraph in §10.2**
@@ -983,9 +999,9 @@ Replace the bullet that begins "**Per-package overrides** do four things" (and i
      ibus-hangul's `fix-paths.patch`, which edits the Python setup program);
   3. append our patch layers after nixpkgs' remaining patches: `patches/port`,
      then `patches/casts` as a separate list.
-  Dependencies are never swapped by hand: cross splicing supplies the WASM
-  builds. A patched package is never defined under another name, because
-  dependents inside `pkgsWasm` would not see it.
+     Dependencies are never swapped by hand: cross splicing supplies the WASM
+     builds. A patched package is never defined under another name, because
+     dependents inside `pkgsWasm` would not see it.
 ```
 
 In §10.3.1, change the first line of the derivation graph from `emscriptenCache ─ wasmStdenv` to `emscriptenCache ─ pkgsWasm`.

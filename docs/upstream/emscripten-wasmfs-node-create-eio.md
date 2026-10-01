@@ -104,6 +104,7 @@ End of search list.
 </details>
 
 **Where:**
+
 - `doOpen` and `doMkdir` turn a null result from the backend's
   `insertDataFile`/`insertDirectory` (or `createFile`/`createDirectory`) into
   `-EIO`, under `// TODO Receive a specific error code, and report it here`
@@ -126,7 +127,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -58,8 +58,8 @@
                   emscripten::ProxyWorker& proxy)
      : MemoryDirectory(mode, backend), dirPath(path), proxy(proxy) {}
- 
+
 -  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
 -                                           mode_t mode) override {
 +  MaybeFile<DataFile> insertDataFile(const std::string& name,
@@ -137,7 +138,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -67,8 +67,8 @@
      return child;
    }
- 
+
 -  std::shared_ptr<Directory> insertDirectory(const std::string& name,
 -                                             mode_t mode) override {
 +  MaybeFile<Directory> insertDirectory(const std::string& name,
@@ -149,7 +150,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 +++ b/system/lib/wasmfs/backends/ignore_case_backend.cpp
 @@ -47,10 +47,10 @@
      : VirtualDirectory(real, backend) {}
- 
+
    std::shared_ptr<File> getChild(const std::string& name) override;
 -  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
 -                                           mode_t mode) override;
@@ -165,7 +166,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -103,24 +103,24 @@
    return child;
  }
- 
+
 -std::shared_ptr<DataFile>
 +Directory::MaybeFile<DataFile>
  IgnoreCaseDirectory::insertDataFile(const std::string& name, mode_t mode) {
@@ -179,7 +180,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
    children[normalized] = {name, file};
    return file;
  }
- 
+
 -std::shared_ptr<Directory>
 +Directory::MaybeFile<Directory>
  IgnoreCaseDirectory::insertDirectory(const std::string& name, mode_t mode) {
@@ -196,7 +197,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -263,23 +263,23 @@
      return 0;
    }
- 
+
 -  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
 -                                           mode_t mode) override {
 +  MaybeFile<DataFile> insertDataFile(const std::string& name,
@@ -211,7 +212,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
      file->state.keepCreated(fd);
      return file;
    }
- 
+
 -  std::shared_ptr<Directory> insertDirectory(const std::string& name,
 -                                             mode_t mode) override {
 +  MaybeFile<Directory> insertDirectory(const std::string& name,
@@ -229,7 +230,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -293,8 +293,8 @@
      }
    }
- 
+
 -  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
 -                                           mode_t mode) override {
 +  MaybeFile<DataFile> insertDataFile(const std::string& name,
@@ -240,7 +241,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -306,8 +306,8 @@
      return std::make_shared<OPFSFile>(mode, getBackend(), childID, proxy);
    }
- 
+
 -  std::shared_ptr<Directory> insertDirectory(const std::string& name,
 -                                             mode_t mode) override {
 +  MaybeFile<Directory> insertDirectory(const std::string& name,
@@ -253,7 +254,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -88,30 +88,30 @@
    return true;
  }
- 
+
 -std::shared_ptr<DataFile>
 +Directory::MaybeFile<DataFile>
  Directory::Handle::insertDataFile(const std::string& name, mode_t mode) {
@@ -271,7 +272,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
    updateMTime();
    return child;
  }
- 
+
 -std::shared_ptr<Directory>
 +Directory::MaybeFile<Directory>
  Directory::Handle::insertDirectory(const std::string& name, mode_t mode) {
@@ -292,7 +293,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 @@ -194,6 +194,21 @@
      }
    };
- 
+
 +  // A newly created file, or null and a negative error code. It is still a
 +  // `std::shared_ptr`, so callers that only check for null need not change.
 +  template<class T> class MaybeFile : public std::shared_ptr<T> {
@@ -327,7 +328,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 +                                               mode_t mode) = 0;
    virtual std::shared_ptr<Symlink> insertSymlink(const std::string& name,
                                                   const std::string& target) = 0;
- 
+
 @@ -417,11 +432,9 @@
    // Insert a child of the given name, kind, and mode in the underlying backend,
    // which will allocate and return a corresponding `File` on success or return
@@ -342,13 +343,13 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
 +  MaybeFile<Directory> insertDirectory(const std::string& name, mode_t mode);
    std::shared_ptr<Symlink> insertSymlink(const std::string& name,
                                           const std::string& target);
- 
+
 --- a/system/lib/wasmfs/memory_backend.h
 +++ b/system/lib/wasmfs/memory_backend.h
 @@ -69,15 +69,15 @@
- 
+
    int removeChild(const std::string& name) override;
- 
+
 -  std::shared_ptr<DataFile> insertDataFile(const std::string& name,
 -                                           mode_t mode) override {
 +  MaybeFile<DataFile> insertDataFile(const std::string& name,
@@ -357,7 +358,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
      insertChild(name, child);
      return child;
    }
- 
+
 -  std::shared_ptr<Directory> insertDirectory(const std::string& name,
 -                                             mode_t mode) override {
 +  MaybeFile<Directory> insertDirectory(const std::string& name,
@@ -387,7 +388,7 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
          if (!created) {
 @@ -645,10 +645,8 @@
    }
- 
+
    if (backend == parent->getBackend()) {
 -    if (!lockedParent.insertDirectory(childName, mode)) {
 -      // TODO Receive a specific error code, and report it here. For now, report

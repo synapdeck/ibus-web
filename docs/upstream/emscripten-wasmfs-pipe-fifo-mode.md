@@ -91,6 +91,7 @@ End of search list.
 </details>
 
 **Where:**
+
 - `PipeFile` uses `DataFile`'s two-argument constructor
   ([pipe_backend.h#L57-L58](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/pipe_backend.h#L57-L58)).
 - That constructor ORs in `S_IFREG`

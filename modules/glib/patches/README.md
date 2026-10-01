@@ -11,10 +11,10 @@ Every patch keeps its original author.
 
 ## Sources
 
-| Source | Branch | Base |
-|---|---|---|
+| Source                            | Branch                                                                                         | Base                               |
+| --------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------- |
 | Kleis Auke Wolthuizen (wasm-vips) | [`kleisauke/glib` `wasm-vips-2.88.1`](https://github.com/kleisauke/glib/tree/wasm-vips-2.88.1) | upstream `2.88.1` (`d43ba363cb9a`) |
-| Fluendo (gst.wasm) | [`fluendo/glib` `gst.wasm`](https://github.com/fluendo/glib/tree/gst.wasm) | upstream `2.76.0` (`8a9ada663923`) |
+| Fluendo (gst.wasm)                | [`fluendo/glib` `gst.wasm`](https://github.com/fluendo/glib/tree/gst.wasm)                     | upstream `2.76.0` (`8a9ada663923`) |
 
 The series was built by cherry-picking onto a branch made of upstream `2.88.3`
 plus nixpkgs' patches, then exported with `git format-patch`. Commit
@@ -23,25 +23,25 @@ the source hash.
 
 ## The series
 
-| Patch | Author | Source commit |
-|---|---|---|
-| 0001 Do not build girepository and the fuzzers (partial) | Wolthuizen | `0e5465ae90c6` |
-| 0002 Disable NLS | Wolthuizen | `1f4fa40ad026` |
-| 0003 Emscripten doesn't always define `__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4` | Wolthuizen | `84981eb5dd31` |
-| 0004 Emscripten doesn't implement `pthread_getname_np()` | Wolthuizen | `8ced885eb25b` |
-| 0005 Network libs are not available on Emscripten | Wolthuizen | `c6a63fcd426f` |
-| 0006 Ensure separate checks are also done for Emscripten | Wolthuizen | `bc4812fd5890` |
-| 0007 Use vsnprintf/snprintf/printf from musl libc | Wolthuizen | `c0bb73dd62bf` |
-| 0008 Add support for WebAssembly | Wolthuizen | `fc0d03194fb2` |
-| 0009 Fix function pointer cast issues | Wolthuizen | `1afd0d285774` |
-| 0010 glist: Fix function signatures in internals of glist/gslist | Jorge Zapata (Fluendo) | `86387bcf5b85` |
-| 0011 Call callbacks through their own function types | Alexis Williams | — |
-| 0012 Build the tools and the Unix parts WebAssembly can take | Alexis Williams | — |
-| 0013 gmain, gwakeup: Wait on a futex-backed GWakeup on WebAssembly | Alexis Williams | — |
-| 0014 Give WebAssembly time zones, a memory monitor, content types and a user | Alexis Williams | — |
-| 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces | Alexis Williams | — |
-| 0016 tests: Build and run GLib's tests on WebAssembly | Alexis Williams | — |
-| 0017 gmain, gwakeup: Call a hook when a context's wakeup is signalled on WebAssembly | Alexis Williams | — |
+| Patch                                                                                | Author                 | Source commit  |
+| ------------------------------------------------------------------------------------ | ---------------------- | -------------- |
+| 0001 Do not build girepository and the fuzzers (partial)                             | Wolthuizen             | `0e5465ae90c6` |
+| 0002 Disable NLS                                                                     | Wolthuizen             | `1f4fa40ad026` |
+| 0003 Emscripten doesn't always define `__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4`           | Wolthuizen             | `84981eb5dd31` |
+| 0004 Emscripten doesn't implement `pthread_getname_np()`                             | Wolthuizen             | `8ced885eb25b` |
+| 0005 Network libs are not available on Emscripten                                    | Wolthuizen             | `c6a63fcd426f` |
+| 0006 Ensure separate checks are also done for Emscripten                             | Wolthuizen             | `bc4812fd5890` |
+| 0007 Use vsnprintf/snprintf/printf from musl libc                                    | Wolthuizen             | `c0bb73dd62bf` |
+| 0008 Add support for WebAssembly                                                     | Wolthuizen             | `fc0d03194fb2` |
+| 0009 Fix function pointer cast issues                                                | Wolthuizen             | `1afd0d285774` |
+| 0010 glist: Fix function signatures in internals of glist/gslist                     | Jorge Zapata (Fluendo) | `86387bcf5b85` |
+| 0011 Call callbacks through their own function types                                 | Alexis Williams        | —              |
+| 0012 Build the tools and the Unix parts WebAssembly can take                         | Alexis Williams        | —              |
+| 0013 gmain, gwakeup: Wait on a futex-backed GWakeup on WebAssembly                   | Alexis Williams        | —              |
+| 0014 Give WebAssembly time zones, a memory monitor, content types and a user         | Alexis Williams        | —              |
+| 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces               | Alexis Williams        | —              |
+| 0016 tests: Build and run GLib's tests on WebAssembly                                | Alexis Williams        | —              |
+| 0017 gmain, gwakeup: Call a hook when a context's wakeup is signalled on WebAssembly | Alexis Williams        | —              |
 
 Each of 0011–0017 covers one topic, described in its message and below.
 0016 holds every change to GLib's tests, and nothing else.
@@ -88,17 +88,17 @@ is Jorge Zapata's (`75de668d3690`, `4c360061dda3`) and Fabian Orccon's
 (`990ffd85fe41`); none of their lines remain, but 0013 follows the path they
 opened, and it is credited here:
 
-| Commit | Decision | Reason |
-|---|---|---|
-| `75de668d3690` A g_error is a fatal error when run, remove it | **Superseded** by 0013 | 0008 makes every `GWakeup` function a `g_error()` on WebAssembly, and every `GMainContext` creates, signals and frees a wakeup, so any main context aborted. This commit made `g_wakeup_new()` return `NULL` and `g_wakeup_signal()` do nothing; 0013 gives WebAssembly a working wakeup instead, and none of its lines remain. |
-| `4c360061dda3` Initial main loop support | **Superseded** by 0013 | It skipped registering the wakeup's poll fd in `g_main_context_new_with_flags()`, and ran `g_main_loop_run()` through `emscripten_set_main_loop_arg()`. 0013 waits on the wakeup instead of polling it, and registers its fd only for ownerless-polling contexts. This runtime never hands control back to the browser event loop from its Worker, and pumps the context itself, so the `emscripten_set_main_loop_arg()` path has no use here. |
-| `89a193f7e7da` emscripten: fix deadlock in GMainContext-related code | **Skipped** | Changes only the `emscripten_set_main_loop_arg()` path. |
-| `990ffd85fe41` gmain: emscripten: Use 0 timeout | **Superseded** by 0013 | It forced every poll's timeout to zero. Emscripten's `poll()` sends a zero timeout to a synchronous, non-suspending probe; a non-zero timeout is ignored on the main thread and, from a pthread, becomes an asynchronous call proxied to the main thread, which only completes when that thread returns to its event loop. With no wakeup and the timeout forced to 0, a blocking `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` busy-spun, GLib's own worker-context thread included. 0013 keeps the real timeout and waits on a futex. |
-| `86387bcf5b85` glist: Fix function signatures in internals of glist/gslist | **Ported** as 0010, all hunks | The Wolthuizen series doesn't touch `glist.c` or `gslist.c`, so none of its hunks were already covered. |
-| `b45d3dc05781` Differentiate wasm from emscripten | **Skipped** | Adds a `G_WITH_EMSCRIPTEN` define; the series uses its own `G_PLATFORM_WASM`. |
-| `93fe7aa6231d` Be able to pass the canvas to the thread creation | **Skipped** | Shares WebGL canvases with new threads (GStreamer/WebGL only). |
-| `0e30d1cf504e` Revert "Fix function pointer cast issues" | **Skipped** | Relies on Fluendo's patched Clang; this runtime uses nixpkgs' Emscripten unmodified. |
-| `5a0ebc47f6b7` Revert "Remove GRegex pre-emptively" | **Skipped** | The removal is never applied. |
+| Commit                                                                     | Decision                      | Reason                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `75de668d3690` A g_error is a fatal error when run, remove it              | **Superseded** by 0013        | 0008 makes every `GWakeup` function a `g_error()` on WebAssembly, and every `GMainContext` creates, signals and frees a wakeup, so any main context aborted. This commit made `g_wakeup_new()` return `NULL` and `g_wakeup_signal()` do nothing; 0013 gives WebAssembly a working wakeup instead, and none of its lines remain.                                                                                                                                                                                                                         |
+| `4c360061dda3` Initial main loop support                                   | **Superseded** by 0013        | It skipped registering the wakeup's poll fd in `g_main_context_new_with_flags()`, and ran `g_main_loop_run()` through `emscripten_set_main_loop_arg()`. 0013 waits on the wakeup instead of polling it, and registers its fd only for ownerless-polling contexts. This runtime never hands control back to the browser event loop from its Worker, and pumps the context itself, so the `emscripten_set_main_loop_arg()` path has no use here.                                                                                                          |
+| `89a193f7e7da` emscripten: fix deadlock in GMainContext-related code       | **Skipped**                   | Changes only the `emscripten_set_main_loop_arg()` path.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `990ffd85fe41` gmain: emscripten: Use 0 timeout                            | **Superseded** by 0013        | It forced every poll's timeout to zero. Emscripten's `poll()` sends a zero timeout to a synchronous, non-suspending probe; a non-zero timeout is ignored on the main thread and, from a pthread, becomes an asynchronous call proxied to the main thread, which only completes when that thread returns to its event loop. With no wakeup and the timeout forced to 0, a blocking `g_main_context_iteration (ctx, TRUE)` or `g_main_loop_run()` busy-spun, GLib's own worker-context thread included. 0013 keeps the real timeout and waits on a futex. |
+| `86387bcf5b85` glist: Fix function signatures in internals of glist/gslist | **Ported** as 0010, all hunks | The Wolthuizen series doesn't touch `glist.c` or `gslist.c`, so none of its hunks were already covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `b45d3dc05781` Differentiate wasm from emscripten                          | **Skipped**                   | Adds a `G_WITH_EMSCRIPTEN` define; the series uses its own `G_PLATFORM_WASM`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `93fe7aa6231d` Be able to pass the canvas to the thread creation           | **Skipped**                   | Shares WebGL canvases with new threads (GStreamer/WebGL only).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `0e30d1cf504e` Revert "Fix function pointer cast issues"                   | **Skipped**                   | Relies on Fluendo's patched Clang; this runtime uses nixpkgs' Emscripten unmodified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `5a0ebc47f6b7` Revert "Remove GRegex pre-emptively"                        | **Skipped**                   | The removal is never applied.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 0010 only changes source-level types. The internal calls were already cast
 back to `GCompareDataFunc`, so the generated indirect calls are the same.
@@ -174,7 +174,7 @@ GLib's own round trips, such as a `GSourceFunc` that the source's dispatch
 casts back to its real type.
 
 **Class handlers.** A signal's C marshaller calls a closure's callback
-with the instance, the signal's parameters *and* the closure's user data,
+with the instance, the signal's parameters _and_ the closure's user data,
 while class handlers (`klass->activate`, `klass->notify` and every other
 signal vfunc registered by offset, and handlers given to
 `g_signal_new_class_handler()` or `g_signal_override_class_handler()`) take
@@ -216,7 +216,7 @@ run this GLib's tools:
 - Meson's gnome module looks each tool (`gdbus-codegen`,
   `glib-compile-resources`, `glib-compile-schemas`, `glib-genmarshal`,
   `glib-mkenums`, `gio-querymodules`) up in the host machine's cross files
-  first, then in the variable of the *build* machine's `gio-2.0` or
+  first, then in the variable of the _build_ machine's `gio-2.0` or
   `glib-2.0`, then on `PATH`; the last two find the native ones.
   `pkgsWasm.glib` therefore installs `nix-support/glib-tools-cross.ini`,
   naming every tool its `.pc` files name, and a setup hook that adds it
@@ -233,7 +233,7 @@ run this GLib's tools:
   the interface init functions its `gdbus-codegen` emits trap on
   WebAssembly.
 
-Not covered: callbacks that *users* pass with fewer parameters than the
+Not covered: callbacks that _users_ pass with fewer parameters than the
 API documents (including signal handlers connected with `G_CALLBACK`,
 which the audit can't see), the one-argument `iface_init`/`class_init`
 functions users pass through `G_IMPLEMENT_INTERFACE` or hand-written
@@ -378,7 +378,7 @@ above).
   `g_wakeup_signal()` increments `signals` and wakes every waiter on it
   with `emscripten_futex_wake()`; `g_wakeup_acknowledge()` copies
   `signals` into `acknowledged`; the new `g_wakeup_wait (wakeup,
-  timeout_usec)` sleeps with `emscripten_futex_wait()` while `signals`
+timeout_usec)` sleeps with `emscripten_futex_wait()` while `signals`
   still equals `acknowledged`, and says whether it moved. That is
   eventfd's contract (signalled until acknowledged, any number of signals
   acknowledged at once), and comparing only for equality makes wrapping

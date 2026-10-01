@@ -140,7 +140,7 @@ NodeFile::flush")`
 @@ -190,6 +190,14 @@
      });
    },
- 
+
 +  _wasmfs_node_fsync__deps: ['$wasmfsTry'],
 +  _wasmfs_node_fsync: (fd) => {
 +    return wasmfsTry(() => {
@@ -157,20 +157,20 @@ NodeFile::flush")`
 @@ -150,9 +150,7 @@
      return nwritten;
    }
- 
+
 -  int flush() override {
 -    WASMFS_UNREACHABLE("TODO: implement NodeFile::flush");
 -  }
 +  int flush() override { return -_wasmfs_node_fsync(state.getFD()); }
  };
- 
+
  class NodeSymlink : public Symlink {
 --- a/system/lib/wasmfs/backends/node_backend.h
 +++ b/system/lib/wasmfs/backends/node_backend.h
 @@ -42,6 +42,9 @@
  // Close the underlying file descriptor.
  [[nodiscard]] int _wasmfs_node_close(int fd);
- 
+
 +// Flush the underlying file descriptor and return 0 or an error code.
 +[[nodiscard]] int _wasmfs_node_fsync(int fd);
 +
@@ -214,7 +214,7 @@ data
     whether flushes reach backends at all.
   - #27806 (merged 2026-09-30), which fixes `fdatasync`'s error sign and
     doesn't touch the Node backend.
-  None reports this trap.
+    None reports this trap.
 - **Why it matters to us.** Under WasmFS, `glib-compile-schemas` run twice
   into one directory traps here. With the fix it runs twice cleanly; the
   GLib tools still stay on NODERAWFS for another reason (WasmFS's stdout

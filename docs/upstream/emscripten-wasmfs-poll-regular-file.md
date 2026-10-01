@@ -138,7 +138,7 @@ suggests. Data files are readable by default; only pipes override it:
 @@ -152,6 +152,10 @@
    // on success or a negative error code.
    virtual int flush() = 0;
- 
+
 +  // Whether poll() should report the file readable. Files whose readiness can
 +  // change, like pipes, override this.
 +  virtual bool isReadReady() { return true; }
@@ -147,14 +147,14 @@ suggests. Data files are readable by default; only pipes override it:
    static constexpr FileKind expectedKind = File::DataFileKind;
    DataFile(mode_t mode, backend_t backend)
 @@ -366,6 +370,8 @@
- 
+
    [[nodiscard]] int setSize(off_t size) { return getFile()->setSize(size); }
- 
+
 +  bool isReadReady() { return getFile()->isReadReady(); }
 +
    // TODO: Design a proper API for flushing files.
    [[nodiscard]] int flush() { return getFile()->flush(); }
- 
+
 --- a/system/lib/wasmfs/pipe_backend.h
 +++ b/system/lib/wasmfs/pipe_backend.h
 @@ -46,6 +46,8 @@

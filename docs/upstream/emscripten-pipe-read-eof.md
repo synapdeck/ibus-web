@@ -212,7 +212,7 @@ empty, writer open: 0 errno 0
   comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with
   LLVM 22.1.8, not emsdk's LLVM.
 - **Duplicate search.** `gh search issues --repo emscripten-core/emscripten
-  --include-prs` with "pipe EOF", "pipe read EOF", "pipe POLLHUP", "PIPEFS
+--include-prs` with "pipe EOF", "pipe read EOF", "pipe POLLHUP", "PIPEFS
   EAGAIN", "pipe EAGAIN EOF", "pipe read returns 0 writer closed" and "pipe"
   turned up:
   - #26708, the exact bug: reported on 5.0.6, open.

@@ -37,46 +37,48 @@ Worker wait loop (R2) and CI workflows. Each gets its own plan.
 
 ## File map
 
-| Path | Responsibility |
-|---|---|
-| `flake.nix`, `flake.lock` | Inputs and the import-tree entry point |
-| `modules/flake/systems.nix` | Supported systems |
-| `modules/flake/formatting.nix` | treefmt-nix: `nix fmt` and the `treefmt` check |
-| `modules/flake/flake-root.nix` | flake-root: project-root discovery for treefmt and the dev shell |
-| `modules/flake/dev-shell.nix` | Development shell (numtide/devshell) |
-| `modules/toolchain/options.nix` | Declares `perSystem.ibusWeb.toolchain.*` |
-| `modules/toolchain/cache.nix` | Library cache, cache hook, flags, `toolchain-cache` check |
-| `modules/toolchain/_probes/*` | Programs whose compilation fills the library cache |
-| `modules/toolchain/_emscripten-cache-hook.sh` | Per-build writable cache with a read-only library directory |
-| `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh` | Emscripten stdenv for nixpkgs recipes |
-| `modules/wasm-packages/options.nix` | Declares `perSystem.ibusWeb.wasmPackages` |
-| `modules/wasm-packages/libhangul.nix`, `modules/wasm-packages/_tests/libhangul-test.c` | WASM libhangul and its install check |
-| `modules/spikes/dynlink.nix`, `tests/spikes/dynlink/*` | Dynamic-linking spike |
-| `docs/spikes/2026-09-26-dynlink.md` | Spike findings |
+| Path                                                                                   | Responsibility                                                   |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `flake.nix`, `flake.lock`                                                              | Inputs and the import-tree entry point                           |
+| `modules/flake/systems.nix`                                                            | Supported systems                                                |
+| `modules/flake/formatting.nix`                                                         | treefmt-nix: `nix fmt` and the `treefmt` check                   |
+| `modules/flake/flake-root.nix`                                                         | flake-root: project-root discovery for treefmt and the dev shell |
+| `modules/flake/dev-shell.nix`                                                          | Development shell (numtide/devshell)                             |
+| `modules/toolchain/options.nix`                                                        | Declares `perSystem.ibusWeb.toolchain.*`                         |
+| `modules/toolchain/cache.nix`                                                          | Library cache, cache hook, flags, `toolchain-cache` check        |
+| `modules/toolchain/_probes/*`                                                          | Programs whose compilation fills the library cache               |
+| `modules/toolchain/_emscripten-cache-hook.sh`                                          | Per-build writable cache with a read-only library directory      |
+| `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh`           | Emscripten stdenv for nixpkgs recipes                            |
+| `modules/wasm-packages/options.nix`                                                    | Declares `perSystem.ibusWeb.wasmPackages`                        |
+| `modules/wasm-packages/libhangul.nix`, `modules/wasm-packages/_tests/libhangul-test.c` | WASM libhangul and its install check                             |
+| `modules/spikes/dynlink.nix`, `tests/spikes/dynlink/*`                                 | Dynamic-linking spike                                            |
+| `docs/spikes/2026-09-26-dynlink.md`                                                    | Spike findings                                                   |
 
 ## Shared options
 
 These are the only interfaces between modules. A module may read an option
 only once the task that declares it is done.
 
-| Option (under `perSystem`) | Type | Declared in | Set in |
-|---|---|---|---|
-| `ibusWeb.toolchain.commonFlags` | `str` | Task 2 | Task 2 |
-| `ibusWeb.toolchain.testMainFlags` | `str` | Task 2 | Task 2 |
-| `ibusWeb.toolchain.emscriptenCache` | `package` | Task 2 | Task 2 |
-| `ibusWeb.toolchain.emscriptenCacheHook` | `package` | Task 2 | Task 2 |
-| `ibusWeb.toolchain.wasmStdenv` | `raw` | Task 2 | Task 3 |
-| `ibusWeb.wasmPackages` | `lazyAttrsOf package` | Task 3 | Task 3 (`libhangul`) |
+| Option (under `perSystem`)              | Type                  | Declared in | Set in               |
+| --------------------------------------- | --------------------- | ----------- | -------------------- |
+| `ibusWeb.toolchain.commonFlags`         | `str`                 | Task 2      | Task 2               |
+| `ibusWeb.toolchain.testMainFlags`       | `str`                 | Task 2      | Task 2               |
+| `ibusWeb.toolchain.emscriptenCache`     | `package`             | Task 2      | Task 2               |
+| `ibusWeb.toolchain.emscriptenCacheHook` | `package`             | Task 2      | Task 2               |
+| `ibusWeb.toolchain.wasmStdenv`          | `raw`                 | Task 2      | Task 3               |
+| `ibusWeb.wasmPackages`                  | `lazyAttrsOf package` | Task 3      | Task 3 (`libhangul`) |
 
 ---
 
 ### Task 1: Dendritic flake skeleton with formatting
 
 **Files:**
+
 - Create: `flake.nix`, `modules/flake/systems.nix`, `modules/flake/formatting.nix`, `.gitignore`, `LICENSE-MIT`, `LICENSE-APACHE`
 - Generated: `flake.lock`
 
 **Interfaces:**
+
 - Produces: the flake outputs `formatter.x86_64-linux` and `checks.x86_64-linux.treefmt`. Later tasks add modules under `modules/` and touch `flake.nix` only to add inputs.
 
 - [ ] **Step 1: Confirm there is nothing to check yet**
@@ -201,10 +203,12 @@ nixpkgs' Emscripten ships libraries only for non-PIC variants, so without this
 every PIC build would compile libc and libc++ again (spec §10.3).
 
 **Files:**
+
 - Create: `modules/toolchain/options.nix`, `modules/toolchain/cache.nix`, `modules/toolchain/_emscripten-cache-hook.sh`, `modules/toolchain/_probes/probe.c`, `modules/toolchain/_probes/probe.cpp`, `modules/toolchain/_probes/probe_side.c`, `modules/toolchain/_probes/probe_side.cpp`, `modules/flake/flake-root.nix`, `modules/flake/dev-shell.nix`
 - Modify: `flake.nix` (two inputs), `flake.lock`, `modules/flake/formatting.nix`
 
 **Interfaces:**
+
 - Consumes: the Task 1 flake.
 - Produces (per system):
   - `ibusWeb.toolchain.commonFlags` = `"-fPIC -pthread -fwasm-exceptions"`
@@ -553,10 +557,12 @@ git commit -m "Add prebuilt Emscripten library cache, cache check and dev shell"
 ### Task 3: `wasmStdenv` and a WASM build of libhangul
 
 **Files:**
+
 - Create: `modules/toolchain/wasm-stdenv.nix`, `modules/toolchain/_wasm-build-hook.sh`, `modules/wasm-packages/options.nix`, `modules/wasm-packages/libhangul.nix`, `modules/wasm-packages/_tests/libhangul-test.c`
 - Modify: `flake.nix` (one input), `flake.lock`, `modules/flake/systems.nix`, `modules/toolchain/cache.nix`
 
 **Interfaces:**
+
 - Consumes: `ibusWeb.toolchain.{commonFlags,testMainFlags,emscriptenCacheHook}` (Task 2).
 - Produces:
   - `ibusWeb.toolchain.wasmStdenv`: a stdenv whose `mkDerivation` accepts native nixpkgs recipes (attrset or `finalAttrs` function) and builds them with Emscripten as static PIC libraries.
@@ -808,18 +814,20 @@ git commit -m "Add wasmStdenv and a WASM build of libhangul; take systems from n
 Answers R3. A threaded main module loads five side modules at run time with
 `dlopen`, after its thread pool already exists:
 
-| Side module | What it shows |
-|---|---|
-| `side_basic` | Calling into a side module that uses main-module libc |
-| `side_thread` | Side-module code running on a pool thread created before the `dlopen` |
-| `side_cxx` | A C++ exception thrown and caught inside a side module |
-| `side_throw` | A C++ exception thrown in a side module and caught in the main module |
+| Side module   | What it shows                                                                  |
+| ------------- | ------------------------------------------------------------------------------ |
+| `side_basic`  | Calling into a side module that uses main-module libc                          |
+| `side_thread` | Side-module code running on a pool thread created before the `dlopen`          |
+| `side_cxx`    | A C++ exception thrown and caught inside a side module                         |
+| `side_throw`  | A C++ exception thrown in a side module and caught in the main module          |
 | `side_hangul` | A static library (libhangul) linked into a side module, the shape of an engine |
 
 **Files:**
+
 - Create: `tests/spikes/dynlink/main.cpp`, `tests/spikes/dynlink/side_basic.c`, `tests/spikes/dynlink/side_thread.c`, `tests/spikes/dynlink/side_cxx.cpp`, `tests/spikes/dynlink/side_throw.cpp`, `tests/spikes/dynlink/side_hangul.c`, `tests/spikes/dynlink/expected.txt`, `modules/spikes/dynlink.nix`
 
 **Interfaces:**
+
 - Consumes: `ibusWeb.toolchain.{commonFlags,testMainFlags,emscriptenCacheHook}` (Task 2); `ibusWeb.wasmPackages.libhangul` (Task 3).
 - Produces: `checks.dynlink-spike`, whose output contains `actual.txt`. Every side module exports `int probe(void)`, returning 0 on success.
 
@@ -1037,6 +1045,7 @@ Run: `git add tests modules && nix build .#checks.x86_64-linux.dynlink-spike -L`
 Expected if R3's answer is yes: the log prints the five lines of `expected.txt` and the build succeeds.
 
 A failure is a finding, not something to force green. Record the exact output and error for Task 5 before changing anything. Two changes are in scope to try, each recorded separately:
+
 - If `side_thread` fails or hangs, rebuild with `-sPTHREAD_POOL_SIZE=0` in the main link (threads created after the `dlopen`) and note whether it passes.
 - If `side_throw` aborts instead of printing `CAUGHT`, note it; engines call into the runtime through C vtables, so an exception crossing from a side module into the main module is not required by the design.
 
@@ -1059,10 +1068,12 @@ git commit -m "Add dynamic-linking spike"
 ### Task 5: Record the spike's findings
 
 **Files:**
+
 - Create: `docs/spikes/2026-09-26-dynlink.md`
 - Modify: `docs/specs/2026-09-26-ibus-web-design.md` (§13, R3 and R12)
 
 **Interfaces:**
+
 - Consumes: Task 4's output (`nix build .#checks.x86_64-linux.dynlink-spike` then `cat result/actual.txt`) and any failures recorded in Task 4 Step 5.
 
 - [ ] **Step 1: Capture the toolchain versions**
@@ -1090,13 +1101,13 @@ thread pool exists.
 
 ## Results
 
-| Side module | Result | Notes |
-|---|---|---|
-| side_basic | <PASS/FAIL> | |
-| side_thread | <PASS/FAIL> | <pool size used; hang or error text if any> |
-| side_cxx | <PASS/FAIL> | |
-| side_throw | <CAUGHT/aborted> | <error text if aborted> |
-| side_hangul | <PASS/FAIL> | |
+| Side module | Result           | Notes                                       |
+| ----------- | ---------------- | ------------------------------------------- |
+| side_basic  | <PASS/FAIL>      |                                             |
+| side_thread | <PASS/FAIL>      | <pool size used; hang or error text if any> |
+| side_cxx    | <PASS/FAIL>      |                                             |
+| side_throw  | <CAUGHT/aborted> | <error text if aborted>                     |
+| side_hangul | <PASS/FAIL>      |                                             |
 
 Raw output:
 

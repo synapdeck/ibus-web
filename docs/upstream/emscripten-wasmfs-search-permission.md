@@ -143,7 +143,7 @@ target of `chdir`/`fchdir`.
 @@ -93,6 +93,11 @@
        path.remove_prefix(1);
      }
- 
+
 +    // Looking up anything in a directory needs search permission on it.
 +    if (!(curr->locked().getMode() & S_IXUGO)) {
 +      return -EACCES;
@@ -154,7 +154,7 @@ target of `chdir`/`fchdir`.
      if (segment_end == std::string_view::npos) {
 @@ -100,7 +105,6 @@
      }
- 
+
      // Try to descend into the child segment.
 -    // TODO: Check permissions on intermediate directories.
      auto segment = path.substr(0, segment_end);

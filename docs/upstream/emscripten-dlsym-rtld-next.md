@@ -151,6 +151,7 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
 </details>
 
 **Where:**
+
 - `__dlsym` deliberately lets `RTLD_NEXT` past the handle check
   ([dynlink.c#L630](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/libc/dynlink.c#L630)).
 - It then passes `RTLD_NEXT`, `(void *)-1`, to `_dlsym_js`, which looks it up in
@@ -167,7 +168,7 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
 --- a/system/lib/libc/dynlink.c
 +++ b/system/lib/libc/dynlink.c
 @@ -627,7 +627,11 @@
- 
+
  void* __dlsym(void* restrict p, const char* restrict s, void* restrict ra) {
    dbg("__dlsym dso:%p sym:%s", p, s);
 -  if (p != RTLD_DEFAULT && p != RTLD_NEXT && __dl_invalid_handle(p)) {

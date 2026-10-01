@@ -77,28 +77,28 @@ of in engine code, fix it there.
 
 ## 3. Decision log
 
-| # | Decision | Chosen | Main alternatives rejected |
-|---|---|---|---|
-| D1 | Deployment | Library inside host-owned pages | Browser extension; canvas remote desktop |
-| D2 | Engine targets | Hangul, m17n, libpinyin, Rime, custom table engine | Arbitrary engines from day one |
-| D3 | Engine compatibility | Real GLib/GObject/GIO subset; engine glue compiles with small, layered patches | Source-unmodified (forces a full GIO port); porting guide with a GObject-free API |
-| D4 | Main loop | No `GMainLoop`; pump the default context after each dispatch and on source deadlines | Real `GMainLoop` |
-| D5 | Where engines run | One Worker per engine module, keeping GPL code out of the page | Main thread; Worker per input context; one Worker for everything |
-| D6 | Keystroke answer | Main thread spin-waits on a SAB reply with a time budget; consume-and-replay on timeout | Always consume and re-implement editing; predict from composition state |
-| D7 | Instances | One engine instance per input context via `IBusFactory` | Shared instance |
-| D8 | Linking | Shared `ibus-runtime.wasm` main module; engines as side modules | Static GLib in every engine |
-| D9 | GLib base | nixpkgs `glib` plus Wolthuizen's per-release Emscripten patches, rebased onto nixpkgs' GLib, as a patch series; nixpkgs Emscripten with small fixes tracked upstream, no forked compiler or LLVM | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang |
-| D10 | Settings | GSettings backend bridge and API only | Generated forms; per-engine UI |
-| D11 | UI | Headless core plus separate default panel package | Headless only; built-in themed panel |
-| D12 | Surfaces | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in | Textarea only; CodeMirror adapter in v1 |
-| D13 | Storage | WasmFS with the OPFS backend per Worker, one directory per engine | Host-managed storage only |
-| D14 | Wire format | IBus Engine D-Bus methods and signals, GVariant-encoded | Custom CBOR mapping |
-| D15 | Output transport | One sequenced, variable-length, back-pressured output ring per Worker | Fixed-size ring with eviction; ring of descriptors into a shared heap |
-| D16 | TypeScript stack | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections | Plain TypeScript; Effect 3 |
-| D17 | Protocol definition | Effect Schema as the source of truth, with a GVariant byte codec | Hand-written codec and separate docs |
-| D18 | First milestone | Hangul spike end to end | libpinyin or Rime first |
-| D19 | Build orchestration | Nix flake for toolchain, every artifact, checks and the release set; dependencies, engines and data come from a nixpkgs cross package set for wasm32-unknown-none with Emscripten as its compiler; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI |
-| D20 | npm registry | npmjs.com with trusted publishing from GitHub Actions | GitHub Packages |
+| #   | Decision             | Chosen                                                                                                                                                                                                                                     | Main alternatives rejected                                                        |
+| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| D1  | Deployment           | Library inside host-owned pages                                                                                                                                                                                                            | Browser extension; canvas remote desktop                                          |
+| D2  | Engine targets       | Hangul, m17n, libpinyin, Rime, custom table engine                                                                                                                                                                                         | Arbitrary engines from day one                                                    |
+| D3  | Engine compatibility | Real GLib/GObject/GIO subset; engine glue compiles with small, layered patches                                                                                                                                                             | Source-unmodified (forces a full GIO port); porting guide with a GObject-free API |
+| D4  | Main loop            | No `GMainLoop`; pump the default context after each dispatch and on source deadlines                                                                                                                                                       | Real `GMainLoop`                                                                  |
+| D5  | Where engines run    | One Worker per engine module, keeping GPL code out of the page                                                                                                                                                                             | Main thread; Worker per input context; one Worker for everything                  |
+| D6  | Keystroke answer     | Main thread spin-waits on a SAB reply with a time budget; consume-and-replay on timeout                                                                                                                                                    | Always consume and re-implement editing; predict from composition state           |
+| D7  | Instances            | One engine instance per input context via `IBusFactory`                                                                                                                                                                                    | Shared instance                                                                   |
+| D8  | Linking              | Shared `ibus-runtime.wasm` main module; engines as side modules                                                                                                                                                                            | Static GLib in every engine                                                       |
+| D9  | GLib base            | nixpkgs `glib` plus Wolthuizen's per-release Emscripten patches, rebased onto nixpkgs' GLib, as a patch series; nixpkgs Emscripten with small fixes tracked upstream, no forked compiler or LLVM                                           | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang                    |
+| D10 | Settings             | GSettings backend bridge and API only                                                                                                                                                                                                      | Generated forms; per-engine UI                                                    |
+| D11 | UI                   | Headless core plus separate default panel package                                                                                                                                                                                          | Headless only; built-in themed panel                                              |
+| D12 | Surfaces             | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in                                                                                                                                                                    | Textarea only; CodeMirror adapter in v1                                           |
+| D13 | Storage              | WasmFS with the OPFS backend per Worker, one directory per engine                                                                                                                                                                          | Host-managed storage only                                                         |
+| D14 | Wire format          | IBus Engine D-Bus methods and signals, GVariant-encoded                                                                                                                                                                                    | Custom CBOR mapping                                                               |
+| D15 | Output transport     | One sequenced, variable-length, back-pressured output ring per Worker                                                                                                                                                                      | Fixed-size ring with eviction; ring of descriptors into a shared heap             |
+| D16 | TypeScript stack     | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections                                                                                                                    | Plain TypeScript; Effect 3                                                        |
+| D17 | Protocol definition  | Effect Schema as the source of truth, with a GVariant byte codec                                                                                                                                                                           | Hand-written codec and separate docs                                              |
+| D18 | First milestone      | Hangul spike end to end                                                                                                                                                                                                                    | libpinyin or Rime first                                                           |
+| D19 | Build orchestration  | Nix flake for toolchain, every artifact, checks and the release set; dependencies, engines and data come from a nixpkgs cross package set for wasm32-unknown-none with Emscripten as its compiler; CI only builds outputs and uploads them | emsdk plus scripts; per-language build tools orchestrated by CI                   |
+| D20 | npm registry         | npmjs.com with trusted publishing from GitHub Actions                                                                                                                                                                                      | GitHub Packages                                                                   |
 
 ## 4. Architecture
 
@@ -125,18 +125,18 @@ of in engine code, fix it there.
                                              └──────────────────────────────────────────┘
 ```
 
-| Component | Language | Runs in | Package or artifact | License |
-|---|---|---|---|---|
-| `pkgsWasm.glib` | C | Worker | nixpkgs `glib` plus a patch series in this repo; built into the runtime | LGPL-2.1-or-later |
-| `libibus-web` | C | Worker | built into the runtime | LGPL-2.1-or-later |
-| `ibus-runtime.wasm` | WASM | Worker | release asset | LGPL-2.1-or-later (combined) |
-| Engine side modules | WASM | Worker | release asset per engine | engine's own license |
-| Worker host | TS | Worker | `@ibus-web/worker-host` | MIT OR Apache-2.0 |
-| Protocol | TS | Page and tests | `@ibus-web/protocol` | MIT OR Apache-2.0 |
-| Router and services | TS | Page | `@ibus-web/core` | MIT OR Apache-2.0 |
-| Facade | TS | Page | `ibus-web` | MIT OR Apache-2.0 |
-| Surface adapters | TS | Page | in `@ibus-web/core` | MIT OR Apache-2.0 |
-| Default panel | TS | Page | `@ibus-web/panel` | MIT OR Apache-2.0 |
+| Component           | Language | Runs in        | Package or artifact                                                     | License                      |
+| ------------------- | -------- | -------------- | ----------------------------------------------------------------------- | ---------------------------- |
+| `pkgsWasm.glib`     | C        | Worker         | nixpkgs `glib` plus a patch series in this repo; built into the runtime | LGPL-2.1-or-later            |
+| `libibus-web`       | C        | Worker         | built into the runtime                                                  | LGPL-2.1-or-later            |
+| `ibus-runtime.wasm` | WASM     | Worker         | release asset                                                           | LGPL-2.1-or-later (combined) |
+| Engine side modules | WASM     | Worker         | release asset per engine                                                | engine's own license         |
+| Worker host         | TS       | Worker         | `@ibus-web/worker-host`                                                 | MIT OR Apache-2.0            |
+| Protocol            | TS       | Page and tests | `@ibus-web/protocol`                                                    | MIT OR Apache-2.0            |
+| Router and services | TS       | Page           | `@ibus-web/core`                                                        | MIT OR Apache-2.0            |
+| Facade              | TS       | Page           | `ibus-web`                                                              | MIT OR Apache-2.0            |
+| Surface adapters    | TS       | Page           | in `@ibus-web/core`                                                     | MIT OR Apache-2.0            |
+| Default panel       | TS       | Page           | `@ibus-web/panel`                                                       | MIT OR Apache-2.0            |
 
 ### 4.2 One keystroke, end to end
 
@@ -219,7 +219,7 @@ the mismatch so the engine needs no patch.
 - **Calling.** Calls with matching arity take the normal path. When the callee
   takes fewer parameters, the call goes through JS (`wasmTable.get(fp)(…)`),
   which drops the extra arguments itself.
-- **Not covered.** Callees declaring *more* parameters than passed, and
+- **Not covered.** Callees declaring _more_ parameters than passed, and
   mismatches in engine code that GLib never calls. Those need engine patches.
 - **Audit output.** Debug builds log every absorbed mismatch with the callee's
   name and the call site. That log is the engine audit report (§11.3).
@@ -510,16 +510,18 @@ Generated at build time, partly from the engine's component XML. Example
   "protocol": 1,
   "module": "hangul.wasm",
   "data": [{ "path": "/usr/share/libhangul", "url": "hangul-data.tar" }],
-  "engines": [{
-    "name": "hangul",
-    "longname": "Korean",
-    "language": "ko",
-    "layout": "us",                 // "us" or "default" (§7.1.1)
-    "passthroughKeys": ["F1", "F2"],  // DOM key names that skip the round trip
-    "symbol": "한"
-  }],
+  "engines": [
+    {
+      "name": "hangul",
+      "longname": "Korean",
+      "language": "ko",
+      "layout": "us", // "us" or "default" (§7.1.1)
+      "passthroughKeys": ["F1", "F2"], // DOM key names that skip the round trip
+      "symbol": "한",
+    },
+  ],
   "settingsSchemas": ["org.freedesktop.ibus.engine.hangul"],
-  "source": "hangul-src.tar.zst"
+  "source": "hangul-src.tar.zst",
 }
 ```
 
@@ -539,13 +541,13 @@ page bundle (§9.2).
 
 #### 5.5.1 Resource scopes
 
-| Scope | Acquire | Release on normal close | Release after a trap |
-|---|---|---|---|
-| Worker | SAB views, `Logger` layer | final `Log` records flushed | crash record written |
-| Runtime | instantiate `ibus-runtime.wasm` | none (freed with the Worker) | none |
-| Storage | WasmFS mounts, data archives | flush and unmount OPFS | close OPFS handles from JS only |
-| Engine module | load side module, `ibusweb_module_init` | module shutdown call | skipped |
-| Engine instance (one per input context, child of the module scope) | `CreateEngine` | `DestroyEngine` (`g_object_unref`) | skipped |
+| Scope                                                              | Acquire                                 | Release on normal close            | Release after a trap            |
+| ------------------------------------------------------------------ | --------------------------------------- | ---------------------------------- | ------------------------------- |
+| Worker                                                             | SAB views, `Logger` layer               | final `Log` records flushed        | crash record written            |
+| Runtime                                                            | instantiate `ibus-runtime.wasm`         | none (freed with the Worker)       | none                            |
+| Storage                                                            | WasmFS mounts, data archives            | flush and unmount OPFS             | close OPFS handles from JS only |
+| Engine module                                                      | load side module, `ibusweb_module_init` | module shutdown call               | skipped                         |
+| Engine instance (one per input context, child of the module scope) | `CreateEngine`                          | `DestroyEngine` (`g_object_unref`) | skipped                         |
 
 - **Finalizers inspect the `Exit`.** After a trap the WASM heap cannot be
   trusted, so finalizers that call into the runtime run only on a normal close;
@@ -597,26 +599,26 @@ per-instance messages carry an input-context ID (`u`).
 
 #### 6.1.2 Requests (page → Worker)
 
-| Message | Signature (after IC ID) | Reply |
-|---|---|---|
-| `ProcessKeyEvent` | `(uuu)` keyval, keycode, state | `b` |
-| `FocusIn`, `FocusOut`, `Reset`, `Enable`, `Disable` | `()` | none |
-| `SetCursorLocation` | `(iiii)` | none |
-| `SetCapabilities` | `(u)` | none |
-| `PageUp`, `PageDown`, `CursorUp`, `CursorDown` | `()` | none |
-| `CandidateClicked` | `(uuu)` index, button, state | none |
-| `PropertyActivate` | `(su)` name, state | none |
-| `SetSurroundingText` | `(vuu)` text, cursor, anchor | none |
-| `SetContentType` | `(uu)` purpose, hints | none |
+| Message                                             | Signature (after IC ID)        | Reply |
+| --------------------------------------------------- | ------------------------------ | ----- |
+| `ProcessKeyEvent`                                   | `(uuu)` keyval, keycode, state | `b`   |
+| `FocusIn`, `FocusOut`, `Reset`, `Enable`, `Disable` | `()`                           | none  |
+| `SetCursorLocation`                                 | `(iiii)`                       | none  |
+| `SetCapabilities`                                   | `(u)`                          | none  |
+| `PageUp`, `PageDown`, `CursorUp`, `CursorDown`      | `()`                           | none  |
+| `CandidateClicked`                                  | `(uuu)` index, button, state   | none  |
+| `PropertyActivate`                                  | `(su)` name, state             | none  |
+| `SetSurroundingText`                                | `(vuu)` text, cursor, anchor   | none  |
+| `SetContentType`                                    | `(uu)` purpose, hints          | none  |
 
 #### 6.1.3 Lifecycle and settings requests
 
-| Message | Payload | Notes |
-|---|---|---|
-| `Init` | protocol version, settings snapshot | exact protocol-version match required |
-| `CreateEngine` | IC ID, engine name | |
-| `DestroyEngine` | IC ID | |
-| `SettingChanged` | schema, key, `v` | |
+| Message          | Payload                             | Notes                                 |
+| ---------------- | ----------------------------------- | ------------------------------------- |
+| `Init`           | protocol version, settings snapshot | exact protocol-version match required |
+| `CreateEngine`   | IC ID, engine name                  |                                       |
+| `DestroyEngine`  | IC ID                               |                                       |
+| `SettingChanged` | schema, key, `v`                    |                                       |
 
 #### 6.1.4 Output records (Worker → page)
 
@@ -634,11 +636,11 @@ Each Worker has one **dedicated** `SharedArrayBuffer`, separate from its
 
 #### 6.2.1 Layout
 
-| Region | Size (default) | Contents |
-|---|---|---|
-| Control header | 64 bytes | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `doorbell` |
-| Request slot | 64 KB | one encoded request |
-| Output ring | 256 KB | framed records |
+| Region         | Size (default) | Contents                                                                                                                                   |
+| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `doorbell` |
+| Request slot   | 64 KB          | one encoded request                                                                                                                        |
+| Output ring    | 256 KB         | framed records                                                                                                                             |
 
 Sizes are configurable per Worker.
 
@@ -814,21 +816,21 @@ nothing.
 ```ts
 interface SurfaceAdapter {
   attach(sink: KeySink): () => void;
-  readonly capabilities: Capabilities;   // preedit, auxText, lookupTable, surroundingText
+  readonly capabilities: Capabilities; // preedit, auxText, lookupTable, surroundingText
   contentType(): ContentType;
 
   surrounding(maxUnits: number): { text: string; cursor: number; anchor: number };
-  caretRect(): DOMRect | null;           // viewport coordinates
+  caretRect(): DOMRect | null; // viewport coordinates
 
-  batch(fn: () => void): void;           // one host transaction, one undo step
-  commit(text: string): void;            // insert at the caret as user input
+  batch(fn: () => void): void; // one host transaction, one undo step
+  commit(text: string): void; // insert at the caret as user input
   deleteSurrounding(offset: number, length: number): void;
-  setPreedit(p: Preedit | null): void;   // text, attributes, cursor; null clears
-  replayKey(e: KeyboardEvent): void;     // apply a declined key after a timeout
+  setPreedit(p: Preedit | null): void; // text, attributes, cursor; null clears
+  replayKey(e: KeyboardEvent): void; // apply a declined key after a timeout
 }
 
 interface KeySink {
-  key(e: KeyboardEvent): "consumed" | "passthrough";  // synchronous
+  key(e: KeyboardEvent): "consumed" | "passthrough"; // synchronous
   focus(): void;
   blur(): void;
 }
@@ -848,21 +850,21 @@ Offsets are UTF-16 code units.
 
 #### 7.2.3 Built-in adapters
 
-| | `<input>` / `<textarea>` | `contenteditable` |
-|---|---|---|
-| Commit | `setRangeText`, then an `input` event | `execCommand('insertText')`, which keeps native undo |
-| Preedit | positioned overlay; caret found with a mirror element | non-editable inline `<span>` at the caret, removed before each commit |
-| Replay | insert character or perform the editing action manually | same, via `execCommand` |
+|         | `<input>` / `<textarea>`                                | `contenteditable`                                                     |
+| ------- | ------------------------------------------------------- | --------------------------------------------------------------------- |
+| Commit  | `setRangeText`, then an `input` event                   | `execCommand('insertText')`, which keeps native undo                  |
+| Preedit | positioned overlay; caret found with a mirror element   | non-editable inline `<span>` at the caret, removed before each commit |
+| Replay  | insert character or perform the editing action manually | same, via `execCommand`                                               |
 
 #### 7.2.4 CodeMirror 6 check (not in v1)
 
-| Contract | CodeMirror 6 |
-|---|---|
-| `attach` | `EditorView.domEventHandlers` at high precedence |
+| Contract                               | CodeMirror 6                                                     |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `attach`                               | `EditorView.domEventHandlers` at high precedence                 |
 | `batch`, `commit`, `deleteSurrounding` | one `view.dispatch` with `changes` and `userEvent: "input.type"` |
-| `setPreedit` | `Decoration.widget` at the cursor through a `StateField` |
-| `caretRect` | `view.coordsAtPos(head)` |
-| `surrounding` | `state.doc.sliceString` around the selection |
+| `setPreedit`                           | `Decoration.widget` at the cursor through a `StateField`         |
+| `caretRect`                            | `view.coordsAtPos(head)`                                         |
+| `surrounding`                          | `state.doc.sliceString` around the selection                     |
 
 ### 7.3 Default panel
 
@@ -901,25 +903,25 @@ build their own panel. It is meant for testing and simple hosts.
   `EventTarget` events and a `logger: (entry) => void` option with a minimum
   level.
 
-| Package | Contents | Uses Effect |
-|---|---|---|
-| `@ibus-web/protocol` | GVariant codec, schemas, SAB layout | yes (Schema) |
-| `@ibus-web/core` | router, services, adapters, keystroke path | yes, except the keystroke path |
-| `ibus-web` | entry package: facade plus re-exports (§7.4.1) | facade uses it internally; `ibus-web/effect` exposes it |
-| `@ibus-web/panel` | default panel | through the facade |
-| `@ibus-web/worker-host` | Worker bootstrap, resource scopes, request loop | yes, except the request loop |
+| Package                 | Contents                                        | Uses Effect                                             |
+| ----------------------- | ----------------------------------------------- | ------------------------------------------------------- |
+| `@ibus-web/protocol`    | GVariant codec, schemas, SAB layout             | yes (Schema)                                            |
+| `@ibus-web/core`        | router, services, adapters, keystroke path      | yes, except the keystroke path                          |
+| `ibus-web`              | entry package: facade plus re-exports (§7.4.1)  | facade uses it internally; `ibus-web/effect` exposes it |
+| `@ibus-web/panel`       | default panel                                   | through the facade                                      |
+| `@ibus-web/worker-host` | Worker bootstrap, resource scopes, request loop | yes, except the request loop                            |
 
 #### 7.4.1 The `ibus-web` entry package
 
 Hosts install one package. `ibus-web` depends on the scoped packages and
 exposes them through subpath exports:
 
-| Import | Contents |
-|---|---|
-| `ibus-web` | the non-Effect facade |
+| Import            | Contents                                                                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ibus-web`        | the non-Effect facade                                                                                                                                              |
 | `ibus-web/effect` | re-exports of the Effect surface: `@ibus-web/core` (services, layers, streams, tagged errors, adapters) and the public schemas and types from `@ibus-web/protocol` |
-| `ibus-web/panel` | re-export of `@ibus-web/panel` |
-| `ibus-web/worker` | the Worker script's URL only, for `new Worker(new URL(…, import.meta.url))`; never its code (§9.2) |
+| `ibus-web/panel`  | re-export of `@ibus-web/panel`                                                                                                                                     |
+| `ibus-web/worker` | the Worker script's URL only, for `new Worker(new URL(…, import.meta.url))`; never its code (§9.2)                                                                 |
 
 - **`effect` is a peer dependency** of every package, so hosts and ibus-web
   share one copy. Two copies would make services and layers from one
@@ -935,30 +937,30 @@ exposes them through subpath exports:
 A WASM trap leaves a Worker's state untrustworthy; a crashed Worker is always
 discarded, never repaired.
 
-| Failure | Detection | Handling | Host sees |
-|---|---|---|---|
-| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError` | Writes `CRASHED` and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy. | `EngineCrashed` with message and symbolized stack in debug builds |
-| Hang | no progress for 2 s, or replay queue over 64 | `worker.terminate()`, then treated as a crash | `EngineHung` |
-| Restart | policy `Schedule` | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and OPFS data are not. | engine state `failed` after the limit |
-| Load failure | fetch, compile, instantiate, data install | Engine never enabled; router stays in direct input | `EngineLoadFailed` |
-| ABI or protocol mismatch | manifest check; `Init` version check | as load failure | `RuntimeAbiMismatch`, `ProtocolMismatch` |
-| No OPFS | mount fails | in-memory mount | `storage: ephemeral` |
-| Quota | write errors surface in the engine | engine-specific | `storage` usage events, logs |
-| Undecodable record | protocol decode | dev builds throw; production drops and logs | `ProtocolError` log |
-| GLib warnings and criticals | GLib log handler | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals` | log entries |
-| Detached surface | adapter detach | `DestroyEngine`; later output for the context dropped | nothing |
+| Failure                                                      | Detection                                    | Handling                                                                                                                                                                                                                                                              | Host sees                                                         |
+| ------------------------------------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`           | Writes `CRASHED` and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                    | `EngineCrashed` with message and symbolized stack in debug builds |
+| Hang                                                         | no progress for 2 s, or replay queue over 64 | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                         | `EngineHung`                                                      |
+| Restart                                                      | policy `Schedule`                            | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and OPFS data are not. | engine state `failed` after the limit                             |
+| Load failure                                                 | fetch, compile, instantiate, data install    | Engine never enabled; router stays in direct input                                                                                                                                                                                                                    | `EngineLoadFailed`                                                |
+| ABI or protocol mismatch                                     | manifest check; `Init` version check         | as load failure                                                                                                                                                                                                                                                       | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
+| No OPFS                                                      | mount fails                                  | in-memory mount                                                                                                                                                                                                                                                       | `storage: ephemeral`                                              |
+| Quota                                                        | write errors surface in the engine           | engine-specific                                                                                                                                                                                                                                                       | `storage` usage events, logs                                      |
+| Undecodable record                                           | protocol decode                              | dev builds throw; production drops and logs                                                                                                                                                                                                                           | `ProtocolError` log                                               |
+| GLib warnings and criticals                                  | GLib log handler                             | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                 | log entries                                                       |
+| Detached surface                                             | adapter detach                               | `DestroyEngine`; later output for the context dropped                                                                                                                                                                                                                 | nothing                                                           |
 
 ## 9. Licensing
 
 ### 9.1 Licenses
 
-| Part | License |
-|---|---|
-| Page-side packages and Worker host | MIT OR Apache-2.0 |
-| `libibus-web` | LGPL-2.1-or-later |
-| `pkgsWasm.glib` | LGPL-2.1-or-later (GLib's) |
-| Engine recipes and patches | the engine's license |
-| Engine artifacts | the engine's license, covering the combined work in that Worker |
+| Part                               | License                                                         |
+| ---------------------------------- | --------------------------------------------------------------- |
+| Page-side packages and Worker host | MIT OR Apache-2.0                                               |
+| `libibus-web`                      | LGPL-2.1-or-later                                               |
+| `pkgsWasm.glib`                    | LGPL-2.1-or-later (GLib's)                                      |
+| Engine recipes and patches         | the engine's license                                            |
+| Engine artifacts                   | the engine's license, covering the combined work in that Worker |
 
 The repository follows the REUSE specification. License texts live in `LICENSES/`. Source files we write carry SPDX headers, and `REUSE.toml` annotates the rest by path: patches, generated files, documentation and, for each engine, its `engines/<name>/` directory. `REUSE.toml` is the authoritative per-path mapping; this table summarizes it.
 
@@ -1077,18 +1079,18 @@ artifacts; WASM builds of nixpkgs packages are reached through
 `legacyPackages.<system>.pkgsWasm`. Only packages nixpkgs lacks
 (`libibus-web`, the custom table engine) get recipes of their own.
 
-| Artifact | nixpkgs recipe (at `8ce4ef6`) | Build system | Notes |
-|---|---|---|---|
-| `pkgsWasm.glib` | `glib` 2.88.3 | Meson | Emscripten patch set on top of nixpkgs' `glib` (§10.3) |
-| `pkgsWasm.libffi` | `libffi` 3.8.0 | autotools | upstream WASM backend |
-| `pkgsWasm.libhangul` | `libhangul` 0.2.0 | autotools | |
-| `engine-hangul` | `ibus-engines.hangul` 1.5.5 | autotools | GPL-2.0-or-later |
-| `pkgsWasm.m17n_lib` | `m17n_lib` 1.8.6 | autotools | |
-| `engine-m17n` | `ibus-engines.m17n` 1.4.40 | autotools | GPL-2.0-or-later |
-| `pkgsWasm.libpinyin` | `libpinyin` 2.11.91 | autotools | Kyoto Cabinet backend, as nixpkgs configures it |
-| `engine-libpinyin` | `ibus-engines.libpinyin` 1.16.5 | autotools | GPL-3.0-or-later; also Berkeley DB 5.3 (Sleepycat), SQLite, OpenCC |
-| `pkgsWasm.librime` | `librime` 1.17.0 | CMake | Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog, each from nixpkgs |
-| `engine-rime` | `ibus-engines.rime` 1.6.1 | CMake | GPL-3.0-or-later |
+| Artifact             | nixpkgs recipe (at `8ce4ef6`)   | Build system | Notes                                                                  |
+| -------------------- | ------------------------------- | ------------ | ---------------------------------------------------------------------- |
+| `pkgsWasm.glib`      | `glib` 2.88.3                   | Meson        | Emscripten patch set on top of nixpkgs' `glib` (§10.3)                 |
+| `pkgsWasm.libffi`    | `libffi` 3.8.0                  | autotools    | upstream WASM backend                                                  |
+| `pkgsWasm.libhangul` | `libhangul` 0.2.0               | autotools    |                                                                        |
+| `engine-hangul`      | `ibus-engines.hangul` 1.5.5     | autotools    | GPL-2.0-or-later                                                       |
+| `pkgsWasm.m17n_lib`  | `m17n_lib` 1.8.6                | autotools    |                                                                        |
+| `engine-m17n`        | `ibus-engines.m17n` 1.4.40      | autotools    | GPL-2.0-or-later                                                       |
+| `pkgsWasm.libpinyin` | `libpinyin` 2.11.91             | autotools    | Kyoto Cabinet backend, as nixpkgs configures it                        |
+| `engine-libpinyin`   | `ibus-engines.libpinyin` 1.16.5 | autotools    | GPL-3.0-or-later; also Berkeley DB 5.3 (Sleepycat), SQLite, OpenCC     |
+| `pkgsWasm.librime`   | `librime` 1.17.0                | CMake        | Boost, LevelDB, marisa-trie, OpenCC, yaml-cpp, glog, each from nixpkgs |
+| `engine-rime`        | `ibus-engines.rime` 1.6.1       | CMake        | GPL-3.0-or-later                                                       |
 
 **Engine data** also comes from nixpkgs:
 
@@ -1185,9 +1187,9 @@ artifacts; WASM builds of nixpkgs packages are reached through
      ibus-hangul's `fix-paths.patch`, which edits the Python setup program);
   3. append our patch layers after nixpkgs' remaining patches: `patches/port`,
      then `patches/casts` as a separate list.
-  Dependencies are never swapped by hand: cross splicing supplies the WASM
-  builds. A patched package is never defined under another name, because
-  dependents inside `pkgsWasm` would not see it.
+     Dependencies are never swapped by hand: cross splicing supplies the WASM
+     builds. A patched package is never defined under another name, because
+     dependents inside `pkgsWasm` would not see it.
 - **GLib** is nixpkgs' `glib` recipe with an Emscripten patch series kept in
   this repository (`modules/glib/patches/`) and applied to
   `pkgsWasm.glib` by `flake.overlays.glib`, after nixpkgs' own `glib`
@@ -1217,7 +1219,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
     `gsettings`, …) run this GLib's tools; the build checks that every
     tool variable names an installed program. GLib's executables link
     with `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8
-    -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the
+-sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`; the
     libraries don't see these. The tools keep Node's raw filesystem, one of
     Emscripten's JavaScript file systems, because WasmFS's stdout turns a
     NUL byte into a line break (`gresource extract` of `a\0b\nc` prints
@@ -1227,7 +1229,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
   - **Tests' file system.** `checks.glib-tests` links GLib's tests with
     WasmFS, the file system the runtime ships, in place of
     `-sNODERAWFS=1`: `ibusWeb.toolchain.nodeHostFsFlags` is `-sWASMFS=1
-    -sNODE_HOST_ENV=1` and an object that roots WasmFS at the host's `/`
+-sNODE_HOST_ENV=1` and an object that roots WasmFS at the host's `/`
     through its Node backend and starts in Node's working directory.
     Emscripten's `-sNODERAWFS` under WasmFS roots the tree at the working
     directory instead, so absolute paths miss the build tree. Each test
@@ -1369,18 +1371,18 @@ specification and `release.json`.
 
 ## 12. Milestones
 
-| | Scope | Questions answered |
-|---|---|---|
-| M0 | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? |
-| ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling |
-| ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version` |
+|        | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Questions answered                                                                                                                                                                                                                                   |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0     | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying                                                                                                                                                                                         | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)?                                                                                                                                                     |
+| ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike                                                                                                                                                                                                                                    | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling                                                  |
+| ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored                                                                                                                                      | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version`                                                             |
 | ↳ M0.3 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 16-patch Emscripten series (Wolthuizen's, Fluendo's `glist` fix, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse` | GLib 2.88.3 builds for WASM with GRegex and its tools; 277 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
-| M1 | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table |
-| M2 | Custom table engine (MIT), layout `default`; `contenteditable` adapter | Router generality; non-GPL engine |
-| M3 | m17n: m17n-lib, ibus-m17n, m17n-db delivery | Surrounding text; large data sets |
-| M4 | libpinyin: C++ side module against the runtime's libc++, database backend, OPFS user dictionaries | C++ across modules; persistence; large lookup tables |
-| M5 | Rime: librime and dependencies, deployer thread, schemas deployed at build time, YAML through the storage API | Threads in a real engine; data size |
-| M6 | 1.0: finished facade, docs, generated protocol spec, release pipeline with source bundles | |
+| M1     | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates                                                                                                                                                                                                                                                                                                                                      | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table                                                                                                      |
+| M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                            | Router generality; non-GPL engine                                                                                                                                                                                                                    |
+| M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Surrounding text; large data sets                                                                                                                                                                                                                    |
+| M4     | libpinyin: C++ side module against the runtime's libc++, database backend, OPFS user dictionaries                                                                                                                                                                                                                                                                                                                                                                                                                 | C++ across modules; persistence; large lookup tables                                                                                                                                                                                                 |
+| M5     | Rime: librime and dependencies, deployer thread, schemas deployed at build time, YAML through the storage API                                                                                                                                                                                                                                                                                                                                                                                                     | Threads in a real engine; data size                                                                                                                                                                                                                  |
+| M6     | 1.0: finished facade, docs, generated protocol spec, release pipeline with source bundles                                                                                                                                                                                                                                                                                                                                                                                                                         |                                                                                                                                                                                                                                                      |
 
 ## 13. Risks and open questions
 

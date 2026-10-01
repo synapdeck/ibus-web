@@ -20,6 +20,7 @@ On Linux a pipe holds 64 KiB; past that, a non-blocking `write()` fails with
 `EAGAIN`. Emscripten's pipes have no limit under either file system. Code that
 fills a pipe until `EAGAIN` (to test back-pressure, or to detect a full pipe)
 never stops:
+
 - Under the JS file system the bytes pile up in JS memory.
 - Under WasmFS they go into a `std::queue` on the wasm heap. Without
   `ALLOW_MEMORY_GROWTH` that is an OOM abort; with it, the heap grows until
@@ -136,6 +137,7 @@ End of search list.
 </details>
 
 **Where:**
+
 - JS FS: `PIPEFS.stream_ops.write` accepts every write, adding buckets without
   limit
   ([libpipefs.js#L205-L277](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpipefs.js#L205-L277)).
