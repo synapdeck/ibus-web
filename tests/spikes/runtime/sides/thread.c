@@ -8,6 +8,12 @@
 /* Never more threads than a host could mean to test the pool with. */
 #define MAX_SPAWN 64
 
+/* A thread from the pool starts at once. One beyond it needs a new Worker,
+ * which may not start before the creating thread returns to its event loop
+ * (Node starts it anyway, browsers need not), so joining it from a pump
+ * could block for good. */
+#define START_TIMEOUT (5 * G_TIME_SPAN_SECOND)
+
 typedef enum { IDLE, PENDING, DONE } State;
 
 /* Each operation's state is only touched on the pumping thread, except
@@ -18,7 +24,6 @@ static gint64 idle_delay;
 
 static State spawn_state;
 static int32_t spawn_joined;
-static gint spawn_ran; /* (atomic) */
 
 static gboolean record_dispatch(gpointer data) {
   (void)data;
@@ -68,30 +73,43 @@ static void idle_result(const uint8_t *payload, uint32_t len, GString *reply) {
   }
 }
 
-static gpointer count_run(gpointer data) {
-  (void)data;
-  g_atomic_int_inc(&spawn_ran);
+static gpointer report_start(gpointer started) {
+  g_async_queue_push(started, GINT_TO_POINTER(TRUE));
+  g_async_queue_unref(started);
   return NULL;
 }
 
-/* Runs from a pump, as an engine's own code would create threads. */
+/* Runs from a pump, as an engine's own code would create threads. Each
+ * thread must start before the next is created, and only those that did are
+ * joined; one that doesn't start in time is left to run whenever it can. */
 static gboolean spawn_all(gpointer n) {
   GThread *threads[MAX_SPAWN];
-  int created = 0;
+  GAsyncQueue *started = g_async_queue_new();
+  int running = 0;
 
-  for (; created < GPOINTER_TO_INT(n); created++) {
+  while (running < GPOINTER_TO_INT(n)) {
     GError *error = NULL;
-    threads[created] = g_thread_try_new("spawn", count_run, NULL, &error);
-    if (threads[created] == NULL) {
-      g_warning("spawn: thread %d of %d: %s", created + 1, GPOINTER_TO_INT(n),
+    GThread *thread = g_thread_try_new("spawn", report_start,
+                                       g_async_queue_ref(started), &error);
+    if (thread == NULL) {
+      g_warning("spawn: thread %d of %d: %s", running + 1, GPOINTER_TO_INT(n),
                 error->message);
       g_error_free(error);
+      g_async_queue_unref(started);
       break;
     }
+    if (g_async_queue_timeout_pop(started, START_TIMEOUT) == NULL) {
+      g_warning("spawn: thread %d of %d didn't start", running + 1,
+                GPOINTER_TO_INT(n));
+      g_thread_unref(thread);
+      break;
+    }
+    threads[running++] = thread;
   }
-  for (int i = 0; i < created; i++)
+  for (int i = 0; i < running; i++)
     g_thread_join(threads[i]);
-  spawn_joined = g_atomic_int_get(&spawn_ran);
+  g_async_queue_unref(started);
+  spawn_joined = running;
   spawn_state = DONE;
   return G_SOURCE_REMOVE;
 }
@@ -106,12 +124,11 @@ static void spawn(const uint8_t *payload, uint32_t len, GString *reply) {
     return;
   }
   spawn_state = PENDING;
-  g_atomic_int_set(&spawn_ran, 0);
   g_idle_add(spawn_all, GINT_TO_POINTER(n));
   spike_reply(reply, 0);
 }
 
-/* spawn-result(): how many of the threads ran and were joined. */
+/* spawn-result(): how many of the threads started and were joined. */
 static void spawn_result(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;

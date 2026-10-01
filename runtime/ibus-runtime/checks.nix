@@ -90,6 +90,10 @@
           cp summary.txt $out
         '';
       };
+
+      # A blocked main thread (a join on a thread that never ends, say) never
+      # returns to Node's event loop, where a timer would fire.
+      nodeTimeout = "timeout --kill-after=10 300";
     in
     {
       ibusWeb.runtime.nodeHarness = nodeHarness;
@@ -107,7 +111,7 @@
             cp ${nodeHarness}/* .
             cp ${./tests/load.mjs} load.mjs
             for build in ${runtime.ibusRuntime} ${runtime.ibusRuntimeAsserting}; do
-              node load.mjs $build/ibus-runtime.js ${testSide.wasm} >> $out
+              ${nodeTimeout} node load.mjs $build/ibus-runtime.js ${testSide.wasm} >> $out
             done
             cat $out
           '';
