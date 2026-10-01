@@ -7,7 +7,8 @@
  * file back, file and resource attributes, the memory monitor). Also checks
  * that blocking main-context iteration sleeps instead of spinning, wakes
  * when another thread changes the context, with or without fds to watch,
- * and that a cancellable's fd can be polled. */
+ * and that a cancellable's fd can be polled, and that a wake hook sees the
+ * default context woken. */
 #include <emscripten.h>
 #include <gio/gio.h>
 #include <glib-object.h>
@@ -106,6 +107,56 @@ static void check_fd_wait(int fd_pipe[2]) {
   g_main_context_unref(fd_context);
   close(fd_pipe[0]);
   close(fd_pipe[1]);
+}
+
+static void count_wake(gpointer counter) { g_atomic_int_inc((gint *)counter); }
+
+static void count_log(const gchar *domain, GLogLevelFlags level,
+                      const gchar *message, gpointer counter) {
+  (*(int *)counter)++;
+}
+
+static gpointer add_idle(gpointer counter) {
+  g_idle_add(count_idle, counter);
+  return NULL;
+}
+
+/* A host sleeping outside GLib learns of work for the default context only
+ * through its wake hook. GLib wakes a context for a source attached from
+ * another thread only while some thread owns it, so the hook sees the
+ * attach while the main thread holds the context, and not otherwise. A
+ * second hook is refused with a critical, and the first keeps firing. */
+static void check_wake_hook(void) {
+  static gint woken; /* (atomic) */
+  g_main_context_wasm_set_wake_hook(NULL, count_wake, &woken);
+
+  g_main_context_acquire(NULL);
+  int owned_idled = 0;
+  g_thread_join(g_thread_new("idle", add_idle, &owned_idled));
+  int owned_woken = g_atomic_int_get(&woken) > 0;
+  int owned_dispatched =
+      g_main_context_iteration(NULL, FALSE) && owned_idled == 1;
+  g_main_context_release(NULL);
+
+  int before = g_atomic_int_get(&woken);
+  int unowned_idled = 0;
+  g_thread_join(g_thread_new("idle", add_idle, &unowned_idled));
+  int unowned_woken = g_atomic_int_get(&woken) != before;
+  while (g_main_context_iteration(NULL, FALSE))
+    ;
+
+  static gint stolen; /* (atomic) */
+  int criticals = 0;
+  guint handler =
+      g_log_set_handler("GLib", G_LOG_LEVEL_CRITICAL, count_log, &criticals);
+  g_main_context_wasm_set_wake_hook(NULL, count_wake, &stolen);
+  g_log_remove_handler("GLib", handler);
+  before = g_atomic_int_get(&woken);
+  g_main_context_wakeup(NULL);
+  int kept = criticals == 1 && g_atomic_int_get(&woken) > before &&
+             g_atomic_int_get(&stolen) == 0;
+  printf("wakehook %d %d %d\n",
+         owned_woken && owned_dispatched && unowned_idled, unowned_woken, kept);
 }
 
 static gpointer cancel_later(gpointer cancellable) {
@@ -361,6 +412,8 @@ int main(void) {
   printf("wakeup %d\n", !g_main_loop_is_running(loop));
   g_main_loop_unref(loop);
   g_main_context_unref(loop_context);
+
+  check_wake_hook();
 
   int fd_pipe[2];
   if (pipe(fd_pipe) == 0)

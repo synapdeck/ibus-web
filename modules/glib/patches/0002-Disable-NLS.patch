@@ -1,7 +1,7 @@
 From 848a3217d8ce36b460b5c6dbc9b69f23abc16312 Mon Sep 17 00:00:00 2001
 From: Kleis Auke Wolthuizen <github@kleisauke.nl>
 Date: Tue, 23 Aug 2022 10:29:57 +0200
-Subject: [PATCH 02/16] Disable NLS
+Subject: [PATCH 02/17] Disable NLS
 
 Upstream-Status: Inappropriate [disable feature]
 This patch is just for our convenience.

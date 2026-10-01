@@ -41,8 +41,9 @@ the source hash.
 | 0014 Give WebAssembly time zones, a memory monitor, content types and a user | Alexis Williams | — |
 | 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces | Alexis Williams | — |
 | 0016 tests: Build and run GLib's tests on WebAssembly | Alexis Williams | — |
+| 0017 gmain, gwakeup: Call a hook when a context's wakeup is signalled on WebAssembly | Alexis Williams | — |
 
-Each of 0011–0016 covers one topic, described in its message and below.
+Each of 0011–0017 covers one topic, described in its message and below.
 0016 holds every change to GLib's tests, and nothing else.
 
 ### Dropped from Wolthuizen's branch
@@ -454,21 +455,7 @@ above).
   timeout and sleeps in 10 ms slices (`g_usleep()`, which serves proxied
   calls) until one is ready or the timeout passes. A cancellable's fd
   turning ready is noticed within a slice.
-- **The pump hook** (the runtime's Worker host waits on its own request
-  word, and `g_wakeup_signal()` on the pumped context's wakeup must also
-  bump and notify that word) fits without changing any of this: add a
-  `gint *` to the WebAssembly `GWakeup`, set for the default context's
-  wakeup through a private setter (a `GLibPrivateVTable` entry or a small
-  WebAssembly-only function in `gmain.c`), and have `g_wakeup_signal()`
-  increment and `emscripten_futex_wake()` that word after its own. Waiting
-  and acknowledging don't change, since the host never waits on the
-  wakeup's own counter. GLib only signals a context's wakeup for a source
-  attached from another thread when some other thread owns the context
-  (or it polls without an owner), so the pump's thread must acquire the
-  default context once for the Worker's lifetime; acquiring is recursive,
-  so its non-blocking iterations still work. A context acquired and
-  released around each iteration is unowned between pumps, and a source
-  attached then would never wake the host.
+- **The pump hook**, for a host that sleeps outside GLib, is 0017's.
 
 With the wakeup in place, the thread `g_get_worker_context()` starts
 (for `GTask`, among others) and GDBus's shared thread sleep in their
@@ -749,3 +736,55 @@ and skips as upstream does ("Unable to open PTY").
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers
 shut down at exit. It is Emscripten's diagnostic, not a GLib failure.
+
+## 0017: the wake hook
+
+The runtime's Worker host sleeps in `Atomics.wait()` on a word of its own
+between non-blocking iterations of the default context, so it neither
+waits on the context's futex nor polls a wakeup fd. 0017 lets it hear the
+wakeup anyway:
+
+```c
+typedef void (*GWasmWakeHook) (gpointer user_data);
+void g_main_context_wasm_set_wake_hook (GMainContext  *context,
+                                        GWasmWakeHook  hook,
+                                        gpointer       user_data);
+```
+
+- **A hook, not a word.** GLib calls a C function rather than bumping a
+  word it is handed, so which word the host waits on, and in which
+  memory, stays the runtime's choice.
+- **When it runs.** `g_wakeup_signal()` calls it last, after bumping and
+  waking the futex and writing the pipe if there is one, on whichever
+  thread signals. That is sometimes with the context locked (an attach, a
+  ready time or fd change, `g_main_loop_quit()`), so the hook must not
+  call into the context; it should only wake the host.
+- **On the owner's thread too.** A ready time or fd change and
+  `g_main_loop_quit()` signal whichever thread makes them, owner or not,
+  so the hook also runs on the host's own thread in the middle of its own
+  iteration. It must be safe to run re-entrantly there, and the host must
+  tolerate wakes that find no new work.
+- **Publication.** The hook and its data are one immutable record,
+  published with a compare-and-exchange of the wakeup's record pointer
+  from `NULL`; a signal loads the pointer once and calls
+  `record->hook (record->user_data)`, so it never pairs one setter's hook
+  with another's data. A hook can be set once per context and is never
+  replaced or removed: a later setter loses the exchange, frees its
+  record and reports a `g_critical()`, which `G_DISABLE_CHECKS` doesn't
+  remove. The record is freed with the wakeup. A signal racing with the
+  setter may or may not call it.
+- **Ownership.** GLib wakes a context for a source attached from another
+  thread only while some other thread owns it (`g_source_attach_unlocked()`
+  checks `context->owner`), so the host's thread must acquire the default
+  context for as long as it relies on the hook. Acquiring is recursive,
+  so its non-blocking iterations still work; a context acquired and
+  released around each iteration is unowned between pumps, and an
+  attach then calls no hook. `checks.glib` checks both, and that a second
+  hook is refused while the first keeps firing (`wakehook 1 0 1`).
+- **Where it is declared.** `gmain.h`, under `#ifdef G_PLATFORM_WASM`,
+  beside the context's other low-level functions and in the same way
+  `gmain.h` declares its Unix-only API, so it is installed with GLib and
+  reached through `glib.h`. The setter on the `GWakeup` it calls is
+  private (`gwakeup.h`).
+
+Waiting, acknowledging and every other platform are unchanged.

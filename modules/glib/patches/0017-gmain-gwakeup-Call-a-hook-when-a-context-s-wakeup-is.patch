@@ -1,0 +1,264 @@
+From a69bccaa51bf3e3d69974441ed1a1b50a1d7562a Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 1 Oct 2026 00:43:02 -0700
+Subject: [PATCH 17/17] gmain, gwakeup: Call a hook when a context's wakeup is
+ signalled on WebAssembly
+
+A thread that waits for a main context's work outside GLib, such as a
+Worker's host sleeping in Atomics.wait() between non-blocking
+iterations, never sees the context's wakeup: it neither waits on the
+wakeup's futex nor polls its fd. It needs to hear about each signal on
+its own terms, in a word and a memory GLib has no business choosing.
+
+g_main_context_wasm_set_wake_hook() installs a C function on a context's
+wakeup, and g_wakeup_signal() calls it once the futex has been woken and
+any pipe written, on whichever thread signals. The hook and its data
+are published together as one immutable record, swapped in from NULL
+with a compare-and-exchange, and a signal loads that record once, so it
+never pairs one setter's hook with another's data. A hook can be set
+only once per context: a later setter loses the exchange, frees its
+record and reports a critical, whether or not checks are compiled in.
+The record is freed with the wakeup. Waiting and acknowledging are
+unchanged.
+
+GLib wakes a context for a source attached from another thread only
+while some thread owns the context, so a host relying on the hook must
+hold the context for as long as it does. The hook may run with the
+context locked and must not call into it. It also runs on the owner's
+thread during the owner's own iteration, since ready-time and poll
+changes and g_main_loop_quit() signal whoever makes them, so it must be
+re-entrancy-safe and the host must tolerate spurious wakes.
+
+The function is declared in gmain.h under G_PLATFORM_WASM, so it is
+installed with GLib and reached through glib.h. Other platforms are
+unchanged.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/gmain.c   | 51 +++++++++++++++++++++++++++++++++++++++++++++
+ glib/gmain.h   | 16 +++++++++++++++
+ glib/gwakeup.c | 56 +++++++++++++++++++++++++++++++++++++++++++++++++-
+ glib/gwakeup.h |  6 ++++++
+ 4 files changed, 128 insertions(+), 1 deletion(-)
+
+diff --git a/glib/gmain.c b/glib/gmain.c
+index da655051f..e8165e25f 100644
+--- a/glib/gmain.c
++++ b/glib/gmain.c
+@@ -5285,6 +5285,57 @@ g_main_context_wakeup (GMainContext *context)
+   g_wakeup_signal (context->wakeup);
+ }
+ 
++#ifdef G_PLATFORM_WASM
++/**
++ * g_main_context_wasm_set_wake_hook:
++ * @context: (nullable): a main context (if `NULL`, the global-default
++ *   main context will be used)
++ * @hook: called each time @context's wakeup is signalled
++ * @user_data: data to pass to @hook
++ *
++ * Has @hook called whenever @context is woken, for a thread that waits for
++ * @context's work outside GLib and so can't be woken by it otherwise.
++ *
++ * Besides [method@GLib.MainContext.wakeup] and [method@GLib.MainLoop.quit],
++ * GLib wakes @context when a source's ready time or file descriptors
++ * change, and when a thread other than its owner attaches a source.  It
++ * does the last only while some thread owns @context, so the waiting thread
++ * should hold it with [method@GLib.MainContext.acquire] for as long as it
++ * relies on @hook.
++ *
++ * @hook may run on any thread, possibly with @context locked, so it must
++ * not call into @context; it should do no more than wake the waiting
++ * thread.  That includes the owner's own thread in the middle of its own
++ * iteration: setting a source's ready time, adding or removing a file
++ * descriptor and [method@GLib.MainLoop.quit] wake @context whichever thread
++ * calls them.  So @hook must be safe to run re-entrantly, from inside a
++ * dispatch on the thread it would wake, and the waiting thread must
++ * tolerate wakes that find no new work.
++ *
++ * A hook can be set only once for each context, and stays set for the
++ * context's lifetime.  Setting another is a programmer error: it is
++ * reported with a critical warning and leaves the first hook in place.
++ *
++ * This function is only available on WebAssembly.
++ */
++void
++g_main_context_wasm_set_wake_hook (GMainContext  *context,
++                                   GWasmWakeHook  hook,
++                                   gpointer       user_data)
++{
++  g_return_if_fail (hook != NULL);
++
++  if (!context)
++    context = g_main_context_default ();
++
++  g_return_if_fail (g_atomic_int_get (&context->ref_count) > 0);
++
++  if (!g_wakeup_set_hook (context->wakeup, hook, user_data))
++    g_critical ("%s: main context %p already has a wake hook",
++                G_STRFUNC, context);
++}
++#endif
++
+ /**
+  * g_main_context_is_owner:
+  * @context: (nullable): a main context (if `NULL`, the global-default
+diff --git a/glib/gmain.h b/glib/gmain.h
+index 9f4229a7f..a960888c0 100644
+--- a/glib/gmain.h
++++ b/glib/gmain.h
+@@ -556,6 +556,22 @@ void     g_main_context_set_poll_func (GMainContext *context,
+ GLIB_AVAILABLE_IN_ALL
+ GPollFunc g_main_context_get_poll_func (GMainContext *context);
+ 
++#ifdef G_PLATFORM_WASM
++/**
++ * GWasmWakeHook:
++ * @user_data: the data passed to g_main_context_wasm_set_wake_hook()
++ *
++ * Called from whichever thread signals the context's wakeup, after the
++ * wakeup's own futex has been woken.
++ */
++typedef void (*GWasmWakeHook) (gpointer user_data);
++
++GLIB_AVAILABLE_IN_ALL
++void     g_main_context_wasm_set_wake_hook (GMainContext  *context,
++                                            GWasmWakeHook  hook,
++                                            gpointer       user_data);
++#endif
++
+ /* Low level functions for use by source implementations
+  */
+ GLIB_AVAILABLE_IN_ALL
+diff --git a/glib/gwakeup.c b/glib/gwakeup.c
+index af79b8fa5..dab84ae2a 100644
+--- a/glib/gwakeup.c
++++ b/glib/gwakeup.c
+@@ -134,6 +134,14 @@ g_wakeup_free (GWakeup *wakeup)
+ #endif
+ #endif /*G_PLATFORM_WASM*/
+ 
++#ifdef G_PLATFORM_WASM
++typedef struct
++{
++  GWasmWakeHook hook;
++  gpointer user_data;
++} GWakeupHook;
++#endif
++
+ /* Emscripten's poll() can't wait on a file descriptor, so on WebAssembly
+  * a wakeup is a futex: signalling bumps @signals and wakes its waiters, and
+  * g_wakeup_wait() sleeps while @signals still equals the value last
+@@ -143,13 +151,19 @@ g_wakeup_free (GWakeup *wakeup)
+  * created by the first g_wakeup_get_pollfd(): from then on each signal
+  * also writes a byte to it, and acknowledging drains it.  Wakeups nobody
+  * polls, such as those of main contexts not made for ownerless polling,
+- * never create one. */
++ * never create one.
++ *
++ * A host that sleeps outside GLib can't see either, so it may install a
++ * hook that each signal calls last.  The hook and its data are one record,
++ * immutable once published and loaded with a single atomic read, so a
++ * signal never pairs one setter's hook with another's data. */
+ struct _GWakeup
+ {
+ #ifdef G_PLATFORM_WASM
+   gint signals;       /* (atomic) */
+   gint acknowledged;  /* (atomic) */
+   gint *pipe;         /* (atomic) (nullable): read end, then write end */
++  GWakeupHook *hook;  /* (atomic) (nullable) (owned) */
+ #else
+   gint fds[2];
+ #endif
+@@ -340,6 +354,7 @@ g_wakeup_signal (GWakeup *wakeup)
+ {
+ #ifdef G_PLATFORM_WASM
+   gint *fds;
++  const GWakeupHook *hook;
+ 
+   g_atomic_int_inc (&wakeup->signals);
+   emscripten_futex_wake (&wakeup->signals, INT_MAX);
+@@ -354,6 +369,10 @@ g_wakeup_signal (GWakeup *wakeup)
+         res = write (fds[1], &one, sizeof one);
+       while (G_UNLIKELY (res == -1 && errno == EINTR));
+     }
++
++  hook = g_atomic_pointer_get (&wakeup->hook);
++  if (hook != NULL)
++    hook->hook (hook->user_data);
+ #else
+   int res;
+ 
+@@ -399,6 +418,8 @@ g_wakeup_free (GWakeup *wakeup)
+       close (wakeup->pipe[1]);
+       g_free (wakeup->pipe);
+     }
++
++  g_free (wakeup->hook);
+ #else
+   close (wakeup->fds[0]);
+ 
+@@ -438,6 +459,39 @@ g_wakeup_wait (GWakeup *wakeup,
+ 
+   return g_atomic_int_get (&wakeup->signals) != acknowledged;
+ }
++
++/*< private >
++ * g_wakeup_set_hook:
++ * @wakeup: a #GWakeup
++ * @hook: called by each g_wakeup_signal() on @wakeup, once it has signalled
++ * @user_data: passed to @hook
++ *
++ * Installs @hook on @wakeup unless a hook is already installed.  A signal
++ * racing with this call may or may not call it.  An installed hook is
++ * never replaced or removed, so a signal can call it without holding
++ * anything.
++ *
++ * Returns: %TRUE if @hook was installed
++ */
++gboolean
++g_wakeup_set_hook (GWakeup       *wakeup,
++                   GWasmWakeHook  hook,
++                   gpointer       user_data)
++{
++  GWakeupHook *record;
++
++  record = g_new (GWakeupHook, 1);
++  record->hook = hook;
++  record->user_data = user_data;
++
++  if (!g_atomic_pointer_compare_and_exchange (&wakeup->hook, NULL, record))
++    {
++      g_free (record);
++      return FALSE;
++    }
++
++  return TRUE;
++}
+ #endif
+ 
+ #endif /* !_WIN32 */
+diff --git a/glib/gwakeup.h b/glib/gwakeup.h
+index f5d37ec20..e0eb01e3e 100644
+--- a/glib/gwakeup.h
++++ b/glib/gwakeup.h
+@@ -23,6 +23,9 @@
+ #define __G_WAKEUP_H__
+ 
+ #include <glib/gpoll.h>
++#ifdef G_PLATFORM_WASM
++#include <glib/gmain.h>
++#endif
+ 
+ typedef struct _GWakeup GWakeup;
+ 
+@@ -36,6 +39,9 @@ void            g_wakeup_acknowledge    (GWakeup *wakeup);
+ #ifdef G_PLATFORM_WASM
+ gboolean        g_wakeup_wait           (GWakeup *wakeup,
+                                          gint64   timeout_usec);
++gboolean        g_wakeup_set_hook       (GWakeup       *wakeup,
++                                         GWasmWakeHook  hook,
++                                         gpointer       user_data);
+ #endif
+ 
+ #endif

@@ -1,7 +1,7 @@
 From 15d31468fa4ec44b121e320bef13da96f92224db Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 23:37:37 -0700
-Subject: [PATCH 16/16] tests: Build and run GLib's tests on WebAssembly
+Subject: [PATCH 16/17] tests: Build and run GLib's tests on WebAssembly
 
 Only test sources and test build files change.
 

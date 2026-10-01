@@ -38,6 +38,7 @@
             grep -qx "exists 1 1 0" output.txt
             grep -qx "mainloop 1" output.txt
             grep -qx "wakeup 1" output.txt
+            grep -qx "wakehook 1 0 1" output.txt
             grep -qx "fdwait 1 1 1" output.txt
             grep -qx "cancellable 1 1 1" output.txt
             grep -qx "blocking 1 1 1" output.txt

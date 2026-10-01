@@ -1,7 +1,7 @@
 From 9d41338827625dc213abe54547b50447320d28fd Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 23:36:58 -0700
-Subject: [PATCH 15/16] gconvert, gcharsetconverter: Report characters iconv()
+Subject: [PATCH 15/17] gconvert, gcharsetconverter: Report characters iconv()
  replaces
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

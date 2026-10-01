@@ -1,7 +1,7 @@
 From de108430fe012fc7318449dcef175a4ee13bcd77 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 23:36:25 -0700
-Subject: [PATCH 12/16] Build the tools and the Unix parts WebAssembly can take
+Subject: [PATCH 12/17] Build the tools and the Unix parts WebAssembly can take
 
 "Add support for WebAssembly" leaves out every Unix-specific source and
 guards out every Unix path. Some of those work under Emscripten as they
