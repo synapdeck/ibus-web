@@ -5,7 +5,7 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) toolchain;
+      inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) emscripten;
 
       # -O2 over -Os: engine data, not code, dominates download size, and
@@ -163,17 +163,15 @@
             em++ ${toolchain.commonFlags} probe.cpp -o probe-plain-cpp.js
             test "$(node probe-plain-cpp.js)" = "probe 2"
 
-            # The runtime's settings, and those of the rest of its link that
-            # shape the JavaScript it loads with, released and asserting.
+            # The runtime's link settings, released and asserting.
             # A file, not node -e: the pool's Workers inherit Node's flags.
             echo 'await (await import(process.argv[2])).default();' > instantiate.mjs
             for assertions in 0 1; do
-              em++ ${toolchain.commonFlags} ${toolchain.runtimeMainFlags} -sASSERTIONS=$assertions \
-                -sPTHREAD_POOL_SIZE=2 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node \
+              em++ ${toolchain.commonFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 -sEXPORTED_FUNCTIONS=_main,_wasmfs_create_opfs_backend probe.o -o probe-runtime.js
               test "$(node instantiate.mjs ./probe-runtime.js)" = "probe 7"
-              em++ ${toolchain.commonFlags} ${toolchain.runtimeMainFlags} -sASSERTIONS=$assertions \
-                -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node probe.cpp -o probe-runtime-cpp.js
+              em++ ${toolchain.commonFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
+                probe.cpp -o probe-runtime-cpp.js
               test "$(node instantiate.mjs ./probe-runtime-cpp.js)" = "probe 2"
             done
 

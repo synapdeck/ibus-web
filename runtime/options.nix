@@ -17,9 +17,13 @@
         type = lib.types.package;
         description = "ibus-runtime linked with Emscripten's runtime assertions, for checks.";
       };
+      linkFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "ibus-runtime's link flags but for its export list: toolchain.runtimeMainFlags and the settings that shape its memory, threads and JavaScript.";
+      };
       exportList = lib.mkOption {
         type = lib.types.package;
-        description = "The runtime's export list, exports.txt: what side modules may import from it, versioned by the runtime ABI (passthru.abi).";
+        description = "The runtime's export manifest: exports.txt, what side modules may import from it, grouped by library, and exports.json, the runtime ABI and each library's name, version and symbol count, which together identify the runtime's ABI.";
       };
       checkSideModuleImports = lib.mkOption {
         type = lib.types.functionTo lib.types.package;

@@ -35,8 +35,7 @@
             grep -q '"ENOSYS": [0-9]' $out/errno.json
           '';
 
-      # A side module of the runtime's own, for checks that outlive the
-      # spike's.
+      # A side module of the runtime's own, for checks of the runtime alone.
       testSide = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-runtime-test-side";
         src = ./tests;
@@ -54,45 +53,51 @@
         '';
       };
 
-      # The functions the header marks as API, but for the entry point side
-      # modules define.
-      api = lib.remove "ibusweb_module_init" (
-        lib.concatMap (
-          line:
-          let
-            m = builtins.match "IBUSWEB_API [^(]* \\**([a-z_0-9]+)\\(.*" line;
-          in
-          lib.optional (m != null) (lib.head m)
-        ) (lib.splitString "\n" (builtins.readFile "${runtime.libibusWeb.src}/include/ibus-web/runtime.h"))
-      );
-
-      # The runtime's header and its list must agree on the ABI version, and
-      # the list must be one symbol per line, sorted, holding the runtime's
-      # API.
-      exportListCheck =
-        pkgs.runCommand "ibus-web-ibus-runtime-exports-check"
-          {
-            api = lib.concatStringsSep " " api;
-          }
-          ''
-            list=${runtime.exportList}/exports.txt
-            test "$(head -n1 $list)" = "# IBUSWEB_RUNTIME_ABI ${toString runtime.exportList.abi}"
-            symbols=$(tail -n +2 $list)
-            if grep -Ev '^_[A-Za-z0-9_.$]+$' <<< "$symbols"; then
-              echo "malformed lines above" >&2
-              exit 1
-            fi
-            LC_ALL=C sort -c -u <<< "$symbols"
-            test -n "$api"
-            for name in $api; do
-              if ! grep -Fxq "_$name" <<< "$symbols"; then
-                echo "the API's $name is missing" >&2
-                exit 1
-              fi
-            done
-            echo "ABI ${toString runtime.exportList.abi}: $(wc -l <<< "$symbols") symbols, API: $api" > $out
-            cat $out
-          '';
+      # The manifest's two files must agree, each library must be at the
+      # version the build's inputs carry, and libibus-web must export only
+      # what its header declares.
+      exportListCheck = pkgsWasm.stdenv.mkDerivation {
+        name = "ibus-web-ibus-runtime-exports-check";
+        dontUnpack = true;
+        nativeBuildInputs = [
+          pkgsWasm.pkg-config
+          pkgs.python3
+        ];
+        buildInputs = [ runtime.libibusWeb ];
+        dontFixup = true;
+        buildPhase = ''
+          runHook preBuild
+          manifest=${runtime.exportList}
+          for file in exports.txt exports.json; do
+            cmp $manifest/$file ${runtime.ibusRuntime}/$file
+          done
+          abi=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["abi"])' $manifest/exports.json)
+          musl=$(< ${emscripten}/share/emscripten/system/lib/libc/musl/VERSION)
+          # libc++ numbers its release XXYYZZ.
+          libcxx=$(python3 ${./exports.py} macro --lang c++ --include version _LIBCPP_VERSION)
+          python3 ${./exports.py} verify --dir $manifest \
+            --expect libibus-web=$abi \
+            ${
+              lib.concatMapStringsSep " " (library: "--expect ${library}=${pkgsWasm.glib.version}") [
+                "glib-2.0"
+                "gobject-2.0"
+                "gmodule-2.0"
+                "gio-2.0"
+              ]
+            } \
+            --expect libffi=${pkgsWasm.libffi.version} \
+            --expect "libc=$musl+emscripten.${emscripten.version}" \
+            --expect "libc++=$((libcxx / 10000)).$((libcxx / 100 % 100)).$((libcxx % 100))" \
+            --expect emscripten=${emscripten.version} \
+            --api-library libibus-web --api-header ibus-web/runtime.h --api-pkg-config libibus-web \
+            > summary.txt
+          cat summary.txt
+          runHook postBuild
+        '';
+        installPhase = ''
+          cp summary.txt $out
+        '';
+      };
     in
     {
       ibusWeb.runtime.nodeHarness = nodeHarness;

@@ -10,7 +10,6 @@
 
       linkFlags = lib.concatStringsSep " " [
         toolchain.runtimeMainFlags
-        "-sEXPORTED_FUNCTIONS=@${exportList}/exports.txt"
         # The Worker host reads and writes requests in the runtime's memory.
         "-sEXPORTED_RUNTIME_METHODS=HEAPU8"
         # Threads come from a pool started with the runtime, so creating one
@@ -23,15 +22,16 @@
         # GRegex outgrows Emscripten's 64 KiB default stack, on any thread.
         "-sSTACK_SIZE=1MB"
         "-sDEFAULT_PTHREAD_STACK_SIZE=1MB"
-        # A fixed memory: growth has let pthreads fault out of bounds. The
-        # runtime starts at 2.3 MiB, and each running thread adds about
-        # 1 MiB, mostly its stack; four at once peak at 7.4 MiB.
+        # A fixed memory: with threads, a growing one occasionally faults a
+        # thread out of bounds, and a fixed one hasn't. The runtime starts
+        # at 2.3 MiB and each running thread adds about 1 MiB, mostly its
+        # stack, so the pool's four threads and one more peak at 8.4 MiB;
+        # 32 MiB leaves four times that.
         "-sALLOW_MEMORY_GROWTH=0"
         "-sINITIAL_MEMORY=32MB"
         "-sMODULARIZE=1"
         "-sEXPORT_ES6=1"
         "-sENVIRONMENT=web,worker,node"
-        "-sEXIT_RUNTIME=0"
       ];
 
       link =
@@ -48,9 +48,8 @@
             runtime.libibusWeb
             pkgsWasm.libffi
           ];
-          passthru = { inherit (exportList) abi; };
-          # The output is three files for the web, which need no fixing up
-          # and depend on nothing.
+          # The output is files for the web, which need no fixing up and
+          # depend on nothing.
           dontFixup = true;
           # Everything the runtime holds comes from libraries; the export
           # list decides what of them is linked, and the GIO subset, GObject
@@ -59,13 +58,14 @@
           buildPhase = ''
             runHook preBuild
             $CXX $($PKG_CONFIG --static --libs libibus-web gio-2.0 gobject-2.0 libffi) \
-              ${linkFlags} ${extraFlags} -o ibus-runtime.js
+              ${linkFlags} -sEXPORTED_FUNCTIONS=@${exportList}/exports.txt ${extraFlags} \
+              -o ibus-runtime.js
             runHook postBuild
           '';
           installPhase = ''
             runHook preInstall
             mkdir -p $out
-            cp ibus-runtime.js ibus-runtime.wasm ${exportList}/exports.txt $out/
+            cp ibus-runtime.js ibus-runtime.wasm ${exportList}/exports.txt ${exportList}/exports.json $out/
             runHook postInstall
           '';
         };
@@ -74,7 +74,7 @@
     in
     {
       ibusWeb.runtime = {
-        inherit ibusRuntime;
+        inherit ibusRuntime linkFlags;
         ibusRuntimeAsserting = link {
           pname = "ibus-runtime-asserting";
           extraFlags = "-sASSERTIONS=1";
