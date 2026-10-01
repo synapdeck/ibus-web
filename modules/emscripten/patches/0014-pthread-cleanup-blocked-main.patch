@@ -14,13 +14,15 @@ Since a wait on the main thread can now free a thread, dlopen()'s sync,
 which waits on each thread of a list it took first, holds the cleanups
 off until it has been through the list, then runs them. A thread that
 has ended meanwhile stays allocated and refuses the proxy, as it did
-before; one already gone at its turn is skipped as well.
+before; one already gone at its turn is skipped as well. A sync that ends
+in an exception (an exit() proxied in, say) releases the hold without
+running the cleanups, and leaves the runtime alone once it has stopped.
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-pthread-cleanup-blocked-main.md
 
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
-index a975f21..d7ee618 100644
+index a975f21..27a0736 100644
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -93,6 +93,7 @@ var LibraryPThread = {
@@ -79,7 +81,7 @@ index a975f21..d7ee618 100644
    $dlsyncThreadsAsync: async () => {
      const caller = PThread.currentProxiedOperationCallerThread;
  #if PTHREADS_DEBUG
-@@ -1254,14 +1266,23 @@ var LibraryPThread = {
+@@ -1254,15 +1266,29 @@ var LibraryPThread = {
      // Any new threads that are created after this call will automatically be
      // in sync because we call `__emscripten_dlsync_self` in
      // invokeEntryPoint before the threads entry point is called.
@@ -105,12 +107,18 @@ index a975f21..d7ee618 100644
 +          promises.push(info.promise);
 +        }
        }
-+    } finally {
-+      __emscripten_thread_release_cleanups();
++    } catch (e) {
++      // Whatever ended the loop (an exit() or abort() proxied in, say) may
++      // have torn the runtime down; leave its threads be and, once it has
++      // stopped, don't call into it at all.
++      if (!ABORT) __emscripten_thread_release_cleanups(false);
++      throw e;
      }
++    __emscripten_thread_release_cleanups(true);
  
  #if PTHREADS_DEBUG
-@@ -1280,7 +1301,9 @@ var LibraryPThread = {
+     dbg(`dlsyncThreadsAsync: waiting on ${promises.length} promises`);
+@@ -1280,7 +1306,9 @@ var LibraryPThread = {
    // synchronously block the main thread until all other threads are in sync.
    // When `dlopen` is called from a worker, the worker itself is blocked but
    // the operation its waiting on (on the main thread) can be async.
@@ -121,7 +129,7 @@ index a975f21..d7ee618 100644
    _emscripten_dlsync_threads__async: 'auto',
    _emscripten_dlsync_threads__proxy: 'sync',
    _emscripten_dlsync_threads: () => {
-@@ -1288,11 +1311,20 @@ var LibraryPThread = {
+@@ -1288,12 +1316,26 @@ var LibraryPThread = {
      if (callingThread) {
        return dlsyncThreadsAsync();
      }
@@ -141,13 +149,19 @@ index a975f21..d7ee618 100644
 +          __emscripten_proxy_dlsync(pthread_ptr);
 +        }
        }
-+    } finally {
-+      __emscripten_thread_release_cleanups();
++    } catch (e) {
++      // Whatever ended the loop (an exit() or abort() proxied in, say) may
++      // have torn the runtime down; leave its threads be and, once it has
++      // stopped, don't call into it at all.
++      if (!ABORT) __emscripten_thread_release_cleanups(false);
++      throw e;
      }
++    __emscripten_thread_release_cleanups(true);
    },
  #endif // MAIN_MODULE
+ 
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
-index b8a48cb..e46e7b0 100644
+index b8a48cb..76eab56 100644
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
 @@ -10,6 +10,7 @@
@@ -188,10 +202,10 @@ index b8a48cb..e46e7b0 100644
 +  cleanup_holds++;
 +}
 +
-+void _emscripten_thread_release_cleanups(void) {
++void _emscripten_thread_release_cleanups(bool run) {
 +  assert(emscripten_is_main_runtime_thread());
 +  assert(cleanup_holds > 0);
-+  if (--cleanup_holds == 0) {
++  if (--cleanup_holds == 0 && run) {
 +    _emscripten_thread_run_deferred_cleanups();
 +  }
 +}
@@ -216,7 +230,7 @@ index b8a48cb..e46e7b0 100644
  }
  
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
-index 097595e..01d53d5 100644
+index 097595e..bd392f6 100644
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
 @@ -63,6 +63,18 @@ void _emscripten_init_main_thread_js(void* tb);
@@ -230,10 +244,10 @@ index 097595e..01d53d5 100644
 +// Runs the cleanups deferred so far, unless they are held. Main runtime
 +// thread only.
 +void _emscripten_thread_run_deferred_cleanups(void);
-+// Hold deferred cleanups until a matching release, which runs them. Main
-+// runtime thread only.
++// Hold deferred cleanups until a matching release, which runs them if run
++// is set and no other hold remains. Main runtime thread only.
 +void _emscripten_thread_hold_cleanups(void);
-+void _emscripten_thread_release_cleanups(void);
++void _emscripten_thread_release_cleanups(bool run);
 +
  hidden void* _emscripten_tls_init(void);
  hidden void _emscripten_tls_free(void);

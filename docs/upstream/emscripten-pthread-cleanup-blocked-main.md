@@ -140,20 +140,16 @@ which runs the calls other threads proxied to it
 ([emscripten_yield.c#L50](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/emscripten_yield.c#L50)),
 but the cleanup isn't one of them.
 
-**Suggested fix:** hand the thread to the main thread through a lock-free
-list, which `emscripten_main_thread_process_queued_calls()` drains, and wake
-the main thread with `_emscripten_thread_notify()`; keep posting the message,
-now as a signal to drain the list, for a main thread that is idle in its event
-loop. Because a wait on the main thread can now free a thread, `dlopen()`'s
-sync, which takes the list of threads and then proxies to each in turn,
-holds the cleanups off while it goes through the list and runs them as soon
-as it is done: a proxy can wait (on the queue's mutex, or in `malloc()`)
-between any check of the list and its first use of a thread's struct. A
-thread that has ended meanwhile stays allocated with its mailbox closed, so
-the proxy fails cleanly, as it does in 6.0.9; nothing in the sync waits on a
-cleanup, so holding them can't deadlock. The sync also skips a thread
-already gone at its turn. 108 lines added, 15 removed (99 and 6 ignoring
-the re-indented loops).
+**Suggested fix:** one PR, two commits. All the tests are also in
+`emscripten-pthread-cleanup-blocked-main.tests.patch` beside this draft,
+which applies to 6.0.9 after both commits.
+
+**Commit 1, "pthreads: reclaim unjoined threads while the main thread is
+blocked".** Hand the thread to the main thread through a lock-free list,
+which `emscripten_main_thread_process_queued_calls()` drains, and wake the
+main thread with `_emscripten_thread_notify()`; keep posting the message,
+now as a signal to drain the list, for a main thread that is idle in its
+event loop. 48 lines added, 2 removed.
 
 ```diff
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
@@ -204,84 +200,6 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
    },
  
    _emscripten_thread_set_strongref: (thread) => {
-@@ -1230,7 +1240,9 @@ var LibraryPThread = {
- 
-   // Asynchronous version _emscripten_dlsync_threads.
-   // This is always called on the main thread. This work happens asynchronously.
--  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise'],
-+  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise',
-+                              '_emscripten_thread_hold_cleanups',
-+                              '_emscripten_thread_release_cleanups'],
-   $dlsyncThreadsAsync: async () => {
-     const caller = PThread.currentProxiedOperationCallerThread;
- #if PTHREADS_DEBUG
-@@ -1254,14 +1266,23 @@ var LibraryPThread = {
-     // Any new threads that are created after this call will automatically be
-     // in sync because we call `__emscripten_dlsync_self` in
-     // invokeEntryPoint before the threads entry point is called.
--    for (const ptr of Object.keys(PThread.pthreads)) {
--      const pthread_ptr = Number(ptr);
--      if (pthread_ptr !== caller && !PThread.finishedThreads.has(pthread_ptr)) {
--        info = makePromise();
--        __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
--        PThread.outstandingPromises[pthread_ptr] = info;
--        promises.push(info.promise);
-+    // Proxying can wait, and a wait on the main thread cleans up threads
-+    // that have ended, which would free structs this list still names; hold
-+    // that off until the list is done. A thread that has ended but isn't
-+    // cleaned up yet refuses the proxy.
-+    __emscripten_thread_hold_cleanups();
-+    try {
-+      for (const ptr of Object.keys(PThread.pthreads)) {
-+        const pthread_ptr = Number(ptr);
-+        if (pthread_ptr !== caller && ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
-+          info = makePromise();
-+          __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
-+          PThread.outstandingPromises[pthread_ptr] = info;
-+          promises.push(info.promise);
-+        }
-       }
-+    } finally {
-+      __emscripten_thread_release_cleanups();
-     }
- 
- #if PTHREADS_DEBUG
-@@ -1280,7 +1301,9 @@ var LibraryPThread = {
-   // synchronously block the main thread until all other threads are in sync.
-   // When `dlopen` is called from a worker, the worker itself is blocked but
-   // the operation its waiting on (on the main thread) can be async.
--  _emscripten_dlsync_threads__deps: ['_emscripten_proxy_dlsync', '$dlsyncThreadsAsync'],
-+  _emscripten_dlsync_threads__deps: ['_emscripten_proxy_dlsync', '$dlsyncThreadsAsync',
-+                                   '_emscripten_thread_hold_cleanups',
-+                                   '_emscripten_thread_release_cleanups'],
-   _emscripten_dlsync_threads__async: 'auto',
-   _emscripten_dlsync_threads__proxy: 'sync',
-   _emscripten_dlsync_threads: () => {
-@@ -1288,11 +1311,20 @@ var LibraryPThread = {
-     if (callingThread) {
-       return dlsyncThreadsAsync();
-     }
--    for (const ptr of Object.keys(PThread.pthreads)) {
--      const pthread_ptr = Number(ptr);
--      if (!PThread.finishedThreads.has(pthread_ptr)) {
--        __emscripten_proxy_dlsync(pthread_ptr);
-+    // Each sync waits, and a wait on the main thread cleans up threads that
-+    // have ended, which would free structs this list still names; hold that
-+    // off until the list is done. A thread that has ended but isn't cleaned
-+    // up yet refuses the proxy.
-+    __emscripten_thread_hold_cleanups();
-+    try {
-+      for (const ptr of Object.keys(PThread.pthreads)) {
-+        const pthread_ptr = Number(ptr);
-+        if (ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
-+          __emscripten_proxy_dlsync(pthread_ptr);
-+        }
-       }
-+    } finally {
-+      __emscripten_thread_release_cleanups();
-     }
-   },
- #endif // MAIN_MODULE
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
@@ -293,7 +211,7 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
  #include <threads.h>
  #include <unistd.h>
  
-@@ -95,8 +96,56 @@ void emscripten_current_thread_process_queued_calls() {
+@@ -95,8 +96,36 @@ void emscripten_current_thread_process_queued_calls() {
    emscripten_proxy_execute_queue(emscripten_proxy_get_system_queue());
  }
  
@@ -314,28 +232,8 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 +  _emscripten_thread_notify(emscripten_main_runtime_thread_id());
 +}
 +
-+// Held while the main runtime thread walks a list of threads it took
-+// earlier, where cleaning one up would free a struct the list still names.
-+static int cleanup_holds;
-+
-+void _emscripten_thread_hold_cleanups(void) {
-+  assert(emscripten_is_main_runtime_thread());
-+  cleanup_holds++;
-+}
-+
-+void _emscripten_thread_release_cleanups(void) {
-+  assert(emscripten_is_main_runtime_thread());
-+  assert(cleanup_holds > 0);
-+  if (--cleanup_holds == 0) {
-+    _emscripten_thread_run_deferred_cleanups();
-+  }
-+}
-+
 +void _emscripten_thread_run_deferred_cleanups(void) {
 +  assert(emscripten_is_main_runtime_thread());
-+  if (cleanup_holds) {
-+    return;
-+  }
 +  pthread_t thread = atomic_exchange(&exited_threads, NULL);
 +  while (thread) {
 +    pthread_t next = thread->next;
@@ -353,7 +251,7 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
-@@ -63,6 +63,18 @@ void _emscripten_init_main_thread_js(void* tb);
+@@ -63,6 +63,13 @@ void _emscripten_init_main_thread_js(void* tb);
  void _emscripten_thread_profiler_enable();
  void _emscripten_thread_cleanup(pthread_t thread);
  
@@ -361,13 +259,8 @@ diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/thread
 +// `_emscripten_thread_cleanup`, from any other thread, even one that no longer
 +// has a thread state of its own.
 +void _emscripten_thread_defer_cleanup(pthread_t thread);
-+// Runs the cleanups deferred so far, unless they are held. Main runtime
-+// thread only.
++// Runs the cleanups deferred so far. Main runtime thread only.
 +void _emscripten_thread_run_deferred_cleanups(void);
-+// Hold deferred cleanups until a matching release, which runs them. Main
-+// runtime thread only.
-+void _emscripten_thread_hold_cleanups(void);
-+void _emscripten_thread_release_cleanups(void);
 +
  hidden void* _emscripten_tls_init(void);
  hidden void _emscripten_tls_free(void);
@@ -399,40 +292,345 @@ The list is linked through `struct pthread`'s `next`, which is free once the
 thread has left the thread list, so the struct layout and `struct_info`
 don't change.
 
-**Tests for the PR,** in the suite's format (also as
-`emscripten-pthread-cleanup-blocked-main.tests.patch` beside this draft):
+Its test, `other.test_pthread_cleanup_blocked_main`, runs rounds of
+detached threads, half of which join a child of their own, under a main
+thread that stays blocked, and fails if the heap or the Worker count grows
+(it reads `PThread.unusedWorkers` and `PThread.pthreads` through `EM_ASM`):
 
-- `other.test_pthread_cleanup_blocked_main` runs rounds of detached threads,
-  half of which join a child of their own, under a main thread that stays
-  blocked, and fails if the heap or the Worker count grows.
-- `core.test_pthread_dlsync_freed` (`@needs_dylink`, built like
-  `test_pthread_dlopen` with `build_dlfcn_lib`/`prep_dlfcn_main`): a slow
-  thread holds up its own sync, starting only once `_dlopen_proxying_queue`
-  exists (the sync has begun), while a detached thread later in the list
-  ends. The ended thread must not be freed before `dlopen()` returns, and
-  must be freed by then.
+```diff
+diff --git a/test/pthread/test_pthread_cleanup_blocked_main.c b/test/pthread/test_pthread_cleanup_blocked_main.c
+new file mode 100644
+--- /dev/null
++++ b/test/pthread/test_pthread_cleanup_blocked_main.c
+@@ -0,0 +1,98 @@
++// Threads that end without being joined on the main thread (detached ones,
++// and ones another thread joins) are cleaned up while the main thread stays
++// blocked: their memory is freed and their Workers go back to the pool
++// without the main thread returning to its event loop.
++
++#include <emscripten/em_asm.h>
++#include <emscripten/threading.h>
++#include <limits.h>
++#include <malloc.h>
++#include <pthread.h>
++#include <stdio.h>
++
++#define ROUNDS 8
++// Each round's threads: half end detached, half join a child of their own
++// first, so a round runs up to 1.5 * THREADS threads at once.
++#define THREADS 4
++#define AT_ONCE (THREADS + THREADS / 2)
++#define STACK_SIZE (256 * 1024)
++
++static pthread_attr_t attr;
++static int finished;
++
++static int worker_count() {
++  return EM_ASM_INT({
++    return PThread.unusedWorkers.length + Object.keys(PThread.pthreads).length;
++  });
++}
++
++static void* finish(void* arg) {
++  __atomic_fetch_add(&finished, 1, __ATOMIC_SEQ_CST);
++  emscripten_futex_wake(&finished, INT_MAX);
++  return NULL;
++}
++
++static void* join_child(void* arg) {
++  pthread_t child;
++  if (pthread_create(&child, &attr, finish, NULL) == 0) {
++    pthread_join(child, NULL);
++  }
++  return finish(NULL);
++}
++
++// Blocks without returning to the event loop.
++static void block_for(double ms) {
++  static int never;
++  double end = emscripten_get_now() + ms;
++  for (double left = ms; left > 0; left = end - emscripten_get_now()) {
++    emscripten_futex_wait(&never, 0, left);
++  }
++}
++
++static size_t in_use() { return mallinfo().uordblks; }
++
++static void run_round() {
++  int target = __atomic_load_n(&finished, __ATOMIC_SEQ_CST) + AT_ONCE;
++  for (int i = 0; i < THREADS; i++) {
++    pthread_t thread;
++    pthread_create(&thread, &attr, i % 2 ? join_child : finish, NULL);
++    pthread_detach(thread);
++  }
++  for (int now; (now = __atomic_load_n(&finished, __ATOMIC_SEQ_CST)) < target;) {
++    emscripten_futex_wait(&finished, now, 1000);
++  }
++}
++
++int main() {
++  pthread_attr_init(&attr);
++  pthread_attr_setstacksize(&attr, STACK_SIZE);
++  int max_workers = worker_count() + AT_ONCE;
++
++  // One round warms up whatever the runtime allocates once.
++  run_round();
++  block_for(200);
++  size_t baseline = in_use();
++  int failures = 0;
++  for (int round = 1; round < ROUNDS; round++) {
++    run_round();
++    double deadline = emscripten_get_now() + 5000;
++    while (in_use() > baseline + STACK_SIZE / 2 && emscripten_get_now() < deadline) {
++      block_for(5);
++    }
++    size_t used = in_use();
++    int workers = worker_count();
++    printf("round %d: %zu bytes in use (baseline %zu), %d workers\n", round, used, baseline, workers);
++    if (used > baseline + STACK_SIZE / 2) {
++      printf("FAIL: round %d's threads still hold memory\n", round);
++      failures++;
++    }
++    if (workers > max_workers) {
++      printf("FAIL: %d workers, more than the %d to start with plus %d threads at once\n", workers, max_workers - AT_ONCE, AT_ONCE);
++      failures++;
++    }
++  }
++  if (failures == 0) {
++    printf("done\n");
++  }
++  return failures != 0;
++}
+diff --git a/test/test_other.py b/test/test_other.py
+--- a/test/test_other.py
++++ b/test/test_other.py
+@@ -13609,6 +13609,10 @@ void foo() {}
+   def test_pthread_sigmask(self, args):
+     self.do_runf('pthread/test_pthread_sigmask.c', 'done\n', cflags=args)
+ 
++  @requires_pthreads
++  def test_pthread_cleanup_blocked_main(self):
++    self.do_runf('pthread/test_pthread_cleanup_blocked_main.c', 'done\n', cflags=['-pthread'])
++
+   # Tests memory growth in pthreads mode, but still on the main thread.
+   @crossplatform
+   @requires_pthreads
+```
+
+**Commit 2, "pthreads: hold thread cleanups while dlopen() syncs
+threads".** Commit 1 lets a wait on the main thread free a thread. Both
+`dlopen()` syncs (`_emscripten_dlsync_threads` for `dlopen()` on the main
+thread, `dlsyncThreadsAsync` for one proxied from a worker) take
+`Object.keys(PThread.pthreads)` and then proxy to each thread in turn, and a
+proxy can wait (on the dlopen queue's mutex, in `malloc()`) at any point
+before it first touches the thread's struct. So both loops hold the deferred
+cleanups and run them as soon as the loop is done. A thread that ends
+meanwhile stays allocated with its mailbox closed and refuses the proxy, as
+it does in 6.0.9, and nothing in the sync waits on a cleanup, so holding
+them can't deadlock. A thread already gone at its turn is skipped too, for
+cleanups that don't go through the list. A loop that ends in an exception
+(an `exit()` or `abort()` proxied in during one of its waits) releases the
+hold without running the cleanups, and once the runtime has stopped
+(`ABORT`) doesn't call into it at all: the runtime may have torn its threads
+down by then, and a cleanup's failure would replace the exception being
+reported. 71 lines added, 14 removed (some of them the re-indented loops).
+
+```diff
+diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
+--- a/src/lib/libpthread.js
++++ b/src/lib/libpthread.js
+@@ -1240,7 +1240,9 @@ var LibraryPThread = {
+ 
+   // Asynchronous version _emscripten_dlsync_threads.
+   // This is always called on the main thread. This work happens asynchronously.
+-  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise'],
++  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise',
++                              '_emscripten_thread_hold_cleanups',
++                              '_emscripten_thread_release_cleanups'],
+   $dlsyncThreadsAsync: async () => {
+     const caller = PThread.currentProxiedOperationCallerThread;
+ #if PTHREADS_DEBUG
+@@ -1264,15 +1266,29 @@ var LibraryPThread = {
+     // Any new threads that are created after this call will automatically be
+     // in sync because we call `__emscripten_dlsync_self` in
+     // invokeEntryPoint before the threads entry point is called.
+-    for (const ptr of Object.keys(PThread.pthreads)) {
+-      const pthread_ptr = Number(ptr);
+-      if (pthread_ptr !== caller && !PThread.finishedThreads.has(pthread_ptr)) {
+-        info = makePromise();
+-        __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
+-        PThread.outstandingPromises[pthread_ptr] = info;
+-        promises.push(info.promise);
++    // Proxying can wait, and a wait on the main thread cleans up threads
++    // that have ended, which would free structs this list still names; hold
++    // that off until the list is done. A thread that has ended but isn't
++    // cleaned up yet refuses the proxy.
++    __emscripten_thread_hold_cleanups();
++    try {
++      for (const ptr of Object.keys(PThread.pthreads)) {
++        const pthread_ptr = Number(ptr);
++        if (pthread_ptr !== caller && ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
++          info = makePromise();
++          __emscripten_proxy_dlsync_async(pthread_ptr, info.id);
++          PThread.outstandingPromises[pthread_ptr] = info;
++          promises.push(info.promise);
++        }
+       }
++    } catch (e) {
++      // Whatever ended the loop (an exit() or abort() proxied in, say) may
++      // have torn the runtime down; leave its threads be and, once it has
++      // stopped, don't call into it at all.
++      if (!ABORT) __emscripten_thread_release_cleanups(false);
++      throw e;
+     }
++    __emscripten_thread_release_cleanups(true);
+ 
+ #if PTHREADS_DEBUG
+     dbg(`dlsyncThreadsAsync: waiting on ${promises.length} promises`);
+@@ -1290,7 +1306,9 @@ var LibraryPThread = {
+   // synchronously block the main thread until all other threads are in sync.
+   // When `dlopen` is called from a worker, the worker itself is blocked but
+   // the operation its waiting on (on the main thread) can be async.
+-  _emscripten_dlsync_threads__deps: ['_emscripten_proxy_dlsync', '$dlsyncThreadsAsync'],
++  _emscripten_dlsync_threads__deps: ['_emscripten_proxy_dlsync', '$dlsyncThreadsAsync',
++                                   '_emscripten_thread_hold_cleanups',
++                                   '_emscripten_thread_release_cleanups'],
+   _emscripten_dlsync_threads__async: 'auto',
+   _emscripten_dlsync_threads__proxy: 'sync',
+   _emscripten_dlsync_threads: () => {
+@@ -1298,12 +1316,26 @@ var LibraryPThread = {
+     if (callingThread) {
+       return dlsyncThreadsAsync();
+     }
+-    for (const ptr of Object.keys(PThread.pthreads)) {
+-      const pthread_ptr = Number(ptr);
+-      if (!PThread.finishedThreads.has(pthread_ptr)) {
+-        __emscripten_proxy_dlsync(pthread_ptr);
++    // Each sync waits, and a wait on the main thread cleans up threads that
++    // have ended, which would free structs this list still names; hold that
++    // off until the list is done. A thread that has ended but isn't cleaned
++    // up yet refuses the proxy.
++    __emscripten_thread_hold_cleanups();
++    try {
++      for (const ptr of Object.keys(PThread.pthreads)) {
++        const pthread_ptr = Number(ptr);
++        if (ptr in PThread.pthreads && !PThread.finishedThreads.has(pthread_ptr)) {
++          __emscripten_proxy_dlsync(pthread_ptr);
++        }
+       }
++    } catch (e) {
++      // Whatever ended the loop (an exit() or abort() proxied in, say) may
++      // have torn the runtime down; leave its threads be and, once it has
++      // stopped, don't call into it at all.
++      if (!ABORT) __emscripten_thread_release_cleanups(false);
++      throw e;
+     }
++    __emscripten_thread_release_cleanups(true);
+   },
+ #endif // MAIN_MODULE
+ 
+diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
+--- a/system/lib/pthread/library_pthread.c
++++ b/system/lib/pthread/library_pthread.c
+@@ -113,8 +113,28 @@ void _emscripten_thread_defer_cleanup(pthread_t thread) {
+   _emscripten_thread_notify(emscripten_main_runtime_thread_id());
+ }
+ 
++// Held while the main runtime thread walks a list of threads it took
++// earlier, where cleaning one up would free a struct the list still names.
++static int cleanup_holds;
++
++void _emscripten_thread_hold_cleanups(void) {
++  assert(emscripten_is_main_runtime_thread());
++  cleanup_holds++;
++}
++
++void _emscripten_thread_release_cleanups(bool run) {
++  assert(emscripten_is_main_runtime_thread());
++  assert(cleanup_holds > 0);
++  if (--cleanup_holds == 0 && run) {
++    _emscripten_thread_run_deferred_cleanups();
++  }
++}
++
+ void _emscripten_thread_run_deferred_cleanups(void) {
+   assert(emscripten_is_main_runtime_thread());
++  if (cleanup_holds) {
++    return;
++  }
+   pthread_t thread = atomic_exchange(&exited_threads, NULL);
+   while (thread) {
+     pthread_t next = thread->next;
+diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
+--- a/system/lib/pthread/threading_internal.h
++++ b/system/lib/pthread/threading_internal.h
+@@ -67,8 +67,13 @@ void _emscripten_thread_cleanup(pthread_t thread);
+ // `_emscripten_thread_cleanup`, from any other thread, even one that no longer
+ // has a thread state of its own.
+ void _emscripten_thread_defer_cleanup(pthread_t thread);
+-// Runs the cleanups deferred so far. Main runtime thread only.
++// Runs the cleanups deferred so far, unless they are held. Main runtime
++// thread only.
+ void _emscripten_thread_run_deferred_cleanups(void);
++// Hold deferred cleanups until a matching release, which runs them if run
++// is set and no other hold remains. Main runtime thread only.
++void _emscripten_thread_hold_cleanups(void);
++void _emscripten_thread_release_cleanups(bool run);
+ 
+ hidden void* _emscripten_tls_init(void);
+ hidden void _emscripten_tls_free(void);
+```
+
+Its tests, in `test_core.py` under `@needs_dylink`, built like
+`test_pthread_dlopen` with `build_dlfcn_lib`/`prep_dlfcn_main`:
+
+- `core.test_pthread_dlsync_freed`: a slow thread holds up its own sync,
+  starting only once `_dlopen_proxying_queue` exists (the sync has begun),
+  while a detached thread later in the list ends. The ended thread must not
+  be freed before `dlopen()` returns, and must be freed by then.
 - `core.test_pthread_dlsync_held`: the window inside one proxy. Another
   thread holds the dlopen queue's mutex until the main thread is waiting on
-  it (musl's waiter count says so) in its sync of a thread that then ends.
-  The same two conditions apply. With the skip but no hold, the thread is
-  freed in that wait and the sync aborts on `thread->mailbox_refcount > 0`
-  (debug libc) or reads garbage.
+  it in its sync of a thread that then ends. The same two conditions apply.
+  With commit 1 and a skip of gone threads but no hold, the thread is freed
+  in that wait and the sync aborts on `thread->mailbox_refcount > 0` (debug
+  libc) or reads garbage.
 
-Both `dlsync` tests cover the synchronous sync of `dlopen()` on the main
-thread. `dlsyncThreadsAsync`, the sync for `dlopen()` from a worker, gets
-the same hold and skip but no test: its proxies are asynchronous, and the
-only wait in its loop is for the queue's mutex and `malloc()`. Both tests
-wait up to 300 ms for an ended thread to be freed. A thread exit that took
-longer would let them pass without exercising the window; the positive
-signals (the queue exists, the main thread is a waiter on its mutex) rule
-out the other ways they could pass vacuously.
+The exception path has no suite test. Ours
+(`modules/emscripten/checks/fixes/dlsync-exit.c`, on a `MAIN_MODULE=1` link
+with assertions) has a third thread call `exit(42)` while the sync is held
+up and a thread's cleanup is pending, and needs the program to end with
+status 42; releasing the hold in a `finally` instead ends it with status 1,
+since the release is then a call into the runtime after it exited. In the
+suite's `core0`/`core2` configurations the same program isn't reliable
+evidence: an `exit()` proxied into the waiting main thread doesn't always
+end it there (`dlopen()` returned afterwards, with or without this change),
+so the reasoning above has to carry that part.
+
+What they rely on beyond public API, so that reviewers can judge them:
+`_dlopen_proxying_queue` (dynlink.c), a global that is non-NULL once a sync
+has begun; `struct em_proxying_queue` starting with its `pthread_mutex_t`
+(proxying.c), which `dlsync_held` locks; musl counting a mutex's waiters in
+its third `int` (`_m_waiters`, `__u.__vi[2]` in `pthread_impl.h`), which
+`dlsync_held` reads to know the main thread is waiting; and a
+`struct pthread` starting with its self-pointer, which cleanup overwrites,
+as the sign that a thread has been freed.
+
+They cover the synchronous sync of `dlopen()` on the main thread.
+`dlsyncThreadsAsync` gets the same change without a test; one is feasible
+(the mutex-holder technique carries over to a `dlopen()` from a worker, with
+a waiter signal that tells the main thread from the worker, which may wait
+on the same mutex) but wasn't written. Each `dlsync` test waits up to 300 ms
+for an ended thread to be freed; a thread exit slower than that would let
+it pass without exercising its window. The positive signals (the queue exists, the main
+thread is a waiter on its mutex) rule out the other ways they could pass
+vacuously.
 
 ```diff
 diff --git a/test/core/pthread/test_pthread_dlsync_freed.c b/test/core/pthread/test_pthread_dlsync_freed.c
 new file mode 100644
 --- /dev/null
 +++ b/test/core/pthread/test_pthread_dlsync_freed.c
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,155 @@
 +// dlopen() on the main thread syncs the threads it knows of one at a time,
 +// and each sync waits. A thread later in its list that ends during an
 +// earlier thread's sync must not be cleaned up, and so freed, before the
@@ -522,8 +720,13 @@ new file mode 100644
 +  }
 +  held_sync = 1;
 +  raise_flag(&victim_go);
-+  while (!load(&victim_exiting))
-+    ;
++  end = emscripten_get_now() + TIMEOUT_MS;
++  while (!load(&victim_exiting)) {
++    if (emscripten_get_now() > end) {
++      failure = "the victim never ended";
++      return;
++    }
++  }
 +  end = emscripten_get_now() + FREE_WAIT_MS;
 +  while (!victim_freed() && emscripten_get_now() < end)
 +    ;
@@ -776,109 +979,6 @@ new file mode 100644
 +++ b/test/core/pthread/test_pthread_dlsync_side.c
 @@ -0,0 +1 @@
 +int side_value() { return 42; }
-diff --git a/test/pthread/test_pthread_cleanup_blocked_main.c b/test/pthread/test_pthread_cleanup_blocked_main.c
-new file mode 100644
---- /dev/null
-+++ b/test/pthread/test_pthread_cleanup_blocked_main.c
-@@ -0,0 +1,98 @@
-+// Threads that end without being joined on the main thread (detached ones,
-+// and ones another thread joins) are cleaned up while the main thread stays
-+// blocked: their memory is freed and their Workers go back to the pool
-+// without the main thread returning to its event loop.
-+
-+#include <emscripten/em_asm.h>
-+#include <emscripten/threading.h>
-+#include <limits.h>
-+#include <malloc.h>
-+#include <pthread.h>
-+#include <stdio.h>
-+
-+#define ROUNDS 8
-+// Each round's threads: half end detached, half join a child of their own
-+// first, so a round runs up to 1.5 * THREADS threads at once.
-+#define THREADS 4
-+#define AT_ONCE (THREADS + THREADS / 2)
-+#define STACK_SIZE (256 * 1024)
-+
-+static pthread_attr_t attr;
-+static int finished;
-+
-+static int worker_count() {
-+  return EM_ASM_INT({
-+    return PThread.unusedWorkers.length + Object.keys(PThread.pthreads).length;
-+  });
-+}
-+
-+static void* finish(void* arg) {
-+  __atomic_fetch_add(&finished, 1, __ATOMIC_SEQ_CST);
-+  emscripten_futex_wake(&finished, INT_MAX);
-+  return NULL;
-+}
-+
-+static void* join_child(void* arg) {
-+  pthread_t child;
-+  if (pthread_create(&child, &attr, finish, NULL) == 0) {
-+    pthread_join(child, NULL);
-+  }
-+  return finish(NULL);
-+}
-+
-+// Blocks without returning to the event loop.
-+static void block_for(double ms) {
-+  static int never;
-+  double end = emscripten_get_now() + ms;
-+  for (double left = ms; left > 0; left = end - emscripten_get_now()) {
-+    emscripten_futex_wait(&never, 0, left);
-+  }
-+}
-+
-+static size_t in_use() { return mallinfo().uordblks; }
-+
-+static void run_round() {
-+  int target = __atomic_load_n(&finished, __ATOMIC_SEQ_CST) + AT_ONCE;
-+  for (int i = 0; i < THREADS; i++) {
-+    pthread_t thread;
-+    pthread_create(&thread, &attr, i % 2 ? join_child : finish, NULL);
-+    pthread_detach(thread);
-+  }
-+  for (int now; (now = __atomic_load_n(&finished, __ATOMIC_SEQ_CST)) < target;) {
-+    emscripten_futex_wait(&finished, now, 1000);
-+  }
-+}
-+
-+int main() {
-+  pthread_attr_init(&attr);
-+  pthread_attr_setstacksize(&attr, STACK_SIZE);
-+  int max_workers = worker_count() + AT_ONCE;
-+
-+  // One round warms up whatever the runtime allocates once.
-+  run_round();
-+  block_for(200);
-+  size_t baseline = in_use();
-+  int failures = 0;
-+  for (int round = 1; round < ROUNDS; round++) {
-+    run_round();
-+    double deadline = emscripten_get_now() + 5000;
-+    while (in_use() > baseline + STACK_SIZE / 2 && emscripten_get_now() < deadline) {
-+      block_for(5);
-+    }
-+    size_t used = in_use();
-+    int workers = worker_count();
-+    printf("round %d: %zu bytes in use (baseline %zu), %d workers\n", round, used, baseline, workers);
-+    if (used > baseline + STACK_SIZE / 2) {
-+      printf("FAIL: round %d's threads still hold memory\n", round);
-+      failures++;
-+    }
-+    if (workers > max_workers) {
-+      printf("FAIL: %d workers, more than the %d to start with plus %d threads at once\n", workers, max_workers - AT_ONCE, AT_ONCE);
-+      failures++;
-+    }
-+  }
-+  if (failures == 0) {
-+    printf("done\n");
-+  }
-+  return failures != 0;
-+}
 diff --git a/test/test_core.py b/test/test_core.py
 --- a/test/test_core.py
 +++ b/test/test_core.py
@@ -908,20 +1008,6 @@ diff --git a/test/test_core.py b/test/test_core.py
    @needs_dylink
    @requires_pthreads
    @flaky('https://github.com/emscripten-core/emscripten/issues/18887')
-diff --git a/test/test_other.py b/test/test_other.py
---- a/test/test_other.py
-+++ b/test/test_other.py
-@@ -13609,6 +13609,10 @@ void foo() {}
-   def test_pthread_sigmask(self, args):
-     self.do_runf('pthread/test_pthread_sigmask.c', 'done\n', cflags=args)
- 
-+  @requires_pthreads
-+  def test_pthread_cleanup_blocked_main(self):
-+    self.do_runf('pthread/test_pthread_cleanup_blocked_main.c', 'done\n', cflags=['-pthread'])
-+
-   # Tests memory growth in pthreads mode, but still on the main thread.
-   @crossplatform
-   @requires_pthreads
 ```
 
 ---
@@ -938,19 +1024,25 @@ diff --git a/test/test_other.py b/test/test_other.py
     test link with assertions. Unpatched: +1.6 MiB and +6 Workers per round.
     Patched: in-use heap flat at 9 KiB, never more Workers than threads alive
     at once.
-  - `checks.emscripten-fixes` also runs `dlsync-freed.c` and
-    `dlsync-held.c`, the check forms of the two `dlsync` tests. With the
+  - `checks.emscripten-fixes` also runs `dlsync-freed.c`, `dlsync-held.c`
+    and `dlsync-exit.c`, the check forms of the `dlsync` tests. With the
     skip but no hold, `dlsync-freed.c` fails (the thread is freed during the
     sync) and `dlsync-held.c` aborts on `thread->mailbox_refcount > 0`. With
-    the hold both pass.
-  - The suite-format tests, run with Emscripten's runner:
+    the hold released in a `finally`, `dlsync-exit.c` ends with status 1
+    ("native function `_emscripten_thread_release_cleanups` called after
+    runtime exit") instead of 42. With commit 2 as above, all pass.
+  - The suite-format tests, run with Emscripten's runner (`core2`, and
+    `other` for `cleanup_blocked_main`):
 
     | Tree | `cleanup_blocked_main` | `dlsync_freed` | `dlsync_held` |
     | --- | --- | --- | --- |
     | stock 6.0.9 | FAIL | FAIL | FAIL |
-    | this change, first version (no skip, no hold) | ok | FAIL | FAIL |
-    | with the skip, no hold | ok | FAIL | FAIL |
-    | this change | ok | ok (5 of 5 at `-O0` and `-O2`) | ok (5 of 5 at `-O0` and `-O2`) |
+    | commit 1 only (plus 0015) | ok | FAIL | FAIL |
+    | commit 1, a skip but no hold (plus 0015) | ok | FAIL | FAIL |
+    | both commits (plus 0015) | ok | ok | ok |
+
+    `dlsync_freed` and `dlsync_held` passed 5 of 5 runs each at `-O0` and
+    `-O2` with both commits.
 
   - GLib's test suite (`checks.glib-tests`: 277 must-pass tests, 0 failing,
     unchanged), and the runtime spike's `thread-exit-blocked` scenario: the
@@ -979,13 +1071,13 @@ diff --git a/test/test_other.py b/test/test_other.py
     as a proxied call can, and `returnWorkerToPool()` already defers its
     `free()` to the end for that reason. Unlike a proxied call, though, it
     frees a `struct pthread` that Emscripten's own JavaScript may be
-    iterating over: `_emscripten_dlsync_threads` and `dlsyncThreadsAsync`
-    take `Object.keys(PThread.pthreads)` and then proxy to each thread in
-    turn, and each proxy can wait, even between checking the list and
-    touching the thread (`emscripten_thread_mailbox_ref()`). A thread freed
-    there would be synced through its freed struct, which can corrupt
-    whatever reuses the memory or hang `dlopen()`. The fix holds cleanups
-    for the length of both loops and runs them at the end.
+    iterating over: the `dlopen()` syncs, which commit 2 covers by holding
+    the deferred cleanups for the length of their loops. The hold covers
+    only those deferred cleanups. A `pthread_join()` or `pthread_detach()`
+    of an ended thread that runs on the main thread inside a call proxied to
+    it during one of the sync's waits still calls `cleanupThread()`
+    directly, as it does in 6.0.9; the check that a thread is still in
+    `PThread.pthreads` at its turn guards that case between iterations.
   - Pre-existing, `MAIN_MODULE` only, made more likely: a joinable thread
     posts `CMD_MARK_AS_FINISHED` when it exits, and a join on the main thread
     cleans it up at once, possibly before that message arrives. The late

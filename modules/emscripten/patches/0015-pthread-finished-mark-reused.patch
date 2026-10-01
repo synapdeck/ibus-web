@@ -12,7 +12,7 @@ Upstream: not filed yet
 Draft: docs/upstream/emscripten-pthread-finished-mark-reused.md
 
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
-index d7ee618..986679b 100644
+index 27a0736..7b5c146 100644
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -86,6 +86,7 @@ var LibraryPThread = {
@@ -38,7 +38,7 @@ index d7ee618..986679b 100644
  #endif
            case {{{ CMD_LOADED }}}:
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
-index e46e7b0..eeae2b6 100644
+index 76eab56..33f326e 100644
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
 @@ -153,6 +153,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
@@ -54,7 +54,7 @@ index e46e7b0..eeae2b6 100644
  weak_alias(dummy_tsd, __pthread_tsd_main);
  
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
-index 01d53d5..94c75bf 100644
+index bd392f6..5af65da 100644
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
 @@ -93,6 +93,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);

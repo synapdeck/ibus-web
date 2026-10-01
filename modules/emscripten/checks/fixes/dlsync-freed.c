@@ -91,8 +91,13 @@ static void hold_up_sync(void) {
   }
   held_sync = 1;
   raise_flag(&victim_go);
-  while (!load(&victim_exiting))
-    ;
+  end = emscripten_get_now() + TIMEOUT_MS;
+  while (!load(&victim_exiting)) {
+    if (emscripten_get_now() > end) {
+      failure = "the victim never ended";
+      return;
+    }
+  }
   end = emscripten_get_now() + FREE_WAIT_MS;
   while (!victim_freed() && emscripten_get_now() < end)
     ;

@@ -47,7 +47,8 @@ message to its event loop is still sent, for a main thread that is idle
 there. Since a wait on the main thread can now free a thread,
 `dlopen()`'s sync, which lists the threads and then proxies to each in
 turn, holds those cleanups off until it is through the list, then runs
-them; a proxy can wait between checking the list and touching a thread.
+them; a proxy can wait between checking the list and touching a thread. A
+sync that ends in an exception releases the hold without running them.
 `checks.emscripten-fixes` runs rounds of such threads under a blocked main
 thread and checks that neither memory nor Workers grow, and has a thread
 end while the sync is held up on another thread and while it waits on the

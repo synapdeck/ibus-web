@@ -2,7 +2,7 @@ diff --git a/test/core/pthread/test_pthread_dlsync_freed.c b/test/core/pthread/t
 new file mode 100644
 --- /dev/null
 +++ b/test/core/pthread/test_pthread_dlsync_freed.c
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,155 @@
 +// dlopen() on the main thread syncs the threads it knows of one at a time,
 +// and each sync waits. A thread later in its list that ends during an
 +// earlier thread's sync must not be cleaned up, and so freed, before the
@@ -92,8 +92,13 @@ new file mode 100644
 +  }
 +  held_sync = 1;
 +  raise_flag(&victim_go);
-+  while (!load(&victim_exiting))
-+    ;
++  end = emscripten_get_now() + TIMEOUT_MS;
++  while (!load(&victim_exiting)) {
++    if (emscripten_get_now() > end) {
++      failure = "the victim never ended";
++      return;
++    }
++  }
 +  end = emscripten_get_now() + FREE_WAIT_MS;
 +  while (!victim_freed() && emscripten_get_now() < end)
 +    ;

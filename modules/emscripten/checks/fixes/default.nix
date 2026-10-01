@@ -50,6 +50,15 @@
             emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-held.c} -o dlsync-held.o
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} dlsync-held.o -o dlsync-held.js
             timeout 120 node dlsync-held.js $PWD/dlsync-side.wasm $PWD/dlsync-side2.wasm
+
+            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-exit.c} -o dlsync-exit.o
+            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} dlsync-exit.o -o dlsync-exit.js
+            status=0
+            timeout 120 node dlsync-exit.js $PWD/dlsync-side.wasm || status=$?
+            if [ $status -ne 42 ]; then
+              echo "dlsync-exit: exit status $status, not the 42 it exit()ed with"
+              exit 1
+            fi
             touch $out
           '';
     };
