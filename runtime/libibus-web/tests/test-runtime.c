@@ -47,7 +47,7 @@ static gpointer pump_elsewhere(gpointer delay) {
 
 static GMutex holder_lock;
 static GCond holder_cond;
-static gboolean holding, released;
+static gboolean holder_ready, holding, released;
 
 /* Owns the default context until told to let go, as a thread running its
  * own main loop would. */
@@ -55,6 +55,7 @@ static gpointer hold_default_context(gpointer data) {
   (void)data;
   gboolean acquired = g_main_context_acquire(NULL);
   g_mutex_lock(&holder_lock);
+  holder_ready = TRUE;
   holding = acquired;
   g_cond_signal(&holder_cond);
   while (!released)
@@ -102,8 +103,9 @@ static int32_t call(uint32_t opcode, const char *payload, uint8_t *reply,
 static void test_init(void) {
   GThread *holder = g_thread_new("holder", hold_default_context, NULL);
   g_mutex_lock(&holder_lock);
-  while (!holding)
+  while (!holder_ready)
     g_cond_wait(&holder_cond, &holder_lock);
+  g_assert_true(holding);
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, -EBUSY);
   released = TRUE;
   g_cond_signal(&holder_cond);
@@ -219,6 +221,10 @@ static void test_dispatch_errors(void) {
   uint8_t reply[8];
 
   echo_module();
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING, "Module clash *");
+  g_assert_cmpint(ibusweb_register_module("clash", register_clash, NULL), ==,
+                  -EEXIST);
+  g_test_assert_expected_messages();
   memset(reply, 'x', sizeof reply);
   g_assert_cmpint(call(1, "hello", reply, 4), ==, -ENOBUFS);
   g_assert_cmpint(reply[0], ==, 'x');

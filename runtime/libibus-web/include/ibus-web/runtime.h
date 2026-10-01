@@ -56,7 +56,8 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  *
  *   const seen = Atomics.load(words, i);
  *   const delay = ibusweb_pump();
- *   Atomics.wait(words, i, seen, delay < 0 ? Infinity : delay);
+ *   if (delay === IBUSWEB_PUMP_ERROR) throw new Error("pumped off thread");
+ *   Atomics.wait(words, i, seen, delay === -1 ? Infinity : delay);
  *
  * The hook can fire while the pump runs, for a source attached after the
  * pump last looked, and a pump that sources were added to or removed from
