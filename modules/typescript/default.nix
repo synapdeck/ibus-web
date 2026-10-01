@@ -101,6 +101,37 @@
           map (name: "${parent}/${name}") (lib.attrNames (lib.filterAttrs isPackage entries))
       ) workspaceYaml.globs;
 
+      # What a package gives the TypeScript build: its TypeScript and JSON
+      # files, and any other files it lists in package.json under
+      # `ibusWeb.assets` (paths relative to the package, such as an HTML page).
+      # The rest of its directory, such as C sources, stays out, so editing it
+      # rebuilds nothing here.
+      packageSources =
+        dir:
+        let
+          assets = (lib.importJSON (root + "/${dir}/package.json")).ibusWeb.assets or [ ];
+          assetPath =
+            asset:
+            if lib.hasPrefix "/" asset || lib.elem ".." (lib.splitString "/" asset) then
+              throw "${dir}/package.json: ibusWeb.assets must stay inside the package, not ${asset}"
+            else
+              root + "/${dir}/${asset}";
+        in
+        lib.fileset.unions (
+          [
+            (lib.fileset.fileFilter (
+              file:
+              lib.any file.hasExt [
+                "ts"
+                "mts"
+                "cts"
+                "json"
+              ]
+            ) (root + "/${dir}"))
+          ]
+          ++ map assetPath assets
+        );
+
       workspaceFiles = map (file: root + "/${file}") [
         "package.json"
         "pnpm-workspace.yaml"
@@ -129,7 +160,7 @@
             inherit name pnpmDeps;
             src = lib.fileset.toSource {
               inherit root;
-              fileset = lib.fileset.unions (workspaceFiles ++ map (dir: root + "/${dir}") packageDirs);
+              fileset = lib.fileset.unions (workspaceFiles ++ map packageSources packageDirs);
             };
             nativeBuildInputs = [
               nodejs
