@@ -627,23 +627,27 @@ fallback; and `GCharsetConverter` neither reported `INVALID_DATA` nor
 used its fallback.
 
 - **Which `iconv()`.** Whether `iconv()` replaces is probed once, by
-  converting `½` to ASCII. glibc's fails with `EILSEQ`, so none of the
-  paths for failing calls below is ever taken there.
-- **`GCharsetConverter`** converts what a call consumed again a character
-  at a time when the call reports an irreversible conversion, or (where
-  `iconv()` replaces) fails after consuming input, and treats the
-  replaced character as `EILSEQ`: the fallback replaces it, or the error
-  reports it after the text before it. A character is found by feeding
-  `iconv()` one byte more each time until it stops reporting an
-  incomplete character. `iconv()` can't rewind a shift state, so input in
-  a stateful charset (ISO-2022-JP, or UTF-16 with a byte order mark) that
-  changes state within the converted chunk may be read wrongly up to the
-  replaced character.
-- **`g_convert_with_fallback()`** does the same over its intermediate
-  UTF-8 text, a character at a time from the call that reported the
-  replacement or ran out of output room.
-- **`g_convert_with_iconv()`** (and so `g_convert()`) starts again from a
-  reset converter, with room for all the output or with only the
+  converting `½` to ASCII. glibc's fails with `EILSEQ` instead.
+- **`GCharsetConverter`**, where `iconv()` replaces, converts its input a
+  character at a time from the start, with no bulk call first, and stops
+  at a replaced character as at `EILSEQ`: the fallback replaces it, or the
+  error reports it after the text before it. A character is found by
+  feeding `iconv()` one byte more each time until it stops reporting an
+  incomplete character; a shift sequence or byte order mark consumed on
+  the way stays consumed. Nothing is converted twice, so stateful source
+  charsets (ISO-2022-JP, UTF-16 with a byte order mark) read exactly as
+  in one call. Elsewhere the converter is unchanged.
+- **`g_convert_with_fallback()`** starts again from a reset converter, a
+  character at a time, whenever a call reports a replacement or, where
+  `iconv()` replaces, runs out of output room after converting something.
+  It remembers the characters found so far and treats each as `EILSEQ`,
+  so the fallback replaces it. Starting over rather than rewinding keeps a
+  stateful target from losing a shift sequence to discarded output, on
+  any `iconv()`; glibc only reaches it for an irreversible conversion it
+  counts.
+- **`g_convert_with_iconv()`** (and so `g_convert()`), where `iconv()`
+  replaces, starts again from a reset converter when a call fails after
+  converting something, with room for all the output or with only the
   complete characters, so that one call converts everything and reports
   the count.
 
@@ -651,7 +655,8 @@ A target that asks for transliteration (`//TRANSLIT`), where glibc counts
 its replacements the same way, still gets them. Nothing here is specific
 to WebAssembly, and it could go upstream. convert and converter-stream
 test a replaced character followed by an incomplete one and by a full
-output buffer.
+output buffer, UTF-16 with a byte order mark and ISO-2022-JP across calls
+and a full buffer, and a fallback between kanji in ISO-2022-JP.
 
 0033 gives a main context made with `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`
 its wakeup's fd again on WebAssembly. 0025 stopped contexts polling the
@@ -666,8 +671,9 @@ link, and there was no `GUnixInputStream`, `GUnixOutputStream` or
 `GFileDescriptorBased`. Emscripten's file descriptors (files, pipes,
 `/dev/null`) take them as they are.
 
-- **glib-unix** is built without the Unix signal sources, since `gmain.c`
-  handles no signals on WebAssembly (no other process can send one).
+- **glib-unix** is built without the Unix signal sources, which
+  `glib-unix.h` no longer declares there either, since `gmain.c` handles
+  no signals on WebAssembly (no other process can send one).
   `g_unix_fd_query_path()` fails with `G_FILE_ERROR_NOSYS`: Emscripten's
   file systems have no `/proc` nor another way to name an fd's file.
   `GUnixFDSource` takes closures again.
@@ -684,7 +690,8 @@ link, and there was no `GUnixInputStream`, `GUnixOutputStream` or
 
 0035 gives `g_option_context_parse()` a program name on WebAssembly when
 it has no argv: Emscripten's libc sets `program_invocation_name` from the
-script Node runs, or from the page's `Module.thisProgram`.
+script Node runs, or in a page from `Module.thisProgram`, which is
+`./this.program` unless the runtime sets it.
 
 0036 changes only tests, so that what WebAssembly can do gates:
 
@@ -721,8 +728,11 @@ script Node runs, or from the page's `Module.thisProgram`.
   rather than status 1.
 - **Workarounds for the platform**: test-printf's reader waits for its
   writer to finish, since Emscripten's pipe reads never block; mainloop's
-  `nfds` test writes a byte to its file, since WasmFS's `poll()` only
-  takes a non-empty regular file for readable; and fileutils'
+  `nfds` test writes a byte to its file, and its `unix-fd-priority` test
+  and closure's `fd` test read a pipe holding a byte instead of
+  `/dev/random` or `/dev/null`, since WasmFS's `poll()` only takes a file
+  or device for readable while it holds data (`/mainloop/unix-file-poll`,
+  which tests exactly that, skips); and fileutils'
   `stdio-wrappers` test works in a temporary directory, since `chmod()`
   on WasmFS's Node backend doesn't reach the host directory.
 

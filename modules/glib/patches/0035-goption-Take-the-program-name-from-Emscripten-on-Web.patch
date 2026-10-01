@@ -1,4 +1,4 @@
-From d4b6c82ccffd86ca95a243d365771141e03684f4 Mon Sep 17 00:00:00 2001
+From 4a5ef0af8dea5a77debf7c41d33cb1134a50e4f2 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:42:03 -0700
 Subject: [PATCH 35/36] goption: Take the program name from Emscripten on
@@ -11,20 +11,21 @@ or from the page's Module.thisProgram.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- glib/goption.c | 7 +++++++
- 1 file changed, 7 insertions(+)
+ glib/goption.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
 
 diff --git a/glib/goption.c b/glib/goption.c
-index 5ce33fb98..62140f088 100644
+index 5ce33fb98..93cbacd84 100644
 --- a/glib/goption.c
 +++ b/glib/goption.c
-@@ -1703,6 +1703,13 @@ platform_get_argv0 (void)
+@@ -1703,6 +1703,14 @@ platform_get_argv0 (void)
    base_arg0 = g_path_get_basename (cmdline);
    g_free (cmdline);
    return base_arg0;
 +#elif defined(G_PLATFORM_WASM)
-+  /* Emscripten's libc names the program after the script Node runs, or
-+   * after the page's Module.thisProgram. */
++  /* Emscripten's libc names the program after the script Node runs, or in
++   * a page after Module.thisProgram, which is "./this.program" unless the
++   * runtime sets it. */
 +  if (program_invocation_name == NULL || *program_invocation_name == '\0')
 +    return NULL;
 +

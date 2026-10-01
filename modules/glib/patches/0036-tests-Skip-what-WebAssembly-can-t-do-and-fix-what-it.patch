@@ -1,4 +1,4 @@
-From c93c317ec2b87f8f6c1e8670c0bc53307dd4d5da Mon Sep 17 00:00:00 2001
+From cc3e209c962b7ae866be86130e575fc50cc4092e Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:52 -0700
 Subject: [PATCH 36/36] tests: Skip what WebAssembly can't do, and fix what it
@@ -45,51 +45,55 @@ Fix the tests themselves where they relied on more than they should:
 - glib/tests never told the Python tests to run their programs with
   Node, and those tests expected abort() to end Node with SIGABRT.
 
-Three workarounds keep tests running: test-printf's reader waits for its
+Workarounds keep tests running: test-printf's reader waits for its
 writer, since Emscripten's pipe reads never block; mainloop's nfds test
-gives its file a byte, since WasmFS's poll() only takes a non-empty file
-for readable; and fileutils' stdio-wrappers test works in a temporary
+gives its file a byte, and its unix-fd-priority test and closure's fd
+test read a pipe holding a byte instead of /dev/random or /dev/null,
+since WasmFS's poll() only takes a file or device for readable while it
+holds data; and fileutils' stdio-wrappers test works in a temporary
 directory, since chmod() on WasmFS's Node backend doesn't reach the
-host.
+host. convert and converter-stream also check stateful charsets: a
+byte order mark and ISO-2022-JP's shift state across calls and full
+output, and a fallback between kanji in ISO-2022-JP.
 
 Only test sources and test build files change.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- gio/tests/converter-stream.c      | 49 ++++++++++++++++++++++
- gio/tests/filenamecompleter.c     | 38 +++++++++++++++---
- gio/tests/g-file-info.c           | 18 +++++++++
- gio/tests/gdbus-peer.c            | 34 +++++++++++++++-
- gio/tests/gio-tool.py             |  7 ++++
+ gio/tests/converter-stream.c      | 90 +++++++++++++++++++++++++++++++
+ gio/tests/filenamecompleter.c     | 38 ++++++++++---
+ gio/tests/g-file-info.c           | 18 +++++++
+ gio/tests/gdbus-peer.c            | 34 +++++++++++-
+ gio/tests/gio-tool.py             |  7 +++
  gio/tests/inet-address.c          |  4 +-
- gio/tests/meson.build             | 35 ++++++++--------
- gio/tests/network-address.c       | 10 +++++
- gio/tests/pollable.c              | 18 ++++++++-
+ gio/tests/meson.build             | 35 ++++++------
+ gio/tests/network-address.c       | 10 ++++
+ gio/tests/pollable.c              | 18 ++++++-
  gio/tests/socket-listener.c       |  4 +-
- gio/tests/socket.c                | 48 ++++++++++++++++++++++
+ gio/tests/socket.c                | 48 +++++++++++++++++
  glib/tests/assert-msg-test.py     |  3 ++
- glib/tests/collate.c              | 22 ++++++++++
- glib/tests/convert.c              | 40 ++++++++++++++++++
- glib/tests/date.c                 | 24 +++++++++++
- glib/tests/fileutils.c            | 35 ++++++++++++++--
- glib/tests/gdatetime.c            | 28 +++++++++++++
- glib/tests/mainloop.c             | 58 +++++++++++++++++++++-----
- glib/tests/mapping.c              |  5 +++
- glib/tests/meson.build            |  5 +++
- glib/tests/messages-low-memory.c  | 10 +++++
+ glib/tests/collate.c              | 22 ++++++++
+ glib/tests/convert.c              | 47 ++++++++++++++++
+ glib/tests/date.c                 | 24 +++++++++
+ glib/tests/fileutils.c            | 35 ++++++++++--
+ glib/tests/gdatetime.c            | 28 ++++++++++
+ glib/tests/mainloop.c             | 73 ++++++++++++++++++++-----
+ glib/tests/mapping.c              |  5 ++
+ glib/tests/meson.build            |  5 ++
+ glib/tests/messages-low-memory.c  | 10 ++++
  glib/tests/messages-low-memory.py |  3 ++
  glib/tests/option-argv0.c         |  6 ++-
- glib/tests/option-context.c       |  7 ++++
- glib/tests/test-printf.c          |  9 ++++-
- glib/tests/testing.c              | 67 +++++++++++++++++++++++++++++++
- gobject/tests/closure.c           | 24 ++++++++++-
- 27 files changed, 563 insertions(+), 48 deletions(-)
+ glib/tests/option-context.c       |  7 +++
+ glib/tests/test-printf.c          |  9 +++-
+ glib/tests/testing.c              | 67 +++++++++++++++++++++++
+ gobject/tests/closure.c           | 37 +++++++++++--
+ 27 files changed, 636 insertions(+), 51 deletions(-)
 
 diff --git a/gio/tests/converter-stream.c b/gio/tests/converter-stream.c
-index b00d1bf39..0a3346298 100644
+index b00d1bf39..05b773ecb 100644
 --- a/gio/tests/converter-stream.c
 +++ b/gio/tests/converter-stream.c
-@@ -887,6 +887,46 @@ test_charset (gconstpointer data)
+@@ -887,6 +887,86 @@ test_charset (gconstpointer data)
  }
  
  
@@ -133,10 +137,50 @@ index b00d1bf39..0a3346298 100644
 +  g_object_unref (conv);
 +}
 +
++/* A source charset with state reads the same however the input is cut into
++ * calls and however little room the output has. */
++static void
++test_charset_stateful (void)
++{
++  GConverter *conv;
++  GConverterResult res;
++  gchar out[16];
++  gsize bytes_read, bytes_written;
++  GError *error = NULL;
++
++  /* A byte order mark and "abcd", with room for "abc". */
++  conv = (GConverter *) g_charset_converter_new ("UTF-8", "UTF-16", NULL);
++  res = g_converter_convert (conv, "\xff\xfe" "a\0b\0c\0d\0", 10, out, 3,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 8);
++  g_assert_cmpmem (out, bytes_written, "abc", 3);
++  g_object_unref (conv);
++
++  /* "亜", then "唖" in the state the first call left and "abcdef" after a
++   * switch back to ASCII, with room for "唖abc". */
++  conv = (GConverter *) g_charset_converter_new ("UTF-8", "ISO-2022-JP", NULL);
++  res = g_converter_convert (conv, "\x1b$B0!", 5, out, sizeof out,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 5);
++  g_assert_cmpmem (out, bytes_written, "\xe4\xba\x9c", 3);
++
++  res = g_converter_convert (conv, "0\"\x1b(Babcdef", 11, out, 6,
++                             G_CONVERTER_NO_FLAGS, &bytes_read, &bytes_written, &error);
++  g_assert_no_error (error);
++  g_assert_cmpint (res, ==, G_CONVERTER_CONVERTED);
++  g_assert_cmpuint (bytes_read, ==, 8);
++  g_assert_cmpmem (out, bytes_written, "\xe5\x94\x96" "abc", 6);
++  g_object_unref (conv);
++}
++
  static void
  client_connected (GObject      *source,
  		  GAsyncResult *result,
-@@ -976,6 +1016,13 @@ test_converter_pollable (void)
+@@ -976,6 +1056,13 @@ test_converter_pollable (void)
    GError *error;
    gsize i;
  
@@ -150,7 +194,7 @@ index b00d1bf39..0a3346298 100644
    expander = g_expander_converter_new ();
    expanded = g_malloc (100*1000); /* Large enough */
    cres = g_converter_convert (expander,
-@@ -1210,6 +1257,7 @@ main (int   argc,
+@@ -1210,6 +1297,7 @@ main (int   argc,
      { "/converter-input-stream/charset/utf8->latin1", "UTF-8", "\303\205rr Sant\303\251", "ISO-8859-1", "\305rr Sant\351", 0 },
      { "/converter-input-stream/charset/latin1->utf8", "ISO-8859-1", "\305rr Sant\351", "UTF-8", "\303\205rr Sant\303\251", 0 },
      { "/converter-input-stream/charset/fallbacks", "UTF-8", "Some characters just don't fit into latin1: πא", "ISO-8859-1", "Some characters just don't fit into latin1: \\CF\\80\\D7\\90", 4 },
@@ -158,11 +202,12 @@ index b00d1bf39..0a3346298 100644
    };
  
    gsize i;
-@@ -1231,6 +1279,7 @@ main (int   argc,
+@@ -1231,6 +1319,8 @@ main (int   argc,
  
    g_test_add_func ("/converter-stream/pollable", test_converter_pollable);
    g_test_add_func ("/converter-stream/leftover", test_converter_leftover);
 +  g_test_add_func ("/converter-input-stream/charset/unrepresentable", test_charset_unrepresentable);
++  g_test_add_func ("/converter-input-stream/charset/stateful", test_charset_stateful);
  
    return g_test_run();
  }
@@ -768,7 +813,7 @@ index bd9ea234f..d27cd0559 100644
    g_array_set_clear_func (line_array, (GDestroyNotify)clear_line);
  
 diff --git a/glib/tests/convert.c b/glib/tests/convert.c
-index 6cf19ad10..b595adee2 100644
+index 6cf19ad10..1a9029c89 100644
 --- a/glib/tests/convert.c
 +++ b/glib/tests/convert.c
 @@ -85,8 +85,16 @@ test_one_half (void)
@@ -788,7 +833,7 @@ index 6cf19ad10..b595adee2 100644
    g_assert_cmpstr (out, ==, NULL);
    g_clear_error (&error);
    g_free (out);
-@@ -104,6 +112,37 @@ test_one_half (void)
+@@ -104,6 +112,44 @@ test_one_half (void)
    g_free (out);
  }
  
@@ -815,6 +860,13 @@ index 6cf19ad10..b595adee2 100644
 +  g_assert_null (strchr (out, '*'));
 +  g_free (out);
 +
++  /* "漢½漢": the fallback takes ISO-2022-JP back to ASCII between kanji. */
++  out = g_convert_with_fallback ("\xe6\xbc\xa2\xc2\xbd\xe6\xbc\xa2", -1,
++                                 "ISO-2022-JP", "UTF-8", "?", NULL, NULL, &error);
++  g_assert_no_error (error);
++  g_assert_cmpstr (out, ==, "\x1b$B4A\x1b(B?\x1b$B4A\x1b(B");
++  g_free (out);
++
 +  /* "a½" and the first byte of "é". */
 +  out = g_convert ("a\xc2\xbd\xc3", 4, "ISO-8859-15", "UTF-8",
 +                   &bytes_read, NULL, &error);
@@ -826,7 +878,7 @@ index 6cf19ad10..b595adee2 100644
  static void
  test_byte_order (void)
  {
-@@ -996,6 +1035,7 @@ main (int argc, char *argv[])
+@@ -996,6 +1042,7 @@ main (int argc, char *argv[])
    g_test_add_func ("/conversion/no-conv", test_no_conv);
    g_test_add_func ("/conversion/iconv-state", test_iconv_state);
    g_test_add_func ("/conversion/illegal-sequence", test_one_half);
@@ -1036,7 +1088,7 @@ index d003a5445..fa1ce3e9f 100644
      {
        gchar *path = NULL;
 diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
-index 66845ab96..9f782c164 100644
+index 66845ab96..ed5edde83 100644
 --- a/glib/tests/mainloop.c
 +++ b/glib/tests/mainloop.c
 @@ -29,6 +29,14 @@
@@ -1109,22 +1161,51 @@ index 66845ab96..9f782c164 100644
    fd = open ("/dev/null", O_RDONLY);
    g_assert_cmpint (fd, >=, 0);
  
-@@ -1715,6 +1737,14 @@ test_unix_fd_priority (void)
+@@ -1703,6 +1725,25 @@ test_unix_file_poll (void)
+   close (fd);
+ }
  
-   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/1592");
- 
++/* Opens @path, a device that is always readable, for reading.  WasmFS's
++ * poll() takes a file or device for readable only while it holds data, so on
++ * WebAssembly this is a pipe holding a byte instead. */
++static int
++open_always_readable (const char *path)
++{
 +#ifdef G_PLATFORM_WASM
-+  /* WasmFS's poll() takes a file or device for readable only while it holds
-+   * data, where POSIX has /dev/null, /dev/random and regular files always
-+   * readable. */
-+  g_test_skip ("WasmFS's poll() takes an empty file or device for unreadable");
-+  return;
-+#endif
++  int fds[2];
 +
-   loop = g_main_loop_new (NULL, FALSE);
++  g_assert_no_errno (pipe (fds));
++  g_assert_cmpint (write (fds[1], "x", 1), ==, 1);
++  close (fds[1]);
++
++  return fds[0];
++#else
++  return open (path, O_RDONLY);
++#endif
++}
++
+ static void
+ test_unix_fd_priority (void)
+ {
+@@ -1723,7 +1764,7 @@ test_unix_fd_priority (void)
+   g_source_attach (source, NULL);
+   g_source_unref (source);
  
-   source = g_idle_source_new ();
-@@ -1865,14 +1895,22 @@ test_nfds (void)
+-  fd1 = open ("/dev/random", O_RDONLY);
++  fd1 = open_always_readable ("/dev/random");
+   g_assert_cmpint (fd1, >=, 0);
+   source = g_unix_fd_source_new (fd1, G_IO_IN);
+   g_source_set_callback (source, G_SOURCE_FUNC (flag_bool), &s2, NULL);
+@@ -1731,7 +1772,7 @@ test_unix_fd_priority (void)
+   g_source_attach (source, NULL);
+   g_source_unref (source);
+ 
+-  fd2 = open ("/dev/random", O_RDONLY);
++  fd2 = open_always_readable ("/dev/random");
+   g_assert_cmpint (fd2, >=, 0);
+   source = g_unix_fd_source_new (fd2, G_IO_IN);
+   g_source_set_callback (source, G_SOURCE_FUNC (flag_bool), &s3, NULL);
+@@ -1865,14 +1906,22 @@ test_nfds (void)
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
    /* An "empty" GMainContext will have a single GPollFD, for its
@@ -1149,7 +1230,7 @@ index 66845ab96..9f782c164 100644
  #ifdef G_OS_WIN32
    /* The fd in the pollfds won't be the same fd we passed in */
    g_io_channel_win32_make_pollfd (io, G_IO_IN, out_fds);
-@@ -1888,7 +1926,7 @@ test_nfds (void)
+@@ -1888,7 +1937,7 @@ test_nfds (void)
  
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1158,7 +1239,7 @@ index 66845ab96..9f782c164 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
    else if (out_fds[1].fd == fd)
-@@ -1910,7 +1948,7 @@ test_nfds (void)
+@@ -1910,7 +1959,7 @@ test_nfds (void)
     */
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1167,7 +1248,7 @@ index 66845ab96..9f782c164 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
    else if (out_fds[1].fd == fd)
-@@ -1923,7 +1961,7 @@ test_nfds (void)
+@@ -1923,7 +1972,7 @@ test_nfds (void)
     */
    nfds = g_main_context_query (ctx, G_PRIORITY_DEFAULT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1176,7 +1257,7 @@ index 66845ab96..9f782c164 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
    else if (out_fds[1].fd == fd)
-@@ -1940,7 +1978,7 @@ test_nfds (void)
+@@ -1940,7 +1989,7 @@ test_nfds (void)
  
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1185,7 +1266,7 @@ index 66845ab96..9f782c164 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
    else if (out_fds[1].fd == fd)
-@@ -2752,7 +2790,7 @@ main (int argc, char *argv[])
+@@ -2752,7 +2801,7 @@ main (int argc, char *argv[])
    g_test_add_func ("/mainloop/remove-invalid", test_remove_invalid);
    g_test_add_func ("/mainloop/unref-while-pending", test_unref_while_pending);
    g_test_add_func ("/mainloop/null-default-context", test_null_default_context);
@@ -1543,7 +1624,7 @@ index 536fd56b0..bd7520c77 100644
  
    testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
 diff --git a/gobject/tests/closure.c b/gobject/tests/closure.c
-index fef671e7c..5930229cd 100644
+index fef671e7c..4ac6a1275 100644
 --- a/gobject/tests/closure.c
 +++ b/gobject/tests/closure.c
 @@ -104,6 +104,11 @@ test_closure_child (void)
@@ -1567,22 +1648,41 @@ index fef671e7c..5930229cd 100644
  static gboolean
  fd_quit_callback (gint         fd,
                    GIOCondition condition,
-@@ -152,6 +157,14 @@ test_closure_fd (void)
+@@ -146,13 +151,32 @@ fd_quit_callback (gint         fd,
+   return TRUE;
+ }
+ 
++/* Opens @path, a device that is always readable, for reading.  WasmFS's
++ * poll() takes a file or device for readable only while it holds data, so on
++ * WebAssembly this is a pipe holding a byte instead. */
++static int
++open_always_readable (const char *path)
++{
++#ifdef G_PLATFORM_WASM
++  int fds[2];
++
++  g_assert_no_errno (pipe (fds));
++  g_assert_cmpint (write (fds[1], "x", 1), ==, 1);
++  close (fds[1]);
++
++  return fds[0];
++#else
++  return open (path, O_RDONLY);
++#endif
++}
++
+ static void
+ test_closure_fd (void)
+ {
    gint fd;
    GSource *source;
  
-+#ifdef G_PLATFORM_WASM
-+  /* WasmFS's poll() takes a file or device for readable only while it holds
-+   * data, where POSIX has /dev/null, /dev/random and regular files always
-+   * readable. */
-+  g_test_skip ("WasmFS's poll() takes an empty file or device for unreadable");
-+  return;
-+#endif
-+
-   fd = open ("/dev/null", O_RDONLY);
+-  fd = open ("/dev/null", O_RDONLY);
++  fd = open_always_readable ("/dev/null");
    g_assert (fd != -1);
  
-@@ -162,6 +175,7 @@ test_closure_fd (void)
+   source = g_unix_fd_source_new (fd, G_IO_IN);
+@@ -162,6 +186,7 @@ test_closure_fd (void)
    close (fd);
  }
  
@@ -1590,7 +1690,7 @@ index fef671e7c..5930229cd 100644
  static gboolean
  send_usr1 (gpointer user_data)
  {
-@@ -179,9 +193,14 @@ closure_quit_callback (gpointer     user_data)
+@@ -179,9 +204,14 @@ closure_quit_callback (gpointer     user_data)
    return TRUE;
  }
  
@@ -1605,7 +1705,7 @@ index fef671e7c..5930229cd 100644
    GSource *source;
  
    g_idle_add_full (G_PRIORITY_LOW, send_usr1, NULL, NULL);
-@@ -189,6 +208,7 @@ test_closure_signal (void)
+@@ -189,6 +219,7 @@ test_closure_signal (void)
    source = g_unix_signal_source_new (SIGUSR1);
    test_source (source, G_CALLBACK (closure_quit_callback));
    g_source_unref (source);
@@ -1613,7 +1713,7 @@ index fef671e7c..5930229cd 100644
  }
  #endif
  
-@@ -214,7 +234,7 @@ main (int argc,
+@@ -214,7 +245,7 @@ main (int argc,
    g_test_add_func ("/closure/timeout", test_closure_timeout);
    g_test_add_func ("/closure/iochannel", test_closure_iochannel);
    g_test_add_func ("/closure/child", test_closure_child);

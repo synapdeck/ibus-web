@@ -1,4 +1,4 @@
-From 6426bdc62f82e68cbe94ad3f4ef8b49fe955ac9b Mon Sep 17 00:00:00 2001
+From 2c690458ef1a717ab90693eced4922bc0344d364 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:40 -0700
 Subject: [PATCH 32/36] gconvert, gcharsetconverter: Report characters iconv()
@@ -18,29 +18,36 @@ g_convert_with_fallback() kept the replacement where the caller asked
 for its fallback, and GCharsetConverter neither reported an error nor
 used its fallback.
 
-- GCharsetConverter converts what a call consumed again a character at a
-  time when the call reports an irreversible conversion, or fails after
-  consuming input on such an iconv(), and treats the replaced character
-  as EILSEQ, so the fallback replaces it or the error reports it.
-- g_convert_with_fallback() does the same for its UTF-8 input, also when
-  a call runs out of output room.
-- g_convert_with_iconv() starts again from a reset converter, with room
-  for all the output or with only the complete characters, so that one
-  call converts everything and reports the count.
-
 Whether iconv() replaces is probed once, by converting "½" to ASCII.
-Where it fails with EILSEQ instead, as glibc's does, the new paths for
-failing calls are never taken; a target that asks for transliteration
+Where it does:
+- GCharsetConverter converts its input a character at a time from the
+  start, stopping at a replaced character as at EILSEQ, so the fallback
+  replaces it or the error reports it. Nothing is converted twice, so
+  this is exact for stateful source charsets too.
+- g_convert_with_iconv() starts again from a reset converter when a
+  call fails after converting something, with room for all the output
+  or with only the complete characters, so that one call converts
+  everything and reports the count.
+
+g_convert_with_fallback() starts again from a reset converter, a
+character at a time, whenever a call reports a replacement (or, where
+iconv() replaces, runs out of output room after converting something),
+remembering the characters found so far, so a stateful target never
+loses a shift sequence to discarded output.
+
+Where iconv() fails with EILSEQ instead, as glibc's does, the only
+change is that last restart, which glibc reaches just for irreversible
+conversions it counts; a target that asks for transliteration
 ("//TRANSLIT") still gets iconv()'s replacements.
 
 Upstream-Status: Pending
 ---
- gio/gcharsetconverter.c | 126 +++++++++++++++++++++++++++++++++++++-
- glib/gconvert.c         | 130 +++++++++++++++++++++++++++++++++++++++-
- 2 files changed, 252 insertions(+), 4 deletions(-)
+ gio/gcharsetconverter.c |  99 +++++++++++++++++++++++++
+ glib/gconvert.c         | 158 +++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 255 insertions(+), 2 deletions(-)
 
 diff --git a/gio/gcharsetconverter.c b/gio/gcharsetconverter.c
-index c8944f3a3..f8ff3549c 100644
+index c8944f3a3..1219425a0 100644
 --- a/gio/gcharsetconverter.c
 +++ b/gio/gcharsetconverter.c
 @@ -25,6 +25,7 @@
@@ -51,7 +58,7 @@ index c8944f3a3..f8ff3549c 100644
  
  #include "ginitable.h"
  #include "gioerror.h"
-@@ -247,6 +248,85 @@ g_charset_converter_reset (GConverter *converter)
+@@ -247,6 +248,93 @@ g_charset_converter_reset (GConverter *converter)
    conv->n_fallback_errors = 0;
  }
  
@@ -103,8 +110,12 @@ index c8944f3a3..f8ff3549c 100644
 +      gchar *in = NULL, *out = NULL;
 +      gsize in_size, in_left, out_left = 0;
 +      gsize res = (gsize) -1;
++      int errsv = 0;
 +
-+      /* The shortest input iconv() takes is one whole character. */
++      /* The shortest input iconv() takes is one whole character.  A call
++       * that consumes a shift sequence or byte order mark before running out
++       * of input has changed the converter's state, so what it consumed
++       * stays consumed. */
 +      for (in_size = 1; in_size <= *inbytes_left; in_size++)
 +        {
 +          in = *inbuf;
@@ -112,17 +123,21 @@ index c8944f3a3..f8ff3549c 100644
 +          out = *outbuf;
 +          out_left = *outbytes_left;
 +          res = g_iconv (cd, &in, &in_left, &out, &out_left);
-+          if (res != (gsize) -1 || errno != EINVAL)
++          errsv = errno;
++          if (res != (gsize) -1 || errsv != EINVAL || in != *inbuf)
 +            break;
 +        }
 +
-+      if (res == (gsize) -1)
-+        return res;
-+
-+      if (res != 0)
++      if (res != (gsize) -1 && res != 0)
 +        {
 +          errno = EILSEQ;
 +          return (gsize) -1;
++        }
++
++      if (res == (gsize) -1 && in == *inbuf)
++        {
++          errno = errsv;
++          return res;
 +        }
 +
 +      *inbytes_left -= (gsize) (in - *inbuf);
@@ -137,68 +152,26 @@ index c8944f3a3..f8ff3549c 100644
  static GConverterResult
  g_charset_converter_convert (GConverter       *converter,
  			     const void       *inbuf,
-@@ -264,6 +344,7 @@ g_charset_converter_convert (GConverter       *converter,
-   gchar *inbufp, *outbufp;
-   gsize in_left, out_left;
-   int errsv;
-+  int iconv_errno;
-   gboolean reset;
- 
-   conv = G_CHARSET_CONVERTER (converter);
-@@ -303,9 +384,48 @@ g_charset_converter_convert (GConverter       *converter,
+@@ -302,6 +390,17 @@ g_charset_converter_convert (GConverter       *converter,
+     res = g_iconv (conv->iconv,
                     NULL, &in_left,
                     &outbufp, &out_left);
++  /* Some iconv() implementations, musl's among them, write a replacement for
++   * a character the target charset lacks and count it as an irreversible
++   * conversion instead of failing with EILSEQ, and forget the count when a
++   * later character ends the call with an error.  Converted a character at
++   * a time, the input stops at that character, so it is reported, or
++   * replaced by the fallback, as EILSEQ would have it.  A target that asks
++   * for transliteration ("//TRANSLIT") gets its replacements on purpose. */
++  else if (strstr (conv->to, "//") == NULL && iconv_replaces_unrepresentable ())
++    res = convert_reversibly (conv->iconv,
++                              &inbufp, &in_left,
++                              &outbufp, &out_left);
    else
--    res = g_iconv (conv->iconv,
--                   &inbufp, &in_left,
--                   &outbufp, &out_left);
-+    {
-+      res = g_iconv (conv->iconv,
-+                     &inbufp, &in_left,
-+                     &outbufp, &out_left);
-+      iconv_errno = errno;
-+
-+      /* Some iconv() implementations, musl's among them, write a replacement
-+       * for a character the target charset lacks and count it as an
-+       * irreversible conversion instead of failing with EILSEQ, and forget
-+       * the count when a later character ends the call with an error.
-+       * Converting what this call consumed again a character at a time
-+       * finds that character, so it is reported, or replaced by the
-+       * fallback, as EILSEQ would have it.  iconv() can't rewind a shift
-+       * state, so input in a stateful charset that changes state within
-+       * this input may be read wrongly up to that character.  A target that
-+       * asks for transliteration ("//TRANSLIT") gets its replacements on
-+       * purpose. */
-+      if (strstr (conv->to, "//") == NULL &&
-+          ((res != (gsize) -1 && res != 0) ||
-+           (res == (gsize) -1 && inbufp > (char *) inbuf &&
-+            iconv_replaces_unrepresentable ())))
-+        {
-+          gboolean failed = res == (gsize) -1;
-+          gsize consumed = (gsize) (inbufp - (char *) inbuf);
-+
-+          inbufp = (char *) inbuf;
-+          in_left = consumed;
-+          outbufp = (char *) outbuf;
-+          out_left = outbuf_size;
-+          res = convert_reversibly (conv->iconv,
-+                                    &inbufp, &in_left,
-+                                    &outbufp, &out_left);
-+          in_left += inbuf_size - consumed;
-+
-+          if (res == 0 && failed)
-+            res = (gsize) -1;
-+          else
-+            iconv_errno = errno;
-+        }
-+
-+      errno = iconv_errno;
-+    }
- 
-   g_assert (inbufp >= (char *) inbuf);
-   g_assert (outbufp >= (char *) outbuf);
+     res = g_iconv (conv->iconv,
+                    &inbufp, &in_left,
 diff --git a/glib/gconvert.c b/glib/gconvert.c
-index f10aeffde..4fdf9e39d 100644
+index f10aeffde..87df7b48f 100644
 --- a/glib/gconvert.c
 +++ b/glib/gconvert.c
 @@ -212,6 +212,39 @@ g_iconv_close (GIConv converter)
@@ -303,15 +276,27 @@ index f10aeffde..4fdf9e39d 100644
        if (err == (gsize) -1)
  	{
  	  switch (errno)
-@@ -572,6 +641,7 @@ g_convert_with_fallback (const gchar *str,
+@@ -572,6 +641,10 @@ g_convert_with_fallback (const gchar *str,
    gsize outbuf_size;
    gboolean have_error = FALSE;
    gboolean done = FALSE;
 +  gboolean by_char = FALSE;
++  gsize utf8_len;
++  GArray *replaced = NULL;
++  guint next_replaced = 0;
  
    GError *local_error = NULL;
    
-@@ -643,9 +713,63 @@ g_convert_with_fallback (const gchar *str,
+@@ -627,6 +700,8 @@ g_convert_with_fallback (const gchar *str,
+       return NULL;
+     }
+ 
++  utf8_len = inbytes_remaining;
++
+   /* Now the heart of the code. We loop through the UTF-8 string, and
+    * whenever we hit an offending character, we form fallback, convert
+    * the fallback to the target codeset, and then go back to
+@@ -643,9 +718,83 @@ g_convert_with_fallback (const gchar *str,
  
    while (!done && !have_error)
      {
@@ -320,63 +305,84 @@ index f10aeffde..4fdf9e39d 100644
 +      gsize inbytes_start = inbytes_remaining;
 +      gsize outbytes_start = outbytes_remaining;
        gsize inbytes_tmp = inbytes_remaining;
-+
-+      if (by_char && p && !save_p)
-+        inbytes_tmp = MIN (inbytes_remaining, (gsize) (g_utf8_next_char (p) - p));
-       err = g_iconv (cd, (char **)&p, &inbytes_tmp, &outp, &outbytes_remaining);
+-      err = g_iconv (cd, (char **)&p, &inbytes_tmp, &outp, &outbytes_remaining);
 -      inbytes_remaining = inbytes_tmp;
-+      if (p_start)
-+        inbytes_remaining = inbytes_start - (gsize) (p - p_start);
++
++      if (by_char && p && !save_p && replaced != NULL &&
++          next_replaced < replaced->len &&
++          g_array_index (replaced, gsize, next_replaced) == (gsize) (p - utf8))
++        {
++          next_replaced++;
++          err = (gsize) -1;
++          errno = EILSEQ;
++        }
 +      else
-+        inbytes_remaining = inbytes_tmp;
++        {
++          if (by_char && p && !save_p)
++            inbytes_tmp = MIN (inbytes_remaining, (gsize) (g_utf8_next_char (p) - p));
++          err = g_iconv (cd, (char **)&p, &inbytes_tmp, &outp, &outbytes_remaining);
++          if (p_start)
++            inbytes_remaining = inbytes_start - (gsize) (p - p_start);
++          else
++            inbytes_remaining = inbytes_tmp;
++        }
 +
 +      /* Some iconv() implementations, musl's among them, write a replacement
 +       * for a character the target codeset lacks and count it as an
-+       * irreversible conversion instead of failing with EILSEQ.  Converting
-+       * the string again a character at a time finds that character, so the
-+       * fallback replaces it as it would on EILSEQ.  Such an iconv() forgets
-+       * the count when it runs out of room for the output, so that is
-+       * converted again too.  A target that asks for transliteration
-+       * ("//TRANSLIT") gets its replacements on purpose. */
-+      if (err == (gsize) -1 && p_start && p != p_start && !by_char && !save_p)
++       * irreversible conversion instead of failing with EILSEQ, and forget
++       * the count when the same call runs out of room for the output.
++       * Converting the string again a character at a time finds that
++       * character, so the fallback replaces it as it would on EILSEQ.  Each
++       * time starts over from a reset converter, since the output it
++       * discards may have changed a stateful target's shift state, and
++       * remembers the characters found so far.  A target that asks for
++       * transliteration ("//TRANSLIT") gets its replacements on purpose. */
++      if (p_start && !save_p && strstr (to_codeset, "//") == NULL)
 +        {
 +          int errsv = errno;
++          gboolean was_replaced = err != (gsize) -1 && err != 0;
 +
-+          if (errsv == E2BIG && strstr (to_codeset, "//") == NULL &&
-+              iconv_replaces_unrepresentable ())
++          if (was_replaced ||
++              (!by_char && err == (gsize) -1 && errsv == E2BIG &&
++               p != p_start && iconv_replaces_unrepresentable ()))
 +            {
-+              p = p_start;
-+              outp = outp_start;
-+              inbytes_remaining = inbytes_start;
-+              outbytes_remaining = outbytes_start;
++              if (was_replaced && by_char)
++                {
++                  gsize offset = (gsize) (p_start - utf8);
++
++                  if (replaced == NULL)
++                    replaced = g_array_new (FALSE, FALSE, sizeof (gsize));
++                  g_array_append_val (replaced, offset);
++                }
++
++              g_iconv (cd, NULL, NULL, NULL, NULL);
++              p = utf8;
++              inbytes_remaining = utf8_len;
++              outp = dest;
++              outbytes_remaining = outbuf_size - NUL_TERMINATOR_LENGTH;
 +              by_char = TRUE;
++              next_replaced = 0;
 +              continue;
 +            }
 +
 +          errno = errsv;
 +        }
 +
-+      if (err != (gsize) -1 && err != 0 && p_start &&
++      /* A fallback that is itself replaced can't be converted. */
++      if (err != (gsize) -1 && err != 0 && save_p &&
 +          strstr (to_codeset, "//") == NULL)
 +        {
 +          p = p_start;
 +          outp = outp_start;
 +          inbytes_remaining = inbytes_start;
 +          outbytes_remaining = outbytes_start;
-+
-+          if (!by_char && !save_p)
-+            {
-+              by_char = TRUE;
-+              continue;
-+            }
-+
 +          err = (gsize) -1;
 +          errno = EILSEQ;
 +        }
  
        if (err == (gsize) -1)
  	{
-@@ -719,6 +843,10 @@ g_convert_with_fallback (const gchar *str,
+@@ -719,6 +868,10 @@ g_convert_with_fallback (const gchar *str,
  	      inbytes_remaining = save_inbytes;
  	      save_p = NULL;
  	    }
@@ -387,3 +393,11 @@ index f10aeffde..4fdf9e39d 100644
  	  else if (p)
  	    {
  	      /* call g_iconv with NULL inbuf to cleanup shift state */
+@@ -740,6 +893,7 @@ g_convert_with_fallback (const gchar *str,
+     *bytes_written = outp - dest;	/* Doesn't include '\0' */
+ 
+   g_free (utf8);
++  g_clear_pointer (&replaced, g_array_unref);
+ 
+   if (have_error)
+     {

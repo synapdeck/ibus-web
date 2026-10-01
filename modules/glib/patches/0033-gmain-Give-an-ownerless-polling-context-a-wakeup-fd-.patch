@@ -1,4 +1,4 @@
-From a9ecf61f79aba2ee892375d7b04161c02ea61e23 Mon Sep 17 00:00:00 2001
+From f3fafbabc4dbeb20ce0a6402bbaf9fe9329b2801 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:40 -0700
 Subject: [PATCH 33/36] gmain: Give an ownerless-polling context a wakeup fd on
@@ -55,7 +55,7 @@ index c1c9ff18b..da655051f 100644
  #else
    for (i = 0; i < n_fds; i++)
 diff --git a/glib/gwakeup.c b/glib/gwakeup.c
-index c66635f16..35b0c680c 100644
+index c66635f16..af79b8fa5 100644
 --- a/glib/gwakeup.c
 +++ b/glib/gwakeup.c
 @@ -142,7 +142,8 @@ g_wakeup_free (GWakeup *wakeup)
@@ -63,8 +63,8 @@ index c66635f16..35b0c680c 100644
   * created by the first g_wakeup_get_pollfd(): from then on each signal
   * also writes a byte to it, and acknowledging drains it.  Wakeups nobody
 - * polls, such as every GMainContext's, never create one. */
-+ * polls, such as those of main contexts that aren't polled without an
-+ * owner, never create one. */
++ * polls, such as those of main contexts not made for ownerless polling,
++ * never create one. */
  struct _GWakeup
  {
  #ifdef G_PLATFORM_WASM

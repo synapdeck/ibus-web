@@ -1306,7 +1306,7 @@ specification and `release.json`.
    Inside the tests that gate, a subtest whose expectation can't hold here
    skips with its reason: musl's missing locale data (until the §5.1.4
    backends); no sockets, processes, pseudo-terminals or Unix signals;
-   IPv6 scope IDs; WasmFS's file-time precision, unchecked search
+   IPv6 scope IDs and network interfaces; WasmFS's file-time precision, unchecked search
    permission, unbounded pipes and `poll()` of empty files and devices;
    TZif files read by path (`/GTimeZone/parse-rfc8536`, since zones come
    from `Intl`); and, for `gio-tool.py`, no desktop applications to launch

@@ -1,4 +1,4 @@
-From 9c4fd1f8a21a10073f5f05cb73bddf6c10357c36 Mon Sep 17 00:00:00 2001
+From 315bdc70107c5346a0ab5d74c2bd82918abebdc7 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:42:03 -0700
 Subject: [PATCH 34/36] glib, gio: Build glib-unix and GIO's Unix streams on
@@ -10,8 +10,9 @@ GUnixInputStream, GUnixOutputStream or GFileDescriptorBased. Emscripten's
 file descriptors (files, pipes, /dev/null) take them as they are; the
 rest of the Unix sources need mounts, desktop files or D-Bus.
 
-- Build glib-unix.c, without the Unix signal sources: gmain.c handles no
-  signals on WebAssembly, where no other process can send one.
+- Build glib-unix.c, without the Unix signal sources, which glib-unix.h
+  no longer declares there: gmain.c handles no signals on WebAssembly,
+  where no other process can send one.
   g_unix_fd_query_path() fails with G_FILE_ERROR_NOSYS, since Emscripten's
   file systems have no /proc nor another way to name an fd's file.
 - Build gfiledescriptorbased.c, giounix-private.c and the Unix input and
@@ -27,9 +28,10 @@ Upstream-Status: Inappropriate [Wasm-specific]
  gio/giounix-private.c    | 22 +++++++++++++++++++++-
  gio/meson.build          | 18 +++++++++++++++++-
  glib/glib-unix.c         | 10 ++++++++++
+ glib/glib-unix.h         |  3 +++
  glib/meson.build         |  5 +----
  gobject/gsourceclosure.c | 10 ++++++----
- 5 files changed, 55 insertions(+), 10 deletions(-)
+ 6 files changed, 58 insertions(+), 10 deletions(-)
 
 diff --git a/gio/giounix-private.c b/gio/giounix-private.c
 index b085b2535..c16bf0ad9 100644
@@ -135,6 +137,27 @@ index 24a20dfa3..107bbdda2 100644
  #else
    #error "g_unix_fd_query_path() not supported on this platform"
  #endif
+diff --git a/glib/glib-unix.h b/glib/glib-unix.h
+index 86f3d61ab..54be660f3 100644
+--- a/glib/glib-unix.h
++++ b/glib/glib-unix.h
+@@ -70,6 +70,8 @@ gboolean g_unix_set_fd_nonblocking (gint       fd,
+                                     gboolean   nonblock,
+                                     GError   **error);
+ 
++/* WebAssembly has no Unix signal sources: no other process can signal it. */
++#ifndef G_PLATFORM_WASM
+ GLIB_AVAILABLE_IN_2_30
+ GSource *g_unix_signal_source_new  (gint signum);
+ 
+@@ -84,6 +86,7 @@ GLIB_AVAILABLE_IN_2_30
+ guint    g_unix_signal_add         (gint        signum,
+                                     GSourceFunc handler,
+                                     gpointer    user_data);
++#endif
+ 
+ /**
+  * GUnixFDSourceFunc:
 diff --git a/glib/meson.build b/glib/meson.build
 index 8c1cd7661..df8056d73 100644
 --- a/glib/meson.build
