@@ -21,7 +21,7 @@
           ''
             $CC -O2 $(${pkgConfig} --cflags libibus-web) -c ${./test-runtime.c} -o test-runtime.o
             $CXX ${toolchain.testMainFlags} test-runtime.o $(${pkgConfig} --libs libibus-web) -o test-runtime.js
-            $CC -O2 -sSIDE_MODULE=1 $(${pkgConfig} --cflags libibus-web) ${./test-side.c} -o test-side.wasm
+            $CC -O2 ${toolchain.sideModuleFlags} $(${pkgConfig} --cflags libibus-web) ${./test-side.c} -o test-side.wasm
             # A lost wakeup leaves the test asleep for good; fail instead.
             timeout 300 node test-runtime.js $PWD/test-side.wasm | tee output.txt
             mkdir -p $out

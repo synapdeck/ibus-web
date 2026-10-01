@@ -31,6 +31,11 @@
       # one fails plainly instead. GLib's largest test peaks at 280 MiB.
       testMemoryFlags = "-sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=512MB";
 
+      # Every dynamic link warns that Emscripten's dynamic linking with
+      # pthreads (em++) and wasm-ld's PIC linking are experimental. These
+      # flags acknowledge it; the linked output is the same without them.
+      dynamicLinkFlags = "-Wno-experimental -Wl,--experimental-pic";
+
       emscriptenCache = pkgs.stdenvNoCC.mkDerivation {
         pname = "emscripten-cache";
         inherit (emscripten) version;
@@ -97,10 +102,16 @@
     in
     {
       ibusWeb.toolchain = {
-        inherit commonFlags emscriptenCache testMemoryFlags;
+        inherit
+          commonFlags
+          dynamicLinkFlags
+          emscriptenCache
+          testMemoryFlags
+          ;
         # Every link inherits the wrapper's -O2, which turns Emscripten's
         # runtime assertions off; test programs want them back.
-        testMainFlags = "-O2 -sASSERTIONS=1 ${testMemoryFlags} ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"}";
+        testMainFlags = "-O2 -sASSERTIONS=1 ${testMemoryFlags} ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"} ${dynamicLinkFlags}";
+        sideModuleFlags = "-sSIDE_MODULE=1 ${dynamicLinkFlags}";
         nodeHostFsFlags = nodeHostFsFlags "${nodeHostFs}/node-host-fs.o";
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";
@@ -128,7 +139,7 @@
             em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
-            em++ ${toolchain.commonFlags} -O2 ${mainLinkWasmfs} probe.o -o probe-wasmfs.js
+            em++ ${toolchain.commonFlags} -O2 ${mainLinkWasmfs} ${toolchain.dynamicLinkFlags} probe.o -o probe-wasmfs.js
             test "$(node probe-wasmfs.js)" = "probe 7"
             emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} \
               ${toolchain.testMemoryFlags} probe.o -o probe-plain-wasmfs.js

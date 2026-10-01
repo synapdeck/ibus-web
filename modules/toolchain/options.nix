@@ -17,6 +17,14 @@
         type = lib.types.str;
         description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers.";
       };
+      dynamicLinkFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "Link flags every main or side module link adds, acknowledging that Emscripten's dynamic linking is experimental.";
+      };
+      sideModuleFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "Link flags for side modules a main module loads with dlopen().";
+      };
       testMemoryFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags giving Node-run test programs a fixed memory large enough for GLib's tests, in place of memory growth.";
