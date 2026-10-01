@@ -20,7 +20,9 @@ G_GNUC_INTERNAL
 const char *ibusweb_module_get_name(IBusWebModule *module);
 
 /* Calls op, opcode's operation. Returns 0, or -ECANCELED if it threw a C++
- * exception, which leaves reply partly written. */
+ * exception, which leaves reply partly written; state that C frames between
+ * the throw and op held stays as the exception left it. Exceptions that
+ * aren't C++ ones propagate to the caller. */
 G_GNUC_INTERNAL
 int ibusweb_ops_call(uint32_t opcode, IBusWebOp op, const uint8_t *payload,
                      uint32_t len, GString *reply);

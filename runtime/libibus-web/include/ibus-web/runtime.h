@@ -63,7 +63,11 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  * pump last looked, and a pump that sources were added to or removed from
  * mid-iteration can return a delay that is already stale, or -1. Either
  * way the word no longer holds the value read, so the wait returns at once
- * and the host pumps again; read after the pump, the wake would be lost. */
+ * and the host pumps again; read after the pump, the wake would be lost.
+ *
+ * Nothing catches an exception a source's callback throws: it unwinds
+ * through GLib's dispatch out of ibusweb_pump() to the host, leaving the
+ * context mid-dispatch. */
 IBUSWEB_API int32_t ibusweb_pump(void);
 
 /* A side module, or a set of operations registered as one.
@@ -75,8 +79,15 @@ IBUSWEB_API int32_t ibusweb_pump(void);
  * code an operation dispatched meanwhile could be running. */
 typedef struct _IBusWebModule IBusWebModule;
 
-/* A spike operation: reads the request's payload and appends its reply. A
- * C++ exception it throws fails the dispatch. */
+/* A spike operation: reads the request's payload and appends its reply.
+ *
+ * A C++ exception it throws fails the dispatch, which isolates the failure
+ * only if the exception unwound through C++ frames alone. One that crossed C
+ * frames on its way out (a GLib signal emission, a foreach callback, a vfunc
+ * called from C) skipped their cleanup: locks they held stay taken and
+ * whatever they were changing stays half-changed. Other exceptions
+ * (JavaScript errors, Emscripten's ExitStatus from exit(), longjmp()) aren't
+ * caught at all. */
 typedef void (*IBusWebOp)(const uint8_t *payload, uint32_t len, GString *reply);
 
 /* Registers op under opcode for module, for ibusweb_dispatch(). Returns 0,
@@ -113,7 +124,10 @@ IBUSWEB_API int ibusweb_load_module(const char *path,
  * reply. Returns the reply's length, -EINVAL for a request shorter than an
  * opcode, -ENOSYS for an opcode nobody registered, -ECANCELED if the operation
  * threw a C++ exception, or -ENOBUFS for a reply longer than reply_cap;
- * nothing is written on any failure. */
+ * nothing is written on any failure. -ECANCELED says nothing of the state
+ * the exception unwound through (see IBusWebOp). Any other exception an
+ * operation raises propagates to the caller and leaks the reply being
+ * built. */
 IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request,
                                      uint32_t request_len, uint8_t *reply,
                                      uint32_t reply_cap);
