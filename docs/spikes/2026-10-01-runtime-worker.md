@@ -135,8 +135,8 @@ such Worker and block, so the first version of this spike gave the host an
 event-loop turn between scenarios to stay within 32 MiB.
 
 The toolchain now carries an Emscripten patch,
-`modules/emscripten/patches/0014-pthread-cleanup-blocked-main.patch` (48 lines
-added, 2 removed, in `libpthread.js`, `library_pthread.c` and
+`modules/emscripten/patches/0014-pthread-cleanup-blocked-main.patch` (54 lines
+added, 4 removed, in `libpthread.js`, `library_pthread.c` and
 `threading_internal.h`), tracked upstream by the draft
 `docs/upstream/emscripten-pthread-cleanup-blocked-main.md` (the symptom was
 reported as #16763, closed without a fix). A thread that ends unjoined adds
@@ -148,6 +148,17 @@ still posted, for a main thread that is idle in its event loop, so that case
 behaves as before. The exiting thread can't proxy the cleanup with
 `emscripten_proxy_async()` instead: by then it has given up its thread state,
 and proxying can block and allocate.
+
+Freeing threads inside a wait on the main thread reaches one place in
+Emscripten's own JavaScript: `dlopen()`'s sync lists the threads, then
+proxies to each in turn and waits for it, so a thread later in the list can
+be cleaned up while an earlier one syncs. The patch makes the sync skip a
+thread that is gone by its turn; without that, it synced it through its
+freed struct, which can corrupt whatever reuses the memory or hang
+`dlopen()` on the host's thread, `ibusweb_load_module()`'s path.
+`checks.emscripten-fixes` holds up the sync of one thread while a detached
+thread later in the list ends and its block is reused; without the skip the
+sync aborts on Emscripten's `mailbox_refcount > 0` assertion.
 
 Reclaiming threads early makes an existing race likelier. With dynamic
 linking, a joined thread's "finished" message can arrive after a new thread
@@ -232,25 +243,36 @@ every mode, so `dispatch` mostly measures a wake of a thread that has only
 just gone to sleep.
 
 `cold-wake` spaces its 300 requests 2 ms after each reply, so every request
-finds the host asleep (301 of 301 every time, the host's count, which in the
-`control` mode comes from `Atomics.wait` returning `"ok"` and is exact) and,
-in option 2, the relay asleep too. Option 2's round trip is page → relay →
-host; the relay-less `control` mode's is page → host, so the difference is
-the relay's hop. Six runs of the released runtime outside the sandbox (Node
+finds the host asleep (301 of 301 every time) and, in option 2, the relay
+asleep too. The host's count of requests that found it asleep is exact in
+`control` mode, where `Atomics.wait` returns `"ok"` only after sleeping. In
+`runtime` mode `ibusweb_wait()` can't tell a word that changed before it
+slept from one that changed during, so the host reads the word again just
+before the call and counts only a change after that read; one that lands in
+the few instructions between that read and the futex wait still counts, so
+the count can be slightly high there. The runs below predate that read and
+counted every wait that returned 0, the same 301 of 301. Option 2's round
+trip is page → relay → host; the relay-less `control` mode's is
+page → host. Six runs of the released runtime outside the sandbox (Node
 v24.20.0, nothing else running); each cell is the median over the runs of
 that run's p50 or p99, with the range:
 
-| | Relay-less (`control`) | Option 2 (`runtime`) | The relay's hop (per-run difference) |
+| | Relay-less (`control`) | Option 2 (`runtime`) | Difference per run (an upper bound on the relay's hop) |
 | --- | --- | --- | --- |
 | `cold-wake` p50 | 11.1 µs (9.8–12.3) | 14.7 µs (12.2–28.0) | +2.8 µs (+2.1 to +17.1) |
 | `cold-wake` p99 | 35.6 µs (27.1–38.2) | 41.5 µs (37.0–50.7) | +8.3 µs (+5.1 to +12.5) |
 | `dispatch` p50 | 5.7 µs (3.8–7.7) | 8.0 µs (6.4–9.9) | +2.4 µs (−1.1 to +6.1) |
 | `dispatch` p99 | 16.3 µs (11.6–23.0) | 34.3 µs (25.3–39.9) | +15.9 µs (+11.0 to +22.1) |
 
-So under Node the relay costs one more thread wake per request: about 3 µs
-at the median and 8–16 µs at the 99th percentile, on round trips of
-11–15 µs from cold and 6–8 µs back to back. That is small against a
-keystroke's budget, but it is a cost, not noise. The sandbox run in the
+The difference between the two modes is an upper bound on the relay's hop,
+not the hop itself: option 2's host also sleeps inside the runtime, so it
+pays for the call into WebAssembly, `emscripten_futex_wait` and the
+`_emscripten_yield` that runs (and drains queued work) on each wake, where
+the relay-less host sleeps in a plain `Atomics.wait`. So under Node the relay
+and sleeping in the runtime together cost about 3 µs at the median and
+8–16 µs at the 99th percentile, on round trips of 11–15 µs from cold and
+6–8 µs back to back. That is small against a keystroke's budget, but it is a
+cost, not noise. The sandbox run in the
 tables above agrees at p50 (15.9 against 11.3 µs) and inverts at p99 (46.2
 against 54.8 µs), which one run's tail can do. Browser numbers are Task 6's,
 from the same scenario.
