@@ -17,6 +17,20 @@
         type = lib.types.package;
         description = "ibus-runtime linked with Emscripten's runtime assertions, for checks.";
       };
+      threadPool = {
+        shares = lib.mkOption {
+          type = lib.types.attrsOf lib.types.ints.positive;
+          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: the most each may have alive at once.";
+        };
+        size = lib.mkOption {
+          type = lib.types.ints.positive;
+          description = "The pthread pool's size, the sum of its shares. Creating a thread beyond it fails with EAGAIN in a browser.";
+        };
+        lowWater = lib.mkOption {
+          type = lib.types.ints.positive;
+          description = "The idle Workers a Worker host tops the pool up to whenever no request is pending.";
+        };
+      };
       linkFlags = lib.mkOption {
         type = lib.types.str;
         description = "ibus-runtime's link flags but for its export list: toolchain.runtimeMainFlags and the settings that shape its memory, threads and JavaScript.";
