@@ -8,8 +8,9 @@
     in
     {
       # The behaviour each of the toolchain's Emscripten fixes restores, on
-      # the file system test programs run on (WasmFS under Node) and, for the
-      # standard streams, on the one GLib's tools run on (Node's own).
+      # the file system test programs run on (WasmFS under Node), for the
+      # standard streams on the one GLib's tools run on (Node's own), and for
+      # threads under a main thread that never returns to its event loop.
       checks.emscripten-fixes =
         pkgs.runCommand "ibus-web-emscripten-fixes"
           {
@@ -30,6 +31,10 @@
             emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1 \
               fstat-stdio.o -o fstat-stdio.js
             node fstat-stdio.js < /dev/null
+
+            emcc ${toolchain.commonFlags} -O2 -c ${./thread-cleanup.c} -o thread-cleanup.o
+            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} thread-cleanup.o -o thread-cleanup.js
+            timeout 120 node thread-cleanup.js
             touch $out
           '';
     };

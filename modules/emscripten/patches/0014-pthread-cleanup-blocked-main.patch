@@ -1,0 +1,131 @@
+pthreads: reclaim unjoined threads while the main thread is blocked
+
+A thread that ends without being joined on the main runtime thread (a
+detached thread, or one another thread joins) was reclaimed only when the
+main thread's event loop handled a CMD_CLEANUP_THREAD message. A main
+thread that stays blocked in emscripten_futex_wait() never did, so each
+such thread kept its stack, TLS and struct, and its Worker never went back
+to the pool. Hand those threads to the main thread through a lock-free
+list instead, which it drains whenever it processes its queued calls,
+including inside emscripten_futex_wait(); the message is still sent, for
+a main thread that is idle in its event loop.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-pthread-cleanup-blocked-main.md
+
+diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
+index a975f21..bbb6153 100644
+--- a/src/lib/libpthread.js
++++ b/src/lib/libpthread.js
+@@ -93,6 +93,7 @@ var LibraryPThread = {
+ #endif
+                    '$spawnThread',
+                    '_emscripten_thread_free_data',
++                   '_emscripten_thread_run_deferred_cleanups',
+                    'exit',
+                    'pthread_self',
+                    '__set_thread_state',
+@@ -316,10 +317,12 @@ var LibraryPThread = {
+             spawnThread(d);
+             break;
+           case {{{ CMD_CLEANUP_THREAD }}}:
++            // The thread may already have been cleaned up, if the main thread
++            // processed its queued calls since the message was sent.
+             // cleanupThread needs to be run via callUserCallback since it calls
+             // back into user code to free thread data. Without this it's possible
+             // the unwind or ExitStatus exception could escape here.
+-            callUserCallback(() => cleanupThread(d.thread));
++            callUserCallback(() => __emscripten_thread_run_deferred_cleanups());
+             break;
+ #if MAIN_MODULE
+           case {{{ CMD_MARK_AS_FINISHED }}}:
+@@ -615,6 +618,7 @@ var LibraryPThread = {
+     };
+   },
+ 
++  _emscripten_thread_cleanup__deps: ['_emscripten_thread_defer_cleanup'],
+   _emscripten_thread_cleanup: (thread) => {
+     // Called when a thread needs to be cleaned up so it can be reused.
+     // A thread is considered reusable when it either returns from its
+@@ -625,7 +629,13 @@ var LibraryPThread = {
+     dbg(`_emscripten_thread_cleanup: ${ptrToString(thread)}`)
+ #endif
+     if (!ENVIRONMENT_IS_PTHREAD) cleanupThread(thread);
+-    else postMessage({ cmd: {{{ CMD_CLEANUP_THREAD }}}, thread });
++    else {
++      // A main thread blocked in emscripten_futex_wait (or otherwise processing
++      // its queued calls) cleans the thread up there; the message covers one
++      // that is idle in its event loop.
++      __emscripten_thread_defer_cleanup(thread);
++      postMessage({ cmd: {{{ CMD_CLEANUP_THREAD }}} });
++    }
+   },
+ 
+   _emscripten_thread_set_strongref: (thread) => {
+diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
+index b8a48cb..98b1068 100644
+--- a/system/lib/pthread/library_pthread.c
++++ b/system/lib/pthread/library_pthread.c
+@@ -10,6 +10,7 @@
+ #include <assert.h>
+ #include <pthread.h>
+ #include <stdarg.h>
++#include <stdatomic.h>
+ #include <threads.h>
+ #include <unistd.h>
+ 
+@@ -95,8 +96,36 @@ void emscripten_current_thread_process_queued_calls() {
+   emscripten_proxy_execute_queue(emscripten_proxy_get_system_queue());
+ }
+ 
++// Threads that ended without being joined on the main runtime thread, whose
++// Worker and memory only the main runtime thread can reclaim. They are linked
++// through `next`, which is free once a thread is off the thread list. A
++// detached thread adds itself after giving up its thread state, so adding
++// takes no lock and allocates nothing.
++static _Atomic(pthread_t) exited_threads;
++
++void _emscripten_thread_defer_cleanup(pthread_t thread) {
++  pthread_t head = atomic_load(&exited_threads);
++  do {
++    thread->next = head;
++  } while (!atomic_compare_exchange_weak(&exited_threads, &head, thread));
++  // Wake the main runtime thread in case it is blocked in
++  // `emscripten_futex_wait`, which reclaims them before returning.
++  _emscripten_thread_notify(emscripten_main_runtime_thread_id());
++}
++
++void _emscripten_thread_run_deferred_cleanups(void) {
++  assert(emscripten_is_main_runtime_thread());
++  pthread_t thread = atomic_exchange(&exited_threads, NULL);
++  while (thread) {
++    pthread_t next = thread->next;
++    _emscripten_thread_cleanup(thread);
++    thread = next;
++  }
++}
++
+ void emscripten_main_thread_process_queued_calls() {
+   assert(emscripten_is_main_runtime_thread());
++  _emscripten_thread_run_deferred_cleanups();
+   emscripten_current_thread_process_queued_calls();
+ }
+ 
+diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
+index 097595e..09963f9 100644
+--- a/system/lib/pthread/threading_internal.h
++++ b/system/lib/pthread/threading_internal.h
+@@ -63,6 +63,13 @@ void _emscripten_init_main_thread_js(void* tb);
+ void _emscripten_thread_profiler_enable();
+ void _emscripten_thread_cleanup(pthread_t thread);
+ 
++// Hands a thread that has ended to the main runtime thread for
++// `_emscripten_thread_cleanup`, from any other thread, even one that no longer
++// has a thread state of its own.
++void _emscripten_thread_defer_cleanup(pthread_t thread);
++// Runs the cleanups deferred so far. Main runtime thread only.
++void _emscripten_thread_run_deferred_cleanups(void);
++
+ hidden void* _emscripten_tls_init(void);
+ hidden void _emscripten_tls_free(void);
+ 
