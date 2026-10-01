@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: LGPL-2.1-or-later
+option(
+  'tests',
+  type: 'boolean',
+  value: false,
+  description: 'Build the test suite, run by meson test',
+)
+option(
+  'test_main_link_args',
+  type: 'array',
+  value: [],
+  description: 'Link arguments for the test programs, main modules that load side modules',
+)
+option(
+  'test_side_module_link_args',
+  type: 'array',
+  value: [],
+  description: 'Link arguments for the side modules the tests load',
+)

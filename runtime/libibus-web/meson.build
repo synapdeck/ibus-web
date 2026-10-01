@@ -5,6 +5,7 @@ project(
   'c',
   version: '0.0.0',
   license: 'LGPL-2.1-or-later',
+  meson_version: '>= 1.1',
   default_options: ['c_std=c11', 'warning_level=2'],
 )
 
@@ -24,6 +25,12 @@ libibus_web = static_library(
 
 install_headers('include/ibus-web/runtime.h', subdir: 'ibus-web')
 
+libibus_web_dep = declare_dependency(
+  link_with: libibus_web,
+  include_directories: include_directories('include'),
+  dependencies: glib,
+)
+
 import('pkgconfig').generate(
   libibus_web,
   filebase: 'libibus-web',
@@ -31,3 +38,7 @@ import('pkgconfig').generate(
   description: 'The C library the ibus-web runtime\'s Worker host drives',
   requires: [glib],
 )
+
+if get_option('tests')
+  subdir('tests')
+endif

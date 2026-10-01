@@ -21,17 +21,23 @@
         assert lib.length versions == 1;
         builtins.head versions;
 
+      # What the library builds from; its tests, their check and editor
+      # configuration stay out, so changing them doesn't rebuild it.
+      fileset = lib.fileset.unions [
+        ./libibus-web/meson.build
+        ./libibus-web/meson.options
+        ./libibus-web/include
+        ./libibus-web/src
+      ];
+
       libibusWeb = pkgsWasm.stdenv.mkDerivation {
         pname = "libibus-web";
         inherit version;
         src = lib.fileset.toSource {
           root = ./libibus-web;
-          fileset = lib.fileset.unions [
-            ./libibus-web/meson.build
-            ./libibus-web/include
-            ./libibus-web/src
-          ];
+          inherit fileset;
         };
+        passthru = { inherit fileset; };
         nativeBuildInputs = [
           pkgsWasm.meson
           pkgsWasm.ninja
