@@ -13,8 +13,9 @@
 
 ## Setup
 
-`ibus-runtime` as packaged (`-sMAIN_MODULE=2 -sWASMFS=1`, pool of 4, fixed
-32 MiB memory, 1 MiB stacks), with six spike side modules: `trivial`,
+`ibus-runtime` as packaged (`-sMAIN_MODULE=2 -sWASMFS=1`, a pthread pool of
+8 with `-sPTHREAD_POOL_SIZE_STRICT=2`, both under "Threads beyond the pool"
+below, fixed 32 MiB memory, 1 MiB stacks), with six spike side modules: `trivial`,
 `thread`, `throw`, `fsync`, and two new ones, `proxy` and `timer`. Their
 opcodes are one list in `sides/spike.h`; the build compiles a small program
 against it for the WebAssembly target and runs it, printing the opcodes,
@@ -42,10 +43,12 @@ dispatches, pumps, writes the reply, sets `state = REPLY` and notifies
 `state`. The Node harness (`src/node/run.ts`) plays the page: it blocks in
 `Atomics.wait` on `state`, as the keystroke path would spin.
 
-Two host-level requests outside the runtime's opcode space are spike
+Three host-level requests outside the runtime's opcode space are spike
 instruments, not protocol: `stats` (Workers created since startup, idle
 Workers, heap in use, requests served and how many of them found the host
-asleep) and `yield` (a return to the host's event loop).
+asleep, the pool's top-ups and the host's event-loop turns), `yield` (a
+return to the host's event loop) and `topUp` (holds the pool's top-ups off,
+or allows them again).
 
 Both runtime builds run every scenario: the asserting build for correctness,
 the released build for the timings quoted below. Numbers are from one run of
@@ -204,25 +207,27 @@ check's pass condition.
 
 | Scenario | Criterion | Result | Measured |
 | --- | --- | --- | --- |
-| `dispatch` | 1000 `add` round trips back to back, every sum right | PASS | p50 9.3 µs, p99 27.1 µs, max 367.2 µs; 998 of 1001 requests found the host asleep (asserting: 6.3 / 31.9 / 395.2 µs) |
-| `cold-wake` | 300 `add` round trips, each sent 2 ms after the last reply: every sum right, every request found the host asleep | PASS | p50 15.9 µs, p99 46.2 µs, max 46.7 µs; 301 of 301 asleep (asserting: 14.2 / 29.1 / 36.9 µs) |
-| `thread-create-blocked` | `spawn(4)` and `spawn(5)` from a pump start and join every thread; `spawn-nested(idle + 1)` starts and joins every thread, creating at least one Worker beyond the pool | PASS | `spawn(4)` 70.9 ms, 0 new Workers; `spawn(5)` 94.3 ms, 1 new Worker; `spawn-nested(6)` with 5 idle Workers: joined 6 in 224.8 ms, 2 new Workers |
-| `thread-exit-blocked` | above | PASS | heap 0.18 MiB in every round and after a turn; 0 Workers created, 7 idle at each round's start |
+| `dispatch` | 1000 `add` round trips back to back, every sum right | PASS | p50 9.8 µs, p99 39.8 µs, max 302.7 µs; mean of ten batches of 100 timed whole 11.6 µs (9.6–17.0); 998 of 1001 requests found the host asleep (asserting: 9.4 / 30.5 / 310.4 µs, mean 11.6 µs) |
+| `cold-wake` | 300 `add` round trips, each sent 2 ms after the last reply: every sum right, every request found the host asleep | PASS | p50 27.6 µs, p99 44.3 µs, max 47.8 µs, mean 25.9 µs; 301 of 301 asleep (asserting: 17.4 / 51.7 / 76.0 µs, mean 18.9 µs) |
+| `thread-create-blocked` | a burst of the side modules' share of the pool (4) alive at once, `spawn(4)` from a pump and `spawn-nested(3)` from a thread, starts and joins every thread, creating no Worker and never returning the host to its event loop | PASS | 8 of 8 Workers idle; `spawn(4)` 71.9 ms, `spawn-nested(3)` 2.2 ms; 0 Workers created, 0 event-loop turns |
+| `thread-exit-blocked` | above, with rounds of `spawn-detached(4)` | PASS | heap 0.18 MiB in every round and after a turn; 0 Workers created, 8 idle at each round's start |
 | `cross-thread-wake` | `idle-later(50)` ×20, host idle: attach → dispatch ≤ 20 ms | PASS | ε p50 0.050 ms, max 0.080 ms |
 | `deadline` | `g_timeout_add(100)` ×5, no requests: 100 ± 10 ms | PASS | 100.096–100.234 ms; worst deviation 0.234 ms |
-| `sync-proxied` | while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, and a GTask that a thread other than the host's starts, all complete | PASS | `proxy-sync` 331 µs; `spawn-nested(2)` joined 2; GTask 2516 µs |
+| `sync-proxied` | while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, and a GTask that a thread other than the host's starts, all complete | PASS | `proxy-sync` 557 µs; `spawn-nested(2)` joined 2; GTask 2294 µs, after which GLib keeps 3 Workers |
 | `promise-proxied-fsync` | `fsync()` from a thread completes on each backend | PASS | WasmFS memory and Node backends: each within 2.2 ms (the poll's resolution) |
 | `exceptions` | `throw` replies `-ECANCELED`, then `add` works | PASS | `-11` (`ECANCELED`), then 2 |
 | `thread-crash` (a host of its own) | a thread that traps takes the host down: requests fail as crashed, and the host reports the thread's error | PASS | "a thread crashed: Error: unreachable", with the trapping thread's stack |
 
-`spawn-nested(idle + 1)` is R2's case: a thread other than the host's creates
-more threads than there are idle Workers, while the host sleeps in
-`ibusweb_wait`. Each creation is proxied to the host, which runs it inside its
-sleep and starts new Workers for the ones the pool can't cover. Under Node a
-new Worker starts without the host's event loop; whether a browser starts one
-is Task 6's to measure, with this same scenario.
+`spawn-nested` is R2's case: a thread other than the host's creates threads
+while the host sleeps in `ibusweb_wait`. Each creation is proxied to the host,
+which runs it inside its sleep on a Worker from the pool. The rows for
+`dispatch`, `cold-wake`, `thread-create-blocked`, `thread-exit-blocked` and
+`sync-proxied` are from a run after the pool was resized ("Threads beyond
+the pool", under Browsers); the others are from the run before. Under Node, Emscripten ignores
+`PTHREAD_POOL_SIZE_STRICT` and starts a Worker beyond the pool whenever one
+is needed, so the scenario that exhausts the pool runs in browsers only.
 
-For comparison, released runtime:
+For comparison, released runtime, from the run before the pool was resized:
 
 | Scenario | Option 2 | Idle host in `Atomics.waitAsync` | Relay-less (`control` mode) |
 | --- | --- | --- | --- |
@@ -279,8 +284,8 @@ and sleeping in the runtime together cost about 3 µs at the median and
 6–8 µs back to back. That is small against a keystroke's budget, but it is a
 cost, not noise. The sandbox run in the
 tables above agrees at p50 (15.9 against 11.3 µs) and inverts at p99 (46.2
-against 54.8 µs), which one run's tail can do. Browser numbers are Task 6's,
-from the same scenario.
+against 54.8 µs), which one run's tail can do. Browser numbers, from the
+same scenario, are under "Browsers" below.
 
 ### Failures the host reports
 
@@ -326,143 +331,263 @@ time; the `opfs` scenario checks that it does.
 The page's main thread can't `Atomics.wait` (Chromium: "Atomics.wait cannot
 be called in this context"; Firefox: "waiting is not allowed on this
 thread"), so it **spins** on the state word for each reply, as the
-synchronous keystroke path would. A spin gives up after 8 s, longer than any
-request takes when nothing waits for the page. The page then waits for the
-reply with `Atomics.waitAsync`, its event loop running, and counts a reply
-that only comes then as a *late reply* that fails its scenario. The host stays
-in step, so the scenarios after it still run. For comparison, the page can
-also wait for every reply with `Atomics.waitAsync`.
+synchronous keystroke path would. A spin gives up after 1 s, over ten times
+the longest any request takes when nothing waits for the page (a pump that
+starts four threads: 50 ms in Chromium, 72 ms under Node). The page then
+waits for the reply with `Atomics.waitAsync`, its event loop running, and
+counts a reply that only comes then as a *late reply* that fails its
+scenario. The host stays in step, so the scenarios after it still run.
+
+The design's keystroke path (D6) spins for at most 40 ms, then consumes the
+request and replays it asynchronously. The harness models it: each scenario
+reports how many of its calls held the page's thread longer than 40 ms, and
+the longest. A result records whether it would have passed but for its late
+replies, and which calls were late.
+
+**Known failures** are listed in `browser-run.ts` by browser, run and
+scenario, each with a matcher for its cause: a failure counts as known only if
+the matcher recognises it. The check fails on any other failure, on a known
+failure that passes or fails another way, and, run without `--browser` or
+`--scenario`, on a listed failure that wasn't run. One remains (`opfs-read-only`
+in Firefox, below). The criteria are unchanged, but for the thread scenarios
+whose design changed (next section).
 
 **Sandbox.** Chromium runs with its own sandbox: Playwright turns it off
-unless asked, so the harness asks (`chromiumSandbox: true`), and it starts
-inside the Nix build sandbox on this host, which allows user namespaces;
-`--no-sandbox` isn't needed. Firefox hangs at startup, before Playwright's
-handshake, unless it can write its XDG configuration and data directories
-under `HOME` (a writable fontconfig cache alone isn't enough). A build's
-`HOME` is `/homeless-shelter`, so `ibusWeb.testing.playwright.setup` points
-`HOME` at a fresh temporary directory. The other variables are
-`PLAYWRIGHT_BROWSERS_PATH` (nixpkgs' `playwright-driver.browsers` without
-WebKit, ffmpeg or full Chromium), `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and
+unless asked, so the harness asks. `ibusWeb.testing.playwright.chromiumSandbox`
+(default true) passes `IBUS_WEB_CHROMIUM_SANDBOX` to the harnesses through
+`ibusWeb.testing.playwright.env`; a builder that forbids unprivileged user
+namespaces, which Chromium's sandbox needs, sets it to false. On this host the
+Nix build sandbox allows them. A browser that fails to launch is reported in
+the tables as such, and the other browser still runs. Firefox hangs at
+startup, before Playwright's handshake, unless it can write its XDG
+configuration and data directories under `HOME` (a writable fontconfig cache
+alone isn't enough). A build's `HOME` is `/homeless-shelter`, so
+`ibusWeb.testing.playwright.setup`, for builds only, points `HOME` at a fresh
+temporary directory. The other variables are `PLAYWRIGHT_BROWSERS_PATH`
+(nixpkgs' `playwright-driver.browsers` without WebKit, ffmpeg or full
+Chromium), `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and
 `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1`. No `MOZ_*` variable is needed.
 
 Each browser runs three hosts: every scenario with the host asleep in
-`ibusweb_wait`; a host with WasmFS's OPFS backend mounted at
-`/engines/spike`, which runs `cold-wake`, `promise-proxied-fsync` (memory and
-OPFS) and `opfs`; and the crash scenario on its own host. The OPFS backend
-starts a thread of its own and keeps it for good, so with OPFS mounted one
-pool Worker of four is taken (`opfs` reports 3 idle). That is why the thread
-scenarios run on a host without it, as under Node. The released runtime also
-runs the comparisons: the page waiting asynchronously, the idle host in
-`Atomics.waitAsync`, and the relay-less `control` mode.
+`ibusweb_wait`, plus `pool-exhausted`; a host with WasmFS's OPFS backend
+mounted at `/engines/spike`, which runs `cold-wake`, `promise-proxied-fsync`
+(memory and OPFS), `opfs` and `opfs-read-only`; and the crash scenario on its
+own host. The check runs the asserting runtime, then the released one, and
+takes 49 s for both in both browsers (about 5 min before, with the
+comparisons and 8 s spins). The comparisons (the page waiting asynchronously,
+the idle host in `Atomics.waitAsync`, the relay-less `control` mode) moved out
+of the checks into `nix run .#runtime-spike-compare`, which runs them under
+Node and in both browsers from a checkout (112 s on this host).
+
+### Threads beyond the pool
+
+A browser starts a Worker only once the thread that created it is back in
+its event loop (Chromium), or creates it only while the page's main thread is
+free (Firefox; both shown under "Where the engines differ"). The host never
+returns to its event loop, so it can't wait for a Worker beyond the pool.
+Instead:
+
+**The pool is sized for the expected peak.** `ibusWeb.runtime.threadPool`
+(`runtime/ibus-runtime/package.nix`) derives `PTHREAD_POOL_SIZE` from shares:
+
+| Share | Threads | Kept | How it was counted |
+| --- | --- | --- | --- |
+| GLib | 3 | the first two for good, the third 15.5 s after its last task | `sync-proxied`: after its GTask, 3 more Workers are busy than before, in Node and both browsers. GTask's first use starts GLib's worker-context thread (`g_task_thread_pool_init` attaches its pool manager to `g_get_worker_context()`, which starts `gmain`), the thread-pool spawner, and a worker the spawner starts, which waits 0.5 s in the GTask pool, then 15 s among unused threads |
+| OPFS backend | 1 | from mount, for good | 7 of 8 Workers idle with OPFS mounted, 8 of 8 without |
+| Engine (the spike's side modules) | 4 | while they run | the largest burst a scenario starts, `spawn(4)`; an engine's share would come from its manifest |
+| Pool | **8** | | glib 3 + opfs 1 + engine 4 |
+
+Starting the runtime starts no thread (8 of 8 idle before any scenario).
+
+**Exceeding it fails at once.** `-sPTHREAD_POOL_SIZE_STRICT=2` makes
+Emscripten's `getNewWorker()` return nothing when the pool is empty, so
+`pthread_create()` fails with `EAGAIN` instead of creating a Worker that
+can't start; the asserting build also logs "the thread pool is exhausted".
+Under Node (`ENVIRONMENT_MAY_BE_NODE`), Emscripten ignores the setting and
+creates a Worker, which starts there anyway. What GLib (2.88) does with
+`EAGAIN`, in the paths the runtime and the spike use:
+
+- `g_system_thread_new()` turns `EAGAIN` into `G_THREAD_ERROR_AGAIN` and
+  aborts on any other error. `g_thread_try_new()` returns `NULL` with that
+  error; `g_thread_new()` aborts (`g_error("creating thread …")`).
+- `g_get_worker_context()` starts `gmain` with `g_thread_new()`: the first
+  GTask aborts the runtime if no Worker is idle.
+- A non-exclusive `GThreadPool` starts its spawner with `g_thread_try_new()`
+  and returns `NULL` if it fails; GTask asserts that its pool isn't `NULL`, so
+  that aborts too.
+- `g_thread_pool_push()` asks the spawner for a worker, which it creates with
+  `g_thread_try_new()`. On failure the push returns `FALSE` but leaves the
+  task queued, and GTask passes no `GError` and ignores the result: the GTask
+  waits in the queue until a later push starts a worker, or for good.
+- The spike's side modules use `g_thread_try_new()` where a scenario exceeds
+  the pool, and report `-EAGAIN`; their `g_thread_new()` calls would abort.
+
+`pool-exhausted` (browsers only) holds top-ups off, takes every idle Worker
+with threads that wait (`hold`), and creates one more thread, from a pump and
+then from another thread (proxied to the host): both fail with `EAGAIN`, in
+0.5–1.0 ms and 4.1–4.3 ms, and the host goes on answering.
+
+**The host tops the pool up.** Whenever no request is pending and fewer than
+`lowWater` Workers are idle, the host creates the missing Workers and waits
+for requests with `Atomics.waitAsync` instead of `ibusweb_wait`, its event
+loop running, until they have loaded; it serves requests meanwhile. It uses
+Emscripten's own pool, which the runtime exports for it
+(`-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread`): `PThread.allocateUnusedWorker()`
+creates a Worker and `PThread.loadWasmModuleToWorker()` sends it the runtime
+and settles once it reports `loaded`. Emscripten hands out any Worker in
+`PThread.unusedWorkers`, loaded or not, so the host keeps a new Worker out of
+it until it has loaded; otherwise a pump that created a thread right away
+would block on a Worker that can't start. A top-up completes when the last
+Worker has loaded.
+
+`lowWater` is GLib's share, 3: GLib's first GTask needs all three of its
+threads at once, and every way GLib fails to get one is bad (above). The
+pool's own size already covers the expected peak, so the top-up only keeps
+that much room when an engine overshoots its share; a higher mark would grow
+the pool on every peak an engine plans for. Once added, Workers stay.
+
+Measured by `pool-exhausted` (released runtime): with every Worker taken,
+allowing top-ups again adds 3 Workers in 54–60 ms in both browsers (asserting
+runtime: 90–106 ms), of which the three `new Worker()` calls take 0.2 ms in
+Chromium and 1.0 ms in Firefox. A burst of three threads on them then starts
+and joins in 33–36 ms (Chromium) and 7.6–8.4 ms (Firefox), creating no Worker.
+`thread-create-blocked` checks that a burst within the pool, `spawn(4)` from a
+pump and `spawn-nested(3)` from a thread, never waits for an event loop: no
+Worker is created and the host's event-loop turns don't move.
+
+In Firefox the top-up has one window: `new Worker()` on the host returns only
+once the page's main thread is free, so a request posted during those 1 ms
+spins until the page lets go. Under D6 that is at most 40 ms and a replay. The
+top-up rests on Emscripten internals (`PThread`), an upstream-trackable gap: a
+public call to grow the pool and settle once the Workers can run threads.
 
 ### Results against Node
 
 Released runtime, one sandbox run each. Node is the same run of
 `checks.runtime-spike-node`. Browsers coarsen `performance.now()`: the
 host's and the page's step is 5 µs in Chromium and 20 µs in Firefox
-(cross-origin isolated), against 0.02 µs in Node. So browser round-trip
-times are multiples of the step; Firefox's p50s of 20 µs mean "one step".
-The ε and deadline numbers come from GLib's clock, which reads the same
-coarsened clock.
+(cross-origin isolated), against 0.02 µs in Node, so a single round trip
+reads as a multiple of the step. `dispatch` also times ten batches of 100
+requests whole, between two readings, for a mean finer than the step.
+`cold-wake` can't be batched (each request needs a gap with the host asleep,
+which the same clock would time); each of its requests starts after a timer,
+at no particular point of the step, so the mean of its 300 round trips is
+finer than the step too. The ε and deadline numbers come from GLib's clock,
+which reads the same coarsened clock.
 
 | Scenario | Node | Chromium 149 | Firefox 151 |
 | --- | --- | --- | --- |
-| `dispatch` p50 / p99 / max | 9.4 / 30.2 / 551 µs; 998 of 1001 asleep | 5 / 35 / 270 µs; 997 of 1001 | 20 / 60 / 360 µs; 1000 of 1001 |
-| `cold-wake` p50 / p99 / max | 17.8 / 54.2 / 64.1 µs; 301 of 301 | 25 / 55 / 70 µs; 301 of 301 | 40 / 80 / 140 µs; 301 of 301 |
-| `thread-create-blocked` | PASS: `spawn(4)` 73.7 ms; `spawn(5)` 92 ms, 1 new Worker; `spawn-nested(6)` joined 6 in 220 ms, 2 new | **FAIL (known):** `spawn(4)` 50 ms; `spawn(5)` joined 4: the fifth thread's new Worker never started (5 s timeout); `spawn-nested(5)` joined 3 | **FAIL (known):** `spawn(4)` 17 ms; `spawn(5)` joined 5, but its reply was late (8052 ms: it came only once the page stopped spinning); `spawn-nested` the same |
-| `thread-exit-blocked` | PASS: 0.18 MiB every round, 0 Workers created | PASS: 2.2 MiB every round (the never-started threads' stacks from the scenario before), 0 created | PASS: 0.18 MiB, 0 created |
-| `cross-thread-wake` ε p50 / max | 0.034 / 0.071 ms | 0.050 / 0.090 ms | 0.079 / 0.180 ms |
-| `deadline` worst deviation | 0.259 ms | 0.25 ms | 0.32 ms |
-| `sync-proxied` | PASS: `proxy-sync` 427 µs, GTask 2580 µs | PASS: 480 µs, 1780 µs | PASS: 3001 µs, 1221 µs |
-| `promise-proxied-fsync` | PASS: memory 2.1 ms, Node backend 4.3 ms | PASS: memory 4.2 ms; OPFS 4.5 ms | PASS: memory 4.1 ms; OPFS 8.5 ms |
-| `opfs` | (no OPFS) | PASS: write + `fsync` + close 0.75 ms, read back 0.75 ms, the same through the page's OPFS API | **FAIL (known):** write + `fsync` 6 ms, but the read back's reply was late (8001 ms) |
-| `exceptions` | PASS | PASS | PASS |
-| `thread-crash` | PASS | PASS: "Uncaught RuntimeError: unreachable" | PASS: "RuntimeError: unreachable executed" |
-| `cold-wake` with OPFS mounted | | 30 / 75 / 110 µs | 20 / 100 / 180 µs |
+| `dispatch` p50 / p99 / max; batch mean (range) | 9.8 / 39.8 / 303 µs; 11.6 µs (9.6–17.0) | 5 / 30 / 425 µs; 6.3 µs (5.4–10.4) | 20 / 40 / 380 µs; 10.0 µs (9.4–18.2) |
+| `cold-wake` p50 / p99 / max; mean | 27.6 / 44.3 / 47.8 µs; 25.9 µs | 30 / 60 / 75 µs; 31.6 µs | 20 / 40 / 100 µs; 19.4 µs |
+| `thread-create-blocked` | PASS: `spawn(4)` 71.9 ms, `spawn-nested(3)` 2.2 ms | PASS: 50.1 ms, 4.2 ms | PASS: 17.7 ms, 4.2 ms |
+| `thread-exit-blocked` | PASS: 0.18 MiB every round, 0 Workers created | PASS: the same (2.2 MiB before, on a host that the failed `thread-create-blocked` had left with threads that never started) | PASS: the same |
+| `cross-thread-wake` ε p50 / max | 0.050 / 0.091 ms | 0.035 / 0.085 ms | 0.061 / 0.120 ms |
+| `deadline` worst deviation | 0.190 ms | 0.211 ms | 0.239 ms |
+| `sync-proxied` | PASS: `proxy-sync` 557 µs, GTask 2294 µs, 3 Workers kept | PASS: 340 µs, 1491 µs, 3 | PASS: 419 µs, 2080 µs, 3 |
+| `promise-proxied-fsync` | PASS: memory 2.1 ms, Node backend 6.4 ms | PASS: memory 4.1 ms; OPFS 4.4 ms | PASS: memory 4.2 ms; OPFS 8.6 ms |
+| `exceptions`, `thread-crash` | PASS | PASS | PASS |
+| `pool-exhausted` | (browsers only) | PASS: as above | PASS: as above |
+| `opfs` (files opened `O_RDWR`) | (no OPFS) | PASS: write + `fsync` + close 0.73 ms, read back 0.38 ms | PASS: 5.5 ms, 2.1 ms |
+| `opfs-read-only` | (no OPFS) | PASS: read back 0.63 ms | **FAIL (known):** the read's reply came only once the 1 s spin gave up, 0.7 ms after it |
+| `cold-wake` with OPFS mounted | | 35 / 95 / 170 µs; 36.4 µs | 40 / 80 / 200 µs; 31.9 µs |
 
-The three known failures are listed in `browser-run.ts` with their reasons.
-The check fails on any other failure, and also if a listed one passes. The
-criteria are unchanged.
+Calls that held the page's thread past D6's 40 ms: in Chromium, `spawn(4)`
+(49.9 ms) and `pool-exhausted`'s burst of three on new Workers (49.5 ms); in
+Firefox, only `opfs-read-only`'s read; under Node, `spawn(4)` (71.7 ms).
+Every other call returned within 10.2 ms (a `yield` of 10 ms is the longest).
+A pump that starts threads on Workers that have never run one is the slow
+case in Chromium: each first thread costs about 12 ms there, against 2–5 ms
+in Firefox.
 
-Comparisons (released runtime, same run):
+The asserting runtime passes the same scenarios with the same one known
+failure.
+
+Comparisons (released runtime, one run of `nix run .#runtime-spike-compare`
+on this host outside the sandbox; the runs above in the same invocation gave
+cold-wake means of 41.0 µs in Chromium and 37.6 µs in Firefox):
 
 | | Chromium | Firefox |
 | --- | --- | --- |
-| Page waits asynchronously: `cold-wake` p50 / p99 | 35 / 80 µs | 20 / 160 µs |
-| Page waits asynchronously: `thread-create-blocked` | FAIL, as above | **PASS:** `spawn(5)` 46.5 ms, 1 new Worker; `spawn-nested(6)` joined 6, 2 new |
-| Page waits asynchronously: `opfs` | PASS | **PASS:** read back 0.56 ms |
-| Idle host in `Atomics.waitAsync`: `cold-wake` p50 / p99 | 35 / 200 µs | 40 / 80 µs |
-| Idle host in `Atomics.waitAsync`: `thread-create-blocked` | FAIL on `spawn(5)` only: `spawn-nested(5)` joined 5 in 74.5 ms, 1 new Worker | FAIL: late replies, as with the host in `ibusweb_wait` |
-| Relay-less (`control`): `cold-wake` p50 / p99 | 20 / 75 µs | 20 / 60 µs |
-| Relay-less (`control`): `cross-thread-wake`, `sync-proxied` | FAIL: pending (leaked pool Workers, then Workers that never start) | FAIL: late replies (each new Worker waits for the page) |
+| Page waits asynchronously: `cold-wake` p50 / p99, mean | 40 / 70 µs, 39.7 µs | 40 / 140 µs, 57.5 µs |
+| Page waits asynchronously: every scenario | PASS | PASS, `opfs-read-only` included (read back 0.5 ms) |
+| Idle host in `Atomics.waitAsync`: `cold-wake` p50 / p99, mean | 35 / 65 µs, 35.4 µs | 40 / 100 µs, 40.1 µs |
+| Idle host in `Atomics.waitAsync`: every scenario | PASS | PASS |
+| Relay-less (`control`): `cold-wake` p50 / p99, mean | 20 / 45 µs, 20.6 µs | 20 / 80 µs, 20.5 µs |
+| Relay-less (`control`): `dispatch` batch mean | 5.9 µs (option 2: 7.0 µs) | 9.0 µs (option 2: 10.4 µs) |
+| Relay-less (`control`): `sync-proxied` | FAIL: pending, as under Node | FAIL: pending, as under Node |
 
-Under the browsers' coarse clocks, the relay costs about what it costs
-under Node. In Chromium, `cold-wake` p50 is 25 µs through the relay against
-20 µs relay-less, and p99 55 against 75 µs. In Firefox it is 40 against
-20 µs at p50 and 80 against 60 µs at p99. Each step is 5 µs (Chromium) or
-20 µs (Firefox).
+At the p50 and p99, option 2 and the relay-less mode are indistinguishable
+at one or two clock steps. The means separate them: in that run a cold wake
+through the relay and the runtime's sleep cost 37.6–41.0 µs against
+20.5–20.6 µs relay-less, 17–20 µs more, where the same invocation under
+Node measured 14.9 against 14.0 µs. Back to back (`dispatch`) the difference
+is 1.1–1.4 µs. Means vary between runs: the sandbox run above measured
+cold-wake means of 31.6 µs (Chromium) and 19.4 µs (Firefox) through the
+relay. In browsers, then, the relay and the in-runtime sleep add up to about
+20 µs to a keystroke that finds the host asleep, against a 40 ms budget.
 
 ### Where the engines differ
 
-Evidence from the runs above, and from a standalone page with nested Workers
-and no runtime (scratch, not committed). In it, Worker A creates Worker C and
-then blocks in `Atomics.wait` for 3 s, while Worker B, a child of A, runs
-OPFS calls and creates Worker D. Each Worker timestamps its steps into a
-shared buffer, once with the page's main thread free and once with it
-spinning for 3 s:
+Evidence from the runs above, and from `nix run .#runtime-spike-experiments`
+(`src/node/experiments.ts`, `src/page/experiments.ts`,
+`src/worker/experiment.ts`), which measures without the runtime. In its
+nested-Worker experiment, Worker A starts Worker B; on "go", A creates Worker
+C and then blocks in `Atomics.wait` for 3 s, while B, a child of A, runs OPFS
+calls and creates Worker D. Each Worker marks its steps in a shared buffer,
+once with the page's main thread free and once with it spinning for 3 s
+(ms after go, one run on this host):
 
-| Step (ms after start) | Chromium, page free | Chromium, page spins | Firefox, page free | Firefox, page spins |
+| Step | Chromium, page free | Chromium, page spins | Firefox, page free | Firefox, page spins |
 | --- | --- | --- | --- | --- |
-| A: `new Worker(C)` returns | 0 | 0 | 0 | **3014** |
-| C starts (A blocked until 3000) | **3003** | **3004** | 11 | 3032 |
-| B: `getDirectory`, `getFileHandle` (present, absent) | 1–2 | 2 | 8–9 | 10–12 |
-| B: sync access handle write, flush, close | 2 | 5 | 14 | 19 |
-| B: `getFile()` | 2 | 5 | 14 | 20 |
-| B: `File.arrayBuffer()` | 3 | 6 | 14 | **3008** |
-| B: `new Worker(D)` returns | 3 | 6 | 15 | **3009** |
+| A: `new Worker(C)` returns | 0 | 0 | 0 | **3001** |
+| C starts | **3004** | **3004** | 13 | 3009 |
+| A unblocks (it blocks for 3000 ms once `new Worker(C)` returns) | 3000 | 3000 | 3000 | 6001 |
+| B: `getDirectory()`, `getFileHandle()` (present, absent) | 0–1 | 0 | 0 | 0 |
+| B: sync access handle created, written, flushed, closed | 1 | 1 | 3 | 2 |
+| B: `getFile()` | 1 | 1 | 4 | 3 |
+| B: `File.arrayBuffer()` | 1 | 1 | 4 | **3001** |
+| B: `new Worker(D)` returns | 2 | 1 | 4 | **3003** |
+| D starts | 5 | 4 | 14 | 3009 |
 
 - **Chromium starts a Worker only once the thread that created it returns to
-  its event loop.** A nested Worker created by a blocked Worker doesn't run
-  until its creator unblocks (C at 3003 ms). The host never returns to its
-  event loop, so a thread beyond the pool never starts. That holds both for
-  one created in a pump that waits for it (`spawn(5)`) and for creations
-  proxied to the host from another thread while it sleeps in `ibusweb_wait`
-  (`spawn-nested`). With the idle host in `Atomics.waitAsync`, proxied
-  creations do start (`spawn-nested(5)` joined 5); a pump that waits for its
-  own new thread still can't. Under Node both start.
+  its event loop** (C at 3004 ms). A thread beyond the pool would never start
+  under a host that never returns to its event loop; with the pool sized for
+  the peak and topped up while idle, none is needed.
 - **Firefox starts such a Worker while its creator is blocked, but
   `new Worker()` on a Worker returns only once the page's main thread is
-  free.** While the page spins, the host stalls inside `new Worker()`, so
-  any thread beyond the pool stalls the host until the page lets go
-  (`spawn(5)`: the reply came only once the 8 s spin gave up, 1–96 ms after it).
-  With the page waiting asynchronously, everything passes.
-- **Firefox reads a file's Blob only with the page's main thread free.**
-  WasmFS opens a file opened read-only on OPFS as a `Blob` (`getFile()`)
-  and reads it with `arrayBuffer()`, so a read on OPFS stalls the host while
-  the page spins (`opfs`: 8001 ms). Sync access handles (`O_WRONLY`,
-  `O_RDWR`: write, `fsync`, close) don't depend on the main thread. Neither
-  do `getDirectory` and `getFileHandle`. Chromium's OPFS doesn't depend on
-  it at all.
-- **`Atomics.wait` in module Workers, `Atomics.waitAsync`,
-  `createSyncAccessHandle`:** present in both (the host reports
-  `atomicsWaitAsync` and `syncAccessHandle` true, and the relay sleeps in
-  `Atomics.wait`). The relay, a nested module Worker, starts in both.
+  free** (3001 ms with the page spinning). The top-up calls `new Worker()`
+  only when no request is pending.
+- **Firefox reads a file's Blob only with the page's main thread free**
+  (`File.arrayBuffer()` at 3001 ms). Sync access handles, `getDirectory()`,
+  `getFileHandle()` and `getFile()` itself don't wait for it. Chromium's OPFS
+  doesn't depend on the page at all. See "OPFS" below.
+- **Sync access handles:** both browsers have them; only Chromium knows the
+  `mode` option (below).
+- **`Atomics.wait` in module Workers, `Atomics.waitAsync`:** present in both
+  (the host reports `atomicsWaitAsync` and `syncAccessHandle` true, and the
+  relay sleeps in `Atomics.wait`). The relay, a nested module Worker, starts
+  in both.
 - **Nested Workers:** pthreads are module Workers created from the host
   Worker by `new URL("ibus-runtime.js", import.meta.url)`. The pool starts at
-  startup in both (host startup about 210 ms with the asserting runtime).
+  startup in both (host startup 120–160 ms with the released runtime).
 - **Timer resolution:** 5 µs (Chromium) and 20 µs (Firefox), in the page and
   in the host, cross-origin isolated.
 - **A crash** reaches the host as the pthread Worker's `ErrorEvent`, which
-  Emscripten rethrows (Node: an `Error`). The host now describes it by its
+  Emscripten rethrows (Node: an `Error`). The host describes it by its
   message and source, and both browsers report the trapping thread's error.
 - **Firefox warns** for every runtime instance: "The WebAssembly exception
   handling 'try' instruction is deprecated ... recompile to use the
   'try_table' instruction". `-fwasm-exceptions` emits the legacy encoding.
-  Emscripten's `-sWASM_LEGACY_EXCEPTIONS=0` would emit `try_table`; not
-  tried.
-- `proxy-sync` (a call proxied synchronously to the sleeping host) takes
-  1–3 ms in Firefox against 0.3–0.6 ms in Chromium and Node; not
-  investigated.
+  Emscripten's `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one (exnref,
+  `try_table`); it is a compile and link setting, so every object and the
+  cache's libraries would be rebuilt with it. Support (MDN's compatibility
+  data, `exceptionsFinal`): Chrome 137, Firefox 131, Safari 18.4, so
+  Baseline 2025, newly available since Chrome 137 (May 2025) and widely
+  available only from about November 2027. Node v24.20 (V8 13.6) validates
+  `try_table` without a flag. Every browser above still runs the legacy
+  encoding. Not changed here: switching is a spec follow-up.
+- `proxy-sync` took 1–3 ms in Firefox in the first runs; now 0.4 ms, as in
+  Chromium (not investigated either way).
 
 ### OPFS
 
@@ -470,14 +595,84 @@ On WasmFS's OPFS backend mounted at `/engines/spike`, both browsers do the
 following. A file is absent at first (fresh storage; `-ENOENT`). It is
 written, `fsync()`ed and closed on the host's thread, read back through the
 runtime, and reads the same through the page's own OPFS API. The file
-`promise-proxied-fsync` wrote from a pthread (which proxies to the
-backend's own thread) reads back the same way. `promise-proxied-fsync` on
-OPFS completes while the host sleeps: 4.5 ms in Chromium, 8.5–41.7 ms in
-Firefox (the poll's resolution is 2 ms). The backend's thread is notified
-directly, not through the host, because both browsers have
-`Atomics.waitAsync`. Without it Emscripten would route the notification
-through the sleeping host, and only the backend's 50 ms heartbeat would
-recover it.
+`promise-proxied-fsync` wrote from a pthread (which proxies to the backend's
+own thread) reads back the same way; `opfs` reports that leg as "not run"
+when `promise-proxied-fsync` didn't run first. `promise-proxied-fsync` on OPFS
+completes while the host sleeps: 4.4 ms in Chromium, 8.6–21 ms in Firefox
+(the poll's resolution is 2 ms). The backend's thread is notified directly,
+not through the host, because both browsers have `Atomics.waitAsync`.
+Without it Emscripten would route the notification through the sleeping
+host, and only the backend's 50 ms heartbeat would recover it.
+
+**How WasmFS reads.** In Emscripten 6.0.9 (`system/lib/wasmfs/backends/opfs_backend.cpp`,
+`src/lib/libwasmfs_opfs.js`), a file's first open decides how all its open
+descriptors in that runtime reach it:
+
+- `O_WRONLY` or `O_RDWR`: `createSyncAccessHandle()`, with no options. (The
+  library passes `{mode: 'in-place'}`, a shape from an early Chromium trial,
+  only if the method declares a parameter; neither browser's does.) Reads are
+  `accessHandle.read()`, synchronous, on the backend's thread.
+- `O_RDONLY`: `getFile()` once, then `blob.slice().arrayBuffer()` for each
+  read, asynchronous, on the backend's thread. A file already open for
+  writing is read through its handle; a read-only file opened for writing
+  later moves to a handle.
+- Either open fails with `EACCES` when the browser refuses for a lock
+  (`InvalidStateError`, `NoModificationAllowedError`).
+
+**Prototype: open for reading and writing.** No Emscripten change is needed
+to read through a sync access handle: open the file `O_RDWR`. The `opfs`
+scenario now reads that way (`read-file-rdwr`) and passes in Firefox with the
+page spinning: open, read and close in 2.1 ms (Chromium 0.38 ms).
+`opfs-read-only` reads the same kind of file opened `O_RDONLY`, through its
+Blob: 0.6 ms in Chromium; in Firefox it waits for the page, and stays a known
+failure, matched on that cause (it would pass but for late replies, all of
+them to `read-file`). With the page waiting asynchronously it passes (0.5 ms).
+
+**What it costs: locks.** The experiments page's lock table (one run on this
+host; Y and X are Workers of one page, Z a Worker of another page of the same
+origin):
+
+| Case, on one file | Chromium 149 | Firefox 151 |
+| --- | --- | --- |
+| X holds a handle with no mode or `readwrite`; Y opens one in any mode, or X again or Z with no mode | `NoModificationAllowedError` | `NoModificationAllowedError` |
+| X holds `read-only`; Y, X again, or Z opens `read-only` | ok | `NoModificationAllowedError` |
+| X holds `readwrite-unsafe`; Y opens `readwrite-unsafe` | ok | `NoModificationAllowedError` |
+| `read-only` against `readwrite-unsafe`, either way | `NoModificationAllowedError` | `NoModificationAllowedError` |
+| Y reads the file as a Blob while X holds a handle, any mode | ok | ok |
+| Y opens a writable stream while X holds a handle, any mode | `NoModificationAllowedError` | `NoModificationAllowedError` |
+| X writes through a handle it opened `read-only` | `NoModificationAllowedError` | writes: the mode is ignored |
+
+The WHATWG File System standard has no `mode`: a sync access handle takes an
+exclusive lock on its file. Chromium's modes (`read-only` and
+`readwrite-unsafe` share among themselves) are its own, from Chrome 121; MDN
+lists none for Firefox or Safari, and Firefox silently takes an exclusive,
+writable handle when asked for `read-only`. So:
+
+- Read through a handle (`O_RDWR` on our side), a file can be open in one
+  runtime at a time, across every Worker and tab of the origin, in every
+  engine: a second engine Worker, or the same engine in a second tab, gets
+  `EACCES` until the first closes it.
+- A small upstream change, `O_RDONLY` opening `createSyncAccessHandle({mode:
+  "read-only"})` and falling back to the Blob, would share read-only handles
+  in Chromium only. In Firefox (and by the standard, Safari) it would turn
+  every read-only open into an exclusive, writable lock, and no feature test
+  tells the two apart short of trying a write. Not a safe default upstream;
+  at most an opt-in.
+- Blob reads take no lock: any number of runtimes read a file at once, even
+  while one holds a handle on it. Only Firefox's dependence on the page's
+  main thread speaks against them.
+
+**Recommendation:** read engine data, which every tab running the engine
+shares and nobody writes, through the Blob path (`O_RDONLY`), and keep those
+reads off the keystroke path: read it when the engine loads, while the page
+isn't spinning, rather than lazily per keystroke. In Firefox a Blob read
+that does land in a keystroke costs a replay (D6), not a hang. Use sync
+access handles (`O_RDWR`) for files one runtime owns and writes, such as a
+user's learning data, where an exclusive lock is what's wanted. **Decision
+for the user:** whether an engine may read its data from OPFS lazily during
+keystrokes. If it may, Firefox forces a choice between a replay on every
+such read and exclusive locks that keep a second tab or engine instance from
+opening the same data; either constrains the spec's engine-data loading.
 
 ## Conclusions for the design
 
@@ -490,22 +685,43 @@ recover it.
   reclaimed inside `ibusweb_wait`, and `thread-exit-blocked` guards it. The
   fallback, should the patch be dropped, is a brief, periodic return to the
   event loop while idle. Idling in `Atomics.waitAsync` also avoids the leak
-  and passes every scenario under Node, and `waitAsync` is in both browsers
-  tested.
-- **In browsers the premise costs every thread beyond the pool** (open,
-  needs a decision). Chromium never starts a Worker that a thread blocked
-  for good created; Firefox starts it, but `new Worker()` on the host waits
-  for the page's main thread. The choices: size the pool for the most
-  threads ever alive at once, with `-sPTHREAD_POOL_SIZE_STRICT=2` to fail
-  instead of hanging, and count the OPFS backend's thread; or idle in
-  `Atomics.waitAsync`, so that in Chromium creations proxied while idle
-  start (a pump that waits for its own new thread still can't); or both.
-- **The page's spinning keystroke path can stall the host in Firefox**
-  (open, needs a decision): `new Worker()` on the host and reads of OPFS
-  files opened read-only wait for the page's main thread. A bounded spin
-  that falls back to waiting asynchronously, as the harness does, unblocks
-  them; so does keeping engine data reads off WasmFS's Blob path (open with
-  `O_RDWR`, or read through a sync access handle).
+  and passes every scenario under Node and in both browsers tested.
+- **Threads beyond the pool (decided: a pool sized for the peak, strict, and
+  topped up while idle).** The pool's size is the sum of shares derived in
+  Nix: GLib's 3 (measured: GLib's worker-context thread and thread-pool
+  spawner, kept for good, and a GTask worker), the OPFS backend's 1, and an
+  engine's. A thread beyond it fails with `EAGAIN`
+  (`-sPTHREAD_POOL_SIZE_STRICT=2`) instead of waiting for a Worker that can't
+  start, and the host, whenever no request is pending, tops the pool up to
+  GLib's share of idle Workers, from its event loop. Bursts within the pool
+  start without an event-loop turn in both browsers; the pool runs out
+  cleanly; a top-up of three Workers takes 54–60 ms. **Spec follow-ups:** an
+  engine's share comes from its manifest (Task 8), and the pool of a host is
+  the runtime's shares plus its engines'; the low-water mark must cover
+  GLib's share, since GLib aborts or silently queues work when it can't get a
+  thread; the top-up rests on Emscripten's internal `PThread` until Emscripten
+  offers a call to grow the pool (upstream-trackable).
+- **The page's spin stays as D6 (≤ 40 ms, then consume and replay)**, and by
+  design nothing the host does during a request waits for the page any more,
+  with two exceptions in Firefox: a Blob read on OPFS (next item), and a
+  request that lands during a top-up's `new Worker()` calls (about 1 ms, only
+  when no request was pending), each costing at most a replay. In the
+  harness's model of D6, the only other calls over 40 ms are pumps that start
+  threads on Workers that have never run one in Chromium (about 12 ms per
+  first thread; `spawn(4)` 50 ms). Running a thread on each pool Worker at
+  startup would move that cost out of keystrokes (not tried).
+- **R3/OPFS works in both browsers:** WasmFS's OPFS backend mounts, writes,
+  `fsync`s and reads back from the host's thread and from pthreads while the
+  host sleeps, and takes one pool Worker for good. Firefox reads a file opened
+  read-only (WasmFS's Blob path) only while the page's main thread is free; a
+  file opened for writing reads through a sync access handle and doesn't wait.
+  Sync access handles take an exclusive lock across the origin in Firefox
+  (and, by the standard, Safari); only Chromium shares read-only ones.
+  **Recommended:** engine data read through the Blob path when the engine
+  loads, off the keystroke path; sync access handles for files a runtime owns
+  and writes. **Open for the user:** whether engines may read OPFS data
+  lazily during keystrokes, which in Firefox means replays or exclusive locks
+  that stop a second tab from opening the same data.
 - **§6.2.1** gains a `wake` word: the page bumps it after posting a request,
   and the relay watches it. The host sleeps on a word in WASM memory, not on
   the request word §5.2.4 names. Any relay must forward against the value it
@@ -515,20 +731,24 @@ recover it.
   page; the page still touches only the control buffer.
 - **Each engine Worker costs one more, small Worker,** the relay, which holds
   no runtime instance. It starts as a nested module Worker in Chromium 149
-  and Firefox 151; WebKit wasn't run.
+  and Firefox 151; WebKit wasn't run. In the browsers the relay and the
+  in-runtime sleep add about 20 µs to a request that finds the host asleep
+  (cold-wake means, one run), against 1–3 µs under Node.
 - **One relay per page could serve every engine** (an option for Task 7's
   budget, not built): a page-wide doorbell word that the page bumps after
   posting to any engine, per-engine sequence words in each control buffer,
   and one relay that, on each ring, scans the engines' sequence words and
   bumps the WASM wake word of each engine whose sequence moved. It would need
   every engine's memory, so it is still host-side, shared by the hosts.
-- **R3/OPFS works in both browsers:** WasmFS's OPFS backend mounts,
-  writes, `fsync`s and reads back from the host's thread and from pthreads
-  while the host sleeps. It takes one pool Worker for good, and Firefox's
-  read path depends on the page's main thread (above).
-- **For Task 7 (memory):** the first run of a pool Worker costs about 18 ms
-  (`spawn(4)`: 70.9 ms for four), and a Worker beyond the pool 23–67 ms more,
-  since each loads the runtime and every side module.
+- **For Task 7 (memory):** every pool Worker holds an instance of the
+  runtime, and the spike's pool is 8. Adding a Worker costs 18–20 ms (three
+  in 54–60 ms, released runtime), and its first thread about 12 ms more in
+  Chromium, 2–5 ms in Firefox, since each loads the runtime and every side
+  module.
+- **Exceptions:** `-fwasm-exceptions` emits the legacy encoding, which Firefox
+  warns is deprecated. `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one,
+  Baseline 2025 (newly available) and supported by Node v24.20; whether and
+  when to switch is a spec follow-up.
 - `fsync()` on WasmFS's memory and Node backends doesn't proxy at all, so
   Node can't exhibit R2's promise-proxied case. On OPFS it does, and it
   completes in both browsers.
