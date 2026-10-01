@@ -33,7 +33,7 @@
         type = lib.types.functionTo lib.types.package;
         description = ''
           Given { name, src, sources }, builds the side module name.wasm from sources (paths
-          relative to src; .c with $CC, .cpp/.cc/.cxx with $CXX) against libibus-web, with
+          relative to src; .c with $CC, .cpp/.cc/.cxx with $CXX, and nothing else) against libibus-web, with
           toolchain.sideModuleFlags. The result has passthru.wasm, the module's path, and
           passthru.importsCheck, its checkSideModuleImports check.
         '';

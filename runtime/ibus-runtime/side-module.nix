@@ -7,13 +7,13 @@
       inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) pkgsWasm;
 
-      isCxx =
-        file:
-        lib.any (suffix: lib.hasSuffix suffix file) [
-          ".cpp"
-          ".cc"
-          ".cxx"
-        ];
+      hasSuffixIn = suffixes: file: lib.any (suffix: lib.hasSuffix suffix file) suffixes;
+      isC = hasSuffixIn [ ".c" ];
+      isCxx = hasSuffixIn [
+        ".cpp"
+        ".cc"
+        ".cxx"
+      ];
     in
     {
       ibusWeb.runtime.mkSideModule =
@@ -23,6 +23,7 @@
           sources,
         }:
         let
+          unknown = lib.filter (file: !(isC file || isCxx file)) sources;
           linker = if lib.any isCxx sources then "$CXX" else "$CC";
           object = file: "${file}.o";
           module = pkgsWasm.stdenv.mkDerivation {
@@ -60,6 +61,9 @@
             };
           };
         in
+        assert lib.assertMsg (
+          unknown == [ ]
+        ) "mkSideModule ${name}: no compiler for ${lib.concatStringsSep ", " unknown}";
         module;
     };
 }
