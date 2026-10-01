@@ -6,16 +6,11 @@
  *
  * Emscripten's own -sNODERAWFS under WasmFS roots the tree at Node's working
  * directory, so an absolute path such as /nix/store/... resolves under it.
- * Here the root is the host's /, and the working directory is Node's.
- *
- * A TMPDIR the host doesn't have is created in WasmFS's memory backend, where
- * the browser keeps temporary files. Host programs that give TMPDIR a
- * directory of their own are unaffected. */
+ * Here the root is the host's /, and the working directory is Node's. */
 
 #include <emscripten/em_js.h>
 #include <emscripten/wasmfs.h>
 #include <limits.h>
-#include <stdlib.h>
 #include <unistd.h>
 
 EM_JS(int, host_cwd, (char *buf, int size), {
@@ -27,14 +22,9 @@ backend_t wasmfs_create_root_dir(void) {
   return wasmfs_create_node_backend("/");
 }
 
-/* After WasmFS and the environment are set up, which both happen in
- * higher-priority constructors. */
+/* After WasmFS is set up, which happens in a higher-priority constructor. */
 __attribute__((constructor)) static void follow_host(void) {
   char cwd[PATH_MAX];
   if (host_cwd(cwd, sizeof cwd) > 0)
     chdir(cwd);
-
-  const char *tmp = getenv("TMPDIR");
-  if (tmp != NULL && access(tmp, F_OK) != 0)
-    wasmfs_create_directory(tmp, 0777, wasmfs_create_memory_backend());
 }

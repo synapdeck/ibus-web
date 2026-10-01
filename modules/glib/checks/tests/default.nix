@@ -17,14 +17,15 @@
       # only handles a signal once its foreground child has exited; without
       # the explicit redirection a background job reads /dev/null. A test
       # killed by a signal is reported the same way, by the wrapper dying of
-      # it too, so Meson doesn't take it for an exit status. TMPDIR names a
-      # directory the host doesn't have, which the tests' file system then
-      # keeps in memory, as the browser keeps temporary files.
+      # it too, so Meson doesn't take it for an exit status. Each test gets a
+      # TMPDIR of its own, and what it leaves there goes with the rest,
+      # however it set the modes.
       nodeToFiles = pkgsBuildBuild.writeShellScript "node-to-files" ''
         dir=$(mktemp -d)
         replay() {
           cat "$dir/stdout"
           cat "$dir/stderr" >&2
+          chmod -R u+rwx "$dir"
           rm -r "$dir"
         }
         die() {
@@ -32,6 +33,7 @@
           kill -s "$1" $$
         }
         trap 'replay; die TERM' TERM
+        mkdir "$dir/tmp"
         TMPDIR=$dir/tmp ${lib.getExe pkgsBuildBuild.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
         wait $!
         status=$?

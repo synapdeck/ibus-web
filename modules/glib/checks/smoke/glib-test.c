@@ -311,8 +311,8 @@ int main(void) {
   g_object_unref(group);
   g_object_unref(source);
 
-  /* In the temporary directory, which WasmFS keeps in memory, as in the
-   * browser. */
+  /* g_file_set_contents() renames a temporary file over the target, which
+   * must still read back afterwards. */
   gchar *path = g_build_filename(g_get_tmp_dir(), "glib-test.txt", NULL);
   g_file_set_contents(path, "gio", -1, NULL);
   GFile *file = g_file_new_for_path(path);

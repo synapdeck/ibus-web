@@ -27,8 +27,7 @@
             echo '<gresources><gresource prefix="/org/example"><file>glib-test.txt</file></gresource></gresources>' > glib-test.gresource.xml
             node ${pkgsWasm.glib.dev}/bin/glib-compile-resources.js --target=glib-test.gresource glib-test.gresource.xml
             # A lost wakeup leaves a thread asleep for good; fail instead.
-            # A TMPDIR missing on the host is kept in memory.
-            TMPDIR=$PWD/tmp timeout 300 node glib-test.js | tee output.txt
+            timeout 300 node glib-test.js | tee output.txt
             mkdir -p $out
             cp output.txt $out/
             grep -qx "keyfile hangul" output.txt

@@ -15,7 +15,7 @@
       };
       testMainFlags = lib.mkOption {
         type = lib.types.str;
-        description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers. Point TMPDIR at a directory missing on the host so temporary files live in memory, as in the browser: WasmFS's Node backend keeps chmod() to itself, so a directory made on the host can't be opened up again.";
+        description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers.";
       };
       testMemoryFlags = lib.mkOption {
         type = lib.types.str;
@@ -23,7 +23,7 @@
       };
       nodeHostFsFlags = lib.mkOption {
         type = lib.types.str;
-        description = "Link flags putting a Node-run program on WasmFS with the host's files at their own paths; a TMPDIR missing on the host is created in memory.";
+        description = "Link flags putting a Node-run program on WasmFS with the host's files at their own paths.";
       };
       emscriptenCache = lib.mkOption {
         type = lib.types.package;
