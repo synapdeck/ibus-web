@@ -1300,16 +1300,20 @@ specification and `release.json`.
 2. **Runtime.** GLib's own tests, built by `pkgsWasm.glib`'s recipe and run
    under Node on WasmFS (§10.3) in `checks.glib-tests`.
    `modules/glib/checks/tests/baseline.toml` lists the tests that must pass,
-   every one that passed in three reviewed runs (274 of 300), and the
+   every one that passed in three reviewed runs (277 of 301), and the
    excluded tests, no part of which can run on Emscripten, with the reason:
-   process spawning and sockets (12), which are reported but never run.
+   process spawning and sockets (11), which are reported but never run.
    Inside the tests that gate, a subtest whose expectation can't hold here
    skips with its reason: musl's missing locale data (until the §5.1.4
-   backends), no sockets or processes, IPv6 scope IDs, WasmFS's file-time
-   precision and unchecked search permission. The rest are reported on
-   every run but don't gate: `testfilemonitor`, since there is no
-   file-change notification until §5.1.4's monitor backend, and 13 tests
-   that skip as a whole. Also C tests for `libibus-web` (lifecycle, emitters, pump,
+   backends); no sockets, processes, pseudo-terminals or Unix signals;
+   IPv6 scope IDs; WasmFS's file-time precision, unchecked search
+   permission, unbounded pipes and `poll()` of empty files and devices;
+   TZif files read by path (`/GTimeZone/parse-rfc8536`, since zones come
+   from `Intl`); and, for `gio-tool.py`, no desktop applications to launch
+   and content types without MIME types. The rest are reported on every
+   run but don't gate: `testfilemonitor`, since there is no file-change
+   notification until §5.1.4's monitor backend, and 12 tests that skip as
+   a whole. Also C tests for `libibus-web` (lifecycle, emitters, pump,
    settings backend) and, if the lazy arity lookup is built (§5.1.2),
    tests for it.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`

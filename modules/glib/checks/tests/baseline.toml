@@ -49,6 +49,7 @@ tests = [
   "gio - glib:network-monitor",
   "gio - glib:null-settings-backend",
   "gio - glib:permission",
+  "gio - glib:pollable",
   "gio - glib:power-profile-monitor",
   "gio - glib:readwrite",
   "gio - glib:sandbox",
@@ -77,6 +78,7 @@ tests = [
   "gio+no-valgrind - glib:gio-tool.py",
   "gio+no-valgrind+gdbus-codegen+slow - glib:codegen.py",
   "gio+no-valgrind+pkg-config - glib:gio-2.0-pkg-config",
+  "gio+no-valgrind+pkg-config - glib:gio-unix-2.0-pkg-config",
   "glib+core - glib:1bit-mutex",
   "glib+core - glib:array-test",
   "glib+core - glib:asyncqueue",
@@ -125,6 +127,7 @@ tests = [
   "glib+core - glib:node",
   "glib+core - glib:once",
   "glib+core - glib:onceinit",
+  "glib+core - glib:option-argv0",
   "glib+core - glib:option-context",
   "glib+core - glib:overflow",
   "glib+core - glib:overflow-fallback",
@@ -289,7 +292,6 @@ tests = [
 [excluded]
 "gio - glib:gdbus-server-auth" = "every subtest runs a D-Bus server on a socket (WasmFS has no sockets: socket() fails with ENOSYS); the two EXTERNAL subtests skip anyway, having no credentials to pass"
 "gio - glib:iptosmessage" = "both subtests send a control message over a UDP socket (WasmFS has no sockets: socket() fails with ENOSYS)"
-"gio - glib:pollable" = "its one subtest built here polls a connected TCP socket pair (WasmFS has no sockets: socket() fails with ENOSYS); the pipe, file and converter subtests use GIO's Unix streams, which the WebAssembly build leaves out"
 "gio - glib:proxy-test" = "main() starts its proxy and server threads on listening sockets before any subtest runs (WasmFS has no sockets: socket() fails with ENOSYS)"
 "gio - glib:socket-listener" = "two subtests listen on sockets (WasmFS has no sockets: socket() fails with ENOSYS); the two listen-failure subtests inject failures into real socket calls, through dlsym(RTLD_NEXT) mocks that find nothing in a static WebAssembly link"
 "gio - glib:socket-service" = "every subtest listens on a socket (WasmFS has no sockets: socket() fails with ENOSYS)"

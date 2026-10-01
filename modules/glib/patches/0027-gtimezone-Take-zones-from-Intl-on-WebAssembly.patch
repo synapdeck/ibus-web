@@ -1,7 +1,7 @@
 From d7da9ef72ad46fa978eeda4c7fe02d1320ae170c Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:58:41 -0700
-Subject: [PATCH 27/34] gtimezone: Take zones from Intl on WebAssembly
+Subject: [PATCH 27/36] gtimezone: Take zones from Intl on WebAssembly
 
 WebAssembly skipped every TZif path, so only fixed offsets and POSIX
 rule strings worked, IANA names such as "America/Recife" always failed,

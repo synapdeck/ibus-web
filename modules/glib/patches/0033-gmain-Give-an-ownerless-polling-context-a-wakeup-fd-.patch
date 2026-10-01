@@ -1,7 +1,7 @@
-From e18fd94a4fb667d3d7992d7e0e671d3c073a607f Mon Sep 17 00:00:00 2001
+From a9ecf61f79aba2ee892375d7b04161c02ea61e23 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 19:00:40 -0700
-Subject: [PATCH 33/34] gmain: Give an ownerless-polling context a wakeup fd on
+Subject: [PATCH 33/36] gmain: Give an ownerless-polling context a wakeup fd on
  WebAssembly
 
 A WebAssembly GMainContext waits on its GWakeup rather than polling the
@@ -12,11 +12,12 @@ polls the pipe its GWakeup provides.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- glib/gmain.c | 12 +++++++++---
- 1 file changed, 9 insertions(+), 3 deletions(-)
+ glib/gmain.c   | 19 +++++++++++++------
+ glib/gwakeup.c |  3 ++-
+ 2 files changed, 15 insertions(+), 7 deletions(-)
 
 diff --git a/glib/gmain.c b/glib/gmain.c
-index c1c9ff18b..2d7f0cfa4 100644
+index c1c9ff18b..da655051f 100644
 --- a/glib/gmain.c
 +++ b/glib/gmain.c
 @@ -711,10 +711,16 @@ g_main_context_new_with_flags (GMainContextFlags flags)
@@ -39,3 +40,31 @@ index c1c9ff18b..2d7f0cfa4 100644
  
  #ifdef G_MAIN_POLL_DEBUG
    if (_g_main_poll_debug)
+@@ -4260,9 +4266,10 @@ g_main_context_check_unlocked (GMainContext *context,
+   TRACE (GLIB_MAIN_CONTEXT_BEFORE_CHECK (context, max_priority, fds, n_fds));
+ 
+ #ifdef G_PLATFORM_WASM
+-  /* The wakeup is not among the fds.  Whatever signalled it did so after
+-   * changing what the next prepare will look at, so acknowledging it
+-   * here loses nothing. */
++  /* The wakeup is waited on rather than polled; only an ownerless-polling
++   * context lists its fd, for pollers outside the context.  Whatever
++   * signalled it did so after changing what the next prepare will look at,
++   * so acknowledging it here, whatever its fd reported, loses nothing. */
+   g_wakeup_acknowledge (context->wakeup);
+ #else
+   for (i = 0; i < n_fds; i++)
+diff --git a/glib/gwakeup.c b/glib/gwakeup.c
+index c66635f16..35b0c680c 100644
+--- a/glib/gwakeup.c
++++ b/glib/gwakeup.c
+@@ -142,7 +142,8 @@ g_wakeup_free (GWakeup *wakeup)
+  * Callers that need something to poll (GCancellable's fds) get a pipe,
+  * created by the first g_wakeup_get_pollfd(): from then on each signal
+  * also writes a byte to it, and acknowledging drains it.  Wakeups nobody
+- * polls, such as every GMainContext's, never create one. */
++ * polls, such as those of main contexts that aren't polled without an
++ * owner, never create one. */
+ struct _GWakeup
+ {
+ #ifdef G_PLATFORM_WASM

@@ -1,7 +1,7 @@
 From e78c7fb62da426ad68dc2f27300ecd9f74bd6d4b Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 17:01:08 -0700
-Subject: [PATCH 30/34] glib: Give a WebAssembly GWakeup a pipe to poll
+Subject: [PATCH 30/36] glib: Give a WebAssembly GWakeup a pipe to poll
 
 g_wakeup_get_pollfd() aborted on WebAssembly, where a GWakeup is a
 futex, so g_cancellable_make_pollfd() and g_cancellable_get_fd() did

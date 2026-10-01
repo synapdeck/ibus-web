@@ -1,7 +1,7 @@
 From 4f733676ddddb29e35fdccf34df0f7ab7e0c9ff9 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 16:58:58 -0700
-Subject: [PATCH 28/34] gutils: Don't look the user up on WebAssembly
+Subject: [PATCH 28/36] gutils: Don't look the user up on WebAssembly
 
 Emscripten's getpwnam_r(), getpwuid_r() and getpwuid() are stubs that
 report ENOENT, so the first g_get_user_name(), g_get_real_name() or

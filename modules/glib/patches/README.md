@@ -59,7 +59,9 @@ originals.
 | 0031 glib, gio: Restore Unix paths WebAssembly can take | Alexis Williams | — |
 | 0032 gconvert, gcharsetconverter: Report characters `iconv()` replaces | Alexis Williams | — |
 | 0033 gmain: Give an ownerless-polling context a wakeup fd on WebAssembly | Alexis Williams | — |
-| 0034 tests: Skip what WebAssembly can't do, and fix what it showed up | Alexis Williams | — |
+| 0034 glib, gio: Build glib-unix and GIO's Unix streams on WebAssembly | Alexis Williams | — |
+| 0035 goption: Take the program name from Emscripten on WebAssembly | Alexis Williams | — |
+| 0036 tests: Skip what WebAssembly can't do, and fix what it showed up | Alexis Williams | — |
 
 ### Dropped from Wolthuizen's branch
 
@@ -226,7 +228,8 @@ leaves out on Emscripten, each worth revisiting if the reason goes away:
   `gutils-user-database`) and `gio/tests` (the large Unix test block,
   `gdbus-example-unix-fd-client`, the `dbus-launch` helper,
   `GIO_LAUNCH_DESKTOP`): 0008 excludes the Unix sources they test.
-- `gio-unix-2.0-pkg-config`: Emscripten has no `gio-unix-2.0`.
+- `gio-unix-2.0-pkg-config`: Emscripten had no `gio-unix-2.0`; 0036 runs
+  it again now that 0034 builds it.
 - `constructor`: its helpers are shared libraries, which Meson can't link
   for Emscripten.
 - `tests/lib`'s `glibconfig.py`: only girepository's tests read it, and
@@ -239,7 +242,7 @@ leaves out on Emscripten, each worth revisiting if the reason goes away:
 - Subtests calling the glib-unix and gio-unix APIs: mainloop's unix-fd
   tests, closure's `/closure/fd` and `/closure/signal`, pollable's Unix
   stream tests and `/pollable/converter`, and testing's subprocess stdin
-  test.
+  test. 0036 builds all but the last again, now that 0034 builds the APIs.
 - thread's CPU affinity subtest: it calls `pthread_getaffinity_np()` and
   `pthread_setaffinity_np()` itself, which Emscripten declares but doesn't
   define. The library doesn't: 0008 already makes `g_get_num_processors()`
@@ -533,7 +536,7 @@ ICU (tzdata 2026a) and tzdata 2026c disagree about Morocco. DST flags
 differ mostly for war time (1940–1945), which lasted over a year and so
 reads as standard time, and for a handful of one-off changes. Of GLib's
 `GTimeZone` and `GDateTime` tests, all pass except
-`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0034
+`/GTimeZone/parse-rfc8536`, which loads TZif files by path and which 0036
 skips on WebAssembly.
 
 0028 skips the user database lookup in `g_get_user_name()`,
@@ -611,24 +614,44 @@ they do elsewhere:
 The rest of 0008's WebAssembly guards were reviewed with 0031; the ones
 worth revisiting are listed in the plan's follow-ups.
 
-0032 makes `g_convert_with_fallback()` and `GCharsetConverter` notice a
-character `iconv()` replaces. musl's `iconv()` (like NetBSD's) converts a
-character the target charset lacks to `*` and counts it as an
-irreversible conversion instead of failing with `EILSEQ`. `g_convert()`
-has reported a positive count as an illegal sequence since 2018, but
+0032 makes GLib notice a character `iconv()` replaces. musl's `iconv()`
+(like NetBSD's) converts a character the target charset lacks to `*` and
+counts it as an irreversible conversion instead of failing with
+`EILSEQ`, and forgets the count when a later character ends the same
+call with an error: no room for the output (`E2BIG`), an incomplete
+character at the end of the input (`EINVAL`) or an invalid one
+(`EILSEQ`). `g_convert()` has reported a positive count as an illegal
+sequence since 2018, but only when the call that made it succeeded;
 `g_convert_with_fallback()` kept the `*` where the caller asked for its
-fallback, and `GCharsetConverter` neither reported `INVALID_DATA` nor
-used its fallback. Now, when `iconv()` reports an irreversible
-conversion, both convert the same input again a character at a time to
-find the character and treat it as `EILSEQ` there: the fallback replaces
-it, or the error reports it after the text before it. A target that asks
-for transliteration (`//TRANSLIT`), where glibc counts its replacements
-the same way, still gets them; where `iconv()` fails with `EILSEQ`, as
-glibc's does otherwise, nothing changes. `iconv()` can't rewind a shift
-state, so input in a stateful charset (ISO-2022-JP, or UTF-16 with a
-byte order mark) that changes state within the converted chunk may be
-read wrongly up to the replaced character. Nothing here is specific to
-WebAssembly, and it could go upstream.
+fallback; and `GCharsetConverter` neither reported `INVALID_DATA` nor
+used its fallback.
+
+- **Which `iconv()`.** Whether `iconv()` replaces is probed once, by
+  converting `½` to ASCII. glibc's fails with `EILSEQ`, so none of the
+  paths for failing calls below is ever taken there.
+- **`GCharsetConverter`** converts what a call consumed again a character
+  at a time when the call reports an irreversible conversion, or (where
+  `iconv()` replaces) fails after consuming input, and treats the
+  replaced character as `EILSEQ`: the fallback replaces it, or the error
+  reports it after the text before it. A character is found by feeding
+  `iconv()` one byte more each time until it stops reporting an
+  incomplete character. `iconv()` can't rewind a shift state, so input in
+  a stateful charset (ISO-2022-JP, or UTF-16 with a byte order mark) that
+  changes state within the converted chunk may be read wrongly up to the
+  replaced character.
+- **`g_convert_with_fallback()`** does the same over its intermediate
+  UTF-8 text, a character at a time from the call that reported the
+  replacement or ran out of output room.
+- **`g_convert_with_iconv()`** (and so `g_convert()`) starts again from a
+  reset converter, with room for all the output or with only the
+  complete characters, so that one call converts everything and reports
+  the count.
+
+A target that asks for transliteration (`//TRANSLIT`), where glibc counts
+its replacements the same way, still gets them. Nothing here is specific
+to WebAssembly, and it could go upstream. convert and converter-stream
+test a replaced character followed by an incomplete one and by a full
+output buffer.
 
 0033 gives a main context made with `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`
 its wakeup's fd again on WebAssembly. 0025 stopped contexts polling the
@@ -637,16 +660,44 @@ by someone outside it, who can only see a wakeup through an fd. Such a
 context now adds the pipe 0030 provides to its poll fds; other contexts
 still have none.
 
-0034 changes only tests, so that what WebAssembly can do gates:
+0034 builds `glib-unix.c` and GIO's Unix streams on WebAssembly, which
+0008 left out: `glib-unix.h`'s functions were declared but failed to
+link, and there was no `GUnixInputStream`, `GUnixOutputStream` or
+`GFileDescriptorBased`. Emscripten's file descriptors (files, pipes,
+`/dev/null`) take them as they are.
+
+- **glib-unix** is built without the Unix signal sources, since `gmain.c`
+  handles no signals on WebAssembly (no other process can send one).
+  `g_unix_fd_query_path()` fails with `G_FILE_ERROR_NOSYS`: Emscripten's
+  file systems have no `/proc` nor another way to name an fd's file.
+  `GUnixFDSource` takes closures again.
+- **GIO** builds `gfiledescriptorbased.c`, `giounix-private.c` and the
+  Unix input and output streams, and installs their headers and
+  `gio-unix-2.0.pc`. The rest of the Unix sources need mounts, desktop
+  files or D-Bus.
+- **Pollable fds.** Emscripten declares epoll but fails every call with
+  `ENOSYS`, and its `poll()` only follows pipes; for other files it
+  reports readiness from the open mode and the size alone. WasmFS gives a
+  pipe a regular file's type but no seeking, so `_g_fd_is_pollable()`
+  takes a FIFO, or an unseekable file that isn't a character device, for
+  pollable.
+
+0035 gives `g_option_context_parse()` a program name on WebAssembly when
+it has no argv: Emscripten's libc sets `program_invocation_name` from the
+script Node runs, or from the page's `Module.thisProgram`.
+
+0036 changes only tests, so that what WebAssembly can do gates:
 
 - **Skipped where the expectation can't hold**, each with its reason:
   musl has no locale data (collate's lists that sort differently under
   `en_US`, option-context's decimal comma, date's Polish month names,
   gdatetime's `en_GB` formats, `de_DE` month names and eras); WasmFS has no
   sockets (`socket()` fails with `ENOSYS`); Emscripten can't spawn or fork
-  processes, parse an IPv6 scope ID or list network interfaces; WasmFS
-  keeps file times as a double count of milliseconds and checks no
-  directory's search permission; TZif files aren't read by path
+  processes, open a pseudo-terminal, parse an IPv6 scope ID or list
+  network interfaces, and nothing can send it a signal; WasmFS keeps file
+  times as a double count of milliseconds, checks no directory's search
+  permission, gives pipes no capacity, and takes an empty file or device
+  for unreadable in `poll()`; TZif files aren't read by path
   (`/GTimeZone/parse-rfc8536`); `gio launch` needs desktop applications,
   and WebAssembly content types know no MIME types.
 - **musl's output expected** where it is right but different: `strftime()`
@@ -654,7 +705,10 @@ still have none.
   `%l` or `%P`, and prints nothing for a bare `%E` or `%O`;
   `g_convert()`'s illegal-sequence error comes after the input is
   consumed. mainloop expects no wakeup fd in a context that polls with an
-  owner.
+  owner, and option-argv0 a program named after its `.js` script.
+- **Subtests built again** with 0034: pollable's pipe, file, `/dev/null` and
+  converter tests, mainloop's and closure's fd sources, and the
+  `gio-unix-2.0` pkg-config test.
 - **Test bugs fixed**: filenamecompleter connected `g_main_loop_quit()`
   through `g_signal_connect_swapped()` to a signal with two parameters
   (which traps) and expected completions in one file system's directory
@@ -662,15 +716,15 @@ still have none.
   socket-listener's mocks and messages-low-memory's `malloc()` looked up
   the real function with `dlsym(RTLD_NEXT)`, which finds nothing in a
   static WebAssembly link although Emscripten's `dlfcn.h` defines
-  `RTLD_NEXT`; test-printf's reader expected a pipe read to block;
-  `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its Python
-  tests, which also expected `abort()` to end Node with `SIGABRT` rather
-  than status 1.
-- **Two workarounds for Node**: mainloop's `nfds` test writes a byte to its
-  file, since WasmFS's `poll()` only takes a non-empty regular file for
-  readable, and fileutils' `stdio-wrappers` test works in a temporary
-  directory, since `chmod()` on WasmFS's Node backend doesn't reach the
-  host directory.
+  `RTLD_NEXT`; `glib/tests` never set `_G_TEST_PROGRAM_RUNNER_NODE` for its
+  Python tests, which also expected `abort()` to end Node with `SIGABRT`
+  rather than status 1.
+- **Workarounds for the platform**: test-printf's reader waits for its
+  writer to finish, since Emscripten's pipe reads never block; mainloop's
+  `nfds` test writes a byte to its file, since WasmFS's `poll()` only
+  takes a non-empty regular file for readable; and fileutils'
+  `stdio-wrappers` test works in a temporary directory, since `chmod()`
+  on WasmFS's Node backend doesn't reach the host directory.
 
 Tests and tools link with runtime assertions on, so threaded tests print
 `received "…" command from terminated worker` as their pthread workers

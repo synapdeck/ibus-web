@@ -1,7 +1,7 @@
 From f105a7ccceadd1540be676f449ab0880d10cef51 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 14:55:45 -0700
-Subject: [PATCH 26/34] tests: Wait on GWakeup without its poll fd on
+Subject: [PATCH 26/36] tests: Wait on GWakeup without its poll fd on
  WebAssembly
 
 A WebAssembly GWakeup has no fd, and g_wakeup_get_pollfd() aborts

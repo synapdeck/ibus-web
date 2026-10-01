@@ -1,0 +1,34 @@
+From d4b6c82ccffd86ca95a243d365771141e03684f4 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Wed, 30 Sep 2026 19:42:03 -0700
+Subject: [PATCH 35/36] goption: Take the program name from Emscripten on
+ WebAssembly
+
+With no argv, g_option_context_parse() names the program from the
+platform's record of its first argument, which WebAssembly had none of.
+Emscripten's libc sets program_invocation_name from the script Node runs,
+or from the page's Module.thisProgram.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/goption.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/glib/goption.c b/glib/goption.c
+index 5ce33fb98..62140f088 100644
+--- a/glib/goption.c
++++ b/glib/goption.c
+@@ -1703,6 +1703,13 @@ platform_get_argv0 (void)
+   base_arg0 = g_path_get_basename (cmdline);
+   g_free (cmdline);
+   return base_arg0;
++#elif defined(G_PLATFORM_WASM)
++  /* Emscripten's libc names the program after the script Node runs, or
++   * after the page's Module.thisProgram. */
++  if (program_invocation_name == NULL || *program_invocation_name == '\0')
++    return NULL;
++
++  return g_path_get_basename (program_invocation_name);
+ #elif defined __OpenBSD__
+   char **cmdline;
+   char *base_arg0;
