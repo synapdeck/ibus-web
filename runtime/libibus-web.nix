@@ -24,7 +24,14 @@
       libibusWeb = pkgsWasm.stdenv.mkDerivation {
         pname = "libibus-web";
         inherit version;
-        src = ./libibus-web;
+        src = lib.fileset.toSource {
+          root = ./libibus-web;
+          fileset = lib.fileset.unions [
+            ./libibus-web/meson.build
+            ./libibus-web/include
+            ./libibus-web/src
+          ];
+        };
         nativeBuildInputs = [
           pkgsWasm.meson
           pkgsWasm.ninja
