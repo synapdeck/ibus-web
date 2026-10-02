@@ -64,10 +64,19 @@ static inline void write_file(const char *path, mode_t mode,
 struct idb_test_layout {
   unsigned chunk_size;
   unsigned inodes;
+  unsigned entries;
+  unsigned chunks;
+  /* A hash of every record, keys and values, in every store. */
+  unsigned digest;
 };
 
 /* The test proper, run once the layout has been read. */
 static void run_test(const struct idb_test_layout *layout);
+
+typedef void (*idb_test_step)(const struct idb_test_layout *layout);
+
+/* What runs once the layout being read is in. */
+static idb_test_step idb_test_next = run_test;
 
 static void finish_test(const char *name) {
   printf("%s: %s, %d failure(s)\n", name, test_failures ? "FAIL" : "ok",
@@ -80,14 +89,15 @@ static void finish_test(const char *name) {
 #ifdef __cplusplus
 extern "C" {
 #endif
-EMSCRIPTEN_KEEPALIVE void idb_test_layout_read(int ok, unsigned chunk_size,
-                                               unsigned inodes) {
+EMSCRIPTEN_KEEPALIVE void
+idb_test_layout_read(int ok, unsigned chunk_size, unsigned inodes,
+                     unsigned entries, unsigned chunks, unsigned digest) {
   if (!ok) {
     printf("could not read the database's layout\n");
     exit(1);
   }
-  struct idb_test_layout layout = {chunk_size, inodes};
-  run_test(&layout);
+  struct idb_test_layout layout = {chunk_size, inodes, entries, chunks, digest};
+  idb_test_next(&layout);
 }
 #ifdef __cplusplus
 }
@@ -98,30 +108,62 @@ EM_JS_DEPS(idb_test, "$callUserCallback,$UTF8ToString");
 /* clang-format reads an EM_JS body as C and splits JavaScript's =>. */
 /* clang-format off */
 /* A second connection, opened at the backend's version, reads the chunk size
- * the database was created with and counts its inodes. IndexedDB only
- * answers asynchronously, so the test continues in a callback. */
+ * the database was created with, counts its records and hashes them all
+ * (FNV-1a over each store's keys and values, and the bytes of each chunk).
+ * IndexedDB only answers asynchronously, so the test continues in a
+ * callback. */
 EM_JS(void, idb_test_read_layout, (const char *database), {
-  const done = (ok, chunkSize, inodes) =>
-    callUserCallback(() => _idb_test_layout_read(ok, chunkSize, inodes));
+  const done = (ok, chunkSize, inodes, entries, chunks, digest) =>
+    callUserCallback(() => _idb_test_layout_read(
+      ok, chunkSize, inodes, entries, chunks, digest));
+  const failed = () => done(0, 0, 0, 0, 0, 0);
   const request = indexedDB.open(UTF8ToString(database), 1);
-  request.onerror = () => done(0, 0, 0);
+  request.onerror = failed;
   request.onsuccess = () => {
     const db = request.result;
-    const tx = db.transaction(["meta", "inodes"]);
-    const chunkSize = tx.objectStore("meta").get("chunkSize");
-    const inodes = tx.objectStore("inodes").count();
+    const names = ["meta", "inodes", "entries", "chunks"];
+    const tx = db.transaction(names);
+    const stores = names.map((name) => ({
+      keys: tx.objectStore(name).getAllKeys(),
+      values: tx.objectStore(name).getAll(),
+    }));
     tx.oncomplete = () => {
       db.close();
-      done(1, chunkSize.result, inodes.result);
+      const [meta, inodes, entries, chunks] =
+        stores.map(({ keys, values }) => ({
+          keys: keys.result,
+          values: values.result,
+        }));
+      let digest = 0x811c9dc5;
+      const hash = (bytes) => {
+        for (const byte of bytes) digest = Math.imul(digest ^ byte, 0x01000193);
+      };
+      const encoder = new TextEncoder();
+      for (const store of [meta, inodes, entries])
+        hash(encoder.encode(JSON.stringify(store)));
+      hash(encoder.encode(JSON.stringify(chunks.keys)));
+      for (const chunk of chunks.values) hash(new Uint8Array(chunk));
+      done(1, meta.values[meta.keys.indexOf("chunkSize")], inodes.keys.length,
+           entries.keys.length, chunks.keys.length, digest >>> 0);
     };
-    tx.onabort = () => done(0, 0, 0);
+    tx.onabort = failed;
   };
 });
 /* clang-format on */
 
+/* Reads the database's layout, and once the main thread is back in its event
+ * loop, goes on with the test in `next`. */
+static inline void read_layout_then(const char *database, idb_test_step next) {
+  idb_test_next = next;
+  idb_test_read_layout(database);
+}
+
+/* The backend start_test mounted. */
+static backend_t test_backend;
+
 /* Mounts the database at `mount`, then reads its layout and runs the test. */
 static void start_test(const char *database, const char *mount) {
-  backend_t backend = wasmfs_create_idb_backend(database, 0);
+  backend_t backend = test_backend = wasmfs_create_idb_backend(database, 0);
   if (!backend) {
     printf("wasmfs_create_idb_backend(\"%s\") failed\n", database);
     exit(1);

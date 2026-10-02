@@ -11,12 +11,17 @@
       tests = ./tests;
 
       # A directory holding one test program, name.js and name.wasm, from
-      # name.c or name.cpp; C++ tests reach into WasmFS's internals. The
+      # name.c or name.cpp; C++ tests reach into WasmFS's internals. Each
       # backend's own thread comes from the pool, which the program's main
-      # thread can't grow while it blocks on the backend. The chunk counter's
-      # library adds nothing to a program that doesn't ask for it.
+      # thread can't grow while it blocks on the backend, so a program that
+      # creates several backends asks for as many threads. The test
+      # libraries add nothing to a program that doesn't ask for them.
       program =
-        source:
+        {
+          source,
+          threads ? 1,
+          postJs ? null,
+        }:
         let
           cxx = lib.hasSuffix ".cpp" source;
           name = lib.removeSuffix (if cxx then ".cpp" else ".c") source;
@@ -35,9 +40,11 @@
           buildPhase = ''
             runHook preBuild
             ${if cxx then "$CXX -std=c++17 ${wasmfsIdb.cflags}" else "$CC"} -c ${source} -o ${name}.o
-            $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=1 \
+            $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=${toString threads} \
               --js-library=${wasmfsIdb.jsLibrary} \
-              --js-library=${./tests/chunk-counts.js} ${name}.o -lwasmfs-idb -o ${name}.js
+              ${lib.concatMapStringsSep " " (library: "--js-library=${library}") testLibraries} \
+              ${lib.optionalString (postJs != null) "--post-js=${postJs}"} \
+              ${name}.o -lwasmfs-idb -o ${name}.js
             runHook postBuild
           '';
           installPhase = ''
@@ -46,16 +53,40 @@
             runHook postInstall
           '';
         };
+
+      testLibraries = [
+        ./tests/chunk-counts.js
+        ./tests/faults.js
+        ./tests/strict-commits.js
+      ];
     in
     {
       checks.wasmfs-idb = testing.browserRun {
         name = "wasmfs-idb";
         programs = map program [
-          "basic.1.c"
-          "basic.2.c"
-          "open-unlinked.cpp"
-          "lazy.c"
-          "sizes.c"
+          { source = "basic.1.c"; }
+          { source = "basic.2.c"; }
+          { source = "open-unlinked.cpp"; }
+          { source = "lazy.c"; }
+          { source = "sizes.c"; }
+          # The writer and a read-only backend.
+          {
+            source = "fsync.c";
+            threads = 2;
+          }
+          # The writer, a read-only backend, and one more for each backend
+          # that fails to open, then for one that opens.
+          {
+            source = "errors.c";
+            threads = 3;
+            postJs = ./tests/errors-post.js;
+          }
+          { source = "sweep.1.c"; }
+          # The first writer, a read-only backend and the second writer.
+          {
+            source = "sweep.2.c";
+            threads = 3;
+          }
         ];
       };
     };

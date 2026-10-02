@@ -20,6 +20,12 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
 /* The backend refuses every change with EROFS. */
 #define WASMFS_IDB_READ_ONLY 0x1u
 
+/* Whether the database's connection has closed under `backend`, one that
+ * wasmfs_create_idb_backend returned: another connection opened a newer
+ * version of the database, or the browser closed it. Every later call that
+ * reaches the database then fails with EIO, and nothing reopens it. */
+int wasmfs_idb_backend_closed(backend_t backend);
+
 #ifdef __cplusplus
 }
 #endif

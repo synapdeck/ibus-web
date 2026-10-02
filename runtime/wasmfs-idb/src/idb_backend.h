@@ -48,10 +48,13 @@ static_assert(wasmfs::File::SymlinkKind == 3);
 extern "C" {
 
 // Opens the database `name`, creating it with chunks of `chunk_size` bytes if
-// it doesn't exist. Writes the backend's handle, or an error, to `id` and the
-// root directory's inode to `root`.
+// it doesn't exist, and unless `read_only`, deletes the inodes no directory
+// holds. Writes the backend's handle, or an error, to `id` and the root
+// directory's inode to `root`. Sets `*closed` to 1, atomically, once the
+// connection has closed.
 void _wasmfs_idb_open(em_proxying_ctx *ctx, const char *name,
-                      uint32_t chunk_size, int *id, uint32_t *root);
+                      uint32_t chunk_size, int read_only, int32_t *closed,
+                      int *id, uint32_t *root);
 
 // The inode's stored attributes; attrs->err is -ENOENT if it doesn't exist.
 void _wasmfs_idb_get_attrs(em_proxying_ctx *ctx, int id, uint32_t ino,
@@ -111,6 +114,9 @@ void _wasmfs_idb_set_size(em_proxying_ctx *ctx, int id, uint32_t ino,
 
 void _wasmfs_idb_set_mode(em_proxying_ctx *ctx, int id, uint32_t ino,
                           uint32_t mode, int *err);
+
+// Returns once everything committed before it is durable.
+void _wasmfs_idb_flush(em_proxying_ctx *ctx, int id, int *err);
 
 // Infinity leaves that time as it is.
 void _wasmfs_idb_set_times(em_proxying_ctx *ctx, int id, uint32_t ino,

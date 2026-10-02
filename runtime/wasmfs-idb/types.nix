@@ -52,7 +52,11 @@
           ./src/emscripten-library.d.ts
           ./tests/tsconfig.json
           ./tests/chunk-counts.js
+          ./tests/faults.js
+          ./tests/strict-commits.js
+          ./tests/errors-post.js
           ./tests/wasm-exports.d.ts
+          ./tests/post-js.d.ts
         ];
       };
     in
@@ -67,7 +71,9 @@
           }
           ''
             node ${./library-deps.mjs} check ${sources}/src/libwasmfs_idb.js ${emscripten}/share/emscripten
-            node ${./library-deps.mjs} check ${sources}/tests/chunk-counts.js ${emscripten}/share/emscripten
+            for library in chunk-counts faults strict-commits; do
+              node ${./library-deps.mjs} check ${sources}/tests/$library.js ${emscripten}/share/emscripten
+            done
             cp -r --no-preserve=mode ${sources}/src ${sources}/tests .
             ln -s ${types} src/${typesDir}
             tsc -p src

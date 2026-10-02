@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Type-checks the tests' JavaScript library, which runs on every thread of a
-// test program, the backend's Worker among them.
+// Type-checks the tests' JavaScript libraries and --post-js, which run on
+// every thread of a test program, the backend's Worker among them.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
@@ -17,7 +17,11 @@
   },
   "files": [
     "chunk-counts.js",
+    "faults.js",
+    "strict-commits.js",
+    "errors-post.js",
     "wasm-exports.d.ts",
+    "post-js.d.ts",
     "../src/emscripten-library.d.ts"
   ]
 }

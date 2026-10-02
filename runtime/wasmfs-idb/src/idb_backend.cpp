@@ -7,6 +7,7 @@
 
 #include <ibus-web/wasmfs-idb.h>
 
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -46,6 +47,9 @@ public:
   // The JavaScript side's handle for this backend's state; 0 until opened.
   int id = 0;
   uint32_t root = 0;
+  // Set from the backend's thread, which answers no calls once it is.
+  std::atomic<int32_t> closed{0};
+  static_assert(sizeof(closed) == sizeof(int32_t));
 
   explicit IdbBackend(bool readOnly) : readOnly(readOnly) {}
 
@@ -169,8 +173,16 @@ private:
     return err;
   }
 
-  // Every write has committed before it returns.
-  int flush() override { return 0; }
+  // A read-only backend has written nothing to make durable.
+  int flush() override {
+    if (backend.readOnly) {
+      return 0;
+    }
+    int err = 0;
+    backend.proxy(
+        [&](auto ctx) { _wasmfs_idb_flush(ctx.ctx, backend.id, &err); });
+    return err;
+  }
 
   int setMode(mode_t mode) override { return backend.setMode(ino, mode); }
 
@@ -387,13 +399,16 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags) {
   if (emscripten_is_main_browser_thread()) {
     return nullptr;
   }
-  auto backend =
-      std::make_unique<IdbBackend>((flags & WASMFS_IDB_READ_ONLY) != 0);
+  bool readOnly = (flags & WASMFS_IDB_READ_ONLY) != 0;
+  auto backend = std::make_unique<IdbBackend>(readOnly);
   int id = 0;
   uint32_t root = 0;
+  auto *closed = reinterpret_cast<int32_t *>(&backend->closed);
   backend->proxy([&](auto ctx) {
-    _wasmfs_idb_open(ctx.ctx, database, defaultChunkSize, &id, &root);
+    _wasmfs_idb_open(ctx.ctx, database, defaultChunkSize, readOnly, closed, &id,
+                     &root);
   });
+  // Destroying the backend ends its thread.
   if (id <= 0) {
     return nullptr;
   }
@@ -403,6 +418,12 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags) {
   // different types.
   return reinterpret_cast<backend_t>(
       wasmfs::wasmFS.addBackend(std::move(backend)));
+}
+
+int wasmfs_idb_backend_closed(backend_t backend) {
+  auto *idb =
+      static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend));
+  return idb->closed.load() != 0;
 }
 
 void EMSCRIPTEN_KEEPALIVE _wasmfs_idb_record_entry(

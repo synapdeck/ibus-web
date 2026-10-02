@@ -108,11 +108,12 @@ const wasmfsIdbRequest = (request) =>
  * @param {string[]} stores
  * @param {IDBTransactionMode} mode
  * @param {(tx: IDBTransaction) => T | PromiseLike<T>} body
+ * @param {IDBTransactionOptions} [options]
  * @returns {Promise<T>}
  */
-const wasmfsIdbTransact = async (state, stores, mode, body) => {
+const wasmfsIdbTransact = async (state, stores, mode, body, options) => {
   if (!state.db) throw new WasmfsIdbError(-ERRNO_CODES.EIO);
-  const tx = state.db.transaction(stores, mode);
+  const tx = state.db.transaction(stores, mode, options);
   const committed = new Promise((resolve, reject) => {
     tx.oncomplete = resolve;
     tx.onabort = () =>
@@ -129,7 +130,11 @@ const wasmfsIdbTransact = async (state, stores, mode, body) => {
     } catch {
       // Already finished.
     }
-    throw e;
+    // A failed write, such as one over the quota, aborts the transaction
+    // with its error, and every request after it fails with an AbortError
+    // or, made after the abort, throws; the abort's error is the cause.
+    // Aborting from here leaves the error null.
+    throw tx.error ?? e;
   }
   await committed;
   return result;
@@ -245,13 +250,50 @@ const wasmfsIdbTouch = async (inodes, ino, now) => {
 };
 
 /**
+ * Deletes every inode no directory holds, with its chunks. A file unlinked
+ * while open keeps its inode until its last close, which a page that ends
+ * first never makes. Only a read-write backend sweeps, as the database's one
+ * writer, and before it has opened any file, so every inode without an
+ * entry is one of those.
+ * @param {WasmfsIdbState} state
+ */
+const wasmfsIdbSweep = (state) =>
+  wasmfsIdbTransact(
+    state,
+    ["inodes", "entries", "chunks"],
+    "readwrite",
+    async (tx) => {
+      const [inos, linked] = /** @type {[number[], number[]]} */ (
+        await Promise.all([
+          wasmfsIdbRequest(tx.objectStore("inodes").getAllKeys()),
+          wasmfsIdbRequest(tx.objectStore("entries").getAll()),
+        ])
+      );
+      const held = new Set(linked).add(state.root);
+      for (const ino of inos) {
+        if (!held.has(ino)) wasmfsIdbDeleteInode(tx, ino);
+      }
+    },
+  );
+
+/**
  * @param {number} ctx
  * @param {number} namePtr
  * @param {number} chunkSize
+ * @param {number} readOnly
+ * @param {number} closedPtr
  * @param {number} idPtr
  * @param {number} rootPtr
  */
-const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, idPtr, rootPtr) => {
+const _wasmfs_idb_open = async (
+  ctx,
+  namePtr,
+  chunkSize,
+  readOnly,
+  closedPtr,
+  idPtr,
+  rootPtr,
+) => {
   const name = UTF8ToString(namePtr);
   try {
     const request = indexedDB.open(name, 1);
@@ -280,17 +322,22 @@ const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, idPtr, rootPtr) => {
       openCounts: new Map(),
       unlinked: new Set(),
     };
+    // Calls after this fail. The flag is set before the connection closes,
+    // so whoever is waiting for the close sees it.
+    /** @param {string} why */
+    const closed = (why) => {
+      state.db = null;
+      Atomics.store(HEAP32, closedPtr >> 2, 1);
+      err(`wasmfs-idb: ${name} ${why}`);
+    };
     // Another connection asking for a newer version waits until this one
-    // closes; calls after that fail.
+    // closes. A connection that has closed hears neither event, so neither
+    // reaches the flag of a backend whose open failed.
     db.onversionchange = () => {
+      closed("closed for a version change");
       db.close();
-      state.db = null;
-      err(`wasmfs-idb: ${name} closed for a version change`);
     };
-    db.onclose = () => {
-      state.db = null;
-      err(`wasmfs-idb: ${name} closed unexpectedly`);
-    };
+    db.onclose = () => closed("closed unexpectedly");
     try {
       const [format, storedChunkSize, root] = await wasmfsIdbTransact(
         state,
@@ -316,6 +363,7 @@ const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, idPtr, rootPtr) => {
       }
       state.chunkSize = storedChunkSize;
       state.root = root;
+      if (!readOnly) await wasmfsIdbSweep(state);
     } catch (e) {
       db.close();
       throw e;
@@ -991,6 +1039,26 @@ const _wasmfs_idb_set_times = (ctx, id, ino, atime, mtime, errPtr) => {
   );
 };
 
+/**
+ * Commits an empty read-write transaction over the stores files live in.
+ * Every change has already committed, so once a strict commit after them
+ * completes, they are on disk.
+ * @param {number} ctx
+ * @param {number} id
+ * @param {number} errPtr
+ */
+const _wasmfs_idb_flush = (ctx, id, errPtr) =>
+  wasmfsIdbRun(
+    ctx,
+    id,
+    (state) =>
+      wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", () => {}, {
+        durability: "strict",
+      }),
+    () => {},
+    (errno) => (HEAP32[errPtr >> 2] = errno),
+  );
+
 addToLibrary({
   $wasmfsIdbBackends__deps: ["$HandleAllocator"],
   $wasmfsIdbBackends: "new HandleAllocator()",
@@ -1030,13 +1098,21 @@ addToLibrary({
   $wasmfsIdbTouch__deps: ["$wasmfsIdbRequest"],
   $wasmfsIdbTouch: wasmfsIdbTouch,
 
-  _wasmfs_idb_open__sig: "vppipp",
+  $wasmfsIdbSweep__deps: [
+    "$wasmfsIdbTransact",
+    "$wasmfsIdbRequest",
+    "$wasmfsIdbDeleteInode",
+  ],
+  $wasmfsIdbSweep: wasmfsIdbSweep,
+
+  _wasmfs_idb_open__sig: "vppiippp",
   _wasmfs_idb_open__deps: [
     "emscripten_proxy_finish",
     "$wasmfsIdbBackends",
     "$wasmfsIdbErrno",
     "$wasmfsIdbRequest",
     "$wasmfsIdbTransact",
+    "$wasmfsIdbSweep",
     "$UTF8ToString",
     "$ERRNO_CODES",
     "$WasmfsIdbError",
@@ -1206,4 +1282,8 @@ addToLibrary({
     "$WasmfsIdbError",
   ],
   _wasmfs_idb_set_times: _wasmfs_idb_set_times,
+
+  _wasmfs_idb_flush__sig: "vpip",
+  _wasmfs_idb_flush__deps: ["$wasmfsIdbRun", "$wasmfsIdbTransact"],
+  _wasmfs_idb_flush: _wasmfs_idb_flush,
 });
