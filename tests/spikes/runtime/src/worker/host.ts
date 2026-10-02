@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // The spike's Worker host. Its one message is a HostInit: it decides what to
-// mount at its engine's directory, makes the runtime's memory to suit,
-// instantiates the runtime, mounts storage, mounts its version's data,
-// installing it first if it isn't there yet, deletes other versions' data
-// no host uses, loads the side modules, reports storage
-// that isn't what the engine was promised, sets the runtime up, then
-// serves requests from the control buffer for good, sleeping between them
-// with the next GLib deadline as the timeout, and topping the pthread pool
-// up when it runs low. Only this Worker, and the relay it starts, touch the
-// runtime's memory.
+// mount at its engine's directory, read-write only if it holds the engine's
+// writer lock, makes the runtime's memory to suit, instantiates the runtime,
+// mounts storage, mounts its version's data, installing it first if it isn't
+// there yet, deletes other versions' data no host uses, loads the side
+// modules, reports storage that isn't what the engine was promised, sets the
+// runtime up, then serves requests from the control buffer for good, sleeping
+// between them with the next GLib deadline as the timeout, and topping the
+// pthread pool up when it runs low. Only this Worker, and the relay it
+// starts, touch the runtime's memory.
 
 import { clockStepUs } from "../shared/client.ts";
 import {
@@ -44,6 +44,7 @@ import {
   engineDataRoot,
   engineDir,
   engineInstallLock,
+  engineWriterLock,
 } from "../shared/control.ts";
 import type { RelayInit } from "./relay.ts";
 
@@ -352,7 +353,7 @@ const progressOn = (name: string): { said(): void; close(): void } => {
 
 // The locks this host holds. A host whose start fails stays alive to say
 // why, so it lets go of them all, rather than keep other hosts from
-// installing or collecting.
+// installing, collecting or writing the engine's user data.
 class Held {
   #locks = new Set<HeldLock>();
 
@@ -374,10 +375,11 @@ class Held {
 
 // What the host mounts at the engine's directory, decided before the
 // runtime's memory is made, since a mount in memory needs a larger one.
+// readOnly: another host holds the engine's writer lock.
 type StoragePlan =
   | { mount: "none" }
-  | { mount: "node"; hostPath: string }
-  | { mount: "indexeddb"; database: string; flags: number }
+  | { mount: "node"; hostPath: string; readOnly: boolean }
+  | { mount: "indexeddb"; database: string; flags: number; readOnly: boolean }
   // Why IndexedDB can't be opened.
   | { mount: "memory"; why: string };
 
@@ -442,24 +444,54 @@ const probeIndexedDB = async (database: string): Promise<string | null> => {
   }
 };
 
+// Whether this host is the one that may change the engine's user data: it
+// is if it gets the engine's writer lock at once, and then holds it for as
+// long as it runs. Hosts don't queue for it: one that starts while another
+// writes stays read-only for good, since a backend can't become writable.
+const takeWriterLock = async (
+  engine: EngineManifest,
+  held: Held,
+): Promise<boolean> => {
+  const lock = await requestLock(
+    engineWriterLock(engine),
+    { mode: "exclusive", ifAvailable: true },
+    performance.now(),
+  );
+  if (lock === null) return false;
+  held.add(lock);
+  return true;
+};
+
 const planStorage = async (
   storage: Storage,
   engine: EngineManifest,
+  readOnlyFlag: number,
+  held: Held,
 ): Promise<StoragePlan> => {
   switch (storage.kind) {
     case "none":
       return { mount: "none" };
     case "node":
-      return { mount: "node", hostPath: storage.hostPath };
+      return {
+        mount: "node",
+        hostPath: storage.hostPath,
+        readOnly: !(await takeWriterLock(engine, held)),
+      };
     case "browser": {
       if (storage.withoutIndexedDB === true) withoutIndexedDB();
       const database = engineDatabase(engine);
       const why = await probeIndexedDB(database);
       if (why !== null) return { mount: "memory", why };
       // The flags are decided before the backend exists because creating it
-      // sweeps the database of what a crash left behind, which needs
-      // exclusive write access to the database.
-      return { mount: "indexeddb", database, flags: 0 };
+      // read-write sweeps the database of what a crash left behind, which
+      // only the database's one writer may do.
+      const readOnly = !(await takeWriterLock(engine, held));
+      return {
+        mount: "indexeddb",
+        database,
+        flags: readOnly ? readOnlyFlag : 0,
+        readOnly,
+      };
     }
   }
 };
@@ -1420,6 +1452,12 @@ const bringUp = async (
   const user = await mount(heap, plan, engineDir(init.engine));
   if (plan.mount === "memory")
     post({ type: "storage", state: "ephemeral", message: plan.why });
+  if ((plan.mount === "indexeddb" || plan.mount === "node") && plan.readOnly)
+    post({
+      type: "storage",
+      state: "read-only",
+      message: `another instance of engine ${init.engine.name} holds ${engineWriterLock(init.engine)}; this one's user data refuses changes${plan.mount === "node" ? " (in browsers; the Node backend has no read-only mode)" : ""}`,
+    });
   const dataClosed = await provideData(heap, init, plan, held);
   const mounted: Mounted = {
     mount: plan.mount,
@@ -1453,7 +1491,12 @@ const serveFrom = async (
   held: Held,
 ): Promise<void> => {
   const { constants } = init;
-  const plan = await planStorage(init.storage, init.engine);
+  const plan = await planStorage(
+    init.storage,
+    init.engine,
+    constants.idbReadOnly,
+    held,
+  );
   const { rt, heap, workers, mounted } = await bringUp(
     init,
     createRuntime,

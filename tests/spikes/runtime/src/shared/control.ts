@@ -222,6 +222,11 @@ export const engineDataDatabase = (engine: EngineManifest): string =>
 export const engineInstallLock = (engine: EngineManifest): string =>
   `ibus-web:install:${encodeComponent(engine.name)}:${encodeComponent(engine.version)}`;
 
+// The Web Lock the one host that may change the engine's user data holds,
+// for as long as it runs; every other host mounts that data read-only.
+export const engineWriterLock = ({ name }: EngineManifest): string =>
+  `ibus-web:writer:${encodeComponent(name)}`;
+
 // The Web Lock every host using a version's data holds, shared, for as long
 // as it runs; a host takes it exclusively to delete that version's data.
 export const engineDataLock = (
@@ -275,10 +280,11 @@ export interface HostFeatures {
 
 // The state of the engine's storage, when it isn't what the engine was
 // promised: "ephemeral", mounted in memory for want of IndexedDB, so user
-// data lasts only as long as the Worker; "closed", the IndexedDB backend's
-// connection closed under it, so every later call that reaches the database
-// fails with EIO.
-export type StorageState = "ephemeral" | "closed";
+// data lasts only as long as the Worker; "read-only", another host holds the
+// engine's writer lock, so this one's user data refuses changes with EROFS
+// for as long as it runs; "closed", the IndexedDB backend's connection closed
+// under it, so every later call that reaches the database fails with EIO.
+export type StorageState = "ephemeral" | "read-only" | "closed";
 
 // How the host found the engine's data at start: "installed", it installed
 // it; "present", the version's data was installed already; "stalled", the

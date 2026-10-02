@@ -12,6 +12,7 @@ import {
   engineDataDatabasePrefix,
   engineDataDir,
   engineDataLock,
+  engineDir,
   engineInstallLock,
   withData,
   type CollectReport,
@@ -26,6 +27,7 @@ import {
   replyFile,
   type Client,
   type Env,
+  type Measurement,
   type Outcome,
   type Result,
 } from "./scenarios.ts";
@@ -35,7 +37,9 @@ export interface InstallHost {
   messages: readonly HostMessage[];
   // Settles once the host is ready, or rejects with why it didn't start.
   ready: Promise<Client>;
-  // Settles once the host's Worker is gone, and its locks with it.
+  // Settles once the host's Worker is terminated. A browser may let go of
+  // its locks only later, so a host the harness starts next for the same
+  // engine waits for the engine's writer lock to come free first.
   terminate(): Promise<void>;
 }
 
@@ -767,6 +771,84 @@ const installTornMarker: InstallScenario = {
   },
 };
 
+// Whether the host reported its user data read-only.
+const readOnlyOf = (host: InstallHost): boolean =>
+  host.messages.some(
+    (message) => message.type === "storage" && message.state === "read-only",
+  );
+
+// The IndexedDB backend refuses a reader's writes; the Node backend has no
+// read-only mode, so under Node only the lock and the report are judged.
+const writerLock: InstallScenario = {
+  name: "writer-lock",
+  criterion:
+    "of two hosts started at once on one engine, exactly one takes the engine's user data's " +
+    "writer lock and mounts it read-write; the other reports storage: read-only, and with " +
+    "IndexedDB its writes fail with EROFS, while it reads what the writer wrote; once the " +
+    "writer's Worker is terminated, a host started next takes the lock and writes",
+  async run(harness, engine, started): Promise<Outcome> {
+    const { env } = harness;
+    const dir = engineDir(engine);
+    const enforced = env.engine?.mount === "indexeddb";
+    const refused = -env.errno.EROFS!;
+    const write = (client: Client, name: string): Promise<number> =>
+      call32(client, env.ops.writeFile, env.utf8(`${dir}/${name}\0${name}`));
+    const hosts = [harness.start(engine), harness.start(engine)];
+    started.push(...hosts);
+    const clients = await Promise.all(
+      hosts.map((host) => ready(harness, host)),
+    );
+    const readOnly = hosts.map(readOnlyOf);
+    const writers = readOnly.flatMap((ro, i) => (ro ? [] : [i]));
+    const wrote = await Promise.all(
+      clients.map((client, i) => write(client, `by-${i}.txt`)),
+    );
+    const measurements: Record<string, Measurement> = {
+      enforced,
+      readOnly: readOnly.map((ro, i) => `host ${i}: ${ro}`),
+      wrote: wrote.map((ret, i) => `host ${i}: ${ret}`),
+    };
+    if (writers.length !== 1)
+      return {
+        pass: false,
+        measurements: { ...measurements, writers: writers.length },
+      };
+    const writer = writers[0]!;
+    const reader = 1 - writer;
+    const fromWriter = `by-${writer}.txt`;
+    const readBack = replyFile(
+      await clients[reader]!.call(
+        env.ops.readFile,
+        env.utf8(`${dir}/${fromWriter}`),
+      ),
+      env,
+    );
+    measurements.readerReadsWriters = readBack.text ?? readBack.status;
+
+    const terminatedAt = env.now();
+    await hosts[writer]!.terminate();
+    const next = harness.start(engine);
+    started.push(next);
+    const nextClient = await ready(harness, next);
+    measurements.nextReadyAfterTerminateMs = round(env.now() - terminatedAt);
+    const nextWrote = await write(nextClient, "by-next.txt");
+    const readerWroteAfter = await write(clients[reader]!, "by-reader.txt");
+    measurements.next = `${readOnlyOf(next) ? "read-only" : "read-write"}, wrote ${nextWrote}`;
+    measurements.readerAfter = `${readOnlyOf(hosts[reader]!) ? "read-only" : "read-write"}, wrote ${readerWroteAfter}`;
+    const length = (name: string): number => env.utf8(name).length;
+    return {
+      pass:
+        wrote[writer] === length(`by-${writer}.txt`) &&
+        readBack.text === fromWriter &&
+        !readOnlyOf(next) &&
+        nextWrote === length("by-next.txt") &&
+        (!enforced ||
+          (wrote[reader] === refused && readerWroteAfter === refused)),
+      measurements,
+    };
+  },
+};
+
 export const installScenarios: readonly InstallScenario[] = [
   installFresh,
   installSkip,
@@ -781,6 +863,7 @@ export const installScenarios: readonly InstallScenario[] = [
   failedStartReleasesLocks,
   dataReadOnly,
   storageNames,
+  writerLock,
 ];
 
 // Runs each scenario on an engine of its own, terminating the hosts it

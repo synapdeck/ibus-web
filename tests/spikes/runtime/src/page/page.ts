@@ -15,6 +15,7 @@ import {
   engineDataDatabase,
   engineDataDatabasePrefix,
   engineDir,
+  engineWriterLock,
   SPIKE_ENGINE,
   withData,
   type EngineManifest,
@@ -145,6 +146,27 @@ const sampleMemory = async (): Promise<Record<string, number>> => {
   }
   return sample;
 };
+
+const readOnly = (message: HostMessage): boolean =>
+  message.type === "storage" && message.state === "read-only";
+
+// How long a page waits for a terminated host's lock. Chromium lets go of
+// the locks of a Worker terminated while it sleeps in Atomics.wait() only
+// some 2 s after terminate(), Firefox at once; a host started before then
+// would find the writer lock taken and stay read-only for good.
+const LOCK_RELEASE_LIMIT_MS = 10_000;
+
+// Settles once the lock is free, which a queued request is granted as soon
+// as it is, and let go of at once; or after LOCK_RELEASE_LIMIT_MS, when
+// another host holds it.
+const lockReleased = (name: string): Promise<void> =>
+  navigator.locks
+    .request(
+      name,
+      { signal: AbortSignal.timeout(LOCK_RELEASE_LIMIT_MS) },
+      () => {},
+    )
+    .catch(() => {});
 
 const storageOf = (storage: PageRunSpec["storage"]): Storage =>
   storage === "none"
@@ -314,6 +336,8 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     // Every host of a run shares the origin's storage and locks, as tabs
     // of one origin do.
     const workers: Worker[] = [];
+    // By engine name: settles once a terminated host's writer lock is free.
+    const releasing = new Map<string, Promise<void>>();
     let first: { startupMs: number; features: HostFeatures } | undefined;
     const harness: InstallHarness = {
       env: envFor([]),
@@ -351,17 +375,33 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
           .filter((name) => name.startsWith(prefix))
           .map((name) => name.slice(prefix.length));
       },
+      // A host is started only once the writer lock of its engine, if a
+      // host this page terminated may have held it, has come free.
       start: (installed, options = {}) => {
         const messages: HostMessage[] = [];
-        const { worker, started } = launch(installed, options, messages);
-        workers.push(worker);
+        const launched = (releasing.get(installed.name) ?? Promise.resolve())
+          .then(() => launch(installed, options, messages))
+          .then((host) => {
+            workers.push(host.worker);
+            return host;
+          });
         return {
           messages,
-          ready: started.then((host) => {
-            first ??= host;
-            return host.client;
-          }),
-          terminate: async () => worker.terminate(),
+          ready: launched
+            .then(({ started }) => started)
+            .then((host) => {
+              first ??= host;
+              return host.client;
+            }),
+          terminate: async () => {
+            const { worker } = await launched;
+            worker.terminate();
+            if (!messages.some(readOnly))
+              releasing.set(
+                installed.name,
+                lockReleased(engineWriterLock(installed)),
+              );
+          },
         };
       },
     };
