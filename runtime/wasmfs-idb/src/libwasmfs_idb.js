@@ -82,9 +82,11 @@ const wasmfsIdbErrno = (e) => {
     // A closed connection, or a database another version replaced.
     case "InvalidStateError":
     case "VersionError":
+    // Closing the connection aborts the transactions it was running.
+    case "AbortError":
       return -ERRNO_CODES.EIO;
   }
-  err("wasmfs-idb: unexpected error:", e);
+  err(`wasmfs-idb: unexpected error: ${e}`);
   return -ERRNO_CODES.EIO;
 };
 
@@ -363,7 +365,16 @@ const _wasmfs_idb_open = async (
       }
       state.chunkSize = storedChunkSize;
       state.root = root;
-      if (!readOnly) await wasmfsIdbSweep(state);
+      if (!readOnly) {
+        try {
+          await wasmfsIdbSweep(state);
+        } catch (e) {
+          // Orphans only take space, and the next writer's sweep takes them;
+          // a connection that has closed is of no use to mount, though.
+          if (!state.db) throw e;
+          err(`wasmfs-idb: sweeping ${name} failed: ${e}`);
+        }
+      }
     } catch (e) {
       db.close();
       throw e;
@@ -371,7 +382,14 @@ const _wasmfs_idb_open = async (
     HEAP32[idPtr >> 2] = wasmfsIdbBackends.allocate(state);
     HEAPU32[rootPtr >> 2] = state.root;
   } catch (e) {
-    HEAP32[idPtr >> 2] = wasmfsIdbErrno(e);
+    // The caller learns only that there is no backend. A failure that is
+    // already an errno was reported where it arose.
+    if (e instanceof WasmfsIdbError) {
+      HEAP32[idPtr >> 2] = e.errno;
+    } else {
+      err(`wasmfs-idb: opening ${name} failed: ${e}`);
+      HEAP32[idPtr >> 2] = -ERRNO_CODES.EIO;
+    }
   }
   _emscripten_proxy_finish(ctx);
 };
@@ -1109,7 +1127,6 @@ addToLibrary({
   _wasmfs_idb_open__deps: [
     "emscripten_proxy_finish",
     "$wasmfsIdbBackends",
-    "$wasmfsIdbErrno",
     "$wasmfsIdbRequest",
     "$wasmfsIdbTransact",
     "$wasmfsIdbSweep",

@@ -1,20 +1,23 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-/* Creating a read-write backend sweeps the orphans sweep.1 left: inodes no
- * directory holds, with their chunks. It sweeps once, as it is created: an
- * orphan that turns up later stays through everything the backend does
- * until another backend is created, and a read-only backend, which changes
- * nothing, doesn't sweep it either. */
+/* Creating a read-write backend sweeps the orphans the previous program
+ * left: inodes no directory holds, with their chunks. It sweeps once, as it
+ * is created: an orphan that turns up later stays through everything the
+ * backend does until another backend is created, and a read-only backend,
+ * which changes nothing, doesn't sweep it either. A sweep that fails leaves
+ * the orphans for the next one and doesn't stop the backend mounting. */
 
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 
+#include "faults.h"
 #include "idb-test.h"
 #include "sweep.h"
 
 #define READ_ONLY_MOUNT "/sweep-ro"
+#define FAILED_MOUNT "/sweep-failed"
 #define AGAIN_MOUNT "/sweep-again"
 
 EM_JS_DEPS(sweep, "$callUserCallback,$UTF8ToString");
@@ -65,6 +68,7 @@ static void check_counts(const struct idb_test_layout *layout, unsigned inodes,
 static void swept(const struct idb_test_layout *layout);
 static void survived(const struct idb_test_layout *layout);
 static void survived_read_only(const struct idb_test_layout *layout);
+static void survived_failure(const struct idb_test_layout *layout);
 static void swept_again(const struct idb_test_layout *layout);
 
 /* Before any backend has opened the database, the orphan is there. */
@@ -120,6 +124,19 @@ static void survived(const struct idb_test_layout *layout) {
 
 static void survived_read_only(const struct idb_test_layout *layout) {
   check_counts(layout, 3, 1, 2);
+  fail_delete(IDB_INODES);
+  backend_t failed = wasmfs_create_idb_backend(SWEEP_DATABASE, 0);
+  CHECK(failed != NULL);
+  CHECK(!delete_failure_pending());
+  if (failed) {
+    CHECK(wasmfs_create_directory(FAILED_MOUNT, 0777, failed) == 0);
+    check_contents(FAILED_MOUNT "/kept", "kept");
+  }
+  read_layout_then(SWEEP_DATABASE, survived_failure);
+}
+
+static void survived_failure(const struct idb_test_layout *layout) {
+  check_counts(layout, 3, 1, 2);
   backend_t again = wasmfs_create_idb_backend(SWEEP_DATABASE, 0);
   CHECK(again != NULL);
   if (again)
@@ -130,6 +147,7 @@ static void survived_read_only(const struct idb_test_layout *layout) {
 static void swept_again(const struct idb_test_layout *layout) {
   check_counts(layout, 2, 1, 1);
   check_contents(AGAIN_MOUNT "/kept", "kept");
+  check_contents(FAILED_MOUNT "/kept", "kept");
   check_contents(SWEEP_MOUNT "/kept", "kept");
   finish_test("sweep.2");
 }

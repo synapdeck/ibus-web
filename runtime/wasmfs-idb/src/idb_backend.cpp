@@ -47,9 +47,12 @@ public:
   // The JavaScript side's handle for this backend's state; 0 until opened.
   int id = 0;
   uint32_t root = 0;
-  // Set from the backend's thread, which answers no calls once it is.
+  // Set from the backend's thread when the database closes; every call after
+  // that fails with EIO.
   std::atomic<int32_t> closed{0};
+  // JavaScript sets it with Atomics.store on the bare int32.
   static_assert(sizeof(closed) == sizeof(int32_t));
+  static_assert(std::atomic<int32_t>::is_always_lock_free);
 
   explicit IdbBackend(bool readOnly) : readOnly(readOnly) {}
 
@@ -310,7 +313,7 @@ private:
                                    const std::string &target) override {
     auto attrs = insert(name, File::SymlinkKind, 0777, target.c_str());
     if (attrs.err) {
-      return nullptr;
+      return attrs.err;
     }
     return std::make_shared<IdbSymlink>(backend, attrs, target);
   }

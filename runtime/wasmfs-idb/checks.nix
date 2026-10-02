@@ -82,10 +82,11 @@
             postJs = ./tests/errors-post.js;
           }
           { source = "sweep.1.c"; }
-          # The first writer, a read-only backend and the second writer.
+          # The first writer, a read-only backend, the writer whose sweep
+          # fails and the last writer.
           {
             source = "sweep.2.c";
-            threads = 3;
+            threads = 4;
           }
         ];
       };

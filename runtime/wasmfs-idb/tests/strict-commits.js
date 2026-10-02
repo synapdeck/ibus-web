@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Counts the transactions with strict durability that commit, for tests
-// linked with this library. As the counter of chunk records does, it wraps
-// IndexedDB's method in every thread as it starts, and each commit goes to
-// the program's own wasmfs_idb_test_strict_commit, which keeps the totals in
-// memory every thread shares. The durability counted is the one the browser
+// linked with this library. The backend runs on its own threads, so the
+// library wraps IndexedDB's method in every thread as it starts, and each
+// commit goes to the program's own wasmfs_idb_test_strict_commit, which
+// keeps the totals in memory every thread shares. The durability counted is the one the browser
 // gave the transaction, not the one asked for.
 
 /** Wraps IDBDatabase's transaction() in this thread. */

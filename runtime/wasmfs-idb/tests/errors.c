@@ -5,9 +5,9 @@
  * changes nothing; a read-only backend refuses every change with EROFS and
  * still reads; a connection asking for a newer version of the database
  * closes the backend's, after which its calls fail with EIO and the host
- * hears why; and a database that can't be opened gives no backend, and
- * leaves no thread behind. Each step reads the database's records directly
- * before the next. */
+ * hears why; and a database that can't be opened gives no backend, leaves
+ * no thread behind, and the host hears why too. Each step reads the database's
+ * records directly before the next. */
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -21,6 +21,10 @@
 #define MOUNT "/data"
 #define READ_ONLY_MOUNT "/ro"
 #define CLOSED_LOG "wasmfs-idb: " DATABASE " closed for a version change"
+#define REFUSED_DATABASE DATABASE "-refused"
+#define NEWER_LOG "wasmfs-idb: opening " DATABASE " failed: VersionError"
+#define REFUSED_LOG                                                            \
+  "wasmfs-idb: opening " REFUSED_DATABASE " failed: SecurityError"
 
 EM_JS_DEPS(errors, "$PThread,$callUserCallback,$UTF8ToString");
 
@@ -50,6 +54,17 @@ static struct stat file_stat, dir_stat, link_stat;
 static struct idb_test_layout before;
 static backend_t read_only;
 static int writer_fd = -1, reader_fd = -1;
+/* What runs once stderr has had the line awaited, or has not. */
+static void (*heard)(int found);
+
+/* A line from another thread reaches this one as a message, so it can only
+ * be heard from the event loop. */
+static void await_line(const char *text, void (*next)(int found)) {
+  heard = next;
+  await_stderr(text);
+}
+
+EMSCRIPTEN_KEEPALIVE void errors_heard(int found) { heard(found); }
 
 static uint8_t pattern(size_t i) { return (uint8_t)(i * 13 + i / 241); }
 
@@ -151,6 +166,9 @@ static void quota_failures(const struct idb_test_layout *layout) {
   fail_put(IDB_META, 0);
   CHECK_ERRNO(mkdir(MOUNT "/newdir", 0755), ENOSPC);
   CHECK_ERRNO(stat(MOUNT "/newdir", &st), ENOENT);
+  fail_put(IDB_INODES, 0);
+  CHECK_ERRNO(symlink("file", MOUNT "/newlink"), ENOSPC);
+  CHECK_ERRNO(lstat(MOUNT "/newlink", &st), ENOENT);
   /* A rename deletes the old entry before the new one fails. */
   fail_put(IDB_ENTRIES, 0);
   CHECK_ERRNO(rename(MOUNT "/file", MOUNT "/renamed"), ENOSPC);
@@ -198,9 +216,8 @@ static void check_read_only(void) {
   CHECK_ERRNO(utimensat(AT_FDCWD, RO("/dir"), NULL, 0), EROFS);
   CHECK_ERRNO(utimensat(AT_FDCWD, RO("/link"), NULL, AT_SYMLINK_NOFOLLOW),
               EROFS);
-  /* WasmFS takes a backend's refusal to make a symlink for EPERM, whatever
-   * the reason. */
-  CHECK_ERRNO(symlink("file", RO("/newlink")), EPERM);
+  CHECK_ERRNO(symlink("file", RO("/newlink")), EROFS);
+  CHECK_ERRNO(symlink("file", RO("/dir/newlink")), EROFS);
 
   int fd = open(RO("/file"), O_RDONLY);
   CHECK(fd >= 0);
@@ -255,6 +272,9 @@ static void check_read_only(void) {
 }
 
 static void version_change(const struct idb_test_layout *layout);
+static void closed_heard(int found);
+static void newer_heard(int found);
+static void refused_heard(int found);
 
 static void read_only_refusals(const struct idb_test_layout *layout) {
   check_layout_unchanged(layout);
@@ -302,6 +322,7 @@ EMSCRIPTEN_KEEPALIVE void errors_upgraded(int outcome) {
   CHECK(close(writer_fd) == 0);
   CHECK(close(reader_fd) == 0);
   CHECK_ERRNO(mkdir(MOUNT "/dir/after", 0755), EIO);
+  CHECK_ERRNO(symlink("file", MOUNT "/dir/afterlink"), EIO);
   CHECK_ERRNO(chmod(MOUNT "/dir", 0700), EIO);
   CHECK_ERRNO(open(MOUNT "/file", O_RDONLY), EIO);
   errno = 0;
@@ -310,27 +331,34 @@ EMSCRIPTEN_KEEPALIVE void errors_upgraded(int outcome) {
    * logs why. */
   CHECK_ERRNO(stat(MOUNT "/never", &st), ENOENT);
 
-  await_stderr(CLOSED_LOG);
+  await_line(CLOSED_LOG, closed_heard);
+}
+
+static void check_heard(int found, const char *text) {
+  if (!found) {
+    printf("stderr never said: %s\n", text);
+    test_failures++;
+  }
 }
 
 /* A database that can't be opened, at a version newer than the backend's or
- * where IndexedDB refuses, gives no backend, and its thread is gone. */
-EMSCRIPTEN_KEEPALIVE void errors_heard(int found) {
-  if (!found) {
-    printf("stderr never said: %s\n", CLOSED_LOG);
-    test_failures++;
-  }
-
+ * where IndexedDB refuses, gives no backend, its thread is gone, and the
+ * host hears why. */
+static void closed_heard(int found) {
+  check_heard(found, CLOSED_LOG);
   int threads = running_threads();
   CHECK(wasmfs_create_idb_backend(DATABASE, 0) == NULL);
   CHECK(running_threads() == threads);
   CHECK(wasmfs_create_idb_backend(DATABASE, WASMFS_IDB_READ_ONLY) == NULL);
   CHECK(running_threads() == threads);
   fail_open();
-  CHECK(wasmfs_create_idb_backend(DATABASE "-refused", 0) == NULL);
+  CHECK(wasmfs_create_idb_backend(REFUSED_DATABASE, 0) == NULL);
   CHECK(running_threads() == threads);
   /* The pool has one thread to spare, which a thread left running would
-   * have taken. */
+   * have taken. It is taken before the event loop runs: WasmFS leaves an
+   * ended backend thread's heartbeat timer in the Worker that ran it, and
+   * the timer fails an assertion if it fires while that Worker runs no
+   * thread. */
   if (test_failures)
     finish_test("errors");
   backend_t fresh = wasmfs_create_idb_backend(DATABASE "-fresh", 0);
@@ -341,7 +369,16 @@ EMSCRIPTEN_KEEPALIVE void errors_heard(int found) {
     write_file("/fresh/file", 0644, "fresh");
     check_contents("/fresh/file", "fresh");
   }
+  await_line(NEWER_LOG, newer_heard);
+}
 
+static void newer_heard(int found) {
+  check_heard(found, NEWER_LOG);
+  await_line(REFUSED_LOG, refused_heard);
+}
+
+static void refused_heard(int found) {
+  check_heard(found, REFUSED_LOG);
   free(data);
   finish_test("errors");
 }

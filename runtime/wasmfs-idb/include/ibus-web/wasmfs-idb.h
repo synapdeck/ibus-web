@@ -13,8 +13,8 @@ extern "C" {
 /* Opens (creating if needed) the IndexedDB database `database` and returns
  * a backend whose root is that database's root directory. Must be called on
  * a pthread or a Worker's main thread, never the browser's main thread.
- * Returns NULL if IndexedDB is unavailable or the database can't be opened.
- */
+ * Returns NULL if IndexedDB is unavailable or the database can't be opened,
+ * and reports why on stderr. */
 backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
 
 /* The backend refuses every change with EROFS. */

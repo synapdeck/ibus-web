@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Fails the backend's IndexedDB calls when the test asks, for tests linked
-// with this library. As the counter of chunk records does, it wraps
-// IndexedDB's methods in every thread as it starts, and asks the program's
-// own functions, which keep their state in memory every thread shares,
-// whether to fail each call.
+// with this library. The backend runs on its own threads, so the library
+// wraps IndexedDB's methods in every thread as it starts, and asks the
+// program's own functions, which keep their state in memory every thread
+// shares, whether to fail each call.
 
 /** Wraps IndexedDB's object store and factory methods in this thread. */
 const wasmfsIdbFaults = () => {
@@ -13,26 +13,30 @@ const wasmfsIdbFaults = () => {
   const stores = ["meta", "inodes", "entries", "chunks"];
 
   /**
-   * Fails the transaction as a browser does when a write needs more than the
-   * origin's quota: it aborts with a QuotaExceededError as its error, which
-   * fails its pending requests and every request made after.
-   * @param {IDBObjectStore} objectStore
+   * Fails the transaction as a browser does when a write fails: it aborts
+   * with the error as its own, which fails its pending requests and every
+   * request made after.
+   * @param {IDBTransaction} transaction
+   * @param {string} name
    */
-  const quota = (objectStore) => {
-    if (!_wasmfs_idb_test_take_quota_failure(stores.indexOf(objectStore.name)))
-      return;
-    const { transaction } = objectStore;
-    const error = new DOMException(
-      "Injected by the test",
-      "QuotaExceededError",
-    );
+  const fail = (transaction, name) => {
+    const error = new DOMException("Injected by the test", name);
     // Aborting from script would leave the error null.
     Object.defineProperty(transaction, "error", { get: () => error });
     transaction.abort();
   };
 
+  /**
+   * A write that needs more than the origin's quota.
+   * @param {IDBObjectStore} objectStore
+   */
+  const quota = (objectStore) => {
+    if (_wasmfs_idb_test_take_quota_failure(stores.indexOf(objectStore.name)))
+      fail(objectStore.transaction, "QuotaExceededError");
+  };
+
   const store = IDBObjectStore.prototype;
-  const { put, add } = store;
+  const { put, add, delete: remove } = store;
   /**
    * @this {IDBObjectStore}
    * @param {Parameters<IDBObjectStore["put"]>} args
@@ -49,6 +53,17 @@ const wasmfsIdbFaults = () => {
   store.add = function (...args) {
     const request = add.apply(this, args);
     quota(this);
+    return request;
+  };
+
+  /**
+   * @this {IDBObjectStore}
+   * @param {Parameters<IDBObjectStore["delete"]>} args
+   */
+  store.delete = function (...args) {
+    const request = remove.apply(this, args);
+    if (_wasmfs_idb_test_take_delete_failure(stores.indexOf(this.name)))
+      fail(this.transaction, "UnknownError");
     return request;
   };
 
@@ -69,6 +84,7 @@ const wasmfsIdbFaults = () => {
 addToLibrary({
   $wasmfsIdbFaults__deps: [
     "wasmfs_idb_test_take_quota_failure",
+    "wasmfs_idb_test_take_delete_failure",
     "wasmfs_idb_test_take_open_failure",
   ],
   $wasmfsIdbFaults__postset: "wasmfsIdbFaults();",
