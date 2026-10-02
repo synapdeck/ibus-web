@@ -11,7 +11,8 @@
       # the file system test programs run on (WasmFS under Node), for the
       # standard streams on the one GLib's tools run on (Node's own), and for
       # threads under a main thread that never returns to its event loop or
-      # that loads a module while they run.
+      # that loads a module while they run, and for a memory imported, without
+      # growth, at a size between its initial size and its maximum.
       checks.emscripten-fixes =
         pkgs.runCommand "ibus-web-emscripten-fixes"
           {
@@ -59,6 +60,26 @@
               echo "dlsync-exit: exit status $status, not the 42 it exit()ed with"
               exit 1
             fi
+
+            # The memory's size comes from the command line, as its first
+            # argument in MiB.
+            echo 'if (!ENVIRONMENT_IS_PTHREAD) Module.INITIAL_MEMORY = Number(process.argv[2]) * 1024 * 1024;' > size.js
+            # Fails to link where MAXIMUM_MEMORY is ignored without growth,
+            # which emcc warns about.
+            emcc ${toolchain.commonFlags} -O2 -c ${./imported-memory-maximum.c} -o imported-memory-maximum.o
+            emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 -Werror=unused-command-line-argument \
+              -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 -sIMPORTED_MEMORY=1 \
+              -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=64MB -sPTHREAD_POOL_SIZE=1 -sEXIT_RUNTIME=1 \
+              --pre-js=size.js \
+              imported-memory-maximum.o -o imported-memory-maximum.js
+            for mib in 16 48 64; do
+              node imported-memory-maximum.js $mib
+            done
+            if node imported-memory-maximum.js 80 2> above.err; then
+              echo "imported-memory-maximum: a memory above the maximum was taken"
+              exit 1
+            fi
+            grep -q LinkError above.err || { cat above.err; exit 1; }
             touch $out
           '';
     };

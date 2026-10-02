@@ -1,0 +1,90 @@
+Imported memory: honour MAXIMUM_MEMORY without memory growth
+
+Without ALLOW_MEMORY_GROWTH, emcc links with --no-growable-memory, which
+declares the memory's maximum equal to its initial size, and lowers a
+MAXIMUM_MEMORY the user set to INITIAL_MEMORY with a warning that it means
+nothing. For an imported memory it does mean something: the module can run
+in a memory of any size from its initial size to its declared maximum, so
+one build can take a memory sized when it is loaded, while never growing
+it. With IMPORTED_MEMORY and a user-set MAXIMUM_MEMORY, keep the maximum
+and pass it to wasm-ld as --max-memory. Everything that depends on growth
+(emscripten_resize_heap, getHeapMax, the fallback memory's maximum) stays
+as it is without growth, and CAN_ADDRESS_2GB follows the real maximum.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-imported-memory-maximum.md
+
+diff --git a/site/source/docs/tools_reference/settings_reference.rst b/site/source/docs/tools_reference/settings_reference.rst
+index 269a04c..c7c617c 100644
+--- a/site/source/docs/tools_reference/settings_reference.rst
++++ b/site/source/docs/tools_reference/settings_reference.rst
+@@ -219,8 +219,13 @@ MAXIMUM_MEMORY
+ ==============
+ 
+ Set the maximum size of memory in the wasm module (in bytes). This is only
+-relevant when ALLOW_MEMORY_GROWTH is set, as without growth, the size of
+-INITIAL_MEMORY is the final size of memory anyhow.
++relevant when ALLOW_MEMORY_GROWTH or IMPORTED_MEMORY is set; otherwise the
++size of INITIAL_MEMORY is the final size of memory anyhow. Without growth,
++an imported memory may be any size from INITIAL_MEMORY up to this maximum,
++and the module uses the memory it is given without ever growing it, so a
++single build can run in a memory whose size is chosen when it is loaded
++(passed as ``wasmMemory``, or made from ``INITIAL_MEMORY`` on the Module
++object).
+ 
+ Note that the default value here is 2GB, which means that by default if you
+ enable memory growth then we can grow up to 2GB but no higher. 2GB is a
+diff --git a/src/settings.js b/src/settings.js
+index 388a297..5f1303e 100644
+--- a/src/settings.js
++++ b/src/settings.js
+@@ -189,8 +189,13 @@ var INITIAL_HEAP = 16777216;
+ var INITIAL_MEMORY = -1;
+ 
+ // Set the maximum size of memory in the wasm module (in bytes). This is only
+-// relevant when ALLOW_MEMORY_GROWTH is set, as without growth, the size of
+-// INITIAL_MEMORY is the final size of memory anyhow.
++// relevant when ALLOW_MEMORY_GROWTH or IMPORTED_MEMORY is set; otherwise the
++// size of INITIAL_MEMORY is the final size of memory anyhow. Without growth,
++// an imported memory may be any size from INITIAL_MEMORY up to this maximum,
++// and the module uses the memory it is given without ever growing it, so a
++// single build can run in a memory whose size is chosen when it is loaded
++// (passed as ``wasmMemory``, or made from ``INITIAL_MEMORY`` on the Module
++// object).
+ //
+ // Note that the default value here is 2GB, which means that by default if you
+ // enable memory growth then we can grow up to 2GB but no higher. 2GB is a
+diff --git a/tools/building.py b/tools/building.py
+index fc85d5e..381eeaf 100755
+--- a/tools/building.py
++++ b/tools/building.py
+@@ -248,7 +248,9 @@ def lld_flags_for_executable(external_symbols):
+   if not settings.SIDE_MODULE:
+     cmd += ['-z', 'stack-size=%s' % settings.STACK_SIZE]
+ 
+-    if settings.ALLOW_MEMORY_GROWTH:
++    # Without growth, an imported memory may still be declared with a maximum
++    # above its initial size, so that the embedder can pass a larger one.
++    if settings.ALLOW_MEMORY_GROWTH or (settings.IMPORTED_MEMORY and settings.MAXIMUM_MEMORY > settings.INITIAL_MEMORY):
+       cmd += ['--max-memory=%d' % settings.MAXIMUM_MEMORY]
+     else:
+       cmd += ['--no-growable-memory']
+diff --git a/tools/link.py b/tools/link.py
+index 63ac747..43d750b 100755
+--- a/tools/link.py
++++ b/tools/link.py
+@@ -551,9 +551,12 @@ def set_max_memory():
+   # With INITIAL_HEAP, we only know the lower bound on initial memory size.
+   initial_memory_known = settings.INITIAL_MEMORY != -1
+ 
+-  if not settings.ALLOW_MEMORY_GROWTH:
++  # An imported memory can be larger than INITIAL_MEMORY, up to a maximum the
++  # user sets, even without growth: the module then runs in the memory it is
++  # given and never grows it.
++  if not settings.ALLOW_MEMORY_GROWTH and not (settings.IMPORTED_MEMORY and 'MAXIMUM_MEMORY' in user_settings):
+     if 'MAXIMUM_MEMORY' in user_settings:
+-      diagnostics.warning('unused-command-line-argument', 'MAXIMUM_MEMORY is only meaningful with ALLOW_MEMORY_GROWTH')
++      diagnostics.warning('unused-command-line-argument', 'MAXIMUM_MEMORY is only meaningful with ALLOW_MEMORY_GROWTH or IMPORTED_MEMORY')
+     # Optimization: lower the default maximum memory to initial memory if possible.
+     if initial_memory_known:
+       settings.MAXIMUM_MEMORY = settings.INITIAL_MEMORY

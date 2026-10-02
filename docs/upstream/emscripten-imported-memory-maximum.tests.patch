@@ -1,0 +1,44 @@
+diff --git a/test/test_other.py b/test/test_other.py
+index b5ad68b..22ae290 100644
+--- a/test/test_other.py
++++ b/test/test_other.py
+@@ -8488,6 +8488,39 @@ int main() {
+     # and with memory growth, all should be good
+     self.do_runf_out_file('hello_world.c', cflags=['-sINITIAL_MEMORY=16mb', '--pre-js', 'pre.js', '-sALLOW_MEMORY_GROWTH', '-sIMPORTED_MEMORY'])
+ 
++  @parameterized({
++    '': ([],),
++    'pthread': (['-pthread'],),
++  })
++  def test_imported_memory_maximum_no_growth(self, args):
++    # Without memory growth, an imported memory may still be any size up to
++    # MAXIMUM_MEMORY. The module uses the memory it is given and never grows
++    # it.
++    create_file('main.c', r'''
++      #include <emscripten/heap.h>
++      #include <stdio.h>
++      #include <stdlib.h>
++
++      void* volatile block;
++
++      int main() {
++        size_t size = emscripten_get_heap_max();
++        printf("heap max: %zuMB\n", size / (1024 * 1024));
++        block = malloc(size);
++        printf("malloc beyond it: %s\n", block ? "succeeded" : "failed");
++        printf("heap max after: %zuMB\n", emscripten_get_heap_max() / (1024 * 1024));
++        return 0;
++      }
++    ''')
++    create_file('pre.js', 'Module.INITIAL_MEMORY = 48 * 1024 * 1024;')
++    cflags = ['-Werror', '-sIMPORTED_MEMORY', '-sINITIAL_MEMORY=16MB', '-sMAXIMUM_MEMORY=64MB',
++              '-sABORTING_MALLOC=0', '--pre-js=pre.js'] + args
++    self.do_runf('main.c', 'heap max: 48MB\nmalloc beyond it: failed\nheap max after: 48MB\n', cflags=cflags)
++    # A memory above the maximum is refused.
++    create_file('pre.js', 'Module.INITIAL_MEMORY = 80 * 1024 * 1024;')
++    out = self.do_runf('main.c', cflags=cflags, assert_returncode=NON_ZERO)
++    self.assertContained('LinkError', out)
++
+   @parameterized({
+     '': ([], 16 * 1024 * 1024), # Default behavior: 16MB initial heap
+     'explicit': (['-sINITIAL_HEAP=64KB'], 64 * 1024), # Explicitly set initial heap is passed

@@ -35,6 +35,7 @@ there, so changing a patch rebuilds the cache and everything in `pkgsWasm`.
 | 0013 `wasmfs-node-chmod`             | Node backend: `chmod()`, `fchmod()` and `utimensat()` change only WasmFS's record, never the host's                                                                                                                                                                                                                                                                                                                                        | not filed; draft `emscripten-wasmfs-node-chmod.md`                                                                                                                                                                           | a release contains the fix                          |
 | 0014 `pthread-cleanup-blocked-main`  | pthreads: a thread that ends without a join on the main runtime thread (detached, or joined by another thread) keeps its stack and its Worker until the main thread's event loop runs, so a main thread that stays blocked never gets them back; it now reclaims them whenever it processes its queued calls, `emscripten_futex_wait()` included; `dlopen()`'s sync holds those cleanups off until it has been through its list of threads | [#16763](https://github.com/emscripten-core/emscripten/issues/16763) (closed by its reporter, workarounds only); draft `emscripten-pthread-cleanup-blocked-main.md`                                                          | a release contains the fix                          |
 | 0015 `pthread-finished-mark-reused`  | pthreads with dynamic linking: a joined thread's late "finished" message marks a new, running thread that reuses its `pthread_t`, so `dlopen()`'s sync skips that thread for good and its calls into modules loaded later trap                                                                                                                                                                                                             | not filed; draft `emscripten-pthread-finished-mark-reused.md`                                                                                                                                                                | a release contains the fix                          |
+| 0016 `imported-memory-maximum` | without memory growth, a `MAXIMUM_MEMORY` set for an imported memory is dropped with a warning and the import's maximum tied to `INITIAL_MEMORY`, so the module takes a memory of exactly that size; it now takes any size up to `MAXIMUM_MEMORY`, still without growing it | not filed; draft `emscripten-imported-memory-maximum.md` | a release contains the fix |
 
 As of 6.0.10 (2026-09-18) only #27632 is in a release; the drafts record
 that the code the others change is unchanged there and on `main`.
@@ -65,6 +66,24 @@ threads now clean up as early as joins on the main thread always did.
 `checks.emscripten-fixes` reproduces the race: it joins a thread on the main
 thread, creates a new one at the same address before the event loop runs,
 then `dlopen`s a side module the new thread calls into.
+
+0016 changes only emcc's link (`tools/link.py`, `tools/building.py`) and
+the setting's documentation (`src/settings.js` and the settings reference
+generated from it). With `IMPORTED_MEMORY` and a `MAXIMUM_MEMORY` set on the
+command line, a link without growth passes `--max-memory` to `wasm-ld`
+instead of `--no-growable-memory`; everything else is as without growth:
+`emscripten_resize_heap()` fails or aborts, `getHeapMax()` is the memory's
+size, a memory Emscripten makes itself has its maximum at its initial size,
+and `CAN_ADDRESS_2GB` follows the maximum as it does with growth.
+`checks.emscripten-fixes` links with `-Werror=unused-command-line-argument`,
+which the unpatched warning fails, gives the module memories of the
+initial size, between it and the maximum, and the maximum, and checks the
+heap spans each on every thread and an allocation past it fails without
+growing it; a memory above the maximum is a `LinkError`. Its draft carries
+`other.test_imported_memory_maximum_no_growth` in the suite's format (also
+as `*.tests.patch` beside it), which fails on stock 6.0.9 and passes with
+the stack; the 202-test pthread selection gives the same results with
+0016 as without it.
 
 Tested beyond `checks.emscripten-fixes`, with the whole stack on Emscripten's
 own test runner: `other.test_gen_sig_info`, `other.test_wasmfs_getdents_node`
