@@ -471,11 +471,11 @@ at its first idle moment anyway: the same Workers and memory, loaded after
 "ready" instead of with the runtime, through a 47–60 ms top-up and, in
 Firefox, a `new Worker()` window while the page may already be sending
 keystrokes. Starting with 11 costs the 3 Workers' memory up front (about
-45 MiB each under Node; not measured in browsers) and 15–30 ms of startup
+18 MiB each in Chromium, 12–16 MiB in Firefox and 42 MiB under Node; What
+a pool Worker costs, below) and 15–30 ms of startup
 (one sandbox run each, released: Chromium 160–171 ms against 138–164 ms
 with 8, Firefox 147–156 ms against 118–131 ms, Node 184 ms against 163 ms).
-The way to save that memory is fewer spares, not a lazier top-up, and that
-trade is Task 7's.
+The way to save that memory is fewer spares, not a lazier top-up.
 
 `pool-top-up` checks both halves in Node and both browsers: with 8 threads
 alive (`hold`) and the host idle, 3 of 11 Workers stay idle and the host
@@ -1058,7 +1058,13 @@ Node too. Startup is unchanged within the runs' noise.
   turn in both browsers; the pool runs out cleanly; a top-up of three Workers
   takes 54–60 ms, of one 47–48 ms. The spec (§5.3) takes this: an engine's
   share comes from its manifest, and the pool of a host is the runtime's
-  shares plus its engines' plus the spares; the low-water mark covers GLib's
+  shares plus its engine's plus the spares. Emscripten 6.0.9 writes
+  `-sPTHREAD_POOL_SIZE` into the runtime's JavaScript verbatim, inside the
+  modularized factory where `Module` is the host's settings object, so the
+  runtime can link with the Nix-derived base plus
+  `Module["ibuswebEngineThreads"]` and start with the engine's share in the
+  pool (checked on a probe linked that way: base 2 plus 3 from `Module`
+  gave 5 pool Workers); the low-water mark covers GLib's
   share, since GLib aborts or leaves work queued when it can't get a thread.
   With OPFS out of the design (below), the OPFS backend's share becomes the
   IndexedDB backend's, which also runs on a thread of its own. Still open: a
@@ -1111,19 +1117,21 @@ Node too. Startup is unchanged within the runs' noise.
   and Firefox 151; WebKit wasn't run. In the browsers the relay and the
   in-runtime sleep add about 20 µs to a request that finds the host asleep
   (cold-wake means, one run), against 1–3 µs under Node.
-- **One relay per page could serve every engine** (an option, not adopted): a page-wide doorbell word that the page bumps after
-  posting to any engine, per-engine sequence words in each control buffer,
-  and one relay that, on each ring, scans the engines' sequence words and
-  bumps the WASM wake word of each engine whose sequence moved. It would need
-  every engine's memory, so it is still host-side, shared by the hosts.
+- **One relay per page could serve every engine** (an option, not adopted):
+  a page-wide doorbell word that the page bumps after posting to any engine,
+  per-engine sequence words in each control buffer, and one relay that, on
+  each ring, scans the engines' sequence words and bumps the WASM wake word
+  of each engine whose sequence moved. It would need every engine's memory,
+  so it is still host-side, shared by the hosts.
 - **Memory is fixed per Worker, made by the host** (Memory growth, above):
   growth traps in V8, whose fix is in no Node release line. The runtime
   imports a memory of the engine manifest's `memory` bytes whose maximum is
   its size, and won't start without one. Every pool Worker holds an instance
   of the runtime: about 18 MiB in Chromium, 12–16 MiB in Firefox, 42 MiB
-  under Node, and its first thread 3–10 MiB more. Adding a Worker costs
-  18–20 ms (three in 54–60 ms, released runtime), and its first thread about
-  12 ms more in Chromium, 2–5 ms in Firefox, since each loads the runtime and
+  under Node, and its first thread 3–10 MiB more. A top-up of three Workers
+  takes 54–60 ms in the browsers (released runtime), 18–20 ms per Worker,
+  and a top-up of one 47–48 ms; a Worker's first thread takes about 12 ms
+  more in Chromium, 2–5 ms in Firefox, since each loads the runtime and
   every side module.
 - **Exceptions:** `-fwasm-exceptions` emits the legacy encoding, which Firefox
   warns is deprecated. `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one,

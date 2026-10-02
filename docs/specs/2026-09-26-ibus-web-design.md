@@ -430,8 +430,9 @@ unjoined (§10.3). A host asleep on any other word never runs them, so a thread
 that creates threads, or a `GTask` started from another thread, hangs. Each
 `emscripten_futex_wait` on the runtime's thread runs them, so they complete
 while the host sleeps, under Node and in Chromium and Firefox. `ibusweb_wait`
-always sleeps once, even when the word has already moved, so a host woken
-often doesn't starve them; any result but success or a timeout is a crash.
+always makes one futex wait, even when the word has already moved: that wait
+returns at once but still runs the queued calls, so a host woken often
+doesn't starve them. Any result but success or a timeout is a crash.
 
 Two things bump the wake word:
 
@@ -445,7 +446,9 @@ Two things bump the wake word:
   iterations still work. A test attaches a source from another thread while
   the host waits and checks that it is dispatched promptly.
 - **The wake relay**, for the page, which never touches WASM memory (§9.2).
-  The page bumps the control SAB's `wake` word (§6.2.1). The relay, a small
+  The page bumps the control SAB's `wake` word (§6.2.1) for two things: a
+  request it has posted, and ring space the host is waiting for (§6.2.2), so
+  a wake from the page means one or the other. The relay, a small
   Worker the host starts, sleeps in `Atomics.wait` on that word and, for each
   change, bumps and notifies the wake word. It needs no event loop after
   startup. It compares the word with the value it last forwarded, never with
@@ -495,20 +498,29 @@ doorbell `postMessage` (§6.2.3).
   the runtime (`-sPTHREAD_POOL_SIZE`), sized for the threads expected alive
   at once plus spares, and `-sPTHREAD_POOL_SIZE_STRICT=2` makes a thread
   beyond the pool fail at once with `EAGAIN` instead of waiting for good.
-  `ibusWeb.runtime.threadPool` derives the size from shares, by what starts
-  the threads: GLib's 3 (what one `GTask` in flight keeps alive: the worker
+  The size is made of shares, by what starts the threads, plus spares. The
+  base is fixed at link time, from Nix (`ibusWeb.runtime.threadPool`):
+  GLib's share, 3 (what one `GTask` in flight keeps alive: the worker
   context's thread and the thread-pool spawner, kept for good, and a `GTask`
   worker, kept 15.5 s after its last task), the storage backend's 1 (§5.6),
-  and each engine's share from its manifest; plus `lowWater`, 3 spare
-  Workers, GLib's share. GLib handles a failed thread creation badly:
-  `g_thread_new()` aborts, so the first `GTask` aborts the runtime if no
-  Worker is idle, and a `GTask` whose worker can't start stays queued until
-  some other worker is free. The spares keep GLib's threads available when an
-  engine starts more threads than its share. Whenever no request is pending
-  and fewer than `lowWater` Workers are idle, which happens only past the
-  shares, the Worker host tops the pool back up (§5.5); Workers added stay.
-  Bursts within the pool start without an event-loop turn in both browsers;
-  a top-up of one Worker takes 47–48 ms there.
+  and `lowWater`, 3 spare Workers. The engine's share is added per Worker:
+  Emscripten writes `-sPTHREAD_POOL_SIZE` into its JavaScript verbatim, as
+  an expression evaluated inside the modularized runtime's factory, where
+  `Module` is the settings object the host passes in. The runtime links with
+  the base plus `Module["ibuswebEngineThreads"]`, which the host sets from
+  the manifest's `threads`, so Emscripten makes the whole pool, and loads
+  the runtime into each Worker, before the runtime runs.
+- **Spares.** GLib handles a failed thread creation badly: `g_thread_new()`
+  aborts, so the first `GTask` aborts the runtime if no Worker is idle, and
+  a `GTask` whose worker can't start stays queued, silently, until some
+  other worker is free. The first `GTask` needs all three of GLib's threads
+  at once, so the spares number GLib's share: a thread an engine starts
+  beyond its share takes a spare rather than a Worker GLib counts on.
+  Whenever no request is pending and fewer than `lowWater` Workers are idle,
+  which happens only past the shares, the Worker host tops the pool back up
+  (§5.5), the one use it makes of Emscripten's internal `PThread`; Workers
+  added stay. Bursts within the pool start without an event-loop turn in
+  both browsers; a top-up of one Worker takes 47–48 ms there.
 - **Export list.** The runtime exports what side modules may import, a
   manifest per library, each identified by its whole version:
   `libibus-web` (by `IBUSWEB_RUNTIME_ABI`); GLib, GObject, GModule and GIO
@@ -569,7 +581,8 @@ doorbell `postMessage` (§6.2.3).
   compiles it once (Sharing, below). An engine's build sets `memory` to the
   runtime's minimum, plus the side module's own memory (its `dylink.0`
   memory size), plus any files it keeps in WasmFS's memory backend (engine
-  data in IndexedDB, §5.6, is read lazily and doesn't count), plus 1 MiB per
+  data in IndexedDB, §5.6, is read lazily and doesn't count; without
+  IndexedDB the host adds the data's size itself), plus 1 MiB per
   thread of its pool share, plus the heap its checks measure at their peak,
   with a quarter more for margin, rounded up to whole MiB. The page's budget
   is that memory, touched or not, plus each pool Worker's own cost, since
@@ -635,8 +648,14 @@ Generated at build time, partly from the engine's component XML. Example
   "protocol": 1,
   "module": "hangul.wasm",
   "memory": 67108864, // bytes, whole 64 KiB pages, fixed for the runtime's life (§5.3)
-  "threads": 1, // the engine's share of the thread pool (§5.3)
-  "data": [{ "path": "/usr/share/libhangul", "url": "hangul-data.tar" }],
+  "threads": 1, // the engine's share of the thread pool, added to the runtime's base (§5.3)
+  "data": [
+    {
+      "path": "/usr/share/libhangul",
+      "url": "hangul-data.tar",
+      "size": 1048576, // bytes once unpacked (§5.6)
+    },
+  ],
   "engines": [
     {
       "name": "hangul",
@@ -659,16 +678,18 @@ page bundle (§9.2).
 
 1. Receives the compiled runtime module, the SAB and the manifest by
    `postMessage`.
-2. Builds the Worker's resources in nested scopes (below): makes the
-   runtime's memory at the manifest's size (§5.3) and instantiates the
-   runtime with it, starts the wake relay (§5.2.4), adds the engine's share
-   to the thread pool (§5.3), mounts storage (§5.6), fetches and installs
-   data files, loads the side module and calls `ibusweb_module_init`.
+2. Builds the Worker's resources in nested scopes (below): opens
+   IndexedDB, makes the runtime's memory at the manifest's size (§5.3; more
+   without IndexedDB, §5.6) and instantiates the runtime with it and with
+   `ibuswebEngineThreads` set to the manifest's `threads`, so Emscripten
+   starts the pool with the engine's share in it (§5.3), starts the wake
+   relay (§5.2.4), mounts storage (§5.6), fetches and installs data files,
+   loads the side module and calls `ibusweb_module_init`.
 3. Enters the request loop: `ibusweb_wait` on the wake word with the pump
    deadline as timeout, dispatch or pump, write the reply, repeat.
 4. Wraps every dispatch and pump in a handler for WASM traps (§8).
 
-The host grows the thread pool, at startup and in the top-up (§5.3), through
+The host grows the thread pool past its start in the top-up (§5.3), through
 Emscripten's `PThread`: it creates each Worker, loads the runtime into it, and
 keeps it out of the pool's free list until it has loaded, since Emscripten
 hands out any free Worker, loaded or not, and a thread on one that hasn't
@@ -692,22 +713,23 @@ Failures the host must report, beyond traps in its own calls:
 
 #### 5.5.1 Resource scopes
 
-| Scope                                                              | Acquire                                 | Release on normal close                 | Release after a trap                     |
-| ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------- | ---------------------------------------- |
-| Worker                                                             | SAB views, `Logger` layer, wake relay   | final `Log` records flushed             | crash record written                     |
-| Runtime                                                            | instantiate `ibus-runtime.wasm`         | none (freed with the Worker)            | none                                     |
-| Storage                                                            | WasmFS mounts, data archives            | flush and unmount the IndexedDB backend | close IndexedDB connections from JS only |
-| Engine module                                                      | load side module, `ibusweb_module_init` | module shutdown call                    | skipped                                  |
-| Engine instance (one per input context, child of the module scope) | `CreateEngine`                          | `DestroyEngine` (`g_object_unref`)      | skipped                                  |
+| Scope                                                              | Acquire                                 | Release on normal close                                                      | Release after a trap                                                              |
+| ------------------------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Worker                                                             | SAB views, `Logger` layer, wake relay   | final `Log` records flushed                                                  | crash record written                                                              |
+| Runtime                                                            | instantiate `ibus-runtime.wasm`         | none (freed with the Worker)                                                 | none                                                                              |
+| Storage                                                            | WasmFS mounts, data archives            | flush and unmount the IndexedDB backend, whose thread closes its connections | none: the connections live on the backend's thread and close when its Worker ends |
+| Engine module                                                      | load side module, `ibusweb_module_init` | module shutdown call                                                         | skipped                                                                           |
+| Engine instance (one per input context, child of the module scope) | `CreateEngine`                          | `DestroyEngine` (`g_object_unref`)                                           | skipped                                                                           |
 
 - **Finalizers inspect the `Exit`.** After a trap the WASM heap cannot be
   trusted, so finalizers that call into the runtime run only on a normal close;
   JS-side cleanup and crash reporting always run.
 - **Nothing depends on finalizers for correctness.** A hang ends in
-  `worker.terminate()`, which runs no finalizers; the browser closes the
-  Worker's IndexedDB connections when it ends. Emscripten side modules are not
-  actually unloaded, so the module scope is bookkeeping; the Worker is the
-  unit that frees memory.
+  `worker.terminate()`, which runs no finalizers; the IndexedDB connections
+  live on the storage backend's thread, a pool Worker nested in the engine's
+  Worker, and the browser closes them when it ends. Emscripten side modules
+  are not actually unloaded, so the module scope is bookkeeping; the Worker is
+  the unit that frees memory.
 
 #### 5.5.2 The request loop and the Effect runtime
 
@@ -743,10 +765,11 @@ its own loggers with engine and domain annotations (§7.4).
   `ArrayBuffer`s, never `Blob`s, and read and written lazily, a chunk at a
   time. IndexedDB is asynchronous, so the backend serves calls on a thread of
   its own, to which WasmFS proxies them and which takes the storage share of
-  the thread pool (§5.3), as WasmFS's OPFS backend does. Emscripten's WasmFS
-  has no IndexedDB backend; ours is written in C++ after the OPFS backend's
-  shape and is a candidate for upstream as `wasmfs_create_idb_backend`.
-  Milestone M0.5 builds it.
+  the thread pool (§5.3), as WasmFS's OPFS backend does. That thread runs an
+  event loop, which IndexedDB's callbacks need, and holds the backend's
+  connections. Emscripten's WasmFS has no IndexedDB backend; ours is written
+  in C++ after the OPFS backend's shape and is a candidate for upstream as
+  `wasmfs_create_idb_backend`. Milestone M0.5 builds it.
 - **Why IndexedDB.** In Firefox a Worker reads a `Blob`'s bytes (an OPFS
   `File`, a `Blob` value in IndexedDB, a cached `Response`) only while the
   page's main thread is free, so under the keystroke spin (§6.2.6) every such
@@ -769,13 +792,22 @@ its own loggers with engine and domain annotations (§7.4).
   between memory and IndexedDB.
 - **Upgrades.** Adding or removing object stores needs a version change,
   which waits until every other connection closes, so every connection
-  closes on `versionchange`. Replacing data within a version needs none.
+  closes on `versionchange`, which the backend's thread hears from its
+  event loop. Replacing data within a version needs none.
 - **Data files.** Read-only engine data (m17n-db, Hangul Hanja tables, Rime's
-  prebuilt schemas) is fetched as archives listed in the manifest, through
-  the browser's HTTP cache, and installed into the engine's IndexedDB data
-  once per version, then read lazily like any other file.
-- **Fallback.** Where IndexedDB is unavailable, the mount is in-memory and the
-  host receives a `storage: ephemeral` event (§8).
+  prebuilt schemas) is fetched as archives listed in the manifest and
+  installed into the engine's IndexedDB data once per version, then read
+  lazily like any other file. How it is installed is M0.5's to settle:
+  fetching through the browser's HTTP cache reads a response body, which in
+  Firefox waits while the page spins (§6.2.6), so installing stays off the
+  request path; and two tabs installing the same version at once need a
+  rule.
+- **Fallback.** Where IndexedDB is unavailable, the mount is in-memory: the
+  data files sit in WasmFS's memory backend, so the host makes the runtime's
+  memory larger than the manifest's `memory` by the data's size, the sum of
+  the manifest's archive sizes (§5.3). The memory is fixed once made, so the
+  host opens IndexedDB before making it. User data then lasts only as long
+  as the Worker, and the host receives a `storage: ephemeral` event (§8).
 - **Host API.** Usage report, export (a tar of the engine directory) and reset.
 
 ## 6. The Worker-boundary protocol
@@ -828,15 +860,16 @@ Each Worker has one **dedicated** `SharedArrayBuffer`, separate from its
 
 #### 6.2.1 Layout
 
-| Region         | Size (default) | Contents                                                                                                                                           |
-| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `doorbell`, `wake` |
-| Request slot   | 64 KB          | one encoded request                                                                                                                                |
-| Output ring    | 256 KB         | framed records                                                                                                                                     |
+| Region         | Size (default) | Contents                                                                                                                                                          |
+| -------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `ringWaiting`, `doorbell`, `wake` |
+| Request slot   | 64 KB          | one encoded request                                                                                                                                               |
+| Output ring    | 256 KB         | framed records                                                                                                                                                    |
 
-Sizes are configurable per Worker. The page bumps and notifies `wake` after
-each request; the wake relay forwards it into WASM memory, where the host
-sleeps (§5.2.4).
+The header's ten words take 40 of its bytes. Sizes are configurable per
+Worker. Only the page bumps `wake`: it bumps and notifies it after each
+request, and after advancing `ringRead` while `ringWaiting` is set (§6.2.2);
+the wake relay forwards it into WASM memory, where the host sleeps (§5.2.4).
 
 #### 6.2.2 Records and back-pressure
 
@@ -844,9 +877,18 @@ sleeps (§5.2.4).
   (u32), then the payload, padded to 8 bytes.
 - **No overwriting.** The page advances `ringRead` only after decoding a
   record.
-- **Full ring.** The Worker posts a doorbell, then `Atomics.wait`s on
-  `ringRead`. The page drains and `Atomics.notify`s; notifying is allowed on
-  the main thread.
+- **Full ring.** The Worker host sets `ringWaiting` to 1, posts a doorbell,
+  reads the wake word in WASM memory as `seen` and checks the free space
+  again; if the ring is still full, it calls `ibusweb_wait(seen, -1)` and
+  starts over, until there is space. It doesn't pump meanwhile: a wake from
+  GLib's hook only prompts the re-check, and a request that lands meanwhile
+  waits for the record to be written. The host sleeps in the runtime, not on
+  `ringRead`, so calls other threads proxy to its thread still run (§5.2.4).
+  The page, after advancing `ringRead`, clears `ringWaiting` if it was set
+  and bumps and notifies `wake`, which the relay forwards; notifying is
+  allowed on the main thread. Setting the flag before the re-check, and
+  reading `seen` before it too, means space freed at any point is either
+  seen by the re-check or announced by a wake.
 - **Oversize messages.** A payload larger than the free space is split into
   fragments (`flags` = CONTINUATION, final fragment unflagged) and reassembled
   by the page.
@@ -1149,9 +1191,9 @@ discarded, never repaired.
 | Restart                                                      | policy `Schedule`                                                                | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and stored data are not. | engine state `failed` after the limit                             |
 | Load failure                                                 | fetch, compile, manifest `memory` check, instantiate, data install               | Engine never enabled; router stays in direct input                                                                                                                                                                                                                      | `EngineLoadFailed`                                                |
 | Relay failure                                                | the relay writes `CRASHED` and wakes the host; a relay killed outright is a hang | as trap                                                                                                                                                                                                                                                                 | `EngineCrashed`                                                   |
-| Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                             | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap                                                                                                                                                                                                 | engine-specific, or as trap                                       |
+| Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                             | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap; a `GTask` whose worker can't start stays queued, silently, until a worker is free                                                                                                              | engine-specific, or as trap; nothing for a queued `GTask`         |
 | ABI or protocol mismatch                                     | manifest check; `Init` version check                                             | as load failure                                                                                                                                                                                                                                                         | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
-| No IndexedDB                                                 | mount fails                                                                      | in-memory mount                                                                                                                                                                                                                                                         | `storage: ephemeral`                                              |
+| No IndexedDB                                                 | opening IndexedDB fails at startup, before the runtime's memory is made          | in-memory mount, with the runtime's memory made larger by the data's size from the manifest (§5.6); user data lasts as long as the Worker                                                                                                                               | `storage: ephemeral`                                              |
 | Quota                                                        | write errors surface in the engine                                               | engine-specific                                                                                                                                                                                                                                                         | `storage` usage events, logs                                      |
 | Undecodable record                                           | protocol decode                                                                  | dev builds throw; production drops and logs                                                                                                                                                                                                                             | `ProtocolError` log                                               |
 | GLib warnings and criticals                                  | GLib log handler                                                                 | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                   | log entries                                                       |
@@ -1365,7 +1407,8 @@ artifacts; WASM builds of nixpkgs packages are reached through
   the standard (exnref) encoding of WebAssembly exceptions (R18).
   `checks.toolchain-cache` compares the features they enable with
   `modules/toolchain/expected-features.txt`, so a change to the data that
-  moves them is reviewed.
+  moves them is reviewed, and `checks.toolchain-exnref` fails once they
+  reach exnref's (R18).
 - **`pkgsWasm`.** `import nixpkgs` with `crossSystem` set to nixpkgs'
   `wasm32-unknown-none` example plus `isStatic = true` and
   `useEmscripten = true`, and
@@ -1375,9 +1418,10 @@ artifacts; WASM builds of nixpkgs packages are reached through
     is built against. The wrapper adds
     `-O2 -fPIC -pthread -fwasm-exceptions -mextended-const`
     (`ibusWeb.toolchain.commonFlags`) to every compile and link, and
-    Emscripten's minimum versions (below) to every link. `-O2` goes before the command's own arguments,
-    so a package's own `-O` wins. An `-O2` link turns Emscripten's runtime
-    assertions off, so every check and test link adds `-sASSERTIONS=1` itself.
+    Emscripten's minimum versions (above) to every link. `-O2` goes before the
+    command's own arguments, so a package's own `-O` wins. An `-O2` link turns
+    Emscripten's runtime assertions off, so every check and test link adds
+    `-sASSERTIONS=1` itself.
   - The Emscripten binutils (`emar`, `emranlib`, LLVM's `nm`, `strip` and
     friends, `wasm-ld`) carry the target prefix, so the bintools wrapper
     wraps them and builds get `$AR`, `$NM` and the rest from it.
@@ -1538,7 +1582,8 @@ emscriptenCache ─ pkgsWasm
   against the manifest
 - the toolchain's Emscripten fixes (`emscripten-fixes`), and the cache against
   every flag combination the builds use, with the features the minimum
-  versions enable (`toolchain-cache`)
+  versions enable (`toolchain-cache`), and whether they now support the
+  standard exception encoding (`toolchain-exnref`, R18)
 - the Worker host's scenarios under Node and in Chromium and Firefox (§11)
 - C/TS protocol parity
 - engine conformance golden tests and callback-audit gates
@@ -1653,7 +1698,7 @@ specification and `release.json`.
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored                                                                                                                                                                                                                                                                                                                                   | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version`                                                                                                                                                                                                 |
 | ↳ M0.3 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 16-patch Emscripten series (Wolthuizen's, Fluendo's `glist` fix, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse`                                                                                                                                                                                              | GLib 2.88.3 builds for WASM with GRegex and its tools; 277 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2)                                                                                                                                     |
 | ↳ M0.4 | **Done.** Plan `docs/plans/2026-10-01-m0-4-runtime-skeleton.md`, spike `docs/spikes/2026-10-01-runtime-worker.md`. The `runtime/` component; GLib's wake hook; `libibus-web` skeleton (pump, `ibusweb_wait`, side-module loader, spike dispatcher; GTest under `meson test`); `ibus-runtime.wasm` with `-sMAIN_MODULE=2`, WasmFS, a fixed imported memory and a strict thread pool, and a per-library export manifest; Emscripten patches for blocked main threads' thread cleanup, reused `pthread_t`s and an imported memory's maximum; pnpm workspace built offline in Nix; spike Worker host and wake relay under Node, Chromium and Firefox; Emscripten's minimum versions from Baseline Widely available | R2 settled: the host sleeps in the runtime, woken by GLib's hook and a host-side relay; threads come from a pool sized from shares plus spares, strict, topped up while idle. R3 settled for `-sMAIN_MODULE=2`/WasmFS in Node, Chromium and Firefox. Memory is fixed per Worker, since V8 traps atomics on grown shared memory. OPFS is out: engine and user data go to IndexedDB (M0.5) |
-| ↳ M0.5 | WasmFS IndexedDB backend (full lazy): files as `ArrayBuffer` chunks, read and written lazily on the backend's own thread (§5.6); engine data installed into it; upstream candidate `wasmfs_create_idb_backend`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The cost of a lazy read through the proxying round trip, under the page's spin, in both browsers; chunk size; data shared across tabs and engine instances                                                                                                                                                                                                                               |
+| ↳ M0.5 | WasmFS IndexedDB backend (full lazy): files as `ArrayBuffer` chunks, read and written lazily on the backend's own thread (§5.6); engine data installed into it; upstream candidate `wasmfs_create_idb_backend`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The cost of a lazy read through the proxying round trip, under the page's spin, in both browsers; chunk size; data shared across tabs and engine instances; how engine data is installed (§5.6); `fsync()` on the backend (R2)                                                                                                                                                           |
 | M1     | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table                                                                                                                                                                                                                                          |
 | M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                        |
 | M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                        |
@@ -1681,8 +1726,9 @@ specification and `release.json`.
   completes in both browsers while the host sleeps, because the backend's
   thread is notified directly through `Atomics.waitAsync`. All of this was
   measured under Node, Chromium 149 and Firefox 151 (spike
-  `docs/spikes/2026-10-01-runtime-worker.md`). Still open: GLib's share
-  covers one `GTask` in flight, and `GTask`s in flight at once can take
+  `docs/spikes/2026-10-01-runtime-worker.md`); `fsync()` on the IndexedDB
+  backend (§5.6), proxied the same way, is M0.5's to check. Still open: GLib's
+  share covers one `GTask` in flight, and `GTask`s in flight at once can take
   more workers, up to its pool of 10 and beyond, so engines that run them
   concurrently need a rule; and the top-up rests on Emscripten's internal
   `PThread` until Emscripten has a public call to grow the pool.
@@ -1708,7 +1754,8 @@ specification and `release.json`.
   each lazy read pays IndexedDB plus the round trip to the backend's thread.
   Its values must stay `ArrayBuffer`s, since a `Blob` brings back Firefox's
   wait on the page. WebKit's IndexedDB in Workers is unchecked. Fallback is
-  in-memory with an event.
+  an in-memory mount, its data's size added to the runtime's memory, with an
+  event.
 - **R6. libpinyin databases in WASM.** nixpkgs builds libpinyin with Kyoto
   Cabinet and ibus-libpinyin with Berkeley DB 5.3 and SQLite. All three must
   build and perform acceptably on WasmFS's IndexedDB backend. Checked in M4.
@@ -1752,8 +1799,11 @@ specification and `release.json`.
   (exnref, `try_table`), a compile and link setting that rebuilds every
   object and the cache. Its support (Chrome 137, Firefox 131, Safari 18.4)
   is Baseline newly available, widely available from about November 2027;
-  Node 24 validates it. The switch waits until the minimum versions (§10.3)
-  include it.
+  Node 24.20 was measured to validate it. The switch waits until the minimum
+  versions (§10.3) include it: `checks.toolchain-exnref` reads exnref's
+  minimum versions from Emscripten's feature matrix
+  (`tools/feature_matrix.py`) and fails, asking for the switch, once the
+  derived minimum versions all reach them.
 
 ## 14. References
 
