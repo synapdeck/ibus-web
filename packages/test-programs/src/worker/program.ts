@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// A test program's dedicated Worker. Programs are linked with -sMODULARIZE
+// A program's dedicated Worker. Programs are linked with -sMODULARIZE
 // -sEXPORT_ES6, so their module script only exports a factory; this imports
-// it and runs the program, passing its output and exit code to the page.
+// it and runs the program, passing its output and exit code to the page. A
+// GoogleTest program posts its report to the page itself.
 
 import type { StartMessage, WorkerMessage } from "../shared/protocol.ts";
 
-// The settings Emscripten's factory reads that the runner uses.
+// The settings Emscripten's factory reads that the shim uses.
 interface ModuleOptions {
   arguments: string[];
   print(text: string): void;
@@ -65,9 +66,8 @@ addEventListener(
         printErr: (text) => post({ kind: "output", line: { stream: "stderr", text } }),
         // A pthread's output reaches this Worker as a message, and the page
         // ends the run on "exit", so "exit" waits for the output messages
-        // already delivered. A line a pthread prints just before exit can
-        // still be in transit and be lost: tests report through their exit
-        // code and print what they assert on from the main thread.
+        // already delivered. A line from a pthread that nothing waited for
+        // can still be in transit, and lost.
         onExit: (code) => void drainMessages().then(() => post({ kind: "exit", code })),
         onAbort: (what) => post({ kind: "error", message: `aborted: ${describe(what)}` }),
       });

@@ -6,7 +6,6 @@
     "build": "status=0; for env in shared worker page node; do tsc -p src/$env || status=1; done; exit $status"
   },
   "devDependencies": {
-    "@ibus-web/test-browser": "workspace:*",
     "@types/node": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:"

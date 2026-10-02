@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { serve } from "@ibus-web/test-browser/server";
+import { serve } from "./server.ts";
 import {
   encodeComponent,
   engineDataBytes,

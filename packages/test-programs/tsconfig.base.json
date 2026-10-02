@@ -1,0 +1,29 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Sources are split by the environment they run in. Each directory under src/
+// has its own tsconfig.json extending this one, so no file sees another
+// environment's globals, and an editor checks a file under the config nearest
+// to it:
+//
+//   src/node/    Node globals: Vitest's configuration, the browser commands
+//                and the test file that runs programs under Node.
+//   src/browser/ DOM globals: the test file that runs programs in a browser.
+//   src/worker/  WebWorker globals: the Worker a program runs in.
+//   src/shared/  no environment's globals, only the language. The other
+//                configs include it too, so their imports of it resolve.
+//
+// An environment statically imports only its own directory and src/shared/;
+// the Worker is reached at run time by URL. rootDir and outDir resolve
+// against this file, so every config emits to dist/ with the layout of src/.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // Vitest's declarations name both DOM and Node types, and each
+    // environment has only one of them.
+    "skipLibCheck": true
+  }
+}
