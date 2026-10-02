@@ -17,7 +17,18 @@
       # keystrokes have a latency budget. When every target has
       # extended-const, emcc tells wasm-ld and wasm-opt but not clang, so
       # objects name it themselves, and every stage may use it.
-      commonFlags = "-O2 -fPIC -pthread -fwasm-exceptions -mextended-const";
+      commonFlagList = [
+        "-O2"
+        "-fPIC"
+        "-pthread"
+        "-fwasm-exceptions"
+        "-mextended-const"
+      ];
+      commonFlags = lib.concatStringsSep " " commonFlagList;
+
+      # The feature probe leaves out -mextended-const so that the minimum
+      # versions alone decide whether extended-const is on.
+      probeFlags = lib.concatStringsSep " " (lib.remove "-mextended-const" commonFlagList);
 
       # Every probe link targets the browsers and Node that builds do.
       minimumFlags = toolchain.minimumVersionFlags;
@@ -190,10 +201,28 @@
               test "$(node instantiate.mjs ./probe-runtime-cpp.js)" = "probe 2"
             done
 
-            # Emscripten gives wasm-ld extended-const only when every minimum
-            # version has it, unless -mextended-const forces it on.
-            emcc ${lib.concatStringsSep " " (lib.remove "-mextended-const" (lib.splitString " " toolchain.commonFlags))} ${minimumFlags} ${toolchain.sideModuleFlags} probe_side.c -o features.wasm -v 2> features.log
-            grep -q -- --extra-features=extended-const features.log
+            # What the minimum versions alone switch on, with nothing forcing
+            # a feature: a main module and a side module, each compiled and
+            # linked in one invocation so clang's features are listed too.
+            # EMCC_DEBUG keeps the settings dump and the feature-matrix log.
+            probe_features() {
+              local name=$1; shift
+              mkdir -p "dbg-$name"
+              EMCC_DEBUG=1 EMCC_DEBUG_SAVE=1 EMCC_TEMP_DIR=$PWD/dbg-$name "$@" -v 2> "$name.log"
+              local settings
+              settings=$(find "dbg-$name" -name 'emcc-*-settings.json' | sort | tail -n 1)
+              echo "== $name"
+              node ${./probe-features.mjs} "$name.log" $settings
+            }
+            {
+              probe_features main em++ ${probeFlags} ${minimumFlags} ${runtime.linkFlags} probe.cpp -o features-main.js
+              probe_features side emcc ${probeFlags} ${minimumFlags} ${toolchain.sideModuleFlags} probe_side.c -o features-side.wasm
+            } > features.txt
+            if ! diff -u ${./expected-features.txt} features.txt; then
+              echo "The WebAssembly features the minimum versions enable have changed." >&2
+              echo "Review the diff and, if it is intended, update expected-features.txt." >&2
+              exit 1
+            fi
 
             if em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
               echo "expected an uncached library variant to fail" >&2

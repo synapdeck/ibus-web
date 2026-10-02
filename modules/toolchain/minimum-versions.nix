@@ -30,7 +30,7 @@
           {
             nativeBuildInputs = [
               baselineBrowserMapping
-              pkgs.nodejs
+              nodejs
             ];
             timeline = "${baselineBrowserMapping.src}/src/data/timeline.js";
             inherit nodeMinimum;

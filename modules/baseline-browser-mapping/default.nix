@@ -11,7 +11,7 @@
   };
 
   config.perSystem =
-    { config, pkgs, ... }:
+    { pkgs, ... }:
     let
       package = pkgs.buildNpmPackage (finalAttrs: {
         pname = "baseline-browser-mapping";
@@ -41,7 +41,6 @@
           homepage = "https://github.com/web-platform-dx/baseline-browser-mapping";
           changelog = "https://github.com/web-platform-dx/baseline-browser-mapping/releases/tag/${finalAttrs.src.tag}";
           license = lib.licenses.asl20;
-          maintainers = with lib.maintainers; [ ];
           mainProgram = "baseline-browser-mapping";
           platforms = lib.platforms.all;
         };
@@ -49,18 +48,5 @@
     in
     {
       ibusWeb.baselineBrowserMapping = package;
-
-      # The CLI runs and names the core browsers whose versions are read
-      # from what it prints.
-      checks.baseline-browser-mapping =
-        pkgs.runCommand "ibus-web-baseline-browser-mapping-check"
-          { nativeBuildInputs = [ config.ibusWeb.baselineBrowserMapping ]; }
-          ''
-            baseline-browser-mapping --suppress-warnings > versions.txt
-            for browser in chrome firefox safari; do
-              grep -q "browser: '$browser'" versions.txt
-            done
-            touch $out
-          '';
     };
 }

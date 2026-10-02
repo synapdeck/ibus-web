@@ -1,0 +1,44 @@
+== main
+clang target-feature +atomics
+clang target-feature +bulk-memory
+clang target-feature +exception-handling
+clang target-feature +multivalue
+clang target-feature +mutable-globals
+clang target-feature +reference-types
+clang target-feature +sign-ext
+setting GROWABLE_ARRAYBUFFERS=<default>
+setting MEMORY64=<default>
+setting WASM_BIGINT=<default>
+setting WASM_LEGACY_EXCEPTIONS=<default>
+wasm-ld --extra-features=extended-const
+wasm-opt --enable-bulk-memory
+wasm-opt --enable-bulk-memory-opt
+wasm-opt --enable-call-indirect-overlong
+wasm-opt --enable-exception-handling
+wasm-opt --enable-extended-const
+wasm-opt --enable-multivalue
+wasm-opt --enable-mutable-globals
+wasm-opt --enable-nontrapping-float-to-int
+wasm-opt --enable-reference-types
+wasm-opt --enable-sign-ext
+wasm-opt --enable-threads
+== side
+clang target-feature +atomics
+clang target-feature +bulk-memory
+clang target-feature +exception-handling
+clang target-feature +multivalue
+clang target-feature +mutable-globals
+clang target-feature +reference-types
+clang target-feature +sign-ext
+wasm-ld --extra-features=extended-const
+wasm-opt --enable-bulk-memory
+wasm-opt --enable-bulk-memory-opt
+wasm-opt --enable-call-indirect-overlong
+wasm-opt --enable-exception-handling
+wasm-opt --enable-extended-const
+wasm-opt --enable-multivalue
+wasm-opt --enable-mutable-globals
+wasm-opt --enable-nontrapping-float-to-int
+wasm-opt --enable-reference-types
+wasm-opt --enable-sign-ext
+wasm-opt --enable-threads
