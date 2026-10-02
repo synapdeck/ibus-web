@@ -450,19 +450,37 @@ doorbell `postMessage` (§6.2.3).
 - **ABI version.** The export list's version is the runtime ABI version. Every
   engine manifest records the version it was built against, and a mismatch is
   a load failure (§8).
-- **Memory.** Memory growth with pthreads is unresolved. In GLib's tests a
-  pthread of a test with many threads occasionally faulted out of bounds
-  (13 of 300 runs under load); the same test linked with a fixed memory
-  just above its peak never did (0 of 300), but a GLib-free reproduction
-  hasn't shown it yet. GLib's tests and the checks that link with
-  `ibusWeb.toolchain.testMainFlags` (the GLib smoke check, libhangul, the
-  dynamic-linking spike, the toolchain and Emscripten-fix checks) use a
-  fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; the largest test,
-  `mainloop`, peaks at 280 MiB), so a fault can't hide behind the gate's
-  rerun. The Meson and Autotools consumer checks keep Emscripten's default,
-  a fixed 16 MiB; GLib's tools grow. The runtime's link chooses fixed
-  memory per Worker, sized for the side modules it loads later (R3), or
-  growth with a mitigation found by then.
+- **Memory.** Fixed per Worker, made by the host. Growth with pthreads
+  traps in V8: an atomic access that Liftoff compiled is bounds-checked
+  against the memory size its thread last saw, which another thread's
+  growth updates only once the accessing thread next handles its
+  interrupts. musl's locks and libc++'s shared pointers make such accesses
+  to memory another thread grew, which is what faulted in GLib's
+  many-thread tests (spike `docs/spikes/2026-10-01-runtime-worker.md`,
+  "Memory growth"; note
+  `docs/upstream/v8-liftoff-atomics-grown-shared-memory.md`). V8 fixed it on
+  its main branch (issues 529880019 and 533026477), first in Chrome 157; no
+  Node release line has the fix yet. The runtime
+  imports its memory and is linked to accept any size from
+  `ibusWeb.runtime.memory.minimum` (32 MiB) up to 2 GiB; it refuses to
+  start without one. The Worker host makes a shared `WebAssembly.Memory`
+  of the engine manifest's `memory` bytes with its maximum at that size,
+  and passes it as `wasmMemory`; a full heap then aborts the runtime, as a
+  trap does (§8). The size is a manifest field rather than a link per
+  engine so that one runtime binary serves every engine and the page
+  compiles it once (Sharing, below). An engine's build sets `memory` to the
+  runtime's minimum, plus the side module's own memory (its `dylink.0`
+  memory size), plus the data files it installs into WasmFS's memory
+  backend, plus 1 MiB per thread of its pool share, plus the heap its checks
+  measure at their peak, with a quarter more for margin, rounded up to whole
+  MiB. The page's budget is that memory, touched or not, plus each pool
+  Worker's own cost (the spike measures it per browser). GLib's tests and
+  the checks that link with `ibusWeb.toolchain.testMainFlags` (the GLib
+  smoke check, libhangul, the dynamic-linking spike, the toolchain and
+  Emscripten-fix checks) use a fixed 512 MiB
+  (`ibusWeb.toolchain.testMemoryFlags`; the largest test, `mainloop`, peaks
+  at 280 MiB). The Meson and Autotools consumer checks keep Emscripten's
+  default, a fixed 16 MiB; GLib's tools grow.
 - **Sharing.** The page compiles `ibus-runtime.wasm` once and sends the
   `WebAssembly.Module` to each Worker. Each Worker instantiates its own copy
   with its own memory.
@@ -509,6 +527,7 @@ Generated at build time, partly from the engine's component XML. Example
   "runtimeAbi": 1,
   "protocol": 1,
   "module": "hangul.wasm",
+  "memory": 67108864, // bytes, fixed for the runtime's life (§5.3)
   "data": [{ "path": "/usr/share/libhangul", "url": "hangul-data.tar" }],
   "engines": [
     {
@@ -532,8 +551,9 @@ page bundle (§9.2).
 
 1. Receives the compiled runtime module, the SAB and the manifest by
    `postMessage`.
-2. Builds the Worker's resources in nested scopes (below): instantiates the
-   runtime, mounts storage (§5.6), fetches and installs data files, loads the
+2. Builds the Worker's resources in nested scopes (below): makes the
+   runtime's memory at the manifest's size (§5.3) and instantiates the
+   runtime with it, mounts storage (§5.6), fetches and installs data files, loads the
    side module and calls `ibusweb_module_init`.
 3. Enters the request loop: `Atomics.wait` on the request word with the pump
    deadline as timeout, dispatch or pump, write the reply, repeat.
