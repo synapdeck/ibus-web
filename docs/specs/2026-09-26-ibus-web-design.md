@@ -1768,9 +1768,11 @@ artifacts; WASM builds of nixpkgs packages are reached through
   dependencies are a fixed-output derivation (`fetchPnpmDeps` with pnpm 11,
   installed offline with `pnpmConfigHook`), and `ibusWeb.typescript.workspace`
   builds every package's `dist/` with `tsc`, the JavaScript browsers load.
-  Each package has one `tsconfig.json` per environment directory over a
-  shared base (`strict`, `erasableSyntaxOnly`, so Node runs the sources
-  directly while iterating): `shared/` sees no environment's globals,
+  Every `tsconfig.json` in the repository extends one standard
+  configuration, the root `tsconfig.base.json` (`strict`,
+  `erasableSyntaxOnly`, so Node runs the sources directly while iterating),
+  and overrides only what its files need. Each package has one
+  `tsconfig.json` per environment directory: `shared/` sees no environment's globals,
   `worker/` the WebWorker library, `page/` the DOM and `node/` Node's types.
   Versions pnpm can't know are asserted against what it resolved: the
   `playwright` package equals nixpkgs' `playwright-driver` (1.61.1 at
