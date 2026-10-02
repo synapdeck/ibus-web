@@ -19,19 +19,6 @@ interface ModuleOptions {
 
 type Factory = (options: ModuleOptions) => Promise<unknown>;
 
-// Resolves after every message already delivered to this Worker has been
-// handled: a port's messages are handled in the order they arrive, so one
-// sent to a port of our own queues behind them.
-const drainMessages = (): Promise<void> =>
-  new Promise((resolve) => {
-    const { port1, port2 } = new MessageChannel();
-    port1.onmessage = () => {
-      port1.close();
-      resolve();
-    };
-    port2.postMessage(null);
-  });
-
 const post = (message: WorkerMessage): void => postMessage(message);
 
 // Firefox's stacks leave out the error's name and message, Chromium's start
@@ -64,11 +51,7 @@ addEventListener(
         arguments: args,
         print: (text) => post({ kind: "output", line: { stream: "stdout", text } }),
         printErr: (text) => post({ kind: "output", line: { stream: "stderr", text } }),
-        // A pthread's output reaches this Worker as a message, and the page
-        // ends the run on "exit", so "exit" waits for the output messages
-        // already delivered. A line from a pthread that nothing waited for
-        // can still be in transit, and lost.
-        onExit: (code) => void drainMessages().then(() => post({ kind: "exit", code })),
+        onExit: (code) => post({ kind: "exit", code }),
         onAbort: (what) => post({ kind: "error", message: `aborted: ${describe(what)}` }),
       });
     } catch (error) {

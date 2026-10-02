@@ -5,10 +5,13 @@
 // origin's storage only within a sequence: it is cleared before each group
 // starts.
 //
-// Browser mode runs every file with its own runner, a subclass of
-// TestRunner, and takes no runner from the configuration, so the time each
-// program reported replaces Vitest's own in TestRunner's hooks, which that
-// subclass calls once it has recorded its own time.
+// Vitest 5's browser mode runs every file with a runner of its own, a
+// subclass of TestRunner, and ignores test.runner, so the times programs
+// reported replace Vitest's through TestRunner's own hooks instead. That
+// relies on two things Vitest does: the subclass's onAfterRunTask calls
+// TestRunner's, and the runner calls onAfterRunTask and onAfterRunSuite
+// after it records its own time and before it sends the task's result on.
+// Each program's "run" test fails if a time didn't come through.
 
 import { TestRunner, inject, type RunnerTask, type RunnerTestSuite } from "vitest";
 import { commands, server } from "vitest/browser";

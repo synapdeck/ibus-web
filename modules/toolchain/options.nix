@@ -32,6 +32,10 @@
         type = lib.types.str;
         description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers.";
       };
+      testMainFlagList = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        description = "testMainFlags, one flag an element, for links that leave some out.";
+      };
       dynamicLinkFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags every main or side module link adds, acknowledging that Emscripten's dynamic linking is experimental.";

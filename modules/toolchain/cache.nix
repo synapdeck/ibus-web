@@ -47,7 +47,12 @@
 
       # Node-run programs on WasmFS, the runtime's file system. `object`
       # gives them the host's files at the host's paths.
-      nodeHostFsFlags = object: "-sWASMFS=1 -sNODE_HOST_ENV=1 ${object}";
+      nodeHostFsFlagList = object: [
+        "-sWASMFS=1"
+        "-sNODE_HOST_ENV=1"
+        object
+      ];
+      nodeHostFsFlags = object: lib.concatStringsSep " " (nodeHostFsFlagList object);
       mainLinkNodeWasmfs =
         object: "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sEXIT_RUNTIME=1 ${nodeHostFsFlags object}";
 
@@ -58,12 +63,20 @@
       # A fixed memory for Node-run tests: with pthreads, a memory that grows
       # has let threads fault out of bounds, and a test that outgrows a fixed
       # one fails plainly instead. GLib's largest test peaks at 280 MiB.
-      testMemoryFlags = "-sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=512MB";
+      testMemoryFlagList = [
+        "-sALLOW_MEMORY_GROWTH=0"
+        "-sINITIAL_MEMORY=512MB"
+      ];
+      testMemoryFlags = lib.concatStringsSep " " testMemoryFlagList;
 
       # Every dynamic link warns that Emscripten's dynamic linking with
       # pthreads (em++) and wasm-ld's PIC linking are experimental. These
       # flags acknowledge it; the linked output is the same without them.
-      dynamicLinkFlags = "-Wno-experimental -Wl,--experimental-pic";
+      dynamicLinkFlagList = [
+        "-Wno-experimental"
+        "-Wl,--experimental-pic"
+      ];
+      dynamicLinkFlags = lib.concatStringsSep " " dynamicLinkFlagList;
       sideModuleFlags = "-sSIDE_MODULE=1 ${dynamicLinkFlags}";
 
       emscriptenCache = pkgs.stdenvNoCC.mkDerivation {
@@ -128,6 +141,21 @@
         '';
       };
 
+      # Every link inherits the wrapper's -O2, which turns Emscripten's
+      # runtime assertions off; test programs want them back.
+      testMainFlagList = [
+        "-O2"
+        "-sASSERTIONS=1"
+      ]
+      ++ testMemoryFlagList
+      ++ [
+        "-sMAIN_MODULE=1"
+        "-sPTHREAD_POOL_SIZE=2"
+        "-sEXIT_RUNTIME=1"
+      ]
+      ++ nodeHostFsFlagList "${nodeHostFs}/node-host-fs.o"
+      ++ dynamicLinkFlagList;
+
       nodeHostFs =
         pkgs.runCommand "ibus-web-node-host-fs"
           {
@@ -151,9 +179,8 @@
           sideModuleFlags
           testMemoryFlags
           ;
-        # Every link inherits the wrapper's -O2, which turns Emscripten's
-        # runtime assertions off; test programs want them back.
-        testMainFlags = "-O2 -sASSERTIONS=1 ${testMemoryFlags} ${mainLinkNodeWasmfs "${nodeHostFs}/node-host-fs.o"} ${dynamicLinkFlags}";
+        inherit testMainFlagList;
+        testMainFlags = lib.concatStringsSep " " testMainFlagList;
         nodeHostFsFlags = nodeHostFsFlags "${nodeHostFs}/node-host-fs.o";
         emscriptenCacheHook = pkgs.makeSetupHook {
           name = "emscripten-cache-hook";

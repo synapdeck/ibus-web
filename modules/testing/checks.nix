@@ -206,8 +206,10 @@
       ];
 
       # One case selected by name, with its program's run: the program runs
-      # that case alone, or its run fails for reporting the others.
-      filter = "^[a-z]+ > googletest > (Fixture > Passes|run)$";
+      # that case alone, or its run fails for reporting the others. And the
+      # second program of a sequence alone, which passes only if the first
+      # still runs before it.
+      filter = "^[a-z]+ > (googletest > (Fixture > Passes|run)|persist\\.2 > .*)$";
       selected = [
         [
           "googletest"
@@ -216,6 +218,15 @@
         ]
         [
           "googletest"
+          "run"
+        ]
+        [
+          "persist.2"
+          "Persist"
+          "ReadsWhatTheFirstStored"
+        ]
+        [
+          "persist.2"
           "run"
         ]
       ];

@@ -143,11 +143,31 @@ interface Outcome {
   problem?: string;
 }
 
-// The storage a sequence shares, and whether a program of it failed.
+// A sequence's programs with their listed cases, the storage they share,
+// how many of them have run, in order, and whether one failed.
 interface Group {
+  members: { program: Program; paths: string[][] }[];
   started: boolean;
+  ran: number;
   failed?: string;
 }
+
+// Runs a sequence's programs before `upTo` that haven't run, in full, for
+// the storage they leave to it: when Vitest selects only later programs,
+// those still see what the earlier ones stored.
+const catchUp = async (group: Group, upTo: number, environment: Environment, timeoutMs: number): Promise<void> => {
+  for (; group.ran < upTo && group.failed === undefined; group.ran++) {
+    const { program, paths } = group.members[group.ran]!;
+    if (paths.length === 0) {
+      group.failed = `${program.name} failed to list its cases`;
+      break;
+    }
+    const run = await environment.run(program, selectionArgs(program, paths, []), timeoutMs, false);
+    const report = await parse(program, run, environment);
+    if (runProblem(run, report) !== undefined || report?.cases.some(({ status }) => status === "failed"))
+      group.failed = `${program.name} failed, run for the storage it leaves`;
+  }
+};
 
 // Each test of a program's suite under the path of the case it replays.
 const testsOf = (suite: RunnerTestSuite, prefix: readonly string[], into: Map<string, RunnerTask>): void => {
@@ -165,6 +185,22 @@ const suitesOf = (suite: RunnerTestSuite, prefix: readonly string[], into: Map<s
     suitesOf(task, path, into);
   }
 };
+
+// The tasks under a program's suite, finished by now, whose result doesn't
+// carry the time the program reported for them: replacing Vitest's time
+// relies on hooks Vitest runs after it records its own, and this makes a
+// change there fail rather than go unnoticed.
+const timesNotApplied = (suite: RunnerTestSuite, self: RunnerTask, prefix: readonly string[] = []): string[] =>
+  suite.tasks.flatMap((task) => {
+    if (task === self) return [];
+    const path = [...prefix, task.name];
+    const reported = task.meta.testProgramDurationMs;
+    const own =
+      reported !== undefined && task.result?.duration !== undefined && task.result.duration !== reported
+        ? [path.join(" › ")]
+        : [];
+    return task.type === "suite" ? [...own, ...timesNotApplied(task, self, path)] : own;
+  });
 
 const setDuration = (task: RunnerTask | undefined, durationMs: number | undefined): void => {
   if (task !== undefined && durationMs !== undefined) task.meta.testProgramDurationMs = durationMs;
@@ -189,11 +225,15 @@ const runProgram = async (
   const outcome: Outcome = { output: [], cases: new Map() };
   if (group.failed !== undefined) return { ...outcome, notRun: group.failed };
   if (selected.length === 0) return outcome;
+  const index = group.members.findIndex((member) => member.program === program);
   try {
     if (!group.started) {
       group.started = true;
       await environment.startGroup();
     }
+    await catchUp(group, index, environment, timeoutMs);
+    if (group.failed !== undefined) return { ...outcome, notRun: group.failed };
+    group.ran = index + 1;
     const run = await environment.run(program, selectionArgs(program, selected, unselected), timeoutMs, false);
     const report = await parse(program, run, environment);
     outcome.output = run.output;
@@ -287,12 +327,17 @@ const declareProgram = (
       outcome = await runProgram(program, suite as RunnerTestSuite, group, environment, timeoutMs);
     });
     declareCases(treeOf(listing.paths), () => outcome, environment);
-    test(RUN_TEST, () => {
+    test(RUN_TEST, (context) => {
       const { notRun, output, problem } = outcome;
       if (notRun !== undefined) throw new Error(`not run: ${notRun}`);
-      if (problem === undefined) return;
-      printAll(environment, output);
-      throw new Error(problem);
+      if (problem !== undefined) {
+        printAll(environment, output);
+        throw new Error(problem);
+      }
+      const suite = context.task.suite;
+      const unapplied = suite === undefined ? [] : timesNotApplied(suite, context.task);
+      if (unapplied.length > 0)
+        throw new Error(`Vitest's own times stand in for the program's for ${unapplied.join(", ")}`);
     });
   });
 };
@@ -303,9 +348,12 @@ const declareProgram = (
 export const collectPrograms = async (name: string, plan: Plan, environment: Environment): Promise<void> => {
   const listings: { program: Program; listing: Listing; group: Group }[] = [];
   for (const programs of plan.groups) {
-    const group: Group = { started: false };
-    for (const program of programs)
-      listings.push({ program, listing: await list(program, environment, plan.timeoutMs), group });
+    const group: Group = { members: [], started: false, ran: 0 };
+    for (const program of programs) {
+      const listing = await list(program, environment, plan.timeoutMs);
+      group.members.push({ program, paths: "paths" in listing ? listing.paths : [] });
+      listings.push({ program, listing, group });
+    }
   }
   describe(name, () => {
     for (const { program, listing, group } of listings)

@@ -88,7 +88,10 @@
           cross-origin isolated page. Programs named PREFIX.1, PREFIX.2 and so on run in
           that order and share their storage (the origin's IndexedDB, or under Node the
           working directory), and stop at the first that fails; every other program
-          starts with that storage empty.
+          starts with that storage empty. When Vitest selects cases of a later program of
+          a sequence only, the earlier ones still run first, in full, for the storage
+          they leave. A program's "run" test selected without any of its cases passes
+          without running the program.
         '';
       };
       browserRun = lib.mkOption {
@@ -129,7 +132,11 @@
       ];
 
       gtest = pkgsWasm.gtest;
-      gtestCflags = "-I${lib.getDev gtest}/include -DGTEST_HAS_PTHREAD=1";
+      gtestCflagList = [
+        "-I${lib.getDev gtest}/include"
+        "-DGTEST_HAS_PTHREAD=1"
+      ];
+      gtestCflags = lib.concatStringsSep " " gtestCflagList;
       reportLibrary = ./gtest-main/report.js;
 
       gtestMainObject = pkgsWasm.stdenv.mkDerivation {
@@ -336,7 +343,7 @@
 
         # A program on its own needs nothing of a main module's.
         nodeLinkFlags = lib.concatStringsSep " " (
-          lib.filter (flag: !lib.hasPrefix "-sMAIN_MODULE" flag) (lib.splitString " " toolchain.testMainFlags)
+          lib.filter (flag: !lib.hasPrefix "-sMAIN_MODULE" flag) toolchain.testMainFlagList
         );
 
         gtestMain = {
@@ -349,7 +356,7 @@
       };
 
       # The harness and every GoogleTest program here include GoogleTest.
-      ibusWeb.toolchain.clangdPathFlags."modules/testing/.*\\.(cpp|h)" = lib.splitString " " gtestCflags;
+      ibusWeb.toolchain.clangdPathFlags."modules/testing/.*\\.(cpp|h)" = gtestCflagList;
 
       packages.gtest-main-types = reportTypes;
 

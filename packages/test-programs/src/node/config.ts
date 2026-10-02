@@ -152,8 +152,22 @@ const servePrograms = (dirs: readonly string[]): Plugin => {
     configureServer: (server) => {
       server.middlewares.use(handle);
     },
+    // Vite warns that it can't analyze a dynamic import in Vitest's own
+    // module runner, which the browser test file pulls in to reach
+    // TestRunner. Vitest drops the same warning from its own server's log,
+    // but not from the browser server's.
+    configResolved: (config) => {
+      const { logger } = config;
+      const warn = logger.warn.bind(logger);
+      logger.warn = (message, options) => {
+        if (message.includes(UNANALYZABLE_IMPORT) && message.includes("vite_module-runner")) return;
+        warn(message, options);
+      };
+    },
   };
 };
+
+const UNANALYZABLE_IMPORT = "The above dynamic import cannot be analyzed by Vite";
 
 // Playwright says so on stderr every time it launches a browser, which it
 // does with host validation off because Nix, not the host's packages,

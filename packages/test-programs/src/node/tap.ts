@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Reads a TAP program's stdout: one case per test point, nested in its
-// subtests and, for a test point named as a path, by the path's segments. tap-parser is a Node library, so browsers reach
-// this through a command.
+// subtests and, for a test point named as a path, by the path's segments.
+// tap-parser is a Node library, so browsers reach this through a command.
 
 import { Parser, type FinalResults, type Result } from "tap-parser";
 import type { Case, ParsedReport } from "../shared/protocol.ts";
@@ -54,17 +54,12 @@ export const parseTap = (text: string): Promise<ParsedReport> =>
   new Promise((resolve) => {
     const cases: Case[] = [];
     const parser = new Parser((results: FinalResults) => {
-      // A stream that is not ok although every test point passed broke the
-      // protocol itself: no plan, a plan it didn't meet, a bail out.
-      if (results.ok || cases.some(({ status }) => status === "failed")) {
-        resolve({ cases });
-        return;
-      }
-      const reasons =
-        results.bailout === false
-          ? results.failures.map((failure) => String(failure.tapError ?? failure.name))
-          : [`bailed out: ${results.bailout === true ? "" : results.bailout}`];
-      resolve({ cases, problem: `the TAP stream is not ok: ${reasons.join("; ") || "no reason given"}` });
+      // What broke the protocol itself, failing test points aside: no
+      // plan, a plan it didn't meet, a bail out.
+      const reasons = results.failures.flatMap(({ tapError }) => (typeof tapError === "string" ? [tapError] : []));
+      if (results.bailout !== false)
+        reasons.push(`bailed out${results.bailout === true ? "" : `: ${results.bailout}`}`);
+      resolve(reasons.length === 0 ? { cases } : { cases, problem: `the TAP stream is broken: ${reasons.join("; ")}` });
     });
     listen(parser, [], cases);
     parser.end(text);
