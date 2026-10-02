@@ -303,9 +303,9 @@ const planStorage = async (
       const database = engineDatabase(engine);
       const why = await probeIndexedDB(database);
       if (why !== null) return { mount: "memory", why };
-      // Creating the backend sweeps the database of what a crash left
-      // behind, which only its one writer may do: whatever decides who
-      // writes decides the flags here, before the mount.
+      // The flags are decided before the backend exists because creating it
+      // sweeps the database of what a crash left behind, which needs
+      // exclusive write access to the database.
       return { mount: "indexeddb", database, flags: 0 };
     }
   }
@@ -358,7 +358,12 @@ const mount = (heap: Heap, plan: StoragePlan, dir: string): Mounted => {
       backend = rt._wasmfs_create_memory_backend();
       break;
   }
-  if (backend === 0) throw new Error(`no ${plan.mount} backend for ${dir}`);
+  if (backend === 0)
+    throw new Error(
+      plan.mount === "indexeddb"
+        ? `storage failed to open ${dir} on IndexedDB although IndexedDB was available; the backend logged the cause to the Worker's stderr/console`
+        : `no ${plan.mount} backend for ${dir}`,
+    );
   check(
     `mount ${dir}`,
     heap.withString(dir, (ptr) =>

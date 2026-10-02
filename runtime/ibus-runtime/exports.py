@@ -457,8 +457,7 @@ def verify(args):
     side = set(args.api_side_defined)
     side_declared = set()
     apis = []
-    for api_spec in args.api:
-        library, header = api_spec.split("=", 1)
+    for library, header in args.api:
         found = [symbols for name, _, _, symbols in sections if name == library]
         if len(found) != 1:
             fail(f"{len(found)} sections are named {library}")
@@ -489,6 +488,13 @@ def verify(args):
     print(f"API side modules define: {' '.join(sorted(side))}")
 
 
+def library_header(spec):
+    library, separator, header = spec.partition("=")
+    if not separator or not library or not header:
+        raise argparse.ArgumentTypeError(f"{spec!r} is not LIBRARY=HEADER")
+    return library, header
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -514,6 +520,7 @@ def main():
         "--api",
         action="append",
         required=True,
+        type=library_header,
         help="LIBRARY=HEADER: LIBRARY's section must be exactly HEADER's declarations",
     )
     command.add_argument(

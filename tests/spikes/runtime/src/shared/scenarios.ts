@@ -956,11 +956,13 @@ export const storageClosed: Scenario = {
     );
     const after = await stats(client, env);
     // The host posts its report when it wakes for a request; this thread
-    // receives it once its event loop runs.
-    await env.sleep(50);
-    const events = hostMessages().filter(
-      (message) => message.type === "storage",
-    );
+    // receives it once its event loop runs, so poll for it.
+    const storageEvents = () =>
+      hostMessages().filter((message) => message.type === "storage");
+    const deadline = Date.now() + 2000;
+    while (storageEvents().length === 0 && Date.now() < deadline)
+      await env.sleep(10);
+    const events = storageEvents();
     return {
       pass:
         before.mount === "indexeddb" &&
