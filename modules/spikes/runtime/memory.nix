@@ -41,13 +41,14 @@
         });
 
       emufutexBuilds = {
-        # Growth as the runtime would link it; Node has no growable shared
-        # buffers, so its threads poll for a grown memory.
+        # Growth as the runtime would have been linked for it; Node has no
+        # growable shared buffers, so its threads poll for a grown memory.
         growth = emufutex {
           name = "growth";
           memoryFlags = "-sALLOW_MEMORY_GROWTH=1 -sGROWABLE_ARRAYBUFFERS=1";
         };
-        # The same, with function names, for where a thread faults.
+        # The same, with function names, to run by hand for where a thread
+        # faults.
         growthNamed = emufutex {
           name = "growth-named";
           memoryFlags = "-sALLOW_MEMORY_GROWTH=1 -sGROWABLE_ARRAYBUFFERS=1 --profiling-funcs";
@@ -97,7 +98,8 @@
       stressPool = stressThreads + runtime.threadPool.lowWater;
 
       # The runtime as linked, with the pool the workloads need, and builds
-      # of it that differ in how a memory that grows reaches JavaScript.
+      # of it that grow their memory, differing in how a memory that grows
+      # reaches JavaScript.
       stressLink =
         name: flags:
         runtime.link {
@@ -105,32 +107,33 @@
           extraFlags = "-sPTHREAD_POOL_SIZE=${toString stressPool} ${flags}";
         };
       MiB = 1024 * 1024;
-      # Above what either workload peaks at under growth.
-      fixedMemory = 512 * MiB;
+      # Where the heap's break peaked under mem-stress, which depends on how
+      # many of its threads hold their blocks at once: 173 MiB in 40 Node
+      # runs, 165 MiB in 30 Chromium runs, 248 MiB in 30 Firefox runs;
+      # under glib-stress, 104 MiB everywhere. A quarter more than the most,
+      # as an engine's manifest would size it, rounded up.
+      fixedMemory = 320 * MiB;
       links = {
         fixed = stressLink "fixed" "";
         # Growable shared buffers where they work, Emscripten's polling of
         # its views elsewhere.
-        growth = stressLink "growth" "-sGROWABLE_ARRAYBUFFERS=1";
+        growth = stressLink "growth" "-sALLOW_MEMORY_GROWTH=1 -sGROWABLE_ARRAYBUFFERS=1";
         # Growable shared buffers or nothing.
-        growable = stressLink "growable" "-sGROWABLE_ARRAYBUFFERS=2";
-        # No growth support at all, so no polling, for what polling costs.
-        unpolled = stressLink "unpolled" "-sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=${toString fixedMemory}";
+        growable = stressLink "growable" "-sALLOW_MEMORY_GROWTH=1 -sGROWABLE_ARRAYBUFFERS=2";
       };
       # How each variant's host makes the memory: fixed at fixedMemory, or
-      # from the runtime's least memory up to the 2 GiB its import admits.
+      # from the runtime's least memory up to its most.
       variant =
         name: link: grows:
         let
           initial = if grows then runtime.memory.minimum else fixedMemory;
-          maximum = if grows then 2048 * MiB else fixedMemory;
+          maximum = if grows then runtime.memory.maximum else fixedMemory;
         in
         "--variant ${name}=${link}/ibus-runtime.js,${toString initial},${toString maximum}";
       variants = {
         fixed = variant "fixed" links.fixed false;
         growth = variant "growth" links.growth true;
         growable = variant "growable" links.growable true;
-        unpolled = variant "unpolled" links.unpolled false;
       };
 
       memoryArgs = lib.concatStringsSep " " [
@@ -138,9 +141,7 @@
         "--errno ${runtime.nodeHarness}/errno.json"
         "--constants ${constants}/constants.json"
         "--pool ${toString stressPool}"
-        "--planned-threads ${
-          toString (lib.foldl' builtins.add 0 (lib.attrValues runtime.threadPool.shares))
-        }"
+        "--planned-threads ${toString runtime.threadPool.planned}"
         "--engine-threads ${toString runtime.threadPool.shares.engine}"
         "--glib-threads ${toString runtime.threadPool.shares.glib}"
         "--pool-low-water ${toString runtime.threadPool.lowWater}"
@@ -185,7 +186,9 @@
       # The rule the runtime's link follows, a memory the host makes and
       # that never grows, under both workloads: a few runs of each under
       # Node and in each browser, which must all pass, with the costs and
-      # what a pool Worker costs.
+      # what a pool Worker costs. A run's pool of Workers each hold an
+      # instance of the runtime, some 40 MiB under Node, so runs go one at
+      # a time.
       checks.runtime-spike-memory =
         pkgs.runCommand "ibus-web-runtime-spike-memory"
           (
@@ -198,10 +201,10 @@
             ${playwright.setup}
             echo "# Node" > $out
             ${runtime.nodeTimeout} node ${dist}/node/memory.js ${memoryArgs} ${variants.fixed} \
-              --runs 3 --parallel 3 --costs --worker-memory >> $out || { cat $out; exit 1; }
+              --runs 3 --parallel 1 --costs --worker-memory >> $out || { cat $out; exit 1; }
             echo "# browsers" >> $out
             timeout --kill-after=10 900 node ${dist}/node/browser-memory.js ${memoryArgs} \
-              ${variants.fixed} --runs 2 >> $out || { cat $out; exit 1; }
+              ${variants.fixed} --runs 2 --parallel 1 >> $out || { cat $out; exit 1; }
             cat $out
           '';
 
@@ -264,14 +267,12 @@
                   node)
                     echo "# the runtime's workloads: Node"
                     node ${dist}/node/memory.js ${memoryArgs} ${variants.fixed} ${variants.growth} \
-                      ${variants.unpolled} --costs-only unpolled --runs "$runs" --parallel "$parallel" \
-                      --costs --worker-memory || status=1
+                      --runs "$runs" --parallel "$parallel" --costs --worker-memory || status=1
                     ;;
                   browsers)
                     echo "# the runtime's workloads: browsers"
                     node ${dist}/node/browser-memory.js ${memoryArgs} ${variants.fixed} ${variants.growth} \
-                      ${variants.growable} ${variants.unpolled} --costs-only unpolled \
-                      --runs "$browser_runs" || status=1
+                      ${variants.growable} --runs "$browser_runs" || status=1
                     ;;
                   *)
                     echo "no part $part" >&2

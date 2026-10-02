@@ -33,7 +33,7 @@
                 $1 ~ /^"E[A-Z0-9]+"$/ && NF == 2 { gsub(/[()]/, "", $2); printf "%s%s: %d", sep, $1, $2; sep = ", " }
                 END { print "}" }' > $out/errno.json
             grep -q '"ENOSYS": [0-9]' $out/errno.json
-            echo '{"minimum": ${toString runtime.memory.minimum}}' > $out/memory.json
+            echo '{"minimum": ${toString runtime.memory.minimum}, "maximum": ${toString runtime.memory.maximum}}' > $out/memory.json
           '';
 
       # A side module of the runtime's own, for checks of the runtime alone.

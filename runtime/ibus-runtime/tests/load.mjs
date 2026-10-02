@@ -3,17 +3,26 @@
 
 // Usage: node load.mjs RUNTIME_JS SIDE_WASM
 // Checks the runtime refuses to start without a memory from the host, then
-// loads a side module into it and dispatches its operations.
+// loads a side module into it and dispatches its operations, then checks
+// what memories it takes and that it never grows one.
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { errno, int32s, startRuntime, utf8 } from "./harness.mjs";
+import {
+  errno,
+  int32s,
+  memoryLimits,
+  sharedMemory,
+  startRuntime,
+  utf8,
+} from "./harness.mjs";
 
 const [runtime, side] = process.argv.slice(2);
 const runtimeUrl = pathToFileURL(runtime);
 
-// Without a memory from the host, the runtime would make one that grows.
+// Without a memory from the host, the runtime would make one of its least
+// size.
 const { default: createRuntime } = await import(runtimeUrl.href);
 await assert.rejects(async () => createRuntime(), /must pass wasmMemory/);
 
@@ -78,3 +87,25 @@ process.exitCode = 0;
 // The runtime keeps running, and the dispatcher held nothing when it unwound.
 assert.equal(new TextDecoder().decode(rt.dispatch(1, utf8("ok"))), "ko");
 console.log("exit passes through");
+
+// Any size from the least to the most, which the heap then spans; nothing
+// outside them.
+const { minimum, maximum } = memoryLimits;
+const MiB = 2 ** 20;
+const larger = await startRuntime(runtime, { bytes: minimum + 64 * MiB });
+assert.equal(larger.module._emscripten_get_heap_max(), minimum + 64 * MiB);
+for (const wasmMemory of [sharedMemory(minimum - 64 * 1024), sharedMemory(minimum, 2 * maximum)]) {
+  await assert.rejects(async () => createRuntime({ wasmMemory }), /LinkError/);
+}
+console.log("memory sizes ok");
+
+// A memory with room above its size still never grows: an allocation the
+// heap can't hold, even one that is allowed to fail, aborts the runtime.
+const roomy = await startRuntime(runtime, { maximum });
+assert.equal(roomy.module._emscripten_get_heap_max(), minimum);
+assert.throws(() => roomy.module._g_try_malloc(minimum), WebAssembly.RuntimeError);
+assert.equal(roomy.wasmMemory.buffer.byteLength, minimum);
+console.log("a full heap aborts");
+// An aborted runtime leaves its pthreads' Workers running, which keep Node
+// alive.
+process.exit();

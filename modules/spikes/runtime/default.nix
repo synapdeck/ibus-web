@@ -56,13 +56,14 @@
           ];
 
       # The values the TypeScript side shares with the C side, as the
-      # WebAssembly target defines them.
+      # WebAssembly target defines them, and the runtime's memory bounds.
       constants = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-runtime-spike-constants";
         src = ../../../tests/spikes/runtime/sides;
         nativeBuildInputs = [
           pkgsWasm.pkg-config
           pkgs.nodejs
+          pkgs.jq
         ];
         buildInputs = [ runtime.libibusWeb ];
         dontFixup = true;
@@ -70,7 +71,10 @@
           runHook preBuild
           $CC $($PKG_CONFIG --cflags libibus-web) -c constants.c -o constants.o
           $CXX ${toolchain.testMainFlags} constants.o -o constants.js
-          node constants.js > constants.json
+          node constants.js |
+            jq -c --argjson minimum ${toString runtime.memory.minimum} \
+              --argjson maximum ${toString runtime.memory.maximum} \
+              '. + { memory: { $minimum, $maximum } }' > constants.json
           runHook postBuild
         '';
         installPhase = ''
@@ -95,9 +99,7 @@
         "--errno ${runtime.nodeHarness}/errno.json"
         "--constants ${constants}/constants.json"
         "--pool ${toString runtime.threadPool.size}"
-        "--planned-threads ${
-          toString (lib.foldl' builtins.add 0 (lib.attrValues runtime.threadPool.shares))
-        }"
+        "--planned-threads ${toString runtime.threadPool.planned}"
         "--engine-threads ${toString runtime.threadPool.shares.engine}"
         "--glib-threads ${toString runtime.threadPool.shares.glib}"
         "--pool-low-water ${toString runtime.threadPool.lowWater}"

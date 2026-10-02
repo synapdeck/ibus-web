@@ -20,16 +20,21 @@ export const int32s = (...values) => new Uint8Array(new Int32Array(values).buffe
 
 export const utf8 = (text) => new TextEncoder().encode(text);
 
-// The least memory the runtime takes, which is enough for the checks.
-const { minimum } = JSON.parse(await readFile(new URL("memory.json", import.meta.url), "utf8"));
+// The least and the most memory the runtime takes; the least is enough for
+// the checks.
+export const memoryLimits = JSON.parse(
+  await readFile(new URL("memory.json", import.meta.url), "utf8"),
+);
 
-export async function startRuntime(path) {
+export const sharedMemory = (bytes, maximum = bytes) =>
+  new WebAssembly.Memory({ initial: bytes / 65536, maximum: maximum / 65536, shared: true });
+
+// Starts the runtime on a memory of bytes, whose maximum can be set apart.
+export async function startRuntime(path, { bytes = memoryLimits.minimum, maximum = bytes } = {}) {
   const { default: createRuntime } = await import(pathToFileURL(path).href);
-  const pages = minimum / 65536;
-  const rt = await createRuntime({
-    wasmMemory: new WebAssembly.Memory({ initial: pages, maximum: pages, shared: true }),
-  });
-  // The memory is fixed, so views over it stay valid.
+  const wasmMemory = sharedMemory(bytes, maximum);
+  const rt = await createRuntime({ wasmMemory });
+  // The runtime never grows its memory, so views over it stay valid.
   const memory = rt.HEAPU8;
   const words = new Int32Array(memory.buffer);
 
@@ -121,5 +126,5 @@ export async function startRuntime(path) {
 
   const loadModule = (path) => withString(path, (ptr) => rt._ibusweb_load_module(ptr, 0));
 
-  return { module: rt, dispatch, call, pump, settle, writeFile, loadModule };
+  return { module: rt, wasmMemory, dispatch, call, pump, settle, writeFile, loadModule };
 }

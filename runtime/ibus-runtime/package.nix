@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) pkgsWasm;
@@ -52,6 +57,9 @@
       # and each running thread adds about 1 MiB, mostly its stack, which
       # leaves room for a pool topped up well past its starting size.
       minimumMemory = 32 * 1024 * 1024;
+      # The most: Emscripten's JavaScript reads addresses as signed 32-bit
+      # numbers unless linked for more.
+      maximumMemory = 2048 * 1024 * 1024;
 
       linkFlags = lib.concatStringsSep " " [
         toolchain.runtimeMainFlags
@@ -64,23 +72,26 @@
         "-sSTACK_SIZE=1MB"
         "-sDEFAULT_PTHREAD_STACK_SIZE=1MB"
         # Each runtime's memory is fixed: the host makes it, at the size its
-        # engine's manifest gives, with its maximum at that size, and passes
-        # it in as wasmMemory, which the runtime refuses to start without.
-        # A memory that grows lets V8 trap an atomic access, such as musl's
-        # locks make, to memory another thread grew, until the accessing
-        # thread next handles its interrupts (V8 issues 529880019 and
-        # 533026477, fixed from V8 15.7, in no Node release line yet).
-        # Growth is enabled only so that the memory the runtime imports may
-        # be any size from the minimum to Emscripten's default maximum; with
-        # the host's memory at its maximum, a full heap aborts as a fixed one
-        # does.
-        "-sALLOW_MEMORY_GROWTH=1"
+        # engine's manifest gives, and passes it in as wasmMemory, which the
+        # runtime refuses to start without. A memory that grows lets V8 trap
+        # an atomic access, such as a libc++ shared pointer's count, to
+        # memory another thread grew, until the accessing thread next
+        # handles its interrupts (V8 issues 529880019 and 533026477, fixed
+        # from V8 15.7, in no Node release line yet). Linked without growth,
+        # the runtime has no way to grow its memory, whatever maximum the
+        # host gave it, and a full heap aborts. The memory it imports is
+        # declared from the minimum up to maximumMemory, after the link,
+        # since the linker can't declare a maximum above the initial size of
+        # a memory that doesn't grow.
+        "-sALLOW_MEMORY_GROWTH=0"
         "-sINITIAL_MEMORY=${toString minimumMemory}"
+        # Also the default without growth. With assertions, the abort's
+        # message advises a larger INITIAL_MEMORY or growth; the remedy is
+        # a larger memory from the host.
         "-sABORTING_MALLOC=1"
-        # Emscripten keeps a runtime that never exits alive through
-        # noExitRuntime only while that is a setting the module takes;
-        # without it, the runtime's thread exits after a callback and
-        # retires its pthreads' Workers.
+        # Listing the settings the module takes drops noExitRuntime unless it
+        # is named; without it, the runtime's thread exits after a callback
+        # and retires its pthreads' Workers.
         "-sINCOMING_MODULE_JS_API=instantiateWasm,wasmMemory,noExitRuntime"
         "--pre-js=${./host-memory.js}"
         "-sMODULARIZE=1"
@@ -97,7 +108,10 @@
           inherit pname;
           inherit (runtime.libibusWeb) version;
           dontUnpack = true;
-          nativeBuildInputs = [ pkgsWasm.pkg-config ];
+          nativeBuildInputs = [
+            pkgsWasm.pkg-config
+            pkgs.python3
+          ];
           buildInputs = [
             runtime.libibusWeb
             pkgsWasm.libffi
@@ -114,6 +128,8 @@
             $CXX $($PKG_CONFIG --static --libs libibus-web gio-2.0 gobject-2.0 libffi) \
               ${linkFlags} -sEXPORTED_FUNCTIONS=@${exportList}/exports.txt ${extraFlags} \
               -o ibus-runtime.js
+            python3 ${./memory-maximum.py} --emscripten ${toolchain.emscripten}/share/emscripten \
+              --maximum ${toString maximumMemory} ibus-runtime.wasm
             runHook postBuild
           '';
           installPhase = ''
@@ -129,10 +145,14 @@
     {
       ibusWeb.runtime = {
         inherit ibusRuntime link linkFlags;
-        memory.minimum = minimumMemory;
+        memory = {
+          minimum = minimumMemory;
+          maximum = maximumMemory;
+        };
         threadPool = {
           shares = threadShares;
           size = poolSize;
+          planned = plannedThreads;
           inherit lowWater;
         };
         ibusRuntimeAsserting = link {
