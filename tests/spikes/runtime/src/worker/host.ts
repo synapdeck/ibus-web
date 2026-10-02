@@ -133,6 +133,29 @@ const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
 
 const WASM_PAGE = 65536;
 
+// A memory the runtime can't take fails the load here, with the bounds,
+// rather than as a LinkError from instantiating the runtime, or not at all
+// for a size that isn't whole pages, which WebAssembly.Memory rounds down.
+const checkMemory = (
+  { initial, maximum }: HostInit["memory"],
+  { minimum, maximum: most }: BuildConstants["memory"],
+): void => {
+  const bounds = `a whole number of ${WASM_PAGE}-byte pages from ${minimum} to ${most} bytes`;
+  for (const [what, bytes] of [
+    ["memory", initial],
+    ["memory maximum", maximum],
+  ] as const)
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes % WASM_PAGE !== 0 ||
+      bytes < minimum ||
+      bytes > most
+    )
+      throw new Error(`${what} ${bytes}: the runtime takes ${bounds}`);
+  if (maximum < initial)
+    throw new Error(`memory maximum ${maximum}: below the memory, ${initial}`);
+};
+
 class Heap {
   readonly rt: Runtime;
   // The memory the host made for the runtime. Only a memory that can grow
@@ -497,6 +520,7 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   const { default: createRuntime } = (await import(init.runtimeUrl)) as {
     default: CreateRuntime;
   };
+  checkMemory(init.memory, constants.memory);
   const workers = trackWorkers();
   const { wasm } = init;
   const memory = new WebAssembly.Memory({

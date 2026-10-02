@@ -9,7 +9,9 @@
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
 // requests over the control buffer as a page would. The host makes the
 // runtime's memory, of BYTES that never grow. The host sleeps in the
-// runtime (ibusweb_wait); then a host of its own runs the crash scenario.
+// runtime (ibusweb_wait); then a host of its own runs the crash scenario,
+// and another one heap-full. Hosts given a memory the runtime can't take
+// must refuse to load.
 // With --compare, for the record, the scenarios run again on a host that
 // waits asynchronously while idle, and those that tell the wake paths apart
 // on one that sleeps in Atomics.wait() on the control buffer. Exits 1 if any
@@ -22,6 +24,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { reportLines } from "../shared/report.ts";
 import {
+  heapFull,
   opsFrom,
   runScenarios,
   scenarios,
@@ -147,6 +150,35 @@ try {
   await report("runtime, on a host of its own", crashing, crash);
   failed ||= !passed(crash, 1);
   crashing.worker.terminate();
+
+  const full = await startHost("runtime", base);
+  const heap = await runScenarios(full.client, env(10_000), [heapFull]);
+  await report("runtime, on a host of its own", full, heap);
+  failed ||= !passed(heap, 1);
+  full.worker.terminate();
+
+  // A size that isn't whole pages and one below the least the runtime takes.
+  console.log("memory the runtime can't take:");
+  for (const bytes of [
+    constants.memory.minimum + 1,
+    constants.memory.minimum - 65536,
+  ]) {
+    const refusal = await startHost("runtime", {
+      ...base,
+      memory: { initial: bytes, maximum: bytes },
+    }).then(
+      ({ worker }) => {
+        worker.terminate();
+        return null;
+      },
+      (error: unknown) => String(error),
+    );
+    const refused = refusal?.includes(`memory ${bytes}: `) ?? false;
+    console.log(
+      `  ${refused ? "PASS" : "FAIL"} ${bytes}: ${refusal ?? "loaded"}`,
+    );
+    failed ||= !refused;
+  }
 
   if (args.compare) {
     const idle = await startHost("runtime-async", base);

@@ -930,6 +930,29 @@ export const threadCrash: Scenario = {
   },
 };
 
+// Takes the host down, so it runs on a host of its own. An allocation of
+// 2047 MiB never fits, the memory being at most 2 GiB with the runtime's own
+// data in it.
+export const heapFull: Scenario = {
+  name: "heap-full",
+  criterion:
+    "an allocation the heap can't hold aborts the runtime, which never grows its memory: the " +
+    "request fails as crashed, and the host reports the abort's trap",
+  async run(client, env) {
+    let crashed = false;
+    try {
+      await client.call(env.ops.memGrow, int32s(2047));
+    } catch {
+      crashed = true;
+    }
+    const report = await client.crashReport(2000);
+    return {
+      pass: crashed && report !== null && report.startsWith("RuntimeError: "),
+      measurements: { crashed, report: report?.split("\n")[0] ?? "none" },
+    };
+  },
+};
+
 const KiB = 1024;
 
 const stressOf = (env: Env): NonNullable<Env["stress"]> => {
@@ -967,6 +990,9 @@ const workload = (
         measurements: { started, pendingAfterMs: env.pendingLimitMs },
       };
     const [, errors, outOfMemory, us, before, after] = outcome.values;
+    // The allocator never gives memory back to the break, so where the
+    // break ends is the heap's peak.
+    const [, breakKiB] = replyInt32s(await client.call(env.ops.memInfo));
     return {
       pass: started === stress.threads && errors === 0 && outOfMemory === 0,
       measurements: {
@@ -975,6 +1001,7 @@ const workload = (
         outOfMemory: outOfMemory!,
         elapsedMs: round(us! / 1000, 1),
         memoryMiB: [round(before! / KiB, 1), round(after! / KiB, 1)],
+        breakMiB: round(breakKiB! / KiB, 1),
       },
     };
   },

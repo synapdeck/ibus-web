@@ -282,6 +282,7 @@ interface Tally {
   // Each passing run's measurements, for the ranges.
   elapsedMs: number[];
   memoryMiB: number[];
+  breakMiB: number[];
 }
 
 const tallyOf = (variant: Variant, workload: string): Tally => ({
@@ -297,6 +298,7 @@ const tallyOf = (variant: Variant, workload: string): Tally => ({
   failures: [],
   elapsedMs: [],
   memoryMiB: [],
+  breakMiB: [],
 });
 
 const record = (tally: Tally, outcome: Outcome): void => {
@@ -311,9 +313,10 @@ const record = (tally: Tally, outcome: Outcome): void => {
   }
   if (result.pass) {
     tally.passed++;
-    const { elapsedMs, memoryMiB } = result.measurements;
+    const { elapsedMs, memoryMiB, breakMiB } = result.measurements;
     if (typeof elapsedMs === "number") tally.elapsedMs.push(elapsedMs);
     if (Array.isArray(memoryMiB)) tally.memoryMiB.push(Number(memoryMiB[1]));
+    if (typeof breakMiB === "number") tally.breakMiB.push(breakMiB);
     return;
   }
   const crash = outcome.report.crash ?? "";
@@ -337,7 +340,8 @@ const range = (values: readonly number[]): string =>
 const summary = (tally: Tally): string =>
   `${tally.variant} ${tally.workload}: ${tally.runs} runs, ${tally.passed} passed, ` +
   `${tally.traps} trapped, ${tally.otherFailures} failed otherwise, ${tally.noResult} without a result; ` +
-  `elapsed ${range(tally.elapsedMs)} ms, memory at the end ${range(tally.memoryMiB)} MiB`;
+  `elapsed ${range(tally.elapsedMs)} ms, memory at the end ${range(tally.memoryMiB)} MiB, ` +
+  `heap's break at the end ${range(tally.breakMiB)} MiB`;
 
 // Runs each job, parallel at a time.
 const pool = async <T>(

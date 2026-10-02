@@ -255,6 +255,7 @@ interface Tally {
   failures: string[];
   elapsedMs: number[];
   memoryMiB: number[];
+  breakMiB: number[];
 }
 
 // Where a trapping thread was: the error and the innermost frames of its
@@ -282,9 +283,10 @@ const record = (tally: Tally, outcome: RunOutcome): void => {
   }
   if (result.pass) {
     tally.passed++;
-    const { elapsedMs, memoryMiB } = result.measurements;
+    const { elapsedMs, memoryMiB, breakMiB } = result.measurements;
     if (typeof elapsedMs === "number") tally.elapsedMs.push(elapsedMs);
     if (Array.isArray(memoryMiB)) tally.memoryMiB.push(Number(memoryMiB[1]));
+    if (typeof breakMiB === "number") tally.breakMiB.push(breakMiB);
     return;
   }
   const crashed = outcome.report.messages.find(
@@ -320,7 +322,8 @@ const summary = (tally: Tally): string =>
   (tally.unsupported === undefined
     ? ""
     : ` (unsupported: ${tally.unsupported})`) +
-  `; elapsed ${range(tally.elapsedMs)} ms, memory at the end ${range(tally.memoryMiB)} MiB`;
+  `; elapsed ${range(tally.elapsedMs)} ms, memory at the end ${range(tally.memoryMiB)} MiB, ` +
+  `heap's break at the end ${range(tally.breakMiB)} MiB`;
 
 const pool = async (
   jobs: readonly (() => Promise<void>)[],
@@ -372,6 +375,7 @@ try {
             failures: [],
             elapsedMs: [],
             memoryMiB: [],
+            breakMiB: [],
           };
           tallies.push(tally);
           const started = performance.now();

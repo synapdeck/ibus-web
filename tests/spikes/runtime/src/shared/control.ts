@@ -77,7 +77,7 @@ export interface HostStats {
 }
 
 // Values the C side defines, printed by the build for the WebAssembly
-// target.
+// target, and the bounds of the memory the runtime takes, from its build.
 export interface BuildConstants {
   // The spike side modules' opcodes, by their C names without SPIKE_OP_.
   ops: Readonly<Record<string, number>>;
@@ -87,6 +87,9 @@ export interface BuildConstants {
   waitTimedOut: number;
   // struct mallinfo's size, and the offset of uordblks (bytes in use).
   mallinfo: { bytes: number; inUseOffset: number };
+  // The least and the most memory the runtime's memory import admits, in
+  // bytes.
+  memory: { minimum: number; maximum: number };
 }
 
 // How the host sleeps between requests.
@@ -123,8 +126,9 @@ export interface HostInit<Wasm = unknown> {
   poolLowWater: number;
   wasm?: Wasm;
   // The runtime's memory, in bytes, which the host makes and passes to it,
-  // since the runtime won't start without one; a memory with a maximum above
-  // its initial size can grow.
+  // since the runtime won't start without one: initial plays the engine
+  // manifest's memory. A maximum above it lets a runtime linked with growth
+  // grow; the runtime as released never grows.
   memory: { initial: number; maximum: number };
   control: SharedArrayBuffer;
   sides: SideModule[];
