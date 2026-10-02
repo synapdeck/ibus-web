@@ -140,15 +140,27 @@
       # Each Playwright release expects specific browser builds, and the
       # browsers come from nixpkgs' playwright-driver, so the installed npm
       # package has to be that exact version. Node resolves it from each
-      # package that depends on it.
+      # package that depends on it, and Vitest's Playwright provider, whose
+      # peer it is, from each package that depends on the provider.
       playwrightDependents = lib.filter (
         dir:
-        lib.any (field: (lib.importJSON (root + "/${dir}/package.json")).${field} or { } ? playwright) [
-          "dependencies"
-          "devDependencies"
-          "optionalDependencies"
-          "peerDependencies"
-        ]
+        let
+          manifest = lib.importJSON (root + "/${dir}/package.json");
+        in
+        lib.any
+          (
+            field:
+            lib.any (dependency: manifest.${field} or { } ? ${dependency}) [
+              "playwright"
+              "@vitest/browser-playwright"
+            ]
+          )
+          [
+            "dependencies"
+            "devDependencies"
+            "optionalDependencies"
+            "peerDependencies"
+          ]
       ) ([ "." ] ++ packageDirs);
       assertPlaywrightVersion = ''
         node ${./assert-dependency.ts} playwright ${
@@ -174,7 +186,7 @@
         };
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-4qVZ5EC/98wgbIKwA4qOX857dAmwzHpxGWFr2HIaXlQ=";
+        hash = "sha256-CleAI0YE/hj48JYKK7e2dQ6dQLhD7rOuF/sR18AzSQI=";
       };
 
       mkWorkspace =

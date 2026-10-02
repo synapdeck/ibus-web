@@ -15,7 +15,7 @@
       };
       assertDependency = lib.mkOption {
         type = lib.types.path;
-        description = "A Node script, run as `node <it> <package> <version> <why> <package directory>...`, that fails unless each directory resolves the package at exactly that version; for dependencies whose version something outside the lockfile fixes.";
+        description = "A Node script, run as `node <it> [--locked] <package> <version> <why> <package directory>...`, that fails unless each directory resolves the package at exactly that version; for dependencies whose version something outside the lockfile fixes. --locked says the manifests name a range, which the lockfile holds at that version.";
       };
       workspace = lib.mkOption {
         type = lib.types.package;

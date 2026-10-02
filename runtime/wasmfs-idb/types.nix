@@ -87,7 +87,7 @@
           ''
             expected=$(jq -r .version ${emscripten}/share/emscripten/node_modules/acorn/package.json)
             cd ${typescript.workspace}
-            node ${typescript.assertDependency} acorn "$expected" \
+            node ${typescript.assertDependency} --locked acorn "$expected" \
               "Emscripten ${emscripten.version} parses libraries with acorn" runtime/wasmfs-idb
             touch $out
           '';

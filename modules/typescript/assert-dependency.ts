@@ -5,16 +5,22 @@
 // expected version: for dependencies whose version is fixed by something
 // pnpm can't see, such as the nixpkgs build they work with.
 //
-//   assert-dependency.ts <package> <version> <why> <package directory>...
+//   assert-dependency.ts [--locked] <package> <version> <why> <package directory>...
+//
+// --locked: the manifests name a range, so the lockfile is what holds the
+// package at that version, rather than an exact version in the manifests.
 
 import { createRequire } from "node:module";
 import path from "node:path";
 
-const [name, expected, why, ...dirs] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const locked = argv[0] === "--locked";
+const [name, expected, why, ...dirs] = locked ? argv.slice(1) : argv;
 if (name === undefined || expected === undefined || why === undefined) {
-  console.error("usage: assert-dependency.ts <package> <version> <why> <package directory>...");
+  console.error("usage: assert-dependency.ts [--locked] <package> <version> <why> <package directory>...");
   process.exit(1);
 }
+const remedy = locked ? `lock ${name} at that version` : `pin ${name} to exactly that version`;
 
 let failed = false;
 for (const dir of dirs) {
@@ -22,9 +28,7 @@ for (const dir of dirs) {
   const require = createRequire(path.resolve(dir, "package.json"));
   const { version } = require(`${name}/package.json`) as { version: string };
   if (version !== expected) {
-    console.error(
-      `${dir}: ${name} resolves to ${version}, but ${why} ${expected}; pin ${name} to exactly that version`,
-    );
+    console.error(`${dir}: ${name} resolves to ${version}, but ${why} ${expected}; ${remedy}`);
     failed = true;
   }
 }

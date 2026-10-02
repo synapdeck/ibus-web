@@ -1,0 +1,20 @@
+{
+  "name": "@ibus-web/test-programs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "status=0; for env in shared node browser worker; do tsc -p src/$env || status=1; done; exit $status",
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "tap-parser": "^18.3.4"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/browser": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "playwright": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
