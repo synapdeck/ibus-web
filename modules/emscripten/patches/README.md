@@ -38,6 +38,7 @@ there, so changing a patch rebuilds the cache and everything in `pkgsWasm`.
 | 0016 `imported-memory-maximum`       | without memory growth, a `MAXIMUM_MEMORY` set for an imported memory is dropped with a warning and the import's maximum tied to `INITIAL_MEMORY`, so the module takes a memory of exactly that size; it now takes any size up to `MAXIMUM_MEMORY`, still without growing it                                                                                                                                                                | not filed; draft `emscripten-imported-memory-maximum.md`                                                                                                                                                                     | a release contains the fix                          |
 | 0017 `wasmfs-symlink-errors`         | any backend failure to make a symlink is reported as `EPERM`; the Node backend now reports the host's error                                                                                                                                                                                                                                                                                                                                | not filed; draft `emscripten-wasmfs-symlink-errors.md`                                                                                                                                                                       | a release contains the fix                          |
 | 0018 `wasmfs-proxy-worker-heartbeat` | WasmFS backends on a thread of their own (OPFS, fetch, or any built on `ProxyWorker`): the thread's 50 ms heartbeat timer outlives it, so once the backend is destroyed, at exit or before, the Worker its thread ran on runs the freed queue from the pool, failing an assertion when idle and touching freed memory otherwise                                                                                                            | not filed; draft `emscripten-wasmfs-proxy-worker-heartbeat.md`                                                                                                                                                               | a release contains the fix                          |
+| 0019 `wasmfs-lookup-errors`          | any backend failure to look up a file is reported as `ENOENT`, so `mkdir()`, `symlink()` and `open(O_CREAT)` go on to create it; the Node backend now reports the host's error, and the OPFS backend its `EIO`                                                                                                                                                                                                                             | not filed; draft `emscripten-wasmfs-lookup-errors.md`                                                                                                                                                                        | a release contains the fix                          |
 
 As of 6.0.10 (2026-09-18) only #27632 is in a release; the drafts record
 that the code the others change is unchanged there and on `main`.
@@ -134,6 +135,23 @@ its Worker idle, then busy with other threads, for several heartbeats
 each; unpatched, the first tick on the idle Worker fails
 `emscripten_proxy_execute_queue()`'s `pthread_self()` assertion, every
 time.
+
+0019 gives `Directory::getChild()` and its handle the `MaybeFile` return
+0012 gave the inserts, so it sits on 0012 and 0017. Null with no error code
+still means there is no such file, so a backend that returns plain null
+behaves as before. Path lookup, `unlinkat()`, the unmount syscall and
+`rename()` pass a backend's error on; `open()`, `mkdir()`, `symlink()`,
+`rename()`'s target and `FS.writeFile` fail with it instead of taking the
+file for missing. The Node backend's `_wasmfs_node_get_mode` now returns
+the host's errno (`src/lib/libwasmfs_node.js`); its signature is
+unchanged. The preload loop in `wasmfs.cpp` still only asks whether a
+child exists, and aborts on any failure after. The IndexedDB backend
+relies on it so that a lookup in a closed database is `EIO`, never
+`ENOENT`. `checks.emscripten-fixes` looks up a file in a directory the
+host won't let it search, with `stat()` and `open()`, and expects
+`EACCES`; its draft carries `other.test_wasmfs_node_lookup_errors` in the
+suite's format (also as `*.tests.patch` beside it), which fails on stock
+6.0.9 and passes with the stack.
 
 Not carried, by decision: pipe capacity, and end of file on a
 JavaScript-file-system pipe whose writers have closed. Their drafts stay in

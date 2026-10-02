@@ -1,7 +1,7 @@
 # WasmFS: an IndexedDB backend, `wasmfs_create_idb_backend`
 
 **Draft: proposal, as a feature request and then a PR.** Not posted, and
-not yet searched for an existing issue (see the notes). It depends on four
+not yet searched for an existing issue (see the notes). It depends on five
 of the toolchain's other drafts (below), which go first.
 
 ## Issue title
@@ -150,8 +150,9 @@ given back to the pool.
 
 **Version changes.** Adding object stores or deleting the database waits
 until every other connection closes, so the backend closes its connection
-on `versionchange`, logs it, and fails every later call with `EIO`. It
-never reopens: a newer version means a newer program owns the database.
+on `versionchange`, logs it, and fails every later call with `EIO`,
+lookups included, so a caller never takes a closed database for a missing
+file. It never reopens: a newer version means a newer program owns the database.
 
 **Measurements.** Chromium 149 and Firefox 151, headless, profiles on disk
 (ZFS), 16 KiB chunks, five runs; each figure is the median of the runs'
@@ -200,8 +201,9 @@ runs it.
   and a `symlink()`, each `ENOSPC` with the database unchanged byte for
   byte; a read-only backend
   refusing every change with `EROFS` while reads work; a version change
-  from a post-js closing both backends, with `EIO` after it and the log
-  line on stderr; failed opens giving their thread back (`errors`);
+  from a post-js closing both backends, with `EIO` after it, from lookups
+  (`stat()`, `open()` with and without `O_CREAT`) too, and the log line on
+  stderr; failed opens giving their thread back (`errors`);
 - the orphan sweep after a program that ended with a file unlinked but
   open, a sweep that fails, and a read-only backend that doesn't sweep
   (`sweep.1`, `sweep.2`);
@@ -209,7 +211,7 @@ runs it.
   refusing every change with `EROFS`, even through a descriptor opened for
   writing before, while reads work (`seal`).
 
-**Depends on four fixes** we carry as patches to 6.0.9, each with a draft
+**Depends on five fixes** we carry as patches to 6.0.9, each with a draft
 of its own:
 
 - `insertDataFile()` and `insertDirectory()` returning a `MaybeFile`, so a
@@ -219,6 +221,10 @@ of its own:
 - the same for `insertSymlink()`, which otherwise reports every failure as
   `EPERM` ("WasmFS: backend failures to create a symlink are reported as
   EPERM");
+- `getChild()` returning a `MaybeFile` too, so a lookup in a closed
+  database is `EIO` rather than `ENOENT`, which callers would take for a
+  missing file and create, or fall back to defaults ("WasmFS: backend
+  failures to look up a file are reported as ENOENT");
 - `File::setMode()` and `setTimes()` hooks, so `chmod()` and `utimensat()`
   are stored and can be refused (part of "WasmFS Node backend: chmod() and
   utimensat() never reach the host");
@@ -265,10 +271,10 @@ of its own:
 - **Licensing.** The code is ours, `MIT OR Apache-2.0`; contributing it
   means relicensing it under Emscripten's MIT and University of
   Illinois/NCSA licenses, which the company has to agree to.
-- **Order.** Post the four dependency drafts first; the PR needs them.
+- **Order.** Post the five dependency drafts first; the PR needs them.
   Before posting, check `main` for an IndexedDB backend and for changes to
   `ProxyWorker`, `MaybeFile` and the OPFS backend's shape, and search issues
   for "IndexedDB" and "wasmfs idb".
 - **Not run upstream.** Emscripten's own test suite wasn't run with the
   backend; the tests above run on our toolchain (6.0.9 with patches
-  0001–0018).
+  0001–0019).

@@ -327,9 +327,12 @@ EMSCRIPTEN_KEEPALIVE void errors_upgraded(int outcome) {
   CHECK_ERRNO(open(MOUNT "/file", O_RDONLY), EIO);
   errno = 0;
   CHECK(opendir(MOUNT "/dir") == NULL && errno == EIO);
-  /* A lookup that fails can only say there is no such file; the backend
-   * logs why. */
-  CHECK_ERRNO(stat(MOUNT "/never", &st), ENOENT);
+  /* A lookup the database can't answer says so, rather than that there is no
+   * such file, which a caller would take for leave to create one. */
+  CHECK_ERRNO(stat(MOUNT "/never", &st), EIO);
+  CHECK_ERRNO(stat(READ_ONLY_MOUNT "/never", &st), EIO);
+  CHECK_ERRNO(open(MOUNT "/never", O_RDONLY), EIO);
+  CHECK_ERRNO(open(MOUNT "/never", O_CREAT | O_WRONLY, 0644), EIO);
 
   await_line(CLOSED_LOG, closed_heard);
 }

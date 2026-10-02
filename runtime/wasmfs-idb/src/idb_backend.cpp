@@ -9,13 +9,11 @@
 
 #include <atomic>
 #include <cerrno>
-#include <cstring>
 #include <fcntl.h>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <emscripten/console.h>
 #include <emscripten/threading.h>
 
 #include "backend.h"
@@ -273,7 +271,7 @@ private:
     }
   }
 
-  std::shared_ptr<File> getChild(const std::string &name) override {
+  MaybeFile<File> getChild(const std::string &name) override {
     IdbAttrs attrs{};
     std::string target;
     backend.proxy([&](auto ctx) {
@@ -281,13 +279,7 @@ private:
                             &target);
     });
     if (attrs.err) {
-      // WasmFS reads null as ENOENT, so any other failure, such as a closed
-      // database, would pass unseen.
-      if (attrs.err != -ENOENT) {
-        emscripten_errf("wasmfs-idb: looking up %s failed: %s", name.c_str(),
-                        strerror(-attrs.err));
-      }
-      return nullptr;
+      return attrs.err;
     }
     return makeFile(attrs, std::move(target));
   }

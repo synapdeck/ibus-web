@@ -1,0 +1,339 @@
+WasmFS: every backend failure to look up a file is reported as ENOENT
+
+Directory::getChild() could only return null, so path lookup, open(),
+mkdir(), unlink(), rename() and symlink() took every backend failure for
+a missing file: ENOENT, or, for mkdir() and symlink(), an attempt to
+create one. It now returns a MaybeFile, which carries a negative error
+code; the callers pass it on. The Node backend reports the host's
+(EACCES, ENOTDIR, ...), and the OPFS backend its EIO. Backends that still
+return plain null get ENOENT, as before.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-lookup-errors.md
+
+diff --git a/src/lib/libwasmfs_node.js b/src/lib/libwasmfs_node.js
+index ed55304..7d2f98c 100644
+--- a/src/lib/libwasmfs_node.js
++++ b/src/lib/libwasmfs_node.js
+@@ -91,15 +91,12 @@ var wasmFSNodeLibrary = {
+     });
+   },
+ 
+-  _wasmfs_node_get_mode__deps: ['$wasmfsNodeLstat'],
+-  _wasmfs_node_get_mode: (path_p, mode_p) => {
+-    let stat = wasmfsNodeLstat(UTF8ToString(path_p));
+-    if (stat === undefined) {
+-      return 1;
+-    }
++  _wasmfs_node_get_mode__deps: ['$wasmfsTry', '$wasmfsNodeFixStat'],
++  _wasmfs_node_get_mode: (path_p, mode_p) => wasmfsTry(() => {
++    let stat = wasmfsNodeFixStat(fs.lstatSync(UTF8ToString(path_p)));
+     {{{ makeSetValue('mode_p', 0, 'stat.mode', 'i32') }}};
+     // implicitly return 0
+-  },
++  }),
+ 
+   _wasmfs_node_stat_size__deps: ['$wasmfsNodeLstat'],
+   _wasmfs_node_stat_size: (path_p, size_p) => {
+diff --git a/system/lib/wasmfs/backends/fetch_backend.cpp b/system/lib/wasmfs/backends/fetch_backend.cpp
+index ace3a76..76f1332 100644
+--- a/system/lib/wasmfs/backends/fetch_backend.cpp
++++ b/system/lib/wasmfs/backends/fetch_backend.cpp
+@@ -80,7 +80,7 @@ public:
+     return dirPath + '/' + name;
+   }
+ 
+-  std::shared_ptr<File> getChild(const std::string& name) override {
++  MaybeFile<File> getChild(const std::string& name) override {
+     return MemoryDirectory::getChild(name);
+   }
+ };
+diff --git a/system/lib/wasmfs/backends/ignore_case_backend.cpp b/system/lib/wasmfs/backends/ignore_case_backend.cpp
+index e742753..e95fb2e 100644
+--- a/system/lib/wasmfs/backends/ignore_case_backend.cpp
++++ b/system/lib/wasmfs/backends/ignore_case_backend.cpp
+@@ -46,7 +46,7 @@ public:
+   IgnoreCaseDirectory(std::shared_ptr<Directory> real, backend_t backend)
+     : VirtualDirectory(real, backend) {}
+ 
+-  std::shared_ptr<File> getChild(const std::string& name) override;
++  MaybeFile<File> getChild(const std::string& name) override;
+   MaybeFile<DataFile> insertDataFile(const std::string& name,
+                                      mode_t mode) override;
+   MaybeFile<Directory> insertDirectory(const std::string& name,
+@@ -89,14 +89,15 @@ std::shared_ptr<File> virtualize(std::shared_ptr<File> file,
+   WASMFS_UNREACHABLE("unexpected file kind");
+ }
+ 
+-std::shared_ptr<File> IgnoreCaseDirectory::getChild(const std::string& name) {
++Directory::MaybeFile<File>
++IgnoreCaseDirectory::getChild(const std::string& name) {
+   auto normalized = normalize(name);
+   if (auto it = children.find(normalized); it != children.end()) {
+     return it->second.child;
+   }
+   auto child = real->locked().getChild(normalized);
+   if (!child) {
+-    return nullptr;
++    return child;
+   }
+   child = virtualize(child, getBackend());
+   children[normalized] = {name, child};
+diff --git a/system/lib/wasmfs/backends/memory_backend.cpp b/system/lib/wasmfs/backends/memory_backend.cpp
+index 45a5544..3d572a4 100644
+--- a/system/lib/wasmfs/backends/memory_backend.cpp
++++ b/system/lib/wasmfs/backends/memory_backend.cpp
+@@ -42,7 +42,8 @@ MemoryDirectory::findEntry(const std::string& name) {
+   });
+ }
+ 
+-std::shared_ptr<File> MemoryDirectory::getChild(const std::string& name) {
++Directory::MaybeFile<File>
++MemoryDirectory::getChild(const std::string& name) {
+   if (auto entry = findEntry(name); entry != entries.end()) {
+     return entry->child;
+   }
+diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
+index 05a12a4..64de405 100644
+--- a/system/lib/wasmfs/backends/node_backend.cpp
++++ b/system/lib/wasmfs/backends/node_backend.cpp
+@@ -253,13 +253,13 @@ private:
+     }
+   }
+ 
+-  std::shared_ptr<File> getChild(const std::string& name) override {
++  MaybeFile<File> getChild(const std::string& name) override {
+     static_assert(std::is_same_v<mode_t, unsigned int>);
+     // TODO: also retrieve and set ctime, atime, ino, etc.
+     auto childPath = getChildPath(name);
+     mode_t mode;
+-    if (_wasmfs_node_get_mode(childPath.c_str(), &mode)) {
+-      return nullptr;
++    if (auto err = _wasmfs_node_get_mode(childPath.c_str(), &mode)) {
++      return -err;
+     }
+     // Allow reading from character device files too (e.g. `/dev/random`,
+     // `/dev/urandom`)
+diff --git a/system/lib/wasmfs/backends/opfs_backend.cpp b/system/lib/wasmfs/backends/opfs_backend.cpp
+index ad46cb1..6c41084 100644
+--- a/system/lib/wasmfs/backends/opfs_backend.cpp
++++ b/system/lib/wasmfs/backends/opfs_backend.cpp
+@@ -273,15 +273,18 @@ public:
+   }
+ 
+ private:
+-  std::shared_ptr<File> getChild(const std::string& name) override {
++  MaybeFile<File> getChild(const std::string& name) override {
+     int childType = 0, childID = 0;
+     proxy([&](auto ctx) {
+       _wasmfs_opfs_get_child(
+         ctx.ctx, dirID, name.c_str(), &childType, &childID);
+     });
++    // The lookup reports a missing child as EEXIST, since it can also create.
++    if (childID == -EEXIST) {
++      return nullptr;
++    }
+     if (childID < 0) {
+-      // TODO: More fine-grained error reporting.
+-      return NULL;
++      return childID;
+     }
+     if (childType == 1) {
+       return std::make_shared<OPFSFile>(0777, getBackend(), childID, proxy);
+diff --git a/system/lib/wasmfs/file.cpp b/system/lib/wasmfs/file.cpp
+index b57fbda..59cc921 100644
+--- a/system/lib/wasmfs/file.cpp
++++ b/system/lib/wasmfs/file.cpp
+@@ -51,7 +51,8 @@ void Directory::Handle::cacheChild(const std::string& name,
+   child->locked().setParent(getDir());
+ }
+ 
+-std::shared_ptr<File> Directory::Handle::getChild(const std::string& name) {
++Directory::MaybeFile<File>
++Directory::Handle::getChild(const std::string& name) {
+   // Unlinked directories must be empty, without even "." or ".."
+   if (!getParent()) {
+     return nullptr;
+@@ -71,7 +72,7 @@ std::shared_ptr<File> Directory::Handle::getChild(const std::string& name) {
+   // know about.
+   auto child = getDir()->getChild(name);
+   if (!child) {
+-    return nullptr;
++    return child;
+   }
+   cacheChild(name, child, DCacheKind::Normal);
+   return child;
+diff --git a/system/lib/wasmfs/file.h b/system/lib/wasmfs/file.h
+index 3ea4d50..8bfd11d 100644
+--- a/system/lib/wasmfs/file.h
++++ b/system/lib/wasmfs/file.h
+@@ -206,7 +206,7 @@ public:
+     }
+   };
+ 
+-  // A newly created file, or null and a negative error code. It is still a
++  // A file, or null and a negative error code. It is still a
+   // `std::shared_ptr`, so callers that only check for null need not change.
+   template<class T> class MaybeFile : public std::shared_ptr<T> {
+     int err = 0;
+@@ -250,9 +250,9 @@ protected:
+     return children;
+   }
+ 
+-  // Return the `File` object corresponding to the file with the given name or
+-  // null if there is none.
+-  virtual std::shared_ptr<File> getChild(const std::string& name) = 0;
++  // Return the `File` object corresponding to the file with the given name,
++  // null if there is none, or a negative error code if the lookup failed.
++  virtual MaybeFile<File> getChild(const std::string& name) = 0;
+ 
+   // Inserts a file with the given name, kind, and mode. Returns a `File` object
+   // corresponding to the newly created file or nullptr if the new file could
+@@ -457,8 +457,9 @@ public:
+     : File::Handle(directory, std::defer_lock) {}
+ 
+   // Retrieve the child if it is in the dcache and otherwise forward the request
+-  // to the backend, caching any `File` object it returns.
+-  std::shared_ptr<File> getChild(const std::string& name);
++  // to the backend, caching any `File` object it returns. Null with no error
++  // code means there is no such child.
++  MaybeFile<File> getChild(const std::string& name);
+ 
+   // Add a child to this directory's entry cache without actually inserting it
+   // in the underlying backend. Assumes a child with this name does not already
+diff --git a/system/lib/wasmfs/js_api.cpp b/system/lib/wasmfs/js_api.cpp
+index 85c1992..0178aa3 100644
+--- a/system/lib/wasmfs/js_api.cpp
++++ b/system/lib/wasmfs/js_api.cpp
+@@ -75,8 +75,13 @@ int _wasmfs_write_file(const char* pathname, const uint8_t* data, size_t data_si
+   std::shared_ptr<File> child;
+   {
+     auto lockedParent = parent->locked();
+-    child = lockedParent.getChild(childName);
++    auto found = lockedParent.getChild(childName);
++    child = found;
+     if (!child) {
++      if (found.getError(-ENOENT) != -ENOENT) {
++        // The lookup failed rather than finding nothing.
++        return 0;
++      }
+       // Lookup failed; try creating the file.
+       child = lockedParent.insertDataFile(childName, 0777);
+       if (!child) {
+diff --git a/system/lib/wasmfs/memory_backend.h b/system/lib/wasmfs/memory_backend.h
+index 033f254..72db149 100644
+--- a/system/lib/wasmfs/memory_backend.h
++++ b/system/lib/wasmfs/memory_backend.h
+@@ -65,7 +65,7 @@ protected:
+     entries.push_back({name, child});
+   }
+ 
+-  std::shared_ptr<File> getChild(const std::string& name) override;
++  MaybeFile<File> getChild(const std::string& name) override;
+ 
+   int removeChild(const std::string& name) override;
+ 
+diff --git a/system/lib/wasmfs/paths.cpp b/system/lib/wasmfs/paths.cpp
+index 430d49a..c9f3338 100644
+--- a/system/lib/wasmfs/paths.cpp
++++ b/system/lib/wasmfs/paths.cpp
+@@ -40,7 +40,7 @@ ParsedFile getChild(std::shared_ptr<Directory> dir,
+                     size_t& recursions) {
+   auto child = dir->locked().getChild(std::string(name));
+   if (!child) {
+-    return -ENOENT;
++    return child.getError(-ENOENT);
+   }
+   if (links != NoFollowLinks) {
+     while (auto link = child->dynCast<Symlink>()) {
+diff --git a/system/lib/wasmfs/syscalls.cpp b/system/lib/wasmfs/syscalls.cpp
+index ce70bc9..e84e342 100644
+--- a/system/lib/wasmfs/syscalls.cpp
++++ b/system/lib/wasmfs/syscalls.cpp
+@@ -451,7 +451,12 @@ static __wasi_fd_t doOpen(path::ParsedParent parsed,
+   std::shared_ptr<File> child;
+   {
+     auto lockedParent = parent->locked();
+-    child = lockedParent.getChild(std::string(childName));
++    auto found = lockedParent.getChild(std::string(childName));
++    child = found;
++    // A lookup that failed, rather than finding nothing, fails the open too.
++    if (auto err = found.getError(-ENOENT); err && err != -ENOENT) {
++      return err;
++    }
+     // The requested node was not found.
+     if (!child) {
+       // If curr is the last element and the create flag is specified
+@@ -632,9 +637,13 @@ doMkdir(path::ParsedParent parsed, mode_t mode, backend_t backend = NullBackend)
+   }
+ 
+   // Check if the requested directory already exists.
+-  if (lockedParent.getChild(childName)) {
++  auto existing = lockedParent.getChild(childName);
++  if (existing) {
+     return -EEXIST;
+   }
++  if (auto err = existing.getError(-ENOENT); err != -ENOENT) {
++    return err;
++  }
+ 
+   // Mask rwx permissions for user, group and others, and the sticky bit.
+   // This prevents users from entering S_IFREG for example.
+@@ -858,7 +867,7 @@ int __syscall_unlinkat(int dirfd, const char* path, int flags) {
+   auto lockedParent = parent->locked();
+   auto file = lockedParent.getChild(childName);
+   if (!file) {
+-    return -ENOENT;
++    return file.getError(-ENOENT);
+   }
+   // Disallow removing the root directory, even if it is empty.
+   if (file == wasmFS.getRootDirectory()) {
+@@ -906,7 +915,7 @@ int wasmfs_unmount(const char* path) {
+   auto lockedParent = parent->locked();
+   auto file = lockedParent.getChild(childName);
+   if (!file) {
+-    return -ENOENT;
++    return file.getError(-ENOENT);
+   }
+   // Disallow removing the root directory, even if it is empty.
+   if (file == wasmFS.getRootDirectory()) {
+@@ -1039,7 +1048,10 @@ int __syscall_renameat(int olddirfd,
+   auto newFile = lockedNewParent.getChild(newFileName);
+ 
+   if (!oldFile) {
+-    return -ENOENT;
++    return oldFile.getError(-ENOENT);
++  }
++  if (auto err = newFile.getError(-ENOENT); err && err != -ENOENT) {
++    return err;
+   }
+ 
+   // If the source and destination are the same, do nothing.
+@@ -1113,9 +1125,13 @@ int __syscall_symlinkat(const char* target,
+   }
+   auto lockedParent = parent->locked();
+   std::string childName(childNameView);
+-  if (lockedParent.getChild(childName)) {
++  auto existing = lockedParent.getChild(childName);
++  if (existing) {
+     return -EEXIST;
+   }
++  if (auto err = existing.getError(-ENOENT); err != -ENOENT) {
++    return err;
++  }
+   // A backend that can't say why it made no symlink is taken not to support
+   // them.
+   return lockedParent.insertSymlink(childName, target).getError(-EPERM);
+diff --git a/system/lib/wasmfs/virtual.h b/system/lib/wasmfs/virtual.h
+index 4a52d82..0411316 100644
+--- a/system/lib/wasmfs/virtual.h
++++ b/system/lib/wasmfs/virtual.h
+@@ -59,7 +59,7 @@ public:
+     : Directory(real->locked().getMode(), backend), real(real) {}
+ 
+ protected:
+-  virtual std::shared_ptr<File> getChild(const std::string& name) override {
++  virtual MaybeFile<File> getChild(const std::string& name) override {
+     return real->locked().getChild(name);
+   }
+   virtual MaybeFile<DataFile> insertDataFile(const std::string& name,

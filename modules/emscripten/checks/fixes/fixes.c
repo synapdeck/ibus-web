@@ -229,6 +229,23 @@ static void check_node_errors(void) {
     path[strlen(path) - strlen("/link")] = '\0';
     host_chmod(path, 0755);
 
+    /* The host's own reason a lookup fails, rather than ENOENT: WasmFS still
+     * takes the directory for searchable. */
+    snprintf(path, sizeof path, "%s/unsearchable", host);
+    CHECK(mkdir(path, 0755) == 0, "mkdir");
+    CHECK(stat(path, &st) == 0, "stat");
+    host_chmod(path, 0644);
+    strcat(path, "/file");
+    errno = 0;
+    CHECK(stat(path, &st) < 0 && errno == EACCES,
+          "stat in a directory the host won't search");
+    errno = 0;
+    fd = open(path, O_RDONLY);
+    CHECK(fd < 0 && errno == EACCES,
+          "open in a directory the host won't search: %d", fd);
+    path[strlen(path) - strlen("/file")] = '\0';
+    host_chmod(path, 0755);
+
     /* The open that creates a file isn't bound by the mode it gives it. */
     snprintf(path, sizeof path, "%s/no-access", host);
     fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0);

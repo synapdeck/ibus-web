@@ -848,10 +848,11 @@ its own loggers with engine and domain annotations (§7.4).
   is `EEXIST`; `ReadOnlyError`, the read-only flag and a seal are `EROFS`; a
   closed connection (`InvalidStateError`, `VersionError`, the `AbortError`
   of the transactions a close aborts) is `EIO`; anything else is `EIO`,
-  logged. WasmFS reports any failure to make a symlink as `EPERM` without
-  the toolchain's patch 0017, which carries the backend's errno (§10.3). A
-  lookup can only fail with `ENOENT` in WasmFS, so a lookup in a closed
-  database reads as a missing file, and the backend logs the cause.
+  logged. A lookup in a closed database is `EIO` too, never `ENOENT`,
+  since callers take `ENOENT` for leave to create a file or fall back to
+  defaults. WasmFS reports any failure to make a symlink as `EPERM`, and
+  any failed lookup as `ENOENT`, without the toolchain's patches 0017 and
+  0019, which carry the backend's errno (§10.3).
 - **Why IndexedDB.** In Firefox a Worker reads a `Blob`'s bytes (an OPFS
   `File`, a `Blob` value in IndexedDB, a cached `Response`) only while the
   page's main thread is free, so under the keystroke spin (§6.2.6) every such
@@ -1579,7 +1580,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
   release that is. They fix WasmFS (`getcwd()` under a mount, `poll()` of
   files and devices, directory search and create permission, `O_NOCTTY`,
   pipes as FIFOs, `futimens()`, a backend's error when creating a file
-  or a symlink, the heartbeat timer of a backend's own thread outliving
+  or a symlink or looking one up, the heartbeat timer of a backend's own thread outliving
   the thread),
   its Node backend (`fsync()`, renames, host errors from `open()` and
   `close()`, `chmod()` and `utimensat()` reaching the host), pthreads
