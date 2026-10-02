@@ -9,9 +9,11 @@
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
 // requests over the control buffer as a page would. The host makes the
 // runtime's memory, of BYTES that never grow. The host sleeps in the
-// runtime (ibusweb_wait); then a host of its own runs the crash scenario,
-// and another one heap-full. Hosts given a memory the runtime can't take
-// must refuse to load.
+// runtime (ibusweb_wait) and mounts a WasmFS Node backend over a temporary
+// directory at the engine's directory; then a host of its own runs the crash
+// scenario, another one heap-full, and another, told to mount the engine's
+// IndexedDB database, which Node lacks, storage-fallback. Hosts given a
+// memory the runtime can't take must refuse to load.
 // With --compare, for the record, the scenarios run again on a host that
 // waits asynchronously while idle, and those that tell the wake paths apart
 // on one that sleeps in Atomics.wait() on the control buffer, and every
@@ -23,12 +25,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import {
+  engineDataBytes,
+  engineDir,
+  SPIKE_ENGINE,
+  type Mount,
+} from "../shared/control.ts";
 import { reportLines } from "../shared/report.ts";
 import {
   heapFull,
   opsFrom,
   runScenarios,
   scenarios,
+  storageFallback,
   threadCrash,
   type Env,
   type Result,
@@ -103,11 +112,15 @@ const ops = opsFrom(constants);
 const wasm = await compileRuntime(runtimeJs);
 const sides = await readSides(sidesDir);
 const hostDir = await mkdtemp(join(tmpdir(), "ibus-web-spike-"));
-const mountPath = "/host";
+const dir = engineDir(SPIKE_ENGINE);
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const env = (pendingLimitMs: number): Env => ({
+const env = (
+  pendingLimitMs: number,
+  host: Host,
+  mount: Mount = "node",
+): Env => ({
   now: () => performance.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   utf8: (text) => encoder.encode(text),
@@ -119,9 +132,12 @@ const env = (pendingLimitMs: number): Env => ({
   engineThreads,
   glibThreads,
   poolLowWater,
-  fsyncPaths: ["/tmp/fsync-memory.txt", `${mountPath}/fsync-node.txt`],
+  fsyncPaths: ["/tmp/fsync-memory.txt", `${dir}/fsync-node.txt`],
   pendingLimitMs,
   memoryMaximum: constants.memory.maximum,
+  memoryBytes,
+  engine: { dir, mount, dataBytes: engineDataBytes(SPIKE_ENGINE) },
+  hostMessages: () => host.messages,
   ...(args.compare ? { wakeMaxMs: STRICT_WAKE_MAX_MS } : {}),
 });
 
@@ -130,7 +146,8 @@ const base = {
   wasm,
   memory: { initial: memoryBytes, maximum: memoryBytes },
   sides,
-  storage: { kind: "node", hostPath: hostDir, mountPath },
+  engine: SPIKE_ENGINE,
+  storage: { kind: "node", hostPath: hostDir },
   constants,
   poolLowWater,
 } as const;
@@ -141,7 +158,7 @@ const passed = (results: readonly Result[], expected: number): boolean =>
 let failed = false;
 try {
   const host = await startHost("runtime", base);
-  const results = await runScenarios(host.client, env(10_000));
+  const results = await runScenarios(host.client, env(10_000, host));
   await report(
     "runtime: the host sleeps in ibusweb_wait(), woken through the relay for the page",
     host,
@@ -151,16 +168,35 @@ try {
   host.worker.terminate();
 
   const crashing = await startHost("runtime", base);
-  const crash = await runScenarios(crashing.client, env(10_000), [threadCrash]);
+  const crash = await runScenarios(crashing.client, env(10_000, crashing), [
+    threadCrash,
+  ]);
   await report("runtime, on a host of its own", crashing, crash);
   failed ||= !passed(crash, 1);
   crashing.worker.terminate();
 
   const full = await startHost("runtime", base);
-  const heap = await runScenarios(full.client, env(10_000), [heapFull]);
+  const heap = await runScenarios(full.client, env(10_000, full), [heapFull]);
   await report("runtime, on a host of its own", full, heap);
   failed ||= !passed(heap, 1);
   full.worker.terminate();
+
+  const memoryOnly = await startHost("runtime", {
+    ...base,
+    storage: { kind: "browser", withoutIndexedDB: true },
+  });
+  const fallback = await runScenarios(
+    memoryOnly.client,
+    env(10_000, memoryOnly, "memory"),
+    [storageFallback],
+  );
+  await report(
+    "runtime, on a host of its own told to mount IndexedDB",
+    memoryOnly,
+    fallback,
+  );
+  failed ||= !passed(fallback, 1);
+  memoryOnly.worker.terminate();
 
   // A size that isn't whole pages and one below the least the runtime takes.
   console.log("memory the runtime can't take:");
@@ -190,7 +226,7 @@ try {
     await report(
       "for comparison: the idle host waits with Atomics.waitAsync(), its event loop running",
       idle,
-      await runScenarios(idle.client, env(10_000)),
+      await runScenarios(idle.client, env(10_000, idle)),
     );
     idle.worker.terminate();
 
@@ -208,7 +244,7 @@ try {
       relayless,
       await runScenarios(
         relayless.client,
-        env(3_000),
+        env(3_000, relayless),
         scenarios.filter(({ name }) => names.has(name)),
       ),
     );

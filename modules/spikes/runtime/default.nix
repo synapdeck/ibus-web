@@ -178,14 +178,17 @@
           ''
             ${playwright.setup}
             # Browser console output goes to stderr, where the warnings the
-            # exceptions scenario's throw and pool-exhausted's failed thread
-            # creations cause are marked expected.
+            # exceptions scenario's throw, pool-exhausted's failed thread
+            # creations and storage-closed's closed connection cause are
+            # marked expected.
             run() (
               set -o pipefail
               ${browserTimeout} node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} "$@" 2>&1 1>&3 3>&- |
                 sed -e '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' \
                   -e '/WARNING.*spawn: thread [0-9]* of [0-9]*: Error creating thread: Resource temporarily unavailable/s/$/ [expected: the pool-exhausted scenario]/' \
-                  -e '/Tried to spawn a new thread, but the thread pool is exhausted/s/$/ [expected: the pool-exhausted scenario]/' >&2
+                  -e '/Tried to spawn a new thread, but the thread pool is exhausted/s/$/ [expected: the pool-exhausted scenario]/' \
+                  -e '/wasmfs-idb: .* closed for a version change/s/$/ [expected: the storage-closed scenario]/' \
+                  -e '/wasmfs-idb: looking up after-close.txt failed: I\/O error/s/$/ [expected: the storage-closed scenario]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
@@ -197,9 +200,8 @@
       # The released runtime's scenarios with the comparisons, under Node and
       # then in the browsers, run from a checkout: an idle host that waits
       # asynchronously, a relay-less one that sleeps in Atomics.wait() on the
-      # control buffer, and in the browsers a page that waits asynchronously
-      # and a host with WasmFS's OPFS backend mounted, which runs the storage
-      # scenarios.
+      # control buffer, and in the browsers a page that waits
+      # asynchronously.
       # Arguments go to the browser harness, such as --browser firefox.
       apps.runtime-spike-compare = {
         type = "app";

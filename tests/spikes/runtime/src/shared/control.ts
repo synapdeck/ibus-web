@@ -69,6 +69,11 @@ export interface HostStats {
   heapInUse: number;
   // The runtime's memory's size.
   memoryBytes: number;
+  // What backs the engine's directory: "memory" is the in-memory mount of a
+  // host without IndexedDB.
+  mount: Mount;
+  // Whether the IndexedDB backend's connection has closed under it.
+  storageClosed: boolean;
   // Requests the host has served, this one included.
   requests: number;
   // Of those, the ones that arrived while the host slept: it found them
@@ -104,13 +109,44 @@ export interface BuildConstants {
 //    calls.
 export type WaitMode = "runtime" | "runtime-async" | "control";
 
+// What the host mounts at its engine's directory, /engines/<name>.
 export type Storage =
-  | { kind: "memory" }
-  // A WasmFS Node backend over hostPath, mounted at mountPath.
-  | { kind: "node"; hostPath: string; mountPath: string }
-  // WasmFS's OPFS backend, the origin's whole private file system, mounted
-  // at mountPath.
-  | { kind: "opfs"; mountPath: string };
+  // Nothing: the engine's directory doesn't exist.
+  | { kind: "none" }
+  // WasmFS's Node backend over hostPath.
+  | { kind: "node"; hostPath: string }
+  // The engine's IndexedDB database, through the runtime's IndexedDB
+  // backend, or, where IndexedDB can't be opened, WasmFS's memory backend.
+  // withoutIndexedDB is a spike instrument: indexedDB.open() throws in the
+  // host, as it does in an opaque origin.
+  | { kind: "browser"; withoutIndexedDB?: boolean };
+
+// What the host reads of an engine's manifest: the engine's name, and the
+// archives of data it installs, by their sizes in bytes.
+export interface EngineManifest {
+  name: string;
+  data: readonly { size: number }[];
+}
+
+// The spike's stand-in for an engine's manifest. Its data, which nothing
+// installs, only sizes the memory of a host without IndexedDB; it isn't a
+// whole number of pages, as an archive's size seldom is.
+export const SPIKE_ENGINE: EngineManifest = {
+  name: "spike",
+  data: [{ size: 1_048_576 }, { size: 300_001 }],
+};
+
+export const engineDir = ({ name }: EngineManifest): string =>
+  `/engines/${name}`;
+
+// The IndexedDB database the engine's directory lives in.
+export const engineDatabase = ({ name }: EngineManifest): string =>
+  `ibus-web/${name}`;
+
+// The engine's data's size: what the host adds to the runtime's memory when
+// the data sits in it.
+export const engineDataBytes = ({ data }: EngineManifest): number =>
+  data.reduce((sum, { size }) => sum + size, 0);
 
 export interface SideModule {
   name: string;
@@ -132,21 +168,31 @@ export interface HostInit<Wasm = unknown> {
   memory: { initial: number; maximum: number };
   control: SharedArrayBuffer;
   sides: SideModule[];
+  engine: EngineManifest;
   storage: Storage;
   wait: WaitMode;
   constants: BuildConstants;
 }
 
+export type Mount = "none" | "node" | "indexeddb" | "memory";
+
 // A spike instrument: what the host's Worker offers that the host or
 // Emscripten's runtime relies on, and the step its performance.now() takes.
 export interface HostFeatures {
   atomicsWaitAsync: boolean;
-  syncAccessHandle: boolean;
   clockStepUs: number;
 }
 
+// The state of the engine's storage, when it isn't what the engine was
+// promised: "ephemeral", mounted in memory for want of IndexedDB, so user
+// data lasts only as long as the Worker; "closed", the IndexedDB backend's
+// connection closed under it, so every later call that reaches the database
+// fails with EIO.
+export type StorageState = "ephemeral" | "closed";
+
 export type HostMessage =
   | { type: "ready"; startupMs: number; features: HostFeatures }
+  | { type: "storage"; state: StorageState; message: string }
   | { type: "error"; message: string }
   | { type: "crashed"; message: string };
 

@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// The spike's Worker host. Its one message is a HostInit: it instantiates the
-// runtime, mounts storage, loads the side modules, sets the runtime up, then
+// The spike's Worker host. Its one message is a HostInit: it decides what to
+// mount at its engine's directory, makes the runtime's memory to suit,
+// instantiates the runtime, mounts storage, loads the side modules, reports
+// storage that isn't what the engine was promised, sets the runtime up, then
 // serves requests from the control buffer for good, sleeping between them
 // with the next GLib deadline as the timeout, and topping the pthread pool
 // up when it runs low. Only this Worker, and the relay it starts, touch the
@@ -24,8 +26,12 @@ import {
   type HostInit,
   type HostMessage,
   type HostStats,
+  type Mount,
   type SideModule,
   type Storage,
+  engineDatabase,
+  engineDataBytes,
+  engineDir,
 } from "../shared/control.ts";
 import type { RelayInit } from "./relay.ts";
 
@@ -43,7 +49,9 @@ interface Runtime {
   _close(fd: number): number;
   _mkdir(path: number, mode: number): number;
   _wasmfs_create_node_backend(root: number): number;
-  _wasmfs_create_opfs_backend(): number;
+  _wasmfs_create_memory_backend(): number;
+  _wasmfs_create_idb_backend(database: number, flags: number): number;
+  _wasmfs_idb_backend_closed(backend: number): number;
   _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
   _ibusweb_pump(): number;
@@ -106,9 +114,6 @@ const post = (message: HostMessage): void => self.postMessage(message);
 const features = (): HostFeatures => ({
   atomicsWaitAsync:
     typeof (Atomics as { waitAsync?: unknown }).waitAsync === "function",
-  syncAccessHandle:
-    typeof FileSystemFileHandle === "function" &&
-    "createSyncAccessHandle" in FileSystemFileHandle.prototype,
   clockStepUs: clockStepUs(() => performance.now()),
 });
 
@@ -215,31 +220,158 @@ const check = (what: string, ret: number): void => {
   if (ret < 0) throw new Error(`${what}: ${ret}`);
 };
 
-const mount = (heap: Heap, storage: Storage): void => {
-  if (storage.kind === "memory") return;
+// What the host mounts at the engine's directory, decided before the
+// runtime's memory is made, since a mount in memory needs a larger one.
+type StoragePlan =
+  | { mount: "none" }
+  | { mount: "node"; hostPath: string }
+  | { mount: "indexeddb"; database: string; flags: number }
+  // Why IndexedDB can't be opened.
+  | { mount: "memory"; why: string };
+
+// A spike instrument: an opaque origin's indexedDB.open(), here, in the
+// host's realm only.
+const withoutIndexedDB = (): void => {
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: {
+      open: () => {
+        throw new DOMException(
+          "IndexedDB is withheld from this host",
+          "SecurityError",
+        );
+      },
+    },
+  });
+};
+
+const briefly = (error: unknown): string =>
+  error instanceof Error || error instanceof DOMException
+    ? `${error.name}: ${error.message}`
+    : String(error);
+
+// Whether IndexedDB opens the database: null if it does, or why not. The
+// backend opens its own connection, on its own thread, so this one closes
+// at once, before it can hold up another's version change. Opening a
+// database that doesn't exist would create it, empty, at the version the
+// backend creates its object stores in, so the probe aborts that creation,
+// which leaves nothing behind.
+const probeIndexedDB = (database: string): Promise<string | null> =>
+  new Promise((resolve) => {
+    const factory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+    if (factory === undefined) {
+      resolve("this environment has no IndexedDB");
+      return;
+    }
+    let request: IDBOpenDBRequest;
+    try {
+      request = factory.open(database);
+    } catch (error) {
+      resolve(briefly(error));
+      return;
+    }
+    let creating = false;
+    request.onupgradeneeded = () => {
+      creating = true;
+      request.transaction?.abort();
+    };
+    request.onsuccess = () => {
+      request.result.close();
+      resolve(null);
+    };
+    request.onerror = (event) => {
+      event.preventDefault();
+      resolve(
+        creating && request.error?.name === "AbortError"
+          ? null
+          : briefly(request.error),
+      );
+    };
+  });
+
+const planStorage = async (
+  storage: Storage,
+  engine: HostInit["engine"],
+): Promise<StoragePlan> => {
+  switch (storage.kind) {
+    case "none":
+      return { mount: "none" };
+    case "node":
+      return { mount: "node", hostPath: storage.hostPath };
+    case "browser": {
+      if (storage.withoutIndexedDB === true) withoutIndexedDB();
+      const database = engineDatabase(engine);
+      const why = await probeIndexedDB(database);
+      if (why !== null) return { mount: "memory", why };
+      // Creating the backend sweeps the database of what a crash left
+      // behind, which only its one writer may do: whatever decides who
+      // writes decides the flags here, before the mount.
+      return { mount: "indexeddb", database, flags: 0 };
+    }
+  }
+};
+
+// The memory the runtime needs: mounted in memory, the engine's data takes
+// its size more, in whole pages.
+const memoryFor = (
+  memory: HostInit["memory"],
+  plan: StoragePlan,
+  engine: HostInit["engine"],
+): HostInit["memory"] => {
+  if (plan.mount !== "memory") return memory;
+  const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
+  return { initial: memory.initial + data, maximum: memory.maximum + data };
+};
+
+// The engine's directory as mounted, and whether IndexedDB's connection has
+// closed under it.
+interface Mounted {
+  mount: Mount;
+  closed(): boolean;
+}
+
+const mount = (heap: Heap, plan: StoragePlan, dir: string): Mounted => {
+  if (plan.mount === "none") return { mount: "none", closed: () => false };
   const { rt } = heap;
   // Its parents, in memory; one that exists already fails harmlessly.
-  const parts = storage.mountPath.split("/").filter((part) => part !== "");
+  const parts = dir.split("/").filter((part) => part !== "");
   for (let i = 1; i < parts.length; i++)
     heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) =>
       rt._mkdir(ptr, 0o755),
     );
-  // The OPFS backend starts a thread of its own, from the pool, that runs
-  // its asynchronous calls for good.
-  const backend =
-    storage.kind === "node"
-      ? heap.withString(storage.hostPath, (ptr) =>
-          rt._wasmfs_create_node_backend(ptr),
-        )
-      : rt._wasmfs_create_opfs_backend();
-  if (backend === 0)
-    throw new Error(`no ${storage.kind} backend for ${storage.mountPath}`);
+  // The IndexedDB backend starts a thread of its own, from the pool, that
+  // runs its calls for good, and blocks this thread while that thread opens
+  // the database; it reports why it couldn't on stderr.
+  let backend: number;
+  switch (plan.mount) {
+    case "node":
+      backend = heap.withString(plan.hostPath, (ptr) =>
+        rt._wasmfs_create_node_backend(ptr),
+      );
+      break;
+    case "indexeddb":
+      backend = heap.withString(plan.database, (ptr) =>
+        rt._wasmfs_create_idb_backend(ptr, plan.flags),
+      );
+      break;
+    case "memory":
+      backend = rt._wasmfs_create_memory_backend();
+      break;
+  }
+  if (backend === 0) throw new Error(`no ${plan.mount} backend for ${dir}`);
   check(
-    `mount ${storage.mountPath}`,
-    heap.withString(storage.mountPath, (ptr) =>
+    `mount ${dir}`,
+    heap.withString(dir, (ptr) =>
       rt._wasmfs_create_directory(ptr, 0o777, backend),
     ),
   );
+  return {
+    mount: plan.mount,
+    closed:
+      plan.mount === "indexeddb"
+        ? () => rt._wasmfs_idb_backend_closed(backend) !== 0
+        : () => false,
+  };
 };
 
 // Writes each module through the runtime's own libc, so it lands in its file
@@ -443,6 +575,7 @@ const serve = (
   workers: Workers,
   pool: Pool,
   counters: Counters,
+  mounted: Mounted,
 ): Promise<void> | undefined => {
   const request = requestBytes(control);
   const arg = (fallback: number): number =>
@@ -457,6 +590,8 @@ const serve = (
           idleWorkers: heap.rt.PThread.unusedWorkers.length,
           heapInUse: heapInUse(heap, constants, buffers.mallinfo),
           memoryBytes: heap.bytes.byteLength,
+          mount: mounted.mount,
+          storageClosed: mounted.closed(),
           ...counters,
         };
         const json = encoder.encode(JSON.stringify(stats));
@@ -520,12 +655,14 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   const { default: createRuntime } = (await import(init.runtimeUrl)) as {
     default: CreateRuntime;
   };
-  checkMemory(init.memory, constants.memory);
+  const plan = await planStorage(init.storage, init.engine);
+  const memoryBytes = memoryFor(init.memory, plan, init.engine);
+  checkMemory(memoryBytes, constants.memory);
   const workers = trackWorkers();
   const { wasm } = init;
   const memory = new WebAssembly.Memory({
-    initial: init.memory.initial / WASM_PAGE,
-    maximum: init.memory.maximum / WASM_PAGE,
+    initial: memoryBytes.initial / WASM_PAGE,
+    maximum: memoryBytes.maximum / WASM_PAGE,
     shared: true,
   });
   // Emscripten has no way to hear that instantiateWasm failed, so a failure
@@ -555,7 +692,9 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   requireRuntime(rt);
   const heap = new Heap(rt, memory);
 
-  mount(heap, init.storage);
+  const mounted = mount(heap, plan, engineDir(init.engine));
+  if (plan.mount === "memory")
+    post({ type: "storage", state: "ephemeral", message: plan.why });
   loadSides(heap, init.sides);
 
   const wake = heap.alloc(4);
@@ -624,8 +763,19 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   // that read and the futex wait inside the call, a window of a few
   // instructions, still does.
   let woken = false;
+  // The page hears of it once, when the host next wakes.
+  let closedReported = false;
   try {
     for (;;) {
+      if (!closedReported && mounted.closed()) {
+        closedReported = true;
+        post({
+          type: "storage",
+          state: "closed",
+          message:
+            "the IndexedDB connection closed; the engine's storage fails with EIO",
+        });
+      }
       const seen = Atomics.load(sleepWords, sleepIndex);
       const state = Atomics.load(control.words, Word.state);
       if (state === State.crashed)
@@ -644,6 +794,7 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
           workers,
           pool,
           counters,
+          mounted,
         );
         if (later !== undefined) await later;
         continue;

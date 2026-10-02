@@ -33,8 +33,9 @@ export interface PageRunSpec {
   // synchronous keystroke path would; "async" waits with Atomics.waitAsync(),
   // its event loop running.
   pageWait: "spin" | "async";
-  // Where the host mounts the OPFS backend, if it does.
-  opfsMount?: string;
+  // What the host mounts at the engine's directory: nothing, or the engine's
+  // IndexedDB database, with or without IndexedDB to open (Storage).
+  storage: "none" | "browser" | "browser-without-indexeddb";
   // The runtime's memory (HostInit.memory).
   memory: { initial: number; maximum: number };
   stress?: { threads: number; rounds: number; iterations: number };
@@ -75,7 +76,7 @@ export const reportLines = (
   }
   for (const message of messages)
     lines.push(
-      `    host ${message.type}: ${"message" in message ? message.message : ""}`,
+      `    host ${message.type}: ${message.type === "storage" ? `${message.state}: ` : ""}${"message" in message ? message.message : ""}`,
     );
   lines.push(`RESULTS ${JSON.stringify({ label, startupMs, results })}`);
   return lines;

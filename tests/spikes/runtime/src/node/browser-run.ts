@@ -12,19 +12,22 @@
 // Runs the runtime spike's scenarios in browsers, headless, through
 // Playwright: a page served with cross-origin isolation starts the Worker
 // host by URL and plays the page's part over the control buffer. Each host
-// runs in a browser context of its own, so the origin's private file system
-// starts empty every time. Each host makes the runtime's memory, of BYTES
-// that never grow. In each browser the host sleeps in the runtime and runs
-// every scenario, and a host of its own the crash scenario. With --compare,
-// for the record, a host of its own with OPFS mounted runs the storage
-// scenarios on it, then the same with the page waiting asynchronously, the
-// idle host that waits asynchronously and the relay-less one follow, and
-// every cross-thread wake must take at most 20 ms.
+// runs in a browser context of its own, so the origin's storage starts empty
+// every time. Each host makes the runtime's memory, of BYTES that never
+// grow, and mounts the engine's IndexedDB database at the engine's
+// directory. In each browser the host sleeps in the runtime and runs every
+// scenario; a host of its own runs the crash scenario, another
+// storage-closed, and another, in which indexedDB.open() throws,
+// storage-fallback. With --compare, for the record, the same with the page
+// waiting asynchronously, the idle host that waits asynchronously and the
+// relay-less one follow, and every cross-thread wake must take at most
+// 20 ms.
 //
 // Prints each host's results, then a table per host with a column per
-// browser. Exits 1 if a scenario of the first two hosts fails in any
-// browser other than as a known failure below describes, if a known failure
-// passes, or, run without --browser and --scenario, if one isn't run.
+// browser. Exits 1 if a scenario of the hosts before the comparisons fails
+// in any browser other than as a known failure below describes, if a known
+// failure passes, or, run without --browser and --scenario, if one isn't
+// run.
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -38,11 +41,10 @@ import {
   type PageRunSpec,
 } from "../shared/report.ts";
 import {
-  opfs,
-  opfsReadOnly,
   poolExhausted,
-  promiseProxiedFsync,
   scenarios,
+  storageClosed,
+  storageFallback,
   type Result,
 } from "../shared/scenarios.ts";
 import { browsersNamed, launch, launchError, servePage } from "./browsers.ts";
@@ -88,7 +90,6 @@ const browserNames = browsersNamed(args.browser);
 // Generous against the scenarios' own limits, so that a hung host fails its
 // run rather than the whole check's time limit.
 const RUN_TIMEOUT_MS = 180_000;
-const OPFS_MOUNT = "/engines/spike";
 // Run by hand, on a quiet machine, every cross-thread wake is held to this.
 const STRICT_WAKE_MAX_MS = 20;
 
@@ -118,18 +119,12 @@ interface Run {
   pageWait: PageRunSpec["pageWait"];
   scenarios: string[];
   pendingLimitMs: number;
-  opfs: boolean;
+  storage: PageRunSpec["storage"];
 }
 
 const names = (list: readonly { name: string }[]): string[] =>
   list.map(({ name }) => name);
 
-const opfsScenarios = names([
-  { name: "cold-wake" },
-  promiseProxiedFsync,
-  opfs,
-  opfsReadOnly,
-]);
 const allScenarios = [...names(scenarios), poolExhausted.name];
 
 const runs: Run[] = [
@@ -142,7 +137,7 @@ const runs: Run[] = [
     pageWait: "spin",
     scenarios: allScenarios,
     pendingLimitMs: 10_000,
-    opfs: false,
+    storage: "browser",
   },
   {
     id: "crash",
@@ -152,7 +147,29 @@ const runs: Run[] = [
     pageWait: "spin",
     scenarios: ["thread-crash"],
     pendingLimitMs: 10_000,
-    opfs: false,
+    storage: "browser",
+  },
+  {
+    id: "closed",
+    label:
+      "runtime, on a host of its own whose database the page opens at a newer version",
+    counts: true,
+    wait: "runtime",
+    pageWait: "spin",
+    scenarios: [storageClosed.name],
+    pendingLimitMs: 10_000,
+    storage: "browser",
+  },
+  {
+    id: "fallback",
+    label:
+      "runtime, on a host of its own in which indexedDB.open() throws, as in an opaque origin",
+    counts: true,
+    wait: "runtime",
+    pageWait: "spin",
+    scenarios: [storageFallback.name],
+    pendingLimitMs: 10_000,
+    storage: "browser-without-indexeddb",
   },
 ];
 if (args.compare)
@@ -166,27 +183,7 @@ if (args.compare)
       pageWait: "async",
       scenarios: allScenarios,
       pendingLimitMs: 10_000,
-      opfs: false,
-    },
-    {
-      id: "runtime-opfs",
-      label: `for comparison: runtime, on a host of its own with OPFS mounted at ${OPFS_MOUNT}`,
-      counts: false,
-      wait: "runtime",
-      pageWait: "spin",
-      scenarios: opfsScenarios,
-      pendingLimitMs: 10_000,
-      opfs: true,
-    },
-    {
-      id: "page-async-opfs",
-      label: `for comparison: the same, on a host of its own with OPFS mounted at ${OPFS_MOUNT}`,
-      counts: false,
-      wait: "runtime",
-      pageWait: "async",
-      scenarios: opfsScenarios,
-      pendingLimitMs: 10_000,
-      opfs: true,
+      storage: "browser",
     },
     {
       id: "runtime-async",
@@ -197,7 +194,7 @@ if (args.compare)
       pageWait: "spin",
       scenarios: allScenarios,
       pendingLimitMs: 10_000,
-      opfs: false,
+      storage: "browser",
     },
     {
       id: "control",
@@ -215,7 +212,7 @@ if (args.compare)
         "sync-proxied",
       ],
       pendingLimitMs: 3_000,
-      opfs: false,
+      storage: "browser",
     },
   );
 
@@ -304,7 +301,7 @@ const runOne = async (
       pendingLimitMs: run.pendingLimitMs,
       pageWait: run.pageWait,
       memory: { initial: memoryBytes, maximum: memoryBytes },
-      ...(run.opfs ? { opfsMount: OPFS_MOUNT } : {}),
+      storage: run.storage,
       ...(args.compare ? { wakeMaxMs: STRICT_WAKE_MAX_MS } : {}),
     };
     const report = await withTimeout(

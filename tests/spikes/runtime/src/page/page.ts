@@ -10,20 +10,25 @@ import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, clockStepUs } from "../shared/client.ts";
 import {
   createControl,
+  engineDatabase,
+  engineDataBytes,
+  engineDir,
+  SPIKE_ENGINE,
   type HostInit,
   type SideModule,
+  type Storage,
 } from "../shared/control.ts";
 import type { PageRunReport, PageRunSpec } from "../shared/report.ts";
 import {
   glibStress,
   memoryCosts,
   memStress,
-  opfs,
-  opfsReadOnly,
   opsFrom,
   poolExhausted,
   runScenarios,
   scenarios,
+  storageClosed,
+  storageFallback,
   threadCrash,
   workerMemory,
   type Env,
@@ -53,8 +58,8 @@ const byName = new Map<string, Scenario>(
   [
     ...scenarios,
     poolExhausted,
-    opfs,
-    opfsReadOnly,
+    storageClosed,
+    storageFallback,
     threadCrash,
     memStress,
     glibStress,
@@ -80,18 +85,25 @@ const mainThreadAtomicsWait = (): string => {
   }
 };
 
-// A file at the root of the origin's private file system, which the host's
-// OPFS backend mounts.
-const readOpfs = async (name: string): Promise<string | null> => {
-  const root = await navigator.storage.getDirectory();
-  try {
-    return await (await (await root.getFileHandle(name)).getFile()).text();
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "NotFoundError")
-      return null;
-    throw error;
-  }
-};
+// Opens the engine's database at the version after the one it is at, which
+// waits until every other connection has closed, then closes it.
+const upgradeDatabase = (): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+    const name = engineDatabase(SPIKE_ENGINE);
+    const current = indexedDB.open(name);
+    current.onerror = () => reject(current.error);
+    current.onsuccess = () => {
+      const { version } = current.result;
+      current.result.close();
+      const newer = indexedDB.open(name, version + 1);
+      newer.onerror = () => reject(newer.error);
+      newer.onsuccess = () => {
+        newer.result.close();
+        resolve(performance.now() - startedAt);
+      };
+    };
+  });
 
 // The harness's measure of the browser's processes, which it exposes to the
 // page, and, where the browser has it, the page's own measure of its memory
@@ -116,6 +128,14 @@ const sampleMemory = async (): Promise<Record<string, number>> => {
   }
   return sample;
 };
+
+const storageOf = (storage: PageRunSpec["storage"]): Storage =>
+  storage === "none"
+    ? { kind: "none" }
+    : {
+        kind: "browser",
+        withoutIndexedDB: storage === "browser-without-indexeddb",
+      };
 
 const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
   if (!crossOriginIsolated)
@@ -153,10 +173,8 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     memory: spec.memory,
     control,
     sides,
-    storage:
-      spec.opfsMount === undefined
-        ? { kind: "memory" }
-        : { kind: "opfs", mountPath: spec.opfsMount },
+    engine: SPIKE_ENGINE,
+    storage: storageOf(spec.storage),
     wait: spec.wait,
     constants: spec.constants,
   };
@@ -207,15 +225,24 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       poolLowWater: spec.poolLowWater,
       fsyncPaths: [
         "/tmp/fsync-memory.txt",
-        ...(spec.opfsMount === undefined
-          ? []
-          : [`${spec.opfsMount}/fsync-opfs.txt`]),
+        ...(spec.storage === "browser"
+          ? [`${engineDir(SPIKE_ENGINE)}/fsync-idb.txt`]
+          : []),
       ],
       pendingLimitMs: spec.pendingLimitMs,
       ...(spec.wakeMaxMs === undefined ? {} : { wakeMaxMs: spec.wakeMaxMs }),
-      ...(spec.opfsMount === undefined
+      memoryBytes: spec.memory.initial,
+      ...(spec.storage === "none"
         ? {}
-        : { persistent: { dir: spec.opfsMount, read: readOpfs } }),
+        : {
+            engine: {
+              dir: engineDir(SPIKE_ENGINE),
+              mount: spec.storage === "browser" ? "indexeddb" : "memory",
+              dataBytes: engineDataBytes(SPIKE_ENGINE),
+            },
+          }),
+      hostMessages: () => messages,
+      upgradeDatabase,
       ...(spec.stress === undefined ? {} : { stress: spec.stress }),
       ...(spec.sampleMemory === true ? { sampleMemory } : {}),
     };

@@ -139,13 +139,12 @@ static void read_file(const uint8_t *payload, uint32_t len, int flags,
   g_string_free(contents, TRUE);
 }
 
-/* read-file(path): read-only, which WasmFS's OPFS backend reads as a Blob. */
+/* read-file(path): opened read-only. */
 static void read_file_op(const uint8_t *payload, uint32_t len, GString *reply) {
   read_file(payload, len, O_RDONLY, reply);
 }
 
-/* read-file-rdwr(path): opened for reading and writing, which WasmFS's OPFS
- * backend reads through a sync access handle, without writing. */
+/* read-file-rdwr(path): opened for reading and writing, without writing. */
 static void read_file_rdwr_op(const uint8_t *payload, uint32_t len,
                               GString *reply) {
   read_file(payload, len, O_RDWR, reply);

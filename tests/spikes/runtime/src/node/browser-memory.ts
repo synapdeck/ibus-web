@@ -201,6 +201,7 @@ const runPage = async (
       poolLowWater: Number(args["pool-low-water"]),
       pendingLimitMs: 120_000,
       pageWait: "async",
+      storage: "none",
       memory: { initial: variant.initial, maximum: variant.maximum },
       stress: {
         threads: Number(args.threads),

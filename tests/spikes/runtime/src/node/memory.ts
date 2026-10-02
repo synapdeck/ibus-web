@@ -26,7 +26,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import type { HostInit } from "../shared/control.ts";
+import { SPIKE_ENGINE, type HostInit } from "../shared/control.ts";
 import {
   dispatch,
   glibStress,
@@ -140,7 +140,8 @@ const runChild = async (variant: Variant, names: string[]): Promise<void> => {
     wasm: await compileRuntime(variant.runtime),
     memory: { initial: variant.initial, maximum: variant.maximum },
     sides: await readSides(args.sides!),
-    storage: { kind: "memory" },
+    engine: SPIKE_ENGINE,
+    storage: { kind: "none" },
     constants,
     poolLowWater: Number(args["pool-low-water"]),
   } satisfies Omit<HostInit<object>, "control" | "wait">);

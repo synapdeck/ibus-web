@@ -8,7 +8,9 @@
 import {
   HostOp,
   type BuildConstants,
+  type HostMessage,
   type HostStats,
+  type Mount,
   type Reply,
 } from "./control.ts";
 
@@ -116,10 +118,17 @@ export interface Env {
   wakeMaxMs?: number;
   // The most memory the runtime takes, in bytes.
   memoryMaximum?: number;
-  // Storage that outlives the runtime, mounted at dir, and how the harness
-  // reads a file there without the runtime: its contents, or null if there
-  // is no such file.
-  persistent?: { dir: string; read(name: string): Promise<string | null> };
+  // The memory the harness asked the host to make for the runtime, in bytes.
+  memoryBytes?: number;
+  // The engine's directory, what the host is to mount there, and the size
+  // of the engine's data, the sum of its manifest's data[].size.
+  engine?: { dir: string; mount: Mount; dataBytes: number };
+  // The messages the host has posted to the harness so far, but "ready".
+  hostMessages?: () => readonly HostMessage[];
+  // Opens the engine's database at a newer version from the harness, as an
+  // upgrade in another tab would, and closes it again; resolves once it
+  // opened, with how long that took in milliseconds.
+  upgradeDatabase?: () => Promise<number>;
   // The memory workloads' sizes: threads alive at once, mem-stress's rounds
   // per thread and glib-stress's lock takes per thread.
   stress?: { threads: number; rounds: number; iterations: number };
@@ -805,110 +814,169 @@ const replyFile = (
     : { status, text: env.decode(bytes.subarray(4)) };
 };
 
-// WasmFS's OPFS backend reads a file opened for writing through a sync
-// access handle, so this opens every file it reads O_RDWR.
-export const opfs: Scenario = {
-  name: "opfs",
+const WASM_PAGE = 65536;
+
+const engineOf = (env: Env): NonNullable<Env["engine"]> => {
+  if (env.engine === undefined)
+    throw new Error("the harness names no engine directory");
+  return env.engine;
+};
+
+// Writes a file new to the engine's directory, then reads it back through a
+// side module's reads, opened read-only and for reading and writing. A name
+// of its own keeps hosts that share the directory, as Node's do, apart.
+const roundTrip = async (
+  client: Client,
+  env: Env,
+): Promise<{ pass: boolean; measurements: Record<string, Measurement> }> => {
+  const { dir } = engineOf(env);
+  const path = `${dir}/roundtrip-${Math.random().toString(36).slice(2)}.txt`;
+  const contents = `written to ${path} by the runtime`;
+  const read = async (opcode: number) =>
+    replyFile(await client.call(opcode, env.utf8(path)), env);
+  const before = await read(env.ops.readFile);
+  const writeAt = env.now();
+  // write-file creates the file, writes it, fsync()s and closes it.
+  const written = await call32(
+    client,
+    env.ops.writeFile,
+    env.utf8(`${path}\0${contents}`),
+  );
+  const writeMs = env.now() - writeAt;
+  const readAt = env.now();
+  const readOnly = await read(env.ops.readFile);
+  const readMs = env.now() - readAt;
+  const readWrite = await read(env.ops.readFileRdwr);
+  const same = (got: { status: number; text?: string }): Measurement =>
+    got.text === contents ? "same" : (got.text ?? got.status);
+  return {
+    pass:
+      before.status === -env.errno.ENOENT! &&
+      written === env.utf8(contents).length &&
+      readOnly.text === contents &&
+      readWrite.text === contents,
+    measurements: {
+      before: before.status,
+      written,
+      writeAndFsyncMs: round(writeMs, 2),
+      readOnly: same(readOnly),
+      readMs: round(readMs, 2),
+      readWrite: same(readWrite),
+    },
+  };
+};
+
+export const storageRoundtrip: Scenario = {
+  name: "storage-roundtrip",
   criterion:
-    "on WasmFS's OPFS backend: a file absent at first (the storage is fresh) is written and " +
-    "fsync()ed on the host's thread, and reads back the same through the runtime, opened " +
-    "for reading and writing, and through the page's OPFS API; promise-proxied-fsync's file, " +
-    "if it ran, reads back through the OPFS API too",
-  async run(client, env, earlier) {
-    const { persistent } = env;
-    if (persistent === undefined)
-      throw new Error("the harness mounts no persistent storage");
-    const name = "opfs-check.txt";
-    const path = `${persistent.dir}/${name}`;
-    const contents = `written to ${path} by the runtime`;
-    const read = async () =>
-      replyFile(await client.call(env.ops.readFileRdwr, env.utf8(path)), env);
-
-    // The backend's own thread holds one of them for good.
-    const { idleWorkers } = await stats(client, env);
-    const before = await read();
-    const startedAt = env.now();
-    const written = await call32(
-      client,
-      env.ops.writeFile,
-      env.utf8(`${path}\0${contents}`),
-    );
-    const writeMs = env.now() - startedAt;
-    const readAt = env.now();
-    const after = await read();
-    const readMs = env.now() - readAt;
-    const outside = await persistent.read(name);
-
-    const fsyncRan = earlier.some(
-      (result) => result.name === promiseProxiedFsync.name,
-    );
-    const fsyncPath = env.fsyncPaths.find((file) =>
-      file.startsWith(`${persistent.dir}/`),
-    );
-    const fsyncFile =
-      !fsyncRan || fsyncPath === undefined
-        ? undefined
-        : await persistent.read(fsyncPath.slice(persistent.dir.length + 1));
-    const fsyncMatches = fsyncPath !== undefined && fsyncFile === fsyncPath;
-
-    const bytes = env.utf8(contents).length;
+    "the engine's directory is mounted on the backend the harness expects, and a file absent " +
+    "at first, written and fsync()ed on the host's thread, reads back the same through a side " +
+    "module, opened read-only and for reading and writing",
+  async run(client, env) {
+    const { mount } = engineOf(env);
+    const at = await stats(client, env);
+    const { pass, measurements } = await roundTrip(client, env);
     return {
-      pass:
-        before.status === -env.errno.ENOENT! &&
-        written === bytes &&
-        after.text === contents &&
-        outside === contents &&
-        (!fsyncRan || fsyncMatches),
+      pass: pass && at.mount === mount && !at.storageClosed,
       measurements: {
-        idleWorkers: `${idleWorkers} of a pool of ${env.poolSize}`,
-        before: before.status,
-        written,
-        writeAndFsyncMs: round(writeMs, 2),
-        readBack:
-          after.text === contents ? "same" : (after.text ?? after.status),
-        readMs: round(readMs, 2),
-        throughOpfsApi: outside === contents ? "same" : (outside ?? "absent"),
-        fsyncFileThroughOpfsApi: !fsyncRan
-          ? "not run"
-          : fsyncMatches
-            ? "same"
-            : (fsyncFile ?? "absent"),
+        mount: at.mount,
+        expected: mount,
+        storageClosed: at.storageClosed,
+        idleWorkers: `${at.idleWorkers} of a pool of ${env.poolSize}`,
+        ...measurements,
       },
     };
   },
 };
 
-// WasmFS's OPFS backend opens a file opened read-only as a Blob and reads
-// it with Blob.arrayBuffer().
-export const opfsReadOnly: Scenario = {
-  name: "opfs-read-only",
+// Runs first on a host of its own, started without IndexedDB, so that no
+// thread is alive yet.
+export const storageFallback: Scenario = {
+  name: "storage-fallback",
   criterion:
-    "on WasmFS's OPFS backend: a file written on the host's thread reads back the same " +
-    "through the runtime, opened read-only",
+    "a host that can't open IndexedDB mounts WasmFS's memory backend at the engine's " +
+    "directory, which starts no thread, makes the runtime's memory larger by the engine " +
+    "data's size in whole pages, and reports storage: ephemeral; a file written there reads back",
   async run(client, env) {
-    const { persistent } = env;
-    if (persistent === undefined)
-      throw new Error("the harness mounts no persistent storage");
-    const path = `${persistent.dir}/opfs-read-only.txt`;
-    const contents = `written to ${path} by the runtime`;
+    const { dataBytes } = engineOf(env);
+    if (env.memoryBytes === undefined || env.hostMessages === undefined)
+      throw new Error(
+        "the harness gives neither the memory nor the host's messages",
+      );
+    const at = await stats(client, env);
+    const expectedBytes =
+      env.memoryBytes + Math.ceil(dataBytes / WASM_PAGE) * WASM_PAGE;
+    const events = env
+      .hostMessages()
+      .filter((message) => message.type === "storage");
+    const ephemeral = events.filter(({ state }) => state === "ephemeral");
+    const { pass, measurements } = await roundTrip(client, env);
+    return {
+      pass:
+        pass &&
+        at.mount === "memory" &&
+        at.memoryBytes === expectedBytes &&
+        at.idleWorkers === env.poolSize &&
+        ephemeral.length === 1 &&
+        events.length === 1,
+      measurements: {
+        mount: at.mount,
+        memoryBytes: at.memoryBytes,
+        expectedMemoryBytes: expectedBytes,
+        idleWorkers: `${at.idleWorkers} of a pool of ${env.poolSize}`,
+        storageEvents: events.map(
+          ({ state, message }) => `${state}: ${message}`,
+        ),
+        ...measurements,
+      },
+    };
+  },
+};
+
+// Leaves the engine's storage failing, so it runs on a host of its own.
+export const storageClosed: Scenario = {
+  name: "storage-closed",
+  criterion:
+    "when another connection opens the engine's database at a newer version, the IndexedDB " +
+    "backend's connection closes for it: a file created in the engine's directory then fails " +
+    "with EIO, and the host reports storage: closed",
+  async run(client, env) {
+    const { dir } = engineOf(env);
+    const { upgradeDatabase, hostMessages } = env;
+    if (upgradeDatabase === undefined || hostMessages === undefined)
+      throw new Error(
+        "the harness can neither upgrade the database nor give the host's messages",
+      );
+    const before = await stats(client, env);
+    const upgradeMs = await upgradeDatabase();
     const written = await call32(
       client,
       env.ops.writeFile,
-      env.utf8(`${path}\0${contents}`),
+      env.utf8(`${dir}/after-close.txt\0closed`),
     );
-    const readAt = env.now();
-    const after = replyFile(
-      await client.call(env.ops.readFile, env.utf8(path)),
-      env,
+    const after = await stats(client, env);
+    // The host posts its report when it wakes for a request; this thread
+    // receives it once its event loop runs.
+    await env.sleep(50);
+    const events = hostMessages().filter(
+      (message) => message.type === "storage",
     );
-    const readMs = env.now() - readAt;
     return {
-      pass: written === env.utf8(contents).length && after.text === contents,
+      pass:
+        before.mount === "indexeddb" &&
+        !before.storageClosed &&
+        after.storageClosed &&
+        written === -env.errno.EIO! &&
+        events.length === 1 &&
+        events[0]!.state === "closed",
       measurements: {
+        closedBefore: before.storageClosed,
+        upgradeMs: round(upgradeMs, 2),
         written,
-        readBack:
-          after.text === contents ? "same" : (after.text ?? after.status),
-        readMs: round(readMs, 2),
+        closedAfter: after.storageClosed,
+        storageEvents: events.map(
+          ({ state, message }) => `${state}: ${message}`,
+        ),
       },
     };
   },
@@ -1149,6 +1217,7 @@ export const scenarios: readonly Scenario[] = [
   deadline,
   syncProxied,
   promiseProxiedFsync,
+  storageRoundtrip,
   exceptions,
 ];
 
