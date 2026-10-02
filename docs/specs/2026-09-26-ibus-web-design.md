@@ -768,8 +768,27 @@ its own loggers with engine and domain annotations (§7.4).
   the thread pool (§5.3), as WasmFS's OPFS backend does. That thread runs an
   event loop, which IndexedDB's callbacks need, and holds the backend's
   connections. Emscripten's WasmFS has no IndexedDB backend; ours is written
-  in C++ after the OPFS backend's shape and is a candidate for upstream as
-  `wasmfs_create_idb_backend`. Milestone M0.5 builds it.
+  in C++ after the OPFS backend's shape, lives in the repository as the
+  runtime part `runtime/wasmfs-idb/` (compiled against the patched
+  Emscripten's WasmFS headers, with an Emscripten JS library), and is a
+  candidate for upstream as `wasmfs_create_idb_backend(database, flags)`.
+  Milestone M0.5 builds it.
+- **Layout.** One database per mount, `ibus-web/<name>`, with four object
+  stores: `meta` (format, chunk size fixed when the database is created, next
+  inode number, the root's inode, the installed data's version), `inodes`
+  (kind, mode, size, times), `entries` (keyed `[parent, name]`) and `chunks`
+  (keyed `[inode, index]`; a missing chunk reads as zeros, so files may be
+  sparse). An operation that touches more than one record is one
+  transaction. An unlinked file stays readable while open; its inode and
+  chunks go at its last close, and orphans a crash leaves are swept when the
+  backend starts.
+- **Writes and `fsync`.** Writes are write-through: each `write()` is one
+  read-write transaction, reading only the chunks it partly overwrites, and
+  has committed before it returns. `fsync()` is the durability barrier: an
+  empty read-write transaction with `{ durability: "strict" }` that resolves
+  when it completes. Errors map to errnos: `QuotaExceededError` to `ENOSPC`
+  with nothing changed, the read-only flag to `EROFS`, a closed connection
+  to `EIO`.
 - **Why IndexedDB.** In Firefox a Worker reads a `Blob`'s bytes (an OPFS
   `File`, a `Blob` value in IndexedDB, a cached `Response`) only while the
   page's main thread is free, so under the keystroke spin (§6.2.6) every such
@@ -794,14 +813,29 @@ its own loggers with engine and domain annotations (§7.4).
   which waits until every other connection closes, so every connection
   closes on `versionchange`, which the backend's thread hears from its
   event loop. Replacing data within a version needs none.
+- **One writer.** Readers never block one another, but two tabs writing the
+  same user dictionary would interleave. The host takes a Web Lock,
+  `ibus-web:writer:<name>` with `ifAvailable`, for the Worker's life; the
+  instance holding it mounts the engine's data read-write, and every other
+  mounts it read-only (`WASMFS_IDB_READ_ONLY`, every change refused with
+  `EROFS`) and the host receives a `storage: read-only` event (§8). When the
+  writer's Worker ends, the next instance started takes the lock.
 - **Data files.** Read-only engine data (m17n-db, Hangul Hanja tables, Rime's
   prebuilt schemas) is fetched as archives listed in the manifest and
   installed into the engine's IndexedDB data once per version, then read
-  lazily like any other file. How it is installed is M0.5's to settle:
-  fetching through the browser's HTTP cache reads a response body, which in
-  Firefox waits while the page spins (§6.2.6), so installing stays off the
-  request path; and two tabs installing the same version at once need a
-  rule.
+  lazily like any other file. Archives are uncompressed POSIX ustar
+  (compression is HTTP's job), streamed from the response body into a
+  streaming extractor in `libibus-web` (`ibusweb_install_begin`, `_feed`,
+  `_end`) that writes through the mounted file system, so the stored layout
+  has one writer; it takes regular files and directories only and refuses
+  absolute paths and `..`. The host installs at engine start, before the
+  engine accepts requests, under a Web Lock, `ibus-web:install:<name>`: it
+  checks for the installed version's marker, installs if it is missing or
+  older, and writes the marker last. A second tab waiting on the lock finds
+  the marker and skips; an interrupted install leaves no marker and is
+  redone. In Firefox the response body waits while the page spins
+  (§6.2.6), which only delays startup, since installing is off the request
+  path.
 - **Fallback.** A browser lacks IndexedDB only for an opaque origin (a
   sandboxed iframe without `allow-same-origin`, a `data:` URL, where
   `indexedDB.open()` throws `SecurityError`), where the user or an enterprise
@@ -814,9 +848,11 @@ its own loggers with engine and domain annotations (§7.4).
   host opens IndexedDB before making it. User data then lasts only as long
   as the Worker, and the host receives a `storage: ephemeral` event (§8).
   Node, which the runtime also targets, has no IndexedDB at all, and that is
-  not this fallback: there the mount is a Node-side WasmFS backend (Node's
-  file system, or memory) chosen for that environment. Which is M0.5's to
-  settle.
+  not this fallback: there `/engines/<name>/` is WasmFS's Node backend
+  (`wasmfs_create_node_backend`) over a directory the Node host is given. It
+  runs `fs.*Sync` on the calling thread, so nothing is proxied, and works
+  from pthreads under `worker_threads`; its limits (32-bit file sizes, no
+  symlinks) don't matter to engine data.
 - **Host API.** Usage report, export (a tar of the engine directory) and reset.
 
 ## 6. The Worker-boundary protocol
@@ -1203,7 +1239,8 @@ discarded, never repaired.
 | Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                             | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap; a `GTask` whose worker can't start stays queued, silently, until a worker is free                                                                                                              | engine-specific, or as trap; nothing for a queued `GTask`         |
 | ABI or protocol mismatch                                     | manifest check; `Init` version check                                             | as load failure                                                                                                                                                                                                                                                         | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
 | No IndexedDB                                                 | opening IndexedDB fails at startup, before the runtime's memory is made (an opaque origin, blocked site data, a third-party iframe denied storage; never Node, which mounts a Node-side backend) | in-memory mount, with the runtime's memory made larger by the data's size from the manifest (§5.6); user data lasts as long as the Worker                                                                                                                               | `storage: ephemeral`                                              |
-| Quota                                                        | write errors surface in the engine                                               | engine-specific                                                                                                                                                                                                                                                         | `storage` usage events, logs                                      |
+| Not the writer                                               | another instance holds the engine's writer lock (§5.6)                           | user data mounted read-only; changes fail with `EROFS`, which the engine sees                                                                                                                                                                                         | `storage: read-only`                                              |
+| Quota                                                        | IndexedDB's `QuotaExceededError`; the write fails with `ENOSPC`, nothing changed  | engine-specific                                                                                                                                                                                                                                                         | `storage` usage events, logs                                      |
 | Undecodable record                                           | protocol decode                                                                  | dev builds throw; production drops and logs                                                                                                                                                                                                                             | `ProtocolError` log                                               |
 | GLib warnings and criticals                                  | GLib log handler                                                                 | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                   | log entries                                                       |
 | Detached surface                                             | adapter detach                                                                   | `DestroyEngine`; later output for the context dropped                                                                                                                                                                                                                   | nothing                                                           |
@@ -1707,7 +1744,7 @@ specification and `release.json`.
 | ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored                                                                                                                                                                                                                                                                                                                                   | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version`                                                                                                                                                                                                 |
 | ↳ M0.3 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 16-patch Emscripten series (Wolthuizen's, Fluendo's `glist` fix, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse`                                                                                                                                                                                              | GLib 2.88.3 builds for WASM with GRegex and its tools; 277 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2)                                                                                                                                     |
 | ↳ M0.4 | **Done.** Plan `docs/plans/2026-10-01-m0-4-runtime-skeleton.md`, spike `docs/spikes/2026-10-01-runtime-worker.md`. The `runtime/` component; GLib's wake hook; `libibus-web` skeleton (pump, `ibusweb_wait`, side-module loader, spike dispatcher; GTest under `meson test`); `ibus-runtime.wasm` with `-sMAIN_MODULE=2`, WasmFS, a fixed imported memory and a strict thread pool, and a per-library export manifest; Emscripten patches for blocked main threads' thread cleanup, reused `pthread_t`s and an imported memory's maximum; pnpm workspace built offline in Nix; spike Worker host and wake relay under Node, Chromium and Firefox; Emscripten's minimum versions from Baseline Widely available | R2 settled: the host sleeps in the runtime, woken by GLib's hook and a host-side relay; threads come from a pool sized from shares plus spares, strict, topped up while idle. R3 settled for `-sMAIN_MODULE=2`/WasmFS in Node, Chromium and Firefox. Memory is fixed per Worker, since V8 traps atomics on grown shared memory. OPFS is out: engine and user data go to IndexedDB (M0.5) |
-| ↳ M0.5 | WasmFS IndexedDB backend (full lazy): files as `ArrayBuffer` chunks, read and written lazily on the backend's own thread (§5.6); engine data installed into it; upstream candidate `wasmfs_create_idb_backend`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The cost of a lazy read through the proxying round trip, under the page's spin, in both browsers; chunk size; data shared across tabs and engine instances; how engine data is installed (§5.6); `fsync()` on the backend (R2)                                                                                                                                                           |
+| ↳ M0.5 | Plan `docs/plans/2026-10-02-m0-5-wasmfs-idb.md`. WasmFS IndexedDB backend (full lazy) in `runtime/wasmfs-idb/`: files as `ArrayBuffer` chunks, read and written lazily on the backend's own thread, writes write-through, `fsync()` a strict-durability commit (§5.6); a reusable browser test runner; the runtime mounts it in browsers and WasmFS's Node backend under Node; engine data installed from ustar archives under a Web Lock; one writer per engine's user data; upstream candidate `wasmfs_create_idb_backend`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The cost of a lazy read through the proxying round trip, under the page's spin, in both browsers; chunk size (16, 64 or 256 KiB, chosen from measurements); write and `fsync()` costs; `fsync()` from a pthread while the host sleeps (R2)                                                                                                                                                           |
 | M1     | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table                                                                                                                                                                                                                                          |
 | M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                        |
 | M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                        |
