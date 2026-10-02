@@ -22,6 +22,8 @@
             "*.ts"
             "*.mts"
             "*.cts"
+            "*.js"
+            "*.mjs"
             "*.json"
             "*.yaml"
             "*.yml"

@@ -12,12 +12,19 @@ const [logPath, settingsPath] = process.argv.slice(2);
 const log = readFileSync(logPath, "utf8");
 
 // Settings whose value the minimum versions decide.
-const decided = ["GROWABLE_ARRAYBUFFERS", "MEMORY64", "WASM_BIGINT", "WASM_LEGACY_EXCEPTIONS"];
+const decided = [
+  "GROWABLE_ARRAYBUFFERS",
+  "MEMORY64",
+  "WASM_BIGINT",
+  "WASM_LEGACY_EXCEPTIONS",
+];
 
 const lines = new Set();
 
 // Only clang's own -cc1 invocation lists the resolved target features.
-for (const command of log.matchAll(/^ +"?\/\S*\/(clang\S*|wasm-ld|wasm-opt)"? (.*)$/gm)) {
+for (const command of log.matchAll(
+  /^ +"?\/\S*\/(clang\S*|wasm-ld|wasm-opt)"? (.*)$/gm,
+)) {
   const tool = command[1].replace(/^clang.*/, "clang");
   const args = command[2].split(" ");
   for (const [index, arg] of args.entries()) {
@@ -32,7 +39,9 @@ for (const command of log.matchAll(/^ +"?\/\S*\/(clang\S*|wasm-ld|wasm-opt)"? (.
 if (settingsPath) {
   const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
   for (const name of decided) {
-    lines.add(`setting ${name}=${name in settings ? settings[name] : "<default>"}`);
+    lines.add(
+      `setting ${name}=${name in settings ? settings[name] : "<default>"}`,
+    );
   }
 }
 

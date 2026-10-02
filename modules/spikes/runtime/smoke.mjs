@@ -12,9 +12,16 @@ import { errno, int32s, startRuntime, utf8 } from "./harness.mjs";
 
 const [runtime, sides, constants] = process.argv.slice(2);
 // The opcodes the side modules register, as the build printed them.
-const { ADD, IDLE_LATER, IDLE_RESULT, SPAWN, SPAWN_RESULT, THROW, FSYNC, FSYNC_RESULT } = JSON.parse(
-  await readFile(constants, "utf8"),
-).ops;
+const {
+  ADD,
+  IDLE_LATER,
+  IDLE_RESULT,
+  SPAWN,
+  SPAWN_RESULT,
+  THROW,
+  FSYNC,
+  FSYNC_RESULT,
+} = JSON.parse(await readFile(constants, "utf8")).ops;
 const rt = await startRuntime(runtime);
 
 for (const name of ["trivial", "thread", "throw", "fsync"]) {
@@ -44,7 +51,9 @@ console.log(`idle-result: attach to dispatch in ${delay} us`);
 // stopped the rest.
 const spawnResult = () => {
   const out = rt.dispatch(SPAWN_RESULT);
-  return typeof out === "number" ? [out] : [...new Int32Array(out.buffer, out.byteOffset, out.length / 4)];
+  return typeof out === "number"
+    ? [out]
+    : [...new Int32Array(out.buffer, out.byteOffset, out.length / 4)];
 };
 check("spawn 2", rt.call(SPAWN, int32s(2)), 0);
 await rt.settle(() => spawnResult()[0]);
@@ -56,6 +65,10 @@ check("add after throw", rt.call(ADD, int32s(1, 1)), 2);
 // The writer writes the file's own path into it.
 const file = "/tmp/fsync-spike.txt";
 check("fsync", rt.call(FSYNC, utf8(file)), 0);
-check("fsync-result", await rt.settle(() => rt.call(FSYNC_RESULT)), utf8(file).length);
+check(
+  "fsync-result",
+  await rt.settle(() => rt.call(FSYNC_RESULT)),
+  utf8(file).length,
+);
 
 check("unknown opcode", rt.call(99), -errno.ENOSYS);
