@@ -1474,7 +1474,7 @@ release.
 - Page bundles are scanned for Worker, runtime and Emscripten code.
 - The protocol specification is regenerated and must match the committed one.
 - Every engine artifact must have a source bundle.
-- `reuse lint` passes (`checks.reuse`).
+- `reuse lint` passes (hk's `reuse` step, in `checks.hk`).
 - Each `engines/<name>/` annotation in `REUSE.toml` matches that engine's `meta.license`.
 
 ## 10. Build, CI and releases
@@ -1506,10 +1506,10 @@ test replaces them.
 
 ```
 ibus-web/
-├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, treefmt-nix, devshell, flake-root, systems
+├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, devshell, flake-root, systems
 ├─ package.json, pnpm-*.yaml       the pnpm workspace and its lockfile
 ├─ modules/
-│  ├─ flake/                       systems, formatting (treefmt-nix), dev shell, CI outputs
+│  ├─ flake/                       systems, hk (formatting and lint checks), dev shell, CI outputs
 │  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
 │  │  └─ checks/                   checks of the toolchain itself
 │  ├─ <component>/                 overlay.nix, patches/, checks/ for one component (glib, libhangul, …)
@@ -1802,7 +1802,7 @@ emscriptenCache ─ pkgsWasm
 `nix flake check` runs:
 
 - TypeScript unit and keystroke-path tests (Vitest), and a type check of every
-  package in each of its environments (`checks.typescript`)
+  package in each of its environments (hk's `tsc` step, in `checks.hk`)
 - `libibus-web` C tests (GTest, run by `meson test` under Node) and the GLib
   test subset, under Node
 - the runtime's export manifest against its libraries (`ibus-runtime-exports`),
