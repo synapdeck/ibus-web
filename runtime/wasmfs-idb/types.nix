@@ -74,6 +74,24 @@
       here = sourcePath ./.;
     in
     {
+      # The checker parses libraries with the workspace's acorn and Emscripten
+      # with its own, and both must read a library alike.
+      checks.wasmfs-idb-acorn =
+        pkgs.runCommand "ibus-web-wasmfs-idb-acorn-check"
+          {
+            nativeBuildInputs = [
+              typescript.nodejs
+              pkgs.jq
+            ];
+          }
+          ''
+            expected=$(jq -r .version ${emscripten}/share/emscripten/node_modules/acorn/package.json)
+            cd ${typescript.workspace}
+            node ${typescript.assertDependency} acorn "$expected" \
+              "Emscripten ${emscripten.version} parses libraries with acorn" runtime/wasmfs-idb
+            touch $out
+          '';
+
       checks.wasmfs-idb-types =
         pkgs.runCommand "ibus-web-wasmfs-idb-types-check"
           {

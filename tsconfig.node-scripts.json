@@ -1,0 +1,16 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// For scripts the Nix builds run with Node, which strips their types: each
+// directory of them has a tsconfig.json extending this.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    // Explicit, because the default for the target includes DOM.
+    "lib": ["es2023"],
+    "types": ["node"]
+  }
+}

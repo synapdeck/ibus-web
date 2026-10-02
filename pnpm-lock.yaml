@@ -130,15 +130,9 @@ importers:
 
   runtime/wasmfs-idb:
     devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.0
       acorn:
         specifier: ^8.18.0
         version: 8.18.0
-      typescript:
-        specifier: 'catalog:'
-        version: 7.0.2
 
   tests/browser:
     devDependencies:

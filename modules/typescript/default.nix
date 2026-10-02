@@ -151,8 +151,14 @@
         ]
       ) ([ "." ] ++ packageDirs);
       assertPlaywrightVersion = ''
-        node ${./assert-playwright.ts} ${
-          lib.escapeShellArgs ([ pkgs.playwright-driver.version ] ++ playwrightDependents)
+        node ${./assert-dependency.ts} playwright ${
+          lib.escapeShellArgs (
+            [
+              pkgs.playwright-driver.version
+              "its browsers come from nixpkgs' playwright-driver"
+            ]
+            ++ playwrightDependents
+          )
         }
       '';
 
@@ -226,6 +232,7 @@
       ibusWeb.typescript = {
         nodejs = pkgs.nodejs_24;
         inherit workspace tsc;
+        assertDependency = ./assert-dependency.ts;
       };
 
       devshells.default.packages = [

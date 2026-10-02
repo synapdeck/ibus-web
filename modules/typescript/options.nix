@@ -13,6 +13,10 @@
         type = lib.types.package;
         description = "The workspace's TypeScript compiler, as bin/tsc, for type checks outside the workspace's packages.";
       };
+      assertDependency = lib.mkOption {
+        type = lib.types.path;
+        description = "A Node script, run as `node <it> <package> <version> <why> <package directory>...`, that fails unless each directory resolves the package at exactly that version; for dependencies whose version something outside the lockfile fixes.";
+      };
       workspace = lib.mkOption {
         type = lib.types.package;
         description = ''

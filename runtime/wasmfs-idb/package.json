@@ -3,8 +3,6 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@types/node": "catalog:",
-    "acorn": "^8.18.0",
-    "typescript": "catalog:"
+    "acorn": "^8.18.0"
   }
 }

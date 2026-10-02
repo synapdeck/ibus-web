@@ -4,6 +4,7 @@
 // Type-checks the checks' --pre-js, which Emscripten bundles into programs
 // run under Node, as written, as a script.
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "allowJs": true,

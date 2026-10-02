@@ -52,7 +52,8 @@ const versions = (json: string, linkFlags: string) => {
     node: Number(process.env.nodeMinimum),
   };
   const minimums = { ...baseline };
-  const floors = JSON.parse(process.env.floors ?? "{}") as Record<string, number>;
+  if (process.env.floors === undefined) throw new Error("floors isn't set");
+  const floors = JSON.parse(process.env.floors) as Record<string, number>;
   for (const [browser, floor] of Object.entries(floors)) {
     if (!(browser in minimums)) throw new Error(`a floor for unknown ${browser}`);
     minimums[browser] = Math.max(minimums[browser], floor);

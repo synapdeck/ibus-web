@@ -181,7 +181,7 @@ const entries = (library: Library, emscripten: Emscripten) =>
         // the key, `$` and all, which is as good.
         const own = key.startsWith("$") ? key.slice(1) : key;
         if (value.name !== own && value.name !== key) {
-          fail(`${key}: its value is ${value.name || "anonymous"}, not ${own}`);
+          fail(`${key}: its value is ${value.name || "anonymous"}, not ${own} or ${key}`);
         }
         code = value.toString();
         isFunction = true;

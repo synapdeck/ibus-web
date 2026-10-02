@@ -8,34 +8,57 @@
 //     Run from the repository root.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const base = path.resolve("tsconfig.base.json");
 
-// tsconfig files are JSON with comments and trailing commas.
+// tsconfig files are JSON with comments and trailing commas. Both are
+// dropped outside strings; a comma is trailing when the next character that
+// isn't whitespace or a comment closes an object or array.
 const parseJsonc = (text: string): unknown => {
   let out = "";
+  let pendingComma = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (c === '"') {
+    if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      if (close === -1) throw new Error("unterminated comment");
+      i = close + 1;
+      continue;
+    }
+    if (/\s/.test(c)) {
+      out += c;
+      continue;
+    }
+    if (pendingComma && c !== "}" && c !== "]") out += ",";
+    pendingComma = false;
+    if (c === ",") {
+      pendingComma = true;
+    } else if (c === '"') {
       const start = i;
       for (i++; i < text.length && text[i] !== '"'; i++) {
         if (text[i] === "\\") i++;
       }
       out += text.slice(start, i + 1);
-    } else if (c === "/" && text[i + 1] === "/") {
-      while (i < text.length && text[i] !== "\n") i++;
-      out += "\n";
-    } else if (c === "/" && text[i + 1] === "*") {
-      i = text.indexOf("*/", i + 2);
-      if (i === -1) throw new Error("unterminated comment");
-      i++;
     } else {
       out += c;
     }
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
+  return JSON.parse(out);
+};
+
+// Where a relative `extends` leads, as tsc resolves it: the path as written
+// if that file exists, else with `.json` added.
+const resolveExtends = (from: string, name: string) => {
+  const resolved = path.resolve(path.dirname(from), name);
+  if (existsSync(resolved) || resolved.endsWith(".json")) return resolved;
+  return `${resolved}.json`;
 };
 
 // The configs `file` extends, as paths; a package name, which this can't
@@ -44,9 +67,7 @@ const extendsOf = (file: string): string[] => {
   const config = parseJsonc(readFileSync(file, "utf8")) as { extends?: string | string[] };
   const named = config.extends === undefined ? [] : [config.extends].flat();
   return named.map((name) =>
-    name.startsWith("./") || name.startsWith("../") || path.isAbsolute(name)
-      ? path.resolve(path.dirname(file), name)
-      : name,
+    name.startsWith("./") || name.startsWith("../") || path.isAbsolute(name) ? resolveExtends(file, name) : name,
   );
 };
 
