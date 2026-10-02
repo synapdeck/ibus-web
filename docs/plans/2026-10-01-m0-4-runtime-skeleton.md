@@ -207,6 +207,20 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 - [ ] Steps: stress harness, runs, decision, link change, `nix flake check`, commit.
 
+### Task 7b: Emscripten's minimum versions from the project baseline
+
+Emscripten chooses Wasm and JS features from its `MIN_{CHROME,FIREFOX,SAFARI,NODE}_VERSION` settings (`tools/feature_matrix.py`). Left at its defaults (Firefox 79, Chrome 85, Safari 15, Node 18.3), it avoids features the project's target already has, such as extended-const (Chrome 114, Firefox 112, Safari 17.4), which removes runtime data relocations from position-independent code.
+
+**Files:** `modules/toolchain/` (the minimums and `commonFlags`), the pnpm workspace (the Baseline mapping data as a dependency), `modules/toolchain/cache.nix` (probe variants), checks as needed.
+
+**Requirements:**
+- Derive the browser minimums from "Baseline Widely available" via the `baseline-browser-mapping` data (the data browserslist's `baseline widely available` query uses), taken from the pnpm lockfile, never hand-written; the Node minimum from `ibusWeb.typescript.nodejs`. Pass them as `-sMIN_*_VERSION` to every link (the cross stdenv, the runtime, side modules, tests, the cache's probes).
+- Add `-mextended-const` to `ibusWeb.toolchain.commonFlags`; Emscripten's feature check must accept it against the minimums.
+- Record which features the new minimums turn on or keep off (e.g. extended-const on; `GROWABLE_ARRAYBUFFERS=2` and non-legacy Wasm exceptions off) and the size/load-time effect on `ibus-runtime` and a side module.
+- `checks.glib-tests` must_pass 277 / failing 0 unchanged; every other check passes; `nix flake check`.
+
+- [ ] Steps: derive the minimums, wire them through, rebuild, measure, `nix flake check`, commit.
+
 ### Task 8: Settle R2 and R3; spec and plan
 
 **Files:** `docs/specs/2026-09-26-ibus-web-design.md`, `docs/spikes/2026-10-01-runtime-worker.md`, `docs/plans/2026-10-01-m0-4-runtime-skeleton.md` (follow-ups).
