@@ -1000,6 +1000,37 @@ runtime's memory is fixed**, made by the host:
   reproduced growth's traps and needed some 5.9 GiB for the pool's 103
   Workers under Node, stay in `nix run .#runtime-spike-memory`.
 
+## Emscripten's minimum versions
+
+Every link now passes `-sMIN_{CHROME,FIREFOX,SAFARI,NODE}_VERSION`, derived
+rather than left at Emscripten's defaults (Chrome 85, Firefox 79, Safari 15,
+Node 18.3). The browsers are what baseline-browser-mapping 2.11.27 gives for
+Baseline Widely available on its data's date, 2026-10-01: Chrome 123,
+Firefox 124, Safari 17.4 (`170400`). Node is the workspace's, 24.19.0
+(`241900`). Version 2.11.0's data (2026-07-08) gives Safari 17.2, below
+extended-const's 17.4; with `-mextended-const` given, Emscripten enables the
+feature anyway, without a warning, so `checks.toolchain-cache` links without
+the flag and requires that the minimums alone turn it on.
+
+What the minimums turn on in Emscripten's feature matrix: extended-const
+(Chrome 114, Firefox 112, Safari 17.4). What they leave off: growable
+`SharedArrayBuffer`s (`GROWABLE_ARRAYBUFFERS=2` needs Chrome 144, Firefox 145,
+Safari 26.2, Node 26) and exnref Wasm exceptions (Chrome 137, Safari 18.4;
+`WASM_LEGACY_EXCEPTIONS` is a setting of its own, not chosen by the matrix,
+and stays on). Memory64 stays off (Safari has none).
+
+The effect is nil on the WebAssembly and small on the JavaScript.
+`ibus-runtime.wasm` (release) is 4,113,037 bytes before and after, differing
+only in the GLib store path it embeds; the seven spike side modules are byte
+for byte the same. extended-const replaces code that relocates internal GOT
+globals with constant initialisers, and these modules have none: the main
+module's data sits at fixed addresses, and side modules, linked with default
+visibility, import every data address as a `GOT.mem` global, so their
+`__wasm_apply_data_relocs` (stores of addresses into data) stays as it was.
+`ibus-runtime.js` shrinks by 579 bytes (121 gzipped): fullscreen fallbacks
+for old WebKit go, and random bytes come from `crypto.getRandomValues` under
+Node too. Startup is unchanged within the runs' noise.
+
 ## Conclusions for the design
 
 - **R2's wake question is settled:** option 2, as decided above. Emscripten
