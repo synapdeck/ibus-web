@@ -222,6 +222,11 @@ static void check_node_errors(void) {
     CHECK(fd < 0 && errno == EACCES, "create in a directory the host shuts: %d",
           fd);
     path[strlen(path) - strlen("/file")] = '\0';
+    strcat(path, "/link");
+    errno = 0;
+    CHECK(symlink("file", path) < 0 && errno == EACCES,
+          "symlink in a directory the host shuts");
+    path[strlen(path) - strlen("/link")] = '\0';
     host_chmod(path, 0755);
 
     /* The open that creates a file isn't bound by the mode it gives it. */

@@ -36,6 +36,7 @@ there, so changing a patch rebuilds the cache and everything in `pkgsWasm`.
 | 0014 `pthread-cleanup-blocked-main`  | pthreads: a thread that ends without a join on the main runtime thread (detached, or joined by another thread) keeps its stack and its Worker until the main thread's event loop runs, so a main thread that stays blocked never gets them back; it now reclaims them whenever it processes its queued calls, `emscripten_futex_wait()` included; `dlopen()`'s sync holds those cleanups off until it has been through its list of threads | [#16763](https://github.com/emscripten-core/emscripten/issues/16763) (closed by its reporter, workarounds only); draft `emscripten-pthread-cleanup-blocked-main.md`                                                          | a release contains the fix                          |
 | 0015 `pthread-finished-mark-reused`  | pthreads with dynamic linking: a joined thread's late "finished" message marks a new, running thread that reuses its `pthread_t`, so `dlopen()`'s sync skips that thread for good and its calls into modules loaded later trap                                                                                                                                                                                                             | not filed; draft `emscripten-pthread-finished-mark-reused.md`                                                                                                                                                                | a release contains the fix                          |
 | 0016 `imported-memory-maximum`       | without memory growth, a `MAXIMUM_MEMORY` set for an imported memory is dropped with a warning and the import's maximum tied to `INITIAL_MEMORY`, so the module takes a memory of exactly that size; it now takes any size up to `MAXIMUM_MEMORY`, still without growing it | not filed; draft `emscripten-imported-memory-maximum.md` | a release contains the fix |
+| 0017 `wasmfs-symlink-errors`        | any backend failure to make a symlink is reported as `EPERM`; the Node backend now reports the host's error | not filed; draft `emscripten-wasmfs-symlink-errors.md` | a release contains the fix |
 
 As of 6.0.10 (2026-09-18) only #27632 is in a release; the drafts record
 that the code the others change is unchanged there and on `main`.
@@ -107,6 +108,13 @@ with its parents was seen to fail with `EIO`. 0013 changes WasmFS's record
 of a mode or time only once the host has accepted the change; an omitted
 time (`UTIME_OMIT`) is read back from the host and set again, since Node
 can't leave one alone. Symlinks themselves aren't covered.
+
+0017 gives `insertSymlink()` the `MaybeFile` return 0012 gave the other
+inserts, so it sits on 0012. A backend that returns plain null still gets
+`EPERM`, which is what `symlink()` says for a file system without symlinks,
+and the OPFS backend, which has none, now says so itself.
+`checks.emscripten-fixes` makes a symlink in a directory the host won't
+let it write and expects `EACCES`.
 
 Not carried, by decision: pipe capacity, and end of file on a
 JavaScript-file-system pipe whose writers have closed. Their drafts stay in

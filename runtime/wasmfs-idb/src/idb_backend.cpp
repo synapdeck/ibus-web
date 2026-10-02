@@ -306,8 +306,8 @@ private:
     return std::make_shared<IdbDirectory>(backend, attrs);
   }
 
-  std::shared_ptr<Symlink> insertSymlink(const std::string &name,
-                                         const std::string &target) override {
+  MaybeFile<Symlink> insertSymlink(const std::string &name,
+                                   const std::string &target) override {
     auto attrs = insert(name, File::SymlinkKind, 0777, target.c_str());
     if (attrs.err) {
       return nullptr;
