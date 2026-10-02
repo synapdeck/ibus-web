@@ -1,8 +1,8 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-/* Reads back the value persist.1 stored in IndexedDB in an earlier run in
- * the same browser context. */
+/* Reads back the value the previous run in the same browser context stored
+ * in IndexedDB. */
 
 #include <emscripten.h>
 #include <emscripten/eventloop.h>
@@ -30,7 +30,7 @@ EM_JS(void, persist_load, (void), {
   const done = (found, value) =>
     callUserCallback(() => _persist_loaded(found, value));
   const request = indexedDB.open("ibus-web-browser-fixture", 1);
-  // A database created here means persist.1's never reached this context.
+  // A database created here means the previous run's never reached this context.
   request.onupgradeneeded = () => request.result.createObjectStore("values");
   request.onerror = () => done(0, 0);
   request.onsuccess = () => {

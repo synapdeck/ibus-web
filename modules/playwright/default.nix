@@ -42,7 +42,8 @@
         - programs: directories, each holding programs linked with browserLinkFlags as
           NAME.js and NAME.wasm, and optionally NAME.args, the program's arguments one per
           line.
-        - timeout (default 120): the seconds each program has to exit, in each browser.
+        - timeout (default 120): the whole seconds each program has to exit, in each browser.
+        - browsers (default chromium and firefox): the browsers to run in, by name.
 
         Each program runs in a dedicated Worker on a page served with cross-origin
         isolation, in a fresh browser context, except that programs named PREFIX.1,
@@ -98,7 +99,16 @@
           name,
           programs,
           timeout ? 120,
+          browsers ? [
+            "chromium"
+            "firefox"
+          ],
         }:
+        assert lib.assertMsg (lib.isInt timeout && timeout > 0)
+          "browserRun ${name}: timeout is whole seconds, a positive integer, not ${builtins.toJSON timeout}";
+        assert lib.assertMsg (
+          browsers != [ ]
+        ) "browserRun ${name}: browsers must name at least one browser";
         pkgs.runCommand "ibus-web-browser-run-${name}"
           (
             {
@@ -113,10 +123,12 @@
             # every program's in both browsers, catches a browser or runner
             # that hangs outright.
             count=$(for dir in "''${dirs[@]}"; do ls "$dir"; done | grep -c '\.wasm$')
-            limit=$(( (${toString timeout} + 60) * 2 * count + 300 ))
+            limit=$(( (${toString timeout} + 60) * ${toString (builtins.length browsers)} * count + 300 ))
             timeout --kill-after=10 "$limit" \
               node ${typescript.workspace}/tests/browser/dist/node/run.js \
-                --timeout ${toString timeout} "''${dirs[@]/#/--program=}" > $out ||
+                --timeout ${toString timeout} ${
+                  lib.escapeShellArgs (map (b: "--browser=${b}") browsers)
+                } "''${dirs[@]/#/--program=}" > $out ||
               { cat $out; exit 1; }
             cat $out
           '';

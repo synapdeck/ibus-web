@@ -234,7 +234,20 @@ try {
       continue;
     }
     try {
-      for (const group of groups.values()) await runGroup(name, browser, group);
+      for (const group of groups.values()) {
+        try {
+          await runGroup(name, browser, group);
+        } catch (error) {
+          // A failure of the harness itself (a context that won't open)
+          // counts against the group's programs rather than ending the run.
+          const message = `FAIL: ${describe(error)}`;
+          console.log(`== ${name}: ${group[0]!.name}\n${message}`);
+          for (const { name: program } of group) {
+            if (results.get(program)?.has(name) !== true)
+              record(name, program, message);
+          }
+        }
+      }
     } finally {
       await browser.close();
     }

@@ -1,8 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-/* Stores a value in IndexedDB for persist.2, which runs next in the same
- * browser context. */
+/* Stores a value in IndexedDB for the next run in the same browser context. */
 
 #include <emscripten.h>
 #include <emscripten/eventloop.h>
