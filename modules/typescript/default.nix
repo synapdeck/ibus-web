@@ -199,28 +199,39 @@
           // attrs
         );
 
+      workspace = mkWorkspace "ibus-web-typescript" {
+        buildPhase = ''
+          runHook preBuild
+          pnpm -r run build
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out
+          cp -R package.json pnpm-workspace.yaml node_modules $out/
+          ${lib.concatMapStrings (dir: ''
+            mkdir -p $out/${dirOf dir}
+            cp -R ${dir} $out/${dir}
+          '') packageDirs}
+          runHook postInstall
+        '';
+      };
+
+      # The lockfile resolves typescript to one version, whichever packages
+      # depend on it.
+      tsc = pkgs.runCommand "ibus-web-tsc" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
+        packages=(${workspace}/node_modules/.pnpm/typescript@*/node_modules/typescript)
+        if [ ''${#packages[@]} -ne 1 ] || [ ! -d "''${packages[0]}" ]; then
+          echo "expected one typescript in the workspace, found: ''${packages[*]}" >&2
+          exit 1
+        fi
+        makeWrapper ${lib.getExe nodejs} $out/bin/tsc --add-flags "''${packages[0]}/bin/tsc"
+      '';
     in
     {
       ibusWeb.typescript = {
         nodejs = pkgs.nodejs_24;
-
-        workspace = mkWorkspace "ibus-web-typescript" {
-          buildPhase = ''
-            runHook preBuild
-            pnpm -r run build
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out
-            cp -R package.json pnpm-workspace.yaml node_modules $out/
-            ${lib.concatMapStrings (dir: ''
-              mkdir -p $out/${dirOf dir}
-              cp -R ${dir} $out/${dir}
-            '') packageDirs}
-            runHook postInstall
-          '';
-        };
+        inherit workspace tsc;
       };
 
       checks.typescript = mkWorkspace "ibus-web-typescript-check" {
@@ -235,6 +246,7 @@
       devshells.default.packages = [
         nodejs
         pnpm
+        tsc
       ];
     };
 }

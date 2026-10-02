@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Type-checks the backend's JavaScript library, which runs on the backend's
+// thread: a Worker. emscripten-types/ holds what the library uses from
+// Emscripten, generated from a link of the library; the dev shell links it
+// here, and the check puts it here too.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "es2022",
+    "lib": ["es2022", "webworker"],
+    "module": "preserve",
+    "types": []
+  },
+  "files": [
+    "libwasmfs_idb.js",
+    "emscripten-library.d.ts",
+    "emscripten-types/globals.d.ts"
+  ]
+}
