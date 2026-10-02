@@ -55,6 +55,7 @@
           "basic.2.c"
           "open-unlinked.cpp"
           "lazy.c"
+          "sizes.c"
         ];
       };
     };
