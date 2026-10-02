@@ -33,6 +33,7 @@ import {
   memoryCosts,
   memStress,
   opsFrom,
+  outOfMemoryAbort,
   runScenarios,
   workerMemory,
   type Env,
@@ -273,6 +274,9 @@ interface Tally {
   grows: boolean;
   runs: number;
   passed: number;
+  // Runs that Emscripten aborted for a heap that couldn't hold an
+  // allocation, and runs with a thread that trapped otherwise.
+  outOfMemory: number;
   traps: number;
   // Runs that failed some other way, and runs with no result.
   otherFailures: number;
@@ -291,6 +295,7 @@ const tallyOf = (variant: Variant, workload: string): Tally => ({
   grows: grows(variant),
   runs: 0,
   passed: 0,
+  outOfMemory: 0,
   traps: 0,
   otherFailures: 0,
   noResult: 0,
@@ -322,7 +327,12 @@ const record = (tally: Tally, outcome: Outcome): void => {
   const crash = outcome.report.crash ?? "";
   const evidence = `${crash}\n${outcome.stderr}`;
   const trapped = /RuntimeError|memory access out of bounds/;
-  if (trapped.test(evidence)) {
+  if (outOfMemoryAbort(evidence)) {
+    tally.outOfMemory++;
+    tally.failures.push(
+      `aborted out of memory, by Emscripten rather than a trap: ${crash.split("\n")[0]}`,
+    );
+  } else if (trapped.test(evidence)) {
     tally.traps++;
     const site = trapSite(trapped.test(crash) ? crash : outcome.stderr);
     tally.sites[site] = (tally.sites[site] ?? 0) + 1;
@@ -339,7 +349,8 @@ const range = (values: readonly number[]): string =>
 
 const summary = (tally: Tally): string =>
   `${tally.variant} ${tally.workload}: ${tally.runs} runs, ${tally.passed} passed, ` +
-  `${tally.traps} trapped, ${tally.otherFailures} failed otherwise, ${tally.noResult} without a result; ` +
+  `${tally.outOfMemory} aborted out of memory, ${tally.traps} trapped otherwise, ` +
+  `${tally.otherFailures} failed otherwise, ${tally.noResult} without a result; ` +
   `elapsed ${range(tally.elapsedMs)} ms, memory at the end ${range(tally.memoryMiB)} MiB, ` +
   `heap's break at the end ${range(tally.breakMiB)} MiB`;
 

@@ -31,7 +31,7 @@ import { parseArgs } from "node:util";
 import type { Browser } from "playwright";
 import type { BuildConstants } from "../shared/control.ts";
 import type { PageRunReport, PageRunSpec } from "../shared/report.ts";
-import type { Result } from "../shared/scenarios.ts";
+import { outOfMemoryAbort, type Result } from "../shared/scenarios.ts";
 import { browsersNamed, launch, launchError, servePage } from "./browsers.ts";
 
 const { values: args } = parseArgs({
@@ -247,6 +247,9 @@ interface Tally {
   grows: boolean;
   runs: number;
   passed: number;
+  // Runs that Emscripten aborted for a heap that couldn't hold an
+  // allocation, and runs with a thread that trapped otherwise.
+  outOfMemory: number;
   traps: number;
   otherFailures: number;
   noResult: number;
@@ -295,7 +298,12 @@ const record = (tally: Tally, outcome: RunOutcome): void => {
   const crash =
     crashed !== undefined && "message" in crashed ? crashed.message : "";
   const evidence = [crash, ...outcome.console].join("\n");
-  if (
+  if (outOfMemoryAbort(evidence)) {
+    tally.outOfMemory++;
+    tally.failures.push(
+      `aborted out of memory, by Emscripten rather than a trap: ${crash.split("\n")[0]}`,
+    );
+  } else if (
     /RuntimeError|memory access out of bounds|out of bounds/i.test(evidence)
   ) {
     tally.traps++;
@@ -318,7 +326,8 @@ const range = (values: readonly number[]): string =>
 
 const summary = (tally: Tally): string =>
   `${tally.browser} ${tally.variant} ${tally.workload}: ${tally.runs} runs, ${tally.passed} passed, ` +
-  `${tally.traps} trapped, ${tally.otherFailures} failed otherwise, ${tally.noResult} without a result` +
+  `${tally.outOfMemory} aborted out of memory, ${tally.traps} trapped otherwise, ` +
+  `${tally.otherFailures} failed otherwise, ${tally.noResult} without a result` +
   (tally.unsupported === undefined
     ? ""
     : ` (unsupported: ${tally.unsupported})`) +
@@ -368,6 +377,7 @@ try {
             grows: grows(variant),
             runs: 0,
             passed: 0,
+            outOfMemory: 0,
             traps: 0,
             otherFailures: 0,
             noResult: 0,

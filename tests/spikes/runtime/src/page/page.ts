@@ -212,6 +212,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
           : [`${spec.opfsMount}/fsync-opfs.txt`]),
       ],
       pendingLimitMs: spec.pendingLimitMs,
+      ...(spec.wakeMaxMs === undefined ? {} : { wakeMaxMs: spec.wakeMaxMs }),
       ...(spec.opfsMount === undefined
         ? {}
         : { persistent: { dir: spec.opfsMount, read: readOpfs } }),

@@ -27,6 +27,8 @@ export interface PageRunSpec {
   glibThreads: number;
   poolLowWater: number;
   pendingLimitMs: number;
+  // Env.wakeMaxMs.
+  wakeMaxMs?: number;
   // How the page waits for each reply: "spin" holds its main thread, as the
   // synchronous keystroke path would; "async" waits with Atomics.waitAsync(),
   // its event loop running.

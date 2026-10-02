@@ -91,11 +91,15 @@
         ) ../../../tests/spikes/memory;
       };
 
-      # The memory workloads' threads, as many as GLib's test starts, all
-      # alive at once on a pool that holds them and leaves the spare Workers
-      # idle, so the host never tops it up during a run.
+      # The memory workloads' threads, all alive at once on a pool that holds
+      # them and leaves the spare Workers idle, so the host never tops it up
+      # during a run. By hand, as many as GLib's test starts, which is what
+      # reproduced growth's traps; in the check, which guards fixed memory,
+      # the threads the runtime's pool is planned for, on the runtime as
+      # linked.
       stressThreads = 100;
       stressPool = stressThreads + runtime.threadPool.lowWater;
+      checkThreads = runtime.threadPool.planned;
 
       # The runtime as linked, with the pool the workloads need, and builds
       # of it that grow their memory, differing in how a memory that grows
@@ -130,23 +134,41 @@
           maximum = if grows then runtime.memory.maximum else fixedMemory;
         in
         "--variant ${name}=${link}/ibus-runtime.js,${toString initial},${toString maximum}";
+      # The check's runtime is the package, in a memory sized by the rule an
+      # engine's manifest follows: a quarter more than the most its heap's
+      # break reaches, rounded up. That is memory-costs' 64 MiB allocation
+      # on a 2.5 MiB heap; the workloads' break peaked at 18.9 MiB in 40
+      # Node runs, 16.8 MiB in 30 Chromium runs and 19.5 MiB in 30 Firefox
+      # runs.
+      checkMemory = 84 * MiB;
+      checkVariant = "--variant fixed=${runtime.ibusRuntime}/ibus-runtime.js,${toString checkMemory},${toString checkMemory}";
       variants = {
         fixed = variant "fixed" links.fixed false;
         growth = variant "growth" links.growth true;
         growable = variant "growable" links.growable true;
       };
 
-      memoryArgs = lib.concatStringsSep " " [
-        "--sides ${sidesDir}"
-        "--errno ${runtime.nodeHarness}/errno.json"
-        "--constants ${constants}/constants.json"
-        "--pool ${toString stressPool}"
-        "--planned-threads ${toString runtime.threadPool.planned}"
-        "--engine-threads ${toString runtime.threadPool.shares.engine}"
-        "--glib-threads ${toString runtime.threadPool.shares.glib}"
-        "--pool-low-water ${toString runtime.threadPool.lowWater}"
-        "--threads ${toString stressThreads}"
-      ];
+      memoryArgsFor =
+        { pool, threads }:
+        lib.concatStringsSep " " [
+          "--sides ${sidesDir}"
+          "--errno ${runtime.nodeHarness}/errno.json"
+          "--constants ${constants}/constants.json"
+          "--pool ${toString pool}"
+          "--planned-threads ${toString runtime.threadPool.planned}"
+          "--engine-threads ${toString runtime.threadPool.shares.engine}"
+          "--glib-threads ${toString runtime.threadPool.shares.glib}"
+          "--pool-low-water ${toString runtime.threadPool.lowWater}"
+          "--threads ${toString threads}"
+        ];
+      memoryArgs = memoryArgsFor {
+        pool = stressPool;
+        threads = stressThreads;
+      };
+      checkArgs = memoryArgsFor {
+        pool = runtime.threadPool.size;
+        threads = checkThreads;
+      };
 
       # GLib's test, runs times, parallel at a time, each in a directory of
       # its own; prints the runs, the failures and each trapping thread's
@@ -183,12 +205,12 @@
         inherit growrace links;
       };
 
-      # The rule the runtime's link follows, a memory the host makes and
-      # that never grows, under both workloads: a few runs of each under
-      # Node and in each browser, which must all pass, with the costs and
-      # what a pool Worker costs. A run's pool of Workers each hold an
-      # instance of the runtime, some 40 MiB under Node, so runs go one at
-      # a time.
+      # The runtime as packaged, in a memory the host makes and that never
+      # grows, under both workloads with the threads its pool plans for: a
+      # few runs of each under Node and in each browser, which must all
+      # pass, with the costs and what a pool Worker costs. A run's pool of
+      # Workers each hold an instance of the runtime, some 40 MiB under
+      # Node, so runs go one at a time.
       checks.runtime-spike-memory =
         pkgs.runCommand "ibus-web-runtime-spike-memory"
           (
@@ -200,11 +222,11 @@
           ''
             ${playwright.setup}
             echo "# Node" > $out
-            ${runtime.nodeTimeout} node ${dist}/node/memory.js ${memoryArgs} ${variants.fixed} \
+            ${runtime.nodeTimeout} node ${dist}/node/memory.js ${checkArgs} ${checkVariant} \
               --runs 3 --parallel 1 --costs --worker-memory >> $out || { cat $out; exit 1; }
             echo "# browsers" >> $out
-            timeout --kill-after=10 900 node ${dist}/node/browser-memory.js ${memoryArgs} \
-              ${variants.fixed} --runs 2 --parallel 1 >> $out || { cat $out; exit 1; }
+            timeout --kill-after=10 900 node ${dist}/node/browser-memory.js ${checkArgs} \
+              ${checkVariant} --runs 2 --parallel 1 >> $out || { cat $out; exit 1; }
             cat $out
           '';
 

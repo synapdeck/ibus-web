@@ -14,8 +14,9 @@
 // must refuse to load.
 // With --compare, for the record, the scenarios run again on a host that
 // waits asynchronously while idle, and those that tell the wake paths apart
-// on one that sleeps in Atomics.wait() on the control buffer. Exits 1 if any
-// scenario of the first two hosts fails.
+// on one that sleeps in Atomics.wait() on the control buffer, and every
+// cross-thread wake must take at most 20 ms. Exits 1 if any scenario of the
+// first hosts fails.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -80,6 +81,8 @@ const engineThreads = Number(args["engine-threads"]);
 const glibThreads = Number(args["glib-threads"]);
 const poolLowWater = Number(args["pool-low-water"]);
 const memoryBytes = Number(args.memory);
+// Run by hand, on a quiet machine, every cross-thread wake is held to this.
+const STRICT_WAKE_MAX_MS = 20;
 
 // Waits a moment first: the host's own messages, such as a crash report,
 // arrive only once this thread's event loop runs.
@@ -118,6 +121,8 @@ const env = (pendingLimitMs: number): Env => ({
   poolLowWater,
   fsyncPaths: ["/tmp/fsync-memory.txt", `${mountPath}/fsync-node.txt`],
   pendingLimitMs,
+  memoryMaximum: constants.memory.maximum,
+  ...(args.compare ? { wakeMaxMs: STRICT_WAKE_MAX_MS } : {}),
 });
 
 const base = {

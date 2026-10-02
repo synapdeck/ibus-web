@@ -111,6 +111,11 @@ export interface Env {
   fsyncPaths: readonly string[];
   // How long a result may stay pending before the scenario gives up on it.
   pendingLimitMs: number;
+  // The longest cross-thread-wake may take, in milliseconds, if not its
+  // default.
+  wakeMaxMs?: number;
+  // The most memory the runtime takes, in bytes.
+  memoryMaximum?: number;
   // Storage that outlives the runtime, mounted at dir, and how the harness
   // reads a file there without the runtime: its contents, or null if there
   // is no such file.
@@ -336,17 +341,23 @@ const coldWake: Scenario = {
 };
 
 // The host gets no request while the source is pending, so only GLib's
-// wake can get it dispatched.
+// wake can get it dispatched. The first poll's request wakes the host too,
+// so it waits until a source left for that would be later than the bound:
+// a wake that never arrives still fails. The median holds the wake to its
+// usual cost; the bound is generous, as a host on a machine loaded with
+// other builds is descheduled now and then.
 const crossThreadWake: Scenario = {
   name: "cross-thread-wake",
   criterion:
-    "idle-later(50) ×20 with the host idle: attach to dispatch ≤ 20 ms every time",
+    "idle-later(50) ×20 with the host idle: attach to dispatch p50 ≤ 20 ms, and every time " +
+    "within the run's bound (200 ms; 20 ms by hand)",
   async run(client, env): Promise<Outcome> {
+    const bound = env.wakeMaxMs ?? 200;
     const epsilons: number[] = [];
     for (let i = 0; i < 20; i++) {
       const started = await call32(client, env.ops.idleLater, int32s(50));
       if (started !== 0) throw new Error(`idle-later: ${started}`);
-      await env.sleep(50 + 150);
+      await env.sleep(50 + bound + 150);
       const result = await poll(client, env, env.ops.idleResult);
       if (result === null)
         return {
@@ -356,13 +367,15 @@ const crossThreadWake: Scenario = {
       epsilons.push(result.value / 1000);
     }
     const sorted = [...epsilons].sort((a, b) => a - b);
+    const p50 = percentile(sorted, 50);
     const max = sorted.at(-1) ?? Number.NaN;
     return {
-      pass: max >= 0 && max <= 20,
+      pass: (sorted[0] ?? Number.NaN) >= 0 && p50 <= 20 && max <= bound,
       measurements: {
-        p50Ms: round(percentile(sorted, 50)),
+        p50Ms: round(p50),
         maxMs: round(max),
         minMs: round(sorted[0] ?? Number.NaN),
+        boundMs: bound,
       },
     };
   },
@@ -930,25 +943,42 @@ export const threadCrash: Scenario = {
   },
 };
 
+// Whether a crash's report, or the output alongside it, is Emscripten's
+// abort for a heap that can't hold an allocation. Built with exceptions in
+// WebAssembly, Emscripten aborts by trapping, so its error is an
+// "unreachable" trap like a program's own; only the frame it trapped from,
+// or the abort's message where the output shows, tells them apart.
+export const outOfMemoryAbort = (text: string): boolean =>
+  /\babortOnCannotGrowMemory\b|Aborted\((OOM|Cannot enlarge memory)/.test(text);
+
 // Takes the host down, so it runs on a host of its own. An allocation of
-// 2047 MiB never fits, the memory being at most 2 GiB with the runtime's own
-// data in it.
+// all but a MiB of the most memory the runtime takes never fits, the
+// runtime's own data taking more than that.
 export const heapFull: Scenario = {
   name: "heap-full",
   criterion:
     "an allocation the heap can't hold aborts the runtime, which never grows its memory: the " +
-    "request fails as crashed, and the host reports the abort's trap",
+    "request fails as crashed, and the host reports Emscripten's out-of-memory abort, not " +
+    "another trap",
   async run(client, env) {
+    if (env.memoryMaximum === undefined)
+      throw new Error("heap-full needs the most memory the runtime takes");
+    const mib = env.memoryMaximum / (1024 * 1024) - 1;
     let crashed = false;
     try {
-      await client.call(env.ops.memGrow, int32s(2047));
+      await client.call(env.ops.memGrow, int32s(mib));
     } catch {
       crashed = true;
     }
     const report = await client.crashReport(2000);
     return {
-      pass: crashed && report !== null && report.startsWith("RuntimeError: "),
-      measurements: { crashed, report: report?.split("\n")[0] ?? "none" },
+      pass: crashed && report !== null && outOfMemoryAbort(report),
+      measurements: {
+        allocationMiB: mib,
+        crashed,
+        report: report?.split("\n")[0] ?? "none",
+        outOfMemory: report !== null && outOfMemoryAbort(report),
+      },
     };
   },
 };

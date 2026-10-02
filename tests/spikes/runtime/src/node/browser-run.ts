@@ -18,7 +18,8 @@
 // and runs every scenario, a host of its own with OPFS mounted runs the
 // storage scenarios on it, and another the crash scenario. With --compare,
 // for the record, the same with the page waiting asynchronously, the idle
-// host that waits asynchronously and the relay-less one follow.
+// host that waits asynchronously and the relay-less one follow, and every
+// cross-thread wake must take at most 20 ms.
 //
 // Prints each host's results, then a table per host with a column per
 // browser. Exits 1 if a scenario of the first three hosts fails in any
@@ -89,6 +90,8 @@ const browserNames = browsersNamed(args.browser);
 // run rather than the whole check's time limit.
 const RUN_TIMEOUT_MS = 180_000;
 const OPFS_MOUNT = "/engines/spike";
+// Run by hand, on a quiet machine, every cross-thread wake is held to this.
+const STRICT_WAKE_MAX_MS = 20;
 
 const errno = JSON.parse(await readFile(args.errno, "utf8")) as Record<
   string,
@@ -305,6 +308,7 @@ const runOne = async (
       pageWait: run.pageWait,
       memory: { initial: memoryBytes, maximum: memoryBytes },
       ...(run.opfs ? { opfsMount: OPFS_MOUNT } : {}),
+      ...(args.compare ? { wakeMaxMs: STRICT_WAKE_MAX_MS } : {}),
     };
     const report = await withTimeout(
       page.evaluate(
