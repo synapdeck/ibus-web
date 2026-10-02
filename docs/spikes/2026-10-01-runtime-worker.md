@@ -329,7 +329,8 @@ the control buffer, starts the host with
 `new Worker(url, { type: "module" })` and runs the scenarios over the
 control buffer. It never sees the runtime's memory. Each host gets a browser
 context of its own, so the origin's private file system starts empty every
-time; the `opfs` scenario checks that it does.
+time; in M0.4 the `opfs` scenario checked that it did. M0.5 took OPFS out of
+the runtime, and its scenarios with it (see "The IndexedDB backend" below).
 
 The page's main thread can't `Atomics.wait` (Chromium: "Atomics.wait cannot
 be called in this context"; Firefox: "waiting is not allowed on this
@@ -351,9 +352,10 @@ replies, and which calls were late.
 scenario, each with a matcher for its cause: a failure counts as known only if
 the matcher recognises it. The check fails on any other failure, on a known
 failure that passes or fails another way, and, run without `--browser` or
-`--scenario`, on a listed failure that wasn't run. One remains (`opfs-read-only`
-in Firefox, below). The criteria are unchanged, but for the thread scenarios
-whose design changed (next section).
+`--scenario`, on a listed failure that wasn't run. None is listed: M0.4's
+one, `opfs-read-only` in Firefox, went with the OPFS scenarios in M0.5. The
+criteria are unchanged, but for the thread scenarios whose design changed
+(next section).
 
 **Sandbox.** Chromium runs with its own sandbox: Playwright turns it off
 unless asked, so the harness asks. `ibusWeb.testing.playwright.chromiumSandbox`
@@ -371,14 +373,16 @@ temporary directory. The other variables are `PLAYWRIGHT_BROWSERS_PATH`
 Chromium), `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and
 `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1`. No `MOZ_*` variable is needed.
 
-Each browser runs three hosts: every scenario with the host asleep in
-`ibusweb_wait`, plus `pool-exhausted`; a host with WasmFS's OPFS backend
-mounted at `/engines/spike`, which runs `cold-wake`, `promise-proxied-fsync`
+In M0.4 each browser ran three hosts: every scenario with the host asleep
+in `ibusweb_wait`, plus `pool-exhausted`; a host with WasmFS's OPFS backend
+mounted at `/engines/spike`, which ran `cold-wake`, `promise-proxied-fsync`
 (memory and OPFS), `opfs` and `opfs-read-only`; and the crash scenario on its
-own host. The check runs the asserting runtime, then the released one, and
-takes 49 s for both in both browsers (about 5 min before, with the
-comparisons and 8 s spins). The comparisons (the page waiting asynchronously,
-the idle host in `Atomics.waitAsync`, the relay-less `control` mode) moved out
+own host. M0.5's hosts mount IndexedDB instead, and add the storage and
+install runs (see "The IndexedDB backend" below). The check ran the
+asserting runtime, then the released one, and took 49 s for both in both
+browsers (about 5 min before, with the comparisons and 8 s spins). The
+comparisons (the page waiting asynchronously, the idle host in
+`Atomics.waitAsync`, the relay-less `control` mode) moved out
 of the checks into `nix run .#runtime-spike-compare`, which runs them under
 Node and in both browsers from a checkout (112 s on this host).
 
@@ -392,7 +396,10 @@ Instead:
 
 **The pool is sized for the planned peak, plus spares.**
 `ibusWeb.runtime.threadPool` (`runtime/ibus-runtime/package.nix`) derives
-`PTHREAD_POOL_SIZE` from shares and a low-water mark of spare Workers:
+`PTHREAD_POOL_SIZE` from shares and a low-water mark of spare Workers. The
+table is M0.4's, with OPFS as the storage backend; M0.5 mounts two IndexedDB
+backends, a storage share of 2 and a pool of 12 (see "The IndexedDB backend"
+below):
 
 | Share | Threads | Kept | How it was counted |
 | --- | --- | --- | --- |
@@ -618,9 +625,9 @@ once with the page's main thread free and once with it spinning for 3 s
 - **A crash** reaches the host as the pthread Worker's `ErrorEvent`, which
   Emscripten rethrows (Node: an `Error`). The host describes it by its
   message and source, and both browsers report the trapping thread's error.
-- **Firefox warns** for every runtime instance: "The WebAssembly exception
-  handling 'try' instruction is deprecated ... recompile to use the
-  'try_table' instruction". `-fwasm-exceptions` emits the legacy encoding.
+- **Firefox warns** for every Worker that instantiates the runtime: "The
+  WebAssembly exception handling 'try' instruction is deprecated ...
+  recompile to use the 'try_table' instruction". `-fwasm-exceptions` emits the legacy encoding.
   Emscripten's `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one (exnref,
   `try_table`); it is a compile and link setting, so every object and the
   cache's libraries would be rebuilt with it. Support (MDN's compatibility

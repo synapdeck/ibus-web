@@ -791,7 +791,9 @@ its own loggers with engine and domain annotations (§7.4).
     change fail with `EROFS`.
   - `wasmfs_idb_backend_seal(backend)` makes a backend read-only in place:
     every change started after it fails with `EROFS`, descriptors already
-    open for writing included. It makes nothing durable; `fsync()` first.
+    open for writing included; only the last close of a file unlinked before
+    the seal still deletes what it stored. It makes nothing durable;
+    `fsync()` first.
   - `wasmfs_idb_backend_closed(backend)` says whether the backend's
     connection has closed (below). It is an atomic load, cheap whatever the
     backend's thread is doing.
@@ -922,7 +924,9 @@ its own loggers with engine and domain annotations (§7.4).
   layout has one writer. It takes regular files and directories only,
   refuses absolute paths and `..` with `EINVAL`, gives every entry the
   archive's mode (its owner can always read and write it, and search a
-  directory), and `fsync()`s each file it writes. Each archive lands under the
+  directory), sizes each regular file from its header before writing its
+  data, so that a file in memory is allocated once at its size, and
+  `fsync()`s each file it writes. Each archive lands under the
   data mount at its manifest entry's `path`.
 - **A database per version.** Each version's data is a database of its own,
   `ibus-web/<name>/data/<version>`, apart from the engine's own files
@@ -935,7 +939,7 @@ its own loggers with engine and domain annotations (§7.4).
   so the engine can't make a `data` entry of its own there. Three Web Locks
   per engine:
   - `ibus-web:data:<name>:<version>`, shared, held by every host using that
-    version for its life, and taken first;
+    version for its life, and the first lock a host waits for;
   - `ibus-web:install:<name>:<version>`, exclusive, for deciding and
     installing; versions install independently;
   - the writer lock, which covers the engine's own files only. Every host
@@ -975,7 +979,15 @@ its own loggers with engine and domain annotations (§7.4).
 - **Failed starts.** The host keeps every lock it holds in one set, and a
   start that fails, or a runtime that crashes after it, lets go of them
   all, so a failed host never keeps others from installing, collecting or
-  writing; it stays alive to report.
+  writing; it stays alive to report. Its runtime, and any engine thread
+  already started, may still write through its read-write user backend, so
+  it seals that backend before letting go of the writer lock; a runtime
+  that can no longer be called to seal it keeps the writer lock until the
+  page terminates the Worker. A host that dies outright (its Worker
+  crashing, its renderer out of memory) has no chance to seal; it relies
+  on its locks going only with the Worker, and on the runtime's threads,
+  nested Workers the host started, being torn down with it, so that none
+  is left writing once another host can become writer.
 - **Fallback.** A browser lacks IndexedDB only for an opaque origin (a
   sandboxed iframe without `allow-same-origin`, a `data:` URL, where
   `indexedDB.open()` throws `SecurityError`), where the user or an enterprise
@@ -987,8 +999,8 @@ its own loggers with engine and domain annotations (§7.4).
   sit in WasmFS's memory backend, so the host makes the runtime's memory
   and its maximum larger than the manifest's `memory` by the data's size,
   the sum of the manifest's data sizes (unpacked bytes, §5.4.4) in whole
-  pages (§5.3), and
-  installs the data at every start, with no lock. A memory that this takes
+  pages (§5.3), which is enough because the extractor sizes each file
+  before writing it, and installs the data at every start, with no lock. A memory that this takes
   past the runtime's maximum fails the memory check, a load failure (§8)
   whose message gives the size but not the data's part in it. User data
   then lasts only as long as the Worker, and the host receives a
@@ -2048,8 +2060,8 @@ specification and `release.json`.
   WASM. Evaluation succeeds on Darwin again; Darwin builds are not yet
   verified on a Darwin builder.
 - **R18. WebAssembly exception encoding.** `-fwasm-exceptions` emits the
-  legacy encoding, which Firefox warns is deprecated for every runtime
-  instance. Emscripten's `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one
+  legacy encoding, which Firefox warns is deprecated for every Worker that
+  instantiates the runtime. Emscripten's `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one
   (exnref, `try_table`), a compile and link setting that rebuilds every
   object and the cache. Its support (Chrome 137, Firefox 131, Safari 18.4)
   is Baseline newly available, widely available from about November 2027;
