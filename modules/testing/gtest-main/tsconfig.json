@@ -1,0 +1,29 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Type-checks the report library, which runs on a program's main thread: a
+// Worker in browsers, Node's own thread under Node. emscripten-types/ is
+// generated, not written: the types of what the library uses from
+// Emscripten, from a link of the library.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../../tsconfig.base.json",
+  // Emscripten bundles the library into its own output as written, as a
+  // script, so it is checked as one rather than as a Node module.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "es2022",
+    "lib": ["es2022", "webworker"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": []
+  },
+  "files": [
+    "report.js",
+    "report.d.ts",
+    "../../../runtime/wasmfs-idb/src/emscripten-library.d.ts",
+    "emscripten-types/globals.d.ts"
+  ]
+}

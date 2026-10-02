@@ -10,7 +10,8 @@ import ".hk/pkl/Builtins.pkl"
 // Links to what Nix builds for a type check. Without one, a hook run skips
 // the check that reads it rather than failing on a missing input; with
 // HK_REQUIRE_NIX_INPUTS set, the check runs anyway and fails.
-local nixInputs = List("runtime/wasmfs-idb/src/emscripten-types")
+local nixInputs =
+  List("runtime/wasmfs-idb/src/emscripten-types", "modules/testing/gtest-main/emscripten-types")
 
 local linters = new Mapping<String, Step> {
   ["nixfmt"] = Builtins.nix_fmt

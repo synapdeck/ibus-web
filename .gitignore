@@ -9,4 +9,5 @@ result-*
 node_modules
 dist/
 /runtime/wasmfs-idb/src/emscripten-types
+/modules/testing/gtest-main/emscripten-types
 /.hk
