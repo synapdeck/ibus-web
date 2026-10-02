@@ -212,7 +212,7 @@ check's pass condition.
 | `thread-create-blocked` | a burst of the side modules' share of the pool (4) alive at once, `spawn(4)` from a pump and `spawn-nested(3)` from a thread, starts and joins every thread, creating no Worker and never returning the host to its event loop | PASS | 11 of 11 Workers idle; `spawn(4)` 71.3 ms, `spawn-nested(3)` 2.2 ms; 0 Workers created, 0 event-loop turns |
 | `pool-top-up` | with as many threads alive as the shares plan for (8) and the host idle, the pool stays as it is with its 3 spare Workers idle; with one more alive, the host tops it up by one Worker, back to 3 idle | PASS | peak: 8 alive, 3 of 11 idle, 0 Workers created, 0 top-ups, 0 event-loop turns; one more: a top-up of 1 Worker in 73.8 ms, 3 of 12 idle |
 | `thread-exit-blocked` | above, with rounds of `spawn-detached(4)` | PASS | heap 0.18 MiB in every round and after a turn; 0 Workers created, 12 idle at each round's start |
-| `cross-thread-wake` | `idle-later(50)` ×20, host idle: attach → dispatch ≤ 20 ms | PASS | ε p50 0.050 ms, max 0.080 ms |
+| `cross-thread-wake` | `idle-later(50)` ×20, host idle: attach → dispatch p50 ≤ 20 ms and max ≤ 200 ms (max ≤ 20 ms by hand, with `--compare`) | PASS | ε p50 0.050 ms, max 0.080 ms |
 | `deadline` | `g_timeout_add(100)` ×5, no requests: 100 ± 10 ms | PASS | 100.096–100.234 ms; worst deviation 0.234 ms |
 | `sync-proxied` | while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, and a GTask that a thread other than the host's starts, all complete | PASS | `proxy-sync` 557 µs; `spawn-nested(2)` joined 2; GTask 2294 µs, after which GLib keeps 3 Workers |
 | `promise-proxied-fsync` | `fsync()` from a thread completes on each backend | PASS | WasmFS memory and Node backends: each within 2.2 ms (the poll's resolution) |
@@ -969,9 +969,10 @@ runtime's memory is fixed**, made by the host:
 
 - The runtime is linked without growth (`-sALLOW_MEMORY_GROWTH=0`), so
   nothing in it can grow its memory, and imports its memory
-  (`wasmMemory`); it refuses to start without one. The linker ties a
-  memory that doesn't grow to its initial size, so the build then raises
-  the import's declared maximum to 2 GiB, and the runtime takes any size
+  (`wasmMemory`); it refuses to start without one. Its import is declared
+  with a maximum of 2 GiB (`-sIMPORTED_MEMORY -sMAXIMUM_MEMORY=2GB`, which
+  Emscripten otherwise lowers to the initial size without growth; the
+  toolchain carries a patch for it), and the runtime takes any size
   from `ibusWeb.runtime.memory.minimum` (32 MiB) to 2 GiB, whatever
   maximum the memory has. A full heap aborts (`-sABORTING_MALLOC=1`), even
   for `g_try_malloc()`. `checks.ibus-runtime-load` asserts the refusal,
@@ -987,12 +988,17 @@ runtime's memory is fixed**, made by the host:
   the refusals and that a full heap reaches the host as a crash.
 - `ibusWeb.runtime.link { pname, extraFlags }` links the runtime with other
   flags; the spike's growth builds use it.
-- `checks.runtime-spike-memory` runs both workloads on a fixed 320 MiB,
-  under Node and in both browsers, one run at a time, and fails on any
-  trap or abort. The workloads' heaps peaked at 248 MiB (mem-stress in
-  Firefox; 173 MiB under Node, 165 MiB in Chromium; glib-stress 104 MiB);
-  the check's peak memory, some 5.9 GiB, is nearly all the pool's 103
-  Workers' own instances under Node.
+- `checks.runtime-spike-memory` runs both workloads on the packaged
+  runtime with the threads its pool is planned for (8, on its pool of
+  11), in a fixed 84 MiB, under Node and in both browsers, one run at a
+  time, and fails on any trap or abort, telling Emscripten's
+  out-of-memory abort apart from a trap. 84 MiB is memory-costs' 64 MiB
+  allocation on a 2.5 MiB heap, a quarter more and rounded up; the
+  workloads' heaps peaked at 18.9 MiB (40 Node runs), 16.8 MiB (30
+  Chromium runs) and 19.5 MiB (30 Firefox runs). Its peak memory is
+  some 1.6 GiB, and it takes some 11 s. The 100-thread runs, which
+  reproduced growth's traps and needed some 5.9 GiB for the pool's 103
+  Workers under Node, stay in `nix run .#runtime-spike-memory`.
 
 ## Conclusions for the design
 

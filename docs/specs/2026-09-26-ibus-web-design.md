@@ -466,8 +466,8 @@ doorbell `postMessage` (§6.2.3).
   was given. Its memory import is declared from
   `ibusWeb.runtime.memory.minimum` (32 MiB) to
   `ibusWeb.runtime.memory.maximum` (2 GiB), so it takes any memory in
-  between (the build raises the declared maximum after linking, since the
-  linker ties a memory that doesn't grow to its initial size), and it
+  between (`-sIMPORTED_MEMORY -sMAXIMUM_MEMORY=` without growth, which
+  Emscripten honours only with a patch the toolchain carries), and it
   refuses to start without one. The Worker host makes a
   shared `WebAssembly.Memory` of the engine manifest's `memory` bytes with
   its maximum at that size, and passes it as `wasmMemory`. `memory` is a
