@@ -434,11 +434,15 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
           terminate: async () => {
             const { worker } = await launched;
             worker.terminate();
-            if (!messages.some(readOnly))
-              releasing.set(
-                installed.name,
-                lockReleased(engineWriterLock(installed)),
+            if (!messages.some(readOnly)) {
+              const released = lockReleased(engineWriterLock(installed)).then(
+                () => {
+                  if (releasing.get(installed.name) === released)
+                    releasing.delete(installed.name);
+                },
               );
+              releasing.set(installed.name, released);
+            }
           },
         };
       },

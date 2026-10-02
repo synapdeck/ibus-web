@@ -1053,8 +1053,8 @@ while open. So one host writes and the others read:
   `ifAvailable`. Granted, it holds the lock for the Worker's life and mounts
   read-write; refused, it mounts with `WASMFS_IDB_READ_ONLY`, which also
   skips the sweep, and posts `storage: read-only` to the page. Hosts don't
-  queue for it: a backend can't become writable, so a host that started read-only
-  stays so, and the page restarts it to get a writer.
+  queue for it: a backend can't become writable, so a host that started
+  read-only stays so, and the page restarts it to get a writer.
 - A host whose start fails, or whose runtime crashes, lets go of the writer
   lock with its others. The memory fallback is the host's alone and takes no
   lock. Engine data needs none: it is read-only to every host.
@@ -1083,10 +1083,11 @@ terminated a host that didn't report `storage: read-only`, waits for that
 engine's writer lock to come free, with a queued request it lets go of at
 once (bounded at 10 s, after which another tab holds it), before starting the
 engine's next host; `writer-lock`'s next host is ready 2.2 s after the
-terminate in Chromium (four runs), 0.26–0.27 s in Firefox. Node grants a queued request
-for a terminated thread's lock only once another request arrives (above,
-under the install lock); no waiting is needed there, since `ifAvailable` sees
-the lock free.
+terminate in Chromium (four runs), 0.26–0.27 s in Firefox. A host that dies
+without the page terminating it (its renderer out of memory, its Worker
+crashing) gets no such wait. Node grants a queued request for a terminated
+thread's lock only once another request arrives (above, under the install
+lock); no waiting is needed there, since `ifAvailable` sees the lock free.
 
 **The page must keep out of the engine's databases.** A transaction the page
 opens on an engine's database and hasn't seen commit when it starts to spin
@@ -1127,57 +1128,93 @@ browser is off the record, and Chromium keeps such a context's IndexedDB in
 memory, which the check's runs, and the storage experiments above, use. The
 profiles are on this host's ZFS.
 
-Five runs per browser, chunk size and page mode, released runtime. Each cell
-is the median over the runs of each run's median, in µs, page spinning /
-page idle (`Atomics.waitAsync()`):
+**`fsync()` and what it syncs.** The backend's `fsync()` is a commit with
+strict durability over the stores a file lives in, after its writes have
+committed with the browser's default. Run under `strace -f` (counting
+`fsync`, `fdatasync`, `sync_file_range` and `syncfs` across every process of
+the browser, on a profile on disk), 50 rounds of a relaxed write transaction
+followed by a strict one, from a page outside the runtime, show that a
+strict commit syncs only if it writes:
+
+| 50 rounds of a relaxed write, then | Chromium 149 | Firefox 151 |
+| --- | --- | --- |
+| nothing | no sync call | no sync call |
+| an empty strict transaction | no sync call | no sync call |
+| a strict transaction that puts a record back | 50 `fdatasync` | 50 `fsync` |
+
+The backend's `fsync()` was the empty kind, so it made nothing durable: the
+first five-run set measured 35–90 µs for it, under a proxied read. It now
+puts the file's inode record back as it is, inside the strict transaction,
+which also brings that record under the barrier; the backend's own test
+counts that each `fsync()` makes one strict commit over a file's stores and
+that the commit writes, and fails against the empty one. With the runtime,
+`storage-costs` at 16 KiB, page spinning then idle, made 181 `fdatasync`
+calls in all in Chromium before the change and 373 after, and 671 `fsync`
+calls in Firefox before and 886 after: some 200 more for its 202
+`fsync()`s, each now one sync (the rest are the browsers' own, the install's
+marker among them). The `fsync()` rows below are that cost: a disk sync on
+this host's ZFS.
+
+Five runs per browser, chunk size and page mode, released runtime with the
+`fsync()` above. Each cell is the median over the runs of each run's
+median, in µs, page spinning / page idle (`Atomics.waitAsync()`):
 
 | Chromium 149 | 16 KiB | 64 KiB | 256 KiB |
 | --- | --- | --- | --- |
-| random 4 KiB read | 125 / 110 | 310 / 300 | 500 / 520 |
-| random 64 KiB read | 170 / 200 | 335 / 325 | 700 / 565 |
-| 4 KiB read, page round trip | 165 / 240 | 395 / 455 | 680 / 660 |
-| 64 KiB read, page round trip | 275 / 350 | 465 / 510 | 800 / 690 |
-| 64 KiB `write()`, sequential | 295 / 295 | 805 / 785 | 1785 / 1775 |
-| 64-byte append `write()` | 235 / 270 | 325 / 290 | 1920 / 1935 |
-| its `fsync()` | 35 / 45 | 40 / 35 | 80 / 90 |
-| `fsync()` after the whole write | 110 / 120 | 135 / 120 | 190 / 140 |
+| random 4 KiB read | 155 / 120 | 380 / 365 | 585 / 500 |
+| random 64 KiB read | 215 / 215 | 525 / 360 | 570 / 510 |
+| 4 KiB read, page round trip | 280 / 205 | 535 / 405 | 660 / 625 |
+| 64 KiB read, page round trip | 480 / 425 | 740 / 535 | 720 / 670 |
+| 64 KiB `write()`, sequential | 360 / 300 | 935 / 905 | 1820 / 1775 |
+| 64-byte append `write()` | 415 / 275 | 495 / 395 | 1940 / 1705 |
+| its `fsync()` | 570 / 475 | 585 / 520 | 545 / 505 |
+| `fsync()` after the whole write | 1475 / 1370 | 690 / 570 | 830 / 615 |
 
 | Firefox 151 | 16 KiB | 64 KiB | 256 KiB |
 | --- | --- | --- | --- |
-| random 4 KiB read | 200 / 160 | 340 / 260 | 620 / 560 |
-| random 64 KiB read | 240 / 220 | 320 / 280 | 600 / 560 |
-| 4 KiB read, page round trip | 320 / 340 | 460 / 400 | 760 / 740 |
-| 64 KiB read, page round trip | 700 / 620 | 700 / 620 | 980 / 940 |
-| 64 KiB `write()`, sequential | 420 / 400 | 480 / 440 | 780 / 720 |
-| 64-byte append `write()` | 400 / 360 | 400 / 380 | 840 / 780 |
-| its `fsync()` | 60 / 60 | 60 / 60 | 80 / 80 |
-| `fsync()` after the whole write | 100 / 80 | 120 / 120 | 120 / 140 |
+| random 4 KiB read | 160 / 140 | 260 / 240 | 480 / 480 |
+| random 64 KiB read | 220 / 200 | 260 / 260 | 520 / 520 |
+| 4 KiB read, page round trip | 280 / 320 | 380 / 420 | 660 / 640 |
+| 64 KiB read, page round trip | 560 / 640 | 620 / 600 | 840 / 860 |
+| 64 KiB `write()`, sequential | 380 / 360 | 380 / 380 | 700 / 700 |
+| 64-byte append `write()` | 300 / 360 | 460 / 460 | 800 / 820 |
+| its `fsync()` | 460 / 500 | 580 / 540 | 640 / 640 |
+| `fsync()` after the whole write | 5100 / 4960 | 4740 / 4580 | 8280 / 7900 |
 
 The step of each browser's clock (5 µs, 20 µs) bounds these; means run
 10–40% above the medians, and a run's mean can be twice another's. A page
 round trip includes checking the bytes read; Firefox's for 64 KiB sit some
-0.4 ms above the read itself, Chromium's 0.1 ms (not broken down). The
-longest single read from the page, in any run, took 26 ms (Chromium, 256 KiB
-chunks), and at 16 KiB 6 ms in Chromium and 22 ms in Firefox; none in Chromium or Firefox waited for the
-page: with the page spinning, no reply in any of the 30 runs came late, and
-the calls that held the page past D6's 40 ms were the batched ones (the
-whole write, 256 reads, 100 appends in one request). A lazy 4 KiB read costs
-a keystroke 0.17–0.34 ms at 16 KiB chunks.
+0.4 ms above the read itself, Chromium's 0.2 ms (not broken down). The 64
+KiB reads are at 64 KiB-aligned offsets (the 4 KiB ones at 4 KiB-aligned
+ones), so none straddles a chunk boundary. Lookups at any offset do, the
+more often the smaller the chunk, each costing a record more, so aligned
+reads favour larger chunks, if anything.
+
+The longest single read from the page took 24 ms at 16 KiB in Chromium and
+21 ms in Firefox. One run's reads at 64 KiB in Chromium met a stall of the
+disk (its single read took 163 ms, its 100 synced appends 2 s), in which
+the batch of appends, one request, came back 1.06 s after the page's 1 s
+spin had let go: late through the disk, not the page, which a reply that
+waited for the page's thread comes at once after. No other reply in the 30
+runs with the page spinning came late; the calls that held the page past
+D6's 40 ms were the batched ones (the whole write, 256 reads, 100 appends
+in one request). A lazy 4 KiB read costs a keystroke 0.2–0.32 ms at 16 KiB
+chunks.
 
 Storage (KiB), from the sizes of the files the browser keeps IndexedDB in
 (Chromium's `estimate()` gives the same; Firefox's leaves out some 280 KiB
 of its own), the same in every run: the growth over the steps, then the
 whole once the browser closed, which includes the engine's installed data
-(1,918 KiB in Chromium and 1,129 KiB in Firefox before the write):
+(871 KiB in Chromium and 1,145 KiB in Firefox before the write):
 
 | | 16 KiB | 64 KiB | 256 KiB |
 | --- | --- | --- | --- |
-| Chromium: the 4,200 KiB write | +4,258 | +4,280 | +4,294 |
-| Chromium: the 100 appends (6.25 KiB) | +2,316 | +8,640 | +155 |
-| Chromium: once closed | 8,492 | 6,917 | 6,366 |
-| Firefox: the 4,200 KiB write | +6,244 | +5,500 | +11,455 |
-| Firefox: the 100 appends | +2,861 | +6,333 | −3,417 |
-| Firefox: once closed | 5,432 | 5,312 | 5,296 |
+| Chromium: the 4,200 KiB write | +4,251 | +4,280 | +4,294 |
+| Chromium: the 100 appends (6.25 KiB) | +2,373 | +8,671 | +212 |
+| Chromium: once closed | 7,495 | 6,661 | 5,377 |
+| Firefox: the 4,200 KiB write | +6,248 | +5,504 | +11,459 |
+| Firefox: the 100 appends | +3,263 | +6,703 to +6,735 | −3,038 |
+| Firefox: once closed | 5,448 | 5,328 | 5,312 |
 
 Everything stored beyond the file's bytes is the stores' own: each append
 rewrites the file's last chunk whole (8, 40 and 104 KiB in), so 100 appends
@@ -1186,28 +1223,42 @@ checkpoint, which closing the browser makes: settled, 16 KiB chunks take
 120 KiB (2.9% of the file) more than 64 KiB ones, and 256 KiB ones 16 KiB
 less. Chromium's LevelDB keeps every rewrite until it compacts, which hadn't
 happened when the browser closed but apparently had during the appends at
-256 KiB; one run in five at 64 KiB closed at 14,953 KiB rather than 6,917.
+256 KiB; one run in five at 64 KiB closed at 14,648 KiB rather than 6,661.
+The first five-run set, whose `fsync()` synced nothing, gave the same
+reads, writes and storage within the runs' spread, and the same choice.
 
 **Chromium's 64 KiB cliff.** At 64 KiB chunks Chromium is two to three times
 slower than at 16 KiB, for writes as for reads. Two runs more with chunks of
 32 KiB and of 65,000 bytes put the cliff at 64 KiB itself: 65,000-byte
 chunks cost what 16 and 32 KiB ones do (4 KiB reads 135–140 µs against
 295–300 µs at 65,536 bytes; 64 KiB writes 270–295 µs against 800–830 µs).
-That fits Blink storing a value whose serialization exceeds 64 KiB as a Blob
-of its own (`IDBValueWrapper`), not traced here; the backend's values never
-reach the page, so this costs time, not a wait for the page.
+Blink stores a value whose serialized form exceeds 64 KiB
+(`kIDBWrapThreshold`) as a Blob of its own (`IDBValueWrapper`), and a read
+unwraps it by reading that Blob, which Chromium does in the context that
+asked and in its browser process, never on the page's thread, so it costs
+time but no wait for the page. (That the values never reach the page isn't
+the reason: Firefox's Blob reads wait for the page although the Blob never
+reaches it.) Firefox keeps a value out of line, in a file of its own, only
+from much larger sizes (`dom.indexedDB.dataThreshold`; in Firefox 151 a
+value of 768 KiB stayed in the database and one of 896 KiB went to a file).
+The backend now makes this a limit: it creates databases with chunks of at
+most 63 KiB, the rest of the 64 KiB left for the serialization's own bytes,
+checked against its default at compile time. The measurements' library,
+which changes the size as IndexedDB stores it, after the backend has chosen,
+still makes larger ones for comparison.
 
 **Decided: 16 KiB.** It is the cheapest chunk for the random 4 KiB read that
-lookups make, the read the keystroke path pays for (1.6–2.7 times cheaper
-than 64 KiB, 3–4.7 times cheaper than 256 KiB), the cheapest or as cheap for
-appends and sequential writes, and it keeps every chunk well below
+lookups make, the read the keystroke path pays for (1.6–3 times cheaper
+than 64 KiB, 3–4.2 times cheaper than 256 KiB), the cheapest or as cheap
+for appends and sequential writes, and it keeps every chunk well below
 Chromium's cliff. What it costs: some 3% more storage in Firefox once
-settled, more records per file (263 for this one), and in Chromium more
-LevelDB churn between compactions. Reads of 64 KiB at once, which 16 KiB
-chunks serve from four records, are still the cheapest. The backend's default is
-now 16 KiB. A database keeps the chunk size it was created with, so one made
-at 64 KiB keeps 64 KiB chunks and works as before; only new databases take
-16 KiB. Nothing outside tests has created one yet.
+settled, more records per file (263 for this one), in Chromium more LevelDB
+churn between compactions and a dearer `fsync()` after a large write. Reads
+of 64 KiB at once, which 16 KiB chunks serve from four records, are still
+the cheapest. The backend's default is now 16 KiB. A database keeps the
+chunk size it was created with, so one made at 64 KiB keeps 64 KiB chunks
+and works as before; only new databases take 16 KiB. Nothing outside tests
+has created one yet.
 
 ## Conclusions for the design
 
@@ -1324,5 +1375,7 @@ at 64 KiB keeps 64 KiB chunks and works as before; only new databases take
   before starting the engine's next host (Chromium lets go of it some 2 s
   late), and keeps out of the engine's databases, whose writes its own
   transactions would hold up while it spins. The backend's chunks are now
-  16 KiB: a lazy 4 KiB read costs a keystroke 0.17–0.34 ms in both browsers,
-  and no read or write waits for the page's spin.
+  16 KiB, at most 63 KiB so that Chromium never keeps one as a Blob: a lazy
+  4 KiB read costs a keystroke 0.2–0.32 ms in both browsers, and no read or
+  write waits for the page's spin. `fsync()` commits strictly a transaction
+  that writes, since neither browser syncs an empty one.
