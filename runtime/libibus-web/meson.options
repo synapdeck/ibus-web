@@ -18,3 +18,9 @@ option(
   value: [],
   description: 'Link arguments for the side modules the tests load',
 )
+option(
+  'test_archives',
+  type: 'string',
+  value: '',
+  description: 'The directory of archives the install tests extract',
+)

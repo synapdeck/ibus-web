@@ -39,3 +39,15 @@ test(
   env: test_env,
   depends: side_modules,
 )
+
+test_install = executable(
+  'test-install',
+  'test-install.c',
+  dependencies: libibus_web_dep,
+  link_args: get_option('test_main_link_args'),
+)
+
+install_env = environment()
+install_env.set('IBUSWEB_TEST_ARCHIVES', get_option('test_archives'))
+
+test('install', test_install, protocol: 'tap', env: install_env)

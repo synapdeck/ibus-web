@@ -78,6 +78,10 @@
         type = lib.types.package;
         description = "harness.mjs, which drives the runtime at the C level from Node, and what it reads: errno.json, memory.json (the least and the most memory the runtime takes) and constants.json (the header's pumpError).";
       };
+      installArchives = lib.mkOption {
+        type = lib.types.package;
+        description = "Archives for testing engine data installs: tree.tar, a deterministic ustar of nested directories and files spanning several storage chunks; tree.json, its version (from its bytes), its unpacked size in bytes and its listing; listing.txt, the listing alone, one `PATH<TAB>d` or `PATH<TAB>f SIZE SHA256` line per entry, sorted bytewise; and archives the installer must refuse: absolute.tar, dotdot.tar, symlink.tar, hardlink.tar, fifo.tar (each a valid file, then the refused member) and corrupt.tar (tree.tar with a header's checksum broken).";
+      };
       nodeTimeout = lib.mkOption {
         type = lib.types.str;
         description = "A command prefix that bounds a Node check's run from outside Node.";

@@ -150,4 +150,41 @@ IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request,
                                      uint32_t request_len, uint8_t *reply,
                                      uint32_t reply_cap);
 
+/* A streaming extractor of an engine's data: a POSIX ustar archive,
+ * uncompressed, fed in pieces of any size as they arrive and written
+ * through the file system as it goes.
+ *
+ * It takes regular files and directories only. A symbolic or hard link, a
+ * device, a FIFO, an extended header, a name that is absolute or has a ".."
+ * component, a header whose checksum doesn't match, or one that isn't
+ * ustar's fails the install with -EINVAL, as does an archive that ends
+ * before its end-of-archive blocks. Files and directories take the
+ * archive's permission bits, plus the owner's read and write (and search,
+ * for a directory), so that an install can always redo what an earlier one
+ * wrote; a file that exists already is truncated and
+ * rewritten, a directory that exists already is kept, and missing parents
+ * are created, so installing again over a tree an earlier install left
+ * half-written completes it. Entries already written before a failure stay.
+ * Each file is fsync()ed once written.
+ *
+ * Call it on one thread at a time; the file system's own calls may block,
+ * as the IndexedDB backend's do. */
+typedef struct _IBusWebInstall IBusWebInstall;
+
+/* Starts extracting into `dir` (which must exist). Returns 0, -EINVAL
+ * without dir or out, -ENOENT or -ENOTDIR if dir isn't a directory, or
+ * -ENOMEM. */
+IBUSWEB_API int ibusweb_install_begin(const char *dir, IBusWebInstall **out);
+
+/* Feeds the next `len` bytes of the archive; returns 0 or a negative errno.
+ * Once a feed has failed, every later one fails the same way. Bytes after
+ * the end-of-archive blocks are ignored. */
+IBUSWEB_API int ibusweb_install_feed(IBusWebInstall *install,
+                                     const uint8_t *data, uint32_t len);
+
+/* Finishes: fsyncs what it wrote, returns 0 or a negative errno, frees
+ * `install`. Returns a failed feed's error, or -EINVAL if the archive ended
+ * early. */
+IBUSWEB_API int ibusweb_install_end(IBusWebInstall *install);
+
 G_END_DECLS

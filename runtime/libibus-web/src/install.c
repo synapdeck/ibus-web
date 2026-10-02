@@ -1,0 +1,332 @@
+/* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+ * SPDX-License-Identifier: LGPL-2.1-or-later */
+
+#include <errno.h>
+#include <fcntl.h>
+#include <ibus-web/runtime.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define BLOCK 512
+
+/* The ustar header's fields: offset and length. */
+#define NAME 0, 100
+#define MODE 100, 8
+#define SIZE 124, 12
+#define CHKSUM 148, 8
+#define TYPEFLAG 156
+#define PREFIX 345, 155
+
+typedef enum {
+  /* Collecting the next header. */
+  STATE_HEADER,
+  /* Writing a file's bytes, then skipping its padding to a whole block. */
+  STATE_DATA,
+  STATE_PADDING,
+  /* Past the end-of-archive blocks. */
+  STATE_END,
+  STATE_FAILED,
+} State;
+
+struct _IBusWebInstall {
+  char *dir;
+  State state;
+  int error;
+  uint8_t header[BLOCK];
+  uint32_t header_fill;
+  /* All-zero blocks in a row: two end the archive. */
+  int zero_blocks;
+  /* The file being written, or -1. */
+  int fd;
+  uint64_t data_left;
+  uint32_t padding_left;
+};
+
+static int fail(IBusWebInstall *install, int error) {
+  if (install->fd >= 0) {
+    close(install->fd);
+    install->fd = -1;
+  }
+  install->state = STATE_FAILED;
+  install->error = error;
+  return error;
+}
+
+/* A field of octal digits, NUL- or space-terminated, maybe space-padded
+ * before; FALSE for anything else, GNU's base-256 numbers among them. */
+static gboolean octal(const uint8_t *header, size_t offset, size_t len,
+                      uint64_t *value) {
+  const uint8_t *field = header + offset;
+  size_t i = 0;
+  while (i < len && field[i] == ' ')
+    i++;
+  uint64_t result = 0;
+  size_t digits = 0;
+  for (; i < len && field[i] >= '0' && field[i] <= '7'; i++, digits++) {
+    if (result > (UINT64_MAX >> 3))
+      return FALSE;
+    result = (result << 3) | (uint64_t)(field[i] - '0');
+  }
+  for (; i < len; i++)
+    if (field[i] != ' ' && field[i] != '\0')
+      return FALSE;
+  *value = result;
+  return digits > 0;
+}
+
+/* The checksum is of the header with its own field read as spaces, summed
+ * as unsigned bytes or, by some old writers, as signed ones. */
+static gboolean checksum_matches(const uint8_t *header) {
+  uint64_t stored;
+  if (!octal(header, CHKSUM, &stored))
+    return FALSE;
+  uint64_t sum_unsigned = 0;
+  int64_t sum_signed = 0;
+  for (size_t i = 0; i < BLOCK; i++) {
+    gboolean in_field = i >= 148 && i < 148 + 8;
+    uint8_t byte = in_field ? ' ' : header[i];
+    sum_unsigned += byte;
+    sum_signed += (int8_t)byte;
+  }
+  return stored == sum_unsigned || (int64_t)stored == sum_signed;
+}
+
+static gboolean all_zero(const uint8_t *block) {
+  for (size_t i = 0; i < BLOCK; i++)
+    if (block[i] != 0)
+      return FALSE;
+  return TRUE;
+}
+
+/* A field that need not be NUL-terminated when full. */
+static GString *append_field(GString *out, const uint8_t *header, size_t offset,
+                             size_t len) {
+  const char *field = (const char *)header + offset;
+  const char *nul = memchr(field, '\0', len);
+  return g_string_append_len(out, field,
+                             nul == NULL ? (gssize)len : nul - field);
+}
+
+/* The member's name relative to the install's directory, with "." and
+ * empty components dropped, or NULL if it is absolute or has "..". An empty
+ * result names the directory itself. */
+static char *relative_name(const uint8_t *header) {
+  g_autoptr(GString) full = g_string_new(NULL);
+  if (header[345] != '\0') {
+    append_field(full, header, PREFIX);
+    g_string_append_c(full, '/');
+  }
+  append_field(full, header, NAME);
+  if (full->len == 0 || full->str[0] == '/')
+    return NULL;
+  g_auto(GStrv) parts = g_strsplit(full->str, "/", -1);
+  GString *out = g_string_new(NULL);
+  for (char **part = parts; *part != NULL; part++) {
+    if (**part == '\0' || strcmp(*part, ".") == 0)
+      continue;
+    if (strcmp(*part, "..") == 0) {
+      g_string_free(out, TRUE);
+      return NULL;
+    }
+    if (out->len > 0)
+      g_string_append_c(out, '/');
+    g_string_append(out, *part);
+  }
+  return g_string_free(out, FALSE);
+}
+
+/* mkdir() that accepts a directory already there. */
+static int ensure_dir(const char *path, mode_t mode) {
+  if (mkdir(path, mode) == 0)
+    return 0;
+  int error = errno;
+  struct stat st;
+  if (error == EEXIST && stat(path, &st) == 0)
+    return S_ISDIR(st.st_mode) ? 0 : -ENOTDIR;
+  return -error;
+}
+
+/* Creates the parents of `rel` under the install's directory that are
+ * missing, since an archive need not list them. */
+static int ensure_parents(IBusWebInstall *install, const char *rel) {
+  g_autofree char *path = g_build_filename(install->dir, rel, NULL);
+  size_t base = strlen(install->dir);
+  for (char *slash = strchr(path + base + 1, '/'); slash != NULL;
+       slash = strchr(slash + 1, '/')) {
+    *slash = '\0';
+    int ret = ensure_dir(path, 0755);
+    *slash = '/';
+    if (ret != 0)
+      return ret;
+  }
+  return 0;
+}
+
+static int finish_file(IBusWebInstall *install) {
+  int fd = install->fd;
+  install->fd = -1;
+  if (fsync(fd) != 0) {
+    int error = errno;
+    close(fd);
+    return -error;
+  }
+  return close(fd) == 0 ? 0 : -errno;
+}
+
+static int take_header(IBusWebInstall *install) {
+  const uint8_t *header = install->header;
+  if (all_zero(header)) {
+    if (++install->zero_blocks == 2)
+      install->state = STATE_END;
+    return 0;
+  }
+  /* A lone zero block followed by a member is no archive tar writes. */
+  if (install->zero_blocks > 0)
+    return -EINVAL;
+  /* POSIX's magic and version; GNU's older format has neither. */
+  if (memcmp(header + 257, "ustar", 6) != 0 ||
+      memcmp(header + 263, "00", 2) != 0 || !checksum_matches(header))
+    return -EINVAL;
+
+  uint64_t mode, size;
+  if (!octal(header, MODE, &mode) || !octal(header, SIZE, &size))
+    return -EINVAL;
+  /* The owner can always rewrite what an install wrote, so that an install
+   * again over it works even when the archive's data is read-only. */
+  mode = (mode & 0777) | 0600;
+  char type = (char)header[TYPEFLAG];
+  gboolean regular = type == '0' || type == '\0';
+  if (!regular && type != '5')
+    return -EINVAL;
+  g_autofree char *rel = relative_name(header);
+  if (rel == NULL)
+    return -EINVAL;
+
+  if (!regular) {
+    /* A directory's size, if any, is no data of its own. */
+    if (size != 0)
+      return -EINVAL;
+    if (rel[0] == '\0')
+      return 0;
+    int ret = ensure_parents(install, rel);
+    if (ret != 0)
+      return ret;
+    g_autofree char *path = g_build_filename(install->dir, rel, NULL);
+    return ensure_dir(path, (mode_t)mode | 0700);
+  }
+
+  if (rel[0] == '\0')
+    return -EINVAL;
+  int ret = ensure_parents(install, rel);
+  if (ret != 0)
+    return ret;
+  g_autofree char *path = g_build_filename(install->dir, rel, NULL);
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, (mode_t)mode);
+  if (fd < 0)
+    return -errno;
+  install->fd = fd;
+  install->data_left = size;
+  install->padding_left = (uint32_t)((BLOCK - size % BLOCK) % BLOCK);
+  if (size > 0) {
+    install->state = STATE_DATA;
+    return 0;
+  }
+  return finish_file(install);
+}
+
+int ibusweb_install_begin(const char *dir, IBusWebInstall **out) {
+  if (dir == NULL || out == NULL)
+    return -EINVAL;
+  *out = NULL;
+  struct stat st;
+  if (stat(dir, &st) != 0)
+    return -errno;
+  if (!S_ISDIR(st.st_mode))
+    return -ENOTDIR;
+  IBusWebInstall *install = g_try_new0(IBusWebInstall, 1);
+  if (install == NULL)
+    return -ENOMEM;
+  install->dir = g_strdup(dir);
+  install->state = STATE_HEADER;
+  install->fd = -1;
+  *out = install;
+  return 0;
+}
+
+int ibusweb_install_feed(IBusWebInstall *install, const uint8_t *data,
+                         uint32_t len) {
+  if (install == NULL || (data == NULL && len > 0))
+    return -EINVAL;
+  while (len > 0) {
+    switch (install->state) {
+    case STATE_FAILED:
+      return install->error;
+    case STATE_END:
+      return 0;
+    case STATE_HEADER: {
+      uint32_t take = MIN(len, BLOCK - install->header_fill);
+      memcpy(install->header + install->header_fill, data, take);
+      install->header_fill += take;
+      data += take;
+      len -= take;
+      if (install->header_fill == BLOCK) {
+        install->header_fill = 0;
+        int ret = take_header(install);
+        if (ret != 0)
+          return fail(install, ret);
+      }
+      break;
+    }
+    case STATE_DATA: {
+      uint32_t take = (uint32_t)MIN((uint64_t)len, install->data_left);
+      ssize_t written = write(install->fd, data, take);
+      if (written < 0)
+        return fail(install, -errno);
+      if (written == 0)
+        return fail(install, -EIO);
+      /* A short write is retried with what is left. */
+      data += written;
+      len -= (uint32_t)written;
+      install->data_left -= (uint64_t)written;
+      if (install->data_left == 0) {
+        int ret = finish_file(install);
+        if (ret != 0)
+          return fail(install, ret);
+        install->state =
+            install->padding_left > 0 ? STATE_PADDING : STATE_HEADER;
+      }
+      break;
+    }
+    case STATE_PADDING: {
+      uint32_t take = MIN(len, install->padding_left);
+      data += take;
+      len -= take;
+      install->padding_left -= take;
+      if (install->padding_left == 0)
+        install->state = STATE_HEADER;
+      break;
+    }
+    }
+  }
+  return install->state == STATE_FAILED ? install->error : 0;
+}
+
+int ibusweb_install_end(IBusWebInstall *install) {
+  if (install == NULL)
+    return -EINVAL;
+  int ret;
+  switch (install->state) {
+  case STATE_END:
+    ret = 0;
+    break;
+  case STATE_FAILED:
+    ret = install->error;
+    break;
+  default:
+    ret = fail(install, -EINVAL);
+  }
+  g_free(install->dir);
+  g_free(install);
+  return ret;
+}

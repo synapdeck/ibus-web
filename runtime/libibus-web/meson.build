@@ -22,6 +22,7 @@ libibus_web = static_library(
   'src/module.c',
   'src/dispatch.c',
   'src/call-op.cpp',
+  'src/install.c',
   include_directories: include_directories('include'),
   c_args: '-DG_LOG_DOMAIN="ibus-web"',
   cpp_args: '-DG_LOG_DOMAIN="ibus-web"',
