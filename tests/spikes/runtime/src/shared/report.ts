@@ -22,7 +22,9 @@ export interface PageRunSpec {
   constants: BuildConstants;
   errno: Record<string, number>;
   poolSize: number;
+  plannedThreads: number;
   engineThreads: number;
+  glibThreads: number;
   poolLowWater: number;
   pendingLimitMs: number;
   // How the page waits for each reply: "spin" holds its main thread, as the

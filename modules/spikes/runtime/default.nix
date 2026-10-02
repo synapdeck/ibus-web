@@ -82,14 +82,20 @@
       '';
 
       # Scenarios size their thread counts by the pool the runtime is linked
-      # with and the share of it the side modules may use; the host tops the
-      # pool up to its low-water mark.
+      # with, its shares and the spare Workers beyond them, which the host
+      # tops the pool back up to; they check that threads within the shares
+      # leave the pool as it is, and GLib's share against what a GTask keeps
+      # alive.
       harnessArgs = lib.concatStringsSep " " [
         "--sides ${sidesDir}"
         "--errno ${runtime.nodeHarness}/errno.json"
         "--constants ${constants}/constants.json"
         "--pool ${toString runtime.threadPool.size}"
+        "--planned-threads ${
+          toString (lib.foldl' builtins.add 0 (lib.attrValues runtime.threadPool.shares))
+        }"
         "--engine-threads ${toString runtime.threadPool.shares.engine}"
+        "--glib-threads ${toString runtime.threadPool.shares.glib}"
         "--pool-low-water ${toString runtime.threadPool.lowWater}"
       ];
       dist = "${typescript.workspace}/tests/spikes/runtime/dist";
@@ -164,12 +170,15 @@
           )
           ''
             ${playwright.setup}
-            # Browser console output goes to stderr, where the runtime's
-            # warning for the exceptions scenario's throw is marked expected.
+            # Browser console output goes to stderr, where the warnings the
+            # exceptions scenario's throw and pool-exhausted's failed thread
+            # creations cause are marked expected.
             run() (
               set -o pipefail
               ${browserTimeout} node ${dist}/node/browser-run.js ${harnessArgs} "$@" 2>&1 1>&3 3>&- |
-                sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
+                sed -e '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' \
+                  -e '/WARNING.*spawn: thread [0-9]* of [0-9]*: Error creating thread: Resource temporarily unavailable/s/$/ [expected: the pool-exhausted scenario]/' \
+                  -e '/Tried to spawn a new thread, but the thread pool is exhausted/s/$/ [expected: the pool-exhausted scenario]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Usage: node run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
-//                    --constants CONSTANTS_JSON --pool N --engine-threads N
-//                    --pool-low-water N [--compare]
+//                    --constants CONSTANTS_JSON --pool N --planned-threads N
+//                    --engine-threads N --glib-threads N --pool-low-water N
+//                    [--compare]
 //
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
 // requests over the control buffer as a page would. The host sleeps in the
@@ -47,7 +48,9 @@ const { values: args } = parseArgs({
     errno: { type: "string" },
     constants: { type: "string" },
     pool: { type: "string" },
+    "planned-threads": { type: "string" },
     "engine-threads": { type: "string" },
+    "glib-threads": { type: "string" },
     "pool-low-water": { type: "string" },
     compare: { type: "boolean", default: false },
   },
@@ -58,17 +61,21 @@ if (
   args.errno === undefined ||
   args.constants === undefined ||
   args.pool === undefined ||
+  args["planned-threads"] === undefined ||
   args["engine-threads"] === undefined ||
+  args["glib-threads"] === undefined ||
   args["pool-low-water"] === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants, --pool, --engine-threads and --pool-low-water are required",
+    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads and --pool-low-water are required",
   );
 }
 const runtimeJs = args.runtime;
 const sidesDir = args.sides;
 const poolSize = Number(args.pool);
+const plannedThreads = Number(args["planned-threads"]);
 const engineThreads = Number(args["engine-threads"]);
+const glibThreads = Number(args["glib-threads"]);
 const poolLowWater = Number(args["pool-low-water"]);
 
 // Node's types leave WebAssembly to the DOM library, which Node code here
@@ -167,7 +174,10 @@ const env = (pendingLimitMs: number): Env => ({
   errno,
   ops,
   poolSize,
+  plannedThreads,
   engineThreads,
+  glibThreads,
+  poolLowWater,
   fsyncPaths: ["/tmp/fsync-memory.txt", `${mountPath}/fsync-node.txt`],
   pendingLimitMs,
 });

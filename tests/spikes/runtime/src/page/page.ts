@@ -26,10 +26,11 @@ import {
   type Scenario,
 } from "../shared/scenarios.ts";
 
-// A spinning page gives up on a reply after SPIN_LIMIT_MS, over ten times
-// the longest any request has taken when nothing waits for the page, then
-// waits for it without holding its thread, up to REPLY_TIMEOUT_MS more: a
-// reply that comes only then needed the page's main thread.
+// A spinning page gives up on a reply after SPIN_LIMIT_MS, twenty times the
+// longest any request has taken when nothing waits for the page (Chromium's
+// spawn(4), some 50 ms), then waits for it without holding its thread, up to
+// REPLY_TIMEOUT_MS more: a reply that comes only then needed the page's main
+// thread.
 const SPIN_LIMIT_MS = 1_000;
 const REPLY_TIMEOUT_MS = 30_000;
 
@@ -163,7 +164,10 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       errno: spec.errno,
       ops: opsFrom(spec.constants),
       poolSize: spec.poolSize,
+      plannedThreads: spec.plannedThreads,
       engineThreads: spec.engineThreads,
+      glibThreads: spec.glibThreads,
+      poolLowWater: spec.poolLowWater,
       fsyncPaths: [
         "/tmp/fsync-memory.txt",
         ...(spec.opfsMount === undefined

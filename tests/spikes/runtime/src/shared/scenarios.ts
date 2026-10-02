@@ -91,10 +91,15 @@ export interface Env {
   // Emscripten's errno values, by name.
   errno: Readonly<Record<string, number>>;
   ops: Ops;
-  // The pthread pool's size, and the threads of it the spike's side modules
-  // may have alive at once.
+  // The pthread pool's size at start; the threads its shares plan for, the
+  // sum of the shares; the shares of the spike's side modules and of GLib,
+  // which is what one GTask in flight keeps alive; and the spare Workers
+  // beyond the shares, which the host tops the pool back up to.
   poolSize: number;
+  plannedThreads: number;
   engineThreads: number;
+  glibThreads: number;
+  poolLowWater: number;
   // Files to fsync() from a thread, one per storage backend under test.
   fsyncPaths: readonly string[];
   // How long a result may stay pending before the scenario gives up on it.
@@ -188,6 +193,37 @@ const stats = async (client: Client, env: Env): Promise<HostStats> => {
   const { ret, bytes } = await client.call(HostOp.stats);
   if (ret < 0) throw new Error(`host stats: ${ret}`);
   return JSON.parse(env.decode(bytes)) as HostStats;
+};
+
+// Creates n threads that keep their Workers until release().
+const hold = async (client: Client, env: Env, n: number): Promise<void> => {
+  const [held, error] = replyInt32s(await client.call(env.ops.hold, int32s(n)));
+  if (held !== n || error !== 0)
+    throw new Error(`hold(${n}): ${held} held, error ${error}`);
+};
+
+const release = async (client: Client, env: Env): Promise<void> => {
+  const released = await call32(client, env.ops.release);
+  if (released < 0) throw new Error(`release: ${released}`);
+};
+
+// Stats once the host has finished a top-up after since, or the latest
+// stats if none finishes within env.pendingLimitMs. A request would wait
+// out a top-up's new Worker() calls in Firefox, where they return only
+// while the page's thread is free, so the first waits a moment.
+const awaitTopUp = async (
+  client: Client,
+  env: Env,
+  since: HostStats,
+): Promise<HostStats> => {
+  const deadline = env.now() + env.pendingLimitMs;
+  await env.sleep(50);
+  let latest = await stats(client, env);
+  while (latest.topUps === since.topUps && env.now() < deadline) {
+    await env.sleep(5);
+    latest = await stats(client, env);
+  }
+  return latest;
 };
 
 // Round trips of add, each with its sum checked, in microseconds.
@@ -402,11 +438,90 @@ const threadCreateBlocked: Scenario = {
   },
 };
 
+// The pool's Workers: those it started with, plus those created since, by
+// top-ups or, under Node, by Emscripten itself.
+const poolWorkers = (env: Env, { workersCreated }: HostStats): number =>
+  env.poolSize + workersCreated;
+
+const threadsAlive = (env: Env, at: HostStats): number =>
+  poolWorkers(env, at) - at.idleWorkers;
+
+// The pool starts with poolLowWater Workers beyond the threads its shares
+// plan for, so a peak within the shares leaves that many idle and the host
+// has no reason to top up; one thread more leaves one fewer. The host
+// decides as soon as it has answered a request, and a top-up it starts
+// creates its Workers and counts an event-loop turn at once. This runs
+// before any other scenario leaves a thread alive or grows the pool, though
+// it counts what is alive rather than relying on that.
+const poolTopUp: Scenario = {
+  name: "pool-top-up",
+  criterion:
+    "with as many threads alive as the shares plan for and the host idle, the host leaves the " +
+    "pool as it is, with its spare Workers idle; with one more alive, it tops the pool up by one " +
+    "Worker, back to its low-water mark of idle Workers, by itself",
+  async run(client, env) {
+    const measurements: Record<string, Measurement> = {};
+    let pass = true;
+    const expect = (label: string, ok: boolean, value: Measurement): void => {
+      measurements[label] = value;
+      if (!ok) pass = false;
+    };
+    const planned = env.plannedThreads;
+    const describe = (at: HostStats, since: HostStats): string =>
+      `${threadsAlive(env, at)} threads alive, ${at.idleWorkers} of ` +
+      `${poolWorkers(env, at)} Workers idle; ${at.workersCreated - since.workersCreated} ` +
+      `Workers created, ${at.topUps - since.topUps} top-ups, ` +
+      `${at.eventLoopTurns - since.eventLoopTurns} event-loop turns`;
+
+    const first = await stats(client, env);
+    const toPeak = planned - threadsAlive(env, first);
+    if (toPeak < 1)
+      throw new Error(
+        `${threadsAlive(env, first)} threads alive already, of ${planned} planned`,
+      );
+    await hold(client, env, toPeak);
+    // Time for a top-up's new Worker() calls to return, in Firefox too,
+    // where they wait for the page's thread.
+    await env.sleep(50);
+    const peak = await stats(client, env);
+    expect(
+      "plannedPeak",
+      threadsAlive(env, peak) === planned &&
+        peak.idleWorkers === env.poolLowWater &&
+        peak.workersCreated === first.workersCreated &&
+        peak.topUps === first.topUps &&
+        peak.eventLoopTurns === first.eventLoopTurns,
+      describe(peak, first),
+    );
+    await release(client, env);
+
+    const before = await stats(client, env);
+    await hold(client, env, toPeak + 1);
+    const over = await awaitTopUp(client, env, before);
+    expect(
+      "overshoot",
+      threadsAlive(env, over) === planned + 1 &&
+        over.idleWorkers === env.poolLowWater &&
+        over.topUps === before.topUps + 1 &&
+        over.topUpWorkers - before.topUpWorkers === 1 &&
+        over.workersCreated - before.workersCreated === 1,
+      describe(over, before) +
+        (over.topUps === before.topUps
+          ? ""
+          : `; the top-up took ${round(over.lastTopUpMs!, 1)} ms`),
+    );
+    await release(client, env);
+    return { pass, measurements };
+  },
+};
+
 // Exceeding the pool fails pthread_create() with EAGAIN, which GLib's
 // g_thread_try_new() reports as G_THREAD_ERROR_AGAIN, rather than waiting for
 // a Worker that can't start; hold() takes Workers so that the pool runs out
 // while top-ups are held off. Under Node, Emscripten creates a Worker
-// instead, so this runs in browsers only.
+// instead, so this runs in browsers only. The idle count it reads first must
+// hold throughout: sync-proxied's GTask worker, if that ran, stays alive
+// some 15.5 s after its task, against about 0.1 s from there to here.
 export const poolExhausted: Scenario = {
   name: "pool-exhausted",
   criterion:
@@ -420,17 +535,6 @@ export const poolExhausted: Scenario = {
     const expect = (label: string, ok: boolean, value: Measurement): void => {
       measurements[label] = value;
       if (!ok) pass = false;
-    };
-    const hold = async (n: number): Promise<void> => {
-      const [held, error] = replyInt32s(
-        await client.call(env.ops.hold, int32s(n)),
-      );
-      if (held !== n || error !== 0)
-        throw new Error(`hold(${n}): ${held} held, error ${error}`);
-    };
-    const release = async (): Promise<void> => {
-      const released = await call32(client, env.ops.release);
-      if (released < 0) throw new Error(`release: ${released}`);
     };
     const attempt = async (start: number, result: number, n: number) => {
       const startedAt = env.now();
@@ -450,17 +554,17 @@ export const poolExhausted: Scenario = {
     const idle = first.idleWorkers;
     measurements.idleWorkers = idle;
 
-    await hold(idle);
+    await hold(client, env, idle);
     const fromPump = await attempt(env.ops.spawn, env.ops.spawnResult, 1);
     expect(
       "fromPump",
       fromPump.joined === 0 && fromPump.error === eagain,
       `joined ${fromPump.joined}, error ${fromPump.error}, in ${fromPump.ms} ms`,
     );
-    await release();
+    await release(client, env);
 
     // The creating thread takes the last idle Worker itself.
-    await hold(idle - 1);
+    await hold(client, env, idle - 1);
     const proxied = await attempt(
       env.ops.spawnNested,
       env.ops.spawnNestedResult,
@@ -471,22 +575,14 @@ export const poolExhausted: Scenario = {
       proxied.joined === 0 && proxied.error === eagain,
       `joined ${proxied.joined}, error ${proxied.error}, in ${proxied.ms} ms`,
     );
-    await release();
+    await release(client, env);
     const answering = await call32(client, env.ops.add, int32s(2, 3));
     expect("addAfter", answering === 5, answering);
 
-    await hold(idle);
+    await hold(client, env, idle);
     const emptied = await stats(client, env);
     await setTopUps(client, true);
-    // In Firefox, a Worker's new Worker() returns only while the page's
-    // thread is free.
-    await env.sleep(50);
-    const deadline = env.now() + env.pendingLimitMs;
-    let topped = await stats(client, env);
-    while (topped.topUps === emptied.topUps && env.now() < deadline) {
-      await env.sleep(5);
-      topped = await stats(client, env);
-    }
+    const topped = await awaitTopUp(client, env, emptied);
     const lowWater = topped.topUpWorkers - emptied.topUpWorkers;
     expect(
       "topUp",
@@ -508,7 +604,7 @@ export const poolExhausted: Scenario = {
       `joined ${burst.joined}, error ${burst.error}, in ${burst.ms} ms, ` +
         `${last.workersCreated - topped.workersCreated} Workers created`,
     );
-    await release();
+    await release(client, env);
     expect(
       "workersCreated",
       last.workersCreated - first.workersCreated === lowWater,
@@ -617,13 +713,17 @@ const syncProxied: Scenario = {
       2,
     );
     // GLib starts the threads of its pool for GTasks as the first is run,
-    // and keeps them: the spawner for good, the worker for a while.
+    // and keeps them: the spawner for good, the worker for a while. One
+    // GTask in flight is what GLib's share of the pool is sized for.
     const before = await stats(client, env);
     await check("taskUs", env.ops.task, undefined, env.ops.taskResult);
     // Lets the thread that started the task end.
     await env.sleep(50);
     const after = await stats(client, env);
-    measurements.workersKeptAfterTask = before.idleWorkers - after.idleWorkers;
+    const kept = before.idleWorkers - after.idleWorkers;
+    measurements.workersKeptAfterTask = kept;
+    measurements.glibThreads = env.glibThreads;
+    if (kept !== env.glibThreads) pass = false;
     return { pass, measurements };
   },
 };
@@ -823,6 +923,7 @@ export const scenarios: readonly Scenario[] = [
   dispatch,
   coldWake,
   threadCreateBlocked,
+  poolTopUp,
   threadExitBlocked,
   crossThreadWake,
   deadline,

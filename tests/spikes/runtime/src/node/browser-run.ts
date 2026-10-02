@@ -3,7 +3,8 @@
 
 // Usage: node browser-run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
 //                            --constants CONSTANTS_JSON --pool N
-//                            --engine-threads N --pool-low-water N
+//                            --planned-threads N --engine-threads N
+//                            --glib-threads N --pool-low-water N
 //                            [--browser chromium|firefox]... [--scenario NAME]...
 //                            [--compare]
 //
@@ -51,7 +52,9 @@ const { values: args } = parseArgs({
     errno: { type: "string" },
     constants: { type: "string" },
     pool: { type: "string" },
+    "planned-threads": { type: "string" },
     "engine-threads": { type: "string" },
+    "glib-threads": { type: "string" },
     "pool-low-water": { type: "string" },
     browser: { type: "string", multiple: true },
     // Runs only these scenarios, where a host would run them.
@@ -65,11 +68,13 @@ if (
   args.errno === undefined ||
   args.constants === undefined ||
   args.pool === undefined ||
+  args["planned-threads"] === undefined ||
   args["engine-threads"] === undefined ||
+  args["glib-threads"] === undefined ||
   args["pool-low-water"] === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants, --pool, --engine-threads and --pool-low-water are required",
+    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads and --pool-low-water are required",
   );
 }
 
@@ -287,7 +292,9 @@ const runOne = async (
       constants,
       errno,
       poolSize: Number(args.pool),
+      plannedThreads: Number(args["planned-threads"]),
       engineThreads: Number(args["engine-threads"]),
+      glibThreads: Number(args["glib-threads"]),
       poolLowWater: Number(args["pool-low-water"]),
       pendingLimitMs: run.pendingLimitMs,
       pageWait: run.pageWait,
