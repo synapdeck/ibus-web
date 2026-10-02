@@ -1,6 +1,6 @@
 # M0.4: Runtime skeleton and Worker spike — implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Finish M0 by proving the runtime skeleton: `pkgsWasm.glib` linked
 into `ibus-runtime.wasm` as a `-sMAIN_MODULE=2` main module with a minimal
@@ -93,9 +93,9 @@ Task 5's question; this task provides the mechanism in GLib.
 
   A C hook (not a raw word) keeps the choice of word and memory out of GLib: `libibus-web` decides what the hook does (Task 2/5).
 
-- [ ] **Step 1:** Tag the clone's tip `ibus-web-pre-m0-4`. Add the hook to the WebAssembly `GWakeup`: a hook pointer and user data, set through `g_main_context_wasm_set_wake_hook()` on the context's wakeup, called from `g_wakeup_signal()` after `emscripten_futex_wake()`. Thread-safe publication (set once before use; read with an atomic load). No effect on other platforms (compile-time guard).
-- [ ] **Step 2:** Smoke test (`glib-test.c`): set a hook on the default context that counts calls atomically; acquire the default context on the main thread; from a `GThread`, `g_idle_add()` a source; assert the hook ran (counter > 0) and the source dispatches on the next `g_main_context_iteration(NULL, FALSE)`. Also assert that with the context _not_ acquired, an attach from another thread does not call the hook (documents why the pump must own the context). Print `wakehook 1 0` and grep it in the check.
-- [ ] **Step 3:** Re-export the series (`git format-patch --no-signature -o <repo>/modules/glib/patches nixpkgs-2.88.3..ibus-web`), document 0017 in the README, run `checks.glib-patches`, `checks.glib`, `checks.glib-tests` (results unchanged), `nix flake check`. Commit.
+- [x] **Step 1:** Tag the clone's tip `ibus-web-pre-m0-4`. Add the hook to the WebAssembly `GWakeup`: a hook pointer and user data, set through `g_main_context_wasm_set_wake_hook()` on the context's wakeup, called from `g_wakeup_signal()` after `emscripten_futex_wake()`. Thread-safe publication (set once before use; read with an atomic load). No effect on other platforms (compile-time guard).
+- [x] **Step 2:** Smoke test (`glib-test.c`): set a hook on the default context that counts calls atomically; acquire the default context on the main thread; from a `GThread`, `g_idle_add()` a source; assert the hook ran (counter > 0) and the source dispatches on the next `g_main_context_iteration(NULL, FALSE)`. Also assert that with the context _not_ acquired, an attach from another thread does not call the hook (documents why the pump must own the context). Print `wakehook 1 0` and grep it in the check.
+- [x] **Step 3:** Re-export the series (`git format-patch --no-signature -o <repo>/modules/glib/patches nixpkgs-2.88.3..ibus-web`), document 0017 in the README, run `checks.glib-patches`, `checks.glib`, `checks.glib-tests` (results unchanged), `nix flake check`. Commit.
 
 ### Task 2: `libibus-web` skeleton
 
@@ -134,9 +134,9 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 `IBusWebModule` (opaque) lets a side module register named spike operations (`void (*)(const uint8_t *, uint32_t, GString *)`), so scenarios live in side modules, not the runtime.
 
-- [ ] **Step 1: Failing test.** `test-runtime.c` (linked with `toolchain.testMainFlags`, run under Node) asserts: `ibusweb_runtime_init(&word)` returns 0; a `GThread` that `g_idle_add`s a source increments `word` (wake hook) and the next `ibusweb_pump()` dispatches it; `ibusweb_pump()` returns the remaining delay for a `g_timeout_add(250, …)` source (200–250 ms) and -1 with no sources; `ibusweb_dispatch` returns an error for an unknown opcode. Build it to see it fail (no library yet).
-- [ ] **Step 2: Implement** with Meson (`pkgsWasm.stdenv`, `dependency('glib-2.0')`, `dependency('gmodule-2.0')`), installing a static library, the header and a `.pc`. `ibusweb_load_module` uses `dlopen`/`dlsym` (Emscripten dynamic linking).
-- [ ] **Step 3:** Check passes; register `libibus-web` in `ibusWeb.toolchain.devLibraries`; `nix flake check`; commit.
+- [x] **Step 1: Failing test.** `test-runtime.c` (linked with `toolchain.testMainFlags`, run under Node) asserts: `ibusweb_runtime_init(&word)` returns 0; a `GThread` that `g_idle_add`s a source increments `word` (wake hook) and the next `ibusweb_pump()` dispatches it; `ibusweb_pump()` returns the remaining delay for a `g_timeout_add(250, …)` source (200–250 ms) and -1 with no sources; `ibusweb_dispatch` returns an error for an unknown opcode. Build it to see it fail (no library yet).
+- [x] **Step 2: Implement** with Meson (`pkgsWasm.stdenv`, `dependency('glib-2.0')`, `dependency('gmodule-2.0')`), installing a static library, the header and a `.pc`. `ibusweb_load_module` uses `dlopen`/`dlsym` (Emscripten dynamic linking).
+- [x] **Step 3:** Check passes; register `libibus-web` in `ibusWeb.toolchain.devLibraries`; `nix flake check`; commit.
 
 ### Task 3: `ibus-runtime.wasm` and spike side modules
 
@@ -152,7 +152,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
   - `throw.cpp`: op `throw` throws a C++ exception caught in the runtime-side C++ wrapper around the op call (the runtime catches and returns an error reply), proving cross-module exceptions.
   - `fsync.c`: op `fsync(path)` starts a pthread that creates the file, writes, `fsync()`s and closes it, signalling completion through a source on the default context.
 - **Node smoke (C level, no TypeScript):** a small Node script in the check instantiates the asserting runtime build, calls `ibusweb_runtime_init`, loads each side module and calls each op through `ibusweb_dispatch`, asserting replies. (The TS host comes in Task 5.)
-- [ ] Steps: write the link check expecting the replies (fails), implement the link, export list and side modules, pass, extend cache probes until `checks.toolchain-cache` covers the runtime's flag combinations against the read-only cache, `nix flake check`, commit.
+- [x] Steps: write the link check expecting the replies (fails), implement the link, export list and side modules, pass, extend cache probes until `checks.toolchain-cache` covers the runtime's flag combinations against the read-only cache, `nix flake check`, commit.
 
 ### Task 4: pnpm workspace and TypeScript build
 
@@ -162,7 +162,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 - Produces `ibusWeb.typescript.workspace`: a derivation that installs the workspace offline (`fetchPnpmDeps` with `pnpm_11`, `fetcherVersion = 4`, `pnpmConfigHook`), runs each package's `build` script (`tsc -p` per environment config) and outputs each package's `dist/` (the JavaScript browsers load) and sources; `checks.typescript` runs each package's `typecheck` script (`tsc --noEmit -p` per environment config) across the workspace. Node in checks runs the emitted `dist/` (deterministic); developers may run sources directly with Node 24 while iterating.
 - The dev shell gains `pnpm_11` and Node 24 (spec §10.6).
-- [ ] Steps: a placeholder `src/index.ts` that type-checks, the Nix module with the deps hash, `checks.typescript` failing on an introduced type error then passing, a check that the `playwright` version equals `pkgs.playwright-driver.version`, `nix flake check`, commit.
+- [x] Steps: a placeholder `src/index.ts` that type-checks, the Nix module with the deps hash, `checks.typescript` failing on an introduced type error then passing, a check that the `playwright` version equals `pkgs.playwright-driver.version`, `nix flake check`, commit.
 
 ### Task 5: Spike Worker host and the Node harness (R2)
 
@@ -185,7 +185,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 - `sync-proxied`: a pthread performs a call Emscripten proxies synchronously to the Worker's thread (e.g. a JS-library call marked `__proxy: 'sync'`, or a WasmFS operation that proxies) while the host is in `Atomics.wait`; record whether it completes, under option 1 vs 2.
 - `promise-proxied-fsync`: `fsync(path)` from a pthread while the host waits; record whether it completes (WasmFS memory/Node backends; OPFS in Task 6).
 - `exceptions`: `throw` returns the error reply; runtime keeps working.
-- [ ] Steps: write `scenarios.ts` and the Node harness with all scenarios expected to pass (red until the host exists); implement the host; iterate on the wake mechanism; record results and decision in the spike report; `checks.runtime-spike-node` runs the harness under the TS build's `dist/`; `nix flake check`; commit. **Checkpoint:** if the wake mechanism needs a spec change (option 3), stop here for the user.
+- [x] Steps: write `scenarios.ts` and the Node harness with all scenarios expected to pass (red until the host exists); implement the host; iterate on the wake mechanism; record results and decision in the spike report; `checks.runtime-spike-node` runs the harness under the TS build's `dist/`; `nix flake check`; commit. **Checkpoint:** if the wake mechanism needs a spec change (option 3), stop here for the user.
 
 ### Task 6: Browser harness (Chromium and Firefox)
 
@@ -197,7 +197,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 - `page.ts`: creates the Worker by URL (`new Worker(url, { type: "module" })`), sends the compiled `WebAssembly.Module` and SAB, runs `scenarios.ts`, reports JSON results.
 - `run.ts`: Playwright (`playwright` package, `chromium` and `firefox` from `PLAYWRIGHT_BROWSERS_PATH` = nixpkgs' `playwright-driver.browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`), headless, asserting `crossOriginIsolated === true`, then each scenario's pass criterion. Plus an `opfs` scenario: mount WasmFS's OPFS backend at `/engines/spike/`, write, `fsync`, read back, and `promise-proxied-fsync` on the OPFS mount.
 - Runs inside the Nix sandbox (no network); if a browser can't run in the sandbox (e.g. user namespaces), document the flags used (`--no-sandbox` for Chromium only if required, and why) and keep the check runnable offline.
-- [ ] Steps: harness red, server and page, green in Chromium, then Firefox (record engine differences: `Atomics.wait` in Workers, OPFS sync access handles, timing), spike report updated, `nix flake check`, commit.
+- [x] Steps: harness red, server and page, green in Chromium, then Firefox (record engine differences: `Atomics.wait` in Workers, OPFS sync access handles, timing), spike report updated, `nix flake check`, commit.
 
 ### Task 7: Memory growth (§5.3)
 
@@ -205,7 +205,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 **Requirements:** reproduce the GLib-suite trap pattern without GLib (many pthreads allocating and touching fresh memory while memory grows) and with GLib (the `1bit-emufutex`-style workload), under memory growth and under fixed memory, in Node (≥ 300 runs), Chromium and Firefox (≥ 50 runs each). Growth is built with `-sGROWABLE_ARRAYBUFFERS=1`, which uses `WebAssembly.Memory.prototype.toResizableBuffer()` where it works and Emscripten's view polling elsewhere: Node 24 and Firefox before 154 (growable shared buffers didn't survive `postMessage` until then) take the polling path, Chromium the growable one; where the browser supports it, also run `=2` for comparison and record each path's cost. Decision rule (user-approved): **if growth traps in any engine, the runtime uses fixed per-Worker memory, sized from the manifest (runtime + side module + data, with margin); otherwise growth with `GROWABLE_ARRAYBUFFERS=1`**, with `=2` recorded as a follow-up for when its minimums (Emscripten's table: Chrome 144, Firefox 154 with pthreads, Safari 26.2, Node 26) fall inside the project's baseline. Implement the chosen rule in the link (and, for fixed memory, how the size is chosen — a manifest field the host passes, or a per-engine link), record the evidence. If a GLib-free reproduction appears, add it to `docs/upstream/` as a draft (V8/SpiderMonkey/Node or Emscripten, per the evidence).
 
-- [ ] Steps: stress harness, runs, decision, link change, `nix flake check`, commit.
+- [x] Steps: stress harness, runs, decision, link change, `nix flake check`, commit.
 
 ### Task 7b: Emscripten's minimum versions from the project baseline
 
@@ -219,7 +219,7 @@ Emscripten chooses Wasm and JS features from its `MIN_{CHROME,FIREFOX,SAFARI,NOD
 - Record which features the new minimums turn on or keep off (e.g. extended-const on; `GROWABLE_ARRAYBUFFERS=2` and non-legacy Wasm exceptions off) and the size/load-time effect on `ibus-runtime` and a side module.
 - `checks.glib-tests` must_pass 277 / failing 0 unchanged; every other check passes; `nix flake check`.
 
-- [ ] Steps: derive the minimums, wire them through, rebuild, measure, `nix flake check`, commit.
+- [x] Steps: derive the minimums, wire them through, rebuild, measure, `nix flake check`, commit.
 
 ### Task 8: Settle R2 and R3; spec and plan
 
@@ -231,8 +231,43 @@ Emscripten chooses Wasm and JS features from its `MIN_{CHROME,FIREFOX,SAFARI,NOD
 - §10/§11: the pnpm workspace, the Playwright harness, the new checks.
 - §12: `↳ M0.4` row; M0 row marked done if everything in it is answered.
 - Plan follow-ups: what M1 inherits (Effect host replacing the spike host, ring and protocol, real `libibus-web` types).
-- [ ] Steps: edit, `nix flake check`, commit.
+- [x] Steps: edit, `nix flake check`, commit.
 
 ## Known gaps and follow-ups
 
-(Filled in as tasks finish.)
+What M1 inherits:
+
+- **The Worker host.** The spike host (`tests/spikes/runtime/src/worker/host.ts`) and its relay are evidence, not the product: `@ibus-web/worker-host` replaces them in Effect 4 (spec §5.5), keeping what the spike settled: the sleep in `ibusweb_wait`, the relay that forwards against the value it last forwarded, the pool top-up from the event loop only while no request is pending, a Worker kept out of `PThread.unusedWorkers` until it has loaded, `CRASHED` written at once on a thread's crash, the relay's own failure reported through the control buffer, and the startup refusal without `HEAPU8` and `PThread`. The page's reply timeout is the only backstop for a relay killed outright.
+- **Ring and protocol.** The spike's control buffer has `state`, `reqSeq`, `reqLen`, `replyRet` and `wake` and one slot; the output ring, `replyOutSeq`, the doorbell and the GVariant protocol (spec §6) are M1's. The ring's full-ring wait (§6.2.2) has the host waiting on `ringRead`; that wait must not stop calls proxied to the host's thread (R2), so it belongs inside the runtime, like `ibusweb_wait`, or must otherwise run the proxy queue.
+- **`libibus-web`'s IBus types.** The skeleton has the pump, `ibusweb_wait`, the loader and a spike dispatcher of opcodes; `IBusEngine`, `IBusFactory`, the emitters and the real dispatcher (spec §5.2) replace the spike dispatcher. `IBUSWEB_RUNTIME_ABI` moves with them.
+- **The manifest's `memory` and `threads`.** The rule for both is in the spec (§5.3); computing them from build data (the side module's `dylink.0` size, files in the memory backend, the checks' measured peak heap, the engine's thread burst) is M1's, as is the host adding an engine's share to the pool at startup.
+- **Dev tooling.** Bun (bundler and HMR server) instead of Vite is an idea for M1's page-side work; the harnesses stay on Node.
+- **First threads in Chromium.** A pool Worker's first thread costs about 12 ms in Chromium, so a pump that starts four threads on fresh Workers takes 50 ms, past D6's budget. Running a thread on each pool Worker at startup would move that out of keystrokes; not tried.
+
+What M0.5 inherits:
+
+- **The WasmFS IndexedDB backend, full lazy** (spec §5.6, roadmap `↳ M0.5`): files as chunks whose values are `ArrayBuffer`s, read and written lazily on the backend's own thread, written in C++ after Emscripten's OPFS backend, as an upstream candidate (`wasmfs_create_idb_backend`). It takes the pool's storage share, today still named `opfs` in `ibusWeb.runtime.threadPool`. To measure: a lazy read through the proxying round trip under the page's spin in both browsers, chunk size, and `fsync()` from a pthread while the host sleeps.
+
+Open, for later milestones:
+
+- **GLib's pool share under concurrent `GTask`s.** The share of 3 covers one `GTask` in flight; each concurrent one can take another worker, up to `G_TASK_POOL_SIZE` (10) and beyond while all stay busy. Engines that run `GTask`s concurrently need a rule.
+- **A public Emscripten API to grow the pthread pool** and settle once its Workers can run threads, to replace the host's use of `PThread` (upstream-trackable; no draft yet).
+- **The exnref switch** (spec R18): `-sWASM_LEGACY_EXCEPTIONS=0` once the minimum versions include it.
+- **The V8 growth fix needs no Node backport for us.** The runtime's memory is fixed, so Node lines without V8 15.7 don't matter, and there is no trigger to revisit growth.
+- **WebKit** wasn't run (spec R13).
+
+Upstream drafts from this milestone, awaiting the user (none filed):
+
+- `docs/upstream/emscripten-pthread-cleanup-blocked-main.md`, with `emscripten-pthread-cleanup-blocked-main.tests.patch` (patch 0014; #16763 was closed without a fix)
+- `docs/upstream/emscripten-pthread-finished-mark-reused.md`, with `emscripten-pthread-finished-mark-reused.tests.patch` (patch 0015)
+- `docs/upstream/emscripten-imported-memory-maximum.md`, with `emscripten-imported-memory-maximum.tests.patch` (patch 0016)
+- `docs/upstream/v8-liftoff-atomics-grown-shared-memory.md` (a note: V8 fixed it in CLs 8466625 and 8480479)
+
+Minor items left from the reviews:
+
+- GLib's wake hook (0017): a `NULL` hook under `G_DISABLE_CHECKS` installs a record whose signal calls `NULL` (guard it); document that a context must outlive concurrent wakeups, since the hook call widens the existing free-against-signal window; the smoke test's log handler uses a plain `int` counter and leaves parameters unused.
+- `libibus-web`: `-Wno-experimental` silences a whole warning category, not only the dynamic-linking one; expected stderr noise in the checks (`dlopen` errors, "received 7 command from terminated worker") is unmarked; the pump's tuning constants (10 ms cap with fd sources, 64 rounds) are unmeasured.
+- Export manifest: Emscripten functions that are hostile to a Worker host but not Asyncify-only (the main loop, canvas, `emscripten_create_worker`) are still listed.
+- Spike harness: `cross-thread-wake` failed once each under a fully parallel load before its gate became p50 ≤ 20 ms and max ≤ 200 ms.
+- TypeScript module: the workspace's `fileFilter` matches by extension anywhere in a package.
+- Emscripten patches: the upstream tests' exit path for 0014 is reasoned, not run; `other.test_pthread_print_override_modularize` is flaky under load in Emscripten's own suite.
