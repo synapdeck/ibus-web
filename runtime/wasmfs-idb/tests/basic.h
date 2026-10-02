@@ -45,7 +45,7 @@ static void basic_expected(uint8_t *buf, unsigned chunk_size) {
 /* A file written over several chunks, shrunk into the middle of one, then
  * grown past its first size: what it kept holds the pattern, and the rest
  * reads as zeros rather than the bytes the shrink dropped. */
-static size_t basic_sized_written(unsigned chunk_size) {
+static inline size_t basic_sized_written(unsigned chunk_size) {
   return 3 * (size_t)chunk_size + chunk_size / 2;
 }
 

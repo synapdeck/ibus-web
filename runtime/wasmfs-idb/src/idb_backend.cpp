@@ -118,6 +118,9 @@ private:
   }
 
   ssize_t read(uint8_t *buf, size_t len, off_t offset) override {
+    if (offset < 0) {
+      return -EINVAL;
+    }
     int32_t nread = 0;
     backend.proxy([&](auto ctx) {
       _wasmfs_idb_read(ctx.ctx, backend.id, ino, buf, len, offset, &nread);
@@ -128,6 +131,9 @@ private:
   ssize_t write(const uint8_t *buf, size_t len, off_t offset) override {
     if (backend.readOnly) {
       return -EROFS;
+    }
+    if (offset < 0) {
+      return -EINVAL;
     }
     if (offset > maxFileSize || off_t(len) > maxFileSize - offset) {
       return -EFBIG;
