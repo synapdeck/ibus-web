@@ -399,7 +399,7 @@ Instead:
 | GLib | 3 | the first two for good, the third 15.5 s after its last task | `sync-proxied`, which now asserts it: after its GTask, 3 more Workers are busy than before, in Node and both browsers. This is the footprint of one GTask in flight, not GLib's maximum. GTask's first use starts GLib's worker-context thread (`g_task_thread_pool_init` attaches its pool manager to `g_get_worker_context()`, which starts `gmain`), the thread-pool spawner, and a worker the spawner starts, which waits 0.5 s in the GTask pool, then 15 s among unused threads. GTasks in flight at once start more workers: GTask's pool allows `G_TASK_POOL_SIZE` (10), and its pool manager raises that while every worker stays busy |
 | OPFS backend | 1 | from mount, for good | 7 of 8 Workers idle with OPFS mounted, 8 of 8 without |
 | Engine (the spike's side modules) | 4 | while they run | the largest burst a scenario starts, `spawn(4)`; an engine's share would come from its manifest |
-| Planned | 8 | | glib 3 + opfs 1 + engine 4 |
+| Planned | 8 | | glib 3 + storage 1 (measured with OPFS) + engine 4 |
 | Spare (`lowWater`) | 3 | | GLib's share, below |
 | Pool | **11** | | planned 8 + spare 3 |
 

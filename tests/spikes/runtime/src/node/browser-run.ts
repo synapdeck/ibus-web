@@ -14,15 +14,15 @@
 // host by URL and plays the page's part over the control buffer. Each host
 // runs in a browser context of its own, so the origin's private file system
 // starts empty every time. Each host makes the runtime's memory, of BYTES
-// that never grow. In each browser the host sleeps in the runtime
-// and runs every scenario, a host of its own with OPFS mounted runs the
-// storage scenarios on it, and another the crash scenario. With --compare,
-// for the record, the same with the page waiting asynchronously, the idle
-// host that waits asynchronously and the relay-less one follow, and every
-// cross-thread wake must take at most 20 ms.
+// that never grow. In each browser the host sleeps in the runtime and runs
+// every scenario, and a host of its own the crash scenario. With --compare,
+// for the record, a host of its own with OPFS mounted runs the storage
+// scenarios on it, then the same with the page waiting asynchronously, the
+// idle host that waits asynchronously and the relay-less one follow, and
+// every cross-thread wake must take at most 20 ms.
 //
 // Prints each host's results, then a table per host with a column per
-// browser. Exits 1 if a scenario of the first three hosts fails in any
+// browser. Exits 1 if a scenario of the first two hosts fails in any
 // browser other than as a known failure below describes, if a known failure
 // passes, or, run without --browser and --scenario, if one isn't run.
 
@@ -40,7 +40,6 @@ import {
 import {
   opfs,
   opfsReadOnly,
-  opsFrom,
   poolExhausted,
   promiseProxiedFsync,
   scenarios,
@@ -109,8 +108,6 @@ const server = await servePage({
   "/sides/": args.sides,
 });
 
-const ops = opsFrom(constants);
-
 interface Run {
   // Short, for the known failures below.
   id: string;
@@ -148,16 +145,6 @@ const runs: Run[] = [
     opfs: false,
   },
   {
-    id: "runtime-opfs",
-    label: `runtime, on a host of its own with OPFS mounted at ${OPFS_MOUNT}`,
-    counts: true,
-    wait: "runtime",
-    pageWait: "spin",
-    scenarios: opfsScenarios,
-    pendingLimitMs: 10_000,
-    opfs: true,
-  },
-  {
     id: "crash",
     label: "runtime, on a host of its own",
     counts: true,
@@ -180,6 +167,16 @@ if (args.compare)
       scenarios: allScenarios,
       pendingLimitMs: 10_000,
       opfs: false,
+    },
+    {
+      id: "runtime-opfs",
+      label: `for comparison: runtime, on a host of its own with OPFS mounted at ${OPFS_MOUNT}`,
+      counts: false,
+      wait: "runtime",
+      pageWait: "spin",
+      scenarios: opfsScenarios,
+      pendingLimitMs: 10_000,
+      opfs: true,
     },
     {
       id: "page-async-opfs",
@@ -347,26 +344,16 @@ const runOne = async (
 };
 
 // The ways the browsers are known to fail scenarios in runs whose failures
-// fail the harness, by "browser run scenario". Each fails a criterion that holds under Node,
-// so it is reported as it is instead of loosening the criterion. A failure
-// counts as known only if `matches` recognises its cause; a known failure
+// fail the harness, by "browser run scenario". Each fails a criterion that
+// holds under Node, so it is reported as it is instead of loosening the
+// criterion. A failure counts as known only if `matches` recognises its cause; a known failure
 // that passes, or fails some other way, fails the harness.
 interface KnownFailure {
   why: string;
   matches(result: Result): boolean;
 }
 
-const knownFailures: Readonly<Record<string, KnownFailure>> = {
-  "firefox runtime-opfs opfs-read-only": {
-    why:
-      "WasmFS reads a file opened read-only on OPFS through its Blob, and Firefox reads a Blob only " +
-      "while the page's main thread is free, which it isn't while the page spins: the scenario " +
-      "would pass but for late replies to read-file",
-    matches: (result) =>
-      result.passWithoutLateReplies === true &&
-      (result.lateReplies ?? []).every(({ opcode }) => opcode === ops.readFile),
-  },
-};
+const knownFailures: Readonly<Record<string, KnownFailure>> = {};
 
 const failureKey = (browser: string, run: Run, scenario: string): string =>
   `${browser} ${run.id} ${scenario}`;

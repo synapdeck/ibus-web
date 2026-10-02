@@ -12,7 +12,7 @@
     let
       inherit (config.ibusWeb) runtime toolchain typescript;
       inherit (config.ibusWeb.testing) playwright;
-      inherit (config.checks.runtime-spike-node.passthru) constants sidesDir;
+      inherit (config.checks.runtime-spike-node.passthru) constants sidesDir browserTimeout;
       dist = "${typescript.workspace}/tests/spikes/runtime/dist";
 
       # GLib's 1bit-emufutex test, the one whose pthreads faulted out of
@@ -209,7 +209,7 @@
       # grows, under both workloads with the threads its pool plans for: a
       # few runs of each under Node and in each browser, which must all
       # pass, with the costs and what a pool Worker costs. A run's pool of
-      # Workers each hold an instance of the runtime, some 40 MiB under
+      # Workers each hold an instance of the runtime, some 41–42 MiB under
       # Node, so runs go one at a time.
       checks.runtime-spike-memory =
         pkgs.runCommand "ibus-web-runtime-spike-memory"
@@ -225,7 +225,7 @@
             ${runtime.nodeTimeout} node ${dist}/node/memory.js ${checkArgs} ${checkVariant} \
               --runs 3 --parallel 1 --costs --worker-memory >> $out || { cat $out; exit 1; }
             echo "# browsers" >> $out
-            timeout --kill-after=10 900 node ${dist}/node/browser-memory.js ${checkArgs} \
+            ${browserTimeout} node ${dist}/node/browser-memory.js ${checkArgs} \
               ${checkVariant} --runs 2 --parallel 1 >> $out || { cat $out; exit 1; }
             cat $out
           '';

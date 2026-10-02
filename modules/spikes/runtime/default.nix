@@ -62,7 +62,7 @@
         src = ../../../tests/spikes/runtime/sides;
         nativeBuildInputs = [
           pkgsWasm.pkg-config
-          pkgs.nodejs
+          typescript.nodejs
           pkgs.jq
         ];
         buildInputs = [ runtime.libibusWeb ];
@@ -119,7 +119,7 @@
       checks.runtime-spike-smoke =
         pkgs.runCommand "ibus-web-runtime-spike-smoke"
           {
-            nativeBuildInputs = [ pkgs.nodejs ];
+            nativeBuildInputs = [ typescript.nodejs ];
           }
           ''
             cp ${runtime.nodeHarness}/* .
@@ -139,7 +139,7 @@
             nativeBuildInputs = [ typescript.nodejs ];
             # For running the harness by hand from a checkout.
             passthru = {
-              inherit constants sidesDir;
+              inherit constants sidesDir browserTimeout;
               inherit (runtime) ibusRuntime ibusRuntimeAsserting nodeHarness;
             };
           }
@@ -161,9 +161,7 @@
 
       # The Worker host in headless Chromium and Firefox, through Playwright:
       # a page served with cross-origin isolation starts it by URL and drives
-      # it over the control buffer, spinning for each reply. A host with
-      # WasmFS's OPFS backend mounted also runs the storage scenarios on it.
-      # The asserting runtime runs for correctness, then the released one
+      # it over the control buffer, spinning for each reply. The asserting runtime runs for correctness, then the released one
       # for the timings.
       checks.runtime-spike-browser =
         pkgs.runCommand "ibus-web-runtime-spike-browser"
@@ -199,7 +197,9 @@
       # The released runtime's scenarios with the comparisons, under Node and
       # then in the browsers, run from a checkout: an idle host that waits
       # asynchronously, a relay-less one that sleeps in Atomics.wait() on the
-      # control buffer, and in the browsers a page that waits asynchronously.
+      # control buffer, and in the browsers a page that waits asynchronously
+      # and a host with WasmFS's OPFS backend mounted, which runs the storage
+      # scenarios.
       # Arguments go to the browser harness, such as --browser firefox.
       apps.runtime-spike-compare = {
         type = "app";
