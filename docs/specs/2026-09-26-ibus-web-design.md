@@ -1775,8 +1775,8 @@ artifacts; WASM builds of nixpkgs packages are reached through
   `tsconfig.json` per environment directory: `shared/` sees no environment's globals,
   `worker/` the WebWorker library, `page/` the DOM and `node/` Node's types.
   Versions pnpm can't know are asserted against what it resolved: the
-  `playwright` package equals nixpkgs' `playwright-driver` (1.61.1 at
-  `8ce4ef6`), and `packageManager` names nixpkgs' pnpm 12. The tests use
+  `playwright` package equals nixpkgs' `playwright-driver` (1.63.0 at
+  `c59305b`), and `packageManager` names nixpkgs' pnpm 12. The tests use
   `playwright-driver.browsers`, never downloaded, through
   `ibusWeb.testing.playwright` (§11).
 
