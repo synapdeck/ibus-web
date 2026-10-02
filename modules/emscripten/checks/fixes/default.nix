@@ -6,13 +6,18 @@
     let
       inherit (config.ibusWeb) toolchain typescript;
       minimumFlags = toolchain.minimumVersionFlags;
+      # WasmFS's internal headers, for a test of its backend threads.
+      wasmfsInclude = "-I${toolchain.emscripten}/share/emscripten/system/lib/wasmfs";
     in
     {
+      ibusWeb.toolchain.clangdPathFlags."modules/emscripten/checks/fixes/.*\\.cpp" = [ wasmfsInclude ];
+
       # The behaviour each of the toolchain's Emscripten fixes restores, on
       # the file system test programs run on (WasmFS under Node), for the
       # standard streams on the one GLib's tools run on (Node's own), and for
       # threads under a main thread that never returns to its event loop or
-      # that loads a module while they run, and for a memory imported, without
+      # that loads a module while they run, for the Worker a destroyed WasmFS
+      # backend thread leaves in the pool, and for a memory imported, without
       # growth, at a size between its initial size and its maximum.
       checks.emscripten-fixes =
         pkgs.runCommand "ibus-web-emscripten-fixes"
@@ -61,6 +66,11 @@
               echo "dlsync-exit: exit status $status, not the 42 it exit()ed with"
               exit 1
             fi
+
+            em++ ${toolchain.commonFlags} -O2 ${wasmfsInclude} \
+              -c ${./proxy-worker-exit.cpp} -o proxy-worker-exit.o
+            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} proxy-worker-exit.o -o proxy-worker-exit.js
+            timeout 120 node proxy-worker-exit.js
 
             # The memory's size comes from the command line, as its first
             # argument in MiB.

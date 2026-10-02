@@ -37,6 +37,7 @@ there, so changing a patch rebuilds the cache and everything in `pkgsWasm`.
 | 0015 `pthread-finished-mark-reused`  | pthreads with dynamic linking: a joined thread's late "finished" message marks a new, running thread that reuses its `pthread_t`, so `dlopen()`'s sync skips that thread for good and its calls into modules loaded later trap                                                                                                                                                                                                             | not filed; draft `emscripten-pthread-finished-mark-reused.md`                                                                                                                                                                | a release contains the fix                          |
 | 0016 `imported-memory-maximum`       | without memory growth, a `MAXIMUM_MEMORY` set for an imported memory is dropped with a warning and the import's maximum tied to `INITIAL_MEMORY`, so the module takes a memory of exactly that size; it now takes any size up to `MAXIMUM_MEMORY`, still without growing it | not filed; draft `emscripten-imported-memory-maximum.md` | a release contains the fix |
 | 0017 `wasmfs-symlink-errors`        | any backend failure to make a symlink is reported as `EPERM`; the Node backend now reports the host's error | not filed; draft `emscripten-wasmfs-symlink-errors.md` | a release contains the fix |
+| 0018 `wasmfs-proxy-worker-heartbeat` | WasmFS backends on a thread of their own (OPFS, fetch, or any built on `ProxyWorker`): the thread's 50 ms heartbeat timer outlives it, so once the backend is destroyed, at exit or before, the Worker its thread ran on runs the freed queue from the pool, failing an assertion when idle and touching freed memory otherwise | not filed; draft `emscripten-wasmfs-proxy-worker-heartbeat.md` | a release contains the fix |
 
 As of 6.0.10 (2026-09-18) only #27632 is in a release; the drafts record
 that the code the others change is unchanged there and on `main`.
@@ -115,6 +116,18 @@ inserts, so it sits on 0012. A backend that returns plain null still gets
 and the OPFS backend, which has none, now says so itself.
 `checks.emscripten-fixes` makes a symlink in a directory the host won't
 let it write and expects `EACCES`.
+
+0018 changes `system/lib/wasmfs/thread_utils.h`, which backends include,
+and `src/lib/libwasmfs.js` (with the new import's signature in
+`libsigs.js`). A Worker hosts one thread at a time, so the heartbeat's
+timer is kept in one variable per Worker; a `thread_local` whose destructor
+clears it is made on the backend's thread right after the timer starts,
+and runs as the thread exits, which a cancellation does too. The queue is
+freed only after the join, so no tick can reach it.
+`checks.emscripten-fixes` destroys a `ProxyWorker` and leaves its Worker
+idle, then busy with other threads, for several heartbeats each; unpatched,
+the first tick on the idle Worker fails `emscripten_proxy_execute_queue()`'s
+`pthread_self()` assertion, every time.
 
 Not carried, by decision: pipe capacity, and end of file on a
 JavaScript-file-system pipe whose writers have closed. Their drafts stay in

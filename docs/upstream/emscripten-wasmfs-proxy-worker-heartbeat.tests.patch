@@ -1,0 +1,68 @@
+diff --git a/test/test_other.py b/test/test_other.py
+index 2fea77b..ff90a64 100644
+--- a/test/test_other.py
++++ b/test/test_other.py
+@@ -13867,6 +13867,16 @@ Module.postRun = () => {{
+     create_file('js_backend_files/file.dat', 'data')
+     self.do_runf_out_file('wasmfs/wasmfs_before_preload.c', cflags=['--preload-file', 'js_backend_files/file.dat'])
+ 
++  @requires_pthreads
++  def test_wasmfs_proxy_worker_exit(self):
++    # The heartbeat a ProxyWorker's thread runs must end with the thread, not
++    # keep running the freed queue on the Worker it leaves in the pool.
++    self.set_setting('WASMFS')
++    self.set_setting('PTHREAD_POOL_SIZE', 2)
++    self.set_setting('EXIT_RUNTIME')
++    self.cflags += ['-pthread', '-I' + path_from_root('system/lib/wasmfs')]
++    self.do_runf('wasmfs/wasmfs_proxy_worker_exit.cpp', 'done\n')
++
+   def test_hello_world_above_2gb(self):
+     self.do_runf_out_file('hello_world.c', cflags=['-sGLOBAL_BASE=2GB', '-sINITIAL_MEMORY=3GB'])
+ 
+diff --git a/test/wasmfs/wasmfs_proxy_worker_exit.cpp b/test/wasmfs/wasmfs_proxy_worker_exit.cpp
+new file mode 100644
+index 0000000..2f157cc
+--- /dev/null
++++ b/test/wasmfs/wasmfs_proxy_worker_exit.cpp
+@@ -0,0 +1,41 @@
++// A ProxyWorker that is destroyed leaves nothing running against its queue,
++// while the Worker its thread ran on sits idle in the pool and then hosts
++// another thread. Each wait is long enough for the 50 ms heartbeat to fire
++// several times.
++
++#include <assert.h>
++#include <condition_variable>
++#include <emscripten/eventloop.h>
++#include <mutex>
++#include <stdio.h>
++#include <stdlib.h>
++#include <thread>
++
++#include "thread_utils.h"
++
++#define IDLE_MS 500
++
++// A ProxyWorker can't be created on the main browser thread.
++static void use_worker() {
++  std::thread([] {
++    emscripten::ProxyWorker worker;
++    bool ran = false;
++    worker([&] { ran = true; });
++    assert(ran);
++  }).join();
++}
++
++static void second_idle(void*) {
++  printf("done\n");
++  exit(0);
++}
++
++static void first_idle(void*) {
++  use_worker();
++  emscripten_set_timeout(second_idle, IDLE_MS, nullptr);
++}
++
++int main() {
++  use_worker();
++  emscripten_set_timeout(first_idle, IDLE_MS, nullptr);
++}
