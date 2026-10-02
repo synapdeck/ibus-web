@@ -885,11 +885,12 @@ const _wasmfs_idb_write = (ctx, id, ino, bufPtr, len, offset, nwrittenPtr) => {
           const old = new Map(
             await Promise.all(
               edges.map(
-                async (index) =>
-                  /** @type {[number, ArrayBuffer | undefined]} */ ([
-                    index,
-                    await wasmfsIdbRequest(chunks.get([ino, index])),
-                  ]),
+                async (
+                  index,
+                ) => /** @type {[number, ArrayBuffer | undefined]} */ ([
+                  index,
+                  await wasmfsIdbRequest(chunks.get([ino, index])),
+                ]),
               ),
             ),
           );

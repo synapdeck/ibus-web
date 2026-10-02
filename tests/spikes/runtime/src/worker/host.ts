@@ -124,7 +124,8 @@ const waitAsync = (
       value: number,
       timeout: number,
     ):
-      { async: false; value: string } | { async: true; value: Promise<string> };
+      | { async: false; value: string }
+      | { async: true; value: Promise<string> };
   }
 ).waitAsync;
 
@@ -1325,7 +1326,8 @@ const topUp = (
 // drop; better to refuse to start than to fail at the first top-up.
 const requireRuntime = (rt: Runtime): void => {
   const pool = (rt as Partial<Runtime>).PThread as
-    Partial<EmscriptenPool> | undefined;
+    | Partial<EmscriptenPool>
+    | undefined;
   const missing = [
     ...(rt.HEAPU8 instanceof Uint8Array ? [] : ["HEAPU8"]),
     ...(Array.isArray(pool?.unusedWorkers) ? [] : ["PThread.unusedWorkers"]),

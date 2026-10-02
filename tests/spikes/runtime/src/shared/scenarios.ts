@@ -150,7 +150,10 @@ export interface Env {
 }
 
 export type Measurement =
-  number | string | boolean | readonly (number | string)[];
+  | number
+  | string
+  | boolean
+  | readonly (number | string)[];
 
 export interface Outcome {
   pass: boolean;

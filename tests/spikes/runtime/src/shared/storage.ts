@@ -48,7 +48,10 @@ export type TimedCommand =
     };
 
 export type LatencySource =
-  "idb-tx-per-read" | "idb-one-tx" | "opfs-sync" | "opfs-blob";
+  | "idb-tx-per-read"
+  | "idb-one-tx"
+  | "opfs-sync"
+  | "opfs-blob";
 
 export type StorageCommand =
   | TimedCommand
