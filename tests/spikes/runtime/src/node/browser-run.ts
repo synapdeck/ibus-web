@@ -330,6 +330,12 @@ const log = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
+// Firefox warns that the runtime's exception-handling instructions are
+// deprecated once for every Worker that instantiates it, hundreds of times
+// a run, so the warnings are counted instead of printed.
+const DEPRECATED_TRY =
+  "WebAssembly exception handling 'try' instruction is deprecated";
+
 // The bytes of the files in which the browser keeps IndexedDB under the
 // profile: Chromium's IndexedDB directory, Firefox's idb directories.
 const indexedDBBytes = async (profile: string): Promise<number> => {
@@ -357,15 +363,17 @@ const runOne = async (
     profile === undefined
       ? await browser.newContext()
       : await launchPersistent(browserName, profile);
+  let deprecatedTry = 0;
   try {
     if (profile !== undefined)
       await context.exposeFunction("ibusWebIndexedDBBytes", () =>
         indexedDBBytes(profile),
       );
     const page = await context.newPage();
-    page.on("console", (message) =>
-      log(`[${browserName} console.${message.type()}] ${message.text()}`),
-    );
+    page.on("console", (message) => {
+      if (message.text().includes(DEPRECATED_TRY)) deprecatedTry++;
+      else log(`[${browserName} console.${message.type()}] ${message.text()}`);
+    });
     page.on("pageerror", (error) =>
       log(`[${browserName} pageerror] ${error.message}`),
     );
@@ -438,6 +446,10 @@ const runOne = async (
     return { browser: browserName, run, results: [], error: message };
   } finally {
     await context.close();
+    if (deprecatedTry > 0)
+      log(
+        `[${browserName}] ${deprecatedTry} warnings that the 'try' instruction is deprecated`,
+      );
     if (profile !== undefined) {
       console.log(
         `    IndexedDB on disk once ${browserName} closed: ${((await indexedDBBytes(profile)) / 1024).toFixed(1)} KiB`,

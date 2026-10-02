@@ -177,12 +177,14 @@
           }
           ''
             # The exceptions scenario's operation throws on purpose, and the
-            # runtime warns about it on stderr. The filter is a pipe, so it
-            # has finished by the time run returns.
+            # runtime warns about it on stderr, as it reports the traps of
+            # thread-crash and heap-full. The filter is a pipe, so it has
+            # finished by the time run returns.
             run() (
               set -o pipefail
               ${runtime.nodeTimeout} node ${dist}/node/run.js ${harnessArgs} ${memoryArg} ${installArg} "$@" 2>&1 1>&3 3>&- |
-                sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
+                sed -e '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' \
+                  -e '/RuntimeError: unreachable/s/$/ [expected: the thread-crash and heap-full scenarios]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }
@@ -193,8 +195,8 @@
 
       # The Worker host in headless Chromium and Firefox, through Playwright:
       # a page served with cross-origin isolation starts it by URL and drives
-      # it over the control buffer, spinning for each reply. The asserting runtime runs for correctness, then the released one
-      # for the timings.
+      # it over the control buffer, spinning for each reply. The asserting
+      # runtime runs for correctness, then the released one for the timings.
       checks.runtime-spike-browser =
         pkgs.runCommand "ibus-web-runtime-spike-browser"
           (
@@ -211,16 +213,19 @@
             ${playwright.setup}
             # Browser console output goes to stderr, where the warnings the
             # exceptions scenario's throw, pool-exhausted's failed thread
-            # creations and storage-closed's closed connection cause are
-            # marked expected.
+            # creations, the traps of thread-crash and heap-full, and the
+            # connections storage-closed and failed-start-releases-locks
+            # close cause are marked expected.
             run() (
               set -o pipefail
               ${browserTimeout} node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} ${installArg} "$@" 2>&1 1>&3 3>&- |
                 sed -e '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' \
                   -e '/WARNING.*spawn: thread [0-9]* of [0-9]*: Error creating thread: Resource temporarily unavailable/s/$/ [expected: the pool-exhausted scenario]/' \
                   -e '/Tried to spawn a new thread, but the thread pool is exhausted/s/$/ [expected: the pool-exhausted scenario]/' \
-                  -e '/wasmfs-idb: .* closed for a version change/s/$/ [expected: the storage-closed scenario]/' \
-                  -e '/wasmfs-idb: looking up after-close.txt failed: I\/O error/s/$/ [expected: the storage-closed scenario]/' >&2
+                  -e '/RuntimeError: unreachable/s/$/ [expected: the thread-crash and heap-full scenarios]/' \
+                  -e '/wasmfs-idb: ibus-web\/spike closed for a version change/s/$/ [expected: the storage-closed scenario]/' \
+                  -e '/wasmfs-idb: looking up after-close.txt failed: I\/O error/s/$/ [expected: the storage-closed scenario]/' \
+                  -e '/wasmfs-idb: ibus-web\/failed-start-releases-locks\/data\/[^ ]* closed for a version change/s/$/ [expected: the failed-start-releases-locks scenario, whose next host deletes the data the failed one opened]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
             run --runtime ${runtime.ibusRuntimeAsserting}/ibus-runtime.js >> $out || { cat $out; exit 1; }

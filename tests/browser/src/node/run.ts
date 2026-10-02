@@ -144,6 +144,12 @@ const log = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
+// Firefox warns that a module's exception-handling instructions are
+// deprecated once for every Worker that instantiates it, so the warnings
+// are counted instead of printed.
+const DEPRECATED_TRY =
+  "WebAssembly exception handling 'try' instruction is deprecated";
+
 // "exit 0" for a pass; anything else is a failure.
 type Status = string;
 const results = new Map<string, Map<string, Status>>();
@@ -162,11 +168,14 @@ const runGroup = async (
   try {
     for (const [index, program] of group.entries()) {
       const page = await context.newPage();
-      page.on("console", (message) =>
-        log(
-          `[${browserName} ${program.name} console.${message.type()}] ${message.text()}`,
-        ),
-      );
+      let deprecatedTry = 0;
+      page.on("console", (message) => {
+        if (message.text().includes(DEPRECATED_TRY)) deprecatedTry++;
+        else
+          log(
+            `[${browserName} ${program.name} console.${message.type()}] ${message.text()}`,
+          );
+      });
       page.on("pageerror", (error) =>
         log(`[${browserName} ${program.name} pageerror] ${error.message}`),
       );
@@ -202,6 +211,10 @@ const runGroup = async (
         report = { output: [], exitCode: null, error: describe(error) };
       } finally {
         await page.close();
+        if (deprecatedTry > 0)
+          log(
+            `[${browserName} ${program.name}] ${deprecatedTry} warnings that the 'try' instruction is deprecated`,
+          );
       }
       for (const { stream, text } of report.output)
         console.log(`${stream === "stdout" ? "out" : "err"}| ${text}`);
