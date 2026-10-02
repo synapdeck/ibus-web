@@ -21,10 +21,12 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
 #define WASMFS_IDB_READ_ONLY 0x1u
 
 /* Makes `backend`, one that wasmfs_create_idb_backend returned, read-only
- * for good: every later change through it fails with EROFS, as through a
+ * for good: every change started after it fails with EROFS, as through a
  * backend created with WASMFS_IDB_READ_ONLY, descriptors already open for
- * writing included, while reads, closes and fsync() still work. Sealing
- * doesn't make earlier writes durable; fsync() first. */
+ * writing included, while reads, closes and fsync() still work. A change
+ * another thread has already started may still complete, so seal once no
+ * other thread is writing. Sealing doesn't make earlier writes durable;
+ * fsync() first. */
 void wasmfs_idb_backend_seal(backend_t backend);
 
 /* Whether the database's connection has closed under `backend`, one that

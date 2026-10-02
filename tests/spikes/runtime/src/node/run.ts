@@ -23,13 +23,14 @@
 // first hosts fails.
 
 import { mkdirSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { serve } from "@ibus-web/test-browser/server";
 import {
+  encodeComponent,
   engineDataBytes,
   engineDir,
   SPIKE_ENGINE,
@@ -243,9 +244,19 @@ try {
           await readdir(join(installsDir, installed.name, "data")).catch(
             () => [] as string[],
           )
-        ).map((name) => name.replace(/\.installed$/, "")),
+        ).map((name) => name.replace(/\.(installed|marking)$/, "")),
       ),
     ],
+    tearMarker: (installed) =>
+      writeFile(
+        join(
+          installsDir,
+          installed.name,
+          "data",
+          `${encodeComponent(installed.version)}.installed`,
+        ),
+        '{"vers',
+      ),
     start: (installed: EngineManifest, options = {}) => {
       const hostPath = join(installsDir, installed.name);
       mkdirSync(hostPath, { recursive: true });

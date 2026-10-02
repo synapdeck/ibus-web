@@ -487,7 +487,7 @@ interface Mounted {
 interface NodeFs {
   open(
     path: string,
-    flags: "w",
+    flags: "w" | "r",
   ): Promise<{
     writeFile(text: string): Promise<void>;
     sync(): Promise<void>;
@@ -495,6 +495,7 @@ interface NodeFs {
   }>;
   readFile(path: string, encoding: "utf8"): Promise<string>;
   readdir(path: string): Promise<string[]>;
+  rename(from: string, to: string): Promise<void>;
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;
   rm(path: string, options: { recursive: true; force: true }): Promise<void>;
 }
@@ -889,20 +890,30 @@ const nodeStore = async (
   const root = `${hostPath}/data`;
   const own = encodeComponent(engine.version);
   const dirOf = (version: string): string => `${root}/${version}`;
-  // Beside the version's directory, outside the tree the engine sees.
+  // Beside the version's directory, outside the tree the engine sees; the
+  // marker is written whole as the second file, then renamed over the first.
   const MARKER = ".installed";
+  const PENDING = ".marking";
   const markerOf = (version: string): string => `${dirOf(version)}${MARKER}`;
+  const pendingOf = (version: string): string => `${dirOf(version)}${PENDING}`;
   // The marker goes first, so that a removal cut short leaves no marker.
   const remove = async (version: string): Promise<void> => {
-    await fs.rm(markerOf(version), { recursive: true, force: true });
-    await fs.rm(dirOf(version), { recursive: true, force: true });
+    for (const path of [markerOf(version), pendingOf(version), dirOf(version)])
+      await fs.rm(path, { recursive: true, force: true });
   };
   return {
-    installed: () =>
-      fs.readFile(markerOf(own), "utf8").then(
-        (text) => markerFor(JSON.parse(text), engine.version),
-        () => false,
-      ),
+    // A marker that doesn't parse is none, so the version is installed
+    // again rather than every start failing.
+    async installed() {
+      try {
+        return markerFor(
+          JSON.parse(await fs.readFile(markerOf(own), "utf8")),
+          engine.version,
+        );
+      } catch {
+        return false;
+      }
+    },
     async clear() {
       await remove(own);
       await fs.mkdir(dirOf(own), { recursive: true });
@@ -911,24 +922,36 @@ const nodeStore = async (
       heap.withString(dirOf(own), (ptr) =>
         heap.rt._wasmfs_create_node_backend(ptr),
       ),
-    // Every file of the data was fsync()ed before this is written.
+    // Every file of the data was fsync()ed before this is written. The
+    // rename makes the marker whole or absent, and syncing the directory,
+    // where the platform allows it, makes the rename durable.
     async mark(marker) {
-      const file = await fs.open(markerOf(own), "w");
+      const file = await fs.open(pendingOf(own), "w");
       try {
         await file.writeFile(JSON.stringify(marker));
         await file.sync();
       } finally {
         await file.close();
       }
+      await fs.rename(pendingOf(own), markerOf(own));
+      try {
+        const dir = await fs.open(root, "r");
+        try {
+          await dir.sync();
+        } finally {
+          await dir.close();
+        }
+      } catch {
+        // Some platforms can't open a directory to sync it.
+      }
     },
     seal: () => {},
-    // A version's directory, its marker, or both.
+    // A version's directory, its marker, its marker being written, or any
+    // of them together.
     others: async () => [
       ...new Set(
         (await fs.readdir(root).catch(() => [] as string[]))
-          .map((name) =>
-            name.endsWith(MARKER) ? name.slice(0, -MARKER.length) : name,
-          )
+          .map((name) => name.replace(/\.(installed|marking)$/, ""))
           .filter((version) => version !== own),
       ),
     ],

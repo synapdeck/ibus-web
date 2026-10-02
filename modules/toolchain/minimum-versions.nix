@@ -26,7 +26,9 @@
       # Baseline covers. A floor only ever raises the minimum; once Baseline
       # reaches it, it has no effect. Firefox: indexedDB.databases(), which
       # the host lists other versions' engine data with, is in Firefox 126
-      # and later; 124 and 125 together are some 0.02% of users.
+      # and later; 124 and 125 together are some 0.02% of users. A floor is
+      # written as its browser's minimum is: Safari's as major * 10000 +
+      # minor * 100 + patch, the others as a major version.
       floors = {
         firefox = 126;
       };

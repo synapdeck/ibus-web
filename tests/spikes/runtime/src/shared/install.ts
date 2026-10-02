@@ -56,6 +56,10 @@ export interface InstallHarness {
   lockFree(name: string): Promise<boolean>;
   // The versions, encoded, whose data the engine's storage keeps.
   versions(engine: EngineManifest): Promise<string[]>;
+  // Leaves the marker of the engine's version as a write cut short would:
+  // a file holding part of it under Node, a value that isn't one in
+  // IndexedDB.
+  tearMarker(engine: EngineManifest): Promise<void>;
 }
 
 export interface InstallScenario {
@@ -733,6 +737,36 @@ const storageNames: InstallScenario = {
   },
 };
 
+const installTornMarker: InstallScenario = {
+  name: "install-torn-marker",
+  criterion:
+    "a marker that doesn't parse, as a write cut short leaves it, counts as none: the next " +
+    "host installs again, and the tree is the archive's",
+  async run(harness, engine, started): Promise<Outcome> {
+    const first = harness.start(engine);
+    started.push(first);
+    await ready(harness, first);
+    await first.terminate();
+    await harness.tearMarker(engine);
+    const second = harness.start(engine);
+    started.push(second);
+    const client = await ready(harness, second);
+    const report = installOf(second);
+    const seen = await inspect(harness, engine, client);
+    return {
+      pass:
+        installOf(first)?.state === "installed" &&
+        report?.state === "installed" &&
+        seen.pass,
+      measurements: {
+        first: summary(installOf(first)),
+        afterTearing: summary(report),
+        tree: seen.tree,
+      },
+    };
+  },
+};
+
 export const installScenarios: readonly InstallScenario[] = [
   installFresh,
   installSkip,
@@ -740,6 +774,7 @@ export const installScenarios: readonly InstallScenario[] = [
   installInterrupted,
   installInterruptedQueued,
   installInterruptedStray,
+  installTornMarker,
   upgradeWhileRunning,
   interruptedUpgradeThenOld,
   staleFile,

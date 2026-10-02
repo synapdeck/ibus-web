@@ -12,6 +12,7 @@ import {
   createControl,
   engineDatabase,
   engineDataBytes,
+  engineDataDatabase,
   engineDataDatabasePrefix,
   engineDir,
   SPIKE_ENGINE,
@@ -325,6 +326,24 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
           { ifAvailable: true },
           (lock) => lock !== null,
         ),
+      tearMarker: (installed) =>
+        new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(engineDataDatabase(installed));
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction("meta", "readwrite");
+            tx.objectStore("meta").put('{"vers', "installed");
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onabort = () => {
+              db.close();
+              reject(tx.error);
+            };
+          };
+        }),
       versions: async (installed) => {
         const prefix = engineDataDatabasePrefix(installed);
         return (await indexedDB.databases())

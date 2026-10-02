@@ -185,7 +185,9 @@ IBUSWEB_API int ibusweb_install_feed(IBusWebInstall *install,
                                      const uint8_t *data, uint32_t len);
 
 /* What the install has written so far: the regular files written whole,
- * and the bytes of file data written. Either pointer may be NULL. */
+ * and the bytes of file data written. Call it before ibusweb_install_end(),
+ * which frees `install`; a NULL install gives 0 and 0. Either pointer may
+ * be NULL. */
 IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
                                        uint32_t *files, uint64_t *bytes);
 
