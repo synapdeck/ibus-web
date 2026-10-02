@@ -44,6 +44,14 @@
             test ! -s flags.log
             $CXX ${toolchain.testMainFlags} -Wl,--undefined-version probe-flags.o -o probe-flags.js
             test "$(node probe-flags.js)" = "probe 7"
+            # Links, and only links, target the project's minimum versions.
+            $CC -O2 -Werror=unused-command-line-argument -c probe.c -o probe-compiled.o
+            EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CXX ${toolchain.testMainFlags} probe.o \
+              -o probe-minimums.js 2> minimums.log
+            # The wrapper hands emcc a response file, which emcc logs as a
+            # Python list.
+            minimums="'$(sed "s/ /', '/g" ${toolchain.minimumVersions}/link-flags)'"
+            grep -qF -- "$minimums" minimums.log
             # Every compile is optimized unless the package asks otherwise.
             echo | $CC -dM -E -x c - | grep -q "__OPTIMIZE__"
             echo | $CC -O0 -dM -E -x c - > O0.h

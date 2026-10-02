@@ -13,6 +13,20 @@
         type = lib.types.str;
         description = "Compiler flags every WASM object is built with.";
       };
+      minimumVersions = lib.mkOption {
+        type = lib.types.package;
+        description = ''
+          The oldest browsers and Node every link targets, as Emscripten's MIN_*_VERSION
+          settings: the browsers Baseline Widely available covered on the date of
+          baseline-browser-mapping's data, and the workspace's Node. It holds date, that
+          date; versions.json, the four versions; and link-flags, one line of the
+          -sMIN_*_VERSION flags. pkgsWasm's compilers add them to every link.
+        '';
+      };
+      minimumVersionFlags = lib.mkOption {
+        type = lib.types.str;
+        description = "Shell text that a build script expands to minimumVersions' link flags, for links that call emcc or em++ directly.";
+      };
       testMainFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags for Node-run test programs, on WasmFS; a combination the library cache covers.";

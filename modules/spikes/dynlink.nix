@@ -20,7 +20,7 @@
 
         buildPhase = ''
           runHook preBuild
-          flags="${toolchain.commonFlags} -O2"
+          flags="${toolchain.commonFlags} -O2 ${toolchain.minimumVersionFlags}"
           em++ $flags ${toolchain.testMainFlags} main.cpp -o main.js
           emcc $flags ${toolchain.sideModuleFlags} side_basic.c -o side_basic.wasm
           emcc $flags ${toolchain.sideModuleFlags} side_thread.c -o side_thread.wasm

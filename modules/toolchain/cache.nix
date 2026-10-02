@@ -3,14 +3,24 @@
 
 {
   perSystem =
-    { config, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) emscripten;
 
       # -O2 over -Os: engine data, not code, dominates download size, and
-      # keystrokes have a latency budget.
-      commonFlags = "-O2 -fPIC -pthread -fwasm-exceptions";
+      # keystrokes have a latency budget. When every target has
+      # extended-const, emcc tells wasm-ld and wasm-opt but not clang, so
+      # objects name it themselves, and every stage may use it.
+      commonFlags = "-O2 -fPIC -pthread -fwasm-exceptions -mextended-const";
+
+      # Every probe link targets the browsers and Node that builds do.
+      minimumFlags = toolchain.minimumVersionFlags;
 
       # Link settings the cache is prepared for. Emscripten picks library
       # variants from link settings, so tests must link with one of these.
@@ -64,25 +74,25 @@
             emcc ${commonFlags} $opt -c probe.c -o $TMPDIR/probe.o
             # Configure scripts link plain test executables with the
             # project's compile flags.
-            emcc ${commonFlags} $opt $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
-            em++ ${commonFlags} $opt probe.cpp -o $TMPDIR/probe-plain-cpp.js
+            emcc ${commonFlags} $opt ${minimumFlags} $TMPDIR/probe.o -o $TMPDIR/probe-plain-c.js
+            em++ ${commonFlags} $opt ${minimumFlags} probe.cpp -o $TMPDIR/probe-plain-cpp.js
             # GLib's tests are plain executables on WasmFS.
-            emcc ${commonFlags} $opt ${nodeHostFsFlags "$TMPDIR/node-host-fs.o"} ${testMemoryFlags} \
+            emcc ${commonFlags} $opt ${minimumFlags} ${nodeHostFsFlags "$TMPDIR/node-host-fs.o"} ${testMemoryFlags} \
               $TMPDIR/probe.o -o $TMPDIR/probe-plain-wasmfs.js
             for link in "${mainLinkNode}" "${mainLinkWasmfs}" \
               "${mainLinkNodeWasmfs "$TMPDIR/node-host-fs.o"} ${testMemoryFlags}"; do
-              em++ ${commonFlags} $opt $link ${dynamicLinkFlags} $TMPDIR/probe.o -o $TMPDIR/probe-c.js
-              em++ ${commonFlags} $opt $link ${dynamicLinkFlags} probe.cpp -o $TMPDIR/probe-cpp.js
+              em++ ${commonFlags} $opt ${minimumFlags} $link ${dynamicLinkFlags} $TMPDIR/probe.o -o $TMPDIR/probe-c.js
+              em++ ${commonFlags} $opt ${minimumFlags} $link ${dynamicLinkFlags} probe.cpp -o $TMPDIR/probe-cpp.js
             done
             # The runtime, released and asserting.
             for assertions in 0 1; do
-              em++ ${commonFlags} $opt ${runtimeMainFlags} -sASSERTIONS=$assertions \
+              em++ ${commonFlags} $opt ${minimumFlags} ${runtimeMainFlags} -sASSERTIONS=$assertions \
                 $TMPDIR/probe.o -o $TMPDIR/probe-runtime-c.js
-              em++ ${commonFlags} $opt ${runtimeMainFlags} -sASSERTIONS=$assertions \
+              em++ ${commonFlags} $opt ${minimumFlags} ${runtimeMainFlags} -sASSERTIONS=$assertions \
                 probe.cpp -o $TMPDIR/probe-runtime-cpp.js
             done
-            emcc ${commonFlags} $opt ${sideModuleFlags} probe_side.c -o $TMPDIR/probe-side.wasm
-            em++ ${commonFlags} $opt ${sideModuleFlags} probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
+            emcc ${commonFlags} $opt ${minimumFlags} ${sideModuleFlags} probe_side.c -o $TMPDIR/probe-side.wasm
+            em++ ${commonFlags} $opt ${minimumFlags} ${sideModuleFlags} probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
           done
 
           node $TMPDIR/probe-c.js
@@ -148,19 +158,19 @@
           ''
             cp ${./probes}/* .
             emcc ${toolchain.commonFlags} -O2 -c probe.c -o probe.o
-            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.o -o probe-c.js
-            em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
+            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} probe.o -o probe-c.js
+            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
-            em++ ${toolchain.commonFlags} -O2 ${mainLinkWasmfs} ${toolchain.dynamicLinkFlags} probe.o -o probe-wasmfs.js
+            em++ ${toolchain.commonFlags} -O2 ${minimumFlags} ${mainLinkWasmfs} ${toolchain.dynamicLinkFlags} probe.o -o probe-wasmfs.js
             test "$(node probe-wasmfs.js)" = "probe 7"
-            emcc ${toolchain.commonFlags} -O2 -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} \
+            emcc ${toolchain.commonFlags} -O2 ${minimumFlags} -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} \
               ${toolchain.testMemoryFlags} probe.o -o probe-plain-wasmfs.js
             test "$(node probe-plain-wasmfs.js)" = "probe 7"
 
-            emcc ${toolchain.commonFlags} probe.o -o probe-plain.js
+            emcc ${toolchain.commonFlags} ${minimumFlags} probe.o -o probe-plain.js
             test "$(node probe-plain.js)" = "probe 7"
-            em++ ${toolchain.commonFlags} probe.cpp -o probe-plain-cpp.js
+            em++ ${toolchain.commonFlags} ${minimumFlags} probe.cpp -o probe-plain-cpp.js
             test "$(node probe-plain-cpp.js)" = "probe 2"
 
             # The runtime's link settings, released and asserting, with the
@@ -172,15 +182,20 @@
                 wasmMemory: new WebAssembly.Memory({ initial: pages, maximum: pages, shared: true }),
               });" > instantiate.mjs
             for assertions in 0 1; do
-              em++ ${toolchain.commonFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
+              em++ ${toolchain.commonFlags} ${minimumFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 -sEXPORTED_FUNCTIONS=_main,_wasmfs_create_opfs_backend probe.o -o probe-runtime.js
               test "$(node instantiate.mjs ./probe-runtime.js)" = "probe 7"
-              em++ ${toolchain.commonFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
+              em++ ${toolchain.commonFlags} ${minimumFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 probe.cpp -o probe-runtime-cpp.js
               test "$(node instantiate.mjs ./probe-runtime-cpp.js)" = "probe 2"
             done
 
-            if em++ ${toolchain.commonFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
+            # Emscripten gives wasm-ld extended-const only when every minimum
+            # version has it, unless -mextended-const forces it on.
+            emcc ${lib.concatStringsSep " " (lib.remove "-mextended-const" (lib.splitString " " toolchain.commonFlags))} ${minimumFlags} ${toolchain.sideModuleFlags} probe_side.c -o features.wasm -v 2> features.log
+            grep -q -- --extra-features=extended-const features.log
+
+            if em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} -sMALLOC=mimalloc probe.o -o uncached.js 2> uncached.log; then
               echo "expected an uncached library variant to fail" >&2
               exit 1
             fi

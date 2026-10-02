@@ -19,3 +19,12 @@ emscriptenDropUnsupported() {
 emscriptenDropUnsupported params
 emscriptenDropUnsupported extraBefore
 emscriptenDropUnsupported extraAfter
+
+# Every link targets the project's oldest browsers and Node, which decide the
+# Wasm features and JavaScript Emscripten emits. Compiles are left alone:
+# emcc warns that a link setting is ignored there. Ahead of the command's own
+# arguments, a package's own minimum still wins.
+if [ "$dontLink" != 1 ]; then
+  read -ra emscriptenMinimumVersionFlags <@minimumVersionFlags@
+  extraBefore=("${emscriptenMinimumVersionFlags[@]}" "${extraBefore[@]}")
+fi

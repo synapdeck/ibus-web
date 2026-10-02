@@ -122,7 +122,8 @@ in
                   *) echo "$flag" >> $out/nix-support/cc-cflags ;;
                 esac
               done
-              cp ${./emscripten-cc-wrapper-hook.sh} $out/nix-support/cc-wrapper-hook
+              substitute ${./emscripten-cc-wrapper-hook.sh} $out/nix-support/cc-wrapper-hook \
+                --subst-var-by minimumVersionFlags ${toolchain.minimumVersions}/link-flags
             '';
           };
         in
