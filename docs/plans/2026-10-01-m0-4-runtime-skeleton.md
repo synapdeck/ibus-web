@@ -211,7 +211,7 @@ int32_t ibusweb_dispatch (const uint8_t *request, uint32_t request_len,
 
 Emscripten chooses Wasm and JS features from its `MIN_{CHROME,FIREFOX,SAFARI,NODE}_VERSION` settings (`tools/feature_matrix.py`). Left at its defaults (Firefox 79, Chrome 85, Safari 15, Node 18.3), it avoids features the project's target already has, such as extended-const (Chrome 114, Firefox 112, Safari 17.4), which removes runtime data relocations from position-independent code.
 
-**Files:** `modules/baseline-browser-mapping/` (the package as a `_`-prefixed callPackage file, a module exposing it, and a check), `modules/toolchain/` (the minimums and `commonFlags`), `modules/toolchain/cache.nix` (probe variants), checks as needed.
+**Files:** `modules/baseline-browser-mapping/` (a module that builds the package inline and exposes it, and a check), `modules/toolchain/` (the minimums and `commonFlags`), `modules/toolchain/cache.nix` (probe variants), checks as needed.
 
 **Requirements:**
 - Package `baseline-browser-mapping` (github.com/web-platform-dx/baseline-browser-mapping, not in nixpkgs) from source with `buildNpmPackage`, pinned by tag and hash and updated with `nix-update-script`, as the user's nixpkgs-style package does. Derive the browser minimums for "Baseline Widely available" with its CLI in a derivation (no import-from-derivation; consumers read the derivation's output at build time), never hand-written. Pin the evaluation date to one derived from the pinned data (e.g. its release date), not the build machine's clock, so builds are reproducible. The Node minimum comes from `ibusWeb.typescript.nodejs`. Pass them as `-sMIN_*_VERSION` to every link (the cross stdenv, the runtime, side modules, tests, the cache's probes).
