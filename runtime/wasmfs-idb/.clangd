@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# The library's sources and tests see its in-tree headers, not an installed
+# copy. Fallback compile commands run in the source file's directory.
+If:
+  PathMatch: (src|tests)/.*
+CompileFlags:
+  Add:
+    - -I../include

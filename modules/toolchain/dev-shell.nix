@@ -87,6 +87,18 @@
               echo "    - \"''${flag/#-I/-isystem}\""
             done
           fi
+          ${lib.concatStrings (
+            lib.mapAttrsToList (path: flags: ''
+              echo "---"
+              echo "If:"
+              echo ${lib.escapeShellArg "  PathMatch: ${builtins.toJSON path}"}
+              echo "CompileFlags:"
+              echo "  Add:"
+              ${lib.concatMapStrings (flag: ''
+                echo ${lib.escapeShellArg "    - ${builtins.toJSON flag}"}
+              '') flags}
+            '') toolchain.clangdPathFlags
+          )}
         } > $out
       '';
     in

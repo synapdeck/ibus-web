@@ -9,6 +9,10 @@
         type = lib.types.package;
         description = "libibus-web for pkgsWasm: the static library the Worker host drives, its header and its pkg-config file.";
       };
+      wasmfsIdb = lib.mkOption {
+        type = lib.types.package;
+        description = "The WasmFS IndexedDB backend: libwasmfs-idb.a and its header, with passthru.jsLibrary, the JavaScript library its links pass with --js-library, and passthru.cflags, the -I flag for the WasmFS internal headers it was compiled against.";
+      };
       ibusRuntime = lib.mkOption {
         type = lib.types.package;
         description = "ibus-runtime: the main module engines' side modules load into, as ibus-runtime.js and ibus-runtime.wasm, with its export list.";

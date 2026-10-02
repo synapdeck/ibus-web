@@ -68,6 +68,11 @@
         default = [ ];
         description = "pkgsWasm libraries whose headers and pkg-config files the dev shell and editor see.";
       };
+      clangdPathFlags = lib.mkOption {
+        type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+        default = { };
+        description = "Compiler flags the editor adds for sources whose repository-relative paths match each key, a regular expression, beyond the flags every loose source gets: for sources built with flags of their own, such as include paths into the toolchain.";
+      };
       pkgsWasm = lib.mkOption {
         type = lib.types.raw;
         description = "nixpkgs for wasm32-unknown-none, compiled with Emscripten.";
