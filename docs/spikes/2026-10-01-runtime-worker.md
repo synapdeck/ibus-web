@@ -674,6 +674,125 @@ keystrokes. If it may, Firefox forces a choice between a replay on every
 such read and exclusive locks that keep a second tab or engine instance from
 opening the same data; either constrains the spec's engine-data loading.
 
+### IndexedDB and Cache Storage under the spin
+
+Does any store let a Worker read engine data during a keystroke in Firefox
+without a lock? `nix run .#runtime-spike-storage` (`src/node/storage.ts`,
+`src/worker/storage.ts`, the page's `timed`) measures it without the runtime,
+in the browsers above. Each run gets a fresh browser context; Worker X fills
+the store with 4 MiB of random bytes with the page free, then the page sends
+one command and either stays free or spins for 200 ms (five times D6's
+40 ms) while X runs it. X marks each step in ms after the command was sent;
+reads are awaited one at a time, as a backend serving lazy reads would.
+The tables give the last step, min–max over three runs, and whether it
+ended before the spin did.
+
+Chromium 149:
+
+| Operation | Page free | Page spins | Ends during the spin |
+| --- | --- | --- | --- |
+| IndexedDB, ArrayBuffer values: open, read 64 × 64 KiB in one readonly transaction | 12.8–13.8 | 12.0–15.4 | yes, 3/3 |
+| The same, the connection already open | 11.5–12.6 | 11.8–16.8 | yes, 3/3 |
+| IndexedDB, already open: one 4 MiB ArrayBuffer value | 3.2–3.9 | 2.6–3.3 | yes, 3/3 |
+| IndexedDB, already open: write 64 × 64 KiB in one readwrite transaction, to commit | 12.7–15.8 | 14.8–15.8 | yes, 3/3 |
+| IndexedDB, Blob values: 64 gets in one transaction, then each Blob's `arrayBuffer()` | 9.8–11.0 | 9.2–12.6 | yes, 3/3 |
+| Cache Storage: `caches.open()`, then 64 × `match()` and `Response.arrayBuffer()` | 11.4–14.9 | 14.1–15.5 | yes, 3/3 |
+| OPFS, Blob: `getFile()`, then 64 slices' `arrayBuffer()` | 12.9–15.1 | 13.7–14.4 | yes, 3/3 |
+| OPFS, sync access handle: open, 64 reads, close | 5.0–6.7 | 4.8–5.7 | yes, 3/3 |
+
+Firefox 151:
+
+| Operation | Page free | Page spins | Ends during the spin |
+| --- | --- | --- | --- |
+| IndexedDB, ArrayBuffer values: open, read 64 × 64 KiB in one readonly transaction | 12.4–14.1 | 12.5–25.4 | yes, 3/3 |
+| The same, the connection already open | 12.2–13.3 | 12.8–14.2 | yes, 3/3 |
+| IndexedDB, already open: one 4 MiB ArrayBuffer value | 10.3–12.2 | 10.2–10.9 | yes, 3/3 |
+| IndexedDB, already open: write 64 × 64 KiB in one readwrite transaction, to commit | 23.0–24.7 | 23.4–24.6 | yes, 3/3 |
+| IndexedDB, Blob values: 64 gets in one transaction, then each Blob's `arrayBuffer()` | 9.1–12.8 | **206.5–207.9** | **no, 0/3**: the gets and the commit end at 4.2–5.0 ms, the first `arrayBuffer()` at 200.7–200.8 |
+| Cache Storage: `caches.open()`, then 64 × `match()` and `Response.arrayBuffer()` | 19.3–24.3 | **220.9–226.9** | **no, 0/3**: `open()` and the first `match()` by 1.4 ms, the first `arrayBuffer()` at 200.9–201.1 |
+| OPFS, Blob: `getFile()`, then 64 slices' `arrayBuffer()` | 7.1–8.5 | **207.3–209.2** | **no, 0/3**: `getFile()` at 0.7–0.8 ms, the first slice at 200.6–200.8 |
+| OPFS, sync access handle: open, 64 reads, close | 4.2–22.1 | 3.6–3.8 | yes, 3/3 |
+
+In Firefox the wait follows the Blob, not the store: whatever hands the
+Worker a Blob or a response body to read (an OPFS `File`, a Blob-valued
+IndexedDB record, a cached `Response`) reads its bytes only once the page's
+main thread is free; the run's later reads then take their usual time. IndexedDB values that are ArrayBuffers come back with the `get()`
+itself and never wait, nor does a 4 MiB value, `indexedDB.open()`, or a
+write and its commit. (Why Firefox routes Blob reads through the page's
+thread wasn't investigated.) In Firefox one cold run's `indexedDB.open()`
+took 11.4 ms with the page spinning, against 1.2–1.7 ms otherwise; still
+well inside the spin. Chromium never waits for the page.
+
+**Concurrency** (one run per browser; X and Y are Workers of one page, Z a
+Worker of a second page of the same origin; ms are each read's last step):
+
+| Case | Chromium 149 | Firefox 151 |
+| --- | --- | --- |
+| X and Y each read the 64 chunks at once | ok, 19.5 ms; ok, 16.4 ms | ok, 14.3 ms; ok, 14.3 ms |
+| The same, the page spinning 200 ms | ok, 14.8; ok, 19.0 | ok, 14.5; ok, 14.4 |
+| X (page 1) and Z (page 2), each with a connection held open since before, read at once | ok, 16.1; ok, 16.6 | ok, 14.3; ok, 14.0 |
+| Y reads the 64 chunks while X rewrites them in one readwrite transaction (X; Y) | ok, 15.2; ok, 28.3 | ok, 21.6; ok, 28.5 |
+| Z opens the database at version 2 while X holds a connection, which X closes 300 ms later | X gets `versionchange`; Z `blocked`, then opens at 299 ms | X gets `versionchange`; Z `blocked`, then opens at 305 ms |
+| Cache Storage: X and Y read the 64 responses at once | ok, 18.6; ok, 19.0 | ok, 20.3; ok, 20.0 |
+| OPFS: Y opens a sync access handle while X holds one | `NoModificationAllowedError` | `NoModificationAllowedError` |
+
+IndexedDB never refuses a reader: readonly transactions run side by side
+across Workers and pages, and a readonly transaction over a store that a
+readwrite one holds waits for its commit rather than failing. The one
+exclusive operation is a version change (needed only to add or remove object
+stores): it stays `blocked` until every other connection closes, so a
+holder must close on `versionchange` or an upgrade in another tab waits for
+good. Replacing data inside a version needs no upgrade.
+
+**Random reads, page free** (µs per read, median / 95th percentile / mean of
+256, one run; reads at random among 1024 4 KiB values or 64 64 KiB values,
+or at size-aligned offsets into a 4 MiB OPFS file; Firefox's clock steps by
+20 µs, so its sub-20 µs medians are its resolution and the means are the
+figures to compare):
+
+| Read | Chromium 149 | Firefox 151 |
+| --- | --- | --- |
+| IndexedDB, 4 KiB, a readonly transaction per read | 40 / 65 / 42 | 60 / 100 / 58 |
+| IndexedDB, 4 KiB, all 256 in one readonly transaction | 20 / 45 / 27 | 40 / 60 / 44 |
+| OPFS, 4 KiB, sync access handle `read()` | 45 / 60 / 44 | 20 / 20 / 15 |
+| OPFS, 4 KiB, Blob slice `arrayBuffer()` | 125 / 150 / 126 | 60 / 80 / 58 |
+| IndexedDB, 64 KiB, a readonly transaction per read | 175 / 325 / 194 | 200 / 620 / 300 |
+| IndexedDB, 64 KiB, all 256 in one readonly transaction | 145 / 245 / 157 | 180 / 240 / 193 |
+| OPFS, 64 KiB, sync access handle `read()` | 50 / 85 / 56 | 0 / 20 / 8 |
+| OPFS, 64 KiB, Blob slice `arrayBuffer()` | 200 / 245 / 196 | 80 / 160 / 109 |
+
+A random 4 KiB read from IndexedDB costs 20–60 µs, about a sync access
+handle's in Chromium and three to four times its cost in Firefox; at 64 KiB
+IndexedDB costs 150–300 µs against a handle's 8–56 µs. These are reads in
+the Worker itself. IndexedDB is asynchronous, so a WasmFS backend on it would
+serve each read on a backend thread and block the caller until it is done,
+as the OPFS backend's Blob path does; that round trip isn't measured here.
+Emscripten 6.0.9's WasmFS has no IndexedDB backend (its backends are memory,
+Node, OPFS, fetch, JS file and ignore-case), so it would be ours to write and
+keep.
+
+**Evidence for the decision** (the user's to make):
+
+- *Load engine data into memory at engine start.* Works in both browsers from
+  any store, the Blob paths included, since engine start isn't under the
+  spin; no lock, so every tab and engine instance can load the same data.
+  4 MiB reads in 3–25 ms from IndexedDB or OPFS here. The cost is a copy in
+  every runtime instance's memory (the fixed 32 MiB of the spike's build) and
+  in the engine's start-up time.
+- *An IndexedDB-backed WasmFS backend for lazy reads.* The evidence favours
+  it on both counts that rule out OPFS in Firefox: ArrayBuffer-valued reads
+  complete during the spin, and nothing takes an exclusive lock, so a second
+  tab or engine instance reads the same data. Conditions: values must stay
+  ArrayBuffers (a Blob value reintroduces the wait); the backend is new code
+  outside Emscripten; each read pays IndexedDB's 20–60 µs (4 KiB) plus the
+  proxying round trip; the data must be written into IndexedDB at install;
+  and schema upgrades need connections that close on `versionchange`.
+- *Accept D6 replays.* Keep OPFS's Blob path for lazy reads: no lock, and
+  Chromium never waits. In Firefox every keystroke whose read reaches a Blob
+  that the runtime hasn't read before would spin the full 40 ms and replay:
+  the read waits for the page, not for its bytes, so the cost is per
+  keystroke that reads, however little.
+
 ## Conclusions for the design
 
 - **R2's wake question is settled:** option 2, as decided above. Emscripten
