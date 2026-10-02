@@ -67,9 +67,11 @@ addEventListener(
           post({ kind: "output", line: { stream: "stdout", text } }),
         printErr: (text) =>
           post({ kind: "output", line: { stream: "stderr", text } }),
-        // A pthread's output reaches this Worker as a message that may still
-        // be queued when the program exits. The page ends the run on "exit",
-        // so it goes out only after those messages have printed.
+        // A pthread's output reaches this Worker as a message, and the page
+        // ends the run on "exit", so "exit" waits for the output messages
+        // already delivered. A line a pthread prints just before exit can
+        // still be in transit and be lost: tests report through their exit
+        // code and print what they assert on from the main thread.
         onExit: (code) =>
           void drainMessages().then(() => post({ kind: "exit", code })),
         onAbort: (what) =>
