@@ -26,7 +26,6 @@ struct IdbAttrs {
   uint32_t ino;
   int32_t kind;
   uint32_t mode;
-  double size;
   double atime;
   double mtime;
   double ctime;
@@ -37,10 +36,9 @@ static_assert(offsetof(IdbAttrs, err) == 0);
 static_assert(offsetof(IdbAttrs, ino) == 4);
 static_assert(offsetof(IdbAttrs, kind) == 8);
 static_assert(offsetof(IdbAttrs, mode) == 12);
-static_assert(offsetof(IdbAttrs, size) == 16);
-static_assert(offsetof(IdbAttrs, atime) == 24);
-static_assert(offsetof(IdbAttrs, mtime) == 32);
-static_assert(offsetof(IdbAttrs, ctime) == 40);
+static_assert(offsetof(IdbAttrs, atime) == 16);
+static_assert(offsetof(IdbAttrs, mtime) == 24);
+static_assert(offsetof(IdbAttrs, ctime) == 32);
 
 // The database stores a file's kind as WasmFS numbers it.
 static_assert(wasmfs::File::DataFileKind == 1);
@@ -88,8 +86,10 @@ void _wasmfs_idb_get_entries(em_proxying_ctx *ctx, int id, uint32_t dir,
                              std::vector<wasmfs::Directory::Entry> *entries,
                              int *err);
 
-// Counts a descriptor open on `ino`, so that unlinking it keeps its data.
-void _wasmfs_idb_open_file(int id, uint32_t ino);
+// Counts a descriptor open on `ino`, so that unlinking it keeps its data;
+// -ENOENT if an unlink deleted the inode first.
+void _wasmfs_idb_open_file(em_proxying_ctx *ctx, int id, uint32_t ino,
+                           int *err);
 
 // Uncounts one; the last close of an unlinked inode deletes it.
 void _wasmfs_idb_close_file(em_proxying_ctx *ctx, int id, uint32_t ino,
@@ -103,9 +103,8 @@ void _wasmfs_idb_write(em_proxying_ctx *ctx, int id, uint32_t ino,
                        const uint8_t *buf, uint32_t len, double offset,
                        int32_t *nwritten);
 
-// Writes the size, or an error, to `size`.
 void _wasmfs_idb_get_size(em_proxying_ctx *ctx, int id, uint32_t ino,
-                          double *size);
+                          double *size, int *err);
 
 void _wasmfs_idb_set_size(em_proxying_ctx *ctx, int id, uint32_t ino,
                           double size, int *err);

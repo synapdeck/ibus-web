@@ -8,11 +8,13 @@
 #include <ibus-web/wasmfs-idb.h>
 
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <emscripten/console.h>
 #include <emscripten/threading.h>
 
 #include "backend.h"
@@ -100,8 +102,11 @@ private:
     if (backend.readOnly && flags != O_RDONLY) {
       return -EROFS;
     }
-    backend.proxy([&]() { _wasmfs_idb_open_file(backend.id, ino); });
-    return 0;
+    int err = 0;
+    backend.proxy([&](auto ctx) {
+      _wasmfs_idb_open_file(ctx.ctx, backend.id, ino, &err);
+    });
+    return err;
   }
 
   int close() override {
@@ -134,12 +139,14 @@ private:
     return nwritten;
   }
 
+  // WasmFS takes a negative size as an errno and fails the call with it.
   off_t getSize() override {
     double size = 0;
+    int err = 0;
     backend.proxy([&](auto ctx) {
-      _wasmfs_idb_get_size(ctx.ctx, backend.id, ino, &size);
+      _wasmfs_idb_get_size(ctx.ctx, backend.id, ino, &size, &err);
     });
-    return off_t(size);
+    return err ? off_t(err) : off_t(size);
   }
 
   int setSize(off_t size) override {
@@ -238,6 +245,12 @@ private:
                             &target);
     });
     if (attrs.err) {
+      // WasmFS reads null as ENOENT, so any other failure, such as a closed
+      // database, would pass unseen.
+      if (attrs.err != -ENOENT) {
+        emscripten_errf("wasmfs-idb: looking up %s failed: %s", name.c_str(),
+                        strerror(-attrs.err));
+      }
       return nullptr;
     }
     return makeFile(attrs, std::move(target));

@@ -51,6 +51,14 @@ static void check_contents(const char *path, const char *expected) {
   CHECK(close(fd) == 0);
 }
 
+static void write_file(const char *path, mode_t mode, const char *contents) {
+  int fd = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
+  CHECK(fd >= 0);
+  size_t len = strlen(contents);
+  CHECK(write(fd, contents, len) == (ssize_t)len);
+  CHECK(close(fd) == 0);
+}
+
 /* What the database holds as the backend's own records show it. */
 struct idb_test_layout {
   unsigned chunk_size;
@@ -67,6 +75,10 @@ static void finish_test(const char *name) {
   exit(test_failures ? 1 : 0);
 }
 
+/* The layout's reader calls this by its C name. */
+#ifdef __cplusplus
+extern "C" {
+#endif
 EMSCRIPTEN_KEEPALIVE void idb_test_layout_read(int ok, unsigned chunk_size,
                                                unsigned inodes) {
   if (!ok) {
@@ -76,6 +88,9 @@ EMSCRIPTEN_KEEPALIVE void idb_test_layout_read(int ok, unsigned chunk_size,
   struct idb_test_layout layout = {chunk_size, inodes};
   run_test(&layout);
 }
+#ifdef __cplusplus
+}
+#endif
 
 EM_JS_DEPS(idb_test, "$callUserCallback,$UTF8ToString");
 

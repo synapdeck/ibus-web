@@ -42,10 +42,43 @@ static void basic_expected(uint8_t *buf, unsigned chunk_size) {
 #define BASIC_STAMPED_ATIME 1111111111
 #define BASIC_STAMPED_MTIME 1234567890
 
+/* A file written over several chunks, shrunk into the middle of one, then
+ * grown past its first size: what it kept holds the pattern, and the rest
+ * reads as zeros rather than the bytes the shrink dropped. */
+static size_t basic_sized_written(unsigned chunk_size) {
+  return 3 * (size_t)chunk_size + chunk_size / 2;
+}
+
+static size_t basic_sized_kept(unsigned chunk_size) {
+  return chunk_size + chunk_size / 3;
+}
+
+static size_t basic_sized_size(unsigned chunk_size) {
+  return 4 * (size_t)chunk_size + chunk_size / 4;
+}
+
+static void basic_sized_expected(uint8_t *buf, unsigned chunk_size) {
+  size_t kept = basic_sized_kept(chunk_size);
+  size_t size = basic_sized_size(chunk_size);
+  for (size_t i = 0; i < size; i++)
+    buf[i] = i < kept ? basic_pattern(i) : 0;
+}
+
+/* A file opened with O_TRUNC over more than a chunk, then written. */
+#define BASIC_TRUNCATED_CONTENTS "short"
+
+/* A file renamed over one a descriptor held open. */
+#define BASIC_HELD_CONTENTS "held by a descriptor"
+#define BASIC_USURPER_CONTENTS "usurper"
+
 #define BASIC_INNER_CONTENTS "inner"
 #define BASIC_REPLACED_CONTENTS "replacement"
 #define BASIC_LINK_TARGET "dir/renamed"
 
-/* The root, dir, dir/renamed, dir/sub, dir/sub/inner, replaced, stamped and
- * link: every unlinked inode is gone once its last descriptor closed. */
-#define BASIC_INODES 8
+/* The root, dir, dir/renamed, dir/sub, dir/sub/inner, replaced, stamped,
+ * link, sized, truncated and usurped: every unlinked or replaced inode is
+ * gone once its last descriptor closed. */
+#define BASIC_INODES 11
+
+/* The names basic.1 leaves in the mount. */
+#define BASIC_ROOT_ENTRIES 7

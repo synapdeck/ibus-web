@@ -12,14 +12,6 @@
 #include "basic.h"
 #include "idb-test.h"
 
-static void write_file(const char *path, mode_t mode, const char *contents) {
-  int fd = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
-  CHECK(fd >= 0);
-  size_t len = strlen(contents);
-  CHECK(write(fd, contents, len) == (ssize_t)len);
-  CHECK(close(fd) == 0);
-}
-
 /* Writes the file in pieces of a third of a chunk, so every chunk is built
  * from several writes, then overwrites a run across the chunk boundary. */
 static void make_spanning_file(const char *path, unsigned chunk_size) {
@@ -120,6 +112,87 @@ static void check_unlinked_open(unsigned chunk_size) {
   free(back);
 }
 
+/* Shrinking deletes the chunks past the new end and trims the one it ends
+ * in, so growing again reads zeros there. */
+static void check_set_size(unsigned chunk_size) {
+  size_t written = basic_sized_written(chunk_size);
+  size_t kept = basic_sized_kept(chunk_size);
+  size_t size = basic_sized_size(chunk_size);
+  uint8_t *data = malloc(written);
+  uint8_t *expected = malloc(size);
+  uint8_t *back = malloc(size + 1);
+  for (size_t i = 0; i < written; i++)
+    data[i] = basic_pattern(i);
+  basic_sized_expected(expected, chunk_size);
+
+  int fd = open(BASIC_MOUNT "/sized", O_CREAT | O_EXCL | O_RDWR, 0644);
+  CHECK(fd >= 0);
+  CHECK(write(fd, data, written) == (ssize_t)written);
+  CHECK(ftruncate(fd, kept) == 0);
+  struct stat st;
+  CHECK(fstat(fd, &st) == 0);
+  CHECK(st.st_size == (off_t)kept);
+  CHECK(pread(fd, back, size + 1, 0) == (ssize_t)kept);
+  CHECK(memcmp(back, data, kept) == 0);
+
+  CHECK(ftruncate(fd, size) == 0);
+  CHECK(fstat(fd, &st) == 0);
+  CHECK(st.st_size == (off_t)size);
+  CHECK(pread(fd, back, size + 1, 0) == (ssize_t)size);
+  CHECK(memcmp(back, expected, size) == 0);
+  CHECK(close(fd) == 0);
+  free(data);
+  free(expected);
+  free(back);
+}
+
+static void check_open_truncate(unsigned chunk_size) {
+  const char *path = BASIC_MOUNT "/truncated";
+  size_t len = chunk_size + 10;
+  uint8_t *data = malloc(len);
+  uint8_t *back = malloc(len);
+  memset(data, 'x', len);
+  int fd = open(path, O_CREAT | O_EXCL | O_WRONLY, 0644);
+  CHECK(fd >= 0);
+  CHECK(write(fd, data, len) == (ssize_t)len);
+  CHECK(close(fd) == 0);
+
+  fd = open(path, O_RDWR | O_TRUNC);
+  CHECK(fd >= 0);
+  struct stat st;
+  CHECK(fstat(fd, &st) == 0);
+  CHECK(st.st_size == 0);
+  size_t short_len = strlen(BASIC_TRUNCATED_CONTENTS);
+  CHECK(write(fd, BASIC_TRUNCATED_CONTENTS, short_len) == (ssize_t)short_len);
+  CHECK(pread(fd, back, len, 0) == (ssize_t)short_len);
+  CHECK(memcmp(back, BASIC_TRUNCATED_CONTENTS, short_len) == 0);
+  CHECK(close(fd) == 0);
+  free(data);
+  free(back);
+}
+
+/* A file renamed over one a descriptor holds: the descriptor keeps the
+ * replaced file's data until it closes, which deletes it. */
+static void check_rename_over_open(void) {
+  const char *held = BASIC_MOUNT "/usurped";
+  const char *usurper = BASIC_MOUNT "/usurper";
+  write_file(held, 0644, BASIC_HELD_CONTENTS);
+  int fd = open(held, O_RDONLY);
+  CHECK(fd >= 0);
+  write_file(usurper, 0644, BASIC_USURPER_CONTENTS);
+  CHECK(rename(usurper, held) == 0);
+  check_contents(held, BASIC_USURPER_CONTENTS);
+
+  char buf[64] = {0};
+  size_t len = strlen(BASIC_HELD_CONTENTS);
+  CHECK(pread(fd, buf, sizeof buf - 1, 0) == (ssize_t)len);
+  CHECK(strcmp(buf, BASIC_HELD_CONTENTS) == 0);
+  struct stat st;
+  CHECK(fstat(fd, &st) == 0);
+  CHECK(st.st_size == (off_t)len);
+  CHECK(close(fd) == 0);
+}
+
 static void run_test(const struct idb_test_layout *layout) {
   unsigned chunk_size = layout->chunk_size;
   printf("basic.1: chunk size %u, %u inode(s)\n", chunk_size, layout->inodes);
@@ -163,6 +236,9 @@ static void run_test(const struct idb_test_layout *layout) {
   CHECK_ERRNO(stat(BASIC_MOUNT "/empty", &st), ENOENT);
 
   check_unlinked_open(chunk_size);
+  check_rename_over_open();
+  check_set_size(chunk_size);
+  check_open_truncate(chunk_size);
 
   /* A symlink, followed. */
   CHECK(symlink(BASIC_LINK_TARGET, BASIC_MOUNT "/link") == 0);
@@ -179,10 +255,12 @@ static void run_test(const struct idb_test_layout *layout) {
   CHECK((st.st_mode & 07777) == BASIC_STAMPED_MODE);
   CHECK(st.st_mtim.tv_sec == BASIC_STAMPED_MTIME);
 
-  static const char *const root_names[] = {"dir", "replaced", "link",
-                                           "stamped"};
-  static const unsigned char root_types[] = {DT_DIR, DT_REG, DT_LNK, DT_REG};
-  CHECK(list_dir(BASIC_MOUNT, root_names, root_types, 4) == 0xf);
+  static const char *const root_names[BASIC_ROOT_ENTRIES] = {
+      "dir", "replaced", "link", "stamped", "sized", "truncated", "usurped"};
+  static const unsigned char root_types[BASIC_ROOT_ENTRIES] = {
+      DT_DIR, DT_REG, DT_LNK, DT_REG, DT_REG, DT_REG, DT_REG};
+  CHECK(list_dir(BASIC_MOUNT, root_names, root_types, BASIC_ROOT_ENTRIES) ==
+        (1u << BASIC_ROOT_ENTRIES) - 1);
   static const char *const dir_names[] = {"renamed", "sub"};
   static const unsigned char dir_types[] = {DT_REG, DT_DIR};
   CHECK(list_dir(BASIC_MOUNT "/dir", dir_names, dir_types, 2) == 0x3);

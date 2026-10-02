@@ -48,10 +48,18 @@
     {
       ibusWeb.runtime.wasmfsIdb = wasmfsIdb;
       ibusWeb.toolchain.devLibraries = [ wasmfsIdb ];
-      ibusWeb.toolchain.clangdPathFlags."runtime/wasmfs-idb/src/.*" = [
-        "-std=c++17"
-        cflags
-      ];
+      ibusWeb.toolchain.clangdPathFlags = {
+        "runtime/wasmfs-idb/src/.*" = [
+          "-std=c++17"
+          cflags
+        ];
+        # Tests in C++ reach into WasmFS's internals; those in C can't take
+        # a C++ standard.
+        "runtime/wasmfs-idb/tests/.*\\.cpp" = [
+          "-std=c++17"
+          cflags
+        ];
+      };
       packages.wasmfs-idb = wasmfsIdb;
     };
 }

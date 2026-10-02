@@ -56,6 +56,25 @@ static void run_test(const struct idb_test_layout *layout) {
   CHECK(st.st_atim.tv_sec == BASIC_STAMPED_ATIME);
   CHECK(st.st_mtim.tv_sec == BASIC_STAMPED_MTIME);
 
+  size_t sized = basic_sized_size(chunk_size);
+  CHECK(stat(BASIC_MOUNT "/sized", &st) == 0);
+  CHECK(st.st_size == (off_t)sized);
+  expected = malloc(sized);
+  back = malloc(sized + 1);
+  basic_sized_expected(expected, chunk_size);
+  fd = open(BASIC_MOUNT "/sized", O_RDONLY);
+  CHECK(fd >= 0);
+  CHECK(read(fd, back, sized + 1) == (ssize_t)sized);
+  CHECK(memcmp(back, expected, sized) == 0);
+  CHECK(close(fd) == 0);
+  free(expected);
+  free(back);
+
+  CHECK(stat(BASIC_MOUNT "/truncated", &st) == 0);
+  CHECK(st.st_size == (off_t)strlen(BASIC_TRUNCATED_CONTENTS));
+  check_contents(BASIC_MOUNT "/truncated", BASIC_TRUNCATED_CONTENTS);
+  check_contents(BASIC_MOUNT "/usurped", BASIC_USURPER_CONTENTS);
+
   char target[64] = {0};
   CHECK(readlink(BASIC_MOUNT "/link", target, sizeof target - 1) ==
         (ssize_t)strlen(BASIC_LINK_TARGET));
@@ -68,7 +87,8 @@ static void run_test(const struct idb_test_layout *layout) {
   static const char *const gone[] = {
       BASIC_MOUNT "/dir/file",    BASIC_MOUNT "/moving",
       BASIC_MOUNT "/replacement", BASIC_MOUNT "/temporary",
-      BASIC_MOUNT "/empty",       BASIC_MOUNT "/held"};
+      BASIC_MOUNT "/empty",       BASIC_MOUNT "/held",
+      BASIC_MOUNT "/usurper"};
   for (size_t i = 0; i < sizeof gone / sizeof *gone; i++)
     CHECK_ERRNO(lstat(gone[i], &st), ENOENT);
 
@@ -81,7 +101,7 @@ static void run_test(const struct idb_test_layout *layout) {
       entries++;
   if (dir)
     CHECK(closedir(dir) == 0);
-  CHECK(entries == 4);
+  CHECK(entries == BASIC_ROOT_ENTRIES);
 
   finish_test("basic.2");
 }

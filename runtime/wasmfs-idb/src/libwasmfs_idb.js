@@ -107,10 +107,9 @@ addToLibrary({
     HEAPU32[(ptr + 4) >> 2] = ino;
     HEAP32[(ptr + 8) >> 2] = inode.kind;
     HEAPU32[(ptr + 12) >> 2] = inode.mode;
-    HEAPF64[(ptr + 16) >> 3] = inode.size;
-    HEAPF64[(ptr + 24) >> 3] = inode.atime;
-    HEAPF64[(ptr + 32) >> 3] = inode.mtime;
-    HEAPF64[(ptr + 40) >> 3] = inode.ctime;
+    HEAPF64[(ptr + 16) >> 3] = inode.atime;
+    HEAPF64[(ptr + 24) >> 3] = inode.mtime;
+    HEAPF64[(ptr + 32) >> 3] = inode.ctime;
   },
 
   // Deletes an inode and its chunks within `tx`.
@@ -118,6 +117,22 @@ addToLibrary({
   $wasmfsIdbDeleteInode: (tx, ino) => {
     tx.objectStore("inodes").delete(ino);
     tx.objectStore("chunks").delete(wasmfsIdbChunkRange(ino, 0, Infinity));
+  },
+
+  // Uncounts one descriptor; the last one on an unlinked inode deletes it.
+  $wasmfsIdbRelease__deps: ["$wasmfsIdbTransact", "$wasmfsIdbDeleteInode"],
+  $wasmfsIdbRelease: async (state, ino) => {
+    const count = state.openCounts.get(ino) - 1;
+    if (count > 0) {
+      state.openCounts.set(ino, count);
+      return;
+    }
+    state.openCounts.delete(ino);
+    if (state.unlinked.delete(ino)) {
+      await wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", (tx) =>
+        wasmfsIdbDeleteInode(tx, ino),
+      );
+    }
   },
 
   // Unlinking an inode another descriptor still has open leaves it for that
@@ -192,27 +207,37 @@ addToLibrary({
         state.db = null;
         err(`wasmfs-idb: ${name} closed unexpectedly`);
       };
-      const [format, storedChunkSize, root] = await wasmfsIdbTransact(
-        state,
-        ["meta"],
-        "readonly",
-        (tx) => {
-          const meta = tx.objectStore("meta");
-          return Promise.all(
-            ["format", "chunkSize", "root"].map((key) =>
-              wasmfsIdbRequest(meta.get(key)),
-            ),
-          );
-        },
-      );
-      if (format !== 1) {
+      try {
+        const [format, storedChunkSize, root] = await wasmfsIdbTransact(
+          state,
+          ["meta"],
+          "readonly",
+          (tx) => {
+            const meta = tx.objectStore("meta");
+            return Promise.all(
+              ["format", "chunkSize", "root"].map((key) =>
+                wasmfsIdbRequest(meta.get(key)),
+              ),
+            );
+          },
+        );
+        // Every offset calculation divides by the chunk size.
+        if (
+          format !== 1 ||
+          !Number.isInteger(storedChunkSize) ||
+          storedChunkSize <= 0
+        ) {
+          err(`wasmfs-idb: ${name} is not in a format this backend reads`);
+          throw new WasmfsIdbError(-ERRNO_CODES.EIO);
+        }
+        state.chunkSize = storedChunkSize;
+        state.root = root;
+      } catch (e) {
         db.close();
-        throw new WasmfsIdbError(-ERRNO_CODES.EIO);
+        throw e;
       }
-      state.chunkSize = storedChunkSize;
-      state.root = root;
       HEAP32[idPtr >> 2] = wasmfsIdbBackends.allocate(state);
-      HEAPU32[rootPtr >> 2] = root;
+      HEAPU32[rootPtr >> 2] = state.root;
     } catch (e) {
       HEAP32[idPtr >> 2] = wasmfsIdbErrno(e);
     }
@@ -544,41 +569,59 @@ addToLibrary({
     );
   },
 
-  _wasmfs_idb_open_file__sig: "vii",
-  _wasmfs_idb_open_file__deps: ["$wasmfsIdbBackends"],
-  _wasmfs_idb_open_file: (id, ino) => {
-    ino >>>= 0;
-    const { openCounts } = wasmfsIdbBackends.get(id);
-    openCounts.set(ino, (openCounts.get(ino) ?? 0) + 1);
-  },
-
-  _wasmfs_idb_close_file__sig: "vpiip",
-  _wasmfs_idb_close_file__deps: [
+  // WasmFS looks a file up and opens it under different locks, so an unlink
+  // can come between the two. The count goes up in the same task that
+  // creates the transaction checking the inode still exists. An unlink whose
+  // transaction looked at the counts before then was created before the
+  // check, and IndexedDB runs the check after it: the check finds the inode
+  // gone and the open fails as if it came after the unlink. An unlink that
+  // looks later sees the count and leaves the inode to the last close.
+  _wasmfs_idb_open_file__sig: "vpiip",
+  _wasmfs_idb_open_file__deps: [
     "$wasmfsIdbRun",
     "$wasmfsIdbTransact",
-    "$wasmfsIdbDeleteInode",
+    "$wasmfsIdbRequest",
+    "$wasmfsIdbRelease",
+    "$ERRNO_CODES",
+    "$WasmfsIdbError",
   ],
-  _wasmfs_idb_close_file: (ctx, id, ino, errPtr) => {
+  _wasmfs_idb_open_file: (ctx, id, ino, errPtr) => {
     ino >>>= 0;
     wasmfsIdbRun(
       ctx,
       id,
       async (state) => {
-        const count = state.openCounts.get(ino) - 1;
-        if (count > 0) {
-          state.openCounts.set(ino, count);
-          return;
-        }
-        state.openCounts.delete(ino);
-        if (state.unlinked.delete(ino)) {
-          await wasmfsIdbTransact(
+        state.openCounts.set(ino, (state.openCounts.get(ino) ?? 0) + 1);
+        let failure;
+        try {
+          const count = await wasmfsIdbTransact(
             state,
-            ["inodes", "chunks"],
-            "readwrite",
-            (tx) => wasmfsIdbDeleteInode(tx, ino),
+            ["inodes"],
+            "readonly",
+            (tx) => wasmfsIdbRequest(tx.objectStore("inodes").count(ino)),
           );
+          if (count) return;
+          failure = new WasmfsIdbError(-ERRNO_CODES.ENOENT);
+        } catch (e) {
+          failure = e;
         }
+        // The open's own failure is the one to report.
+        await wasmfsIdbRelease(state, ino).catch(() => {});
+        throw failure;
       },
+      () => {},
+      (errno) => (HEAP32[errPtr >> 2] = errno),
+    );
+  },
+
+  _wasmfs_idb_close_file__sig: "vpiip",
+  _wasmfs_idb_close_file__deps: ["$wasmfsIdbRun", "$wasmfsIdbRelease"],
+  _wasmfs_idb_close_file: (ctx, id, ino, errPtr) => {
+    ino >>>= 0;
+    wasmfsIdbRun(
+      ctx,
+      id,
+      (state) => wasmfsIdbRelease(state, ino),
       () => {},
       (errno) => (HEAP32[errPtr >> 2] = errno),
     );
@@ -729,7 +772,7 @@ addToLibrary({
     );
   },
 
-  _wasmfs_idb_get_size__sig: "vpiip",
+  _wasmfs_idb_get_size__sig: "vpiipp",
   _wasmfs_idb_get_size__deps: [
     "$wasmfsIdbRun",
     "$wasmfsIdbTransact",
@@ -737,7 +780,7 @@ addToLibrary({
     "$ERRNO_CODES",
     "$WasmfsIdbError",
   ],
-  _wasmfs_idb_get_size: (ctx, id, ino, sizePtr) => {
+  _wasmfs_idb_get_size: (ctx, id, ino, sizePtr, errPtr) => {
     ino >>>= 0;
     wasmfsIdbRun(
       ctx,
@@ -751,7 +794,7 @@ addToLibrary({
           return inode.size;
         }),
       (size) => (HEAPF64[sizePtr >> 3] = size),
-      (errno) => (HEAPF64[sizePtr >> 3] = errno),
+      (errno) => (HEAP32[errPtr >> 2] = errno),
     );
   },
 
