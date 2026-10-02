@@ -46,19 +46,19 @@
 
       sources = lib.fileset.toSource {
         root = ./.;
-        fileset = lib.fileset.unions [
-          ./src/tsconfig.json
-          ./src/libwasmfs_idb.js
-          ./src/emscripten-library.d.ts
-          ./tests/tsconfig.json
-          ./tests/chunk-counts.js
-          ./tests/faults.js
-          ./tests/strict-commits.js
-          ./tests/stderr-post.js
-          ./tests/errors-post.js
-          ./tests/wasm-exports.d.ts
-          ./tests/post-js.d.ts
-        ];
+        fileset = lib.fileset.unions (
+          runtime.wasmfsIdbTestLibraries
+          ++ [
+            ./src/tsconfig.json
+            ./src/libwasmfs_idb.js
+            ./src/emscripten-library.d.ts
+            ./tests/tsconfig.json
+            ./tests/stderr-post.js
+            ./tests/errors-post.js
+            ./tests/wasm-exports.d.ts
+            ./tests/post-js.d.ts
+          ]
+        );
       };
     in
     {
@@ -72,8 +72,12 @@
           }
           ''
             node ${./library-deps.mjs} check ${sources}/src/libwasmfs_idb.js ${emscripten}/share/emscripten
-            for library in chunk-counts faults strict-commits; do
-              node ${./library-deps.mjs} check ${sources}/tests/$library.js ${emscripten}/share/emscripten
+            for library in ${
+              lib.concatMapStringsSep " " (
+                library: "${sources}/tests/${baseNameOf library}"
+              ) runtime.wasmfsIdbTestLibraries
+            }; do
+              node ${./library-deps.mjs} check "$library" ${emscripten}/share/emscripten
             done
             cp -r --no-preserve=mode ${sources}/src ${sources}/tests .
             ln -s ${types} src/${typesDir}

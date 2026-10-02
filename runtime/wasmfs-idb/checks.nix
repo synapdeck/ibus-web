@@ -54,13 +54,15 @@
           '';
         };
 
-      testLibraries = [
+      testLibraries = runtime.wasmfsIdbTestLibraries;
+    in
+    {
+      ibusWeb.runtime.wasmfsIdbTestLibraries = [
         ./tests/chunk-counts.js
         ./tests/faults.js
         ./tests/strict-commits.js
       ];
-    in
-    {
+
       checks.wasmfs-idb = testing.browserRun {
         name = "wasmfs-idb";
         programs = map program [

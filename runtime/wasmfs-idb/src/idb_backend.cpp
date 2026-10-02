@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <emscripten/console.h>
 #include <emscripten/threading.h>
 
 #include "backend.h"
@@ -407,6 +408,9 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags) {
   // The backend's thread starts synchronously, which would deadlock on the
   // browser's main thread.
   if (emscripten_is_main_browser_thread()) {
+    emscripten_errf("wasmfs-idb: %s can't be opened on the browser's main "
+                    "thread",
+                    database);
     return nullptr;
   }
   bool readOnly = (flags & WASMFS_IDB_READ_ONLY) != 0;

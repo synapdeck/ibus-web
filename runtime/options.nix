@@ -13,6 +13,10 @@
         type = lib.types.package;
         description = "The WasmFS IndexedDB backend: libwasmfs-idb.a and its header, with passthru.jsLibrary, the JavaScript library its links pass with --js-library, and passthru.cflags, the -I flag for the WasmFS internal headers it was compiled against.";
       };
+      wasmfsIdbTestLibraries = lib.mkOption {
+        type = lib.types.listOf lib.types.path;
+        description = "The JavaScript libraries wasmfs-idb's test programs link with --js-library besides the backend's own; each one's __deps are checked and it is type-checked.";
+      };
       ibusRuntime = lib.mkOption {
         type = lib.types.package;
         description = "ibus-runtime: the main module engines' side modules load into, as ibus-runtime.js and ibus-runtime.wasm, with its export list. It carries wasmfsIdb, whose header's API is on the list.";
