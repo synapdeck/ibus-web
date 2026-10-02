@@ -4,7 +4,10 @@
 // The browser experiments' commands to their Workers, and the steps the
 // nested-Worker experiment marks.
 
+import type { StorageCommand } from "./storage.ts";
+
 export type ExperimentCommand =
+  | StorageCommand
   // Creates file at the root of the origin's private file system, or
   // overwrites it, through a sync access handle it then closes.
   | { op: "create"; file: string }

@@ -11,6 +11,7 @@
 // while B, a child of A, runs OPFS calls and creates D.
 
 import { NestedMark, type ExperimentCommand } from "../shared/experiments.ts";
+import { runStorage } from "./storage.ts";
 
 // Before any message: when this Worker's script ran.
 const loadedAt = performance.timeOrigin + performance.now();
@@ -175,6 +176,8 @@ const run = async (command: ExperimentCommand): Promise<unknown> => {
       epoch = command.epoch;
       mark(command.mark, loadedAt);
       return null;
+    default:
+      return runStorage(command);
   }
 };
 

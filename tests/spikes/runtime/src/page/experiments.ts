@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // The page side of the browser experiments: Workers that experiment
-// commands drive, by name, and the nested-Worker experiment, with the page's
-// thread free or spinning.
+// commands drive, by name, the nested-Worker experiment, and timed commands,
+// with the page's thread free or spinning.
 
 import {
   NestedMark,
   UNMARKED,
   type ExperimentCommand,
 } from "../shared/experiments.ts";
+import type { TimedCommand } from "../shared/storage.ts";
 
 const workerUrl = new URL("../worker/experiment.js", import.meta.url);
 const workers = new Map<string, Worker>();
@@ -75,6 +76,29 @@ const nested = async (
   );
 };
 
+// Sends each named Worker its command at once, under one epoch, then spins
+// for spinMs as the keystroke path would; spinEnd is when the spin ended, in
+// ms after the epoch, or null with spinMs 0.
+const timed = async (
+  sends: [string, TimedCommand][],
+  spinMs: number,
+): Promise<{
+  spinEnd: number | null;
+  replies: { result?: unknown; error?: string }[];
+}> => {
+  const epoch = performance.timeOrigin + performance.now();
+  const replies = sends.map(([name, command]) =>
+    send(workers.get(name)!, { ...command, epoch }),
+  );
+  let spinEnd = null;
+  if (spinMs > 0) {
+    const until = performance.now() + spinMs;
+    while (performance.now() < until);
+    spinEnd = performance.timeOrigin + performance.now() - epoch;
+  }
+  return { spinEnd, replies: await Promise.all(replies) };
+};
+
 const experiments = {
   start: (name: string): void => {
     start(name);
@@ -82,6 +106,7 @@ const experiments = {
   send: (name: string, command: ExperimentCommand) =>
     send(workers.get(name)!, command),
   nested,
+  timed,
   terminate: (): void => {
     for (const worker of workers.values()) worker.terminate();
     workers.clear();

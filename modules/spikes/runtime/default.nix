@@ -223,6 +223,26 @@
         );
       };
 
+      # Where engine data could live, measured without the runtime: whether
+      # IndexedDB, Cache Storage and OPFS reads in a Worker wait for the
+      # page's main thread while it spins, what two Workers or pages can do
+      # to the same data at once, and random-read latency.
+      apps.runtime-spike-storage = {
+        type = "app";
+        meta.description = "Storage experiments behind the runtime spike: IndexedDB, Cache Storage and OPFS reads under the page's spin";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "runtime-spike-storage";
+            runtimeInputs = [ typescript.nodejs ];
+            text = ''
+              ${lib.toShellVars playwright.env}
+              export ${lib.concatStringsSep " " (lib.attrNames playwright.env)}
+              node ${dist}/node/storage.js "$@"
+            '';
+          }
+        );
+      };
+
       checks.runtime-spike-side-imports = runtime.checkSideModuleImports {
         name = "runtime-spike";
         modules = map (side: side.wasm) sides;
