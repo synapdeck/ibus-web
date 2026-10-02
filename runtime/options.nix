@@ -20,15 +20,15 @@
       threadPool = {
         shares = lib.mkOption {
           type = lib.types.attrsOf lib.types.ints.positive;
-          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: the most each may have alive at once.";
+          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: how many each is planned to have alive at once. GLib's is what one GTask in flight keeps alive; GTasks in flight at once take more.";
         };
         size = lib.mkOption {
           type = lib.types.ints.positive;
-          description = "The pthread pool's size, the sum of its shares. Creating a thread beyond it fails with EAGAIN in a browser.";
+          description = "The pthread pool's size at start: the sum of its shares plus lowWater spare Workers. Creating a thread when no Worker is idle fails with EAGAIN in a browser.";
         };
         lowWater = lib.mkOption {
           type = lib.types.ints.positive;
-          description = "The idle Workers a Worker host tops the pool up to whenever no request is pending.";
+          description = "The spare Workers the pool starts with beyond its shares, and the idle Workers a Worker host tops it back up to whenever no request is pending; threads alive within the shares leave at least this many idle, so the pool grows only past them.";
         };
       };
       linkFlags = lib.mkOption {

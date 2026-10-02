@@ -11,16 +11,19 @@
       # Threads come from a pool of Workers started with the runtime. A
       # browser starts a Worker created later only once the thread that
       # created it is back in its event loop, which a host blocked serving
-      # requests isn't, so the pool is sized for the most threads alive at
-      # once, and a thread beyond it fails with EAGAIN instead of waiting for
-      # good. Each pool Worker holds an instance of the runtime, as much
-      # memory again as the first (some 45 MiB under Node).
+      # requests isn't, so the pool is sized for the threads expected alive
+      # at once, plus spares, and a thread beyond it fails with EAGAIN instead
+      # of waiting for good. Each pool Worker holds an instance of the
+      # runtime, as much memory again as the first (some 45 MiB under Node).
       threadShares = {
-        # The first GTask starts three, as measured: the thread of GLib's
-        # worker context, where GTask's pool manager runs, and the spawner of
-        # GLib's thread pools, both kept for good, and the GTask worker the
-        # spawner starts, kept for 15.5 s after its last task (half a second
-        # in the pool, then 15 s among unused threads).
+        # One GTask in flight keeps three alive, as measured: the thread of
+        # GLib's worker context, where GTask's pool manager runs, and the
+        # spawner of GLib's thread pools, both kept for good, and the GTask
+        # worker the spawner starts, kept for 15.5 s after its last task
+        # (half a second in the pool, then 15 s among unused threads). GTasks
+        # in flight at once start more workers, up to GTask's pool size of ten
+        # and past it while they all stay busy, which this share doesn't
+        # cover.
         glib = 3;
         # WasmFS's OPFS backend runs its calls on a thread of its own, from
         # mount for good.
@@ -29,8 +32,21 @@
         # share would come from its manifest.
         engine = 4;
       };
-      # glib 3 + opfs 1 + engine 4 = 8
-      poolSize = lib.foldl' builtins.add 0 (lib.attrValues threadShares);
+      plannedThreads = lib.foldl' builtins.add 0 (lib.attrValues threadShares);
+      # Spare Workers beyond the shares, which the pool starts with, so that
+      # threads alive within the shares never leave fewer than this many
+      # idle: GLib's share, since its first GTask needs all three of its
+      # threads at once and GLib handles a failed creation badly (the worker
+      # context's g_thread_new() aborts, a GTask pool whose spawner can't
+      # start fails an assertion, and a GTask whose worker can't start stays
+      # queued until a worker the pool already has is free, or for good if it
+      # has none and no later push starts one). A thread an engine starts
+      # beyond its share takes a spare rather than one GLib counts on, and
+      # the host replaces the spares taken whenever no request is pending, so
+      # the pool grows only when more threads are alive than the shares plan
+      # for.
+      lowWater = threadShares.glib;
+      poolSize = plannedThreads + lowWater;
 
       linkFlags = lib.concatStringsSep " " [
         toolchain.runtimeMainFlags
@@ -44,9 +60,8 @@
         "-sDEFAULT_PTHREAD_STACK_SIZE=1MB"
         # A fixed memory, without growth until what engines need sets a
         # sizing rule. The runtime starts at 2.3 MiB and each running thread
-        # adds about 1 MiB, mostly its stack, so the pool's eight threads
-        # peak near 10.3 MiB; 32 MiB leaves room for a pool topped up well
-        # past that.
+        # adds about 1 MiB, mostly its stack, which leaves room for a pool
+        # topped up well past its starting size.
         "-sALLOW_MEMORY_GROWTH=0"
         "-sINITIAL_MEMORY=32MB"
         "-sMODULARIZE=1"
@@ -98,15 +113,7 @@
         threadPool = {
           shares = threadShares;
           size = poolSize;
-          # GLib's first GTask needs all three of its threads at once, and
-          # GLib handles a failed creation badly: the worker context's
-          # g_thread_new() aborts, a GTask pool whose spawner can't start
-          # fails an assertion, and a GTask whose worker can't start stays
-          # queued until a later one's can.
-          # The pool's own size already covers the expected peak, so the
-          # top-up only keeps that much room when an engine overshoots its
-          # share.
-          lowWater = threadShares.glib;
+          inherit lowWater;
         };
         ibusRuntimeAsserting = link {
           pname = "ibus-runtime-asserting";
