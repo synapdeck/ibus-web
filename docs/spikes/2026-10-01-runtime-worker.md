@@ -1038,7 +1038,72 @@ Node too. Startup is unchanged within the runs' noise.
 The host mounts the engine's own files at `/engines/<name>/` on our WasmFS
 IndexedDB backend, over the database `ibus-web/<name>`, and each version's
 data, sealed read-only once installed, over a database of its own. This part
-covers who may write the first, and what the backend costs.
+covers R2 on that backend, how the data gets there, who may write the
+engine's own files, and what the backend costs. The backend's own tests are
+`checks.wasmfs-idb`; what follows is the spike host's.
+
+### `fsync()` from a thread while the host sleeps (R2)
+
+`promise-proxied-fsync`, run on the IndexedDB mount, writes and `fsync()`s
+`/engines/spike/fsync-idb.txt` from a pthread while the host sleeps in
+`ibusweb_wait`, polling every 2 ms. It completes in both browsers: 4.3 ms
+in Chromium 149 and in Firefox 151 (4.4 ms and 4.3 ms on the released
+runtime), against 4.2 ms on the memory backend. The pthread's create,
+write, `fsync()` and close are proxied to the backend's own thread, never
+to the sleeping host. The scenario counts no wakes, so that the host never
+woke rests on the time, within one poll step of the memory backend's, and
+on where the calls run. With IndexedDB mounted, `thread-create-blocked`
+finds 10 of the pool's 11 Workers idle in both browsers (11 of 11 under
+Node and in memory): the backend's thread is exactly the storage share,
+one per backend.
+
+### Engine data, a database per version
+
+A first version of the install kept every version's data in the engine's
+one database, behind a marker file. Its review found that an upgrade left
+an older host, still running, reading a half-new tree, and that files the
+new version dropped, or turned into directories (`ENOTDIR` for good),
+survived. So each version's data now has a database of its own,
+`ibus-web/<name>/data/<version>` (names encoded), mounted at
+`/engines/<name>/data`. Every host using a version holds
+`ibus-web:data:<name>:<version>` shared; the version is decided and
+installed under `ibus-web:install:<name>:<version>`: the host reads the
+marker (`meta.installed`, `{ version, files, bytes }`) before mounting
+anything of the version, and without one deletes the database, installs
+into a new one, writes the marker last with a strict commit and seals the
+backend. Then it deletes the databases of other versions whose data lock it
+gets at once, exclusively; `indexedDB.databases()`, which lists them, is in
+Firefox only from 126, so the toolchain's minimum Firefox is now 126
+(Baseline Widely available still gives 124; 124 and 125 are some 0.02% of
+users).
+
+Twelve install scenarios cover it under Node and in both browsers, on both
+runtimes, with a thirteenth for the writer lock (below) and a check of the
+names' encoding: fresh, found, two hosts at once (one installs, the other
+waits and finds the marker), interrupted (the next host redoes it, also
+while it was already queued for the lock, and over a stray partial tree
+whose path the archive holds as a file), an upgrade beside a running old
+version (each reads its own tree; the old one is collected once its host
+is gone), an interrupted upgrade followed by the old version, a stale file
+and a file that became a directory, a torn marker, sealed data refusing
+writes, and a host whose archive 404s letting go of every lock while it
+stays alive. Each was seen to fail, under Node or in the browsers, against
+the first protocol or with its defence removed.
+
+- **Probing without creating.** Opening a database that doesn't exist
+  creates it at version 1, where the backend makes its stores, so the host's
+  probe and marker reads abort that creation; Chromium 149 and Firefox 151
+  then leave no database, as the standard says.
+- **Node grants a lock late.** Node 24.20 lets go of a terminated
+  `worker_thread`'s locks, but grants a request already queued for one only
+  once another request for it arrives. A host waits in requests of 1 s,
+  each made again when it times out, so a queued host gets the lock within
+  a second (`install-interrupted-queued`: 1,001 ms). Web Locks under Node
+  coordinate the threads of one process only.
+- **No deletion waits for a reader.** No host mounts a version before its
+  marker exists, and every connection closes on `versionchange`, so the
+  10 s a blocked deletion gets is never used in these runs; nothing in the
+  runtime makes a connection that would hold one up.
 
 ### One writer per engine's user data
 
@@ -1086,8 +1151,8 @@ engine's next host; `writer-lock`'s next host is ready 2.2 s after the
 terminate in Chromium (four runs), 0.26–0.27 s in Firefox. A host that dies
 without the page terminating it (its renderer out of memory, its Worker
 crashing) gets no such wait. Node grants a queued request for a terminated
-thread's lock only once another request arrives (above, under the install
-lock); no waiting is needed there, since `ifAvailable` sees the lock free.
+thread's lock only once another request arrives (above, under engine
+data); no waiting is needed there, since `ifAvailable` sees the lock free.
 
 **The page must keep out of the engine's databases.** A transaction the page
 opens on an engine's database and hasn't seen commit when it starts to spin
@@ -1134,7 +1199,8 @@ committed with the browser's default. Run under `strace -f` (counting
 `fsync`, `fdatasync`, `sync_file_range` and `syncfs` across every process of
 the browser, on a profile on disk), 50 rounds of a relaxed write transaction
 followed by a strict one, from a page outside the runtime, show that a
-strict commit syncs only if it writes:
+strict commit syncs only if it writes (counted under `strace`; the traces
+weren't kept):
 
 | 50 rounds of a relaxed write, then | Chromium 149 | Firefox 151 |
 | --- | --- | --- |
@@ -1150,7 +1216,8 @@ counts that each `fsync()` makes one strict commit over a file's stores and
 that the commit writes, and fails against the empty one. With the runtime,
 `storage-costs` at 16 KiB, page spinning then idle, made 181 `fdatasync`
 calls in all in Chromium before the change and 373 after, and 671 `fsync`
-calls in Firefox before and 886 after: some 200 more for its 202
+calls in Firefox before and 886 after (counted under `strace` too; only the
+runs' own output is kept): some 200 more for its 202
 `fsync()`s, each now one sync (the rest are the browsers' own, the install's
 marker among them). The `fsync()` rows below are that cost: a disk sync on
 this host's ZFS.
@@ -1256,9 +1323,10 @@ settled, more records per file (263 for this one), in Chromium more LevelDB
 churn between compactions and a dearer `fsync()` after a large write. Reads
 of 64 KiB at once, which 16 KiB chunks serve from four records, are still
 the cheapest. The backend's default is now 16 KiB. A database keeps the
-chunk size it was created with, so one made at 64 KiB keeps 64 KiB chunks
-and works as before; only new databases take 16 KiB. Nothing outside tests
-has created one yet.
+chunk size it was created with, and the backend reads any positive size
+from `meta`, one above the 63 KiB it creates with included, so one made at
+64 KiB keeps 64 KiB chunks and works as before; only new databases take
+16 KiB. Nothing outside tests has created one yet.
 
 ## Conclusions for the design
 
@@ -1294,7 +1362,9 @@ has created one yet.
   gave 5 pool Workers); the low-water mark covers GLib's
   share, since GLib aborts or leaves work queued when it can't get a thread.
   With OPFS out of the design (below), the OPFS backend's share becomes the
-  IndexedDB backend's, which also runs on a thread of its own. Still open: a
+  IndexedDB backend's, which also runs on a thread of its own; since M0.5 a
+  host mounts two, the engine's own files and its version's data, and the
+  share is 2. Still open: a
   rule for engines that run GTasks concurrently, since GLib's share covers
   one GTask in flight and each concurrent one can take another worker, up
   to GTask's pool of 10 and beyond; and a public Emscripten call to grow the
@@ -1366,8 +1436,8 @@ has created one yet.
   the project's minimum versions; the switch is a follow-up (spec R18).
 - `fsync()` on WasmFS's memory and Node backends doesn't proxy at all, so
   Node can't exhibit R2's promise-proxied case. On OPFS it does, and it
-  completes in both browsers while the host sleeps; the IndexedDB backend,
-  proxied the same way, is M0.5's to check.
+  completes in both browsers while the host sleeps; so it does on the
+  IndexedDB backend, proxied the same way (M0.5, 4.3 ms in both browsers).
 - **One writer per engine's user data, in chunks of 16 KiB (M0.5).** The
   host holding `ibus-web:writer:<name>` mounts the engine's user data
   read-write; every other host mounts it read-only and reports
