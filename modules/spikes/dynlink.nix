@@ -5,7 +5,7 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) toolchain;
+      inherit (config.ibusWeb) toolchain typescript;
       inherit (toolchain.pkgsWasm) libhangul;
     in
     {
@@ -14,7 +14,7 @@
         src = ../../tests/spikes/dynlink;
         nativeBuildInputs = [
           toolchain.emscripten
-          pkgs.nodejs
+          typescript.nodejs
           toolchain.emscriptenCacheHook
         ];
 

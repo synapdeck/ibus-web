@@ -77,12 +77,12 @@ def macro_value(include, macro, lang="c", packages=()):
     if len(values) != 1:
         sys.exit(f"{macro} expanded {len(values)} times")
     value = values[0]
-    while value.startswith("(") and value.endswith(")"):
-        value = value[1:-1].strip()
-    match = re.fullmatch(r"(\d+)[uUlL]*", value)
-    if match is None:
+    # Integer constant expressions of literals and + - *, such as the
+    # (-2147483647-1) INT32_MIN expands to.
+    expression = re.sub(r"(\d)[uUlL]+", r"\1", value)
+    if not re.fullmatch(r"[\d\s+\-*()]+", expression):
         sys.exit(f"{macro} is {values[0]!r}, not an integer")
-    return int(match[1])
+    return int(eval(expression, {"__builtins__": {}}))
 
 
 def name_files(tree):

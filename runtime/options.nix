@@ -20,7 +20,7 @@
       threadPool = {
         shares = lib.mkOption {
           type = lib.types.attrsOf lib.types.ints.positive;
-          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: how many each is planned to have alive at once. GLib's is what one GTask in flight keeps alive; GTasks in flight at once take more.";
+          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: how many each is planned to have alive at once. GLib's is what one GTask in flight keeps alive, GTasks in flight at once taking more; the storage backend's is its own thread.";
         };
         size = lib.mkOption {
           type = lib.types.ints.positive;
@@ -37,7 +37,7 @@
       };
       link = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
-        description = "Given { pname, extraFlags }, links ibus-runtime as the package does, with extraFlags after its own flags, which they override. A link that grows its memory (-sALLOW_MEMORY_GROWTH=1) keeps -sMAXIMUM_MEMORY=memory.maximum as the most it grows to unless extraFlags sets another.";
+        description = "Given { pname, extraFlags }, links ibus-runtime as the package does, with extraFlags after its own flags, which they override.";
       };
       memory = {
         minimum = lib.mkOption {
@@ -72,7 +72,7 @@
       };
       nodeHarness = lib.mkOption {
         type = lib.types.package;
-        description = "harness.mjs, which drives the runtime at the C level from Node, and the errno.json and memory.json (the least and the most memory the runtime takes) it reads.";
+        description = "harness.mjs, which drives the runtime at the C level from Node, and what it reads: errno.json, memory.json (the least and the most memory the runtime takes) and constants.json (the header's pumpError).";
       };
       nodeTimeout = lib.mkOption {
         type = lib.types.str;

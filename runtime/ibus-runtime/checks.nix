@@ -9,32 +9,36 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) toolchain runtime;
+      inherit (config.ibusWeb) toolchain runtime typescript;
       inherit (toolchain) emscripten pkgsWasm;
 
-      nodeHarness =
-        pkgs.runCommand "ibus-runtime-node-harness"
-          {
-            nativeBuildInputs = [
-              emscripten
-              toolchain.emscriptenCacheHook
-            ];
-          }
-          ''
-            mkdir $out
-            cp ${./tests/harness.mjs} $out/harness.mjs
-            # Emscripten's errno values are WASI's, defined through macros of
-            # its own, so the preprocessor evaluates each name.
-            names=$(echo '#include <errno.h>' | emcc -dM -E -x c - |
-              awk '$1 == "#define" && $2 ~ /^E[A-Z0-9]+$/ { print $2 }')
-            { echo '#include <errno.h>'; for name in $names; do echo "\"$name\" $name"; done; } |
-              emcc -E -P -x c - |
-              awk 'BEGIN { printf "{" }
-                $1 ~ /^"E[A-Z0-9]+"$/ && NF == 2 { gsub(/[()]/, "", $2); printf "%s%s: %d", sep, $1, $2; sep = ", " }
-                END { print "}" }' > $out/errno.json
-            grep -q '"ENOSYS": [0-9]' $out/errno.json
-            echo '{"minimum": ${toString runtime.memory.minimum}, "maximum": ${toString runtime.memory.maximum}}' > $out/memory.json
-          '';
+      nodeHarness = pkgsWasm.stdenv.mkDerivation {
+        name = "ibus-runtime-node-harness";
+        dontUnpack = true;
+        nativeBuildInputs = [
+          pkgsWasm.pkg-config
+          pkgs.python3
+        ];
+        buildInputs = [ runtime.libibusWeb ];
+        dontFixup = true;
+        installPhase = ''
+          mkdir $out
+          cp ${./tests/harness.mjs} $out/harness.mjs
+          # Emscripten's errno values are WASI's, defined through macros of
+          # its own, so the preprocessor evaluates each name.
+          names=$(echo '#include <errno.h>' | $CC -dM -E -x c - |
+            awk '$1 == "#define" && $2 ~ /^E[A-Z0-9]+$/ { print $2 }')
+          { echo '#include <errno.h>'; for name in $names; do echo "\"$name\" $name"; done; } |
+            $CC -E -P -x c - |
+            awk 'BEGIN { printf "{" }
+              $1 ~ /^"E[A-Z0-9]+"$/ && NF == 2 { gsub(/[()]/, "", $2); printf "%s%s: %d", sep, $1, $2; sep = ", " }
+              END { print "}" }' > $out/errno.json
+          grep -q '"ENOSYS": [0-9]' $out/errno.json
+          echo '{"minimum": ${toString runtime.memory.minimum}, "maximum": ${toString runtime.memory.maximum}}' > $out/memory.json
+          # What the header defines, as the target evaluates it.
+          echo "{\"pumpError\": $(python3 ${./exports.py} macro --include ibus-web/runtime.h --pkg-config libibus-web IBUSWEB_PUMP_ERROR)}" > $out/constants.json
+        '';
+      };
 
       # A side module of the runtime's own, for checks of the runtime alone.
       testSide = runtime.mkSideModule {
@@ -114,7 +118,7 @@
       checks.ibus-runtime-load =
         pkgs.runCommand "ibus-web-ibus-runtime-load-check"
           {
-            nativeBuildInputs = [ pkgs.nodejs ];
+            nativeBuildInputs = [ typescript.nodejs ];
           }
           ''
             cp ${nodeHarness}/* .

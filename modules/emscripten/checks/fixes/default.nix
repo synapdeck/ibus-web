@@ -4,7 +4,7 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) toolchain;
+      inherit (config.ibusWeb) toolchain typescript;
       minimumFlags = toolchain.minimumVersionFlags;
     in
     {
@@ -19,7 +19,7 @@
           {
             nativeBuildInputs = [
               toolchain.emscripten
-              pkgs.nodejs
+              typescript.nodejs
               toolchain.emscriptenCacheHook
             ];
           }

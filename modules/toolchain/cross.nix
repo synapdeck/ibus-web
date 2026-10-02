@@ -26,7 +26,7 @@ in
         system = 'emscripten'
 
         [binaries]
-        exe_wrapper = ['${lib.getExe pkgs.nodejs}']
+        exe_wrapper = ['${lib.getExe config.ibusWeb.typescript.nodejs}']
       '';
 
       replaceCrossStdenv =

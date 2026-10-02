@@ -10,7 +10,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) toolchain runtime;
+      inherit (config.ibusWeb) toolchain runtime typescript;
       inherit (toolchain) emscripten;
 
       # -O2 over -Os: engine data, not code, dominates download size, and
@@ -69,7 +69,7 @@
         passthru = { inherit emscripten; };
         nativeBuildInputs = [
           emscripten
-          pkgs.nodejs
+          typescript.nodejs
         ];
 
         buildPhase = ''
@@ -162,7 +162,7 @@
           {
             nativeBuildInputs = [
               emscripten
-              pkgs.nodejs
+              typescript.nodejs
               toolchain.emscriptenCacheHook
             ];
           }

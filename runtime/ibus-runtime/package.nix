@@ -14,7 +14,7 @@
       # requests isn't, so the pool is sized for the threads expected alive
       # at once, plus spares, and a thread beyond it fails with EAGAIN instead
       # of waiting for good. Each pool Worker holds an instance of the
-      # runtime, as much memory again as the first (some 45 MiB under Node).
+      # runtime, as much memory again as the first (some 41–42 MiB under Node).
       threadShares = {
         # One GTask in flight keeps three alive, as measured: the thread of
         # GLib's worker context, where GTask's pool manager runs, and the
@@ -25,9 +25,10 @@
         # and past it while they all stay busy, which this share doesn't
         # cover.
         glib = 3;
-        # WasmFS's OPFS backend runs its calls on a thread of its own, from
-        # mount for good.
-        opfs = 1;
+        # The storage backend's thread: a WasmFS backend whose storage is
+        # asynchronous runs its calls on a thread of its own, from mount for
+        # good.
+        storage = 1;
         # The spike's side modules' largest burst, spawn(4). An engine's
         # share would come from its manifest.
         engine = 4;
