@@ -24,6 +24,7 @@ if (!ENVIRONMENT_IS_PTHREAD) {
  * @param {string} text
  * @param {(found: number) => void} done
  */
+// oxlint-disable-next-line no-unused-vars -- tests' EM_ASM calls it.
 const wasmfsIdbTestAwaitStderr = (text, done) => {
   const deadline = performance.now() + 5000;
   const poll = () => {

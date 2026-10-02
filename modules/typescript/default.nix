@@ -234,15 +234,6 @@
         inherit workspace tsc;
       };
 
-      checks.typescript = mkWorkspace "ibus-web-typescript-check" {
-        buildPhase = ''
-          runHook preBuild
-          pnpm -r run typecheck
-          runHook postBuild
-        '';
-        installPhase = "touch $out";
-      };
-
       devshells.default.packages = [
         nodejs
         pnpm

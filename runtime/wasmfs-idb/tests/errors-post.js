@@ -12,6 +12,7 @@
  * @param {string} name
  * @param {(outcome: number) => void} done
  */
+// oxlint-disable-next-line no-unused-vars -- the test's EM_ASM calls it.
 const wasmfsIdbTestUpgrade = (name, done) => {
   let settled = false;
   /** @param {number} outcome */

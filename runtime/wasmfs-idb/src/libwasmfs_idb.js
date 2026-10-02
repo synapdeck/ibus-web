@@ -57,6 +57,7 @@
  *       : WasmfsIdbHandleAllocator[K];
  * }}
  */
+// oxlint-disable-next-line no-unassigned-vars -- Emscripten emits the value.
 let wasmfsIdbBackends;
 
 /** A failure that already is an errno. */

@@ -9,10 +9,7 @@
     { config, lib, ... }:
     {
       devshells.default = {
-        packages = [
-          config.ibusWeb.toolchain.emscripten
-          config.treefmt.build.wrapper
-        ];
+        packages = [ config.ibusWeb.toolchain.emscripten ];
         env = [
           {
             name = "FLAKE_ROOT";

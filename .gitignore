@@ -8,3 +8,4 @@ result-*
 node_modules/
 dist/
 /runtime/wasmfs-idb/src/emscripten-types
+/.hk

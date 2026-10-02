@@ -1,0 +1,94 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// .hk links to hk's pkl package, built by Nix: the `package://` form hk
+// documents can't resolve without the network.
+amends ".hk/pkl/Config.pkl"
+
+import ".hk/pkl/Builtins.pkl"
+
+// What Nix builds for a type check, linked into the tree by the dev shell. A
+// hook run outside it skips the check that reads one; the flake's check
+// sets HK_REQUIRE_NIX_INPUTS, so there a missing one fails.
+local nixInputs = List("runtime/wasmfs-idb/src/emscripten-types")
+
+local linters = new Mapping<String, Step> {
+  ["nixfmt"] = Builtins.nix_fmt
+  ["clang-format"] = Builtins.clang_format
+  ["shfmt"] = Builtins.shfmt
+  ["oxfmt"] = (Builtins.oxfmt) {
+    glob =
+      List(
+        "**/*.ts",
+        "**/*.mts",
+        "**/*.cts",
+        "**/*.js",
+        "**/*.mjs",
+        "**/*.json",
+        "**/*.yaml",
+        "**/*.yml",
+      )
+    // pnpm rewrites its lockfile in its own style on every install.
+    exclude = "pnpm-lock.yaml"
+  }
+  ["pkl-format"] = Builtins.pkl_format
+  ["oxlint"] = (Builtins.ox_lint) {
+    glob = List("**/*.ts", "**/*.mts", "**/*.cts", "**/*.js", "**/*.mjs", "**/*.cjs")
+  }
+  // One job per directory holding a tsconfig.json, over the files it owns;
+  // a JavaScript file or the config itself changing re-checks it too.
+  ["tsc"] = (Builtins.tsc) {
+    glob =
+      List(
+        "**/*.ts",
+        "**/*.mts",
+        "**/*.cts",
+        "**/*.js",
+        "**/*.mjs",
+        "**/*.cjs",
+        "**/tsconfig.json",
+      )
+    check = new CommandSpec {
+      // hk's evaluator leaves interpolation in multi-line strings unexpanded.
+      command =
+        "nix_inputs='\(nixInputs.join(" "))'\n"
+          + """
+          for input in $nix_inputs; do
+            case "$input" in
+            {{workspace}}/*)
+              if [ ! -e "$input" ] && [ -z "${HK_REQUIRE_NIX_INPUTS:-}" ]; then
+                echo "tsc: skipped {{workspace}}: $input isn't built; enter the dev shell to build it" >&2
+                exit 0
+              fi
+              ;;
+            esac
+          done
+          tsc --noEmit -p {{workspace_indicator}}
+          """
+      effect = "read"
+    }
+  }
+  // Every file needs its licence, so this lints the whole tree each time.
+  ["reuse"] {
+    check = new CommandSpec {
+      command = "reuse lint"
+      effect = "read"
+    }
+  }
+  ["actionlint"] = Builtins.actionlint
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["check"] {
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+}
