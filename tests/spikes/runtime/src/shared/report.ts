@@ -49,6 +49,9 @@ export interface PageRunSpec {
   stress?: { threads: number; rounds: number; iterations: number };
   // Whether the page measures the memory its Workers use, for worker-memory.
   sampleMemory?: boolean;
+  // The engine's name, if not the spike's own; it names the engine's
+  // storage.
+  engineName?: string;
 }
 
 export interface PageRunReport {

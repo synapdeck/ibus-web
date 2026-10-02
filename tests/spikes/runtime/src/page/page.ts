@@ -147,6 +147,34 @@ const sampleMemory = async (): Promise<Record<string, number>> => {
   return sample;
 };
 
+// The chunk size in the IndexedDB backend's meta store of database, which
+// it keeps from the database's creation; undefined if there is none. It
+// settles only once its transaction has committed: a transaction of the
+// page's still open on the database when the page starts to spin would hold
+// up the backend's writes to the same store until the spin ends.
+const storedChunkSize = (database: string): Promise<number | undefined> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(database);
+    request.onupgradeneeded = () => request.transaction?.abort();
+    request.onerror = (event) => {
+      event.preventDefault();
+      resolve(undefined);
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction("meta", "readonly");
+      const get = tx.objectStore("meta").get("chunkSize");
+      tx.oncomplete = () => {
+        db.close();
+        resolve(typeof get.result === "number" ? get.result : undefined);
+      };
+      tx.onabort = () => {
+        db.close();
+        reject(tx.error);
+      };
+    };
+  });
+
 const readOnly = (message: HostMessage): boolean =>
   message.type === "storage" && message.state === "read-only";
 
@@ -177,6 +205,10 @@ const storageOf = (storage: PageRunSpec["storage"]): Storage =>
       };
 
 const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
+  // What the harness exposes when the browser keeps its storage on disk.
+  const { ibusWebIndexedDBBytes } = globalThis as unknown as {
+    ibusWebIndexedDBBytes?: () => Promise<number>;
+  };
   if (!crossOriginIsolated)
     throw new Error("the page is not cross-origin isolated");
   const pick = <T>(names: Map<string, T>): T[] =>
@@ -207,10 +239,11 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     spec.dataUrl === undefined
       ? undefined
       : new URL(spec.dataUrl, location.href).href;
+  const named = { ...SPIKE_ENGINE, name: spec.engineName ?? SPIKE_ENGINE.name };
   const engine =
     data === undefined || dataUrl === undefined
-      ? SPIKE_ENGINE
-      : withData(SPIKE_ENGINE, data, dataUrl);
+      ? named
+      : withData(named, data, dataUrl);
 
   // The page's main thread can't block, so a call either spins until the
   // reply or waits for it asynchronously.
@@ -309,6 +342,11 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     upgradeDatabase,
     ...(spec.stress === undefined ? {} : { stress: spec.stress }),
     ...(spec.sampleMemory === true ? { sampleMemory } : {}),
+    storageUsage: async () => (await navigator.storage.estimate()).usage ?? 0,
+    ...(ibusWebIndexedDBBytes === undefined
+      ? {}
+      : { indexedDBBytes: ibusWebIndexedDBBytes }),
+    userDataChunkSize: () => storedChunkSize(engineDatabase(engine)),
   });
   const report = async (
     startupMs: number,

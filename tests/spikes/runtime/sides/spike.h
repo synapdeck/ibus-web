@@ -47,7 +47,10 @@
   X(MEM_INFO, 29)                                                              \
   X(MEM_GROW, 30)                                                              \
   X(JS_HEAP, 31)                                                               \
-  X(LIST_TREE, 32)
+  X(LIST_TREE, 32)                                                             \
+  X(BENCH_WRITE, 33)                                                           \
+  X(BENCH_READ, 34)                                                            \
+  X(BENCH_APPEND, 35)
 
 #define SPIKE_OP_ENUM(name, opcode) SPIKE_OP_##name = opcode,
 enum { SPIKE_OPS(SPIKE_OP_ENUM) };

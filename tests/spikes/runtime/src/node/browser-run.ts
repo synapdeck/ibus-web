@@ -7,7 +7,7 @@
 //                            --glib-threads N --pool-low-water N
 //                            --memory BYTES --install-data DIR
 //                            [--browser chromium|firefox]... [--scenario NAME]...
-//                            [--compare]
+//                            [--compare | --measure --chunk-size BYTES...]
 //
 // Runs the runtime spike's scenarios in browsers, headless, through
 // Playwright: a page served with cross-origin isolation starts the Worker
@@ -23,7 +23,11 @@
 // storage and locks as tabs of one origin do. With --compare, for the record, the same with the page
 // waiting asynchronously, the idle host that waits asynchronously and the
 // relay-less one follow, and every cross-thread wake must take at most
-// 20 ms.
+// 20 ms. With --measure, instead, for the record, storage-costs runs alone
+// on a host of its own for each chunk size, the page spinning for each
+// reply and then idle, waiting asynchronously: the engine is named so that
+// a runtime linked for measurement creates its user data's database with
+// chunks of that size.
 //
 // Prints each host's results, then a table per host with a column per
 // browser. Exits 1 if a scenario of the hosts before the comparisons fails
@@ -31,7 +35,8 @@
 // failure passes, or, run without --browser and --scenario, if one isn't
 // run.
 
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname } from "node:path";
 import process from "node:process";
 import { parseArgs } from "node:util";
@@ -51,7 +56,13 @@ import {
   storageFallback,
   type Result,
 } from "../shared/scenarios.ts";
-import { browsersNamed, launch, launchError, servePage } from "./browsers.ts";
+import {
+  browsersNamed,
+  launch,
+  launchError,
+  launchPersistent,
+  servePage,
+} from "./browsers.ts";
 
 const { values: args } = parseArgs({
   options: {
@@ -70,6 +81,8 @@ const { values: args } = parseArgs({
     // Runs only these scenarios, where a host would run them.
     scenario: { type: "string", multiple: true },
     compare: { type: "boolean", default: false },
+    measure: { type: "boolean", default: false },
+    "chunk-size": { type: "string", multiple: true },
   },
 });
 if (
@@ -134,6 +147,11 @@ interface Run {
   scenarios: string[];
   pendingLimitMs: number;
   storage: PageRunSpec["storage"];
+  engineName?: string;
+  // Whether the run's storage is on disk, in a browser of its own, rather
+  // than in an off-the-record context of the shared one, whose IndexedDB
+  // Chromium keeps in memory.
+  persistent?: boolean;
 }
 
 const names = (list: readonly { name: string }[]): string[] =>
@@ -242,6 +260,34 @@ if (args.compare)
     },
   );
 
+// Named so that the measurement link's backend gives the database of the
+// engine's user data chunks of this many bytes.
+const chunkEngine = (bytes: number): string => `spike-chunk-${bytes}`;
+
+if (args.measure) {
+  const sizes = (args["chunk-size"] ?? []).map(Number);
+  if (sizes.length === 0 || sizes.some((bytes) => !(bytes > 0)))
+    throw new Error("--measure takes one or more --chunk-size BYTES");
+  runs.splice(
+    0,
+    runs.length,
+    ...sizes.flatMap((bytes) =>
+      (["spin", "async"] as const).map((pageWait): Run => ({
+        id: `measure-${bytes}-${pageWait}`,
+        label: `for the record: chunks of ${bytes / 1024} KiB, the page ${pageWait === "spin" ? "spinning for each reply" : "idle, waiting for each reply asynchronously"}`,
+        counts: false,
+        wait: "runtime",
+        pageWait,
+        scenarios: ["storage-costs"],
+        pendingLimitMs: 10_000,
+        storage: "browser",
+        engineName: chunkEngine(bytes),
+        persistent: true,
+      })),
+    ),
+  );
+}
+
 if (args.scenario !== undefined) {
   const only = new Set(args.scenario);
   for (const run of runs)
@@ -284,13 +330,38 @@ const log = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
+// The bytes of the files in which the browser keeps IndexedDB under the
+// profile: Chromium's IndexedDB directory, Firefox's idb directories.
+const indexedDBBytes = async (profile: string): Promise<number> => {
+  let bytes = 0;
+  for (const entry of await readdir(profile, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    const path = join(entry.parentPath, entry.name);
+    if (entry.isFile() && /\/(IndexedDB|idb)\//.test(path))
+      bytes += (await stat(path)).size;
+  }
+  return bytes;
+};
+
 const runOne = async (
   browserName: string,
   browser: Browser,
   run: Run,
 ): Promise<Outcome> => {
-  const context = await browser.newContext();
+  const profile = run.persistent
+    ? await mkdtemp(join(tmpdir(), "ibus-web-profile-"))
+    : undefined;
+  const context =
+    profile === undefined
+      ? await browser.newContext()
+      : await launchPersistent(browserName, profile);
   try {
+    if (profile !== undefined)
+      await context.exposeFunction("ibusWebIndexedDBBytes", () =>
+        indexedDBBytes(profile),
+      );
     const page = await context.newPage();
     page.on("console", (message) =>
       log(`[${browserName} console.${message.type()}] ${message.text()}`),
@@ -331,6 +402,7 @@ const runOne = async (
       pageWait: run.pageWait,
       memory: { initial: memoryBytes, maximum: memoryBytes },
       storage: run.storage,
+      ...(run.engineName === undefined ? {} : { engineName: run.engineName }),
       ...(args.compare ? { wakeMaxMs: STRICT_WAKE_MAX_MS } : {}),
     };
     const report = await withTimeout(
@@ -366,6 +438,12 @@ const runOne = async (
     return { browser: browserName, run, results: [], error: message };
   } finally {
     await context.close();
+    if (profile !== undefined) {
+      console.log(
+        `    IndexedDB on disk once ${browserName} closed: ${((await indexedDBBytes(profile)) / 1024).toFixed(1)} KiB`,
+      );
+      await rm(profile, { recursive: true, force: true });
+    }
   }
 };
 

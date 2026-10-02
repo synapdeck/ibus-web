@@ -57,6 +57,10 @@
               name = "tree";
               source = "tree.c";
             }
+            {
+              name = "bench";
+              source = "bench.c";
+            }
           ];
 
       # The values the TypeScript side shares with the C side, as the
@@ -116,6 +120,21 @@
       # scenarios use.
       installArg = "--install-data ${runtime.installArchives}";
       dist = "${typescript.workspace}/tests/spikes/runtime/dist";
+
+      # The released runtime, linked also with a library that gives each
+      # database the IndexedDB backend creates whose name ends in
+      # "-chunk-<bytes>" chunks of that size, for the measurements alone; the
+      # runtime as released has no such setting.
+      chunkSizeRuntime = runtime.link {
+        pname = "ibus-runtime-chunk-sizes";
+        extraFlags = "--js-library=${./chunk-size.js} -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE='$wasmfsIdbChunkSizeByName'";
+      };
+      # The chunk sizes the measurements compare, in bytes.
+      chunkSizes = map (kib: kib * 1024) [
+        16
+        64
+        256
+      ];
 
       # A browser run's own limits catch a host that stops answering; this
       # catches a browser or harness that hangs outright.
@@ -231,6 +250,28 @@
               node ${dist}/node/run.js ${harnessArgs} ${memoryArg} ${installArg} --runtime "$runtime" --compare
               echo "# browsers" >&2
               node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} ${installArg} --runtime "$runtime" --compare "$@"
+            '';
+          }
+        );
+      };
+
+      # What the IndexedDB backend costs, on the released runtime linked for
+      # measurement, in headless Chromium and Firefox: storage-costs for each
+      # chunk size, with the page spinning for each reply and then idle.
+      # Arguments go to the browser harness, such as --browser firefox.
+      apps.runtime-spike-storage-costs = {
+        type = "app";
+        meta.description = "The IndexedDB backend's read, write and fsync costs and storage overhead for each chunk size, in headless Chromium and Firefox";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "runtime-spike-storage-costs";
+            runtimeInputs = [ typescript.nodejs ];
+            text = ''
+              ${lib.toShellVars playwright.env}
+              export ${lib.concatStringsSep " " (lib.attrNames playwright.env)}
+              node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} ${installArg} \
+                --runtime ${chunkSizeRuntime}/ibus-runtime.js --measure \
+                ${lib.concatMapStringsSep " " (bytes: "--chunk-size ${toString bytes}") chunkSizes} "$@"
             '';
           }
         );

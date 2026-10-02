@@ -10,6 +10,7 @@ export {
   browsersNamed,
   launch,
   launchError,
+  launchPersistent,
 } from "@ibus-web/test-browser/browsers";
 
 // Serves the page at / and the TypeScript build under /dist/, with dirs

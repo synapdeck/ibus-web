@@ -49,6 +49,9 @@ const opNames = [
   "memGrow",
   "jsHeap",
   "listTree",
+  "benchWrite",
+  "benchRead",
+  "benchAppend",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
@@ -136,6 +139,14 @@ export interface Env {
   // The memory the harness can see the runtime's process or processes use,
   // in MiB by what it measured.
   sampleMemory?: () => Promise<Record<string, number>>;
+  // The bytes the origin's storage takes, as the browser estimates them.
+  storageUsage?: () => Promise<number>;
+  // The bytes of the files the browser keeps IndexedDB in, where the
+  // harness can see them.
+  indexedDBBytes?: () => Promise<number>;
+  // The chunk size the IndexedDB database of the engine's own files was
+  // created with.
+  userDataChunkSize?: () => Promise<number | undefined>;
 }
 
 export type Measurement =
@@ -1058,6 +1069,128 @@ export const heapFull: Scenario = {
 
 const KiB = 1024;
 
+// A bench operation's payload: its int32 arguments, then the path.
+const benchPayload = (
+  env: Env,
+  path: string,
+  ...args: number[]
+): Uint8Array => {
+  const head = int32s(...args);
+  const tail = env.utf8(path);
+  const payload = new Uint8Array(head.length + tail.length);
+  payload.set(head);
+  payload.set(tail, head.length);
+  return payload;
+};
+
+// What a bench operation's reply gives of a run of calls, from its count:
+// the mean, median, 95th percentile and longest, in µs.
+const benchTimes = (values: readonly number[], at: number): string => {
+  const [count = 0, ...ns] = values.slice(at, at + 5);
+  const [mean, p50, p95, max] = ns.map((value) => round(value / 1000, 1));
+  return `${count} × ${mean} / ${p50} / ${p95} / ${max} µs`;
+};
+
+// Times measured on this side: mean, median, 95th percentile and longest.
+const pageTimes = (us: readonly number[]): string => {
+  const sorted = [...us].sort((a, b) => a - b);
+  const mean = sorted.reduce((sum, t) => sum + t, 0) / sorted.length;
+  return `${sorted.length} × ${round(mean, 1)} / ${round(percentile(sorted, 50), 1)} / ${round(percentile(sorted, 95), 1)} / ${round(sorted.at(-1)!, 1)} µs`;
+};
+
+// A few MiB that end partway into a chunk of each size measured, 16, 64 and
+// 256 KiB, as a file's end usually does: 8 KiB, 40 KiB and 104 KiB in.
+// Appends rewrite that last chunk, so its fill decides what they cost.
+const DICTIONARY_BYTES = 4096 * KiB + 104 * KiB;
+
+// An engine-like dictionary file in the engine's directory: written whole,
+// read at random as lookups would, and appended to as learning would, each
+// call made on the host's thread and so blocking for the round trip to the
+// storage backend's thread. Each bench reply's times are what the runtime
+// measured around the calls; the round trip of a request for a single read
+// of the file, which the side module keeps open, is timed here. The
+// criterion is correctness alone: the times are recorded, never judged.
+export const storageCosts: Scenario = {
+  name: "storage-costs",
+  criterion:
+    "a 4.1 MiB file in the engine's directory, written in 64 KiB writes and fsync()ed, read at " +
+    "random in 4 KiB and 64 KiB reads, and appended to in 64-byte records each fsync()ed: every " +
+    "write and fsync() succeeds and every read returns the file's bytes",
+  async run(client, env) {
+    const { dir } = engineOf(env);
+    const path = `${dir}/dictionary-${Math.random().toString(36).slice(2)}.bin`;
+    const bench = async (opcode: number, ...args: number[]) =>
+      replyInt32s(await client.call(opcode, benchPayload(env, path, ...args)));
+    // The browser's estimate and, where the harness sees them, the files.
+    const usage = async (): Promise<[number, number] | undefined> =>
+      env.storageUsage === undefined
+        ? undefined
+        : [await env.storageUsage(), (await env.indexedDBBytes?.()) ?? NaN];
+    const measurements: Record<string, Measurement> = {};
+    let pass = true;
+    const usageBefore = await usage();
+    const chunkSize = await env.userDataChunkSize?.();
+    if (chunkSize !== undefined) measurements.chunkKiB = chunkSize / KiB;
+
+    const written = await bench(env.ops.benchWrite, DICTIONARY_BYTES, 64 * KiB);
+    if (written[0] !== 0)
+      return { pass: false, measurements: { write: written[0]! } };
+    measurements.write64KiB = benchTimes(written, 1);
+    measurements.fsyncAfterWriteUs = round(written[6]! / 1000, 1);
+    const usageWritten = await usage();
+
+    let seed = 1;
+    for (const [label, size, batch, single] of [
+      ["read4KiB", 4 * KiB, 256, 100],
+      ["read64KiB", 64 * KiB, 64, 30],
+    ] as const) {
+      const read = await bench(env.ops.benchRead, size, batch, seed++, 0);
+      if (read[0] !== 0 || read[1] !== batch) pass = false;
+      measurements[label] =
+        read[0]! < 0 ? read[0]! : `${benchTimes(read, 1)}; ${read[0]} wrong`;
+      const roundTrips: number[] = [];
+      for (let i = 0; i < single; i++) {
+        const start = env.now();
+        const one = await bench(env.ops.benchRead, size, 1, seed++, 0);
+        roundTrips.push((env.now() - start) * 1000);
+        if (one[0] !== 0 || one[1] !== 1) pass = false;
+      }
+      measurements[`${label}RoundTrip`] = pageTimes(roundTrips);
+    }
+
+    const appended = await bench(env.ops.benchAppend, 64, 100);
+    if (appended[0] !== 0) pass = false;
+    measurements.append64B =
+      appended[0] !== 0
+        ? appended[0]!
+        : `write ${benchTimes(appended, 1)}; fsync ${benchTimes(appended, 6)}`;
+    const usageAppended = await usage();
+    // The appended records read back too.
+    const tail = await bench(
+      env.ops.benchRead,
+      64,
+      100,
+      seed++,
+      DICTIONARY_BYTES,
+    );
+    if (tail[0] !== 0 || tail[1] !== 100) pass = false;
+
+    if (
+      usageBefore !== undefined &&
+      usageWritten !== undefined &&
+      usageAppended !== undefined
+    )
+      for (const [label, at] of [
+        ["estimatedKiB", 0],
+        ["onDiskKiB", 1],
+      ] as const)
+        measurements[label] =
+          `${round(usageBefore[at] / KiB, 1)} before, +${round((usageWritten[at] - usageBefore[at]) / KiB, 1)} ` +
+          `for the ${DICTIONARY_BYTES / KiB} KiB file, +${round((usageAppended[at] - usageWritten[at]) / KiB, 1)} for the appends`;
+    return { pass, measurements };
+  },
+};
+
 const stressOf = (env: Env): NonNullable<Env["stress"]> => {
   if (env.stress === undefined)
     throw new Error("the memory scenarios need the workloads' sizes");
@@ -1221,6 +1354,7 @@ export const scenarios: readonly Scenario[] = [
   syncProxied,
   promiseProxiedFsync,
   storageRoundtrip,
+  storageCosts,
   exceptions,
 ];
 
