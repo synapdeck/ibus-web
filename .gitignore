@@ -5,7 +5,8 @@ result-*
 .cache/
 .worktrees/
 .direnv/
-node_modules/
+# Without a trailing slash, so a link to one is ignored too.
+node_modules
 dist/
 /runtime/wasmfs-idb/src/emscripten-types
 /.hk

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Prettier's width, which the code was written to.
+// Lines fit an 80-column editor pane or side-by-side diff.
 {
   "printWidth": 80
 }

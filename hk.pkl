@@ -7,9 +7,9 @@ amends ".hk/pkl/Config.pkl"
 
 import ".hk/pkl/Builtins.pkl"
 
-// What Nix builds for a type check, linked into the tree by the dev shell. A
-// hook run outside it skips the check that reads one; the flake's check
-// sets HK_REQUIRE_NIX_INPUTS, so there a missing one fails.
+// Links to what Nix builds for a type check. Without one, a hook run skips
+// the check that reads it rather than failing on a missing input; with
+// HK_REQUIRE_NIX_INPUTS set, the check runs anyway and fails.
 local nixInputs = List("runtime/wasmfs-idb/src/emscripten-types")
 
 local linters = new Mapping<String, Step> {

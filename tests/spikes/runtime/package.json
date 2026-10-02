@@ -3,8 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "status=0; for env in shared worker page node; do tsc -p src/$env || status=1; done; exit $status",
-    "typecheck": "status=0; for env in shared worker page node; do tsc --noEmit -p src/$env || status=1; done; exit $status"
+    "build": "status=0; for env in shared worker page node; do tsc -p src/$env || status=1; done; exit $status"
   },
   "devDependencies": {
     "@ibus-web/test-browser": "workspace:*",

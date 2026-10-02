@@ -15,35 +15,40 @@
       inherit (pkgs) hk;
       inherit (config.ibusWeb) toolchain typescript;
 
-      # hk's own release ships Builtins.pkl inside a pkl package that hk.pkl
-      # would import by `package://` URL, which can't resolve offline; nixpkgs'
-      # hk embeds none. This generates the same package from hk's source.
-      sourceVersion = (lib.importTOML "${hk.src}/Cargo.toml").package.version;
-      hkPkl =
-        lib.throwIfNot (sourceVersion == hk.version)
-          "hk-pkl: pkgs.hk is ${hk.version}, but its source declares ${sourceVersion}"
-          (
-            pkgs.stdenvNoCC.mkDerivation {
-              pname = "hk-pkl";
-              inherit (hk) version src;
-              nativeBuildInputs = [
-                pkgs.pkl
-                pkgs.python3
-              ];
-              buildPhase = ''
-                runHook preBuild
-                export HOME=$TMPDIR
-                python3 scripts/gen_builtins.py
-                runHook postBuild
-              '';
-              installPhase = ''
-                runHook preInstall
-                mkdir -p $out
-                cp -R pkl $out/pkl
-                runHook postInstall
-              '';
-            }
-          );
+      # hk's pkl package, with the Builtins.pkl its release generates. The
+      # released package is only reachable by `package://` URL, which can't
+      # resolve offline, and nixpkgs' hk embeds none.
+      hkPkl = pkgs.stdenvNoCC.mkDerivation {
+        pname = "hk-pkl";
+        inherit (hk) version src;
+        nativeBuildInputs = [
+          pkgs.pkl
+          pkgs.python3
+        ];
+        # The package must describe the hk that evaluates it.
+        postPatch = ''
+          declared=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "$declared" != ${lib.escapeShellArg hk.version} ]; then
+            echo "hk's source declares $declared, but pkgs.hk is ${hk.version}" >&2
+            exit 1
+          fi
+        '';
+        buildPhase = ''
+          runHook preBuild
+          export HOME=$TMPDIR
+          python3 scripts/gen_builtins.py
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out
+          cp -R pkl $out/pkl
+          runHook postInstall
+        '';
+      };
+
+      # Where the wasmfs-idb library's type check finds its generated types.
+      wasmfsIdbTypesLink = "runtime/wasmfs-idb/src/emscripten-types";
 
       # The LLVM emcc drives, so formatting agrees with the clangd editors run.
       clangFormat = pkgs.runCommand "ibus-web-clang-format" { } ''
@@ -62,8 +67,7 @@
         pkgs.reuse
         pkgs.actionlint
       ];
-      # The dev shell gets the workspace's TypeScript from the workspace's
-      # own module.
+      # Beyond what the dev shell already has.
       checkTools = tools ++ [
         pkgs.git
         typescript.nodejs
@@ -89,9 +93,9 @@
             cd src
             git init -q
             git add -A
-            # Each link is git-ignored, as in a checkout.
+            # Linked after `git add`, and git-ignored, as in a checkout.
             ln -s ${hkPkl} .hk
-            ln -s ${config.packages.wasmfs-idb-types} runtime/wasmfs-idb/src/emscripten-types
+            ln -s ${config.packages.wasmfs-idb-types} ${wasmfsIdbTypesLink}
             (
               cd ${typescript.workspace}
               find . -name node_modules -prune -print
@@ -107,11 +111,19 @@
         name = "ibus-web-format";
         runtimeInputs = checkTools;
         text = ''
+          # Paths given are relative to where `nix fmt` ran.
+          files=()
+          for file in "$@"; do
+            files+=("$(realpath -- "$file")")
+          done
           cd "''${FLAKE_ROOT:-$(${lib.getExe config.flake-root.package})}"
           if [ "$(readlink .hk)" != ${hkPkl} ]; then
             ln -sfn ${hkPkl} .hk
           fi
-          exec hk fix --all "$@"
+          if [ ''${#files[@]} -eq 0 ]; then
+            exec hk fix --all
+          fi
+          exec hk fix "''${files[@]}"
         '';
       };
 
