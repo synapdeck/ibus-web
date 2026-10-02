@@ -9,7 +9,7 @@
   "devDependencies": {
     "@ibus-web/test-browser": "workspace:*",
     "@types/node": "^24.19.0",
-    "playwright": "1.61.1",
+    "playwright": "1.63.0",
     "typescript": "^7.0.2"
   },
   "ibusWeb": {
