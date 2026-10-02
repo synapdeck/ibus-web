@@ -454,19 +454,31 @@ doorbell `postMessage` (§6.2.3).
   traps in V8: an atomic access that Liftoff compiled is bounds-checked
   against the memory size its thread last saw, which another thread's
   growth updates only once the accessing thread next handles its
-  interrupts. musl's locks and libc++'s shared pointers make such accesses
-  to memory another thread grew, which is what faulted in GLib's
-  many-thread tests (spike `docs/spikes/2026-10-01-runtime-worker.md`,
-  "Memory growth"; note
+  interrupts. In the spike, the atomic accesses that faulted this way were
+  libc++'s shared-pointer counts (WasmFS opening a file, in GLib's
+  many-thread `1bit-emufutex` test) and the spike workload's own atomic
+  increments of freshly allocated memory (spike
+  `docs/spikes/2026-10-01-runtime-worker.md`, "Memory growth"; note
   `docs/upstream/v8-liftoff-atomics-grown-shared-memory.md`). V8 fixed it on
   its main branch (issues 529880019 and 533026477), first in Chrome 157; no
-  Node release line has the fix yet. The runtime
-  imports its memory and is linked to accept any size from
-  `ibusWeb.runtime.memory.minimum` (32 MiB) up to 2 GiB; it refuses to
-  start without one. The Worker host makes a shared `WebAssembly.Memory`
-  of the engine manifest's `memory` bytes with its maximum at that size,
-  and passes it as `wasmMemory`; a full heap then aborts the runtime, as a
-  trap does (§8). The size is a manifest field rather than a link per
+  Node release line has the fix yet. The runtime is linked without memory
+  growth, so nothing in it can grow its memory, whatever maximum the memory
+  was given. Its memory import is declared from
+  `ibusWeb.runtime.memory.minimum` (32 MiB) to
+  `ibusWeb.runtime.memory.maximum` (2 GiB), so it takes any memory in
+  between (the build raises the declared maximum after linking, since the
+  linker ties a memory that doesn't grow to its initial size), and it
+  refuses to start without one. The Worker host makes a
+  shared `WebAssembly.Memory` of the engine manifest's `memory` bytes with
+  its maximum at that size, and passes it as `wasmMemory`. `memory` is a
+  whole number of 64 KiB pages from the minimum to 2 GiB; the host checks
+  it before making the memory, and a value outside that is a load failure
+  (§8) whose error gives the value and the bounds. A full heap aborts the
+  runtime, as a trap does (§8): with `-sABORTING_MALLOC=1` (Emscripten's
+  default without growth) every allocation the heap can't hold aborts
+  rather than returning `NULL`, including `g_try_malloc()` and `malloc()`
+  of an oversize request, so code that handles a failed try-allocation
+  never runs. The size is a manifest field rather than a link per
   engine so that one runtime binary serves every engine and the page
   compiles it once (Sharing, below). An engine's build sets `memory` to the
   runtime's minimum, plus the side module's own memory (its `dylink.0`
@@ -527,7 +539,7 @@ Generated at build time, partly from the engine's component XML. Example
   "runtimeAbi": 1,
   "protocol": 1,
   "module": "hangul.wasm",
-  "memory": 67108864, // bytes, fixed for the runtime's life (§5.3)
+  "memory": 67108864, // bytes, whole 64 KiB pages, fixed for the runtime's life (§5.3)
   "data": [{ "path": "/usr/share/libhangul", "url": "hangul-data.tar" }],
   "engines": [
     {
@@ -962,7 +974,7 @@ discarded, never repaired.
 | Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`           | Writes `CRASHED` and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                    | `EngineCrashed` with message and symbolized stack in debug builds |
 | Hang                                                         | no progress for 2 s, or replay queue over 64 | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                         | `EngineHung`                                                      |
 | Restart                                                      | policy `Schedule`                            | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and OPFS data are not. | engine state `failed` after the limit                             |
-| Load failure                                                 | fetch, compile, instantiate, data install    | Engine never enabled; router stays in direct input                                                                                                                                                                                                                    | `EngineLoadFailed`                                                |
+| Load failure                                                 | fetch, compile, manifest `memory` check, instantiate, data install | Engine never enabled; router stays in direct input                                                                                                                                                                                                                    | `EngineLoadFailed`                                                |
 | ABI or protocol mismatch                                     | manifest check; `Init` version check         | as load failure                                                                                                                                                                                                                                                       | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
 | No OPFS                                                      | mount fails                                  | in-memory mount                                                                                                                                                                                                                                                       | `storage: ephemeral`                                              |
 | Quota                                                        | write errors surface in the engine           | engine-specific                                                                                                                                                                                                                                                       | `storage` usage events, logs                                      |
