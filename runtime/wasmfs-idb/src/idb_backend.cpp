@@ -43,7 +43,10 @@ constexpr off_t maxFileSize = (off_t(1) << 53) - 1;
 class IdbBackend : public wasmfs::Backend {
 public:
   ProxyWorker proxy;
-  const bool readOnly;
+  // Set from the start, or by sealing; read on every caller's thread.
+  std::atomic<bool> readOnly;
+  // Read-only from the start, so nothing it wrote needs making durable.
+  const bool openedReadOnly;
   // The JavaScript side's handle for this backend's state; 0 until opened.
   int id = 0;
   uint32_t root = 0;
@@ -54,7 +57,8 @@ public:
   static_assert(sizeof(closed) == sizeof(int32_t));
   static_assert(std::atomic<int32_t>::is_always_lock_free);
 
-  explicit IdbBackend(bool readOnly) : readOnly(readOnly) {}
+  explicit IdbBackend(bool readOnly)
+      : readOnly(readOnly), openedReadOnly(readOnly) {}
 
   // A file can't exist outside a directory in the database.
   std::shared_ptr<DataFile> createFile(mode_t mode) override { return nullptr; }
@@ -176,9 +180,10 @@ private:
     return err;
   }
 
-  // A read-only backend has written nothing to make durable.
+  // A backend read-only from the start has written nothing to make durable;
+  // a sealed one may have.
   int flush() override {
-    if (backend.readOnly) {
+    if (backend.openedReadOnly) {
       return 0;
     }
     int err = 0;
@@ -421,6 +426,11 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags) {
   // different types.
   return reinterpret_cast<backend_t>(
       wasmfs::wasmFS.addBackend(std::move(backend)));
+}
+
+void wasmfs_idb_backend_seal(backend_t backend) {
+  static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend))
+      ->readOnly.store(true);
 }
 
 int wasmfs_idb_backend_closed(backend_t backend) {

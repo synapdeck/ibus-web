@@ -84,6 +84,7 @@
               ./tests/errors-post.js
             ];
           }
+          { source = "seal.c"; }
           { source = "sweep.1.c"; }
           # The first writer, a read-only backend, the writer whose sweep
           # fails and the last writer.

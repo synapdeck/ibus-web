@@ -3,12 +3,13 @@
 
 // The IndexedDB side of the WasmFS IndexedDB backend, run on the backend's
 // thread. A database holds four object stores: `meta` (format, chunk size,
-// next inode number, root inode), `inodes` (by inode number: kind, mode,
-// size and times in ms), `entries` (by [parent inode, name]: the child's
-// inode number) and `chunks` (by [inode, index]: an ArrayBuffer of at most
-// the chunk size). A missing chunk reads as zeros, and no chunk holds bytes
-// past its file's size, so truncating and growing again never brings old
-// bytes back.
+// next inode number, root inode, and `installed`, which the host writes
+// once engine data is installed and the backend reserves but never reads),
+// `inodes` (by inode number: kind, mode, size and times in ms), `entries`
+// (by [parent inode, name]: the child's inode number) and `chunks` (by
+// [inode, index]: an ArrayBuffer of at most the chunk size). A missing
+// chunk reads as zeros, and no chunk holds bytes past its file's size, so
+// truncating and growing again never brings old bytes back.
 //
 // Values are ArrayBuffers copied out of the module's memory, never views of
 // it, which is shared and can't be stored, and never Blobs, whose reads in
