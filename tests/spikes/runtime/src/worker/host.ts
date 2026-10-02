@@ -860,11 +860,6 @@ const idbStore = (
       }
     },
     async others() {
-      // Not Baseline Widely available yet (Firefox has it from 126 only);
-      // without it, other versions' data stays until a host that has it
-      // starts.
-      if (typeof indexedDB.databases !== "function")
-        throw new Error("indexedDB.databases() is missing here");
       return (await indexedDB.databases())
         .map(({ name }) => name ?? "")
         .filter((name) => name.startsWith(prefix))

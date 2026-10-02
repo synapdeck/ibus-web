@@ -22,9 +22,19 @@
         in
         toString ((part 0) * 10000 + (part 1) * 100 + part 2);
 
+      # Versions below which a browser's minimum never goes, whatever
+      # Baseline covers. A floor only ever raises the minimum; once Baseline
+      # reaches it, it has no effect. Firefox: indexedDB.databases(), which
+      # the host lists other versions' engine data with, is in Firefox 126
+      # and later; 124 and 125 together are some 0.02% of users.
+      floors = {
+        firefox = 126;
+      };
+
       # The browsers are those Baseline Widely available covers on the date
       # baseline-browser-mapping's data was last updated, so the result moves
-      # only when the package does, never with the build machine's clock.
+      # only when the package does, never with the build machine's clock,
+      # raised to the floors.
       minimumVersions =
         pkgs.runCommand "ibus-web-emscripten-minimum-versions"
           {
@@ -33,6 +43,7 @@
               nodejs
             ];
             timeline = "${baselineBrowserMapping.src}/src/data/timeline.js";
+            floors = builtins.toJSON floors;
             inherit nodeMinimum;
           }
           ''
@@ -62,12 +73,17 @@
                   }
                   return entries[0].version;
                 };
-                const minimums = {
+                const baseline = {
                   chrome: Number(versionOf("chrome")),
                   firefox: Number(versionOf("firefox")),
                   safari: encode(versionOf("safari")),
                   node: Number(process.env.nodeMinimum),
                 };
+                const minimums = { ...baseline };
+                for (const [browser, floor] of Object.entries(JSON.parse(process.env.floors))) {
+                  if (!(browser in minimums)) throw new Error(`a floor for unknown ''${browser}`);
+                  minimums[browser] = Math.max(minimums[browser], floor);
+                }
                 for (const [browser, version] of Object.entries(minimums)) {
                   if (!Number.isInteger(version)) throw new Error(`unreadable ''${browser} version`);
                 }

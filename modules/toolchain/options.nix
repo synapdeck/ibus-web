@@ -18,7 +18,8 @@
         description = ''
           The oldest browsers and Node every link targets, as Emscripten's MIN_*_VERSION
           settings: the browsers Baseline Widely available covered on the date of
-          baseline-browser-mapping's data, and the workspace's Node. It holds date, that
+          baseline-browser-mapping's data, raised to any floor set for a browser, and the
+          workspace's Node. It holds date, that
           date; versions.json, the four versions; and link-flags, one line of the
           -sMIN_*_VERSION flags. pkgsWasm's compilers add them to every link.
         '';
