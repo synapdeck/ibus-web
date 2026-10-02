@@ -1,4 +1,4 @@
-WasmFS: stop a ProxyWorker's heartbeat when its thread exits
+WasmFS: stop a ProxyWorker's heartbeat before its thread exits
 
 A ProxyWorker's thread starts a 50 ms interval timer that executes the
 worker's proxying queue, and nothing ever stopped it. When the
@@ -9,9 +9,10 @@ emscripten_proxy_execute_queue() on the freed queue: on an idle Worker
 that fails its pthread_self() assertion, and without assertions, or once
 the Worker runs another thread, it locks and reads freed memory.
 
-Keep the Worker's timer in a JS variable, and clear it from a
-thread_local destructor, which runs on the worker thread as it exits,
-canceled or not.
+Keep the Worker's timer in a JS variable, and have the destructor clear
+it on the worker thread, with a synchronous proxied call, before it
+cancels the thread. The destructor is the only way a ProxyWorker's
+thread ends while the program runs.
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-proxy-worker-heartbeat.md
@@ -62,7 +63,7 @@ index e5c36ba..d4d7cd3 100644
    _wasmfs_stdin_get_char__deps: ['$FS_stdin_getChar'],
    _wasmfs_stdin_get_char: () => {
 diff --git a/system/lib/wasmfs/thread_utils.h b/system/lib/wasmfs/thread_utils.h
-index e05e236..8da70fb 100644
+index e05e236..2e6515f 100644
 --- a/system/lib/wasmfs/thread_utils.h
 +++ b/system/lib/wasmfs/thread_utils.h
 @@ -15,6 +15,7 @@
@@ -73,25 +74,16 @@ index e05e236..8da70fb 100644
  }
  
  namespace emscripten {
-@@ -34,6 +35,13 @@ class ProxyWorker {
-   // the body of the constructor, but is done out of caution.
-   std::thread thread;
+@@ -89,6 +90,12 @@ public:
  
-+  // Stops the heartbeat as the worker thread exits. Its Worker outlives it
-+  // and goes back to the pool, timers and all, while the queue the heartbeat
-+  // executes is freed once the thread is joined.
-+  struct HeartbeatStopper {
-+    ~HeartbeatStopper() { _wasmfs_thread_utils_heartbeat_stop(); }
-+  };
-+
- public:
-   // Spawn the worker thread.
-   ProxyWorker() : queue() {
-@@ -62,6 +70,7 @@ public:
-       // Note that this requires adding _emscripten_proxy_execute_queue to
-       // EXPORTED_FUNCTIONS.
-       _wasmfs_thread_utils_heartbeat(queue.queue);
-+      static thread_local HeartbeatStopper stopper;
- 
-       // Sit in the event loop performing work as it comes in.
-       emscripten_exit_with_live_runtime();
+   // Kill the worker thread.
+   ~ProxyWorker() {
++    // Stop the heartbeat first, on the thread, the only one that can reach
++    // its timer: the thread's Worker outlives it and goes back to the pool,
++    // timers and all, while the queue the heartbeat executes is freed once
++    // the thread is joined.
++    queue.proxySync(thread.native_handle(),
++                    []() { _wasmfs_thread_utils_heartbeat_stop(); });
+     pthread_cancel(thread.native_handle());
+     thread.join();
+   }

@@ -21,22 +21,24 @@ index 2fea77b..ff90a64 100644
  
 diff --git a/test/wasmfs/wasmfs_proxy_worker_exit.cpp b/test/wasmfs/wasmfs_proxy_worker_exit.cpp
 new file mode 100644
-index 0000000..2f157cc
+index 0000000..223478b
 --- /dev/null
 +++ b/test/wasmfs/wasmfs_proxy_worker_exit.cpp
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,43 @@
 +// A ProxyWorker that is destroyed leaves nothing running against its queue,
 +// while the Worker its thread ran on sits idle in the pool and then hosts
 +// another thread. Each wait is long enough for the 50 ms heartbeat to fire
 +// several times.
 +
++#include <emscripten/emscripten.h>
++#include <emscripten/eventloop.h>
++#include <stdio.h>
++#include <thread>
++
++// thread_utils.h uses these without including them.
 +#include <assert.h>
 +#include <condition_variable>
-+#include <emscripten/eventloop.h>
 +#include <mutex>
-+#include <stdio.h>
-+#include <stdlib.h>
-+#include <thread>
 +
 +#include "thread_utils.h"
 +
@@ -54,7 +56,7 @@ index 0000000..2f157cc
 +
 +static void second_idle(void*) {
 +  printf("done\n");
-+  exit(0);
++  emscripten_force_exit(0);
 +}
 +
 +static void first_idle(void*) {

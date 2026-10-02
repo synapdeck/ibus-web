@@ -120,14 +120,16 @@ let it write and expects `EACCES`.
 0018 changes `system/lib/wasmfs/thread_utils.h`, which backends include,
 and `src/lib/libwasmfs.js` (with the new import's signature in
 `libsigs.js`). A Worker hosts one thread at a time, so the heartbeat's
-timer is kept in one variable per Worker; a `thread_local` whose destructor
-clears it is made on the backend's thread right after the timer starts,
-and runs as the thread exits, which a cancellation does too. The queue is
-freed only after the join, so no tick can reach it.
-`checks.emscripten-fixes` destroys a `ProxyWorker` and leaves its Worker
-idle, then busy with other threads, for several heartbeats each; unpatched,
-the first tick on the idle Worker fails `emscripten_proxy_execute_queue()`'s
-`pthread_self()` assertion, every time.
+timer is kept in one variable per Worker. `~ProxyWorker()` clears it with
+a synchronous call proxied to the thread, the only one that can reach its
+Worker's timers, before it cancels and joins the thread, so no tick can
+follow the queue being freed. While the program runs, that destructor is
+the only way a ProxyWorker's thread ends; at exit the runtime terminates
+the Workers. `checks.emscripten-fixes` destroys a `ProxyWorker` and leaves
+its Worker idle, then busy with other threads, for several heartbeats
+each; unpatched, the first tick on the idle Worker fails
+`emscripten_proxy_execute_queue()`'s `pthread_self()` assertion, every
+time.
 
 Not carried, by decision: pipe capacity, and end of file on a
 JavaScript-file-system pipe whose writers have closed. Their drafts stay in

@@ -49,16 +49,19 @@ This is the 6.0.9 release tag as packaged by nixpkgs, built against its own
 LLVM 22.1.8, so there is no commit hash. Node.js v24.19.0, x86_64 Linux.
 
 **Test case** (`proxy_worker_exit.cpp`). It includes the internal header
-directly; a backend does the same thing:
+directly, as a backend does, and the headers `thread_utils.h` uses without
+including them (`<assert.h>`, `<mutex>`, `<condition_variable>`):
 
 ```c++
+#include <emscripten/emscripten.h>
+#include <emscripten/eventloop.h>
+#include <stdio.h>
+#include <thread>
+
+// thread_utils.h uses these without including them.
 #include <assert.h>
 #include <condition_variable>
-#include <emscripten/eventloop.h>
 #include <mutex>
-#include <stdio.h>
-#include <stdlib.h>
-#include <thread>
 
 #include "thread_utils.h"
 
@@ -76,7 +79,7 @@ static void use_worker() {
 
 static void second_idle(void*) {
   printf("done\n");
-  exit(0);
+  emscripten_force_exit(0);
 }
 
 static void first_idle(void*) {
@@ -129,12 +132,12 @@ freed queue is still readable and empty, so nothing shows.
 - The next tick fails here
   ([proxying.c#L113](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/proxying.c#L113)).
 
-**Suggested fix:** stop the heartbeat when its thread exits. A Worker hosts
-one thread at a time, so it needs only one variable for the timer; a
-`thread_local` whose destructor clears it runs on the worker thread as it
-exits, cancellation included (`__pthread_tsd_run_dtors()` in
-`_emscripten_thread_exit()`), which is before the join returns and the
-queue is freed. 21 lines added, 3 removed:
+**Suggested fix:** stop the heartbeat before the thread is cancelled. A
+Worker hosts one thread at a time, so it needs only one variable for the
+timer, and `~ProxyWorker()` clears it with a synchronous call proxied to the
+thread (only the thread can reach its Worker's timers) before it cancels and
+joins it, so no tick can follow the queue being freed. 19 lines added, 3
+removed:
 
 ```diff
 diff --git a/src/lib/libsigs.js b/src/lib/libsigs.js
@@ -191,40 +194,40 @@ diff --git a/system/lib/wasmfs/thread_utils.h b/system/lib/wasmfs/thread_utils.h
  }
  
  namespace emscripten {
-@@ -34,6 +35,13 @@ class ProxyWorker {
-   // the body of the constructor, but is done out of caution.
-   std::thread thread;
+@@ -89,6 +90,12 @@ public:
  
-+  // Stops the heartbeat as the worker thread exits. Its Worker outlives it
-+  // and goes back to the pool, timers and all, while the queue the heartbeat
-+  // executes is freed once the thread is joined.
-+  struct HeartbeatStopper {
-+    ~HeartbeatStopper() { _wasmfs_thread_utils_heartbeat_stop(); }
-+  };
-+
- public:
-   // Spawn the worker thread.
-   ProxyWorker() : queue() {
-@@ -62,6 +70,7 @@ public:
-       // Note that this requires adding _emscripten_proxy_execute_queue to
-       // EXPORTED_FUNCTIONS.
-       _wasmfs_thread_utils_heartbeat(queue.queue);
-+      static thread_local HeartbeatStopper stopper;
- 
-       // Sit in the event loop performing work as it comes in.
-       emscripten_exit_with_live_runtime();
+   // Kill the worker thread.
+   ~ProxyWorker() {
++    // Stop the heartbeat first, on the thread, the only one that can reach
++    // its timer: the thread's Worker outlives it and goes back to the pool,
++    // timers and all, while the queue the heartbeat executes is freed once
++    // the thread is joined.
++    queue.proxySync(thread.native_handle(),
++                    []() { _wasmfs_thread_utils_heartbeat_stop(); });
+     pthread_cancel(thread.native_handle());
+     thread.join();
+   }
 ```
 
 With this applied the test case prints `done` and exits 0, 10 times in 10.
 `setInterval()` returns an object in Node, which is why the timer stays in
 JavaScript rather than being handed to C++ to clear.
 
-Two alternatives that don't work: checking in the tick that `pthread_self()`
-is still the thread that started the heartbeat (the pool often hands the
-same Worker to a new thread whose `pthread_t` is the freed one's address),
-and stopping it from `~ProxyWorker()` (the timer belongs to the Worker's
-JavaScript, which only the worker thread itself can reach without another
-proxied round trip).
+The proxied call costs one more round trip to the thread when a backend is
+destroyed; the join already waits for one. While the program runs, the
+destructor is the only way a ProxyWorker's thread ends, so stopping the
+heartbeat there covers every case. Alternatives considered:
+
+- A `thread_local` whose destructor stops the heartbeat as the thread exits
+  (thread-specific data destructors run on cancellation too). It also
+  covers a thread that ends some other way, but leans on libc++abi's
+  `__cxa_thread_atexit` key, and has to be registered before the heartbeat
+  starts: registering can block on a lock, and a blocked pthread acts on a
+  pending cancel, which a destructor running just after the constructor
+  returns can send.
+- Checking in each tick that `pthread_self()` is still the thread that
+  started the heartbeat. The pool often hands the same Worker to a new
+  thread whose `pthread_t` is the freed one's address.
 
 **Test for the PR,** in the suite's format (also as
 `emscripten-wasmfs-proxy-worker-heartbeat.tests.patch` beside this draft):

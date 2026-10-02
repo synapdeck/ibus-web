@@ -6,15 +6,15 @@
  * another thread; the program stays alive long enough for the worker
  * thread's 50 ms heartbeat to have fired several times in each state. */
 
+#include <emscripten/emscripten.h>
+#include <emscripten/eventloop.h>
+#include <stdio.h>
+#include <thread>
+
+/* thread_utils.h uses these without including them. */
+#include <assert.h>
 #include <condition_variable>
 #include <mutex>
-
-#include <assert.h>
-#include <emscripten/eventloop.h>
-#include <emscripten/threading.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <thread>
 
 #include "thread_utils.h"
 
@@ -37,10 +37,9 @@ static void use_worker() {
 }
 
 static void second_idle(void *) {
-  if (failures)
-    exit(1);
-  puts("ok");
-  exit(0);
+  if (!failures)
+    puts("ok");
+  emscripten_force_exit(failures ? 1 : 0);
 }
 
 /* Both of the pool's Workers host threads again, the one the first
