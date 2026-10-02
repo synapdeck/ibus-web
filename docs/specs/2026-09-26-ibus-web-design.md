@@ -1888,7 +1888,9 @@ specification and `release.json`.
    byte for byte; read-only and sealed backends refusing every change with
    `EROFS`; a version change closing every backend, with `EIO` after it; a
    failed open giving its thread back; and the orphan sweep, including one
-   that fails.
+   that fails. A fresh context is off the record, and Chromium keeps its
+   IndexedDB in memory, so these checks say nothing about durability or
+   its cost; the spike's measurements use profiles on disk.
    **The Worker host** runs one set of scenarios under Node, with
    `worker_threads` standing in for browser Workers, and through Playwright
    in headless Chromium and Firefox, offline in the Nix sandbox, against a
