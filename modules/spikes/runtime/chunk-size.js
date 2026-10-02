@@ -15,15 +15,8 @@ const wasmfsIdbChunkSizeByName = () => {
   store.put = function (value, ...rest) {
     const { transaction } = this;
     const size = /-chunk-(\d+)$/.exec(transaction.db.name)?.[1];
-    const creating =
-      this.name === "meta" &&
-      rest[0] === "chunkSize" &&
-      transaction.mode === "versionchange";
-    return put.call(
-      this,
-      creating && size !== undefined ? Number(size) : value,
-      ...rest,
-    );
+    const creating = this.name === "meta" && rest[0] === "chunkSize" && transaction.mode === "versionchange";
+    return put.call(this, creating && size !== undefined ? Number(size) : value, ...rest);
   };
 };
 

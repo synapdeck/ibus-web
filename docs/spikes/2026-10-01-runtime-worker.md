@@ -66,11 +66,11 @@ each pthread being its own Worker with its own JavaScript realm, so every
 realm needs the buffer, including those of Workers Emscripten creates after
 startup. Three ways to get it there were tried:
 
-| Variant | How the buffer reaches pthread realms | Result |
-| --- | --- | --- |
-| V1 | `createRuntime({ ibuswebControl })`, read from `Module` | **Fails.** Pthread Workers run `Module()` with no settings; `CMD_LOAD` forwards only handler names, the memory, the module and the side modules. 54 hook calls on pthreads found no buffer, and `cross-thread-wake` failed its bound: attach to dispatch p50 18.0 ms, max 132.7 ms. |
-| V2 | A `--js-library` postset puts the buffer into Emscripten's `sharedModules` map, which `CMD_LOAD` clones to every pthread Worker, pool and later ones alike | **Works for wakes:** no misses; `cross-thread-wake` p50 0.11 ms, max 0.40 ms (asserting build), with 16 Workers created after startup. But it rides on an undocumented, `MAIN_MODULE`-only variable and the contents of an internal message. |
-| V3 | The host posts the buffer to each pthread Worker | Not run: it needs code in the pthread realm to receive the message (Emscripten's handler ignores messages without a known `cmd`) and a hook into Worker creation for Workers made later, the same internals as V2 and more. |
+| Variant | How the buffer reaches pthread realms                                                                                                                      | Result                                                                                                                                                                                                                                                                              |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1      | `createRuntime({ ibuswebControl })`, read from `Module`                                                                                                    | **Fails.** Pthread Workers run `Module()` with no settings; `CMD_LOAD` forwards only handler names, the memory, the module and the side modules. 54 hook calls on pthreads found no buffer, and `cross-thread-wake` failed its bound: attach to dispatch p50 18.0 ms, max 132.7 ms. |
+| V2      | A `--js-library` postset puts the buffer into Emscripten's `sharedModules` map, which `CMD_LOAD` clones to every pthread Worker, pool and later ones alike | **Works for wakes:** no misses; `cross-thread-wake` p50 0.11 ms, max 0.40 ms (asserting build), with 16 Workers created after startup. But it rides on an undocumented, `MAIN_MODULE`-only variable and the contents of an internal message.                                        |
+| V3      | The host posts the buffer to each pthread Worker                                                                                                           | Not run: it needs code in the pthread realm to receive the message (Emscripten's handler ignores messages without a known `cmd`) and a hook into Worker creation for Workers made later, the same internals as V2 and more.                                                         |
 
 V1 and V2 were linked in scratch (the runtime's own link line plus
 `--js-library` and a C file installing the hook), not committed.
@@ -188,12 +188,12 @@ with enough idle Workers, and a final event-loop turn finds nothing left to
 reclaim. The same harness on the
 runtime built before the patch, and after it (released builds):
 
-| | Round 1 | 2 | 3 | 4 | 5 | After one event-loop turn |
-| --- | --- | --- | --- | --- | --- | --- |
-| Before: heap in use (MiB) | 11.27 | 15.31 | 19.34 | 23.37 | 27.41 | 0.18 |
-| Before: Workers created (idle at start) | 4 (0) | 4 (0) | 4 (0) | 4 (0) | 4 (0) | |
-| After: heap in use (MiB) | 0.18 | 0.18 | 0.18 | 0.18 | 0.18 | 0.18 |
-| After: Workers created (idle at start) | 0 (7) | 0 (7) | 0 (7) | 0 (7) | 0 (7) | |
+|                                         | Round 1 | 2     | 3     | 4     | 5     | After one event-loop turn |
+| --------------------------------------- | ------- | ----- | ----- | ----- | ----- | ------------------------- |
+| Before: heap in use (MiB)               | 11.27   | 15.31 | 19.34 | 23.37 | 27.41 | 0.18                      |
+| Before: Workers created (idle at start) | 4 (0)   | 4 (0) | 4 (0) | 4 (0) | 4 (0) |                           |
+| After: heap in use (MiB)                | 0.18    | 0.18  | 0.18  | 0.18  | 0.18  | 0.18                      |
+| After: Workers created (idle at start)  | 0 (7)   | 0 (7) | 0 (7) | 0 (7) | 0 (7) |                           |
 
 Before the patch, round 1 already starts at 11 MiB, leaked by the earlier
 scenarios' threads, and the run then aborts in `promise-proxied-fsync` with
@@ -205,19 +205,19 @@ builds without any event-loop turn.
 Option 2 with the patch, released runtime unless marked. Each criterion is the
 check's pass condition.
 
-| Scenario | Criterion | Result | Measured |
-| --- | --- | --- | --- |
-| `dispatch` | 1000 `add` round trips back to back, every sum right | PASS | p50 9.8 µs, p99 39.8 µs, max 302.7 µs; mean of ten batches of 100 timed whole 11.6 µs (9.6–17.0); 998 of 1001 requests found the host asleep (asserting: 9.4 / 30.5 / 310.4 µs, mean 11.6 µs) |
-| `cold-wake` | 300 `add` round trips, each sent 2 ms after the last reply: every sum right, every request found the host asleep | PASS | p50 27.6 µs, p99 44.3 µs, max 47.8 µs, mean 25.9 µs; 301 of 301 asleep (asserting: 17.4 / 51.7 / 76.0 µs, mean 18.9 µs) |
-| `thread-create-blocked` | a burst of the side modules' share of the pool (4) alive at once, `spawn(4)` from a pump and `spawn-nested(3)` from a thread, starts and joins every thread, creating no Worker and never returning the host to its event loop | PASS | 11 of 11 Workers idle; `spawn(4)` 71.3 ms, `spawn-nested(3)` 2.2 ms; 0 Workers created, 0 event-loop turns |
-| `pool-top-up` | with as many threads alive as the shares plan for (8) and the host idle, the pool stays as it is with its 3 spare Workers idle; with one more alive, the host tops it up by one Worker, back to 3 idle | PASS | peak: 8 alive, 3 of 11 idle, 0 Workers created, 0 top-ups, 0 event-loop turns; one more: a top-up of 1 Worker in 73.8 ms, 3 of 12 idle |
-| `thread-exit-blocked` | above, with rounds of `spawn-detached(4)` | PASS | heap 0.18 MiB in every round and after a turn; 0 Workers created, 12 idle at each round's start |
-| `cross-thread-wake` | `idle-later(50)` ×20, host idle: attach → dispatch p50 ≤ 20 ms and max ≤ 200 ms (max ≤ 20 ms by hand, with `--compare`) | PASS | ε p50 0.050 ms, max 0.080 ms |
-| `deadline` | `g_timeout_add(100)` ×5, no requests: 100 ± 10 ms | PASS | 100.096–100.234 ms; worst deviation 0.234 ms |
-| `sync-proxied` | while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, and a GTask that a thread other than the host's starts, all complete | PASS | `proxy-sync` 557 µs; `spawn-nested(2)` joined 2; GTask 2294 µs, after which GLib keeps 3 Workers |
-| `promise-proxied-fsync` | `fsync()` from a thread completes on each backend | PASS | WasmFS memory and Node backends: each within 2.2 ms (the poll's resolution) |
-| `exceptions` | `throw` replies `-ECANCELED`, then `add` works | PASS | `-11` (`ECANCELED`), then 2 |
-| `thread-crash` (a host of its own) | a thread that traps takes the host down: requests fail as crashed, and the host reports the thread's error | PASS | "a thread crashed: Error: unreachable", with the trapping thread's stack |
+| Scenario                           | Criterion                                                                                                                                                                                                                      | Result | Measured                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dispatch`                         | 1000 `add` round trips back to back, every sum right                                                                                                                                                                           | PASS   | p50 9.8 µs, p99 39.8 µs, max 302.7 µs; mean of ten batches of 100 timed whole 11.6 µs (9.6–17.0); 998 of 1001 requests found the host asleep (asserting: 9.4 / 30.5 / 310.4 µs, mean 11.6 µs) |
+| `cold-wake`                        | 300 `add` round trips, each sent 2 ms after the last reply: every sum right, every request found the host asleep                                                                                                               | PASS   | p50 27.6 µs, p99 44.3 µs, max 47.8 µs, mean 25.9 µs; 301 of 301 asleep (asserting: 17.4 / 51.7 / 76.0 µs, mean 18.9 µs)                                                                       |
+| `thread-create-blocked`            | a burst of the side modules' share of the pool (4) alive at once, `spawn(4)` from a pump and `spawn-nested(3)` from a thread, starts and joins every thread, creating no Worker and never returning the host to its event loop | PASS   | 11 of 11 Workers idle; `spawn(4)` 71.3 ms, `spawn-nested(3)` 2.2 ms; 0 Workers created, 0 event-loop turns                                                                                    |
+| `pool-top-up`                      | with as many threads alive as the shares plan for (8) and the host idle, the pool stays as it is with its 3 spare Workers idle; with one more alive, the host tops it up by one Worker, back to 3 idle                         | PASS   | peak: 8 alive, 3 of 11 idle, 0 Workers created, 0 top-ups, 0 event-loop turns; one more: a top-up of 1 Worker in 73.8 ms, 3 of 12 idle                                                        |
+| `thread-exit-blocked`              | above, with rounds of `spawn-detached(4)`                                                                                                                                                                                      | PASS   | heap 0.18 MiB in every round and after a turn; 0 Workers created, 12 idle at each round's start                                                                                               |
+| `cross-thread-wake`                | `idle-later(50)` ×20, host idle: attach → dispatch p50 ≤ 20 ms and max ≤ 200 ms (max ≤ 20 ms by hand, with `--compare`)                                                                                                        | PASS   | ε p50 0.050 ms, max 0.080 ms                                                                                                                                                                  |
+| `deadline`                         | `g_timeout_add(100)` ×5, no requests: 100 ± 10 ms                                                                                                                                                                              | PASS   | 100.096–100.234 ms; worst deviation 0.234 ms                                                                                                                                                  |
+| `sync-proxied`                     | while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, and a GTask that a thread other than the host's starts, all complete                                                             | PASS   | `proxy-sync` 557 µs; `spawn-nested(2)` joined 2; GTask 2294 µs, after which GLib keeps 3 Workers                                                                                              |
+| `promise-proxied-fsync`            | `fsync()` from a thread completes on each backend                                                                                                                                                                              | PASS   | WasmFS memory and Node backends: each within 2.2 ms (the poll's resolution)                                                                                                                   |
+| `exceptions`                       | `throw` replies `-ECANCELED`, then `add` works                                                                                                                                                                                 | PASS   | `-11` (`ECANCELED`), then 2                                                                                                                                                                   |
+| `thread-crash` (a host of its own) | a thread that traps takes the host down: requests fail as crashed, and the host reports the thread's error                                                                                                                     | PASS   | "a thread crashed: Error: unreachable", with the trapping thread's stack                                                                                                                      |
 
 `spawn-nested` is R2's case: a thread other than the host's creates threads
 while the host sleeps in `ibusweb_wait`. Each creation is proxied to the host,
@@ -232,13 +232,13 @@ is needed, so the scenario that exhausts the pool runs in browsers only.
 
 For comparison, released runtime, from the run before the pool was resized:
 
-| Scenario | Option 2 | Idle host in `Atomics.waitAsync` | Relay-less (`control` mode) |
-| --- | --- | --- | --- |
-| `dispatch` p50 / p99 | 9.3 / 27.1 µs | 6.6 / 29.1 µs | 3.9 / 16.5 µs |
-| `cold-wake` p50 / p99 | 15.9 / 46.2 µs | 12.2 / 45.5 µs | 11.3 / 54.8 µs |
-| `cross-thread-wake` ε p50 / max | 0.050 / 0.080 ms | 0.028 / 0.044 ms | 0.103 / 0.292 ms |
-| `deadline` worst deviation | 0.234 ms | 0.177 ms | 0.158 ms |
-| `sync-proxied` | all complete | all complete | `proxy-sync`, `spawn-nested` and the GTask hang |
+| Scenario                        | Option 2         | Idle host in `Atomics.waitAsync` | Relay-less (`control` mode)                     |
+| ------------------------------- | ---------------- | -------------------------------- | ----------------------------------------------- |
+| `dispatch` p50 / p99            | 9.3 / 27.1 µs    | 6.6 / 29.1 µs                    | 3.9 / 16.5 µs                                   |
+| `cold-wake` p50 / p99           | 15.9 / 46.2 µs   | 12.2 / 45.5 µs                   | 11.3 / 54.8 µs                                  |
+| `cross-thread-wake` ε p50 / max | 0.050 / 0.080 ms | 0.028 / 0.044 ms                 | 0.103 / 0.292 ms                                |
+| `deadline` worst deviation      | 0.234 ms         | 0.177 ms                         | 0.158 ms                                        |
+| `sync-proxied`                  | all complete     | all complete                     | `proxy-sync`, `spawn-nested` and the GTask hang |
 
 The `control` mode is not option 1: its host sleeps on the control buffer's
 `wake` word, which the page bumps, so a request reaches it without the relay,
@@ -270,12 +270,12 @@ page → host. Six runs of the released runtime outside the sandbox (Node
 v24.20.0, nothing else running); each cell is the median over the runs of
 that run's p50 or p99, with the range:
 
-| | Relay-less (`control`) | Option 2 (`runtime`) | Difference per run (an upper bound on the relay's hop) |
-| --- | --- | --- | --- |
-| `cold-wake` p50 | 11.1 µs (9.8–12.3) | 14.7 µs (12.2–28.0) | +2.8 µs (+2.1 to +17.1) |
-| `cold-wake` p99 | 35.6 µs (27.1–38.2) | 41.5 µs (37.0–50.7) | +8.3 µs (+5.1 to +12.5) |
-| `dispatch` p50 | 5.7 µs (3.8–7.7) | 8.0 µs (6.4–9.9) | +2.4 µs (−1.1 to +6.1) |
-| `dispatch` p99 | 16.3 µs (11.6–23.0) | 34.3 µs (25.3–39.9) | +15.9 µs (+11.0 to +22.1) |
+|                 | Relay-less (`control`) | Option 2 (`runtime`) | Difference per run (an upper bound on the relay's hop) |
+| --------------- | ---------------------- | -------------------- | ------------------------------------------------------ |
+| `cold-wake` p50 | 11.1 µs (9.8–12.3)     | 14.7 µs (12.2–28.0)  | +2.8 µs (+2.1 to +17.1)                                |
+| `cold-wake` p99 | 35.6 µs (27.1–38.2)    | 41.5 µs (37.0–50.7)  | +8.3 µs (+5.1 to +12.5)                                |
+| `dispatch` p50  | 5.7 µs (3.8–7.7)       | 8.0 µs (6.4–9.9)     | +2.4 µs (−1.1 to +6.1)                                 |
+| `dispatch` p99  | 16.3 µs (11.6–23.0)    | 34.3 µs (25.3–39.9)  | +15.9 µs (+11.0 to +22.1)                              |
 
 The difference between the two modes is an upper bound on the relay's hop,
 not the hop itself: option 2's host also sleeps inside the runtime, so it
@@ -339,7 +339,7 @@ synchronous keystroke path would. A spin gives up after 1 s, over ten times
 the longest any request takes when nothing waits for the page (a pump that
 starts four threads: 50 ms in Chromium, 72 ms under Node). The page then
 waits for the reply with `Atomics.waitAsync`, its event loop running, and
-counts a reply that only comes then as a *late reply* that fails its
+counts a reply that only comes then as a _late reply_ that fails its
 scenario. The host stays in step, so the scenarios after it still run.
 
 The design's keystroke path (D6) spins for at most 40 ms, then consumes the
@@ -401,14 +401,14 @@ table is M0.4's, with OPFS as the storage backend; M0.5 mounts two IndexedDB
 backends, a storage share of 2 and a pool of 12 (see "The IndexedDB backend"
 below):
 
-| Share | Threads | Kept | How it was counted |
-| --- | --- | --- | --- |
-| GLib | 3 | the first two for good, the third 15.5 s after its last task | `sync-proxied`, which now asserts it: after its GTask, 3 more Workers are busy than before, in Node and both browsers. This is the footprint of one GTask in flight, not GLib's maximum. GTask's first use starts GLib's worker-context thread (`g_task_thread_pool_init` attaches its pool manager to `g_get_worker_context()`, which starts `gmain`), the thread-pool spawner, and a worker the spawner starts, which waits 0.5 s in the GTask pool, then 15 s among unused threads. GTasks in flight at once start more workers: GTask's pool allows `G_TASK_POOL_SIZE` (10), and its pool manager raises that while every worker stays busy |
-| OPFS backend | 1 | from mount, for good | 7 of 8 Workers idle with OPFS mounted, 8 of 8 without |
-| Engine (the spike's side modules) | 4 | while they run | the largest burst a scenario starts, `spawn(4)`; an engine's share would come from its manifest |
-| Planned | 8 | | glib 3 + storage 1 (measured with OPFS) + engine 4 |
-| Spare (`lowWater`) | 3 | | GLib's share, below |
-| Pool | **11** | | planned 8 + spare 3 |
+| Share                             | Threads | Kept                                                         | How it was counted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | ------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GLib                              | 3       | the first two for good, the third 15.5 s after its last task | `sync-proxied`, which now asserts it: after its GTask, 3 more Workers are busy than before, in Node and both browsers. This is the footprint of one GTask in flight, not GLib's maximum. GTask's first use starts GLib's worker-context thread (`g_task_thread_pool_init` attaches its pool manager to `g_get_worker_context()`, which starts `gmain`), the thread-pool spawner, and a worker the spawner starts, which waits 0.5 s in the GTask pool, then 15 s among unused threads. GTasks in flight at once start more workers: GTask's pool allows `G_TASK_POOL_SIZE` (10), and its pool manager raises that while every worker stays busy |
+| OPFS backend                      | 1       | from mount, for good                                         | 7 of 8 Workers idle with OPFS mounted, 8 of 8 without                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Engine (the spike's side modules) | 4       | while they run                                               | the largest burst a scenario starts, `spawn(4)`; an engine's share would come from its manifest                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Planned                           | 8       |                                                              | glib 3 + storage 1 (measured with OPFS) + engine 4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Spare (`lowWater`)                | 3       |                                                              | GLib's share, below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Pool                              | **11**  |                                                              | planned 8 + spare 3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 Starting the runtime starts no thread (11 of 11 idle before any scenario).
 
@@ -524,22 +524,22 @@ at no particular point of the step, so the mean of its 300 round trips is
 finer than the step too. The ε and deadline numbers come from GLib's clock,
 which reads the same coarsened clock.
 
-| Scenario | Node | Chromium 149 | Firefox 151 |
-| --- | --- | --- | --- |
-| `dispatch` p50 / p99 / max; batch mean (range) | 9.8 / 39.8 / 303 µs; 11.6 µs (9.6–17.0) | 5 / 30 / 425 µs; 6.3 µs (5.4–10.4) | 20 / 40 / 380 µs; 10.0 µs (9.4–18.2) |
-| `cold-wake` p50 / p99 / max; mean | 27.6 / 44.3 / 47.8 µs; 25.9 µs | 30 / 60 / 75 µs; 31.6 µs | 20 / 40 / 100 µs; 19.4 µs |
-| `thread-create-blocked` | PASS: `spawn(4)` 71.9 ms, `spawn-nested(3)` 2.2 ms | PASS: 50.1 ms, 4.2 ms | PASS: 17.7 ms, 4.2 ms |
-| `pool-top-up` (pool of 11) | PASS: no growth at 8 alive; top-up of 1 in 73.8 ms at 9 | PASS: the same; 47.3 ms | PASS: the same; 48.4 ms |
-| `thread-exit-blocked` | PASS: 0.18 MiB every round, 0 Workers created | PASS: the same (2.2 MiB before, on a host that the failed `thread-create-blocked` had left with threads that never started) | PASS: the same |
-| `cross-thread-wake` ε p50 / max | 0.050 / 0.091 ms | 0.035 / 0.085 ms | 0.061 / 0.120 ms |
-| `deadline` worst deviation | 0.190 ms | 0.211 ms | 0.239 ms |
-| `sync-proxied` | PASS: `proxy-sync` 557 µs, GTask 2294 µs, 3 Workers kept | PASS: 340 µs, 1491 µs, 3 | PASS: 419 µs, 2080 µs, 3 |
-| `promise-proxied-fsync` | PASS: memory 2.1 ms, Node backend 6.4 ms | PASS: memory 4.1 ms; OPFS 4.4 ms | PASS: memory 4.2 ms; OPFS 8.6 ms |
-| `exceptions`, `thread-crash` | PASS | PASS | PASS |
-| `pool-exhausted` | (browsers only) | PASS: as above | PASS: as above |
-| `opfs` (files opened `O_RDWR`) | (no OPFS) | PASS: write + `fsync` + close 0.73 ms, read back 0.38 ms | PASS: 5.5 ms, 2.1 ms |
-| `opfs-read-only` | (no OPFS) | PASS: read back 0.63 ms | **FAIL (known):** the read's reply came only once the 1 s spin gave up, 0.7 ms after it |
-| `cold-wake` with OPFS mounted | | 35 / 95 / 170 µs; 36.4 µs | 40 / 80 / 200 µs; 31.9 µs |
+| Scenario                                       | Node                                                     | Chromium 149                                                                                                                | Firefox 151                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `dispatch` p50 / p99 / max; batch mean (range) | 9.8 / 39.8 / 303 µs; 11.6 µs (9.6–17.0)                  | 5 / 30 / 425 µs; 6.3 µs (5.4–10.4)                                                                                          | 20 / 40 / 380 µs; 10.0 µs (9.4–18.2)                                                    |
+| `cold-wake` p50 / p99 / max; mean              | 27.6 / 44.3 / 47.8 µs; 25.9 µs                           | 30 / 60 / 75 µs; 31.6 µs                                                                                                    | 20 / 40 / 100 µs; 19.4 µs                                                               |
+| `thread-create-blocked`                        | PASS: `spawn(4)` 71.9 ms, `spawn-nested(3)` 2.2 ms       | PASS: 50.1 ms, 4.2 ms                                                                                                       | PASS: 17.7 ms, 4.2 ms                                                                   |
+| `pool-top-up` (pool of 11)                     | PASS: no growth at 8 alive; top-up of 1 in 73.8 ms at 9  | PASS: the same; 47.3 ms                                                                                                     | PASS: the same; 48.4 ms                                                                 |
+| `thread-exit-blocked`                          | PASS: 0.18 MiB every round, 0 Workers created            | PASS: the same (2.2 MiB before, on a host that the failed `thread-create-blocked` had left with threads that never started) | PASS: the same                                                                          |
+| `cross-thread-wake` ε p50 / max                | 0.050 / 0.091 ms                                         | 0.035 / 0.085 ms                                                                                                            | 0.061 / 0.120 ms                                                                        |
+| `deadline` worst deviation                     | 0.190 ms                                                 | 0.211 ms                                                                                                                    | 0.239 ms                                                                                |
+| `sync-proxied`                                 | PASS: `proxy-sync` 557 µs, GTask 2294 µs, 3 Workers kept | PASS: 340 µs, 1491 µs, 3                                                                                                    | PASS: 419 µs, 2080 µs, 3                                                                |
+| `promise-proxied-fsync`                        | PASS: memory 2.1 ms, Node backend 6.4 ms                 | PASS: memory 4.1 ms; OPFS 4.4 ms                                                                                            | PASS: memory 4.2 ms; OPFS 8.6 ms                                                        |
+| `exceptions`, `thread-crash`                   | PASS                                                     | PASS                                                                                                                        | PASS                                                                                    |
+| `pool-exhausted`                               | (browsers only)                                          | PASS: as above                                                                                                              | PASS: as above                                                                          |
+| `opfs` (files opened `O_RDWR`)                 | (no OPFS)                                                | PASS: write + `fsync` + close 0.73 ms, read back 0.38 ms                                                                    | PASS: 5.5 ms, 2.1 ms                                                                    |
+| `opfs-read-only`                               | (no OPFS)                                                | PASS: read back 0.63 ms                                                                                                     | **FAIL (known):** the read's reply came only once the 1 s spin gave up, 0.7 ms after it |
+| `cold-wake` with OPFS mounted                  |                                                          | 35 / 95 / 170 µs; 36.4 µs                                                                                                   | 40 / 80 / 200 µs; 31.9 µs                                                               |
 
 Calls that held the page's thread past D6's 40 ms: in Chromium, `spawn(4)`
 (49.9 ms) and `pool-exhausted`'s burst of three on new Workers (49.5 ms); in
@@ -556,15 +556,15 @@ Comparisons (released runtime, one run of `nix run .#runtime-spike-compare`
 on this host outside the sandbox; the runs above in the same invocation gave
 cold-wake means of 41.0 µs in Chromium and 37.6 µs in Firefox):
 
-| | Chromium | Firefox |
-| --- | --- | --- |
-| Page waits asynchronously: `cold-wake` p50 / p99, mean | 40 / 70 µs, 39.7 µs | 40 / 140 µs, 57.5 µs |
-| Page waits asynchronously: every scenario | PASS | PASS, `opfs-read-only` included (read back 0.5 ms) |
-| Idle host in `Atomics.waitAsync`: `cold-wake` p50 / p99, mean | 35 / 65 µs, 35.4 µs | 40 / 100 µs, 40.1 µs |
-| Idle host in `Atomics.waitAsync`: every scenario | PASS | PASS |
-| Relay-less (`control`): `cold-wake` p50 / p99, mean | 20 / 45 µs, 20.6 µs | 20 / 80 µs, 20.5 µs |
-| Relay-less (`control`): `dispatch` batch mean | 5.9 µs (option 2: 7.0 µs) | 9.0 µs (option 2: 10.4 µs) |
-| Relay-less (`control`): `sync-proxied` | FAIL: pending, as under Node | FAIL: pending, as under Node |
+|                                                               | Chromium                     | Firefox                                            |
+| ------------------------------------------------------------- | ---------------------------- | -------------------------------------------------- |
+| Page waits asynchronously: `cold-wake` p50 / p99, mean        | 40 / 70 µs, 39.7 µs          | 40 / 140 µs, 57.5 µs                               |
+| Page waits asynchronously: every scenario                     | PASS                         | PASS, `opfs-read-only` included (read back 0.5 ms) |
+| Idle host in `Atomics.waitAsync`: `cold-wake` p50 / p99, mean | 35 / 65 µs, 35.4 µs          | 40 / 100 µs, 40.1 µs                               |
+| Idle host in `Atomics.waitAsync`: every scenario              | PASS                         | PASS                                               |
+| Relay-less (`control`): `cold-wake` p50 / p99, mean           | 20 / 45 µs, 20.6 µs          | 20 / 80 µs, 20.5 µs                                |
+| Relay-less (`control`): `dispatch` batch mean                 | 5.9 µs (option 2: 7.0 µs)    | 9.0 µs (option 2: 10.4 µs)                         |
+| Relay-less (`control`): `sync-proxied`                        | FAIL: pending, as under Node | FAIL: pending, as under Node                       |
 
 At the p50 and p99, option 2 and the relay-less mode are indistinguishable
 at one or two clock steps. The means separate them: in that run a cold wake
@@ -587,17 +587,17 @@ calls and creates Worker D. Each Worker marks its steps in a shared buffer,
 once with the page's main thread free and once with it spinning for 3 s
 (ms after go, one run on this host):
 
-| Step | Chromium, page free | Chromium, page spins | Firefox, page free | Firefox, page spins |
-| --- | --- | --- | --- | --- |
-| A: `new Worker(C)` returns | 0 | 0 | 0 | **3001** |
-| C starts | **3004** | **3004** | 13 | 3009 |
-| A unblocks (it blocks for 3000 ms once `new Worker(C)` returns) | 3000 | 3000 | 3000 | 6001 |
-| B: `getDirectory()`, `getFileHandle()` (present, absent) | 0–1 | 0 | 0 | 0 |
-| B: sync access handle created, written, flushed, closed | 1 | 1 | 3 | 2 |
-| B: `getFile()` | 1 | 1 | 4 | 3 |
-| B: `File.arrayBuffer()` | 1 | 1 | 4 | **3001** |
-| B: `new Worker(D)` returns | 2 | 1 | 4 | **3003** |
-| D starts | 5 | 4 | 14 | 3009 |
+| Step                                                            | Chromium, page free | Chromium, page spins | Firefox, page free | Firefox, page spins |
+| --------------------------------------------------------------- | ------------------- | -------------------- | ------------------ | ------------------- |
+| A: `new Worker(C)` returns                                      | 0                   | 0                    | 0                  | **3001**            |
+| C starts                                                        | **3004**            | **3004**             | 13                 | 3009                |
+| A unblocks (it blocks for 3000 ms once `new Worker(C)` returns) | 3000                | 3000                 | 3000               | 6001                |
+| B: `getDirectory()`, `getFileHandle()` (present, absent)        | 0–1                 | 0                    | 0                  | 0                   |
+| B: sync access handle created, written, flushed, closed         | 1                   | 1                    | 3                  | 2                   |
+| B: `getFile()`                                                  | 1                   | 1                    | 4                  | 3                   |
+| B: `File.arrayBuffer()`                                         | 1                   | 1                    | 4                  | **3001**            |
+| B: `new Worker(D)` returns                                      | 2                   | 1                    | 4                  | **3003**            |
+| D starts                                                        | 5                   | 4                    | 14                 | 3009                |
 
 - **Chromium starts a Worker only once the thread that created it returns to
   its event loop** (C at 3004 ms). A thread beyond the pool would never start
@@ -682,15 +682,15 @@ them to `read-file`). With the page waiting asynchronously it passes (0.5 ms).
 host; Y and X are Workers of one page, Z a Worker of another page of the same
 origin):
 
-| Case, on one file | Chromium 149 | Firefox 151 |
-| --- | --- | --- |
+| Case, on one file                                                                                   | Chromium 149                 | Firefox 151                  |
+| --------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------- |
 | X holds a handle with no mode or `readwrite`; Y opens one in any mode, or X again or Z with no mode | `NoModificationAllowedError` | `NoModificationAllowedError` |
-| X holds `read-only`; Y, X again, or Z opens `read-only` | ok | `NoModificationAllowedError` |
-| X holds `readwrite-unsafe`; Y opens `readwrite-unsafe` | ok | `NoModificationAllowedError` |
-| `read-only` against `readwrite-unsafe`, either way | `NoModificationAllowedError` | `NoModificationAllowedError` |
-| Y reads the file as a Blob while X holds a handle, any mode | ok | ok |
-| Y opens a writable stream while X holds a handle, any mode | `NoModificationAllowedError` | `NoModificationAllowedError` |
-| X writes through a handle it opened `read-only` | `NoModificationAllowedError` | writes: the mode is ignored |
+| X holds `read-only`; Y, X again, or Z opens `read-only`                                             | ok                           | `NoModificationAllowedError` |
+| X holds `readwrite-unsafe`; Y opens `readwrite-unsafe`                                              | ok                           | `NoModificationAllowedError` |
+| `read-only` against `readwrite-unsafe`, either way                                                  | `NoModificationAllowedError` | `NoModificationAllowedError` |
+| Y reads the file as a Blob while X holds a handle, any mode                                         | ok                           | ok                           |
+| Y opens a writable stream while X holds a handle, any mode                                          | `NoModificationAllowedError` | `NoModificationAllowedError` |
+| X writes through a handle it opened `read-only`                                                     | `NoModificationAllowedError` | writes: the mode is ignored  |
 
 The WHATWG File System standard has no `mode`: a sync access handle takes an
 exclusive lock on its file. Chromium's modes (`read-only` and
@@ -703,7 +703,7 @@ writable handle when asked for `read-only`. So:
   engine: a second engine Worker, or the same engine in a second tab, gets
   `EACCES` until the first closes it.
 - A small upstream change, `O_RDONLY` opening `createSyncAccessHandle({mode:
-  "read-only"})` and falling back to the Blob, would share read-only handles
+"read-only"})` and falling back to the Blob, would share read-only handles
   in Chromium only. In Firefox (and by the standard, Safari) it would turn
   every read-only open into an exclusive, writable lock, and no feature test
   tells the two apart short of trying a write. Not a safe default upstream;
@@ -740,29 +740,29 @@ ended before the spin did.
 
 Chromium 149:
 
-| Operation | Page free | Page spins | Ends during the spin |
-| --- | --- | --- | --- |
-| IndexedDB, ArrayBuffer values: open, read 64 × 64 KiB in one readonly transaction | 12.8–13.8 | 12.0–15.4 | yes, 3/3 |
-| The same, the connection already open | 11.5–12.6 | 11.8–16.8 | yes, 3/3 |
-| IndexedDB, already open: one 4 MiB ArrayBuffer value | 3.2–3.9 | 2.6–3.3 | yes, 3/3 |
-| IndexedDB, already open: write 64 × 64 KiB in one readwrite transaction, to commit | 12.7–15.8 | 14.8–15.8 | yes, 3/3 |
-| IndexedDB, Blob values: 64 gets in one transaction, then each Blob's `arrayBuffer()` | 9.8–11.0 | 9.2–12.6 | yes, 3/3 |
-| Cache Storage: `caches.open()`, then 64 × `match()` and `Response.arrayBuffer()` | 11.4–14.9 | 14.1–15.5 | yes, 3/3 |
-| OPFS, Blob: `getFile()`, then 64 slices' `arrayBuffer()` | 12.9–15.1 | 13.7–14.4 | yes, 3/3 |
-| OPFS, sync access handle: open, 64 reads, close | 5.0–6.7 | 4.8–5.7 | yes, 3/3 |
+| Operation                                                                            | Page free | Page spins | Ends during the spin |
+| ------------------------------------------------------------------------------------ | --------- | ---------- | -------------------- |
+| IndexedDB, ArrayBuffer values: open, read 64 × 64 KiB in one readonly transaction    | 12.8–13.8 | 12.0–15.4  | yes, 3/3             |
+| The same, the connection already open                                                | 11.5–12.6 | 11.8–16.8  | yes, 3/3             |
+| IndexedDB, already open: one 4 MiB ArrayBuffer value                                 | 3.2–3.9   | 2.6–3.3    | yes, 3/3             |
+| IndexedDB, already open: write 64 × 64 KiB in one readwrite transaction, to commit   | 12.7–15.8 | 14.8–15.8  | yes, 3/3             |
+| IndexedDB, Blob values: 64 gets in one transaction, then each Blob's `arrayBuffer()` | 9.8–11.0  | 9.2–12.6   | yes, 3/3             |
+| Cache Storage: `caches.open()`, then 64 × `match()` and `Response.arrayBuffer()`     | 11.4–14.9 | 14.1–15.5  | yes, 3/3             |
+| OPFS, Blob: `getFile()`, then 64 slices' `arrayBuffer()`                             | 12.9–15.1 | 13.7–14.4  | yes, 3/3             |
+| OPFS, sync access handle: open, 64 reads, close                                      | 5.0–6.7   | 4.8–5.7    | yes, 3/3             |
 
 Firefox 151:
 
-| Operation | Page free | Page spins | Ends during the spin |
-| --- | --- | --- | --- |
-| IndexedDB, ArrayBuffer values: open, read 64 × 64 KiB in one readonly transaction | 12.4–14.1 | 12.5–25.4 | yes, 3/3 |
-| The same, the connection already open | 12.2–13.3 | 12.8–14.2 | yes, 3/3 |
-| IndexedDB, already open: one 4 MiB ArrayBuffer value | 10.3–12.2 | 10.2–10.9 | yes, 3/3 |
-| IndexedDB, already open: write 64 × 64 KiB in one readwrite transaction, to commit | 23.0–24.7 | 23.4–24.6 | yes, 3/3 |
-| IndexedDB, Blob values: 64 gets in one transaction, then each Blob's `arrayBuffer()` | 9.1–12.8 | **206.5–207.9** | **no, 0/3**: the gets and the commit end at 4.2–5.0 ms, the first `arrayBuffer()` at 200.7–200.8 |
-| Cache Storage: `caches.open()`, then 64 × `match()` and `Response.arrayBuffer()` | 19.3–24.3 | **220.9–226.9** | **no, 0/3**: `open()` and the first `match()` by 1.4 ms, the first `arrayBuffer()` at 200.9–201.1 |
-| OPFS, Blob: `getFile()`, then 64 slices' `arrayBuffer()` | 7.1–8.5 | **207.3–209.2** | **no, 0/3**: `getFile()` at 0.7–0.8 ms, the first slice at 200.6–200.8 |
-| OPFS, sync access handle: open, 64 reads, close | 4.2–22.1 | 3.6–3.8 | yes, 3/3 |
+| Operation                                                                            | Page free | Page spins      | Ends during the spin                                                                              |
+| ------------------------------------------------------------------------------------ | --------- | --------------- | ------------------------------------------------------------------------------------------------- |
+| IndexedDB, ArrayBuffer values: open, read 64 × 64 KiB in one readonly transaction    | 12.4–14.1 | 12.5–25.4       | yes, 3/3                                                                                          |
+| The same, the connection already open                                                | 12.2–13.3 | 12.8–14.2       | yes, 3/3                                                                                          |
+| IndexedDB, already open: one 4 MiB ArrayBuffer value                                 | 10.3–12.2 | 10.2–10.9       | yes, 3/3                                                                                          |
+| IndexedDB, already open: write 64 × 64 KiB in one readwrite transaction, to commit   | 23.0–24.7 | 23.4–24.6       | yes, 3/3                                                                                          |
+| IndexedDB, Blob values: 64 gets in one transaction, then each Blob's `arrayBuffer()` | 9.1–12.8  | **206.5–207.9** | **no, 0/3**: the gets and the commit end at 4.2–5.0 ms, the first `arrayBuffer()` at 200.7–200.8  |
+| Cache Storage: `caches.open()`, then 64 × `match()` and `Response.arrayBuffer()`     | 19.3–24.3 | **220.9–226.9** | **no, 0/3**: `open()` and the first `match()` by 1.4 ms, the first `arrayBuffer()` at 200.9–201.1 |
+| OPFS, Blob: `getFile()`, then 64 slices' `arrayBuffer()`                             | 7.1–8.5   | **207.3–209.2** | **no, 0/3**: `getFile()` at 0.7–0.8 ms, the first slice at 200.6–200.8                            |
+| OPFS, sync access handle: open, 64 reads, close                                      | 4.2–22.1  | 3.6–3.8         | yes, 3/3                                                                                          |
 
 In Firefox the wait follows the Blob, not the store: whatever hands the
 Worker a Blob or a response body to read (an OPFS `File`, a Blob-valued
@@ -777,15 +777,15 @@ well inside the spin. Chromium never waits for the page.
 **Concurrency** (one run per browser; X and Y are Workers of one page, Z a
 Worker of a second page of the same origin; ms are each read's last step):
 
-| Case | Chromium 149 | Firefox 151 |
-| --- | --- | --- |
-| X and Y each read the 64 chunks at once | ok, 19.5 ms; ok, 16.4 ms | ok, 14.3 ms; ok, 14.3 ms |
-| The same, the page spinning 200 ms | ok, 14.8; ok, 19.0 | ok, 14.5; ok, 14.4 |
-| X (page 1) and Z (page 2), each with a connection held open since before, read at once | ok, 16.1; ok, 16.6 | ok, 14.3; ok, 14.0 |
-| Y reads the 64 chunks while X rewrites them in one readwrite transaction (X; Y) | ok, 15.2; ok, 28.3 | ok, 21.6; ok, 28.5 |
+| Case                                                                                      | Chromium 149                                              | Firefox 151                                               |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| X and Y each read the 64 chunks at once                                                   | ok, 19.5 ms; ok, 16.4 ms                                  | ok, 14.3 ms; ok, 14.3 ms                                  |
+| The same, the page spinning 200 ms                                                        | ok, 14.8; ok, 19.0                                        | ok, 14.5; ok, 14.4                                        |
+| X (page 1) and Z (page 2), each with a connection held open since before, read at once    | ok, 16.1; ok, 16.6                                        | ok, 14.3; ok, 14.0                                        |
+| Y reads the 64 chunks while X rewrites them in one readwrite transaction (X; Y)           | ok, 15.2; ok, 28.3                                        | ok, 21.6; ok, 28.5                                        |
 | Z opens the database at version 2 while X holds a connection, which X closes 300 ms later | X gets `versionchange`; Z `blocked`, then opens at 299 ms | X gets `versionchange`; Z `blocked`, then opens at 305 ms |
-| Cache Storage: X and Y read the 64 responses at once | ok, 18.6; ok, 19.0 | ok, 20.3; ok, 20.0 |
-| OPFS: Y opens a sync access handle while X holds one | `NoModificationAllowedError` | `NoModificationAllowedError` |
+| Cache Storage: X and Y read the 64 responses at once                                      | ok, 18.6; ok, 19.0                                        | ok, 20.3; ok, 20.0                                        |
+| OPFS: Y opens a sync access handle while X holds one                                      | `NoModificationAllowedError`                              | `NoModificationAllowedError`                              |
 
 IndexedDB never refuses a reader: readonly transactions run side by side
 across Workers and pages, and a readonly transaction over a store that a
@@ -801,16 +801,16 @@ or at size-aligned offsets into a 4 MiB OPFS file; Firefox's clock steps by
 20 µs, so its sub-20 µs medians are its resolution and the means are the
 figures to compare):
 
-| Read | Chromium 149 | Firefox 151 |
-| --- | --- | --- |
-| IndexedDB, 4 KiB, a readonly transaction per read | 40 / 65 / 42 | 60 / 100 / 58 |
-| IndexedDB, 4 KiB, all 256 in one readonly transaction | 20 / 45 / 27 | 40 / 60 / 44 |
-| OPFS, 4 KiB, sync access handle `read()` | 45 / 60 / 44 | 20 / 20 / 15 |
-| OPFS, 4 KiB, Blob slice `arrayBuffer()` | 125 / 150 / 126 | 60 / 80 / 58 |
-| IndexedDB, 64 KiB, a readonly transaction per read | 175 / 325 / 194 | 200 / 620 / 300 |
+| Read                                                   | Chromium 149    | Firefox 151     |
+| ------------------------------------------------------ | --------------- | --------------- |
+| IndexedDB, 4 KiB, a readonly transaction per read      | 40 / 65 / 42    | 60 / 100 / 58   |
+| IndexedDB, 4 KiB, all 256 in one readonly transaction  | 20 / 45 / 27    | 40 / 60 / 44    |
+| OPFS, 4 KiB, sync access handle `read()`               | 45 / 60 / 44    | 20 / 20 / 15    |
+| OPFS, 4 KiB, Blob slice `arrayBuffer()`                | 125 / 150 / 126 | 60 / 80 / 58    |
+| IndexedDB, 64 KiB, a readonly transaction per read     | 175 / 325 / 194 | 200 / 620 / 300 |
 | IndexedDB, 64 KiB, all 256 in one readonly transaction | 145 / 245 / 157 | 180 / 240 / 193 |
-| OPFS, 64 KiB, sync access handle `read()` | 50 / 85 / 56 | 0 / 20 / 8 |
-| OPFS, 64 KiB, Blob slice `arrayBuffer()` | 200 / 245 / 196 | 80 / 160 / 109 |
+| OPFS, 64 KiB, sync access handle `read()`              | 50 / 85 / 56    | 0 / 20 / 8      |
+| OPFS, 64 KiB, Blob slice `arrayBuffer()`               | 200 / 245 / 196 | 80 / 160 / 109  |
 
 A random 4 KiB read from IndexedDB costs 20–60 µs, about a sync access
 handle's in Chromium and three to four times its cost in Firefox; at 64 KiB
@@ -825,13 +825,13 @@ keep.
 **Evidence for the decision** (decided: the second, under "Conclusions for
 the design"):
 
-- *Load engine data into memory at engine start.* Works in both browsers from
+- _Load engine data into memory at engine start._ Works in both browsers from
   any store, the Blob paths included, since engine start isn't under the
   spin; no lock, so every tab and engine instance can load the same data.
   4 MiB reads in 3–25 ms from IndexedDB or OPFS here. The cost is a copy in
   every runtime instance's memory (the fixed 32 MiB of the spike's build) and
   in the engine's start-up time.
-- *An IndexedDB-backed WasmFS backend for lazy reads.* The evidence favours
+- _An IndexedDB-backed WasmFS backend for lazy reads._ The evidence favours
   it on both counts that rule out OPFS in Firefox: ArrayBuffer-valued reads
   complete during the spin, and nothing takes an exclusive lock, so a second
   tab or engine instance reads the same data. Conditions: values must stay
@@ -839,7 +839,7 @@ the design"):
   outside Emscripten; each read pays IndexedDB's 20–60 µs (4 KiB) plus the
   proxying round trip; the data must be written into IndexedDB at install;
   and schema upgrades need connections that close on `versionchange`.
-- *Accept D6 replays.* Keep OPFS's Blob path for lazy reads: no lock, and
+- _Accept D6 replays._ Keep OPFS's Blob path for lazy reads: no lock, and
   Chromium never waits. In Firefox every keystroke whose read reaches a Blob
   that the runtime hasn't read before would spin the full 40 ms and replay:
   the read waits for the page, not for its bytes, so the cost is per
@@ -867,14 +867,14 @@ each new address they see. A reader only touches memory a sequentially
 consistent load told it was grown, so none should trap. Races in which one
 did, of 20 per cell, 8192 growths each:
 
-| Engine | plain load and store | atomic RMW | atomic RMW in a callee | atomic RMW after a JS call | atomic RMW, never grown |
-| --- | --- | --- | --- | --- | --- |
-| Node, default | 0 | **20** (42 readers) | 0 | 0 | 0 |
-| Node, `--liftoff --no-wasm-tier-up` | 0 | **20** (34 readers) | 0 | 0 | 0 |
-| Node, `--no-liftoff` | 0 | 0 | 0 | 0 | 0 |
-| Chromium 149 | 0 | **20** (29 readers) | 0 | 0 | 0 |
-| Firefox 151 | 0 | 0 | 0 | 0 | 0 |
-| Bun 1.3.13 (JavaScriptCore) | 0 | 0 | 0 | 0 | 0 |
+| Engine                              | plain load and store | atomic RMW          | atomic RMW in a callee | atomic RMW after a JS call | atomic RMW, never grown |
+| ----------------------------------- | -------------------- | ------------------- | ---------------------- | -------------------------- | ----------------------- |
+| Node, default                       | 0                    | **20** (42 readers) | 0                      | 0                          | 0                       |
+| Node, `--liftoff --no-wasm-tier-up` | 0                    | **20** (34 readers) | 0                      | 0                          | 0                       |
+| Node, `--no-liftoff`                | 0                    | 0                   | 0                      | 0                          | 0                       |
+| Chromium 149                        | 0                    | **20** (29 readers) | 0                      | 0                          | 0                       |
+| Firefox 151                         | 0                    | 0                   | 0                      | 0                          | 0                       |
+| Bun 1.3.13 (JavaScriptCore)         | 0                    | 0                   | 0                      | 0                          | 0                       |
 
 The same race in C through Emscripten's pthreads (`growrace.c`) trapped in
 5 of 5 runs under Node. Only V8 traps, only on atomic accesses, only in
@@ -893,24 +893,24 @@ line has them (Node 24: V8 13.6, 25: 14.1, 26: 14.6). Details in
 ### The workloads, growing and fixed
 
 Each run is a Worker host of its own with 100 threads alive at once on a
-pool of 103 (no top-up during a run): *mem-stress*, without GLib's code,
+pool of 103 (no top-up during a run): _mem-stress_, without GLib's code,
 threads that each round keep one more block of fresh memory, hand one to a
 neighbour that increments a word of it atomically, and have JavaScript fill
-another; *glib-stress*, GLib's `1bit-emufutex` workload (threads from
-`g_rand_new()` taking random bit locks over the emulated futex). *Growth* is
+another; _glib-stress_, GLib's `1bit-emufutex` workload (threads from
+`g_rand_new()` taking random bit locks over the emulated futex). _Growth_ is
 the runtime linked with `-sGROWABLE_ARRAYBUFFERS=1`, its memory made at the
-32 MiB minimum with a 2 GiB maximum; *growable* the same with `=2`; *fixed*
+32 MiB minimum with a 2 GiB maximum; _growable_ the same with `=2`; _fixed_
 a 512 MiB memory whose maximum is its size. Node ran 6 runs at once,
 browsers 2 pages at once. Runs in which a thread trapped:
 
-| Configuration | Node (of 300) | Chromium (of 50) | Firefox (of 50) |
-| --- | --- | --- | --- |
-| fixed, mem-stress | 0 | 0 | 0 |
-| fixed, glib-stress | 0 | 0 | 0 |
-| growth, mem-stress | **3** | 0 | 0 |
-| growth, glib-stress | 0 | 0 | 0 |
-| growable (`=2`), mem-stress | not run (Node 24 lacks it) | 0 | no result |
-| growable (`=2`), glib-stress | not run | 0 | no result |
+| Configuration                | Node (of 300)              | Chromium (of 50) | Firefox (of 50) |
+| ---------------------------- | -------------------------- | ---------------- | --------------- |
+| fixed, mem-stress            | 0                          | 0                | 0               |
+| fixed, glib-stress           | 0                          | 0                | 0               |
+| growth, mem-stress           | **3**                      | 0                | 0               |
+| growth, glib-stress          | 0                          | 0                | 0               |
+| growable (`=2`), mem-stress  | not run (Node 24 lacks it) | 0                | no result       |
+| growable (`=2`), glib-stress | not run                    | 0                | no result       |
 
 GLib's own `1bit-emufutex` test, rebuilt from today's GLib tests with only
 its memory flags changed, 32 copies at once under Node: with growth
@@ -936,17 +936,17 @@ batch Firefox's browser process went away once during growth, glib-stress
 One `memory-costs` run per build: the first 64 MiB allocation, which a
 32 MiB memory must grow for, then the same again, and 10,000 calls into
 JavaScript that write 64 bytes into the memory (`getentropy`), which a build
-that polls for growth checks its views for first. Here *fixed* is the link
-with growth support given a fixed 512 MiB memory, and *unpolled* a fixed
+that polls for growth checks its views for first. Here _fixed_ is the link
+with growth support given a fixed 512 MiB memory, and _unpolled_ a fixed
 512 MiB link without growth support, for comparison (the runtime is now
-linked as *unpolled* was).
+linked as _unpolled_ was).
 
-| | Chromium | Firefox | Node (loaded machine) |
-| --- | --- | --- | --- |
-| first 64 MiB malloc: fixed / growth | 15 µs / 240 µs | 20 µs / 3.4 ms | 26 µs / 443 µs |
-| touching it, any build | 9.9–13.0 ms | 8.6–8.8 ms | 11–27 ms |
+|                                                     | Chromium                   | Firefox                        | Node (loaded machine)           |
+| --------------------------------------------------- | -------------------------- | ------------------------------ | ------------------------------- |
+| first 64 MiB malloc: fixed / growth                 | 15 µs / 240 µs             | 20 µs / 3.4 ms                 | 26 µs / 443 µs                  |
+| touching it, any build                              | 9.9–13.0 ms                | 8.6–8.8 ms                     | 11–27 ms                        |
 | `getentropy` call: fixed / growth / `=2` / unpolled | 880 / 1049 / 1041 / 911 ns | 732 / 710 / no result / 704 ns | 2980 / 2581 / not run / 1231 ns |
-| dispatch p50: fixed / growth / `=2` / unpolled | 15 / 15 / 10 / 15 µs | 20 / 20 / no result / 20 µs | 10.5 / 11.9 / not run / 6.9 µs |
+| dispatch p50: fixed / growth / `=2` / unpolled      | 15 / 15 / 10 / 15 µs       | 20 / 20 / no result / 20 µs    | 10.5 / 11.9 / not run / 6.9 µs  |
 
 Growth costs once per growth, 0.2–0.4 ms in V8 and 3.4 ms in Firefox for
 64 MiB; polling (Firefox's and Node's `=1` path) costs nothing measurable
@@ -961,10 +961,10 @@ into it; two batches, the spike's and the check's. Growth of the browser's
 processes (proportional set size, from `/proc`) or of Node's process
 (resident set), per Worker:
 
-| | Chromium | Firefox | Node |
-| --- | --- | --- | --- |
-| per added pool Worker | 17.8–17.9 MiB | 11.7–15.6 MiB | 41.4–41.8 MiB |
-| per Worker's first thread | 4.4–4.7 MiB | 2.8–3.1 MiB | 9.7–9.8 MiB |
+|                           | Chromium      | Firefox       | Node          |
+| ------------------------- | ------------- | ------------- | ------------- |
+| per added pool Worker     | 17.8–17.9 MiB | 11.7–15.6 MiB | 41.4–41.8 MiB |
+| per Worker's first thread | 4.4–4.7 MiB   | 2.8–3.1 MiB   | 9.7–9.8 MiB   |
 
 The spike's pool of 11 Workers costs about 200 MiB in Chromium and up to
 170 MiB in Firefox, 250 and 200 MiB once each has run a thread, on top of
@@ -987,13 +987,13 @@ runtime's memory is fixed**, made by the host:
   for `g_try_malloc()`. `checks.ibus-runtime-load` asserts the refusal,
   the bounds, and that a memory with room to grow is never grown. Without
   growth support Emscripten's JavaScript doesn't check its views before
-  each access, as the *unpolled* build above didn't; that build is now
-  the *fixed* one.
+  each access, as the _unpolled_ build above didn't; that build is now
+  the _fixed_ one.
 - The size is the engine manifest's `memory` field (spec §5.3, §8), not a
   link per engine, so one compiled runtime serves every engine. The Worker
   host checks it is whole pages within the runtime's bounds, failing the
   load otherwise, and makes `new WebAssembly.Memory({ initial, maximum:
-  initial, shared: true })` from it. `checks.runtime-spike-node` asserts
+initial, shared: true })` from it. `checks.runtime-spike-node` asserts
   the refusals and that a full heap reaches the host as a crash.
 - `ibusWeb.runtime.link { pname, extraFlags }` links the runtime with other
   flags; the spike's growth builds use it.
@@ -1209,11 +1209,11 @@ followed by a strict one, from a page outside the runtime, show that a
 strict commit syncs only if it writes (counted under `strace`; the traces
 weren't kept):
 
-| 50 rounds of a relaxed write, then | Chromium 149 | Firefox 151 |
-| --- | --- | --- |
-| nothing | no sync call | no sync call |
-| an empty strict transaction | no sync call | no sync call |
-| a strict transaction that puts a record back | 50 `fdatasync` | 50 `fsync` |
+| 50 rounds of a relaxed write, then           | Chromium 149   | Firefox 151  |
+| -------------------------------------------- | -------------- | ------------ |
+| nothing                                      | no sync call   | no sync call |
+| an empty strict transaction                  | no sync call   | no sync call |
+| a strict transaction that puts a record back | 50 `fdatasync` | 50 `fsync`   |
 
 The backend's `fsync()` was the empty kind, so it made nothing durable: the
 first five-run set measured 35–90 µs for it, under a proxied read. It now
@@ -1233,26 +1233,26 @@ Five runs per browser, chunk size and page mode, released runtime with the
 `fsync()` above. Each cell is the median over the runs of each run's
 median, in µs, page spinning / page idle (`Atomics.waitAsync()`):
 
-| Chromium 149 | 16 KiB | 64 KiB | 256 KiB |
-| --- | --- | --- | --- |
-| random 4 KiB read | 155 / 120 | 380 / 365 | 585 / 500 |
-| random 64 KiB read | 215 / 215 | 525 / 360 | 570 / 510 |
-| 4 KiB read, page round trip | 280 / 205 | 535 / 405 | 660 / 625 |
-| 64 KiB read, page round trip | 480 / 425 | 740 / 535 | 720 / 670 |
-| 64 KiB `write()`, sequential | 360 / 300 | 935 / 905 | 1820 / 1775 |
-| 64-byte append `write()` | 415 / 275 | 495 / 395 | 1940 / 1705 |
-| its `fsync()` | 570 / 475 | 585 / 520 | 545 / 505 |
-| `fsync()` after the whole write | 1475 / 1370 | 690 / 570 | 830 / 615 |
+| Chromium 149                    | 16 KiB      | 64 KiB    | 256 KiB     |
+| ------------------------------- | ----------- | --------- | ----------- |
+| random 4 KiB read               | 155 / 120   | 380 / 365 | 585 / 500   |
+| random 64 KiB read              | 215 / 215   | 525 / 360 | 570 / 510   |
+| 4 KiB read, page round trip     | 280 / 205   | 535 / 405 | 660 / 625   |
+| 64 KiB read, page round trip    | 480 / 425   | 740 / 535 | 720 / 670   |
+| 64 KiB `write()`, sequential    | 360 / 300   | 935 / 905 | 1820 / 1775 |
+| 64-byte append `write()`        | 415 / 275   | 495 / 395 | 1940 / 1705 |
+| its `fsync()`                   | 570 / 475   | 585 / 520 | 545 / 505   |
+| `fsync()` after the whole write | 1475 / 1370 | 690 / 570 | 830 / 615   |
 
-| Firefox 151 | 16 KiB | 64 KiB | 256 KiB |
-| --- | --- | --- | --- |
-| random 4 KiB read | 160 / 140 | 260 / 240 | 480 / 480 |
-| random 64 KiB read | 220 / 200 | 260 / 260 | 520 / 520 |
-| 4 KiB read, page round trip | 280 / 320 | 380 / 420 | 660 / 640 |
-| 64 KiB read, page round trip | 560 / 640 | 620 / 600 | 840 / 860 |
-| 64 KiB `write()`, sequential | 380 / 360 | 380 / 380 | 700 / 700 |
-| 64-byte append `write()` | 300 / 360 | 460 / 460 | 800 / 820 |
-| its `fsync()` | 460 / 500 | 580 / 540 | 640 / 640 |
+| Firefox 151                     | 16 KiB      | 64 KiB      | 256 KiB     |
+| ------------------------------- | ----------- | ----------- | ----------- |
+| random 4 KiB read               | 160 / 140   | 260 / 240   | 480 / 480   |
+| random 64 KiB read              | 220 / 200   | 260 / 260   | 520 / 520   |
+| 4 KiB read, page round trip     | 280 / 320   | 380 / 420   | 660 / 640   |
+| 64 KiB read, page round trip    | 560 / 640   | 620 / 600   | 840 / 860   |
+| 64 KiB `write()`, sequential    | 380 / 360   | 380 / 380   | 700 / 700   |
+| 64-byte append `write()`        | 300 / 360   | 460 / 460   | 800 / 820   |
+| its `fsync()`                   | 460 / 500   | 580 / 540   | 640 / 640   |
 | `fsync()` after the whole write | 5100 / 4960 | 4740 / 4580 | 8280 / 7900 |
 
 The step of each browser's clock (5 µs, 20 µs) bounds these; means run
@@ -1281,14 +1281,14 @@ of its own), the same in every run: the growth over the steps, then the
 whole once the browser closed, which includes the engine's installed data
 (871 KiB in Chromium and 1,145 KiB in Firefox before the write):
 
-| | 16 KiB | 64 KiB | 256 KiB |
-| --- | --- | --- | --- |
-| Chromium: the 4,200 KiB write | +4,251 | +4,280 | +4,294 |
-| Chromium: the 100 appends (6.25 KiB) | +2,373 | +8,671 | +212 |
-| Chromium: once closed | 7,495 | 6,661 | 5,377 |
-| Firefox: the 4,200 KiB write | +6,248 | +5,504 | +11,459 |
-| Firefox: the 100 appends | +3,263 | +6,703 to +6,735 | −3,038 |
-| Firefox: once closed | 5,448 | 5,328 | 5,312 |
+|                                      | 16 KiB | 64 KiB           | 256 KiB |
+| ------------------------------------ | ------ | ---------------- | ------- |
+| Chromium: the 4,200 KiB write        | +4,251 | +4,280           | +4,294  |
+| Chromium: the 100 appends (6.25 KiB) | +2,373 | +8,671           | +212    |
+| Chromium: once closed                | 7,495  | 6,661            | 5,377   |
+| Firefox: the 4,200 KiB write         | +6,248 | +5,504           | +11,459 |
+| Firefox: the 100 appends             | +3,263 | +6,703 to +6,735 | −3,038  |
+| Firefox: once closed                 | 5,448  | 5,328            | 5,312   |
 
 Everything stored beyond the file's bytes is the stores' own: each append
 rewrites the file's last chunk whole (8, 40 and 104 KiB in), so 100 appends

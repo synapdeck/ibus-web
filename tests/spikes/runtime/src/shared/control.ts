@@ -173,47 +173,34 @@ export const SPIKE_DATA_PATH = "/usr/share/spike";
 
 // The engine with the test archive, fetched from url, as its data, and the
 // archive's version as its own.
-export const withData = (
-  engine: EngineManifest,
-  data: TestArchive,
-  url: string,
-): EngineManifest => ({
+export const withData = (engine: EngineManifest, data: TestArchive, url: string): EngineManifest => ({
   ...engine,
   version: data.version,
   data: [{ url, path: SPIKE_DATA_PATH, size: data.size }],
 });
 
-export const engineDir = ({ name }: EngineManifest): string =>
-  `/engines/${name}`;
+export const engineDir = ({ name }: EngineManifest): string => `/engines/${name}`;
 
 // Where the engine's data is mounted, apart from its own files.
-export const engineDataRoot = (engine: EngineManifest): string =>
-  `${engineDir(engine)}/data`;
+export const engineDataRoot = (engine: EngineManifest): string => `${engineDir(engine)}/data`;
 
 // Where an archive's data lands: under the data's mount, at the path the
 // engine expects it.
-export const engineDataDir = (
-  engine: EngineManifest,
-  { path }: EngineData,
-): string => `${engineDataRoot(engine)}${path}`;
+export const engineDataDir = (engine: EngineManifest, { path }: EngineData): string =>
+  `${engineDataRoot(engine)}${path}`;
 
 // A name or version as it appears in database, lock and directory names:
 // no "/", no ":", and never "." or "..", so that one engine's or version's
 // names never run into another's.
 export const encodeComponent = (text: string): string =>
-  encodeURIComponent(text).replace(
-    /[!'()*.~]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
+  encodeURIComponent(text).replace(/[!'()*.~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
 // The IndexedDB database the engine's own files live in.
-export const engineDatabase = ({ name }: EngineManifest): string =>
-  `ibus-web/${encodeComponent(name)}`;
+export const engineDatabase = ({ name }: EngineManifest): string => `ibus-web/${encodeComponent(name)}`;
 
 // The prefix of the IndexedDB databases that hold the engine's data, one
 // per version; the encoded version follows it.
-export const engineDataDatabasePrefix = (engine: EngineManifest): string =>
-  `${engineDatabase(engine)}/data/`;
+export const engineDataDatabasePrefix = (engine: EngineManifest): string => `${engineDatabase(engine)}/data/`;
 
 export const engineDataDatabase = (engine: EngineManifest): string =>
   `${engineDataDatabasePrefix(engine)}${encodeComponent(engine.version)}`;
@@ -224,20 +211,16 @@ export const engineInstallLock = (engine: EngineManifest): string =>
 
 // The Web Lock the one host that may change the engine's user data holds,
 // for as long as it runs; every other host mounts that data read-only.
-export const engineWriterLock = ({ name }: EngineManifest): string =>
-  `ibus-web:writer:${encodeComponent(name)}`;
+export const engineWriterLock = ({ name }: EngineManifest): string => `ibus-web:writer:${encodeComponent(name)}`;
 
 // The Web Lock every host using a version's data holds, shared, for as long
 // as it runs; a host takes it exclusively to delete that version's data.
-export const engineDataLock = (
-  { name }: EngineManifest,
-  encodedVersion: string,
-): string => `ibus-web:data:${encodeComponent(name)}:${encodedVersion}`;
+export const engineDataLock = ({ name }: EngineManifest, encodedVersion: string): string =>
+  `ibus-web:data:${encodeComponent(name)}:${encodedVersion}`;
 
 // The engine's data's size: what the host adds to the runtime's memory when
 // the data sits in it.
-export const engineDataBytes = ({ data }: EngineManifest): number =>
-  data.reduce((sum, { size }) => sum + size, 0);
+export const engineDataBytes = ({ data }: EngineManifest): number => data.reduce((sum, { size }) => sum + size, 0);
 
 export interface SideModule {
   name: string;
@@ -327,9 +310,8 @@ export interface ControlViews {
   slot: Uint8Array;
 }
 
-export const createControl = (
-  slotBytes = DEFAULT_SLOT_BYTES,
-): SharedArrayBuffer => new SharedArrayBuffer(HEADER_BYTES + slotBytes);
+export const createControl = (slotBytes = DEFAULT_SLOT_BYTES): SharedArrayBuffer =>
+  new SharedArrayBuffer(HEADER_BYTES + slotBytes);
 
 export const controlViews = (buffer: SharedArrayBuffer): ControlViews => ({
   words: new Int32Array(buffer, 0, HEADER_BYTES / 4),
@@ -337,10 +319,7 @@ export const controlViews = (buffer: SharedArrayBuffer): ControlViews => ({
 });
 
 // A little-endian uint32 opcode, then the payload.
-export const encodeRequest = (
-  opcode: number,
-  payload: Uint8Array = new Uint8Array(),
-): Uint8Array => {
+export const encodeRequest = (opcode: number, payload: Uint8Array = new Uint8Array()): Uint8Array => {
   const request = new Uint8Array(4 + payload.length);
   new DataView(request.buffer).setUint32(0, opcode, true);
   request.set(payload, 4);
@@ -348,19 +327,11 @@ export const encodeRequest = (
 };
 
 export const requestOpcode = (request: Uint8Array): number =>
-  new DataView(
-    request.buffer,
-    request.byteOffset,
-    request.byteLength,
-  ).getUint32(0, true);
+  new DataView(request.buffer, request.byteOffset, request.byteLength).getUint32(0, true);
 
 // Page side: the slot must be free (State.idle or a taken reply).
-export const postRequest = (
-  { words, slot }: ControlViews,
-  request: Uint8Array,
-): void => {
-  if (request.length > slot.length)
-    throw new RangeError(`request of ${request.length} bytes`);
+export const postRequest = ({ words, slot }: ControlViews, request: Uint8Array): void => {
+  if (request.length > slot.length) throw new RangeError(`request of ${request.length} bytes`);
   slot.set(request);
   Atomics.store(words, Word.reqLen, request.length);
   Atomics.add(words, Word.reqSeq, 1);
@@ -388,11 +359,7 @@ export const requestBytes = ({ words, slot }: ControlViews): Uint8Array =>
   slot.subarray(0, Atomics.load(words, Word.reqLen));
 
 // Host side: reply bytes, or nothing when ret is an error.
-export const postReply = (
-  { words, slot }: ControlViews,
-  ret: number,
-  bytes?: Uint8Array,
-): void => {
+export const postReply = ({ words, slot }: ControlViews, ret: number, bytes?: Uint8Array): void => {
   if (bytes !== undefined) slot.set(bytes);
   Atomics.store(words, Word.replyRet, ret);
   Atomics.store(words, Word.state, State.reply);

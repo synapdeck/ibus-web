@@ -6,18 +6,11 @@
 import { fileURLToPath } from "node:url";
 import { serve, type Server } from "@ibus-web/test-browser/server";
 
-export {
-  browsersNamed,
-  launch,
-  launchError,
-  launchPersistent,
-} from "@ibus-web/test-browser/browsers";
+export { browsersNamed, launch, launchError, launchPersistent } from "@ibus-web/test-browser/browsers";
 
 // Serves the page at / and the TypeScript build under /dist/, with dirs
 // besides, by URL prefix.
-export const servePage = (
-  dirs: Readonly<Record<string, string>> = {},
-): Promise<Server> =>
+export const servePage = (dirs: Readonly<Record<string, string>> = {}): Promise<Server> =>
   serve(fileURLToPath(new URL("../../src/page/index.html", import.meta.url)), {
     "/dist/": fileURLToPath(new URL("../", import.meta.url)),
     ...dirs,

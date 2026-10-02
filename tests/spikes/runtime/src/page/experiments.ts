@@ -5,11 +5,7 @@
 // commands drive, by name, the nested-Worker experiment, and timed commands,
 // with the page's thread free or spinning.
 
-import {
-  NestedMark,
-  UNMARKED,
-  type ExperimentCommand,
-} from "../shared/experiments.ts";
+import { NestedMark, UNMARKED, type ExperimentCommand } from "../shared/experiments.ts";
 import type { TimedCommand } from "../shared/storage.ts";
 
 const workerUrl = new URL("../worker/experiment.js", import.meta.url);
@@ -24,15 +20,10 @@ const start = (name: string): Worker => {
 
 // Resolves with the command's result, or { error } with the name of what it
 // threw.
-const send = (
-  worker: Worker,
-  command: ExperimentCommand,
-): Promise<{ result?: unknown; error?: string }> => {
+const send = (worker: Worker, command: ExperimentCommand): Promise<{ result?: unknown; error?: string }> => {
   const id = nextId++;
   return new Promise((resolve) => {
-    const listener = ({
-      data,
-    }: MessageEvent<{ id: number; result?: unknown; error?: string }>) => {
+    const listener = ({ data }: MessageEvent<{ id: number; result?: unknown; error?: string }>) => {
       if (data.id !== id) return;
       worker.removeEventListener("message", listener);
       resolve(data);
@@ -42,18 +33,12 @@ const send = (
   });
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Milliseconds after go that each step ended, or null if it hadn't by the
 // end. A blocks for blockMs; with spin, the page's thread spins as long.
-const nested = async (
-  spin: boolean,
-  blockMs: number,
-): Promise<Record<string, number | null>> => {
-  const marks = new Int32Array(
-    new SharedArrayBuffer(Object.keys(NestedMark).length * 4),
-  ).fill(UNMARKED);
+const nested = async (spin: boolean, blockMs: number): Promise<Record<string, number | null>> => {
+  const marks = new Int32Array(new SharedArrayBuffer(Object.keys(NestedMark).length * 4)).fill(UNMARKED);
   const a = start("A");
   const setup = await send(a, {
     op: "nested-a",
@@ -87,9 +72,7 @@ const timed = async (
   replies: { result?: unknown; error?: string }[];
 }> => {
   const epoch = performance.timeOrigin + performance.now();
-  const replies = sends.map(([name, command]) =>
-    send(workers.get(name)!, { ...command, epoch }),
-  );
+  const replies = sends.map(([name, command]) => send(workers.get(name)!, { ...command, epoch }));
   let spinEnd = null;
   if (spinMs > 0) {
     const until = performance.now() + spinMs;
@@ -103,8 +86,7 @@ const experiments = {
   start: (name: string): void => {
     start(name);
   },
-  send: (name: string, command: ExperimentCommand) =>
-    send(workers.get(name)!, command),
+  send: (name: string, command: ExperimentCommand) => send(workers.get(name)!, command),
   nested,
   timed,
   terminate: (): void => {

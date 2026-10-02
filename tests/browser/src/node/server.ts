@@ -43,10 +43,7 @@ const fail = (response: ServerResponse, status: number): void => {
 
 // Serves index at / and each directory under its URL prefix ("/dist/", say).
 // Only the types above are served.
-export const serve = async (
-  index: string,
-  dirs: Readonly<Record<string, string>>,
-): Promise<Server> => {
+export const serve = async (index: string, dirs: Readonly<Record<string, string>>): Promise<Server> => {
   const resolve = (pathname: string): string | null => {
     if (pathname === "/" || pathname === "/index.html") return index;
     for (const [prefix, dir] of Object.entries(dirs)) {
@@ -59,13 +56,10 @@ export const serve = async (
   };
 
   const server = createServer((request, response) => {
-    if (request.method !== "GET" && request.method !== "HEAD")
-      return fail(response, 405);
+    if (request.method !== "GET" && request.method !== "HEAD") return fail(response, 405);
     let pathname: string;
     try {
-      pathname = decodeURIComponent(
-        new URL(request.url ?? "/", "http://localhost").pathname,
-      );
+      pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
     } catch {
       return fail(response, 400);
     }

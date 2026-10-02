@@ -55,16 +55,11 @@ const wasmfsIdbCountStrictCommits = () => {
     const tx = transaction.apply(this, args);
     if (tx.durability === "strict") {
       const stores = Array.from(tx.objectStoreNames);
-      const files =
-        tx.mode === "readwrite" &&
-        stores.includes("inodes") &&
-        stores.includes("chunks");
+      const files = tx.mode === "readwrite" && stores.includes("inodes") && stores.includes("chunks");
       // Runs before the transaction's own complete handler, which the
       // caller sets after this returns, so the count is in before the
       // blocked caller is released.
-      tx.addEventListener("complete", () =>
-        _wasmfs_idb_test_strict_commit(files ? 1 : 0, wrote.has(tx) ? 1 : 0),
-      );
+      tx.addEventListener("complete", () => _wasmfs_idb_test_strict_commit(files ? 1 : 0, wrote.has(tx) ? 1 : 0));
     }
     return tx;
   };

@@ -40,11 +40,7 @@ import {
   type Mount,
   type TestData,
 } from "../shared/control.ts";
-import {
-  installScenarios,
-  runInstallScenarios,
-  type InstallHarness,
-} from "../shared/install.ts";
+import { installScenarios, runInstallScenarios, type InstallHarness } from "../shared/install.ts";
 import { reportLines } from "../shared/report.ts";
 import {
   heapFull,
@@ -112,11 +108,7 @@ const STRICT_WAKE_MAX_MS = 20;
 
 // Waits a moment first: the host's own messages, such as a crash report,
 // arrive only once this thread's event loop runs.
-const report = async (
-  label: string,
-  host: Host,
-  results: readonly Result[],
-): Promise<void> => {
+const report = async (label: string, host: Host, results: readonly Result[]): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, 100));
   const lines = reportLines(label, host.startupMs, results, host.messages);
   lines.splice(1, 0, `    host features: ${JSON.stringify(host.features)}`);
@@ -141,11 +133,7 @@ const dir = engineDir(engine);
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const env = (
-  pendingLimitMs: number,
-  host: Host,
-  mount: Mount = "node",
-): Env => ({
+const env = (pendingLimitMs: number, host: Host, mount: Mount = "node"): Env => ({
   now: () => performance.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   utf8: (text) => encoder.encode(text),
@@ -184,18 +172,12 @@ let failed = false;
 try {
   const host = await startHost("runtime", base);
   const results = await runScenarios(host.client, env(10_000, host));
-  await report(
-    "runtime: the host sleeps in ibusweb_wait(), woken through the relay for the page",
-    host,
-    results,
-  );
+  await report("runtime: the host sleeps in ibusweb_wait(), woken through the relay for the page", host, results);
   failed = !passed(results, scenarios.length);
   host.worker.terminate();
 
   const crashing = await startHost("runtime", base);
-  const crash = await runScenarios(crashing.client, env(10_000, crashing), [
-    threadCrash,
-  ]);
+  const crash = await runScenarios(crashing.client, env(10_000, crashing), [threadCrash]);
   await report("runtime, on a host of its own", crashing, crash);
   failed ||= !passed(crash, 1);
   crashing.worker.terminate();
@@ -210,16 +192,8 @@ try {
     ...base,
     storage: { kind: "browser", withoutIndexedDB: true },
   });
-  const fallback = await runScenarios(
-    memoryOnly.client,
-    env(10_000, memoryOnly, "memory"),
-    [storageFallback],
-  );
-  await report(
-    "runtime, on a host of its own told to mount IndexedDB",
-    memoryOnly,
-    fallback,
-  );
+  const fallback = await runScenarios(memoryOnly.client, env(10_000, memoryOnly, "memory"), [storageFallback]);
+  await report("runtime, on a host of its own told to mount IndexedDB", memoryOnly, fallback);
   failed ||= !passed(fallback, 1);
   memoryOnly.worker.terminate();
 
@@ -231,32 +205,17 @@ try {
     upgradeUrl: `${server.origin}/data/${testData.upgrade.archive}`,
     // Node's Web Locks are shared by the process's threads, so the hosts'
     // Workers' locks are this thread's to request too.
-    lockFree: (name) =>
-      navigator.locks.request(
-        name,
-        { ifAvailable: true },
-        (lock) => lock !== null,
-      ),
+    lockFree: (name) => navigator.locks.request(name, { ifAvailable: true }, (lock) => lock !== null),
     // A version's directory, its marker, or both.
     versions: async (installed) => [
       ...new Set(
-        (
-          await readdir(join(installsDir, installed.name, "data")).catch(
-            () => [] as string[],
-          )
-        ).map((name) => name.replace(/\.(installed|marking)$/, "")),
+        (await readdir(join(installsDir, installed.name, "data")).catch(() => [] as string[])).map((name) =>
+          name.replace(/\.(installed|marking)$/, ""),
+        ),
       ),
     ],
     tearMarker: (installed) =>
-      writeFile(
-        join(
-          installsDir,
-          installed.name,
-          "data",
-          `${encodeComponent(installed.version)}.installed`,
-        ),
-        '{"vers',
-      ),
+      writeFile(join(installsDir, installed.name, "data", `${encodeComponent(installed.version)}.installed`), '{"vers'),
     start: (installed: EngineManifest, options = {}) => {
       const hostPath = join(installsDir, installed.name);
       mkdirSync(hostPath, { recursive: true });
@@ -290,10 +249,7 @@ try {
 
   // A size that isn't whole pages and one below the least the runtime takes.
   console.log("memory the runtime can't take:");
-  for (const bytes of [
-    constants.memory.minimum + 1,
-    constants.memory.minimum - 65536,
-  ]) {
+  for (const bytes of [constants.memory.minimum + 1, constants.memory.minimum - 65536]) {
     const refusal = await startHost("runtime", {
       ...base,
       memory: { initial: bytes, maximum: bytes },
@@ -305,9 +261,7 @@ try {
       (error: unknown) => String(error),
     );
     const refused = refusal?.includes(`memory ${bytes}: `) ?? false;
-    console.log(
-      `  ${refused ? "PASS" : "FAIL"} ${bytes}: ${refusal ?? "loaded"}`,
-    );
+    console.log(`  ${refused ? "PASS" : "FAIL"} ${bytes}: ${refusal ?? "loaded"}`);
     failed ||= !refused;
   }
 
@@ -321,13 +275,7 @@ try {
     idle.worker.terminate();
 
     const relayless = await startHost("control", base);
-    const names = new Set([
-      "dispatch",
-      "cold-wake",
-      "cross-thread-wake",
-      "deadline",
-      "sync-proxied",
-    ]);
+    const names = new Set(["dispatch", "cold-wake", "cross-thread-wake", "deadline", "sync-proxied"]);
     await report(
       "for comparison, relay-less on the request path: the host sleeps in Atomics.wait() " +
         "on the control buffer's wake word, which the page bumps",

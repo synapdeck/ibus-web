@@ -118,6 +118,7 @@ It fails 10 times in 10. Without `-sASSERTIONS` it prints `done`: the
 freed queue is still readable and empty, so nothing shows.
 
 **Where:**
+
 - The heartbeat
   ([libwasmfs.js#L604-L614](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libwasmfs.js#L604-L614)),
   started on the worker thread
@@ -157,7 +158,7 @@ diff --git a/src/lib/libwasmfs.js b/src/lib/libwasmfs.js
 @@ -601,17 +601,25 @@ addToLibrary({
    _wasmfs_copy_preloaded_file_data: (index, buffer) =>
      HEAPU8.set(wasmFSPreloadedFiles[index].fileData, buffer),
- 
+
 -  _wasmfs_thread_utils_heartbeat__deps: ['emscripten_proxy_execute_queue'],
 +  // A Worker hosts one thread at a time, so it runs at most one heartbeat.
 +  $wasmFSHeartbeat: null,
@@ -180,22 +181,22 @@ diff --git a/src/lib/libwasmfs.js b/src/lib/libwasmfs.js
 +    clearInterval(wasmFSHeartbeat);
 +    wasmFSHeartbeat = null;
 +  },
- 
+
    _wasmfs_stdin_get_char__deps: ['$FS_stdin_getChar'],
    _wasmfs_stdin_get_char: () => {
 diff --git a/system/lib/wasmfs/thread_utils.h b/system/lib/wasmfs/thread_utils.h
 --- a/system/lib/wasmfs/thread_utils.h
 +++ b/system/lib/wasmfs/thread_utils.h
 @@ -15,6 +15,7 @@
- 
+
  extern "C" {
  void _wasmfs_thread_utils_heartbeat(em_proxying_queue* ctx);
 +void _wasmfs_thread_utils_heartbeat_stop(void);
  }
- 
+
  namespace emscripten {
 @@ -89,6 +90,18 @@ public:
- 
+
    // Kill the worker thread.
    ~ProxyWorker() {
 +    // Stop the heartbeat first, on the thread, the only one that can reach
@@ -263,7 +264,7 @@ diff --git a/test/test_other.py b/test/test_other.py
 @@ -13867,6 +13867,16 @@ Module.postRun = () => {{
      create_file('js_backend_files/file.dat', 'data')
      self.do_runf_out_file('wasmfs/wasmfs_before_preload.c', cflags=['--preload-file', 'js_backend_files/file.dat'])
- 
+
 +  @requires_pthreads
 +  def test_wasmfs_proxy_worker_exit(self):
 +    # The heartbeat a ProxyWorker's thread runs must end with the thread, not
@@ -276,7 +277,7 @@ diff --git a/test/test_other.py b/test/test_other.py
 +
    def test_hello_world_above_2gb(self):
      self.do_runf_out_file('hello_world.c', cflags=['-sGLOBAL_BASE=2GB', '-sINITIAL_MEMORY=3GB'])
- 
+
 ```
 
 (`test/wasmfs/wasmfs_proxy_worker_exit.cpp` is the test case above, with a

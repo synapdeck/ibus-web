@@ -25,9 +25,7 @@ const wasmfsIdbCountChunks = () => {
     if (objectStore.name === "chunks") {
       // Runs before the request's own success handler, so the count is in
       // before the transaction can commit and release the blocked caller.
-      request.addEventListener("success", () =>
-        _wasmfs_idb_test_count_chunks(records(request.result), 0),
-      );
+      request.addEventListener("success", () => _wasmfs_idb_test_count_chunks(records(request.result), 0));
     }
     return request;
   };
@@ -42,9 +40,7 @@ const wasmfsIdbCountChunks = () => {
    * @param {Parameters<IDBObjectStore["get"]>} args
    */
   store.get = function (...args) {
-    return countRead(this, get.apply(this, args), (value) =>
-      value === undefined ? 0 : 1,
-    );
+    return countRead(this, get.apply(this, args), (value) => (value === undefined ? 0 : 1));
   };
   /**
    * @this {IDBObjectStore}

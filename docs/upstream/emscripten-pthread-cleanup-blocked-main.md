@@ -180,7 +180,7 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
 @@ -615,6 +618,7 @@ var LibraryPThread = {
      };
    },
- 
+
 +  _emscripten_thread_cleanup__deps: ['_emscripten_thread_defer_cleanup'],
    _emscripten_thread_cleanup: (thread) => {
      // Called when a thread needs to be cleaned up so it can be reused.
@@ -198,7 +198,7 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
 +      postMessage({ cmd: {{{ CMD_CLEANUP_THREAD }}} });
 +    }
    },
- 
+
    _emscripten_thread_set_strongref: (thread) => {
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
 --- a/system/lib/pthread/library_pthread.c
@@ -210,11 +210,11 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 +#include <stdatomic.h>
  #include <threads.h>
  #include <unistd.h>
- 
+
 @@ -95,8 +96,36 @@ void emscripten_current_thread_process_queued_calls() {
    emscripten_proxy_execute_queue(emscripten_proxy_get_system_queue());
  }
- 
+
 +// Threads that ended without being joined on the main runtime thread, whose
 +// Worker and memory only the main runtime thread can reclaim. They are linked
 +// through `next`, which is free once a thread is off the thread list. A
@@ -247,14 +247,14 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 +  _emscripten_thread_run_deferred_cleanups();
    emscripten_current_thread_process_queued_calls();
  }
- 
+
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
 @@ -63,6 +63,13 @@ void _emscripten_init_main_thread_js(void* tb);
  void _emscripten_thread_profiler_enable();
  void _emscripten_thread_cleanup(pthread_t thread);
- 
+
 +// Hands a thread that has ended to the main runtime thread for
 +// `_emscripten_thread_cleanup`, from any other thread, even one that no longer
 +// has a thread state of its own.
@@ -264,7 +264,7 @@ diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/thread
 +
  hidden void* _emscripten_tls_init(void);
  hidden void _emscripten_tls_free(void);
- 
+
 ```
 
 With this applied to 6.0.9:
@@ -407,7 +407,7 @@ diff --git a/test/test_other.py b/test/test_other.py
 @@ -13609,6 +13609,10 @@ void foo() {}
    def test_pthread_sigmask(self, args):
      self.do_runf('pthread/test_pthread_sigmask.c', 'done\n', cflags=args)
- 
+
 +  @requires_pthreads
 +  def test_pthread_cleanup_blocked_main(self):
 +    self.do_runf('pthread/test_pthread_cleanup_blocked_main.c', 'done\n', cflags=['-pthread'])
@@ -440,7 +440,7 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
 --- a/src/lib/libpthread.js
 +++ b/src/lib/libpthread.js
 @@ -1240,7 +1240,9 @@ var LibraryPThread = {
- 
+
    // Asynchronous version _emscripten_dlsync_threads.
    // This is always called on the main thread. This work happens asynchronously.
 -  $dlsyncThreadsAsync__deps: ['_emscripten_proxy_dlsync_async', '$makePromise'],
@@ -484,7 +484,7 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
 +      throw e;
      }
 +    __emscripten_thread_release_cleanups(true);
- 
+
  #if PTHREADS_DEBUG
      dbg(`dlsyncThreadsAsync: waiting on ${promises.length} promises`);
 @@ -1290,7 +1306,9 @@ var LibraryPThread = {
@@ -528,14 +528,14 @@ diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
 +    __emscripten_thread_release_cleanups(true);
    },
  #endif // MAIN_MODULE
- 
+
 diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_pthread.c
 --- a/system/lib/pthread/library_pthread.c
 +++ b/system/lib/pthread/library_pthread.c
 @@ -113,8 +113,28 @@ void _emscripten_thread_defer_cleanup(pthread_t thread) {
    _emscripten_thread_notify(emscripten_main_runtime_thread_id());
  }
- 
+
 +// Held while the main runtime thread walks a list of threads it took
 +// earlier, where cleaning one up would free a struct the list still names.
 +static int cleanup_holds;
@@ -576,7 +576,7 @@ diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/thread
 +// is set and no other hold remains. Main runtime thread only.
 +void _emscripten_thread_hold_cleanups(void);
 +void _emscripten_thread_release_cleanups(bool run);
- 
+
  hidden void* _emscripten_tls_init(void);
  hidden void _emscripten_tls_free(void);
 ```
@@ -985,7 +985,7 @@ diff --git a/test/test_core.py b/test/test_core.py
 @@ -9414,6 +9414,25 @@ NODEFS is no longer included by default; build with -lnodefs.js
                   ['side module ctor', 'done\n', 'side module atexit'],
                   assert_all=True, cflags=args)
- 
+
 +  @needs_dylink
 +  @requires_pthreads
 +  def test_pthread_dlsync_freed(self):
@@ -1034,12 +1034,12 @@ diff --git a/test/test_core.py b/test/test_core.py
   - The suite-format tests, run with Emscripten's runner (`core2`, and
     `other` for `cleanup_blocked_main`):
 
-    | Tree | `cleanup_blocked_main` | `dlsync_freed` | `dlsync_held` |
-    | --- | --- | --- | --- |
-    | stock 6.0.9 | FAIL | FAIL | FAIL |
-    | commit 1 only (plus 0015) | ok | FAIL | FAIL |
-    | commit 1, a skip but no hold (plus 0015) | ok | FAIL | FAIL |
-    | both commits (plus 0015) | ok | ok | ok |
+    | Tree                                     | `cleanup_blocked_main` | `dlsync_freed` | `dlsync_held` |
+    | ---------------------------------------- | ---------------------- | -------------- | ------------- |
+    | stock 6.0.9                              | FAIL                   | FAIL           | FAIL          |
+    | commit 1 only (plus 0015)                | ok                     | FAIL           | FAIL          |
+    | commit 1, a skip but no hold (plus 0015) | ok                     | FAIL           | FAIL          |
+    | both commits (plus 0015)                 | ok                     | ok             | ok            |
 
     `dlsync_freed` and `dlsync_held` passed 5 of 5 runs each at `-O0` and
     `-O2` with both commits.

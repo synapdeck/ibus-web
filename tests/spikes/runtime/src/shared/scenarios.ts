@@ -5,14 +5,7 @@
 // measures. They talk to a host only through a Client, so any harness that
 // can post requests over the control buffer runs them.
 
-import {
-  HostOp,
-  type BuildConstants,
-  type HostMessage,
-  type HostStats,
-  type Mount,
-  type Reply,
-} from "./control.ts";
+import { HostOp, type BuildConstants, type HostMessage, type HostStats, type Mount, type Reply } from "./control.ts";
 
 // The spike side modules' operations scenarios use, under their C names in
 // camel case (SPIKE_OP_SPAWN_DETACHED is spawnDetached).
@@ -60,18 +53,13 @@ export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
 export const opsFrom = ({ ops }: BuildConstants): Ops => {
   const byName = new Map(
     Object.entries(ops).map(([name, opcode]) => [
-      name
-        .toLowerCase()
-        .replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()),
+      name.toLowerCase().replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()),
       opcode,
     ]),
   );
   const missing = opNames.filter((name) => !byName.has(name));
-  if (missing.length > 0)
-    throw new Error(`the build defines no opcode for ${missing.join(", ")}`);
-  return Object.fromEntries(
-    opNames.map((name) => [name, byName.get(name)!]),
-  ) as Ops;
+  if (missing.length > 0) throw new Error(`the build defines no opcode for ${missing.join(", ")}`);
+  return Object.fromEntries(opNames.map((name) => [name, byName.get(name)!])) as Ops;
 };
 
 // A call whose reply came only after the client stopped waiting the way it
@@ -149,11 +137,7 @@ export interface Env {
   userDataChunkSize?: () => Promise<number | undefined>;
 }
 
-export type Measurement =
-  | number
-  | string
-  | boolean
-  | readonly (number | string)[];
+export type Measurement = number | string | boolean | readonly (number | string)[];
 
 export interface Outcome {
   pass: boolean;
@@ -167,39 +151,29 @@ export interface Scenario {
   run(client: Client, env: Env, earlier: readonly Result[]): Promise<Outcome>;
 }
 
-export const int32s = (...values: number[]): Uint8Array =>
-  new Uint8Array(new Int32Array(values).buffer);
+export const int32s = (...values: number[]): Uint8Array => new Uint8Array(new Int32Array(values).buffer);
 
 export const replyInt32 = ({ ret, bytes }: Reply): number => {
   if (ret < 0) return ret;
-  if (bytes.length !== 4)
-    throw new Error(`a reply of ${bytes.length} bytes, not one int32`);
+  if (bytes.length !== 4) throw new Error(`a reply of ${bytes.length} bytes, not one int32`);
   return new DataView(bytes.buffer, bytes.byteOffset, 4).getInt32(0, true);
 };
 
 // A reply's int32 values, or only its error.
 export const replyInt32s = ({ ret, bytes }: Reply): number[] => {
   if (ret < 0) return [ret];
-  if (bytes.length % 4 !== 0)
-    throw new Error(`a reply of ${bytes.length} bytes, not int32s`);
+  if (bytes.length % 4 !== 0) throw new Error(`a reply of ${bytes.length} bytes, not int32s`);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
-  return Array.from({ length: bytes.length / 4 }, (_, i) =>
-    view.getInt32(i * 4, true),
-  );
+  return Array.from({ length: bytes.length / 4 }, (_, i) => view.getInt32(i * 4, true));
 };
 
-export const call32 = async (
-  client: Client,
-  opcode: number,
-  payload?: Uint8Array,
-): Promise<number> => replyInt32(await client.call(opcode, payload));
+export const call32 = async (client: Client, opcode: number, payload?: Uint8Array): Promise<number> =>
+  replyInt32(await client.call(opcode, payload));
 
 const percentile = (sorted: readonly number[], p: number): number =>
-  sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))] ??
-  Number.NaN;
+  sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))] ?? Number.NaN;
 
-const round = (value: number, digits = 3): number =>
-  Number(value.toFixed(digits));
+const round = (value: number, digits = 3): number => Number(value.toFixed(digits));
 
 // Asks for a result every intervalMs until it is no longer -EAGAIN, or
 // null once env.pendingLimitMs has passed. value is the reply's first int32.
@@ -240,8 +214,7 @@ const stats = async (client: Client, env: Env): Promise<HostStats> => {
 // Creates n threads that keep their Workers until release().
 const hold = async (client: Client, env: Env, n: number): Promise<void> => {
   const [held, error] = replyInt32s(await client.call(env.ops.hold, int32s(n)));
-  if (held !== n || error !== 0)
-    throw new Error(`hold(${n}): ${held} held, error ${error}`);
+  if (held !== n || error !== 0) throw new Error(`hold(${n}): ${held} held, error ${error}`);
 };
 
 const release = async (client: Client, env: Env): Promise<void> => {
@@ -253,11 +226,7 @@ const release = async (client: Client, env: Env): Promise<void> => {
 // stats if none finishes within env.pendingLimitMs. A request would wait
 // out a top-up's new Worker() calls in Firefox, where they return only
 // while the page's thread is free, so the first waits a moment.
-const awaitTopUp = async (
-  client: Client,
-  env: Env,
-  since: HostStats,
-): Promise<HostStats> => {
+const awaitTopUp = async (client: Client, env: Env, since: HostStats): Promise<HostStats> => {
   const deadline = env.now() + env.pendingLimitMs;
   await env.sleep(50);
   let latest = await stats(client, env);
@@ -409,8 +378,7 @@ const crossThreadWake: Scenario = {
 
 const deadline: Scenario = {
   name: "deadline",
-  criterion:
-    "g_timeout_add(100) ×5 with no requests: dispatched at 100 ± 10 ms every time",
+  criterion: "g_timeout_add(100) ×5 with no requests: dispatched at 100 ± 10 ms every time",
   async run(client, env): Promise<Outcome> {
     const delays: number[] = [];
     for (let i = 0; i < 5; i++) {
@@ -448,15 +416,9 @@ const threadCreateBlocked: Scenario = {
       engineThreads: n,
       idleWorkers: `${before.idleWorkers} of a pool of ${env.poolSize}`,
     };
-    if (before.idleWorkers < n)
-      return { pass: false, measurements: { ...measurements, short: true } };
+    if (before.idleWorkers < n) return { pass: false, measurements: { ...measurements, short: true } };
     let pass = true;
-    const burst = async (
-      label: string,
-      start: number,
-      result: number,
-      threads: number,
-    ): Promise<void> => {
+    const burst = async (label: string, start: number, result: number, threads: number): Promise<void> => {
       const first = await stats(client, env);
       const startedAt = env.now();
       const started = await call32(client, start, int32s(threads));
@@ -475,28 +437,20 @@ const threadCreateBlocked: Scenario = {
       measurements[label] =
         `joined ${count} in ${round(ms, 1)} ms, error ${error}, ` +
         `${created} Workers created, ${turns} event-loop turns`;
-      if (count !== threads || error !== 0 || created !== 0 || turns !== 0)
-        pass = false;
+      if (count !== threads || error !== 0 || created !== 0 || turns !== 0) pass = false;
     };
     await burst("spawn", env.ops.spawn, env.ops.spawnResult, n);
     // The thread doing the creating is one of the burst.
-    await burst(
-      "nested",
-      env.ops.spawnNested,
-      env.ops.spawnNestedResult,
-      n - 1,
-    );
+    await burst("nested", env.ops.spawnNested, env.ops.spawnNestedResult, n - 1);
     return { pass, measurements };
   },
 };
 
 // The pool's Workers: those it started with, plus those created since, by
 // top-ups or, under Node, by Emscripten itself.
-const poolWorkers = (env: Env, { workersCreated }: HostStats): number =>
-  env.poolSize + workersCreated;
+const poolWorkers = (env: Env, { workersCreated }: HostStats): number => env.poolSize + workersCreated;
 
-const threadsAlive = (env: Env, at: HostStats): number =>
-  poolWorkers(env, at) - at.idleWorkers;
+const threadsAlive = (env: Env, at: HostStats): number => poolWorkers(env, at) - at.idleWorkers;
 
 // The pool starts with poolLowWater Workers beyond the threads its shares
 // plan for, so a peak within the shares leaves that many idle and the host
@@ -527,10 +481,7 @@ const poolTopUp: Scenario = {
 
     const first = await stats(client, env);
     const toPeak = planned - threadsAlive(env, first);
-    if (toPeak < 1)
-      throw new Error(
-        `${threadsAlive(env, first)} threads alive already, of ${planned} planned`,
-      );
+    if (toPeak < 1) throw new Error(`${threadsAlive(env, first)} threads alive already, of ${planned} planned`);
     await hold(client, env, toPeak);
     // Time for a top-up's new Worker() calls to return, in Firefox too,
     // where they wait for the page's thread.
@@ -558,9 +509,7 @@ const poolTopUp: Scenario = {
         over.topUpWorkers - before.topUpWorkers === 1 &&
         over.workersCreated - before.workersCreated === 1,
       describe(over, before) +
-        (over.topUps === before.topUps
-          ? ""
-          : `; the top-up took ${round(over.lastTopUpMs!, 1)} ms`),
+        (over.topUps === before.topUps ? "" : `; the top-up took ${round(over.lastTopUpMs!, 1)} ms`),
     );
     await release(client, env);
     return { pass, measurements };
@@ -617,11 +566,7 @@ export const poolExhausted: Scenario = {
 
     // The creating thread takes the last idle Worker itself.
     await hold(client, env, idle - 1);
-    const proxied = await attempt(
-      env.ops.spawnNested,
-      env.ops.spawnNestedResult,
-      1,
-    );
+    const proxied = await attempt(env.ops.spawnNested, env.ops.spawnNestedResult, 1);
     expect(
       "proxied",
       proxied.joined === 0 && proxied.error === eagain,
@@ -638,9 +583,7 @@ export const poolExhausted: Scenario = {
     const lowWater = topped.topUpWorkers - emptied.topUpWorkers;
     expect(
       "topUp",
-      topped.topUps === emptied.topUps + 1 &&
-        lowWater > 0 &&
-        topped.idleWorkers === lowWater,
+      topped.topUps === emptied.topUps + 1 && lowWater > 0 && topped.idleWorkers === lowWater,
       topped.topUps === emptied.topUps
         ? "none"
         : `${lowWater} Workers in ${round(topped.lastTopUpMs!, 1)} ms ` +
@@ -650,9 +593,7 @@ export const poolExhausted: Scenario = {
     const last = await stats(client, env);
     expect(
       "burstAfterTopUp",
-      burst.joined === lowWater &&
-        burst.error === 0 &&
-        last.workersCreated === topped.workersCreated,
+      burst.joined === lowWater && burst.error === 0 && last.workersCreated === topped.workersCreated,
       `joined ${burst.joined}, error ${burst.error}, in ${burst.ms} ms, ` +
         `${last.workersCreated - topped.workersCreated} Workers created`,
     );
@@ -741,29 +682,15 @@ const syncProxied: Scenario = {
       if (outcome === null) {
         pass = false;
         measurements[label] = `pending after ${env.pendingLimitMs} ms`;
-      } else if (
-        outcome.value < 0 ||
-        (expected !== undefined && outcome.value !== expected)
-      ) {
+      } else if (outcome.value < 0 || (expected !== undefined && outcome.value !== expected)) {
         pass = false;
         measurements[label] = `failed: ${outcome.value}`;
       } else {
         measurements[label] = outcome.value;
       }
     };
-    await check(
-      "proxySyncUs",
-      env.ops.proxySync,
-      undefined,
-      env.ops.proxySyncResult,
-    );
-    await check(
-      "spawnNestedJoined",
-      env.ops.spawnNested,
-      int32s(2),
-      env.ops.spawnNestedResult,
-      2,
-    );
+    await check("proxySyncUs", env.ops.proxySync, undefined, env.ops.proxySyncResult);
+    await check("spawnNestedJoined", env.ops.spawnNested, int32s(2), env.ops.spawnNestedResult, 2);
     // GLib starts the threads of its pool for GTasks as the first is run,
     // and keeps them: the spawner for good, the worker for a while. One
     // GTask in flight is what GLib's share of the pool is sized for.
@@ -782,8 +709,7 @@ const syncProxied: Scenario = {
 
 export const promiseProxiedFsync: Scenario = {
   name: "promise-proxied-fsync",
-  criterion:
-    "fsync() from a thread while the host sleeps completes on every storage backend",
+  criterion: "fsync() from a thread while the host sleeps completes on every storage backend",
   async run(client, env) {
     const measurements: Record<string, Measurement> = {};
     let pass = true;
@@ -794,11 +720,7 @@ export const promiseProxiedFsync: Scenario = {
       const result = await poll(client, env, env.ops.fsyncResult);
       if (result === null || result.value !== bytes.length) pass = false;
       measurements[path] =
-        result === null
-          ? "pending"
-          : result.value === bytes.length
-            ? `ok in ${round(result.ms, 1)} ms`
-            : result.value;
+        result === null ? "pending" : result.value === bytes.length ? `ok in ${round(result.ms, 1)} ms` : result.value;
     }
     return { pass, measurements };
   },
@@ -818,22 +740,16 @@ const exceptions: Scenario = {
 };
 
 // A read-file reply: the file's size, then its contents.
-export const replyFile = (
-  { ret, bytes }: Reply,
-  env: Env,
-): { status: number; text?: string } => {
+export const replyFile = ({ ret, bytes }: Reply, env: Env): { status: number; text?: string } => {
   if (ret < 0) return { status: ret };
   const status = replyInt32({ ret: 4, bytes: bytes.subarray(0, 4) });
-  return status < 0
-    ? { status }
-    : { status, text: env.decode(bytes.subarray(4)) };
+  return status < 0 ? { status } : { status, text: env.decode(bytes.subarray(4)) };
 };
 
 const WASM_PAGE = 65536;
 
 const engineOf = (env: Env): NonNullable<Env["engine"]> => {
-  if (env.engine === undefined)
-    throw new Error("the harness names no engine directory");
+  if (env.engine === undefined) throw new Error("the harness names no engine directory");
   return env.engine;
 };
 
@@ -847,16 +763,11 @@ const roundTrip = async (
   const { dir } = engineOf(env);
   const path = `${dir}/roundtrip-${Math.random().toString(36).slice(2)}.txt`;
   const contents = `written to ${path} by the runtime`;
-  const read = async (opcode: number) =>
-    replyFile(await client.call(opcode, env.utf8(path)), env);
+  const read = async (opcode: number) => replyFile(await client.call(opcode, env.utf8(path)), env);
   const before = await read(env.ops.readFile);
   const writeAt = env.now();
   // write-file creates the file, writes it, fsync()s and closes it.
-  const written = await call32(
-    client,
-    env.ops.writeFile,
-    env.utf8(`${path}\0${contents}`),
-  );
+  const written = await call32(client, env.ops.writeFile, env.utf8(`${path}\0${contents}`));
   const writeMs = env.now() - writeAt;
   const readAt = env.now();
   const readOnly = await read(env.ops.readFile);
@@ -915,15 +826,10 @@ export const storageFallback: Scenario = {
   async run(client, env) {
     const { dataBytes } = engineOf(env);
     if (env.memoryBytes === undefined || env.hostMessages === undefined)
-      throw new Error(
-        "the harness gives neither the memory nor the host's messages",
-      );
+      throw new Error("the harness gives neither the memory nor the host's messages");
     const at = await stats(client, env);
-    const expectedBytes =
-      env.memoryBytes + Math.ceil(dataBytes / WASM_PAGE) * WASM_PAGE;
-    const events = env
-      .hostMessages()
-      .filter((message) => message.type === "storage");
+    const expectedBytes = env.memoryBytes + Math.ceil(dataBytes / WASM_PAGE) * WASM_PAGE;
+    const events = env.hostMessages().filter((message) => message.type === "storage");
     const ephemeral = events.filter(({ state }) => state === "ephemeral");
     const { pass, measurements } = await roundTrip(client, env);
     return {
@@ -939,9 +845,7 @@ export const storageFallback: Scenario = {
         memoryBytes: at.memoryBytes,
         expectedMemoryBytes: expectedBytes,
         idleWorkers: `${at.idleWorkers} of a pool of ${env.poolSize}`,
-        storageEvents: events.map(
-          ({ state, message }) => `${state}: ${message}`,
-        ),
+        storageEvents: events.map(({ state, message }) => `${state}: ${message}`),
         ...measurements,
       },
     };
@@ -959,24 +863,16 @@ export const storageClosed: Scenario = {
     const { dir } = engineOf(env);
     const { upgradeDatabase, hostMessages } = env;
     if (upgradeDatabase === undefined || hostMessages === undefined)
-      throw new Error(
-        "the harness can neither upgrade the database nor give the host's messages",
-      );
+      throw new Error("the harness can neither upgrade the database nor give the host's messages");
     const before = await stats(client, env);
     const upgradeMs = await upgradeDatabase();
-    const written = await call32(
-      client,
-      env.ops.writeFile,
-      env.utf8(`${dir}/after-close.txt\0closed`),
-    );
+    const written = await call32(client, env.ops.writeFile, env.utf8(`${dir}/after-close.txt\0closed`));
     const after = await stats(client, env);
     // The host posts its report when it wakes for a request; this thread
     // receives it once its event loop runs, so poll for it.
-    const storageEvents = () =>
-      hostMessages().filter((message) => message.type === "storage");
+    const storageEvents = () => hostMessages().filter((message) => message.type === "storage");
     const deadline = Date.now() + 2000;
-    while (storageEvents().length === 0 && Date.now() < deadline)
-      await env.sleep(10);
+    while (storageEvents().length === 0 && Date.now() < deadline) await env.sleep(10);
     const events = storageEvents();
     return {
       pass:
@@ -991,9 +887,7 @@ export const storageClosed: Scenario = {
         upgradeMs: round(upgradeMs, 2),
         written,
         closedAfter: after.storageClosed,
-        storageEvents: events.map(
-          ({ state, message }) => `${state}: ${message}`,
-        ),
+        storageEvents: events.map(({ state, message }) => `${state}: ${message}`),
       },
     };
   },
@@ -1020,11 +914,7 @@ export const threadCrash: Scenario = {
     }
     const report = await client.crashReport(2000);
     return {
-      pass:
-        crashed &&
-        report !== null &&
-        report.startsWith("a thread crashed: ") &&
-        !report.includes("never arrived"),
+      pass: crashed && report !== null && report.startsWith("a thread crashed: ") && !report.includes("never arrived"),
       measurements: { crashed, report: report ?? "none" },
     };
   },
@@ -1048,8 +938,7 @@ export const heapFull: Scenario = {
     "request fails as crashed, and the host reports Emscripten's out-of-memory abort, not " +
     "another trap",
   async run(client, env) {
-    if (env.memoryMaximum === undefined)
-      throw new Error("heap-full needs the most memory the runtime takes");
+    if (env.memoryMaximum === undefined) throw new Error("heap-full needs the most memory the runtime takes");
     const mib = env.memoryMaximum / (1024 * 1024) - 1;
     let crashed = false;
     try {
@@ -1073,11 +962,7 @@ export const heapFull: Scenario = {
 const KiB = 1024;
 
 // A bench operation's payload: its int32 arguments, then the path.
-const benchPayload = (
-  env: Env,
-  path: string,
-  ...args: number[]
-): Uint8Array => {
+const benchPayload = (env: Env, path: string, ...args: number[]): Uint8Array => {
   const head = int32s(...args);
   const tail = env.utf8(path);
   const payload = new Uint8Array(head.length + tail.length);
@@ -1126,9 +1011,7 @@ export const storageCosts: Scenario = {
       replyInt32s(await client.call(opcode, benchPayload(env, path, ...args)));
     // The browser's estimate and, where the harness sees them, the files.
     const usage = async (): Promise<[number, number] | undefined> =>
-      env.storageUsage === undefined
-        ? undefined
-        : [await env.storageUsage(), (await env.indexedDBBytes?.()) ?? NaN];
+      env.storageUsage === undefined ? undefined : [await env.storageUsage(), (await env.indexedDBBytes?.()) ?? NaN];
     const measurements: Record<string, Measurement> = {};
     let pass = true;
     const usageBefore = await usage();
@@ -1136,8 +1019,7 @@ export const storageCosts: Scenario = {
     if (chunkSize !== undefined) measurements.chunkKiB = chunkSize / KiB;
 
     const written = await bench(env.ops.benchWrite, DICTIONARY_BYTES, 64 * KiB);
-    if (written[0] !== 0)
-      return { pass: false, measurements: { write: written[0]! } };
+    if (written[0] !== 0) return { pass: false, measurements: { write: written[0]! } };
     measurements.write64KiB = benchTimes(written, 1);
     measurements.fsyncAfterWriteUs = round(written[6]! / 1000, 1);
     const usageWritten = await usage();
@@ -1149,8 +1031,7 @@ export const storageCosts: Scenario = {
     ] as const) {
       const read = await bench(env.ops.benchRead, size, batch, seed++, 0);
       if (read[0] !== 0 || read[1] !== batch) pass = false;
-      measurements[label] =
-        read[0]! < 0 ? read[0]! : `${benchTimes(read, 1)}; ${read[0]} wrong`;
+      measurements[label] = read[0]! < 0 ? read[0]! : `${benchTimes(read, 1)}; ${read[0]} wrong`;
       const roundTrips: number[] = [];
       for (let i = 0; i < single; i++) {
         const start = env.now();
@@ -1164,25 +1045,13 @@ export const storageCosts: Scenario = {
     const appended = await bench(env.ops.benchAppend, 64, 100);
     if (appended[0] !== 0) pass = false;
     measurements.append64B =
-      appended[0] !== 0
-        ? appended[0]!
-        : `write ${benchTimes(appended, 1)}; fsync ${benchTimes(appended, 6)}`;
+      appended[0] !== 0 ? appended[0]! : `write ${benchTimes(appended, 1)}; fsync ${benchTimes(appended, 6)}`;
     const usageAppended = await usage();
     // The appended records read back too.
-    const tail = await bench(
-      env.ops.benchRead,
-      64,
-      100,
-      seed++,
-      DICTIONARY_BYTES,
-    );
+    const tail = await bench(env.ops.benchRead, 64, 100, seed++, DICTIONARY_BYTES);
     if (tail[0] !== 0 || tail[1] !== 100) pass = false;
 
-    if (
-      usageBefore !== undefined &&
-      usageWritten !== undefined &&
-      usageAppended !== undefined
-    )
+    if (usageBefore !== undefined && usageWritten !== undefined && usageAppended !== undefined)
       for (const [label, at] of [
         ["estimatedKiB", 0],
         ["onDiskKiB", 1],
@@ -1195,8 +1064,7 @@ export const storageCosts: Scenario = {
 };
 
 const stressOf = (env: Env): NonNullable<Env["stress"]> => {
-  if (env.stress === undefined)
-    throw new Error("the memory scenarios need the workloads' sizes");
+  if (env.stress === undefined) throw new Error("the memory scenarios need the workloads' sizes");
   return env.stress;
 };
 
@@ -1212,15 +1080,10 @@ const workload = (
 ): Scenario => ({
   name,
   criterion:
-    `${what}: every thread starts and finishes, finds nothing corrupt and gets every allocation, ` +
-    "and none traps",
+    `${what}: every thread starts and finishes, finds nothing corrupt and gets every allocation, ` + "and none traps",
   async run(client, env): Promise<Outcome> {
     const stress = stressOf(env);
-    const started = await call32(
-      client,
-      start(env.ops),
-      int32s(stress.threads, size(stress)),
-    );
+    const started = await call32(client, start(env.ops), int32s(stress.threads, size(stress)));
     if (started < 0) throw new Error(`${name}: ${started}`);
     const outcome = await poll(client, env, result(env.ops), 20);
     if (outcome === null)
@@ -1257,8 +1120,7 @@ export const memStress = workload(
 
 export const glibStress = workload(
   "glib-stress",
-  "GLib's 1bit-emufutex workload: threads, each from g_rand_new(), taking random bit locks over an " +
-    "emulated futex",
+  "GLib's 1bit-emufutex workload: threads, each from g_rand_new(), taking random bit locks over an " + "emulated futex",
   (ops) => ops.glibStress,
   (ops) => ops.glibStressResult,
   ({ iterations }) => iterations,
@@ -1275,9 +1137,7 @@ export const memoryCosts: Scenario = {
   async run(client, env) {
     const info = replyInt32s(await client.call(env.ops.memInfo));
     const grow = async (mib: number): Promise<number[]> => {
-      const values = replyInt32s(
-        await client.call(env.ops.memGrow, int32s(mib)),
-      );
+      const values = replyInt32s(await client.call(env.ops.memGrow, int32s(mib)));
       if (values[0]! < 0) throw new Error(`mem-grow(${mib}): ${values[0]}`);
       return values;
     };
@@ -1308,8 +1168,7 @@ export const workerMemory: Scenario = {
   name: "worker-memory",
   criterion: "the host adds Workers to its pool, and a thread runs on each",
   async run(client, env) {
-    if (env.sampleMemory === undefined)
-      throw new Error("the harness can't measure memory");
+    if (env.sampleMemory === undefined) throw new Error("the harness can't measure memory");
     const added = 20;
     await setTopUps(client, false);
     const before = await env.sampleMemory();
@@ -1322,11 +1181,7 @@ export const workerMemory: Scenario = {
     await release(client, env);
     const ran = await env.sampleMemory();
     await setTopUps(client, true);
-    const per = (
-      from: Record<string, number>,
-      to: Record<string, number>,
-      n: number,
-    ): Record<string, number> =>
+    const per = (from: Record<string, number>, to: Record<string, number>, n: number): Record<string, number> =>
       Object.fromEntries(
         Object.keys(to)
           .filter((key) => key in from)
@@ -1413,9 +1268,7 @@ export const runScenarios = async (
         criterion: scenario.criterion,
         pass: outcome.pass && late.length === 0,
         measurements,
-        ...(late.length === 0
-          ? {}
-          : { passWithoutLateReplies: outcome.pass, lateReplies: late }),
+        ...(late.length === 0 ? {} : { passWithoutLateReplies: outcome.pass, lateReplies: late }),
       });
     } catch (error) {
       results.push({

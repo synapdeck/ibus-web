@@ -182,6 +182,7 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
 </details>
 
 **Where:**
+
 - The exiting thread posts the message
   ([libpthread.js#L1212-L1218](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpthread.js#L1212-L1218),
   from [pthread_create.c#L384](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/pthread_create.c#L384)),
@@ -236,7 +237,7 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 @@ -153,6 +153,11 @@ int _emscripten_thread_is_valid(pthread_t thread) {
    return thread->self == thread;
  }
- 
+
 +int _emscripten_thread_has_exited(pthread_t thread) {
 +  int state = thread->detach_state;
 +  return state == DT_EXITING || state == DT_EXITED;
@@ -244,14 +245,14 @@ diff --git a/system/lib/pthread/library_pthread.c b/system/lib/pthread/library_p
 +
  static void *dummy_tsd[1] = { 0 };
  weak_alias(dummy_tsd, __pthread_tsd_main);
- 
+
 diff --git a/system/lib/pthread/threading_internal.h b/system/lib/pthread/threading_internal.h
 --- a/system/lib/pthread/threading_internal.h
 +++ b/system/lib/pthread/threading_internal.h
 @@ -93,6 +93,9 @@ void _emscripten_thread_set_strongref(pthread_t thread);
  // we can pass more of the posixtest suite than vanilla musl.
  int _emscripten_thread_is_valid(pthread_t thread);
- 
+
 +// Whether a thread that hasn't been cleaned up yet has run to its end.
 +int _emscripten_thread_has_exited(pthread_t thread);
 +
@@ -271,7 +272,6 @@ thread: side_value() = 42
 A guard on the sending Worker (`worker.pthread_ptr == d.thread`) would not
 be enough: the pool hands the Worker just returned straight back out, so the
 new thread often runs on the same Worker at the same address.
-
 
 **Test for the PR,** in the suite's format (also as
 `emscripten-pthread-finished-mark-reused.tests.patch` beside this draft).
@@ -374,7 +374,7 @@ diff --git a/test/test_core.py b/test/test_core.py
 @@ -9414,6 +9414,16 @@ NODEFS is no longer included by default; build with -lnodefs.js
                   ['side module ctor', 'done\n', 'side module atexit'],
                   assert_all=True, cflags=args)
- 
+
 +  @needs_dylink
 +  @requires_pthreads
 +  def test_pthread_dlsync_reused(self):
@@ -389,6 +389,7 @@ diff --git a/test/test_core.py b/test/test_core.py
    @requires_pthreads
    @flaky('https://github.com/emscripten-core/emscripten/issues/18887')
 ```
+
 ---
 
 ## Notes for the user
@@ -414,7 +415,7 @@ diff --git a/test/test_core.py b/test/test_core.py
 - **Why a separate draft.** It reproduces on stock 6.0.9 with a join on the
   main thread, so it doesn't depend on the other fix. It is small, has its
   own test, and applies to `main` alone or after the other one (`patch
-  --dry-run`). Upstream can take it without the bigger review the other
+--dry-run`). Upstream can take it without the bigger review the other
   needs. The other fix's PR should link here, since it adds a second way to
   hit the bug (joins on other threads whose cleanup runs early).
 - **Duplicate search.** `gh` searches of the repository for
@@ -427,7 +428,7 @@ diff --git a/test/test_core.py b/test/test_core.py
     from a side module calls into it. It may be this bug or the older
     new-thread sync gap, and the report has no test case to tell.
   - #18631: a design discussion of shutdown handlers, not this bug.
-  None reports this race.
+    None reports this race.
 - **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-01:
   the handler, `markAsFinished()`, `cleanupThread()` and the dlsync loops
   are unchanged on `main` (04df3de), a few lines up. 6.0.10 doesn't touch

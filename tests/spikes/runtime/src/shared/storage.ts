@@ -47,11 +47,7 @@ export type TimedCommand =
       size: number;
     };
 
-export type LatencySource =
-  | "idb-tx-per-read"
-  | "idb-one-tx"
-  | "opfs-sync"
-  | "opfs-blob";
+export type LatencySource = "idb-tx-per-read" | "idb-one-tx" | "opfs-sync" | "opfs-blob";
 
 export type StorageCommand =
   | TimedCommand
@@ -88,5 +84,4 @@ export type Timing = { marks: [string, number][]; bytes: number };
 
 export type UpgradeOutcome = { blocked: boolean; opened: boolean; ms: number };
 
-export const chunkUrl = (cache: string, i: number): string =>
-  `/storage-experiment/${cache}/${i}`;
+export const chunkUrl = (cache: string, i: number): string => `/storage-experiment/${cache}/${i}`;

@@ -40,13 +40,7 @@ import {
   type Result,
   type Scenario,
 } from "../shared/scenarios.ts";
-import {
-  compileRuntime,
-  readConstants,
-  readJson,
-  readSides,
-  startNodeHost,
-} from "./host.ts";
+import { compileRuntime, readConstants, readJson, readSides, startNodeHost } from "./host.ts";
 
 const { values: args } = parseArgs({
   options: {
@@ -96,8 +90,7 @@ interface Variant {
 
 const variants: Variant[] = args.variant.map((spec) => {
   const match = /^([^=]+)=([^,]+),(\d+),(\d+)$/.exec(spec);
-  if (match === null)
-    throw new Error(`--variant ${spec}: not NAME=RUNTIME_JS,INITIAL,MAXIMUM`);
+  if (match === null) throw new Error(`--variant ${spec}: not NAME=RUNTIME_JS,INITIAL,MAXIMUM`);
   const [, name, runtime, initial, maximum] = match;
   return {
     name: name!,
@@ -213,19 +206,11 @@ interface Outcome {
   stderr: string;
 }
 
-const spawnChild = (
-  variant: Variant,
-  names: string[],
-  nodeFlags: string[] = [],
-): Promise<Outcome> =>
+const spawnChild = (variant: Variant, names: string[], nodeFlags: string[] = []): Promise<Outcome> =>
   new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [
-        ...nodeFlags,
-        new URL(import.meta.url).pathname,
-        ...childArgs(variant, names),
-      ],
+      [...nodeFlags, new URL(import.meta.url).pathname, ...childArgs(variant, names)],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     let stdout = "";
@@ -235,9 +220,7 @@ const spawnChild = (
     const timer = setTimeout(() => child.kill("SIGKILL"), RUN_TIMEOUT_MS);
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      const line = stdout
-        .split("\n")
-        .find((text) => text.startsWith("RESULT "));
+      const line = stdout.split("\n").find((text) => text.startsWith("RESULT "));
       resolve(
         line === undefined
           ? {
@@ -260,8 +243,7 @@ const spawnChild = (
 // stack, without the addresses that differ between builds.
 const trapSite = (text: string): string => {
   const lines = text.split("\n");
-  const error =
-    lines.find((line) => /RuntimeError|out of bounds|Error:/.test(line)) ?? "";
+  const error = lines.find((line) => /RuntimeError|out of bounds|Error:/.test(line)) ?? "";
   const frames = lines
     .filter((line) => /^\s*at /.test(line))
     .slice(0, 4)
@@ -312,9 +294,7 @@ const record = (tally: Tally, outcome: Outcome): void => {
   const result = outcome.report?.results[0];
   if (outcome.report === null || result === undefined) {
     tally.noResult++;
-    tally.failures.push(
-      `${outcome.failure ?? "no result"}: ${outcome.stderr.slice(-500)}`,
-    );
+    tally.failures.push(`${outcome.failure ?? "no result"}: ${outcome.stderr.slice(-500)}`);
     return;
   }
   if (result.pass) {
@@ -330,18 +310,14 @@ const record = (tally: Tally, outcome: Outcome): void => {
   const trapped = /RuntimeError|memory access out of bounds/;
   if (outOfMemoryAbort(evidence)) {
     tally.outOfMemory++;
-    tally.failures.push(
-      `aborted out of memory, by Emscripten rather than a trap: ${crash.split("\n")[0]}`,
-    );
+    tally.failures.push(`aborted out of memory, by Emscripten rather than a trap: ${crash.split("\n")[0]}`);
   } else if (trapped.test(evidence)) {
     tally.traps++;
     const site = trapSite(trapped.test(crash) ? crash : outcome.stderr);
     tally.sites[site] = (tally.sites[site] ?? 0) + 1;
   } else {
     tally.otherFailures++;
-    tally.failures.push(
-      `${result.error ?? JSON.stringify(result.measurements)}; ${crash}`,
-    );
+    tally.failures.push(`${result.error ?? JSON.stringify(result.measurements)}; ${crash}`);
   }
 };
 
@@ -356,10 +332,7 @@ const summary = (tally: Tally): string =>
   `heap's break at the end ${range(tally.breakMiB)} MiB`;
 
 // Runs each job, parallel at a time.
-const pool = async <T>(
-  jobs: readonly (() => Promise<T>)[],
-  parallel: number,
-): Promise<T[]> => {
+const pool = async <T>(jobs: readonly (() => Promise<T>)[], parallel: number): Promise<T[]> => {
   const results: T[] = [];
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -390,31 +363,19 @@ if (args.child !== undefined) {
       tallies.push(tally);
       const started = performance.now();
       await pool(
-        Array.from(
-          { length: runs },
-          () => async () =>
-            record(tally, await spawnChild(variant, [workload])),
-        ),
+        Array.from({ length: runs }, () => async () => record(tally, await spawnChild(variant, [workload]))),
         parallel,
       );
-      console.log(
-        `${summary(tally)}; ${((performance.now() - started) / 1000).toFixed(0)} s`,
-      );
-      for (const [site, count] of Object.entries(tally.sites))
-        console.log(`    ${count}× ${site}`);
-      for (const failure of tally.failures.slice(0, 3))
-        console.log(`    failure: ${failure}`);
+      console.log(`${summary(tally)}; ${((performance.now() - started) / 1000).toFixed(0)} s`);
+      for (const [site, count] of Object.entries(tally.sites)) console.log(`    ${count}× ${site}`);
+      for (const failure of tally.failures.slice(0, 3)) console.log(`    failure: ${failure}`);
     }
 
   const costs: Record<string, Result[] | string> = {};
   if (args.costs)
     for (const variant of variants) {
-      const outcome = await spawnChild(variant, [
-        memoryCosts.name,
-        dispatch.name,
-      ]);
-      costs[variant.name] =
-        outcome.report?.results ?? outcome.failure ?? "none";
+      const outcome = await spawnChild(variant, [memoryCosts.name, dispatch.name]);
+      costs[variant.name] = outcome.report?.results ?? outcome.failure ?? "none";
       for (const result of outcome.report?.results ?? [])
         console.log(
           `${variant.name} ${result.name}: ${result.pass ? "PASS" : "FAIL"} ${JSON.stringify(result.measurements)}${result.error === undefined ? "" : ` ${result.error}`}`,
@@ -423,11 +384,7 @@ if (args.child !== undefined) {
 
   let workerCost: Result[] | string | undefined;
   if (args["worker-memory"]) {
-    const outcome = await spawnChild(
-      variants[0]!,
-      [workerMemory.name],
-      ["--expose-gc"],
-    );
+    const outcome = await spawnChild(variants[0]!, [workerMemory.name], ["--expose-gc"]);
     workerCost = outcome.report?.results ?? outcome.failure ?? "none";
     for (const result of outcome.report?.results ?? [])
       console.log(
@@ -435,19 +392,10 @@ if (args.child !== undefined) {
       );
   }
 
-  console.log(
-    `MEMORY ${JSON.stringify({ node: process.version, tallies, costs, workerCost })}`,
-  );
+  console.log(`MEMORY ${JSON.stringify({ node: process.version, tallies, costs, workerCost })}`);
   const failed =
-    tallies.some(
-      (tally) =>
-        tally.noResult > 0 || (!tally.grows && tally.passed < tally.runs),
-    ) ||
-    Object.values(costs).some(
-      (results) =>
-        typeof results === "string" || results.some(({ pass }) => !pass),
-    ) ||
-    (workerCost !== undefined &&
-      (typeof workerCost === "string" || workerCost.some(({ pass }) => !pass)));
+    tallies.some((tally) => tally.noResult > 0 || (!tally.grows && tally.passed < tally.runs)) ||
+    Object.values(costs).some((results) => typeof results === "string" || results.some(({ pass }) => !pass)) ||
+    (workerCost !== undefined && (typeof workerCost === "string" || workerCost.some(({ pass }) => !pass)));
   process.exit(failed ? 1 : 0);
 }

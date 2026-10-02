@@ -15,8 +15,7 @@
     });
     return {
       post: (message) => worker.postMessage(message),
-      onMessage: (listener) =>
-        worker.addEventListener("message", ({ data }) => listener(data)),
+      onMessage: (listener) => worker.addEventListener("message", ({ data }) => listener(data)),
       terminate: () => worker.terminate(),
     };
   };

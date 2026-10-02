@@ -36,14 +36,9 @@ const modeName = (mode: string | undefined): string => mode ?? "(none)";
 
 type Reply = { result?: unknown; error?: string };
 
-const ready = async (
-  context: BrowserContext,
-  origin: string,
-): Promise<Page> => {
+const ready = async (context: BrowserContext, origin: string): Promise<Page> => {
   const page = await context.newPage();
-  page.on("pageerror", (error) =>
-    process.stderr.write(`[pageerror] ${error.message}\n`),
-  );
+  page.on("pageerror", (error) => process.stderr.write(`[pageerror] ${error.message}\n`));
   await page.goto(`${origin}/`);
   await page.waitForFunction(() => "experiments" in globalThis);
   return page;
@@ -51,18 +46,11 @@ const ready = async (
 
 const startWorker = (page: Page, name: string): Promise<void> =>
   page.evaluate(
-    (name) =>
-      (
-        globalThis as unknown as { experiments: { start(name: string): void } }
-      ).experiments.start(name),
+    (name) => (globalThis as unknown as { experiments: { start(name: string): void } }).experiments.start(name),
     name,
   );
 
-const send = (
-  page: Page,
-  name: string,
-  command: ExperimentCommand,
-): Promise<Reply> =>
+const send = (page: Page, name: string, command: ExperimentCommand): Promise<Reply> =>
   page.evaluate(
     ([name, command]) =>
       (
@@ -97,18 +85,13 @@ const holding = async (
   }
 };
 
-const tryOpen = async (
-  page: Page,
-  worker: string,
-  mode: string | undefined,
-): Promise<string> => {
+const tryOpen = async (page: Page, worker: string, mode: string | undefined): Promise<string> => {
   const opened = await send(page, worker, {
     op: "open",
     file: FILE,
     ...(mode === undefined ? {} : { mode }),
   });
-  if (opened.result !== undefined)
-    await send(page, worker, { op: "close", handle: opened.result as number });
+  if (opened.result !== undefined) await send(page, worker, { op: "close", handle: opened.result as number });
   return outcome(opened);
 };
 
@@ -124,10 +107,7 @@ const nestedRows = async (browser: Browser, origin: string) => {
             (
               globalThis as unknown as {
                 experiments: {
-                  nested(
-                    spin: boolean,
-                    blockMs: number,
-                  ): Promise<Record<string, number | null>>;
+                  nested(spin: boolean, blockMs: number): Promise<Record<string, number | null>>;
                 };
               }
             ).experiments.nested(spin, blockMs),
@@ -151,8 +131,7 @@ const lockRows = async (browser: Browser, origin: string) => {
     await startWorker(first, "Y");
     await startWorker(second, "Z");
     const created = await send(first, "X", { op: "create", file: FILE });
-    if (created.error !== undefined)
-      throw new Error(`create: ${created.error}`);
+    if (created.error !== undefined) throw new Error(`create: ${created.error}`);
 
     for (const held of MODES)
       for (const asked of MODES)
@@ -175,16 +154,12 @@ const lockRows = async (browser: Browser, origin: string) => {
       rows.push(
         [
           `X holds ${modeName(mode)}; Y reads it as a Blob`,
-          await holding(first, "X", mode, async () =>
-            outcome(await send(first, "Y", { op: "read-blob", file: FILE })),
-          ),
+          await holding(first, "X", mode, async () => outcome(await send(first, "Y", { op: "read-blob", file: FILE }))),
         ],
         [
           `X holds ${modeName(mode)}; Y opens a writable stream`,
           await holding(first, "X", mode, async () =>
-            outcome(
-              await send(first, "Y", { op: "create-writable", file: FILE }),
-            ),
+            outcome(await send(first, "Y", { op: "create-writable", file: FILE })),
           ),
         ],
       );
@@ -245,9 +220,7 @@ lines(
 );
 for (const [step, label] of Object.entries(nestedLabels))
   console.log(
-    `| ${label} | ${ran
-      .flatMap((name) => nested.get(name)!.map((column) => cell(column[step])))
-      .join(" | ")} |`,
+    `| ${label} | ${ran.flatMap((name) => nested.get(name)!.map((column) => cell(column[step]))).join(" | ")} |`,
   );
 const lockRan = [...locks.keys()];
 lines(
@@ -259,9 +232,7 @@ lines(
 );
 const first = locks.get(lockRan[0]!) ?? [];
 first.forEach(([label], i) =>
-  console.log(
-    `| ${label} | ${lockRan.map((name) => locks.get(name)![i]![1]).join(" | ")} |`,
-  ),
+  console.log(`| ${label} | ${lockRan.map((name) => locks.get(name)![i]![1]).join(" | ")} |`),
 );
 for (const failure of failures) console.log(`FAIL ${failure}`);
 process.exit(failures.length > 0 ? 1 : 0);

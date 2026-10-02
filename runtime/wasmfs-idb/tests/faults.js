@@ -62,8 +62,7 @@ const wasmfsIdbFaults = () => {
    */
   store.delete = function (...args) {
     const request = remove.apply(this, args);
-    if (_wasmfs_idb_test_take_delete_failure(stores.indexOf(this.name)))
-      fail(this.transaction, "UnknownError");
+    if (_wasmfs_idb_test_take_delete_failure(stores.indexOf(this.name))) fail(this.transaction, "UnknownError");
     return request;
   };
 
@@ -75,8 +74,7 @@ const wasmfsIdbFaults = () => {
    * @param {Parameters<IDBFactory["open"]>} args
    */
   factory.open = function (...args) {
-    if (_wasmfs_idb_test_take_open_failure())
-      throw new DOMException("Injected by the test", "SecurityError");
+    if (_wasmfs_idb_test_take_open_failure()) throw new DOMException("Injected by the test", "SecurityError");
     return open.apply(this, args);
   };
 };

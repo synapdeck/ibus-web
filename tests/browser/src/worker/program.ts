@@ -38,9 +38,7 @@ const post = (message: WorkerMessage): void => postMessage(message);
 const describe = (error: unknown): string => {
   const head = String(error);
   const stack = error instanceof Error ? (error.stack ?? "") : "";
-  return stack === "" || stack.startsWith(head)
-    ? stack || head
-    : `${head}\n${stack}`;
+  return stack === "" || stack.startsWith(head) ? stack || head : `${head}\n${stack}`;
 };
 
 addEventListener("error", (event) => {
@@ -63,19 +61,15 @@ addEventListener(
       const { default: factory } = (await import(url)) as { default: Factory };
       await factory({
         arguments: args,
-        print: (text) =>
-          post({ kind: "output", line: { stream: "stdout", text } }),
-        printErr: (text) =>
-          post({ kind: "output", line: { stream: "stderr", text } }),
+        print: (text) => post({ kind: "output", line: { stream: "stdout", text } }),
+        printErr: (text) => post({ kind: "output", line: { stream: "stderr", text } }),
         // A pthread's output reaches this Worker as a message, and the page
         // ends the run on "exit", so "exit" waits for the output messages
         // already delivered. A line a pthread prints just before exit can
         // still be in transit and be lost: tests report through their exit
         // code and print what they assert on from the main thread.
-        onExit: (code) =>
-          void drainMessages().then(() => post({ kind: "exit", code })),
-        onAbort: (what) =>
-          post({ kind: "error", message: `aborted: ${describe(what)}` }),
+        onExit: (code) => void drainMessages().then(() => post({ kind: "exit", code })),
+        onAbort: (what) => post({ kind: "error", message: `aborted: ${describe(what)}` }),
       });
     } catch (error) {
       post({ kind: "error", message: describe(error) });

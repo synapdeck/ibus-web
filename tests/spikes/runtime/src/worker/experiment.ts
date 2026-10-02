@@ -25,75 +25,54 @@ let nextHandle = 1;
 // know.
 type SyncAccessHandleOptions = { mode?: string };
 
-const fileHandle = async (
-  name: string,
-  create = false,
-): Promise<FileSystemFileHandle> =>
+const fileHandle = async (name: string, create = false): Promise<FileSystemFileHandle> =>
   (await navigator.storage.getDirectory()).getFileHandle(name, { create });
 
 let marks: Int32Array | null = null;
 let epoch = 0;
-const mark = (
-  step: number,
-  at = performance.timeOrigin + performance.now(),
-) => {
-  if (marks !== null)
-    Atomics.store(marks, step, Math.round((at - epoch) * 1000));
+const mark = (step: number, at = performance.timeOrigin + performance.now()) => {
+  if (marks !== null) Atomics.store(marks, step, Math.round((at - epoch) * 1000));
 };
 
 // The nested experiment's children, by role.
 const children = new Map<string, Worker>();
 
-const spawn = (name: string): Worker =>
-  new Worker(workerUrl, { type: "module", name });
+const spawn = (name: string): Worker => new Worker(workerUrl, { type: "module", name });
 
 // Sends a child a command and waits for its answer.
 const ask = (worker: Worker, command: ExperimentCommand): Promise<unknown> =>
   new Promise((resolve, reject) => {
-    worker.onmessage = ({
-      data,
-    }: MessageEvent<{ result?: unknown; error?: string }>) =>
-      data.error === undefined
-        ? resolve(data.result)
-        : reject(new Error(data.error));
+    worker.onmessage = ({ data }: MessageEvent<{ result?: unknown; error?: string }>) =>
+      data.error === undefined ? resolve(data.result) : reject(new Error(data.error));
     worker.postMessage({ id: 0, command });
   });
 
 const run = async (command: ExperimentCommand): Promise<unknown> => {
   switch (command.op) {
     case "create": {
-      const handle = await (
-        await fileHandle(command.file, true)
-      ).createSyncAccessHandle();
+      const handle = await (await fileHandle(command.file, true)).createSyncAccessHandle();
       handle.write(new TextEncoder().encode(command.file), { at: 0 });
       handle.close();
       return null;
     }
     case "open": {
       const file = await fileHandle(command.file);
-      const options: SyncAccessHandleOptions =
-        command.mode === undefined ? {} : { mode: command.mode };
+      const options: SyncAccessHandleOptions = command.mode === undefined ? {} : { mode: command.mode };
       const handle = await (
-        file.createSyncAccessHandle as (
-          options: SyncAccessHandleOptions,
-        ) => Promise<FileSystemSyncAccessHandle>
+        file.createSyncAccessHandle as (options: SyncAccessHandleOptions) => Promise<FileSystemSyncAccessHandle>
       ).call(file, options);
       const id = nextHandle++;
       handles.set(id, handle);
       return id;
     }
     case "write":
-      return handles
-        .get(command.handle)!
-        .write(new Uint8Array([0x21]), { at: 0 });
+      return handles.get(command.handle)!.write(new Uint8Array([0x21]), { at: 0 });
     case "close":
       handles.get(command.handle)!.close();
       handles.delete(command.handle);
       return null;
     case "read-blob":
-      return (
-        await (await (await fileHandle(command.file)).getFile()).arrayBuffer()
-      ).byteLength;
+      return (await (await (await fileHandle(command.file)).getFile()).arrayBuffer()).byteLength;
     case "create-writable": {
       const stream = await (
         await fileHandle(command.file)
@@ -130,12 +109,7 @@ const run = async (command: ExperimentCommand): Promise<unknown> => {
             mark: NestedMark.cStarts,
           },
         });
-        Atomics.wait(
-          new Int32Array(new SharedArrayBuffer(4)),
-          0,
-          0,
-          command.blockMs,
-        );
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, command.blockMs);
         mark(NestedMark.aUnblocked);
         return null;
       }
@@ -181,18 +155,13 @@ const run = async (command: ExperimentCommand): Promise<unknown> => {
   }
 };
 
-self.onmessage = ({
-  data,
-}: MessageEvent<{ id: number; command: ExperimentCommand }>) => {
+self.onmessage = ({ data }: MessageEvent<{ id: number; command: ExperimentCommand }>) => {
   run(data.command).then(
     (result) => self.postMessage({ id: data.id, result }),
     (error: unknown) =>
       self.postMessage({
         id: data.id,
-        error:
-          error instanceof DOMException || error instanceof Error
-            ? error.name
-            : String(error),
+        error: error instanceof DOMException || error instanceof Error ? error.name : String(error),
       }),
   );
 };

@@ -5,8 +5,7 @@
 // or Bun: instantiates the module over the shared memory, reports that it is
 // ready, then spins until the grower is done, or traps.
 
-const { parentPort } =
-  typeof process === "object" ? await import("node:worker_threads") : {};
+const { parentPort } = typeof process === "object" ? await import("node:worker_threads") : {};
 const post = (message) => (parentPort ?? self).postMessage(message);
 const start = ({ memory, module, mode }) => {
   const instance = new WebAssembly.Instance(module, {

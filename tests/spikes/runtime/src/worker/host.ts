@@ -76,12 +76,7 @@ interface Runtime {
   _ibusweb_install_feed(install: number, data: number, len: number): number;
   _ibusweb_install_end(install: number): number;
   _ibusweb_install_count(install: number, files: number, bytes: number): void;
-  _ibusweb_dispatch(
-    request: number,
-    requestLen: number,
-    reply: number,
-    replyCap: number,
-  ): number;
+  _ibusweb_dispatch(request: number, requestLen: number, reply: number, replyCap: number): number;
   _mallinfo(out: number): void;
   // Emscripten's own pthread pool, which the runtime exports for the host to
   // top it up.
@@ -123,25 +118,21 @@ const waitAsync = (
       index: number,
       value: number,
       timeout: number,
-    ):
-      | { async: false; value: string }
-      | { async: true; value: Promise<string> };
+    ): { async: false; value: string } | { async: true; value: Promise<string> };
   }
 ).waitAsync;
 
 const post = (message: HostMessage): void => self.postMessage(message);
 
 const features = (): HostFeatures => ({
-  atomicsWaitAsync:
-    typeof (Atomics as { waitAsync?: unknown }).waitAsync === "function",
+  atomicsWaitAsync: typeof (Atomics as { waitAsync?: unknown }).waitAsync === "function",
   clockStepUs: clockStepUs(() => performance.now()),
 });
 
 // In a browser, a thread's uncaught error reaches this thread as the
 // ErrorEvent its Worker fired, which Emscripten rethrows.
 const describe = (error: unknown): string => {
-  if (error instanceof Error)
-    return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
+  if (error instanceof Error) return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
   if (typeof ErrorEvent === "function" && error instanceof ErrorEvent)
     return `${error.message} (${error.filename}:${error.lineno})`;
   return String(error);
@@ -151,10 +142,7 @@ const encoder = new TextEncoder();
 
 // The promise's value, or fallback if it takes longer than ms.
 const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
-  Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
+  Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
 const WASM_PAGE = 65536;
 
@@ -170,15 +158,9 @@ const checkMemory = (
     ["memory", initial],
     ["memory maximum", maximum],
   ] as const)
-    if (
-      !Number.isSafeInteger(bytes) ||
-      bytes % WASM_PAGE !== 0 ||
-      bytes < minimum ||
-      bytes > most
-    )
+    if (!Number.isSafeInteger(bytes) || bytes % WASM_PAGE !== 0 || bytes < minimum || bytes > most)
       throw new Error(`${what} ${bytes}: the runtime takes ${bounds}`);
-  if (maximum < initial)
-    throw new Error(`memory maximum ${maximum}: below the memory, ${initial}`);
+  if (maximum < initial) throw new Error(`memory maximum ${maximum}: below the memory, ${initial}`);
 };
 
 class Heap {
@@ -250,19 +232,13 @@ interface HeldLock {
 }
 
 const lockManager = (name: string): LockManager => {
-  const locks = (globalThis.navigator as { locks?: LockManager } | undefined)
-    ?.locks;
-  if (locks === undefined)
-    throw new Error(`no Web Locks here to take ${name} with`);
+  const locks = (globalThis.navigator as { locks?: LockManager } | undefined)?.locks;
+  if (locks === undefined) throw new Error(`no Web Locks here to take ${name} with`);
   return locks;
 };
 
 // The lock once granted, or null if options.ifAvailable and it is held.
-const requestLock = (
-  name: string,
-  options: LockOptions,
-  requestedAt: number,
-): Promise<HeldLock | null> =>
+const requestLock = (name: string, options: LockOptions, requestedAt: number): Promise<HeldLock | null> =>
   new Promise((resolve, reject) => {
     lockManager(name)
       .request(name, options, (lock) =>
@@ -296,44 +272,31 @@ const PROGRESS_MS = 1000;
 // LOCK_ROUND_MS each, each made again when the last times out. A Worker
 // that ends lets go of its locks, so a host that dies holding one never
 // holds it for good.
-const holdLock = async (
-  name: string,
-  mode: LockMode,
-  waiting: () => void,
-  progress?: string,
-): Promise<HeldLock> => {
+const holdLock = async (name: string, mode: LockMode, waiting: () => void, progress?: string): Promise<HeldLock> => {
   const requestedAt = performance.now();
   const now = await requestLock(name, { mode, ifAvailable: true }, requestedAt);
   if (now !== null) return now;
   waiting();
   let heard = requestedAt;
-  const channel =
-    progress === undefined ? undefined : new BroadcastChannel(progress);
+  const channel = progress === undefined ? undefined : new BroadcastChannel(progress);
   if (channel !== undefined)
     channel.onmessage = () => {
       heard = performance.now();
     };
   try {
-    for (
-      let left = LOCK_LIMIT_MS;
-      left > 0;
-      left = heard + LOCK_LIMIT_MS - performance.now()
-    ) {
+    for (let left = LOCK_LIMIT_MS; left > 0; left = heard + LOCK_LIMIT_MS - performance.now()) {
       const signal = AbortSignal.timeout(Math.min(LOCK_ROUND_MS, left));
       try {
         const held = await requestLock(name, { mode, signal }, requestedAt);
         if (held !== null) return held;
       } catch (error) {
-        if ((error as { name?: unknown } | null)?.name !== "TimeoutError")
-          throw error;
+        if ((error as { name?: unknown } | null)?.name !== "TimeoutError") throw error;
       }
     }
   } finally {
     channel?.close();
   }
-  throw new Error(
-    `${name}: not granted after ${LOCK_LIMIT_MS} ms without word from the host holding it`,
-  );
+  throw new Error(`${name}: not granted after ${LOCK_LIMIT_MS} ms without word from the host holding it`);
 };
 
 // Says, on the channel, at most every PROGRESS_MS, that this host is still
@@ -391,8 +354,7 @@ class Held {
     } catch {
       sealed = false;
     }
-    for (const lock of this.#locks)
-      if (sealed || lock !== this.#writer) lock.release();
+    for (const lock of this.#locks) if (sealed || lock !== this.#writer) lock.release();
     this.#locks.clear();
     this.#writer = null;
     this.#seal = null;
@@ -416,19 +378,14 @@ const withoutIndexedDB = (): void => {
     configurable: true,
     value: {
       open: () => {
-        throw new DOMException(
-          "IndexedDB is withheld from this host",
-          "SecurityError",
-        );
+        throw new DOMException("IndexedDB is withheld from this host", "SecurityError");
       },
     },
   });
 };
 
 const briefly = (error: unknown): string =>
-  error instanceof Error || error instanceof DOMException
-    ? `${error.name}: ${error.message}`
-    : String(error);
+  error instanceof Error || error instanceof DOMException ? `${error.name}: ${error.message}` : String(error);
 
 // Opens the database if it exists, without creating it: opening a database
 // that doesn't exist would create it, empty, at the version the backend
@@ -460,8 +417,7 @@ const openExisting = (database: string): Promise<IDBDatabase | null> =>
 // backend opens its own connection, on its own thread, so this one closes
 // at once.
 const probeIndexedDB = async (database: string): Promise<string | null> => {
-  if ((globalThis as { indexedDB?: IDBFactory }).indexedDB === undefined)
-    return "this environment has no IndexedDB";
+  if ((globalThis as { indexedDB?: IDBFactory }).indexedDB === undefined) return "this environment has no IndexedDB";
   try {
     (await openExisting(database))?.close();
     return null;
@@ -474,15 +430,8 @@ const probeIndexedDB = async (database: string): Promise<string | null> => {
 // is if it gets the engine's writer lock at once, and then holds it for as
 // long as it runs. Hosts don't queue for it: one that starts while another
 // writes stays read-only for good, since a backend can't become writable.
-const takeWriterLock = async (
-  engine: EngineManifest,
-  held: Held,
-): Promise<boolean> => {
-  const lock = await requestLock(
-    engineWriterLock(engine),
-    { mode: "exclusive", ifAvailable: true },
-    performance.now(),
-  );
+const takeWriterLock = async (engine: EngineManifest, held: Held): Promise<boolean> => {
+  const lock = await requestLock(engineWriterLock(engine), { mode: "exclusive", ifAvailable: true }, performance.now());
   if (lock === null) return false;
   held.addWriter(lock);
   return true;
@@ -524,11 +473,7 @@ const planStorage = async (
 
 // The memory the runtime needs: mounted in memory, the engine's data takes
 // its size more, in whole pages.
-const memoryFor = (
-  memory: HostInit["memory"],
-  plan: StoragePlan,
-  engine: EngineManifest,
-): HostInit["memory"] => {
+const memoryFor = (memory: HostInit["memory"], plan: StoragePlan, engine: EngineManifest): HostInit["memory"] => {
   if (plan.mount !== "memory") return memory;
   const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
   return { initial: memory.initial + data, maximum: memory.maximum + data };
@@ -559,8 +504,7 @@ interface NodeFs {
 }
 
 // Only a host under Node is given Node storage, so only it imports this.
-const nodeFs = (): Promise<NodeFs> =>
-  import("node:fs/promises" as string) as Promise<NodeFs>;
+const nodeFs = (): Promise<NodeFs> => import("node:fs/promises" as string) as Promise<NodeFs>;
 
 // Under Node, the engine's own files are kept apart from its data.
 const nodeUserDir = (hostPath: string): string => `${hostPath}/user`;
@@ -569,18 +513,11 @@ const nodeUserDir = (hostPath: string): string => `${hostPath}/user`;
 const makeDirs = (heap: Heap, path: string): void => {
   const parts = path.split("/").filter((part) => part !== "");
   for (let i = 1; i <= parts.length; i++)
-    heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) =>
-      heap.rt._mkdir(ptr, 0o755),
-    );
+    heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) => heap.rt._mkdir(ptr, 0o755));
 };
 
 // Mounts the backend, which is 0 if it couldn't be made, at dir.
-const mountAt = (
-  heap: Heap,
-  backend: number,
-  dir: string,
-  what: string,
-): void => {
+const mountAt = (heap: Heap, backend: number, dir: string, what: string): void => {
   if (backend === 0)
     throw new Error(
       what === "indexeddb"
@@ -589,9 +526,7 @@ const mountAt = (
     );
   check(
     `mount ${dir}`,
-    heap.withString(dir, (ptr) =>
-      heap.rt._wasmfs_create_directory(ptr, 0o777, backend),
-    ),
+    heap.withString(dir, (ptr) => heap.rt._wasmfs_create_directory(ptr, 0o777, backend)),
   );
 };
 
@@ -599,12 +534,7 @@ const mountAt = (
 // IndexedDB backend starts a thread of its own, from the pool, that runs
 // its calls for good, and blocks this thread while that thread opens the
 // database; it reports why it couldn't on stderr.
-const mount = async (
-  heap: Heap,
-  plan: StoragePlan,
-  dir: string,
-  held: Held,
-): Promise<{ closed(): boolean }> => {
+const mount = async (heap: Heap, plan: StoragePlan, dir: string, held: Held): Promise<{ closed(): boolean }> => {
   if (plan.mount === "none") return { closed: () => false };
   const { rt } = heap;
   makeDirs(heap, dir.slice(0, dir.lastIndexOf("/")));
@@ -613,28 +543,20 @@ const mount = async (
     case "node": {
       const user = nodeUserDir(plan.hostPath);
       await (await nodeFs()).mkdir(user, { recursive: true });
-      backend = heap.withString(user, (ptr) =>
-        rt._wasmfs_create_node_backend(ptr),
-      );
+      backend = heap.withString(user, (ptr) => rt._wasmfs_create_node_backend(ptr));
       break;
     }
     case "indexeddb":
-      backend = heap.withString(plan.database, (ptr) =>
-        rt._wasmfs_create_idb_backend(ptr, plan.flags),
-      );
+      backend = heap.withString(plan.database, (ptr) => rt._wasmfs_create_idb_backend(ptr, plan.flags));
       break;
     case "memory":
       backend = rt._wasmfs_create_memory_backend();
       break;
   }
   mountAt(heap, backend, dir, plan.mount);
-  if (plan.mount === "indexeddb" && !plan.readOnly)
-    held.sealWith(() => rt._wasmfs_idb_backend_seal(backend));
+  if (plan.mount === "indexeddb" && !plan.readOnly) held.sealWith(() => rt._wasmfs_idb_backend_seal(backend));
   return {
-    closed:
-      plan.mount === "indexeddb"
-        ? () => rt._wasmfs_idb_backend_closed(backend) !== 0
-        : () => false,
+    closed: plan.mount === "indexeddb" ? () => rt._wasmfs_idb_backend_closed(backend) !== 0 : () => false,
   };
 };
 
@@ -651,8 +573,7 @@ const loadSides = (heap: Heap, sides: readonly SideModule[]): void => {
     const data = new Uint8Array(bytes);
     const written = heap.with(data, (ptr) => rt._write(fd, ptr, data.length));
     check(`close ${path}`, rt._close(fd));
-    if (written !== data.length)
-      throw new Error(`write ${path}: ${written} of ${data.length}`);
+    if (written !== data.length) throw new Error(`write ${path}: ${written} of ${data.length}`);
     check(
       `load ${name}`,
       heap.withString(path, (ptr) => rt._ibusweb_load_module(ptr, 0)),
@@ -695,10 +616,7 @@ const installArchive = async (
   const progressed = (): void => {
     clearTimeout(timer);
     timer = setTimeout(
-      () =>
-        idle.abort(
-          new Error(`fetch ${url}: nothing arrived for ${ARCHIVE_IDLE_MS} ms`),
-        ),
+      () => idle.abort(new Error(`fetch ${url}: nothing arrived for ${ARCHIVE_IDLE_MS} ms`)),
       ARCHIVE_IDLE_MS,
     );
   };
@@ -711,8 +629,7 @@ const installArchive = async (
   const piece = heap.alloc(INSTALL_PIECE);
   try {
     const response = await fetch(url, { signal: idle.signal });
-    if (!response.ok || response.body === null)
-      throw new Error(`fetch ${url}: ${response.status}`);
+    if (!response.ok || response.body === null) throw new Error(`fetch ${url}: ${response.status}`);
     reader = response.body.getReader();
     makeDirs(heap, dir);
     check(
@@ -728,13 +645,9 @@ const installArchive = async (
       const { value } = next;
       for (let at = 0; at < value.length; at += INSTALL_PIECE) {
         let part = value.subarray(at, at + INSTALL_PIECE);
-        if (stallAt !== undefined && tally.fed + part.length >= stallAt)
-          part = part.subarray(0, stallAt - tally.fed);
+        if (stallAt !== undefined && tally.fed + part.length >= stallAt) part = part.subarray(0, stallAt - tally.fed);
         heap.bytes.set(part, piece);
-        check(
-          `install ${url} at byte ${tally.fed}`,
-          rt._ibusweb_install_feed(install, piece, part.length),
-        );
+        check(`install ${url} at byte ${tally.fed}`, rt._ibusweb_install_feed(install, piece, part.length));
         tally.fed += part.length;
         if (tally.fed === stallAt) {
           clearTimeout(timer);
@@ -747,8 +660,7 @@ const installArchive = async (
     rt._ibusweb_install_count(install, out + 4, out + 8);
     const { words } = heap;
     const files = words[(out + 4) / 4]! >>> 0;
-    const bytes =
-      (words[(out + 8) / 4]! >>> 0) + (words[(out + 12) / 4]! >>> 0) * 2 ** 32;
+    const bytes = (words[(out + 8) / 4]! >>> 0) + (words[(out + 12) / 4]! >>> 0) * 2 ** 32;
     const ended = rt._ibusweb_install_end(install);
     install = 0;
     check(`install ${url}`, ended);
@@ -773,15 +685,7 @@ const installArchives = async (
 ): Promise<Tally> => {
   const tally: Tally = { fed: 0, files: 0, bytes: 0 };
   for (const data of engine.data)
-    await installArchive(
-      heap,
-      data.url,
-      engineDataDir(engine, data),
-      tally,
-      stallAt,
-      stalled,
-      arrived,
-    );
+    await installArchive(heap, data.url, engineDataDir(engine, data), tally, stallAt, stalled, arrived);
   return tally;
 };
 
@@ -793,9 +697,7 @@ interface Marker {
 }
 
 const markerFor = (value: unknown, version: string): boolean =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as Partial<Marker>).version === version;
+  typeof value === "object" && value !== null && (value as Partial<Marker>).version === version;
 
 // Where a mount that outlives the Worker keeps each version's data, apart
 // from the engine's own files: an IndexedDB database, or a directory on the
@@ -867,11 +769,7 @@ const idbRequest = <T>(request: IDBRequest<T>): Promise<T> =>
     request.onerror = () => reject(request.error);
   });
 
-const idbStore = (
-  heap: Heap,
-  engine: EngineManifest,
-  readOnlyFlag: number,
-): DataStore => {
+const idbStore = (heap: Heap, engine: EngineManifest, readOnlyFlag: number): DataStore => {
   const database = engineDataDatabase(engine);
   const prefix = engineDataDatabasePrefix(engine);
   let backend = 0;
@@ -881,12 +779,7 @@ const idbStore = (
       if (db === null) return false;
       try {
         if (!db.objectStoreNames.contains("meta")) return false;
-        const marker = await idbRequest(
-          db
-            .transaction("meta", "readonly")
-            .objectStore("meta")
-            .get(MARKER_KEY),
-        );
+        const marker = await idbRequest(db.transaction("meta", "readonly").objectStore("meta").get(MARKER_KEY));
         return markerFor(marker, engine.version);
       } finally {
         db.close();
@@ -912,8 +805,7 @@ const idbStore = (
         });
         const committed = new Promise<void>((resolve, reject) => {
           tx.oncomplete = () => resolve();
-          tx.onabort = () =>
-            reject(tx.error ?? new Error(`marking ${database} aborted`));
+          tx.onabort = () => reject(tx.error ?? new Error(`marking ${database} aborted`));
         });
         tx.objectStore("meta").put(marker, MARKER_KEY);
         await committed;
@@ -926,27 +818,17 @@ const idbStore = (
         .map(({ name }) => name ?? "")
         .filter((name) => name.startsWith(prefix))
         .map((name) => name.slice(prefix.length))
-        .filter(
-          (version) =>
-            version !== "" &&
-            !version.includes("/") &&
-            `${prefix}${version}` !== database,
-        );
+        .filter((version) => version !== "" && !version.includes("/") && `${prefix}${version}` !== database);
     },
     remove: (version) => deleteDatabase(`${prefix}${version}`),
     seal() {
       if (backend !== 0) heap.rt._wasmfs_idb_backend_seal(backend);
     },
-    closed: () =>
-      backend !== 0 && heap.rt._wasmfs_idb_backend_closed(backend) !== 0,
+    closed: () => backend !== 0 && heap.rt._wasmfs_idb_backend_closed(backend) !== 0,
   };
 };
 
-const nodeStore = async (
-  heap: Heap,
-  engine: EngineManifest,
-  hostPath: string,
-): Promise<DataStore> => {
+const nodeStore = async (heap: Heap, engine: EngineManifest, hostPath: string): Promise<DataStore> => {
   const fs = await nodeFs();
   const root = `${hostPath}/data`;
   const own = encodeComponent(engine.version);
@@ -967,10 +849,7 @@ const nodeStore = async (
     // again rather than every start failing.
     async installed() {
       try {
-        return markerFor(
-          JSON.parse(await fs.readFile(markerOf(own), "utf8")),
-          engine.version,
-        );
+        return markerFor(JSON.parse(await fs.readFile(markerOf(own), "utf8")), engine.version);
       } catch {
         return false;
       }
@@ -979,10 +858,7 @@ const nodeStore = async (
       await remove(own);
       await fs.mkdir(dirOf(own), { recursive: true });
     },
-    backend: () =>
-      heap.withString(dirOf(own), (ptr) =>
-        heap.rt._wasmfs_create_node_backend(ptr),
-      ),
+    backend: () => heap.withString(dirOf(own), (ptr) => heap.rt._wasmfs_create_node_backend(ptr)),
     // Every file of the data was fsync()ed before this is written. The
     // rename makes the marker whole or absent, and syncing the directory,
     // where the platform allows it, makes the rename durable.
@@ -1025,10 +901,7 @@ const nodeStore = async (
 // version holds its data lock shared, so one granted exclusively at once
 // is one no host uses, and no host can start using it until it is let go.
 // Best-effort: a failure is reported, never thrown.
-const collect = async (
-  store: DataStore,
-  engine: EngineManifest,
-): Promise<CollectReport> => {
+const collect = async (store: DataStore, engine: EngineManifest): Promise<CollectReport> => {
   const report: CollectReport = { removed: [], inUse: [] };
   try {
     for (const version of await store.others()) {
@@ -1076,8 +949,7 @@ const provideData = async (
 ): Promise<() => boolean> => {
   const { engine, installStallAt } = init;
   if (plan.mount === "none") return () => false;
-  if (engine.version === "")
-    throw new Error(`engine ${engine.name}'s manifest has no version`);
+  if (engine.version === "") throw new Error(`engine ${engine.name}'s manifest has no version`);
   const root = engineDataRoot(engine);
   const startedAt = performance.now();
   const stalled =
@@ -1096,12 +968,7 @@ const provideData = async (
   if (plan.mount === "memory") {
     makeDirs(heap, root);
     const lock = { waitMs: 0, lockedAt: Date.now() };
-    const { fed: bytes } = await installArchives(
-      heap,
-      engine,
-      installStallAt,
-      stalled(lock),
-    );
+    const { fed: bytes } = await installArchives(heap, engine, installStallAt, stalled(lock));
     post({
       type: "install",
       state: "installed",
@@ -1119,9 +986,7 @@ const provideData = async (
   const dataLock = engineDataLock(engine, encodeComponent(engine.version));
   held.add(await holdLock(dataLock, "shared", waiting(dataLock)));
   const installLock = engineInstallLock(engine);
-  const lock = held.add(
-    await holdLock(installLock, "exclusive", waiting(installLock), installLock),
-  );
+  const lock = held.add(await holdLock(installLock, "exclusive", waiting(installLock), installLock));
   const store =
     plan.mount === "node"
       ? await nodeStore(heap, engine, plan.hostPath)
@@ -1137,13 +1002,7 @@ const provideData = async (
     mountAt(heap, store.backend(false), root, what);
     const progress = progressOn(installLock);
     try {
-      const tally = await installArchives(
-        heap,
-        engine,
-        installStallAt,
-        stalled(lock),
-        progress.said,
-      );
+      const tally = await installArchives(heap, engine, installStallAt, stalled(lock), progress.said);
       bytes = tally.fed;
       await store.mark({
         version: engine.version,
@@ -1220,22 +1079,16 @@ const trackWorkers = (): Workers => {
 
 // Long enough that the loop reaches the messages already queued for it, not
 // only the timer.
-const yieldToEventLoop = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const yieldToEventLoop = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-const heapInUse = (
-  heap: Heap,
-  constants: BuildConstants,
-  scratch: number,
-): number => {
+const heapInUse = (heap: Heap, constants: BuildConstants, scratch: number): number => {
   heap.rt._mallinfo(scratch);
   return heap.words[(scratch + constants.mallinfo.inUseOffset) / 4]!;
 };
 
 const pump = (rt: Runtime, constants: BuildConstants): number => {
   const delay = rt._ibusweb_pump();
-  if (delay === constants.pumpError)
-    throw new Error("pumped off the runtime's thread");
+  if (delay === constants.pumpError) throw new Error("pumped off the runtime's thread");
   return delay;
 };
 
@@ -1274,11 +1127,7 @@ const TOP_UP_LIMIT_MS = 10_000;
 
 // Rejects if the Workers haven't all loaded within TOP_UP_LIMIT_MS; any that
 // load later still join the pool.
-const topUp = (
-  rt: Runtime,
-  want: number,
-  counters: Counters,
-): Promise<void> => {
+const topUp = (rt: Runtime, want: number, counters: Counters): Promise<void> => {
   const { PThread } = rt;
   const startedAt = performance.now();
   const loading: Promise<void>[] = [];
@@ -1288,10 +1137,7 @@ const topUp = (
     // joins the pool only once it has loaded.
     const worker = PThread.allocateUnusedWorker();
     const index = PThread.unusedWorkers.indexOf(worker);
-    if (index < 0)
-      throw new Error(
-        "PThread.allocateUnusedWorker() didn't add its Worker to PThread.unusedWorkers",
-      );
+    if (index < 0) throw new Error("PThread.allocateUnusedWorker() didn't add its Worker to PThread.unusedWorkers");
     PThread.unusedWorkers.splice(index, 1);
     loading.push(
       PThread.loadWasmModuleToWorker(worker).then(() => {
@@ -1303,12 +1149,7 @@ const topUp = (
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () =>
-        reject(
-          new Error(
-            `pool top-up: ${want} Workers not all loaded in ${TOP_UP_LIMIT_MS} ms`,
-          ),
-        ),
+      () => reject(new Error(`pool top-up: ${want} Workers not all loaded in ${TOP_UP_LIMIT_MS} ms`)),
       TOP_UP_LIMIT_MS,
     );
   });
@@ -1325,23 +1166,14 @@ const topUp = (
 // The host leans on Emscripten internals that a new Emscripten may rename or
 // drop; better to refuse to start than to fail at the first top-up.
 const requireRuntime = (rt: Runtime): void => {
-  const pool = (rt as Partial<Runtime>).PThread as
-    | Partial<EmscriptenPool>
-    | undefined;
+  const pool = (rt as Partial<Runtime>).PThread as Partial<EmscriptenPool> | undefined;
   const missing = [
     ...(rt.HEAPU8 instanceof Uint8Array ? [] : ["HEAPU8"]),
     ...(Array.isArray(pool?.unusedWorkers) ? [] : ["PThread.unusedWorkers"]),
-    ...(typeof pool?.allocateUnusedWorker === "function"
-      ? []
-      : ["PThread.allocateUnusedWorker"]),
-    ...(typeof pool?.loadWasmModuleToWorker === "function"
-      ? []
-      : ["PThread.loadWasmModuleToWorker"]),
+    ...(typeof pool?.allocateUnusedWorker === "function" ? [] : ["PThread.allocateUnusedWorker"]),
+    ...(typeof pool?.loadWasmModuleToWorker === "function" ? [] : ["PThread.loadWasmModuleToWorker"]),
   ];
-  if (missing.length > 0)
-    throw new Error(
-      `the runtime lacks what the host uses of it: ${missing.join(", ")}`,
-    );
+  if (missing.length > 0) throw new Error(`the runtime lacks what the host uses of it: ${missing.join(", ")}`);
 };
 
 // Answers the request in the slot. Only HostOp.yield answers later, after
@@ -1358,9 +1190,7 @@ const serve = (
 ): Promise<void> | undefined => {
   const request = requestBytes(control);
   const arg = (fallback: number): number =>
-    request.length >= 8
-      ? new DataView(request.buffer, request.byteOffset + 4).getInt32(0, true)
-      : fallback;
+    request.length >= 8 ? new DataView(request.buffer, request.byteOffset + 4).getInt32(0, true) : fallback;
   if (request.length >= 4) {
     switch (requestOpcode(request)) {
       case HostOp.stats: {
@@ -1396,20 +1226,9 @@ const serve = (
     }
   }
   heap.bytes.set(request, buffers.request);
-  const ret = heap.rt._ibusweb_dispatch(
-    buffers.request,
-    request.length,
-    buffers.reply,
-    buffers.cap,
-  );
+  const ret = heap.rt._ibusweb_dispatch(buffers.request, request.length, buffers.reply, buffers.cap);
   pump(heap.rt, constants);
-  postReply(
-    control,
-    ret,
-    ret > 0
-      ? heap.bytes.subarray(buffers.reply, buffers.reply + ret)
-      : undefined,
-  );
+  postReply(control, ret, ret > 0 ? heap.bytes.subarray(buffers.reply, buffers.reply + ret) : undefined);
   return undefined;
 };
 
@@ -1465,10 +1284,7 @@ const bringUp = async (
         ? {}
         : {
             instantiateWasm: (imports, done) => {
-              WebAssembly.instantiate(wasm, imports).then(
-                (instance) => done(instance, wasm),
-                failInstantiate,
-              );
+              WebAssembly.instantiate(wasm, imports).then((instance) => done(instance, wasm), failInstantiate);
               return {};
             },
           }),
@@ -1480,8 +1296,7 @@ const bringUp = async (
   const heap = new Heap(rt, memory);
 
   const user = await mount(heap, plan, engineDir(init.engine), held);
-  if (plan.mount === "memory")
-    post({ type: "storage", state: "ephemeral", message: plan.why });
+  if (plan.mount === "memory") post({ type: "storage", state: "ephemeral", message: plan.why });
   if ((plan.mount === "indexeddb" || plan.mount === "node") && plan.readOnly)
     post({
       type: "storage",
@@ -1521,18 +1336,8 @@ const serveFrom = async (
   held: Held,
 ): Promise<void> => {
   const { constants } = init;
-  const plan = await planStorage(
-    init.storage,
-    init.engine,
-    constants.idbReadOnly,
-    held,
-  );
-  const { rt, heap, workers, mounted } = await bringUp(
-    init,
-    createRuntime,
-    plan,
-    held,
-  );
+  const plan = await planStorage(init.storage, init.engine, constants.idbReadOnly, held);
+  const { rt, heap, workers, mounted } = await bringUp(init, createRuntime, plan, held);
   loadSides(heap, init.sides);
 
   const wake = heap.alloc(4);
@@ -1548,17 +1353,12 @@ const serveFrom = async (
   };
   const controlWord = { buffer: init.control, index: Word.wake };
   const relay = await startRelay({
-    ...(init.wait === "control"
-      ? { from: runtimeWord, to: controlWord }
-      : { from: controlWord, to: runtimeWord }),
+    ...(init.wait === "control" ? { from: runtimeWord, to: controlWord } : { from: controlWord, to: runtimeWord }),
     control: init.control,
   });
   // Each word is read before the state and the pump look, so a wake that
   // lands after them changes it and the sleep returns at once.
-  const [sleepWords, sleepIndex] =
-    init.wait === "control"
-      ? [control.words, Word.wake]
-      : [heap.words, wakeIndex];
+  const [sleepWords, sleepIndex] = init.wait === "control" ? [control.words, Word.wake] : [heap.words, wakeIndex];
   const relayFailed = new Promise<string>((resolve) => {
     relay.onerror = (event) => {
       resolve(event.message);
@@ -1610,30 +1410,18 @@ const serveFrom = async (
         post({
           type: "storage",
           state: "closed",
-          message:
-            "the IndexedDB connection closed; the engine's storage fails with EIO",
+          message: "the IndexedDB connection closed; the engine's storage fails with EIO",
         });
       }
       const seen = Atomics.load(sleepWords, sleepIndex);
       const state = Atomics.load(control.words, Word.state);
       if (state === State.crashed)
-        throw new Error(
-          `relay: ${await within(relayFailed, 1000, "stopped without an error")}`,
-        );
+        throw new Error(`relay: ${await within(relayFailed, 1000, "stopped without an error")}`);
       if (state === State.request) {
         counters.requests++;
         if (woken) counters.requestsWhileAsleep++;
         woken = false;
-        const later = serve(
-          heap,
-          control,
-          constants,
-          buffers,
-          workers,
-          pool,
-          counters,
-          mounted,
-        );
+        const later = serve(heap, control, constants, buffers, workers, pool, counters, mounted);
         if (later !== undefined) await later;
         continue;
       }
@@ -1643,12 +1431,7 @@ const serveFrom = async (
       if (after === State.request || after === State.crashed) continue;
       const timeout = delay < 0 ? Infinity : delay;
       const idle = rt.PThread.unusedWorkers.length;
-      if (
-        pool.topping === null &&
-        !pool.held &&
-        !pool.failed &&
-        idle < pool.lowWater
-      ) {
+      if (pool.topping === null && !pool.held && !pool.failed && idle < pool.lowWater) {
         counters.eventLoopTurns++;
         pool.topping = topUp(rt, pool.lowWater - idle, counters)
           .catch((error: unknown) => {
@@ -1661,18 +1444,14 @@ const serveFrom = async (
       }
       if (pool.topping !== null) {
         const result = waitAsync(sleepWords, sleepIndex, seen, timeout);
-        woken =
-          (result.async
-            ? await Promise.race([result.value, pool.topping])
-            : result.value) === "ok";
+        woken = (result.async ? await Promise.race([result.value, pool.topping]) : result.value) === "ok";
         continue;
       }
       switch (init.wait) {
         case "runtime": {
           const unmoved = Atomics.load(heap.words, wakeIndex) === seen;
           const ret = rt._ibusweb_wait(seen, delay);
-          if (ret < 0 && ret !== constants.waitTimedOut)
-            throw new Error(`ibusweb_wait: ${ret}`);
+          if (ret < 0 && ret !== constants.waitTimedOut) throw new Error(`ibusweb_wait: ${ret}`);
           woken = unmoved && ret === 0;
           break;
         }
@@ -1682,8 +1461,7 @@ const serveFrom = async (
           break;
         }
         case "control":
-          woken =
-            Atomics.wait(control.words, Word.wake, seen, timeout) === "ok";
+          woken = Atomics.wait(control.words, Word.wake, seen, timeout) === "ok";
       }
     }
   } catch (error) {
@@ -1696,7 +1474,5 @@ const serveFrom = async (
 
 self.onmessage = ({ data }: MessageEvent<HostInit<WebAssembly.Module>>) => {
   self.onmessage = null;
-  start(data).catch((error: unknown) =>
-    post({ type: "error", message: describe(error) }),
-  );
+  start(data).catch((error: unknown) => post({ type: "error", message: describe(error) }));
 };

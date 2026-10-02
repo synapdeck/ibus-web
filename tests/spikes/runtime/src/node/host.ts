@@ -44,47 +44,37 @@ export const launchNodeHost = (
   messages: HostMessage[] = [],
 ): { worker: BrowserWorker; host: Promise<NodeHost> } => {
   const control = createControl();
-  const worker = new BrowserWorker(
-    new URL("../worker/host.js", import.meta.url),
-  );
+  const worker = new BrowserWorker(new URL("../worker/host.js", import.meta.url));
   const init: HostInit<object> = { ...base, control, wait };
-  const host = bootHost(worker, init, messages).then(
-    ({ startupMs, features }) => ({
-      worker,
-      // Blocks this thread until the host replies, as the page's
-      // synchronous keystroke path would spin.
-      client: blockingClient(control, messages, {
-        now: () => performance.now(),
-        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        block: (words, index, value, ms) => {
-          Atomics.wait(words, index, value, ms);
-        },
-        replyTimeoutMs: REPLY_TIMEOUT_MS,
-      }),
-      startupMs,
-      features,
-      messages,
+  const host = bootHost(worker, init, messages).then(({ startupMs, features }) => ({
+    worker,
+    // Blocks this thread until the host replies, as the page's
+    // synchronous keystroke path would spin.
+    client: blockingClient(control, messages, {
+      now: () => performance.now(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      block: (words, index, value, ms) => {
+        Atomics.wait(words, index, value, ms);
+      },
+      replyTimeoutMs: REPLY_TIMEOUT_MS,
     }),
-  );
+    startupMs,
+    features,
+    messages,
+  }));
   return { worker, host };
 };
 
-export const startNodeHost = (
-  wait: WaitMode,
-  base: Omit<HostInit<object>, "control" | "wait">,
-): Promise<NodeHost> => launchNodeHost(wait, base).host;
+export const startNodeHost = (wait: WaitMode, base: Omit<HostInit<object>, "control" | "wait">): Promise<NodeHost> =>
+  launchNodeHost(wait, base).host;
 
-export const readJson = async <T>(path: string): Promise<T> =>
-  JSON.parse(await readFile(path, "utf8")) as T;
+export const readJson = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, "utf8")) as T;
 
-export const readConstants = (path: string): Promise<BuildConstants> =>
-  readJson<BuildConstants>(path);
+export const readConstants = (path: string): Promise<BuildConstants> => readJson<BuildConstants>(path);
 
 // The runtime's ibus-runtime.wasm, beside its JavaScript, compiled.
 export const compileRuntime = async (runtimeJs: string): Promise<object> =>
-  WebAssembly.compile(
-    await readFile(join(runtimeJs, "..", "ibus-runtime.wasm")),
-  );
+  WebAssembly.compile(await readFile(join(runtimeJs, "..", "ibus-runtime.wasm")));
 
 // Every side module in dir, by name.
 export const readSides = async (dir: string): Promise<SideModule[]> =>
@@ -96,10 +86,7 @@ export const readSides = async (dir: string): Promise<SideModule[]> =>
         const bytes = await readFile(join(dir, file));
         return {
           name: basename(file, ".wasm"),
-          bytes: bytes.buffer.slice(
-            bytes.byteOffset,
-            bytes.byteOffset + bytes.byteLength,
-          ) as ArrayBuffer,
+          bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
         };
       }),
   );

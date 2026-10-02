@@ -120,8 +120,7 @@ const wasmfsIdbTransact = async (state, stores, mode, body, options) => {
   const tx = state.db.transaction(stores, mode, options);
   const committed = new Promise((resolve, reject) => {
     tx.oncomplete = resolve;
-    tx.onabort = () =>
-      reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
+    tx.onabort = () => reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
   });
   /** @type {T} */
   let result;
@@ -168,8 +167,7 @@ const wasmfsIdbRun = async (ctx, id, op, report, fail) => {
  * @param {number} first
  * @param {number} last
  */
-const wasmfsIdbChunkRange = (ino, first, last) =>
-  IDBKeyRange.bound([ino, first], [ino, last]);
+const wasmfsIdbChunkRange = (ino, first, last) => IDBKeyRange.bound([ino, first], [ino, last]);
 
 /**
  * A directory's entries: every name sorts after "" and before any array.
@@ -215,9 +213,7 @@ const wasmfsIdbRelease = async (state, ino) => {
   }
   state.openCounts.delete(ino);
   if (state.unlinked.delete(ino)) {
-    await wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", (tx) =>
-      wasmfsIdbDeleteInode(tx, ino),
-    );
+    await wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", (tx) => wasmfsIdbDeleteInode(tx, ino));
   }
 };
 
@@ -234,9 +230,7 @@ const wasmfsIdbAfterUnlink = async (state, ino, deleted) => {
   if (state.openCounts.has(ino)) {
     state.unlinked.add(ino);
   } else if (!deleted) {
-    await wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", (tx) =>
-      wasmfsIdbDeleteInode(tx, ino),
-    );
+    await wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", (tx) => wasmfsIdbDeleteInode(tx, ino));
   }
 };
 
@@ -247,9 +241,7 @@ const wasmfsIdbAfterUnlink = async (state, ino, deleted) => {
  * @param {number} now
  */
 const wasmfsIdbTouch = async (inodes, ino, now) => {
-  const inode = /** @type {WasmfsIdbInode | undefined} */ (
-    await wasmfsIdbRequest(inodes.get(ino))
-  );
+  const inode = /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(inodes.get(ino)));
   if (inode) inodes.put({ ...inode, mtime: now, ctime: now }, ino);
 };
 
@@ -262,23 +254,18 @@ const wasmfsIdbTouch = async (inodes, ino, now) => {
  * @param {WasmfsIdbState} state
  */
 const wasmfsIdbSweep = (state) =>
-  wasmfsIdbTransact(
-    state,
-    ["inodes", "entries", "chunks"],
-    "readwrite",
-    async (tx) => {
-      const [inos, linked] = /** @type {[number[], number[]]} */ (
-        await Promise.all([
-          wasmfsIdbRequest(tx.objectStore("inodes").getAllKeys()),
-          wasmfsIdbRequest(tx.objectStore("entries").getAll()),
-        ])
-      );
-      const held = new Set(linked).add(state.root);
-      for (const ino of inos) {
-        if (!held.has(ino)) wasmfsIdbDeleteInode(tx, ino);
-      }
-    },
-  );
+  wasmfsIdbTransact(state, ["inodes", "entries", "chunks"], "readwrite", async (tx) => {
+    const [inos, linked] = /** @type {[number[], number[]]} */ (
+      await Promise.all([
+        wasmfsIdbRequest(tx.objectStore("inodes").getAllKeys()),
+        wasmfsIdbRequest(tx.objectStore("entries").getAll()),
+      ])
+    );
+    const held = new Set(linked).add(state.root);
+    for (const ino of inos) {
+      if (!held.has(ino)) wasmfsIdbDeleteInode(tx, ino);
+    }
+  });
 
 /**
  * @param {number} ctx
@@ -289,15 +276,7 @@ const wasmfsIdbSweep = (state) =>
  * @param {number} idPtr
  * @param {number} rootPtr
  */
-const _wasmfs_idb_open = async (
-  ctx,
-  namePtr,
-  chunkSize,
-  readOnly,
-  closedPtr,
-  idPtr,
-  rootPtr,
-) => {
+const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, readOnly, closedPtr, idPtr, rootPtr) => {
   const name = UTF8ToString(namePtr);
   try {
     const request = indexedDB.open(name, 1);
@@ -312,10 +291,7 @@ const _wasmfs_idb_open = async (
       meta.put(chunkSize >>> 0, "chunkSize");
       meta.put(2, "nextIno");
       meta.put(1, "root");
-      inodes.put(
-        { kind: 2, mode: 0o777, size: 0, atime: now, mtime: now, ctime: now },
-        1,
-      );
+      inodes.put({ kind: 2, mode: 0o777, size: 0, atime: now, mtime: now, ctime: now }, 1);
     };
     const db = await wasmfsIdbRequest(request);
     /** @type {WasmfsIdbState} */
@@ -343,25 +319,12 @@ const _wasmfs_idb_open = async (
     };
     db.onclose = () => closed("closed unexpectedly");
     try {
-      const [format, storedChunkSize, root] = await wasmfsIdbTransact(
-        state,
-        ["meta"],
-        "readonly",
-        (tx) => {
-          const meta = tx.objectStore("meta");
-          return Promise.all(
-            ["format", "chunkSize", "root"].map((key) =>
-              wasmfsIdbRequest(meta.get(key)),
-            ),
-          );
-        },
-      );
+      const [format, storedChunkSize, root] = await wasmfsIdbTransact(state, ["meta"], "readonly", (tx) => {
+        const meta = tx.objectStore("meta");
+        return Promise.all(["format", "chunkSize", "root"].map((key) => wasmfsIdbRequest(meta.get(key))));
+      });
       // Every offset calculation divides by the chunk size.
-      if (
-        format !== 1 ||
-        !Number.isInteger(storedChunkSize) ||
-        storedChunkSize <= 0
-      ) {
+      if (format !== 1 || !Number.isInteger(storedChunkSize) || storedChunkSize <= 0) {
         err(`wasmfs-idb: ${name} is not in a format this backend reads`);
         throw new WasmfsIdbError(-ERRNO_CODES.EIO);
       }
@@ -409,9 +372,7 @@ const _wasmfs_idb_get_attrs = (ctx, id, ino, attrsPtr) => {
     id,
     (state) =>
       /** @type {Promise<WasmfsIdbInode | undefined>} */ (
-        wasmfsIdbTransact(state, ["inodes"], "readonly", (tx) =>
-          wasmfsIdbRequest(tx.objectStore("inodes").get(ino)),
-        )
+        wasmfsIdbTransact(state, ["inodes"], "readonly", (tx) => wasmfsIdbRequest(tx.objectStore("inodes").get(ino)))
       ),
     (inode) => {
       if (inode) wasmfsIdbWriteAttrs(attrsPtr, ino, inode);
@@ -429,39 +390,23 @@ const _wasmfs_idb_get_attrs = (ctx, id, ino, attrsPtr) => {
  * @param {number} attrsPtr
  * @param {number} targetPtr
  */
-const _wasmfs_idb_get_child = (
-  ctx,
-  id,
-  parent,
-  namePtr,
-  attrsPtr,
-  targetPtr,
-) => {
+const _wasmfs_idb_get_child = (ctx, id, parent, namePtr, attrsPtr, targetPtr) => {
   parent >>>= 0;
   const name = UTF8ToString(namePtr);
   wasmfsIdbRun(
     ctx,
     id,
     (state) =>
-      wasmfsIdbTransact(
-        state,
-        ["entries", "inodes"],
-        "readonly",
-        async (tx) => {
-          const ino = /** @type {number | undefined} */ (
-            await wasmfsIdbRequest(
-              tx.objectStore("entries").get([parent, name]),
-            )
-          );
-          if (ino === undefined) return undefined;
-          return {
-            ino,
-            inode: /** @type {WasmfsIdbInode | undefined} */ (
-              await wasmfsIdbRequest(tx.objectStore("inodes").get(ino))
-            ),
-          };
-        },
-      ),
+      wasmfsIdbTransact(state, ["entries", "inodes"], "readonly", async (tx) => {
+        const ino = /** @type {number | undefined} */ (
+          await wasmfsIdbRequest(tx.objectStore("entries").get([parent, name]))
+        );
+        if (ino === undefined) return undefined;
+        return {
+          ino,
+          inode: /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(tx.objectStore("inodes").get(ino))),
+        };
+      }),
     (found) => {
       if (!found?.inode) {
         HEAP32[attrsPtr >> 2] = -ERRNO_CODES.ENOENT;
@@ -470,10 +415,7 @@ const _wasmfs_idb_get_child = (
       wasmfsIdbWriteAttrs(attrsPtr, found.ino, found.inode);
       if (found.inode.target !== undefined) {
         const sp = stackSave();
-        __wasmfs_idb_set_string(
-          targetPtr,
-          stringToUTF8OnStack(found.inode.target),
-        );
+        __wasmfs_idb_set_string(targetPtr, stringToUTF8OnStack(found.inode.target));
         stackRestore(sp);
       }
     },
@@ -491,16 +433,7 @@ const _wasmfs_idb_get_child = (
  * @param {number} targetPtr
  * @param {number} attrsPtr
  */
-const _wasmfs_idb_insert = (
-  ctx,
-  id,
-  parent,
-  namePtr,
-  kind,
-  mode,
-  targetPtr,
-  attrsPtr,
-) => {
+const _wasmfs_idb_insert = (ctx, id, parent, namePtr, kind, mode, targetPtr, attrsPtr) => {
   parent >>>= 0;
   const name = UTF8ToString(namePtr);
   const target = targetPtr ? UTF8ToString(targetPtr) : undefined;
@@ -508,41 +441,32 @@ const _wasmfs_idb_insert = (
     ctx,
     id,
     (state) =>
-      wasmfsIdbTransact(
-        state,
-        ["meta", "inodes", "entries"],
-        "readwrite",
-        async (tx) => {
-          const meta = tx.objectStore("meta");
-          const inodes = tx.objectStore("inodes");
-          const ino = /** @type {number} */ (
-            await wasmfsIdbRequest(meta.get("nextIno"))
-          );
-          if (ino > 0xffffffff) throw new WasmfsIdbError(-ERRNO_CODES.ENOSPC);
-          // Fails with a ConstraintError if the name is taken.
-          await wasmfsIdbRequest(
-            tx.objectStore("entries").add(ino, [parent, name]),
-          );
-          const now = Date.now();
-          /** @type {WasmfsIdbInode} */
-          const inode = {
-            kind,
-            mode: mode >>> 0,
-            size: 0,
-            atime: now,
-            mtime: now,
-            ctime: now,
-          };
-          if (target !== undefined) {
-            inode.target = target;
-            inode.size = lengthBytesUTF8(target);
-          }
-          meta.put(ino + 1, "nextIno");
-          inodes.put(inode, ino);
-          await wasmfsIdbTouch(inodes, parent, now);
-          return { ino, inode };
-        },
-      ),
+      wasmfsIdbTransact(state, ["meta", "inodes", "entries"], "readwrite", async (tx) => {
+        const meta = tx.objectStore("meta");
+        const inodes = tx.objectStore("inodes");
+        const ino = /** @type {number} */ (await wasmfsIdbRequest(meta.get("nextIno")));
+        if (ino > 0xffffffff) throw new WasmfsIdbError(-ERRNO_CODES.ENOSPC);
+        // Fails with a ConstraintError if the name is taken.
+        await wasmfsIdbRequest(tx.objectStore("entries").add(ino, [parent, name]));
+        const now = Date.now();
+        /** @type {WasmfsIdbInode} */
+        const inode = {
+          kind,
+          mode: mode >>> 0,
+          size: 0,
+          atime: now,
+          mtime: now,
+          ctime: now,
+        };
+        if (target !== undefined) {
+          inode.target = target;
+          inode.size = lengthBytesUTF8(target);
+        }
+        meta.put(ino + 1, "nextIno");
+        inodes.put(inode, ino);
+        await wasmfsIdbTouch(inodes, parent, now);
+        return { ino, inode };
+      }),
     ({ ino, inode }) => wasmfsIdbWriteAttrs(attrsPtr, ino, inode),
     (errno) => (HEAP32[attrsPtr >> 2] = errno),
   );
@@ -558,16 +482,7 @@ const _wasmfs_idb_insert = (
  * @param {number} newNamePtr
  * @param {number} errPtr
  */
-const _wasmfs_idb_move = (
-  ctx,
-  id,
-  ino,
-  oldParent,
-  oldNamePtr,
-  newParent,
-  newNamePtr,
-  errPtr,
-) => {
+const _wasmfs_idb_move = (ctx, id, ino, oldParent, oldNamePtr, newParent, newNamePtr, errPtr) => {
   ino >>>= 0;
   oldParent >>>= 0;
   newParent >>>= 0;
@@ -578,35 +493,27 @@ const _wasmfs_idb_move = (
     id,
     async (state) => {
       if (oldParent === newParent && oldName === newName) return;
-      const replaced = await wasmfsIdbTransact(
-        state,
-        ["inodes", "entries", "chunks"],
-        "readwrite",
-        async (tx) => {
-          const entries = tx.objectStore("entries");
-          const inodes = tx.objectStore("inodes");
-          const [moving, existing] =
-            /** @type {[number | undefined, number | undefined]} */ (
-              await Promise.all([
-                wasmfsIdbRequest(entries.get([oldParent, oldName])),
-                wasmfsIdbRequest(entries.get([newParent, newName])),
-              ])
-            );
-          if (moving !== ino) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
-          entries.delete([oldParent, oldName]);
-          entries.put(ino, [newParent, newName]);
-          const now = Date.now();
-          await wasmfsIdbTouch(inodes, oldParent, now);
-          if (newParent !== oldParent)
-            await wasmfsIdbTouch(inodes, newParent, now);
-          if (existing === undefined) return undefined;
-          const deleted = !state.openCounts.has(existing);
-          if (deleted) wasmfsIdbDeleteInode(tx, existing);
-          return { ino: existing, deleted };
-        },
-      );
-      if (replaced)
-        await wasmfsIdbAfterUnlink(state, replaced.ino, replaced.deleted);
+      const replaced = await wasmfsIdbTransact(state, ["inodes", "entries", "chunks"], "readwrite", async (tx) => {
+        const entries = tx.objectStore("entries");
+        const inodes = tx.objectStore("inodes");
+        const [moving, existing] = /** @type {[number | undefined, number | undefined]} */ (
+          await Promise.all([
+            wasmfsIdbRequest(entries.get([oldParent, oldName])),
+            wasmfsIdbRequest(entries.get([newParent, newName])),
+          ])
+        );
+        if (moving !== ino) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
+        entries.delete([oldParent, oldName]);
+        entries.put(ino, [newParent, newName]);
+        const now = Date.now();
+        await wasmfsIdbTouch(inodes, oldParent, now);
+        if (newParent !== oldParent) await wasmfsIdbTouch(inodes, newParent, now);
+        if (existing === undefined) return undefined;
+        const deleted = !state.openCounts.has(existing);
+        if (deleted) wasmfsIdbDeleteInode(tx, existing);
+        return { ino: existing, deleted };
+      });
+      if (replaced) await wasmfsIdbAfterUnlink(state, replaced.ino, replaced.deleted);
     },
     () => {},
     (errno) => (HEAP32[errPtr >> 2] = errno),
@@ -627,25 +534,17 @@ const _wasmfs_idb_remove = (ctx, id, parent, namePtr, errPtr) => {
     ctx,
     id,
     async (state) => {
-      const removed = await wasmfsIdbTransact(
-        state,
-        ["inodes", "entries", "chunks"],
-        "readwrite",
-        async (tx) => {
-          const entries = tx.objectStore("entries");
-          const ino = /** @type {number | undefined} */ (
-            await wasmfsIdbRequest(entries.get([parent, name]))
-          );
-          if (ino === undefined) return undefined;
-          entries.delete([parent, name]);
-          await wasmfsIdbTouch(tx.objectStore("inodes"), parent, Date.now());
-          const deleted = !state.openCounts.has(ino);
-          if (deleted) wasmfsIdbDeleteInode(tx, ino);
-          return { ino, deleted };
-        },
-      );
-      if (removed)
-        await wasmfsIdbAfterUnlink(state, removed.ino, removed.deleted);
+      const removed = await wasmfsIdbTransact(state, ["inodes", "entries", "chunks"], "readwrite", async (tx) => {
+        const entries = tx.objectStore("entries");
+        const ino = /** @type {number | undefined} */ (await wasmfsIdbRequest(entries.get([parent, name])));
+        if (ino === undefined) return undefined;
+        entries.delete([parent, name]);
+        await wasmfsIdbTouch(tx.objectStore("inodes"), parent, Date.now());
+        const deleted = !state.openCounts.has(ino);
+        if (deleted) wasmfsIdbDeleteInode(tx, ino);
+        return { ino, deleted };
+      });
+      if (removed) await wasmfsIdbAfterUnlink(state, removed.ino, removed.deleted);
     },
     () => {},
     (errno) => (HEAP32[errPtr >> 2] = errno),
@@ -665,9 +564,7 @@ const _wasmfs_idb_count_entries = (ctx, id, dir, countPtr) => {
     id,
     (state) =>
       wasmfsIdbTransact(state, ["entries"], "readonly", (tx) =>
-        wasmfsIdbRequest(
-          tx.objectStore("entries").count(wasmfsIdbEntryRange(dir)),
-        ),
+        wasmfsIdbRequest(tx.objectStore("entries").count(wasmfsIdbEntryRange(dir))),
       ),
     (count) => (HEAP32[countPtr >> 2] = count),
     (errno) => (HEAP32[countPtr >> 2] = errno),
@@ -687,31 +584,21 @@ const _wasmfs_idb_get_entries = (ctx, id, dir, entriesPtr, errPtr) => {
     ctx,
     id,
     (state) =>
-      wasmfsIdbTransact(
-        state,
-        ["entries", "inodes"],
-        "readonly",
-        async (tx) => {
-          const entries = tx.objectStore("entries");
-          const inodes = tx.objectStore("inodes");
-          const range = wasmfsIdbEntryRange(dir);
-          const [keys, inos] = /** @type {[[number, string][], number[]]} */ (
-            await Promise.all([
-              wasmfsIdbRequest(entries.getAllKeys(range)),
-              wasmfsIdbRequest(entries.getAll(range)),
-            ])
-          );
-          const children = /** @type {(WasmfsIdbInode | undefined)[]} */ (
-            await Promise.all(
-              inos.map((ino) => wasmfsIdbRequest(inodes.get(ino))),
-            )
-          );
-          return keys.map(([, name], i) => ({
-            name,
-            kind: children[i]?.kind ?? 0,
-          }));
-        },
-      ),
+      wasmfsIdbTransact(state, ["entries", "inodes"], "readonly", async (tx) => {
+        const entries = tx.objectStore("entries");
+        const inodes = tx.objectStore("inodes");
+        const range = wasmfsIdbEntryRange(dir);
+        const [keys, inos] = /** @type {[[number, string][], number[]]} */ (
+          await Promise.all([wasmfsIdbRequest(entries.getAllKeys(range)), wasmfsIdbRequest(entries.getAll(range))])
+        );
+        const children = /** @type {(WasmfsIdbInode | undefined)[]} */ (
+          await Promise.all(inos.map((ino) => wasmfsIdbRequest(inodes.get(ino))))
+        );
+        return keys.map(([, name], i) => ({
+          name,
+          kind: children[i]?.kind ?? 0,
+        }));
+      }),
     (list) => {
       for (const { name, kind } of list) {
         const sp = stackSave();
@@ -745,11 +632,8 @@ const _wasmfs_idb_open_file = (ctx, id, ino, errPtr) => {
       state.openCounts.set(ino, (state.openCounts.get(ino) ?? 0) + 1);
       let failure;
       try {
-        const count = await wasmfsIdbTransact(
-          state,
-          ["inodes"],
-          "readonly",
-          (tx) => wasmfsIdbRequest(tx.objectStore("inodes").count(ino)),
+        const count = await wasmfsIdbTransact(state, ["inodes"], "readonly", (tx) =>
+          wasmfsIdbRequest(tx.objectStore("inodes").count(ino)),
         );
         if (count) return;
         failure = new WasmfsIdbError(-ERRNO_CODES.ENOENT);
@@ -806,19 +690,11 @@ const _wasmfs_idb_read = (ctx, id, ino, bufPtr, len, offset, nreadPtr) => {
         const end = Math.min(offset + len, inode.size);
         if (end <= offset) return 0;
         const { chunkSize } = state;
-        const range = wasmfsIdbChunkRange(
-          ino,
-          Math.floor(offset / chunkSize),
-          Math.floor((end - 1) / chunkSize),
-        );
+        const range = wasmfsIdbChunkRange(ino, Math.floor(offset / chunkSize), Math.floor((end - 1) / chunkSize));
         const chunks = tx.objectStore("chunks");
-        const [keys, values] =
-          /** @type {[[number, number][], ArrayBuffer[]]} */ (
-            await Promise.all([
-              wasmfsIdbRequest(chunks.getAllKeys(range)),
-              wasmfsIdbRequest(chunks.getAll(range)),
-            ])
-          );
+        const [keys, values] = /** @type {[[number, number][], ArrayBuffer[]]} */ (
+          await Promise.all([wasmfsIdbRequest(chunks.getAllKeys(range)), wasmfsIdbRequest(chunks.getAll(range))])
+        );
         // The caller is blocked until this call finishes, so its buffer
         // stays put.
         HEAPU8.fill(0, bufPtr, bufPtr + (end - offset));
@@ -827,11 +703,7 @@ const _wasmfs_idb_read = (ctx, id, ino, bufPtr, len, offset, nreadPtr) => {
           const chunk = new Uint8Array(values[i]);
           const from = Math.max(offset, start);
           const to = Math.min(end, start + chunk.length);
-          if (to > from)
-            HEAPU8.set(
-              chunk.subarray(from - start, to - start),
-              bufPtr + (from - offset),
-            );
+          if (to > from) HEAPU8.set(chunk.subarray(from - start, to - start), bufPtr + (from - offset));
         });
         return end - offset;
       }),
@@ -857,72 +729,53 @@ const _wasmfs_idb_write = (ctx, id, ino, bufPtr, len, offset, nwrittenPtr) => {
     id,
     async (state) => {
       if (len === 0) return 0;
-      return wasmfsIdbTransact(
-        state,
-        ["inodes", "chunks"],
-        "readwrite",
-        async (tx) => {
-          const inodes = tx.objectStore("inodes");
-          const chunks = tx.objectStore("chunks");
-          const inode = /** @type {WasmfsIdbInode | undefined} */ (
-            await wasmfsIdbRequest(inodes.get(ino))
-          );
-          if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
-          const { chunkSize } = state;
-          const end = offset + len;
-          const first = Math.floor(offset / chunkSize);
-          const last = Math.floor((end - 1) / chunkSize);
-          // Only a chunk the write covers in part, and that holds bytes of
-          // the file the write keeps, needs reading.
-          /** @param {number} index */
-          const keeps = (index) => {
-            const start = index * chunkSize;
-            return (
-              start < inode.size &&
-              (offset > start || end < Math.min(start + chunkSize, inode.size))
-            );
-          };
-          const edges = [...new Set([first, last])].filter(keeps);
-          const old = new Map(
-            await Promise.all(
-              edges.map(
-                async (
-                  index,
-                ) => /** @type {[number, ArrayBuffer | undefined]} */ ([
-                  index,
-                  await wasmfsIdbRequest(chunks.get([ino, index])),
-                ]),
-              ),
-            ),
-          );
-          for (let index = first; index <= last; index++) {
-            const start = index * chunkSize;
-            const from = Math.max(offset, start);
-            const to = Math.min(end, start + chunkSize);
-            const previous = old.get(index);
-            const chunk = new Uint8Array(
-              Math.max(previous?.byteLength ?? 0, to - start),
-            );
-            if (previous) chunk.set(new Uint8Array(previous));
-            chunk.set(
-              HEAPU8.subarray(bufPtr + (from - offset), bufPtr + (to - offset)),
-              from - start,
-            );
-            chunks.put(chunk.buffer, [ino, index]);
-          }
-          const now = Date.now();
-          inodes.put(
-            {
-              ...inode,
-              size: Math.max(inode.size, end),
-              mtime: now,
-              ctime: now,
-            },
-            ino,
-          );
-          return len;
-        },
-      );
+      return wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", async (tx) => {
+        const inodes = tx.objectStore("inodes");
+        const chunks = tx.objectStore("chunks");
+        const inode = /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(inodes.get(ino)));
+        if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
+        const { chunkSize } = state;
+        const end = offset + len;
+        const first = Math.floor(offset / chunkSize);
+        const last = Math.floor((end - 1) / chunkSize);
+        // Only a chunk the write covers in part, and that holds bytes of
+        // the file the write keeps, needs reading.
+        /** @param {number} index */
+        const keeps = (index) => {
+          const start = index * chunkSize;
+          return start < inode.size && (offset > start || end < Math.min(start + chunkSize, inode.size));
+        };
+        const edges = [...new Set([first, last])].filter(keeps);
+        const old = new Map(
+          await Promise.all(
+            edges.map(async (index) => /** @type {[number, ArrayBuffer | undefined]} */ ([
+              index,
+              await wasmfsIdbRequest(chunks.get([ino, index])),
+            ])),
+          ),
+        );
+        for (let index = first; index <= last; index++) {
+          const start = index * chunkSize;
+          const from = Math.max(offset, start);
+          const to = Math.min(end, start + chunkSize);
+          const previous = old.get(index);
+          const chunk = new Uint8Array(Math.max(previous?.byteLength ?? 0, to - start));
+          if (previous) chunk.set(new Uint8Array(previous));
+          chunk.set(HEAPU8.subarray(bufPtr + (from - offset), bufPtr + (to - offset)), from - start);
+          chunks.put(chunk.buffer, [ino, index]);
+        }
+        const now = Date.now();
+        inodes.put(
+          {
+            ...inode,
+            size: Math.max(inode.size, end),
+            mtime: now,
+            ctime: now,
+          },
+          ino,
+        );
+        return len;
+      });
     },
     (nwritten) => (HEAP32[nwrittenPtr >> 2] = nwritten),
     (errno) => (HEAP32[nwrittenPtr >> 2] = errno),
@@ -967,38 +820,26 @@ const _wasmfs_idb_set_size = (ctx, id, ino, size, errPtr) => {
     ctx,
     id,
     (state) =>
-      wasmfsIdbTransact(
-        state,
-        ["inodes", "chunks"],
-        "readwrite",
-        async (tx) => {
-          const inodes = tx.objectStore("inodes");
-          const chunks = tx.objectStore("chunks");
-          const inode = /** @type {WasmfsIdbInode | undefined} */ (
-            await wasmfsIdbRequest(inodes.get(ino))
-          );
-          if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
-          if (size === inode.size) return;
-          // Growing needs no chunks, since missing ones read as zeros.
-          if (size < inode.size) {
-            const { chunkSize } = state;
-            chunks.delete(
-              wasmfsIdbChunkRange(ino, Math.ceil(size / chunkSize), Infinity),
-            );
-            const kept = size % chunkSize;
-            if (kept) {
-              const key = [ino, Math.floor(size / chunkSize)];
-              const chunk = /** @type {ArrayBuffer | undefined} */ (
-                await wasmfsIdbRequest(chunks.get(key))
-              );
-              if (chunk && chunk.byteLength > kept)
-                chunks.put(chunk.slice(0, kept), key);
-            }
+      wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", async (tx) => {
+        const inodes = tx.objectStore("inodes");
+        const chunks = tx.objectStore("chunks");
+        const inode = /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(inodes.get(ino)));
+        if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
+        if (size === inode.size) return;
+        // Growing needs no chunks, since missing ones read as zeros.
+        if (size < inode.size) {
+          const { chunkSize } = state;
+          chunks.delete(wasmfsIdbChunkRange(ino, Math.ceil(size / chunkSize), Infinity));
+          const kept = size % chunkSize;
+          if (kept) {
+            const key = [ino, Math.floor(size / chunkSize)];
+            const chunk = /** @type {ArrayBuffer | undefined} */ (await wasmfsIdbRequest(chunks.get(key)));
+            if (chunk && chunk.byteLength > kept) chunks.put(chunk.slice(0, kept), key);
           }
-          const now = Date.now();
-          inodes.put({ ...inode, size, mtime: now, ctime: now }, ino);
-        },
-      ),
+        }
+        const now = Date.now();
+        inodes.put({ ...inode, size, mtime: now, ctime: now }, ino);
+      }),
     () => {},
     (errno) => (HEAP32[errPtr >> 2] = errno),
   );
@@ -1019,9 +860,7 @@ const _wasmfs_idb_set_mode = (ctx, id, ino, mode, errPtr) => {
     (state) =>
       wasmfsIdbTransact(state, ["inodes"], "readwrite", async (tx) => {
         const inodes = tx.objectStore("inodes");
-        const inode = /** @type {WasmfsIdbInode | undefined} */ (
-          await wasmfsIdbRequest(inodes.get(ino))
-        );
+        const inode = /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(inodes.get(ino)));
         if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
         inodes.put({ ...inode, mode: mode >>> 0, ctime: Date.now() }, ino);
       }),
@@ -1046,9 +885,7 @@ const _wasmfs_idb_set_times = (ctx, id, ino, atime, mtime, errPtr) => {
     (state) =>
       wasmfsIdbTransact(state, ["inodes"], "readwrite", async (tx) => {
         const inodes = tx.objectStore("inodes");
-        const inode = /** @type {WasmfsIdbInode | undefined} */ (
-          await wasmfsIdbRequest(inodes.get(ino))
-        );
+        const inode = /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(inodes.get(ino)));
         if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
         const changed = { ...inode, ctime: Date.now() };
         if (atime !== Infinity) changed.atime = atime;
@@ -1083,9 +920,7 @@ const _wasmfs_idb_flush = (ctx, id, ino, errPtr) => {
         "readwrite",
         async (tx) => {
           const inodes = tx.objectStore("inodes");
-          const inode = /** @type {WasmfsIdbInode | undefined} */ (
-            await wasmfsIdbRequest(inodes.get(ino))
-          );
+          const inode = /** @type {WasmfsIdbInode | undefined} */ (await wasmfsIdbRequest(inodes.get(ino)));
           if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
           inodes.put(inode, ino);
         },
@@ -1110,11 +945,7 @@ addToLibrary({
   $wasmfsIdbTransact__deps: ["$ERRNO_CODES", "$WasmfsIdbError"],
   $wasmfsIdbTransact: wasmfsIdbTransact,
 
-  $wasmfsIdbRun__deps: [
-    "emscripten_proxy_finish",
-    "$wasmfsIdbBackends",
-    "$wasmfsIdbErrno",
-  ],
+  $wasmfsIdbRun__deps: ["emscripten_proxy_finish", "$wasmfsIdbBackends", "$wasmfsIdbErrno"],
   $wasmfsIdbRun: wasmfsIdbRun,
 
   $wasmfsIdbChunkRange: wasmfsIdbChunkRange,
@@ -1135,11 +966,7 @@ addToLibrary({
   $wasmfsIdbTouch__deps: ["$wasmfsIdbRequest"],
   $wasmfsIdbTouch: wasmfsIdbTouch,
 
-  $wasmfsIdbSweep__deps: [
-    "$wasmfsIdbTransact",
-    "$wasmfsIdbRequest",
-    "$wasmfsIdbDeleteInode",
-  ],
+  $wasmfsIdbSweep__deps: ["$wasmfsIdbTransact", "$wasmfsIdbRequest", "$wasmfsIdbDeleteInode"],
   $wasmfsIdbSweep: wasmfsIdbSweep,
 
   _wasmfs_idb_open__sig: "vppiippp",
@@ -1221,12 +1048,7 @@ addToLibrary({
   _wasmfs_idb_remove: _wasmfs_idb_remove,
 
   _wasmfs_idb_count_entries__sig: "vpiip",
-  _wasmfs_idb_count_entries__deps: [
-    "$wasmfsIdbRun",
-    "$wasmfsIdbTransact",
-    "$wasmfsIdbRequest",
-    "$wasmfsIdbEntryRange",
-  ],
+  _wasmfs_idb_count_entries__deps: ["$wasmfsIdbRun", "$wasmfsIdbTransact", "$wasmfsIdbRequest", "$wasmfsIdbEntryRange"],
   _wasmfs_idb_count_entries: _wasmfs_idb_count_entries,
 
   _wasmfs_idb_get_entries__sig: "vpiipp",

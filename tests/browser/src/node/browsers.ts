@@ -4,13 +4,7 @@
 // The browsers runs drive, headless.
 
 import process from "node:process";
-import {
-  chromium,
-  firefox,
-  type Browser,
-  type BrowserContext,
-  type BrowserType,
-} from "playwright";
+import { chromium, firefox, type Browser, type BrowserContext, type BrowserType } from "playwright";
 
 export const browserTypes: Readonly<Record<string, BrowserType>> = {
   chromium,
@@ -18,12 +12,9 @@ export const browserTypes: Readonly<Record<string, BrowserType>> = {
 };
 
 // The named browsers, or all of them; throws on a name it doesn't know.
-export const browsersNamed = (
-  names: readonly string[] | undefined,
-): string[] => {
+export const browsersNamed = (names: readonly string[] | undefined): string[] => {
   const all = names ?? Object.keys(browserTypes);
-  for (const name of all)
-    if (!(name in browserTypes)) throw new Error(`no browser ${name}`);
+  for (const name of all) if (!(name in browserTypes)) throw new Error(`no browser ${name}`);
   return [...all];
 };
 
@@ -31,21 +22,14 @@ export const browsersNamed = (
 // as a browser would, unless IBUS_WEB_CHROMIUM_SANDBOX=0.
 const chromiumSandbox = process.env.IBUS_WEB_CHROMIUM_SANDBOX !== "0";
 
-const options = (name: string) =>
-  name === "chromium"
-    ? { headless: true, chromiumSandbox }
-    : { headless: true };
+const options = (name: string) => (name === "chromium" ? { headless: true, chromiumSandbox } : { headless: true });
 
-export const launch = (name: string): Promise<Browser> =>
-  browserTypes[name]!.launch(options(name));
+export const launch = (name: string): Promise<Browser> => browserTypes[name]!.launch(options(name));
 
 // A browser whose one context keeps its storage on disk, in dir. A context
 // of launch()'s browser is off the record, and Chromium keeps such a
 // context's IndexedDB in memory.
-export const launchPersistent = (
-  name: string,
-  dir: string,
-): Promise<BrowserContext> =>
+export const launchPersistent = (name: string, dir: string): Promise<BrowserContext> =>
   browserTypes[name]!.launchPersistentContext(dir, options(name));
 
 // Its first line: Playwright's launch errors go on to list the browser's

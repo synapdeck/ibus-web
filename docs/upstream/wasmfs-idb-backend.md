@@ -59,12 +59,12 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
 
 **Layout.** One database per backend, at version 1, with four object stores:
 
-| Store | Key | Value |
-| --- | --- | --- |
-| `meta` | string | `format` (1), `chunkSize` (bytes, fixed when the database is created), `nextIno`, `root` (1) |
-| `inodes` | inode number | `{ kind: 1 file / 2 directory / 3 symlink, mode, size, atime, mtime, ctime, target? }`, times in ms |
-| `entries` | `[parent inode, name]` | the child's inode number; a directory's entries are one key range |
-| `chunks` | `[inode, index]` | an `ArrayBuffer` of at most `chunkSize` bytes |
+| Store     | Key                    | Value                                                                                               |
+| --------- | ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `meta`    | string                 | `format` (1), `chunkSize` (bytes, fixed when the database is created), `nextIno`, `root` (1)        |
+| `inodes`  | inode number           | `{ kind: 1 file / 2 directory / 3 symlink, mode, size, atime, mtime, ctime, target? }`, times in ms |
+| `entries` | `[parent inode, name]` | the child's inode number; a directory's entries are one key range                                   |
+| `chunks`  | `[inode, index]`       | an `ArrayBuffer` of at most `chunkSize` bytes                                                       |
 
 - A missing chunk reads as zeros, so files may be sparse, and no chunk holds
   bytes past its file's size, so a file truncated and grown again never
@@ -128,11 +128,11 @@ the sync system calls of every browser process under
 disk, for 50 rounds of a relaxed write transaction followed by a strict
 one, from a plain page:
 
-| 50 rounds of a relaxed write, then | Chromium 149 | Firefox 151 |
-| --- | --- | --- |
-| nothing | no sync call | no sync call |
-| an empty strict transaction | no sync call | no sync call |
-| a strict transaction that puts a record back | 50 `fdatasync` | 50 `fsync` |
+| 50 rounds of a relaxed write, then           | Chromium 149   | Firefox 151  |
+| -------------------------------------------- | -------------- | ------------ |
+| nothing                                      | no sync call   | no sync call |
+| an empty strict transaction                  | no sync call   | no sync call |
+| a strict transaction that puts a record back | 50 `fdatasync` | 50 `fsync`   |
 
 So an empty strict transaction, the obvious barrier, makes nothing durable
 in either browser. A backend created read-only commits nothing on
@@ -159,14 +159,14 @@ file. It never reopens: a newer version means a newer program owns the database.
 medians, timed on the calling thread with `emscripten_get_now()`, so each
 includes the proxied round trip to the backend's thread:
 
-| | Chromium 149 | Firefox 151 |
-| --- | --- | --- |
-| random 4 KiB read | 120–155 µs | 140–160 µs |
-| random 64 KiB read | 215 µs | 200–220 µs |
-| 64 KiB `write()`, sequential | 300–360 µs | 360–380 µs |
-| 64-byte append `write()` | 275–415 µs | 300–360 µs |
-| its `fsync()` | 475–570 µs | 460–500 µs |
-| `fsync()` after a 4.1 MiB write | 1.4–1.5 ms | 5.0–5.1 ms |
+|                                 | Chromium 149 | Firefox 151 |
+| ------------------------------- | ------------ | ----------- |
+| random 4 KiB read               | 120–155 µs   | 140–160 µs  |
+| random 64 KiB read              | 215 µs       | 200–220 µs  |
+| 64 KiB `write()`, sequential    | 300–360 µs   | 360–380 µs  |
+| 64-byte append `write()`        | 275–415 µs   | 300–360 µs  |
+| its `fsync()`                   | 475–570 µs   | 460–500 µs  |
+| `fsync()` after a 4.1 MiB write | 1.4–1.5 ms   | 5.0–5.1 ms  |
 
 Ranges are over the page idle and the page busy in a spin loop: no read or
 write waited for the page in any of 30 runs with it spinning. A random

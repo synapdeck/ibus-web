@@ -4,24 +4,17 @@
 // The storage experiments' side of the experiment Worker. Each read is
 // awaited before the next starts, as a backend serving lazy reads would.
 
-import {
-  chunkUrl,
-  type StorageCommand,
-  type Timing,
-  type UpgradeOutcome,
-} from "../shared/storage.ts";
+import { chunkUrl, type StorageCommand, type Timing, type UpgradeOutcome } from "../shared/storage.ts";
 
 const now = (): number => performance.timeOrigin + performance.now();
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // getRandomValues() fills at most 64 KiB a call. Random bytes keep IndexedDB
 // implementations that compress values from flattering the timings.
 const randomBytes = (size: number): Uint8Array<ArrayBuffer> => {
   const bytes = new Uint8Array(size);
-  for (let at = 0; at < size; at += 65536)
-    crypto.getRandomValues(bytes.subarray(at, Math.min(at + 65536, size)));
+  for (let at = 0; at < size; at += 65536) crypto.getRandomValues(bytes.subarray(at, Math.min(at + 65536, size)));
   return bytes;
 };
 
@@ -40,19 +33,13 @@ const committed = (transaction: IDBTransaction): Promise<void> =>
 
 const kept = new Map<string, { db: IDBDatabase; events: string[] }>();
 
-const connect = async (
-  name: string,
-  upgrade?: (db: IDBDatabase) => void,
-): Promise<IDBDatabase> => {
+const connect = async (name: string, upgrade?: (db: IDBDatabase) => void): Promise<IDBDatabase> => {
   const open = indexedDB.open(name, 1);
   if (upgrade !== undefined) open.onupgradeneeded = () => upgrade(open.result);
   return request(open);
 };
 
-const fileHandle = async (
-  name: string,
-  create = false,
-): Promise<FileSystemFileHandle> =>
+const fileHandle = async (name: string, create = false): Promise<FileSystemFileHandle> =>
   (await navigator.storage.getDirectory()).getFileHandle(name, { create });
 
 let held: FileSystemSyncAccessHandle | null = null;
@@ -90,9 +77,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
       return null;
     }
     case "opfs-fill": {
-      const handle = await (
-        await fileHandle(command.file, true)
-      ).createSyncAccessHandle();
+      const handle = await (await fileHandle(command.file, true)).createSyncAccessHandle();
       handle.truncate(0);
       handle.write(randomBytes(command.size), { at: 0 });
       handle.flush();
@@ -119,10 +104,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
       open.onblocked = () => {
         blocked = true;
       };
-      const db = await Promise.race([
-        request(open),
-        sleep(command.waitMs).then(() => null),
-      ]);
+      const db = await Promise.race([request(open), sleep(command.waitMs).then(() => null)]);
       if (db === null) open.onsuccess = () => open.result.close();
       else db.close();
       return {
@@ -173,8 +155,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
       const transaction = db.transaction(command.store, "readwrite");
       const done = committed(transaction);
       const store = transaction.objectStore(command.store);
-      for (let key = 0; key < command.chunks; key++)
-        await request(store.put(randomBytes(command.size).buffer, key));
+      for (let key = 0; key < command.chunks; key++) await request(store.put(randomBytes(command.size).buffer, key));
       mark("every put()");
       await done;
       mark("transaction complete");
@@ -186,9 +167,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
       mark("caches.open()");
       let bytes = 0;
       for (let i = 0; i < command.chunks; i++) {
-        const response = await cache.match(
-          new URL(chunkUrl(command.cache, i), self.location.href),
-        );
+        const response = await cache.match(new URL(chunkUrl(command.cache, i), self.location.href));
         if (i === 0) mark("first match()");
         bytes += (await response!.arrayBuffer()).byteLength;
         if (i === 0) mark("first Response arrayBuffer()");
@@ -205,8 +184,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
       let bytes = 0;
       for (let i = 0; i < command.chunks; i++) {
         const at = i * command.size;
-        bytes += (await file.slice(at, at + command.size).arrayBuffer())
-          .byteLength;
+        bytes += (await file.slice(at, at + command.size).arrayBuffer()).byteLength;
         if (i === 0) mark("first slice arrayBuffer()");
       }
       mark("every slice arrayBuffer()");
@@ -214,9 +192,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
     }
     case "opfs-sync-read": {
       mark("message received", received);
-      const handle = await (
-        await fileHandle(command.file)
-      ).createSyncAccessHandle();
+      const handle = await (await fileHandle(command.file)).createSyncAccessHandle();
       mark("createSyncAccessHandle()");
       const buffer = new Uint8Array(command.size);
       let bytes = 0;
@@ -238,17 +214,11 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
           const db = await connect(command.db);
           const shared =
             command.source === "idb-one-tx"
-              ? db
-                  .transaction(command.store, "readonly")
-                  .objectStore(command.store)
+              ? db.transaction(command.store, "readonly").objectStore(command.store)
               : null;
           for (let i = 0; i < command.reads; i++) {
             const start = now();
-            const store =
-              shared ??
-              db
-                .transaction(command.store, "readonly")
-                .objectStore(command.store);
+            const store = shared ?? db.transaction(command.store, "readonly").objectStore(command.store);
             await request(store.get(pick()));
             times.push(now() - start);
           }
@@ -256,9 +226,7 @@ export const runStorage = async (command: StorageCommand): Promise<unknown> => {
           break;
         }
         case "opfs-sync": {
-          const handle = await (
-            await fileHandle(command.file)
-          ).createSyncAccessHandle();
+          const handle = await (await fileHandle(command.file)).createSyncAccessHandle();
           const buffer = new Uint8Array(command.size);
           for (let i = 0; i < command.reads; i++) {
             const start = now();

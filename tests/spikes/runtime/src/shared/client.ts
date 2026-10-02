@@ -24,24 +24,14 @@ export interface BlockingClientEnv {
   // Holds the thread while words[index] is value, for at most ms. A thread
   // that can't block, such as a page's main thread, returns at once, and the
   // call spins. A promise instead lets the thread go until it settles.
-  block(
-    words: Int32Array,
-    index: number,
-    value: number,
-    ms: number,
-  ): void | Promise<unknown>;
+  block(words: Int32Array, index: number, value: number, ms: number): void | Promise<unknown>;
   replyTimeoutMs: number;
   // Once replyTimeoutMs has passed, how a caller that can wait without
   // holding its thread waits up to ms more for the reply. A reply that
   // comes then still counts against the call, as a late reply, but the host
   // stays in step for the calls after it.
   lateReply?: {
-    wait(
-      words: Int32Array,
-      index: number,
-      value: number,
-      ms: number,
-    ): Promise<unknown>;
+    wait(words: Int32Array, index: number, value: number, ms: number): Promise<unknown>;
     ms: number;
   };
 }
@@ -58,10 +48,7 @@ export const blockingClient = (
   const heldMs: number[] = [];
 
   // After the blocking wait has given up.
-  const awaitLateReply = async (
-    opcode: number,
-    timedOutAt: number,
-  ): Promise<Reply> => {
+  const awaitLateReply = async (opcode: number, timedOutAt: number): Promise<Reply> => {
     const late = env.lateReply;
     const deadline = timedOutAt + (late?.ms ?? 0);
     for (;;) {
@@ -74,8 +61,7 @@ export const blockingClient = (
         });
         return takeReply(views);
       }
-      if (state === State.crashed)
-        throw new Error(`the host crashed on opcode ${opcode}`);
+      if (state === State.crashed) throw new Error(`the host crashed on opcode ${opcode}`);
       const left = deadline - env.now();
       if (late === undefined || left <= 0)
         throw new Error(
@@ -108,10 +94,7 @@ export const blockingClient = (
             held();
             return Promise.resolve(takeReply(views));
           }
-          if (state === State.crashed)
-            return Promise.reject(
-              new Error(`the host crashed on opcode ${opcode}`),
-            );
+          if (state === State.crashed) return Promise.reject(new Error(`the host crashed on opcode ${opcode}`));
           const left = deadline - env.now();
           if (left <= 0) {
             held();

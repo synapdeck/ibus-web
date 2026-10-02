@@ -3,5 +3,4 @@
 
 import { spike } from "../shared/spike.ts";
 
-export const describe = (doc: Document): string =>
-  `${spike} in the page ${doc.title}`;
+export const describe = (doc: Document): string => `${spike} in the page ${doc.title}`;

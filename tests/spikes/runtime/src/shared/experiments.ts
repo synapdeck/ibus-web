@@ -54,8 +54,7 @@ export const nestedLabels: Readonly<Record<keyof typeof NestedMark, string>> = {
   bGetDirectory: "B: getDirectory()",
   bGetFileHandlePresent: "B: getFileHandle(), present",
   bGetFileHandleAbsent: "B: getFileHandle(), absent",
-  bSyncWriteFlushClose:
-    "B: sync access handle created, written, flushed, closed",
+  bSyncWriteFlushClose: "B: sync access handle created, written, flushed, closed",
   bGetFile: "B: getFile()",
   bArrayBuffer: "B: File.arrayBuffer()",
   bNewWorkerD: "B: new Worker(D) returns",

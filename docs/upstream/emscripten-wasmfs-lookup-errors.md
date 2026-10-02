@@ -166,7 +166,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -91,15 +91,14 @@
      });
    },
- 
+
 -  _wasmfs_node_get_mode__deps: ['$wasmfsNodeLstat'],
 -  _wasmfs_node_get_mode: (path_p, mode_p) => {
 -    let stat = wasmfsNodeLstat(UTF8ToString(path_p));
@@ -183,7 +183,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 -  },
 +    return 0;
 +  }) ?? {{{ cDefs.EIO }}},
- 
+
    _wasmfs_node_stat_size__deps: ['$wasmfsNodeLstat'],
    _wasmfs_node_stat_size: (path_p, size_p) => {
 --- a/system/lib/wasmfs/backends/fetch_backend.cpp
@@ -191,7 +191,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -80,7 +80,7 @@
      return dirPath + '/' + name;
    }
- 
+
 -  std::shared_ptr<File> getChild(const std::string& name) override {
 +  MaybeFile<File> getChild(const std::string& name) override {
      return MemoryDirectory::getChild(name);
@@ -202,7 +202,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -46,7 +46,7 @@
    IgnoreCaseDirectory(std::shared_ptr<Directory> real, backend_t backend)
      : VirtualDirectory(real, backend) {}
- 
+
 -  std::shared_ptr<File> getChild(const std::string& name) override;
 +  MaybeFile<File> getChild(const std::string& name) override;
    MaybeFile<DataFile> insertDataFile(const std::string& name,
@@ -211,7 +211,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -89,14 +89,15 @@
    WASMFS_UNREACHABLE("unexpected file kind");
  }
- 
+
 -std::shared_ptr<File> IgnoreCaseDirectory::getChild(const std::string& name) {
 +Directory::MaybeFile<File>
 +IgnoreCaseDirectory::getChild(const std::string& name) {
@@ -231,7 +231,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -42,7 +42,8 @@
    });
  }
- 
+
 -std::shared_ptr<File> MemoryDirectory::getChild(const std::string& name) {
 +Directory::MaybeFile<File>
 +MemoryDirectory::getChild(const std::string& name) {
@@ -243,7 +243,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -253,13 +253,13 @@
      }
    }
- 
+
 -  std::shared_ptr<File> getChild(const std::string& name) override {
 +  MaybeFile<File> getChild(const std::string& name) override {
      static_assert(std::is_same_v<mode_t, unsigned int>);
@@ -261,7 +261,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 +++ b/system/lib/wasmfs/backends/opfs_backend.cpp
 @@ -273,15 +273,18 @@
    }
- 
+
  private:
 -  std::shared_ptr<File> getChild(const std::string& name) override {
 +  MaybeFile<File> getChild(const std::string& name) override {
@@ -286,7 +286,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -51,7 +51,8 @@
    child->locked().setParent(getDir());
  }
- 
+
 -std::shared_ptr<File> Directory::Handle::getChild(const std::string& name) {
 +Directory::MaybeFile<File>
 +Directory::Handle::getChild(const std::string& name) {
@@ -307,7 +307,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -206,7 +206,7 @@
      }
    };
- 
+
 -  // A newly created file, or null and a negative error code. It is still a
 +  // A file, or null and a negative error code. It is still a
    // `std::shared_ptr`, so callers that only check for null need not change.
@@ -316,26 +316,26 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -250,9 +250,9 @@
      return children;
    }
- 
+
 -  // Return the `File` object corresponding to the file with the given name or
 -  // null if there is none.
 -  virtual std::shared_ptr<File> getChild(const std::string& name) = 0;
 +  // Return the `File` object corresponding to the file with the given name,
 +  // null if there is none, or a negative error code if the lookup failed.
 +  virtual MaybeFile<File> getChild(const std::string& name) = 0;
- 
+
    // Inserts a file with the given name, kind, and mode. Returns a `File` object
    // corresponding to the newly created file or nullptr if the new file could
 @@ -457,8 +457,9 @@
      : File::Handle(directory, std::defer_lock) {}
- 
+
    // Retrieve the child if it is in the dcache and otherwise forward the request
 -  // to the backend, caching any `File` object it returns.
 -  std::shared_ptr<File> getChild(const std::string& name);
 +  // to the backend, caching any `File` object it returns. Null with no error
 +  // code means there is no such child.
 +  MaybeFile<File> getChild(const std::string& name);
- 
+
    // Add a child to this directory's entry cache without actually inserting it
    // in the underlying backend. Assumes a child with this name does not already
 --- a/system/lib/wasmfs/js_api.cpp
@@ -362,12 +362,12 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 @@ -65,7 +65,7 @@
      entries.push_back({name, child});
    }
- 
+
 -  std::shared_ptr<File> getChild(const std::string& name) override;
 +  MaybeFile<File> getChild(const std::string& name) override;
- 
+
    int removeChild(const std::string& name) override;
- 
+
 --- a/system/lib/wasmfs/paths.cpp
 +++ b/system/lib/wasmfs/paths.cpp
 @@ -40,7 +40,7 @@
@@ -397,7 +397,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
        // If curr is the last element and the create flag is specified
 @@ -632,9 +637,13 @@
    }
- 
+
    // Check if the requested directory already exists.
 -  if (lockedParent.getChild(childName)) {
 +  auto existing = lockedParent.getChild(childName);
@@ -407,7 +407,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 +  if (auto err = existing.getError(-ENOENT); err != -ENOENT) {
 +    return err;
 +  }
- 
+
    // Mask rwx permissions for user, group and others, and the sticky bit.
    // This prevents users from entering S_IFREG for example.
 @@ -858,7 +867,7 @@
@@ -430,7 +430,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
    if (file == wasmFS.getRootDirectory()) {
 @@ -1039,7 +1048,10 @@
    auto newFile = lockedNewParent.getChild(newFileName);
- 
+
    if (!oldFile) {
 -    return -ENOENT;
 +    return oldFile.getError(-ENOENT);
@@ -438,7 +438,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 +  if (auto err = newFile.getError(-ENOENT); err && err != -ENOENT) {
 +    return err;
    }
- 
+
    // If the source and destination are the same, do nothing.
 @@ -1113,9 +1125,13 @@
    }
@@ -459,7 +459,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 +++ b/system/lib/wasmfs/virtual.h
 @@ -59,7 +59,7 @@
      : Directory(real->locked().getMode(), backend), real(real) {}
- 
+
  protected:
 -  virtual std::shared_ptr<File> getChild(const std::string& name) override {
 +  virtual MaybeFile<File> getChild(const std::string& name) override {
@@ -485,7 +485,7 @@ open = -1 (Permission denied)
 @@ -13867,6 +13867,43 @@
      create_file('js_backend_files/file.dat', 'data')
      self.do_runf_out_file('wasmfs/wasmfs_before_preload.c', cflags=['--preload-file', 'js_backend_files/file.dat'])
- 
+
 +  @requires_node
 +  def test_wasmfs_node_lookup_errors(self):
 +    # A lookup the host refuses reports the host's error, not ENOENT, which
@@ -525,7 +525,7 @@ open = -1 (Permission denied)
 +
    def test_hello_world_above_2gb(self):
      self.do_runf_out_file('hello_world.c', cflags=['-sGLOBAL_BASE=2GB', '-sINITIAL_MEMORY=3GB'])
- 
+
 ```
 
 ---

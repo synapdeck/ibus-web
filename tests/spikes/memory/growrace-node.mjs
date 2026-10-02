@@ -12,9 +12,7 @@
 import { Worker } from "node:worker_threads";
 import { matrix } from "./growrace.mjs";
 
-const [readers = 16, pages = 8192, runs = 5] = process.argv
-  .slice(2)
-  .map(Number);
+const [readers = 16, pages = 8192, runs = 5] = process.argv.slice(2).map(Number);
 const startWorker = () => {
   const worker = new Worker(new URL("./growrace-worker.mjs", import.meta.url));
   return {
@@ -23,8 +21,7 @@ const startWorker = () => {
     terminate: () => worker.terminate(),
   };
 };
-const engine =
-  typeof Bun === "object" ? `Bun ${Bun.version}` : `Node ${process.version}`;
+const engine = typeof Bun === "object" ? `Bun ${Bun.version}` : `Node ${process.version}`;
 const rows = await matrix({
   readers,
   pages,

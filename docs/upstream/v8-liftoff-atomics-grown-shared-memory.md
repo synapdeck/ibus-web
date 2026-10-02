@@ -55,26 +55,26 @@ code an earlier one tiered up.
 
 A reader increments:
 
-- *plain*: with `i32.load` then `i32.store`;
-- *atomic*: with `i32.atomic.rmw.add`, inline in the loop;
-- *atomic-callee*: the same, in a WebAssembly function the loop calls;
-- *atomic-after-js*: the same inline, after calling an empty imported
+- _plain_: with `i32.load` then `i32.store`;
+- _atomic_: with `i32.atomic.rmw.add`, inline in the loop;
+- _atomic-callee_: the same, in a WebAssembly function the loop calls;
+- _atomic-after-js_: the same inline, after calling an empty imported
   JavaScript function;
-- *never grown* (control): *atomic*, on a memory made at its full size.
+- _never grown_ (control): _atomic_, on a memory made at its full size.
 
 The call in the last two puts a stack check, where V8 handles interrupts,
 between the load that sees an address and the access to it.
 
 Races in which a reader trapped, of 20 races per cell, 2026-10-01:
 
-| Engine | plain | atomic | atomic-callee | atomic-after-js | never grown |
-| --- | --- | --- | --- | --- | --- |
-| Node 24.19.0 (V8 13.6.233.17), default flags | 0 | **20** (42 readers) | 0 | 0 | 0 |
-| Node, `--liftoff --no-wasm-tier-up` | 0 | **20** (34 readers) | 0 | 0 | 0 |
-| Node, `--no-liftoff` | 0 | 0 | 0 | 0 | 0 |
-| Chromium 149 (Playwright's headless shell) | 0 | **20** (29 readers) | 0 | 0 | 0 |
-| Firefox 151 | 0 | 0 | 0 | 0 | 0 |
-| Bun 1.3.13 (JavaScriptCore) | 0 | 0 | 0 | 0 | 0 |
+| Engine                                       | plain | atomic              | atomic-callee | atomic-after-js | never grown |
+| -------------------------------------------- | ----- | ------------------- | ------------- | --------------- | ----------- |
+| Node 24.19.0 (V8 13.6.233.17), default flags | 0     | **20** (42 readers) | 0             | 0               | 0           |
+| Node, `--liftoff --no-wasm-tier-up`          | 0     | **20** (34 readers) | 0             | 0               | 0           |
+| Node, `--no-liftoff`                         | 0     | 0                   | 0             | 0               | 0           |
+| Chromium 149 (Playwright's headless shell)   | 0     | **20** (29 readers) | 0             | 0               | 0           |
+| Firefox 151                                  | 0     | 0                   | 0             | 0               | 0           |
+| Bun 1.3.13 (JavaScriptCore)                  | 0     | 0                   | 0             | 0               | 0           |
 
 Every trap is `RuntimeError: memory access out of bounds`. It takes V8, an
 atomic access (plain ones rely on the guard region, not the cached length),

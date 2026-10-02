@@ -136,7 +136,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 @@ -127,13 +127,13 @@
    return dir;
  }
- 
+
 -std::shared_ptr<Symlink>
 +Directory::MaybeFile<Symlink>
  IgnoreCaseDirectory::insertSymlink(const std::string& name,
@@ -154,7 +154,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 @@ -308,11 +308,11 @@
      return std::make_shared<NodeDirectory>(mode, getBackend(), childPath);
    }
- 
+
 -  std::shared_ptr<Symlink> insertSymlink(const std::string& name,
 -                                         const std::string& target) override {
 +  MaybeFile<Symlink> insertSymlink(const std::string& name,
@@ -172,7 +172,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 @@ -319,11 +319,10 @@
      return std::make_shared<OPFSDirectory>(mode, getBackend(), childID, proxy);
    }
- 
+
 -  std::shared_ptr<Symlink> insertSymlink(const std::string& name,
 -                                         const std::string& target) override {
 +  MaybeFile<Symlink> insertSymlink(const std::string& name,
@@ -182,14 +182,14 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 -    return nullptr;
 +    return -EPERM;
    }
- 
+
    int insertMove(const std::string& name, std::shared_ptr<File> file) override {
 --- a/system/lib/wasmfs/file.cpp
 +++ b/system/lib/wasmfs/file.cpp
 @@ -118,16 +118,16 @@
    return child;
  }
- 
+
 -std::shared_ptr<Symlink>
 +Directory::MaybeFile<Symlink>
  Directory::Handle::insertSymlink(const std::string& name,
@@ -211,7 +211,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 @@ -217,8 +217,10 @@
      MaybeFile(std::shared_ptr<U> file) : std::shared_ptr<T>(std::move(file)) {}
      MaybeFile(int err) : err(err) { assert(err < 0); }
- 
+
 -    // A backend that returned null without saying why gets EIO.
 -    int getError() const { return *this ? 0 : err ? err : -EIO; }
 +    // A backend that returned null without saying why gets `unexplained`.
@@ -219,7 +219,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 +      return *this ? 0 : err ? err : unexplained;
 +    }
    };
- 
+
  private:
 @@ -260,8 +262,8 @@
                                               mode_t mode) = 0;
@@ -229,7 +229,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 -                                                 const std::string& target) = 0;
 +  virtual MaybeFile<Symlink> insertSymlink(const std::string& name,
 +                                           const std::string& target) = 0;
- 
+
    // Move the file represented by `file` from its current directory to this
    // directory with the new `name`, possibly overwriting another file that
 @@ -469,8 +471,8 @@
@@ -240,7 +240,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 -                                         const std::string& target);
 +  MaybeFile<Symlink> insertSymlink(const std::string& name,
 +                                   const std::string& target);
- 
+
    // Move the file represented by `file` from its current directory to this
    // directory with the new `name`, possibly overwriting another file that
 --- a/system/lib/wasmfs/memory_backend.h
@@ -248,7 +248,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 @@ -83,8 +83,8 @@
      return child;
    }
- 
+
 -  std::shared_ptr<Symlink> insertSymlink(const std::string& name,
 -                                         const std::string& target) override {
 +  MaybeFile<Symlink> insertSymlink(const std::string& name,
@@ -270,7 +270,7 @@ The diff applies on top of the one in that report, which adds `MaybeFile`:
 +  // them.
 +  return lockedParent.insertSymlink(childName, target).getError(-EPERM);
  }
- 
+
  // TODO: Test this with non-AT_FDCWD values.
 --- a/system/lib/wasmfs/virtual.h
 +++ b/system/lib/wasmfs/virtual.h

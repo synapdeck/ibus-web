@@ -5,6 +5,4 @@
 // size the runtime takes rather than the size its engine needs. Pthread
 // Workers are handed the runtime's memory by Emscripten instead.
 if (!ENVIRONMENT_IS_PTHREAD && !Module["wasmMemory"])
-  throw new Error(
-    "ibus-runtime: the host must pass wasmMemory, a shared WebAssembly.Memory of the engine's size",
-  );
+  throw new Error("ibus-runtime: the host must pass wasmMemory, a shared WebAssembly.Memory of the engine's size");

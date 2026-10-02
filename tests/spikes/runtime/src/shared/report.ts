@@ -3,13 +3,7 @@
 
 // How the harnesses print a host's results, and what a page run reports.
 
-import type {
-  BuildConstants,
-  HostFeatures,
-  HostMessage,
-  TestData,
-  WaitMode,
-} from "./control.ts";
+import type { BuildConstants, HostFeatures, HostMessage, TestData, WaitMode } from "./control.ts";
 import type { Result } from "./scenarios.ts";
 
 // What a harness asks the page to run, on a host of its own.
@@ -67,8 +61,7 @@ export interface PageRunReport {
   messages: HostMessage[];
 }
 
-const format = (value: unknown): string =>
-  typeof value === "string" ? value : JSON.stringify(value);
+const format = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value));
 
 // A host's results, one line per scenario and measurement, then a RESULTS
 // line with the same as JSON.
@@ -81,15 +74,12 @@ export const reportLines = (
   const lines = [`== ${label} (startup ${startupMs.toFixed(0)} ms)`];
   for (const { name, pass, criterion, measurements, error } of results) {
     lines.push(`${pass ? "PASS" : "FAIL"} ${name}: ${criterion}`);
-    for (const [key, value] of Object.entries(measurements))
-      lines.push(`    ${key}: ${format(value)}`);
+    for (const [key, value] of Object.entries(measurements)) lines.push(`    ${key}: ${format(value)}`);
     if (error !== undefined) lines.push(`    error: ${error}`);
   }
   for (const message of messages) {
     const text =
-      message.type === "install" ||
-      message.type === "collect" ||
-      message.type === "waiting"
+      message.type === "install" || message.type === "collect" || message.type === "waiting"
         ? JSON.stringify(message)
         : `${message.type === "storage" ? `${message.state}: ` : ""}${"message" in message ? message.message : ""}`;
     lines.push(`    host ${message.type}: ${text}`);

@@ -104,8 +104,7 @@ try {
                 (result.traps.length > 0 ? ` (${result.traps[0]})` : ""),
             );
           } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
+            const message = error instanceof Error ? error.message : String(error);
             tally.errors.push(message);
             console.log(`${label} race ${run}: FAIL ${message}`);
           } finally {
@@ -126,16 +125,8 @@ for (const tally of tallies) {
     `${tally.browser}: ${tally.access}${tally.grow ? "" : ", never grown"}: ` +
       `${tally.runsTrapped} of ${tally.runs} races trapped (${tally.readersTrapped} readers)` +
       (tally.traps.length > 0 ? `: ${tally.traps[0]}` : "") +
-      (tally.errors.length > 0
-        ? `; ${tally.errors.length} failed: ${tally.errors[0]}`
-        : ""),
+      (tally.errors.length > 0 ? `; ${tally.errors.length} failed: ${tally.errors[0]}` : ""),
   );
 }
 console.log(`RESULTS ${JSON.stringify({ readers, pages, tallies })}`);
-process.exit(
-  tallies.some(
-    ({ runsTrapped, errors }) => runsTrapped > 0 || errors.length > 0,
-  )
-    ? 1
-    : 0,
-);
+process.exit(tallies.some(({ runsTrapped, errors }) => runsTrapped > 0 || errors.length > 0) ? 1 : 0);

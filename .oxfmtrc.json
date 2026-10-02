@@ -1,7 +1,0 @@
-// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
-// SPDX-License-Identifier: MIT OR Apache-2.0
-
-// Lines fit an 80-column editor pane or side-by-side diff.
-{
-  "printWidth": 80
-}

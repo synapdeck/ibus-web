@@ -9,28 +9,21 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 // Emscripten numbers errno values its own way; errno.json holds its <errno.h>.
-export const errno = JSON.parse(
-  await readFile(new URL("errno.json", import.meta.url), "utf8"),
-);
+export const errno = JSON.parse(await readFile(new URL("errno.json", import.meta.url), "utf8"));
 
-const { pumpError: PUMP_ERROR } = JSON.parse(
-  await readFile(new URL("constants.json", import.meta.url), "utf8"),
-);
+const { pumpError: PUMP_ERROR } = JSON.parse(await readFile(new URL("constants.json", import.meta.url), "utf8"));
 
 // The capacity of the buffer replies are read into; the runtime reports
 // -ENOBUFS beyond it.
 const REPLY_CAP = 4096;
 
-export const int32s = (...values) =>
-  new Uint8Array(new Int32Array(values).buffer);
+export const int32s = (...values) => new Uint8Array(new Int32Array(values).buffer);
 
 export const utf8 = (text) => new TextEncoder().encode(text);
 
 // The least and the most memory the runtime takes; the least is enough for
 // the checks.
-export const memoryLimits = JSON.parse(
-  await readFile(new URL("memory.json", import.meta.url), "utf8"),
-);
+export const memoryLimits = JSON.parse(await readFile(new URL("memory.json", import.meta.url), "utf8"));
 
 export const sharedMemory = (bytes, maximum = bytes) =>
   new WebAssembly.Memory({
@@ -40,10 +33,7 @@ export const sharedMemory = (bytes, maximum = bytes) =>
   });
 
 // Starts the runtime on a memory of bytes, whose maximum can be set apart.
-export async function startRuntime(
-  path,
-  { bytes = memoryLimits.minimum, maximum = bytes } = {},
-) {
+export async function startRuntime(path, { bytes = memoryLimits.minimum, maximum = bytes } = {}) {
   const { default: createRuntime } = await import(pathToFileURL(path).href);
   const wasmMemory = sharedMemory(bytes, maximum);
   const rt = await createRuntime({ wasmMemory });
@@ -80,9 +70,7 @@ export async function startRuntime(
     const request = new Uint8Array(4 + payload.length);
     new DataView(request.buffer).setUint32(0, opcode, true);
     request.set(payload, 4);
-    const ret = withBytes(request, (ptr) =>
-      rt._ibusweb_dispatch(ptr, request.length, reply, REPLY_CAP),
-    );
+    const ret = withBytes(request, (ptr) => rt._ibusweb_dispatch(ptr, request.length, reply, REPLY_CAP));
     return ret < 0 ? ret : memory.slice(reply, reply + ret);
   };
 
@@ -90,11 +78,7 @@ export async function startRuntime(
   const call = (opcode, payload) => {
     const out = dispatch(opcode, payload);
     if (typeof out === "number") return out;
-    assert.equal(
-      out.length,
-      4,
-      `opcode ${opcode}: reply of ${out.length} bytes`,
-    );
+    assert.equal(out.length, 4, `opcode ${opcode}: reply of ${out.length} bytes`);
     return new DataView(out.buffer).getInt32(0, true);
   };
 
@@ -120,16 +104,8 @@ export async function startRuntime(
         const left = deadline - performance.now();
         assert.ok(left > 0, "still pending at the deadline");
         const timeout = delay === -1 ? left : Math.min(delay, left);
-        const { value: outcome } = Atomics.waitAsync(
-          words,
-          wakeIndex,
-          seen,
-          timeout,
-        );
-        assert.ok(
-          !((await outcome) === "timed-out" && delay === -1),
-          "no wake while nothing was due",
-        );
+        const { value: outcome } = Atomics.waitAsync(words, wakeIndex, seen, timeout);
+        assert.ok(!((await outcome) === "timed-out" && delay === -1), "no wake while nothing was due");
       }
     } finally {
       clearInterval(keepAlive);
@@ -146,8 +122,7 @@ export async function startRuntime(
     assert.equal(rt._close(fd), 0, `close(${path})`);
   };
 
-  const loadModule = (path) =>
-    withString(path, (ptr) => rt._ibusweb_load_module(ptr, 0));
+  const loadModule = (path) => withString(path, (ptr) => rt._ibusweb_load_module(ptr, 0));
 
   return {
     module: rt,

@@ -16,10 +16,7 @@ export interface HostEvent {
 
 // What the bootstrap uses of a browser Worker or Node's stand-in for one.
 export interface HostWorker {
-  addEventListener(
-    type: "message" | "error",
-    listener: (event: HostEvent) => void,
-  ): void;
+  addEventListener(type: "message" | "error", listener: (event: HostEvent) => void): void;
   postMessage(message: unknown): void;
 }
 
@@ -34,11 +31,7 @@ export interface StartedHost {
 // Rejects if the host reports an error or its Worker fails before "ready".
 // The host's other messages, from its first on, go to messages as they
 // arrive.
-export const startHost = (
-  worker: HostWorker,
-  init: HostInit,
-  messages: HostMessage[] = [],
-): Promise<StartedHost> => {
+export const startHost = (worker: HostWorker, init: HostInit, messages: HostMessage[] = []): Promise<StartedHost> => {
   let started = false;
   const ready = new Promise<StartedHost>((resolve, reject) => {
     worker.addEventListener("message", ({ data }) => {
@@ -50,8 +43,7 @@ export const startHost = (
           features: message.features,
           messages,
         });
-      } else if (message.type === "error" && !started)
-        reject(new Error(`host: ${message.message}`));
+      } else if (message.type === "error" && !started) reject(new Error(`host: ${message.message}`));
       else messages.push(message);
     });
     worker.addEventListener("error", ({ message, filename, lineno }) => {

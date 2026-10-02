@@ -43,12 +43,7 @@ const walk = (node, visit) => {
     for (const child of node) walk(child, visit);
     return;
   }
-  if (
-    node === null ||
-    typeof node !== "object" ||
-    typeof node.type !== "string"
-  )
-    return;
+  if (node === null || typeof node !== "object" || typeof node.type !== "string") return;
   visit(node);
   for (const [key, child] of Object.entries(node)) {
     if (key !== "type") walk(child, visit);
@@ -62,9 +57,7 @@ const loadEmscripten = async (root) => {
   const src = path.join(root, "src");
   const require = createRequire(path.join(root, "package.json"));
   const acorn = await import(pathToFileURL(require.resolve("acorn")).href);
-  const { decoratorSuffixes } = await import(
-    pathToFileURL(path.join(src, "utility.mjs")).href
-  );
+  const { decoratorSuffixes } = await import(pathToFileURL(path.join(src, "utility.mjs")).href);
 
   const jsifierFile = path.join(src, "jsifier.mjs");
   const jsifier = fs.readFileSync(jsifierFile, "utf8");
@@ -78,19 +71,15 @@ const loadEmscripten = async (root) => {
   // links set neither, so they get the defaults: WASM_BIGINT on, which only
   // -sWASM=0 turns off, and MEMORY64 off, for wasm32.
   const declaration = tree.body.find(
-    (node) =>
-      node.type === "FunctionDeclaration" && node.id.name === "addImplicitDeps",
+    (node) => node.type === "FunctionDeclaration" && node.id.name === "addImplicitDeps",
   );
   if (!declaration) fail(`${jsifierFile}: no addImplicitDeps`);
   const settings = {};
-  vm.runInNewContext(
-    fs.readFileSync(path.join(src, "settings.js"), "utf8"),
-    settings,
-  );
-  const implicitDeps = vm.runInNewContext(
-    `(${jsifier.slice(declaration.start, declaration.end)})`,
-    { WASM_BIGINT: settings.WASM_BIGINT, MEMORY64: settings.MEMORY64 },
-  );
+  vm.runInNewContext(fs.readFileSync(path.join(src, "settings.js"), "utf8"), settings);
+  const implicitDeps = vm.runInNewContext(`(${jsifier.slice(declaration.start, declaration.end)})`, {
+    WASM_BIGINT: settings.WASM_BIGINT,
+    MEMORY64: settings.MEMORY64,
+  });
   const addImplicitDeps = (code, deps) => {
     try {
       implicitDeps(code, deps);
@@ -104,11 +93,7 @@ const loadEmscripten = async (root) => {
   const patterns = [];
   let branches = 0;
   walk(tree, (node) => {
-    if (
-      node.type !== "IfStatement" ||
-      node.consequent.type !== "BlockStatement"
-    )
-      return;
+    if (node.type !== "IfStatement" || node.consequent.type !== "BlockStatement") return;
     const setsIsFunction = node.consequent.body.some(
       ({ type, expression }) =>
         type === "ExpressionStatement" &&
@@ -128,9 +113,7 @@ const loadEmscripten = async (root) => {
     patterns.push(...found);
   });
   if (branches !== 1) {
-    fail(
-      `${jsifierFile}: expected one test for a function's source in a string, found ${branches}`,
-    );
+    fail(`${jsifierFile}: expected one test for a function's source in a string, found ${branches}`);
   }
 
   return {
@@ -152,11 +135,7 @@ const load = (file) => {
     fail(`${file}: uses Emscripten's preprocessor: ${directive[0]}`);
   }
   const library = {};
-  vm.runInNewContext(
-    source,
-    { addToLibrary: (entries) => Object.assign(library, entries) },
-    { filename: file },
-  );
+  vm.runInNewContext(source, { addToLibrary: (entries) => Object.assign(library, entries) }, { filename: file });
   return { source, library };
 };
 
@@ -202,14 +181,10 @@ const entries = (library, emscripten) =>
         fail(`${key}: its code is more than one expression`);
       }
       if (tree.type === "Identifier") {
-        fail(
-          `${key}: a string naming a symbol is an alias, which isn't supported`,
-        );
+        fail(`${key}: a string naming a symbol is an alias, which isn't supported`);
       }
 
-      const declared = (library[`${key}__deps`] ?? []).filter(
-        (dep) => typeof dep === "string",
-      );
+      const declared = (library[`${key}__deps`] ?? []).filter((dep) => typeof dep === "string");
       if (isFunction) emscripten.addImplicitDeps(code, declared);
       return { key, tree, deps: new Set(declared) };
     });
@@ -239,11 +214,7 @@ const references = (node, found = []) => {
     for (const child of node) references(child, found);
     return found;
   }
-  if (
-    node === null ||
-    typeof node !== "object" ||
-    typeof node.type !== "string"
-  ) {
+  if (node === null || typeof node !== "object" || typeof node.type !== "string") {
     return found;
   }
   switch (node.type) {
@@ -274,8 +245,7 @@ const references = (node, found = []) => {
       return found;
   }
   for (const [key, child] of Object.entries(node)) {
-    if (key !== "type" && key !== "start" && key !== "end")
-      references(child, found);
+    if (key !== "type" && key !== "start" && key !== "end") references(child, found);
   }
   return found;
 };
@@ -288,10 +258,7 @@ const bound = (pattern, names) => {
       break;
     case "ObjectPattern":
       for (const property of pattern.properties) {
-        bound(
-          property.type === "RestElement" ? property.argument : property.value,
-          names,
-        );
+        bound(property.type === "RestElement" ? property.argument : property.value, names);
       }
       break;
     case "ArrayPattern":
@@ -317,10 +284,7 @@ const topLevel = (source, acorn) => {
   for (const statement of tree.body) {
     if (statement.type === "VariableDeclaration") {
       for (const { id } of statement.declarations) bound(id, names);
-    } else if (
-      statement.type === "FunctionDeclaration" ||
-      statement.type === "ClassDeclaration"
-    ) {
+    } else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
       names.add(statement.id.name);
     }
   }
@@ -333,37 +297,29 @@ const check = async (file, root) => {
   const all = entries(library, emscripten);
   const declared = topLevel(source, emscripten.acorn);
   const emscriptenSymbols = new Set(
-    all.flatMap(({ deps }) =>
-      [...deps].filter((dep) => dep.startsWith("$") && !(dep in library)),
-    ),
+    all.flatMap(({ deps }) => [...deps].filter((dep) => dep.startsWith("$") && !(dep in library))),
   );
 
   // The dependency a reference to `name` needs, if it names a symbol at all.
   const symbolFor = (name) => {
-    if (`$${name}` in library || emscriptenSymbols.has(`$${name}`))
-      return `$${name}`;
+    if (`$${name}` in library || emscriptenSymbols.has(`$${name}`)) return `$${name}`;
     if (name.startsWith("_")) return name.slice(1);
     return undefined;
   };
   // Whether the linked program has `name`, given that it is the name of one
   // of the file's top-level declarations.
-  const emitted = (name) =>
-    `$${name}` in library || (name.startsWith("_") && name.slice(1) in library);
+  const emitted = (name) => `$${name}` in library || (name.startsWith("_") && name.slice(1) in library);
 
   const missing = [];
   for (const { key, tree, deps } of all) {
     for (const name of new Set(references(tree))) {
       if (declared.has(name) && !emitted(name)) {
-        missing.push(
-          `${key}: uses ${name}, which is declared at the top level but isn't a library symbol`,
-        );
+        missing.push(`${key}: uses ${name}, which is declared at the top level but isn't a library symbol`);
         continue;
       }
       const symbol = symbolFor(name);
       if (symbol !== undefined && symbol !== key && !deps.has(symbol)) {
-        missing.push(
-          `${key}: uses ${name} without "${symbol}" in ${key}__deps`,
-        );
+        missing.push(`${key}: uses ${name} without "${symbol}" in ${key}__deps`);
       }
     }
   }
@@ -372,19 +328,10 @@ const check = async (file, root) => {
 
 const emit = async (file, root, directory) => {
   const emscripten = await loadEmscripten(root);
-  const { runtimeMethods, functions } = external(
-    load(file).library,
-    emscripten,
-  );
+  const { runtimeMethods, functions } = external(load(file).library, emscripten);
   fs.mkdirSync(directory, { recursive: true });
-  fs.writeFileSync(
-    path.join(directory, "exported-runtime-methods.txt"),
-    `${runtimeMethods.join(",")}\n`,
-  );
-  fs.writeFileSync(
-    path.join(directory, "exported-functions.txt"),
-    `${functions.join(",")}\n`,
-  );
+  fs.writeFileSync(path.join(directory, "exported-runtime-methods.txt"), `${runtimeMethods.join(",")}\n`);
+  fs.writeFileSync(path.join(directory, "exported-functions.txt"), `${functions.join(",")}\n`);
   const globals = [...runtimeMethods, ...functions].map(
     (name) => `  const ${name}: MainModule[${JSON.stringify(name)}];\n`,
   );

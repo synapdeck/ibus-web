@@ -88,6 +88,7 @@ Aborted(LinkError: WebAssembly.instantiate(): Import #0 "env" "memory": memory i
 (The same without `-pthread`, which only implies `IMPORTED_MEMORY`.)
 
 **Where:**
+
 - `set_max_memory()` warns and lowers the maximum
   ([link.py#L554-L559](https://github.com/emscripten-core/emscripten/blob/6.0.9/tools/link.py#L554-L559)).
 - The link passes `--no-growable-memory` whenever growth is off
@@ -117,7 +118,7 @@ index 3480cd2..8b0a6ed 100644
 +++ b/site/source/docs/tools_reference/settings_reference.rst
 @@ -219,8 +219,13 @@ MAXIMUM_MEMORY
  ==============
- 
+
  Set the maximum size of memory in the wasm module (in bytes). This is only
 -relevant when ALLOW_MEMORY_GROWTH is set, as without growth, the size of
 -INITIAL_MEMORY is the final size of memory anyhow.
@@ -128,7 +129,7 @@ index 3480cd2..8b0a6ed 100644
 +single build can run in a memory whose size is chosen when it is loaded
 +(passed as ``wasmMemory``, or made from ``INITIAL_MEMORY`` on the Module
 +object).
- 
+
  Note that the default value here is 2GB, which means that by default if you
  enable memory growth then we can grow up to 2GB but no higher. 2GB is a
 diff --git a/src/settings.js b/src/settings.js
@@ -137,7 +138,7 @@ index 77bf740..a4e1671 100644
 +++ b/src/settings.js
 @@ -189,8 +189,13 @@ var INITIAL_HEAP = 16777216;
  var INITIAL_MEMORY = -1;
- 
+
  // Set the maximum size of memory in the wasm module (in bytes). This is only
 -// relevant when ALLOW_MEMORY_GROWTH is set, as without growth, the size of
 -// INITIAL_MEMORY is the final size of memory anyhow.
@@ -158,7 +159,7 @@ index 230c5eb..ee30303 100644
 @@ -248,7 +248,9 @@ def lld_flags_for_executable(external_symbols):
    if not settings.SIDE_MODULE:
      cmd += ['-z', f'stack-size={settings.STACK_SIZE}']
- 
+
 -    if settings.ALLOW_MEMORY_GROWTH:
 +    # Without growth, an imported memory may still be declared with a maximum
 +    # above its initial size, so that the embedder can pass a larger one.
@@ -173,7 +174,7 @@ index 62e88d7..771d37a 100644
 @@ -546,9 +546,12 @@ def set_max_memory():
    # With INITIAL_HEAP, we only know the lower bound on initial memory size.
    initial_memory_known = settings.INITIAL_MEMORY != -1
- 
+
 -  if not settings.ALLOW_MEMORY_GROWTH:
 +  # An imported memory can be larger than INITIAL_MEMORY, up to a maximum the
 +  # user sets, even without growth: the module then runs in the memory it is
@@ -223,7 +224,7 @@ index b5ad68b..22ae290 100644
 @@ -8488,6 +8488,39 @@ int main() {
      # and with memory growth, all should be good
      self.do_runf_out_file('hello_world.c', cflags=['-sINITIAL_MEMORY=16mb', '--pre-js', 'pre.js', '-sALLOW_MEMORY_GROWTH', '-sIMPORTED_MEMORY'])
- 
+
 +  @parameterized({
 +    '': ([],),
 +    'pthread': (['-pthread'],),
@@ -297,4 +298,4 @@ index b5ad68b..22ae290 100644
 - ibus-web carries this fix as
   `modules/emscripten/patches/0016-imported-memory-maximum.patch`, and
   links ibus-runtime with `-sIMPORTED_MEMORY -sINITIAL_MEMORY=32MB
-  -sMAXIMUM_MEMORY=2GB` and no growth.
+-sMAXIMUM_MEMORY=2GB` and no growth.

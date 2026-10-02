@@ -23,15 +23,7 @@ import {
   type TestArchive,
   type TestData,
 } from "./control.ts";
-import {
-  call32,
-  replyFile,
-  type Client,
-  type Env,
-  type Measurement,
-  type Outcome,
-  type Result,
-} from "./scenarios.ts";
+import { call32, replyFile, type Client, type Env, type Measurement, type Outcome, type Result } from "./scenarios.ts";
 
 export interface InstallHost {
   // The host's messages but "ready", as they arrive.
@@ -52,10 +44,7 @@ export interface InstallHarness {
   upgradeUrl: string;
   // Starts a host for engine on the storage every host for that engine
   // shares.
-  start(
-    engine: EngineManifest,
-    options?: { installStallAt?: number },
-  ): InstallHost;
+  start(engine: EngineManifest, options?: { installStallAt?: number }): InstallHost;
   // Whether no host holds the lock or waits for it: a request for it,
   // exclusive, is granted at once, and let go.
   lockFree(name: string): Promise<boolean>;
@@ -70,11 +59,7 @@ export interface InstallHarness {
 export interface InstallScenario {
   name: string;
   criterion: string;
-  run(
-    harness: InstallHarness,
-    engine: EngineManifest,
-    started: InstallHost[],
-  ): Promise<Outcome>;
+  run(harness: InstallHarness, engine: EngineManifest, started: InstallHost[]): Promise<Outcome>;
 }
 
 const round = (value: number): number => Number(value.toFixed(2));
@@ -98,10 +83,7 @@ const installOf = (host: InstallHost): InstallReport | undefined =>
   );
 
 const collectOf = (host: InstallHost): CollectReport | undefined =>
-  host.messages.find(
-    (message): message is { type: "collect" } & CollectReport =>
-      message.type === "collect",
-  );
+  host.messages.find((message): message is { type: "collect" } & CollectReport => message.type === "collect");
 
 const summary = (report: InstallReport | undefined): string =>
   report === undefined
@@ -116,10 +98,8 @@ const collected = (report: CollectReport | undefined): string =>
       (report.error === undefined ? "" : `; ${report.error}`);
 
 // The engine's next version, whose data is the upgrade archive.
-const upgradeOf = (
-  harness: InstallHarness,
-  engine: EngineManifest,
-): EngineManifest => withData(engine, harness.data.upgrade, harness.upgradeUrl);
+const upgradeOf = (harness: InstallHarness, engine: EngineManifest): EngineManifest =>
+  withData(engine, harness.data.upgrade, harness.upgradeUrl);
 
 // The engine's installed tree as the host sees it, and whether it is
 // archive's.
@@ -131,16 +111,10 @@ const inspect = async (
 ): Promise<{ pass: boolean; tree: string; text: string | undefined }> => {
   const { env } = harness;
   const dir = engineDataDir(engine, engine.data[0]!);
-  const tree = replyFile(
-    await client.call(env.ops.listTree, env.utf8(dir)),
-    env,
-  );
+  const tree = replyFile(await client.call(env.ops.listTree, env.utf8(dir)), env);
   return {
     pass: tree.text === archive.listing,
-    tree:
-      tree.text === archive.listing
-        ? `${archive.archive}'s`
-        : (tree.text ?? `error ${tree.status}`),
+    tree: tree.text === archive.listing ? `${archive.archive}'s` : (tree.text ?? `error ${tree.status}`),
     text: tree.text,
   };
 };
@@ -175,10 +149,7 @@ const LOCK_FREE_LIMIT_MS = 10_000;
 // after terminate() returns, and one that lets go of a lock itself does so
 // on a channel to the lock manager of its own, which nothing orders with
 // the message saying it has.
-const whenFree = async (
-  harness: InstallHarness,
-  name: string,
-): Promise<boolean> => {
+const whenFree = async (harness: InstallHarness, name: string): Promise<boolean> => {
   const deadline = harness.env.now() + LOCK_FREE_LIMIT_MS;
   for (;;) {
     if (await harness.lockFree(name)) return true;
@@ -264,10 +235,7 @@ const installSkip: InstallScenario = {
     const secondReport = installOf(second);
     const seen = await inspect(harness, engine, client);
     return {
-      pass:
-        firstReport?.state === "installed" &&
-        secondReport?.state === "present" &&
-        seen.pass,
+      pass: firstReport?.state === "installed" && secondReport?.state === "present" && seen.pass,
       measurements: {
         first: summary(firstReport),
         second: summary(secondReport),
@@ -286,19 +254,12 @@ const installConcurrent: InstallScenario = {
   async run(harness, engine, started): Promise<Outcome> {
     const hosts = [harness.start(engine), harness.start(engine)];
     started.push(...hosts);
-    const clients = await Promise.all(
-      hosts.map((host) => ready(harness, host)),
-    );
+    const clients = await Promise.all(hosts.map((host) => ready(harness, host)));
     const reports = hosts.map(installOf);
     const installed = reports.filter((report) => report?.state === "installed");
     const present = reports.filter((report) => report?.state === "present");
-    const seen = await Promise.all(
-      clients.map((client) => inspect(harness, engine, client)),
-    );
-    const waited =
-      installed.length === 1 &&
-      present.length === 1 &&
-      present[0]!.lockedAt >= installed[0]!.releasedAt;
+    const seen = await Promise.all(clients.map((client) => inspect(harness, engine, client)));
+    const waited = installed.length === 1 && present.length === 1 && present[0]!.lockedAt >= installed[0]!.releasedAt;
     return {
       pass: waited && seen.every(({ pass }) => pass),
       measurements: {
@@ -319,14 +280,8 @@ const installInterrupted: InstallScenario = {
     "a host whose Worker is terminated halfway through installing leaves no marker: the next " +
     "host to start installs again, and the tree is the archive's, whole and correct",
   async run(harness, engine, started): Promise<Outcome> {
-    const first = await stalledHost(
-      harness,
-      engine,
-      started,
-      harness.data.size,
-    );
-    if (first.bytes === undefined)
-      return { pass: false, measurements: { stalled: first.stalled } };
+    const first = await stalledHost(harness, engine, started, harness.data.size);
+    if (first.bytes === undefined) return { pass: false, measurements: { stalled: first.stalled } };
     await first.host.terminate();
     const second = harness.start(engine);
     started.push(second);
@@ -334,10 +289,7 @@ const installInterrupted: InstallScenario = {
     const report = installOf(second);
     const seen = await inspect(harness, engine, client);
     return {
-      pass:
-        first.bytes === first.stallAt &&
-        report?.state === "installed" &&
-        seen.pass,
+      pass: first.bytes === first.stallAt && report?.state === "installed" && seen.pass,
       measurements: {
         stalled: first.stalled,
         next: summary(report),
@@ -357,22 +309,15 @@ const installInterruptedQueued: InstallScenario = {
     "a host already waiting on the install lock when the installing host's Worker is " +
     "terminated halfway gets the lock, installs again, and the tree is the archive's",
   async run(harness, engine, started): Promise<Outcome> {
-    const first = await stalledHost(
-      harness,
-      engine,
-      started,
-      harness.data.size,
-    );
-    if (first.bytes === undefined)
-      return { pass: false, measurements: { stalled: first.stalled } };
+    const first = await stalledHost(harness, engine, started, harness.data.size);
+    if (first.bytes === undefined) return { pass: false, measurements: { stalled: first.stalled } };
     const second = harness.start(engine);
     started.push(second);
     const lock = engineInstallLock(engine);
     const waiting = await waitForMessage(
       harness,
       second,
-      (message): message is { type: "waiting"; lock: string } =>
-        message.type === "waiting" && message.lock === lock,
+      (message): message is { type: "waiting"; lock: string } => message.type === "waiting" && message.lock === lock,
       WAITING_LIMIT_MS,
     );
     if (waiting === undefined)
@@ -414,12 +359,7 @@ const upgradeWhileRunning: InstallScenario = {
     started.push(upgrading);
     const upgradingClient = await ready(harness, upgrading);
     const oldSeen = await inspect(harness, engine, oldClient);
-    const nextSeen = await inspect(
-      harness,
-      next,
-      upgradingClient,
-      harness.data.upgrade,
-    );
+    const nextSeen = await inspect(harness, next, upgradingClient, harness.data.upgrade);
     const oldVersion = encodeComponent(engine.version);
     const nextVersion = encodeComponent(next.version);
     const kept = collectOf(upgrading);
@@ -428,12 +368,7 @@ const upgradeWhileRunning: InstallScenario = {
     const later = harness.start(next);
     started.push(later);
     const laterClient = await ready(harness, later);
-    const laterSeen = await inspect(
-      harness,
-      next,
-      laterClient,
-      harness.data.upgrade,
-    );
+    const laterSeen = await inspect(harness, next, laterClient, harness.data.upgrade);
     const removed = collectOf(later);
     const versions = await harness.versions(engine);
     return {
@@ -478,14 +413,8 @@ const interruptedUpgradeThenOld: InstallScenario = {
     started.push(first);
     await ready(harness, first);
     await first.terminate();
-    const upgrading = await stalledHost(
-      harness,
-      next,
-      started,
-      harness.data.upgrade.size,
-    );
-    if (upgrading.bytes === undefined)
-      return { pass: false, measurements: { stalled: upgrading.stalled } };
+    const upgrading = await stalledHost(harness, next, started, harness.data.upgrade.size);
+    if (upgrading.bytes === undefined) return { pass: false, measurements: { stalled: upgrading.stalled } };
     await upgrading.host.terminate();
     const partial = encodeComponent(next.version);
     const freed = await whenFree(harness, engineDataLock(engine, partial));
@@ -519,10 +448,7 @@ const interruptedUpgradeThenOld: InstallScenario = {
 
 // The listings' paths that the upgrade drops, and those it turns from a
 // file into a directory.
-const changes = (
-  from: TestArchive,
-  to: TestArchive,
-): { dropped: string[]; turned: string[] } => {
+const changes = (from: TestArchive, to: TestArchive): { dropped: string[]; turned: string[] } => {
   const entries = (archive: TestArchive) =>
     new Map(
       archive.listing
@@ -537,9 +463,7 @@ const changes = (
   const after = entries(to);
   return {
     dropped: [...before.keys()].filter((path) => !after.has(path)),
-    turned: [...before].flatMap(([path, kind]) =>
-      kind === "f" && after.get(path) === "d" ? [path] : [],
-    ),
+    turned: [...before].flatMap(([path, kind]) => (kind === "f" && after.get(path) === "d" ? [path] : [])),
   };
 };
 
@@ -553,9 +477,7 @@ const staleFile: InstallScenario = {
     const next = upgradeOf(harness, engine);
     const { dropped, turned } = changes(harness.data, harness.data.upgrade);
     if (dropped.length === 0 || turned.length === 0)
-      throw new Error(
-        "the upgrade archive must drop a file and turn one into a directory",
-      );
+      throw new Error("the upgrade archive must drop a file and turn one into a directory");
     const first = harness.start(engine);
     started.push(first);
     await ready(harness, first);
@@ -607,19 +529,14 @@ const failedStartReleasesLocks: InstallScenario = {
       engineDataLock(engine, encodeComponent(engine.version)),
       engineWriterLock(engine),
     ];
-    const free = await Promise.all(
-      locks.map((name) => whenFree(harness, name)),
-    );
+    const free = await Promise.all(locks.map((name) => whenFree(harness, name)));
     const next = harness.start(engine);
     started.push(next);
     const client = await ready(harness, next);
     const seen = await inspect(harness, engine, client);
     return {
       pass:
-        why?.includes("404") === true &&
-        free.every((ok) => ok) &&
-        installOf(next)?.state === "installed" &&
-        seen.pass,
+        why?.includes("404") === true && free.every((ok) => ok) && installOf(next)?.state === "installed" && seen.pass,
       measurements: {
         failed: why ?? "started",
         locks: locks.map((name, i) => `${name}: ${free[i] ? "free" : "held"}`),
@@ -651,8 +568,7 @@ const installInterruptedStray: InstallScenario = {
       })),
     };
     const first = await stalledHost(harness, stray, started, upgrade.size);
-    if (first.bytes === undefined)
-      return { pass: false, measurements: { stalled: first.stalled } };
+    if (first.bytes === undefined) return { pass: false, measurements: { stalled: first.stalled } };
     await first.host.terminate();
     const second = harness.start(engine);
     started.push(second);
@@ -698,10 +614,7 @@ const dataReadOnly: InstallScenario = {
       pass:
         installOf(installing)?.state === "installed" &&
         installOf(present)?.state === "present" &&
-        (!enforced ||
-          (installingWrote === refused &&
-            presentWrote === refused &&
-            seen.pass)),
+        (!enforced || (installingWrote === refused && presentWrote === refused && seen.pass)),
       measurements: {
         enforced,
         installingHost: installingWrote,
@@ -723,13 +636,7 @@ const storageNames: InstallScenario = {
   async run(): Promise<Outcome> {
     const inputs = ["/", ":", ".", "..", "a/b:c", "%2F"];
     const encoded = inputs.map(encodeComponent);
-    const safe = encoded.every(
-      (text) =>
-        !text.includes("/") &&
-        !text.includes(":") &&
-        text !== "." &&
-        text !== "..",
-    );
+    const safe = encoded.every((text) => !text.includes("/") && !text.includes(":") && text !== "." && text !== "..");
     const distinct = new Set(encoded).size === inputs.length;
     const nested = engineDatabase({ name: "a/data/x", version: "", data: [] });
     const prefix = engineDataDatabasePrefix({
@@ -764,10 +671,7 @@ const installTornMarker: InstallScenario = {
     const report = installOf(second);
     const seen = await inspect(harness, engine, client);
     return {
-      pass:
-        installOf(first)?.state === "installed" &&
-        report?.state === "installed" &&
-        seen.pass,
+      pass: installOf(first)?.state === "installed" && report?.state === "installed" && seen.pass,
       measurements: {
         first: summary(installOf(first)),
         afterTearing: summary(report),
@@ -779,9 +683,7 @@ const installTornMarker: InstallScenario = {
 
 // Whether the host reported its user data read-only.
 const readOnlyOf = (host: InstallHost): boolean =>
-  host.messages.some(
-    (message) => message.type === "storage" && message.state === "read-only",
-  );
+  host.messages.some((message) => message.type === "storage" && message.state === "read-only");
 
 // The IndexedDB backend refuses a reader's writes; the Node backend has no
 // read-only mode, so under Node only the lock and the report are judged.
@@ -801,14 +703,10 @@ const writerLock: InstallScenario = {
       call32(client, env.ops.writeFile, env.utf8(`${dir}/${name}\0${name}`));
     const hosts = [harness.start(engine), harness.start(engine)];
     started.push(...hosts);
-    const clients = await Promise.all(
-      hosts.map((host) => ready(harness, host)),
-    );
+    const clients = await Promise.all(hosts.map((host) => ready(harness, host)));
     const readOnly = hosts.map(readOnlyOf);
     const writers = readOnly.flatMap((ro, i) => (ro ? [] : [i]));
-    const wrote = await Promise.all(
-      clients.map((client, i) => write(client, `by-${i}.txt`)),
-    );
+    const wrote = await Promise.all(clients.map((client, i) => write(client, `by-${i}.txt`)));
     const measurements: Record<string, Measurement> = {
       enforced,
       readOnly: readOnly.map((ro, i) => `host ${i}: ${ro}`),
@@ -822,13 +720,7 @@ const writerLock: InstallScenario = {
     const writer = writers[0]!;
     const reader = 1 - writer;
     const fromWriter = `by-${writer}.txt`;
-    const readBack = replyFile(
-      await clients[reader]!.call(
-        env.ops.readFile,
-        env.utf8(`${dir}/${fromWriter}`),
-      ),
-      env,
-    );
+    const readBack = replyFile(await clients[reader]!.call(env.ops.readFile, env.utf8(`${dir}/${fromWriter}`)), env);
     measurements.readerReadsWriters = readBack.text ?? readBack.status;
 
     const terminatedAt = env.now();
@@ -848,8 +740,7 @@ const writerLock: InstallScenario = {
         readBack.text === fromWriter &&
         !readOnlyOf(next) &&
         nextWrote === length("by-next.txt") &&
-        (!enforced ||
-          (wrote[reader] === refused && readerWroteAfter === refused)),
+        (!enforced || (wrote[reader] === refused && readerWroteAfter === refused)),
       measurements,
     };
   },
@@ -880,18 +771,10 @@ export const runInstallScenarios = async (
 ): Promise<Result[]> => {
   const results: Result[] = [];
   for (const scenario of selected) {
-    const engine = withData(
-      { name: scenario.name, version: "", data: [] },
-      harness.data,
-      harness.dataUrl,
-    );
+    const engine = withData({ name: scenario.name, version: "", data: [] }, harness.data, harness.dataUrl);
     const started: InstallHost[] = [];
     try {
-      const { pass, measurements } = await scenario.run(
-        harness,
-        engine,
-        started,
-      );
+      const { pass, measurements } = await scenario.run(harness, engine, started);
       results.push({
         name: scenario.name,
         criterion: scenario.criterion,

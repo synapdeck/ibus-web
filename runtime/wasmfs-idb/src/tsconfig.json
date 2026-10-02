@@ -16,9 +16,5 @@
     "module": "preserve",
     "types": []
   },
-  "files": [
-    "libwasmfs_idb.js",
-    "emscripten-library.d.ts",
-    "emscripten-types/globals.d.ts"
-  ]
+  "files": ["libwasmfs_idb.js", "emscripten-library.d.ts", "emscripten-types/globals.d.ts"]
 }

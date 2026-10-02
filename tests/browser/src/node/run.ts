@@ -37,11 +37,9 @@ const { values: args } = parseArgs({
     browser: { type: "string", multiple: true },
   },
 });
-if (args.program === undefined)
-  throw new Error("--program is required, once per directory");
+if (args.program === undefined) throw new Error("--program is required, once per directory");
 const timeoutMs = Number(args.timeout) * 1000;
-if (!(timeoutMs > 0))
-  throw new Error(`--timeout must be positive, not ${args.timeout}`);
+if (!(timeoutMs > 0)) throw new Error(`--timeout must be positive, not ${args.timeout}`);
 const browserNames = browsersNamed(args.browser);
 
 interface Program {
@@ -56,18 +54,13 @@ const programs: Program[] = [];
 for (const [index, dir] of programDirs.entries()) {
   const files = new Set(await readdir(dir));
   const names = [...files]
-    .filter(
-      (file) => file.endsWith(".js") && files.has(`${file.slice(0, -3)}.wasm`),
-    )
+    .filter((file) => file.endsWith(".js") && files.has(`${file.slice(0, -3)}.wasm`))
     .map((file) => file.slice(0, -3))
     .sort();
-  if (names.length === 0)
-    throw new Error(`${dir}: no NAME.js with a NAME.wasm`);
+  if (names.length === 0) throw new Error(`${dir}: no NAME.js with a NAME.wasm`);
   for (const name of names) {
     const argsFile = `${name}.args`;
-    const programArgs = files.has(argsFile)
-      ? (await readFile(join(dir, argsFile), "utf8")).split("\n")
-      : [];
+    const programArgs = files.has(argsFile) ? (await readFile(join(dir, argsFile), "utf8")).split("\n") : [];
     // The file's final newline ends the last argument rather than adding
     // an empty one.
     if (programArgs.at(-1) === "") programArgs.pop();
@@ -85,24 +78,17 @@ const groups = new Map<string, Program[]>();
 for (const program of programs) {
   const key = sequence.exec(program.name)?.[1] ?? program.name;
   const group = groups.get(key) ?? [];
-  if (group.some(({ name }) => name === program.name))
-    throw new Error(`two programs are named ${program.name}`);
+  if (group.some(({ name }) => name === program.name)) throw new Error(`two programs are named ${program.name}`);
   group.push(program);
   groups.set(key, group);
 }
 for (const [key, group] of groups) {
   if (group.length === 1 && group[0]!.name === key) continue;
-  if (group.some(({ name }) => name === key))
-    throw new Error(`${key} can't run both on its own and as a sequence`);
-  group.sort(
-    (a, b) =>
-      Number(sequence.exec(a.name)![2]) - Number(sequence.exec(b.name)![2]),
-  );
+  if (group.some(({ name }) => name === key)) throw new Error(`${key} can't run both on its own and as a sequence`);
+  group.sort((a, b) => Number(sequence.exec(a.name)![2]) - Number(sequence.exec(b.name)![2]));
   for (const [index, { name }] of group.entries())
     if (name !== `${key}.${index + 1}`)
-      throw new Error(
-        `${key}: the sequence must be numbered from 1 without gaps, not ${name}`,
-      );
+      throw new Error(`${key}: the sequence must be numbered from 1 without gaps, not ${name}`);
 }
 
 const server = await serve(
@@ -119,10 +105,7 @@ const evaluateTimeoutMs = timeoutMs + 30_000;
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`no answer from the page in ${ms} ms`)),
-      ms,
-    );
+    const timer = setTimeout(() => reject(new Error(`no answer from the page in ${ms} ms`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -135,8 +118,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
     );
   });
 
-const describe = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 // Browser console output goes to stderr; programs' output and results go
 // to stdout.
@@ -147,8 +129,7 @@ const log = (line: string): void => {
 // Firefox warns that a module's exception-handling instructions are
 // deprecated once for every Worker that instantiates it, so the warnings
 // are counted instead of printed.
-const DEPRECATED_TRY =
-  "WebAssembly exception handling 'try' instruction is deprecated";
+const DEPRECATED_TRY = "WebAssembly exception handling 'try' instruction is deprecated";
 
 // "exit 0" for a pass; anything else is a failure.
 type Status = string;
@@ -159,11 +140,7 @@ const record = (browser: string, program: string, status: Status): void => {
   results.set(program, row);
 };
 
-const runGroup = async (
-  browserName: string,
-  browser: Browser,
-  group: Program[],
-) => {
+const runGroup = async (browserName: string, browser: Browser, group: Program[]) => {
   const context = await browser.newContext();
   try {
     for (const [index, program] of group.entries()) {
@@ -171,22 +148,15 @@ const runGroup = async (
       let deprecatedTry = 0;
       page.on("console", (message) => {
         if (message.text().includes(DEPRECATED_TRY)) deprecatedTry++;
-        else
-          log(
-            `[${browserName} ${program.name} console.${message.type()}] ${message.text()}`,
-          );
+        else log(`[${browserName} ${program.name} console.${message.type()}] ${message.text()}`);
       });
-      page.on("pageerror", (error) =>
-        log(`[${browserName} ${program.name} pageerror] ${error.message}`),
-      );
+      page.on("pageerror", (error) => log(`[${browserName} ${program.name} pageerror] ${error.message}`));
       console.log(`== ${browserName}: ${program.name}`);
       let report: ProgramReport;
       try {
         await page.goto(`${server.origin}/`);
         const isolated = await page.evaluate(
-          () =>
-            (globalThis as { crossOriginIsolated?: boolean })
-              .crossOriginIsolated === true,
+          () => (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true,
         );
         if (!isolated) throw new Error("crossOriginIsolated is not true");
         await page.waitForFunction(() => "runProgram" in globalThis);
@@ -212,21 +182,14 @@ const runGroup = async (
       } finally {
         await page.close();
         if (deprecatedTry > 0)
-          log(
-            `[${browserName} ${program.name}] ${deprecatedTry} warnings that the 'try' instruction is deprecated`,
-          );
+          log(`[${browserName} ${program.name}] ${deprecatedTry} warnings that the 'try' instruction is deprecated`);
       }
-      for (const { stream, text } of report.output)
-        console.log(`${stream === "stdout" ? "out" : "err"}| ${text}`);
-      const status =
-        report.exitCode === null
-          ? `FAIL: ${report.error ?? "no exit"}`
-          : `exit ${report.exitCode}`;
+      for (const { stream, text } of report.output) console.log(`${stream === "stdout" ? "out" : "err"}| ${text}`);
+      const status = report.exitCode === null ? `FAIL: ${report.error ?? "no exit"}` : `exit ${report.exitCode}`;
       console.log(`-- ${status}`);
       record(browserName, program.name, status);
       if (report.exitCode !== 0) {
-        for (const { name } of group.slice(index + 1))
-          record(browserName, name, `not run: ${program.name} failed`);
+        for (const { name } of group.slice(index + 1)) record(browserName, name, `not run: ${program.name} failed`);
         return;
       }
     }
@@ -256,8 +219,7 @@ try {
           const message = `FAIL: ${describe(error)}`;
           console.log(`== ${name}: ${group[0]!.name}\n${message}`);
           for (const { name: program } of group) {
-            if (results.get(program)?.has(name) !== true)
-              record(name, program, message);
+            if (results.get(program)?.has(name) !== true) record(name, program, message);
           }
         }
       }

@@ -3,5 +3,4 @@
 
 import { spike } from "../shared/spike.ts";
 
-export const describe = (scope: WorkerGlobalScope): string =>
-  `${spike} in a Worker at ${scope.location.href}`;
+export const describe = (scope: WorkerGlobalScope): string => `${spike} in a Worker at ${scope.location.href}`;

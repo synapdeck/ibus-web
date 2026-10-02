@@ -44,25 +44,9 @@ import type { Browser } from "playwright";
 import { join } from "node:path";
 import type { BuildConstants, TestData, WaitMode } from "../shared/control.ts";
 import { installScenarios } from "../shared/install.ts";
-import {
-  reportLines,
-  type PageRunReport,
-  type PageRunSpec,
-} from "../shared/report.ts";
-import {
-  poolExhausted,
-  scenarios,
-  storageClosed,
-  storageFallback,
-  type Result,
-} from "../shared/scenarios.ts";
-import {
-  browsersNamed,
-  launch,
-  launchError,
-  launchPersistent,
-  servePage,
-} from "./browsers.ts";
+import { reportLines, type PageRunReport, type PageRunSpec } from "../shared/report.ts";
+import { poolExhausted, scenarios, storageClosed, storageFallback, type Result } from "../shared/scenarios.ts";
+import { browsersNamed, launch, launchError, launchPersistent, servePage } from "./browsers.ts";
 
 const { values: args } = parseArgs({
   options: {
@@ -112,21 +96,12 @@ const RUN_TIMEOUT_MS = 180_000;
 // Run by hand, on a quiet machine, every cross-thread wake is held to this.
 const STRICT_WAKE_MAX_MS = 20;
 
-const errno = JSON.parse(await readFile(args.errno, "utf8")) as Record<
-  string,
-  number
->;
-const constants = JSON.parse(
-  await readFile(args.constants, "utf8"),
-) as BuildConstants;
-const sideNames = (await readdir(args.sides))
-  .filter((file) => file.endsWith(".wasm"))
-  .sort();
+const errno = JSON.parse(await readFile(args.errno, "utf8")) as Record<string, number>;
+const constants = JSON.parse(await readFile(args.constants, "utf8")) as BuildConstants;
+const sideNames = (await readdir(args.sides)).filter((file) => file.endsWith(".wasm")).sort();
 
 const installData = args["install-data"];
-const testData = JSON.parse(
-  await readFile(join(installData, "tree.json"), "utf8"),
-) as TestData;
+const testData = JSON.parse(await readFile(join(installData, "tree.json"), "utf8")) as TestData;
 
 const server = await servePage({
   "/runtime/": dirname(args.runtime),
@@ -154,16 +129,14 @@ interface Run {
   persistent?: boolean;
 }
 
-const names = (list: readonly { name: string }[]): string[] =>
-  list.map(({ name }) => name);
+const names = (list: readonly { name: string }[]): string[] => list.map(({ name }) => name);
 
 const allScenarios = [...names(scenarios), poolExhausted.name];
 
 const runs: Run[] = [
   {
     id: "runtime",
-    label:
-      "runtime: the host sleeps in ibusweb_wait(), woken through the relay; the page spins for each reply",
+    label: "runtime: the host sleeps in ibusweb_wait(), woken through the relay; the page spins for each reply",
     counts: true,
     wait: "runtime",
     pageWait: "spin",
@@ -183,8 +156,7 @@ const runs: Run[] = [
   },
   {
     id: "closed",
-    label:
-      "runtime, on a host of its own whose database the page opens at a newer version",
+    label: "runtime, on a host of its own whose database the page opens at a newer version",
     counts: true,
     wait: "runtime",
     pageWait: "spin",
@@ -194,8 +166,7 @@ const runs: Run[] = [
   },
   {
     id: "fallback",
-    label:
-      "runtime, on a host of its own in which indexedDB.open() throws, as in an opaque origin",
+    label: "runtime, on a host of its own in which indexedDB.open() throws, as in an opaque origin",
     counts: true,
     wait: "runtime",
     pageWait: "spin",
@@ -231,8 +202,7 @@ if (args.compare)
     },
     {
       id: "runtime-async",
-      label:
-        "for comparison: the idle host waits with Atomics.waitAsync(), its event loop running",
+      label: "for comparison: the idle host waits with Atomics.waitAsync(), its event loop running",
       counts: false,
       wait: "runtime-async",
       pageWait: "spin",
@@ -248,13 +218,7 @@ if (args.compare)
       counts: false,
       wait: "control",
       pageWait: "spin",
-      scenarios: [
-        "dispatch",
-        "cold-wake",
-        "cross-thread-wake",
-        "deadline",
-        "sync-proxied",
-      ],
+      scenarios: ["dispatch", "cold-wake", "cross-thread-wake", "deadline", "sync-proxied"],
       pendingLimitMs: 3_000,
       storage: "browser",
     },
@@ -290,13 +254,8 @@ if (args.measure) {
 
 if (args.scenario !== undefined) {
   const only = new Set(args.scenario);
-  for (const run of runs)
-    run.scenarios = run.scenarios.filter((name) => only.has(name));
-  runs.splice(
-    0,
-    runs.length,
-    ...runs.filter((run) => run.scenarios.length > 0),
-  );
+  for (const run of runs) run.scenarios = run.scenarios.filter((name) => only.has(name));
+  runs.splice(0, runs.length, ...runs.filter((run) => run.scenarios.length > 0));
 }
 
 interface Outcome {
@@ -309,10 +268,7 @@ interface Outcome {
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`no result in ${ms} ms`)),
-      ms,
-    );
+    const timer = setTimeout(() => reject(new Error(`no result in ${ms} ms`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -333,8 +289,7 @@ const log = (line: string): void => {
 // Firefox warns that the runtime's exception-handling instructions are
 // deprecated once for every Worker that instantiates it, hundreds of times
 // a run, so the warnings are counted instead of printed.
-const DEPRECATED_TRY =
-  "WebAssembly exception handling 'try' instruction is deprecated";
+const DEPRECATED_TRY = "WebAssembly exception handling 'try' instruction is deprecated";
 
 // The bytes of the files in which the browser keeps IndexedDB under the
 // profile: Chromium's IndexedDB directory, Firefox's idb directories.
@@ -345,43 +300,26 @@ const indexedDBBytes = async (profile: string): Promise<number> => {
     withFileTypes: true,
   })) {
     const path = join(entry.parentPath, entry.name);
-    if (entry.isFile() && /\/(IndexedDB|idb)\//.test(path))
-      bytes += (await stat(path)).size;
+    if (entry.isFile() && /\/(IndexedDB|idb)\//.test(path)) bytes += (await stat(path)).size;
   }
   return bytes;
 };
 
-const runOne = async (
-  browserName: string,
-  browser: Browser,
-  run: Run,
-): Promise<Outcome> => {
-  const profile = run.persistent
-    ? await mkdtemp(join(tmpdir(), "ibus-web-profile-"))
-    : undefined;
-  const context =
-    profile === undefined
-      ? await browser.newContext()
-      : await launchPersistent(browserName, profile);
+const runOne = async (browserName: string, browser: Browser, run: Run): Promise<Outcome> => {
+  const profile = run.persistent ? await mkdtemp(join(tmpdir(), "ibus-web-profile-")) : undefined;
+  const context = profile === undefined ? await browser.newContext() : await launchPersistent(browserName, profile);
   let deprecatedTry = 0;
   try {
-    if (profile !== undefined)
-      await context.exposeFunction("ibusWebIndexedDBBytes", () =>
-        indexedDBBytes(profile),
-      );
+    if (profile !== undefined) await context.exposeFunction("ibusWebIndexedDBBytes", () => indexedDBBytes(profile));
     const page = await context.newPage();
     page.on("console", (message) => {
       if (message.text().includes(DEPRECATED_TRY)) deprecatedTry++;
       else log(`[${browserName} console.${message.type()}] ${message.text()}`);
     });
-    page.on("pageerror", (error) =>
-      log(`[${browserName} pageerror] ${error.message}`),
-    );
+    page.on("pageerror", (error) => log(`[${browserName} pageerror] ${error.message}`));
     await page.goto(`${server.origin}/`);
     const isolated = await page.evaluate(
-      () =>
-        (globalThis as { crossOriginIsolated?: boolean })
-          .crossOriginIsolated === true,
+      () => (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true,
     );
     if (!isolated)
       return {
@@ -425,12 +363,7 @@ const runOne = async (
       ),
       RUN_TIMEOUT_MS,
     );
-    const lines = reportLines(
-      `${browserName}, ${run.label}`,
-      report.startupMs,
-      report.results,
-      report.messages,
-    );
+    const lines = reportLines(`${browserName}, ${run.label}`, report.startupMs, report.results, report.messages);
     lines.splice(
       1,
       0,
@@ -446,10 +379,7 @@ const runOne = async (
     return { browser: browserName, run, results: [], error: message };
   } finally {
     await context.close();
-    if (deprecatedTry > 0)
-      log(
-        `[${browserName}] ${deprecatedTry} warnings that the 'try' instruction is deprecated`,
-      );
+    if (deprecatedTry > 0) log(`[${browserName}] ${deprecatedTry} warnings that the 'try' instruction is deprecated`);
     if (profile !== undefined) {
       console.log(
         `    IndexedDB on disk once ${browserName} closed: ${((await indexedDBBytes(profile)) / 1024).toFixed(1)} KiB`,
@@ -471,8 +401,7 @@ interface KnownFailure {
 
 const knownFailures: Readonly<Record<string, KnownFailure>> = {};
 
-const failureKey = (browser: string, run: Run, scenario: string): string =>
-  `${browser} ${run.id} ${scenario}`;
+const failureKey = (browser: string, run: Run, scenario: string): string => `${browser} ${run.id} ${scenario}`;
 
 const resultOf = (outcome: Outcome, name: string): Result | undefined =>
   outcome.results.find((result) => result.name === name);
@@ -514,9 +443,7 @@ const table = (outcomes: readonly Outcome[]): string[] => {
       const cells = columns.map((outcome) => {
         const result = resultOf(outcome, name);
         if (result === undefined) return outcome.error ?? "not run";
-        const known = run.counts
-          ? knownFailures[failureKey(outcome.browser, run, name)]
-          : undefined;
+        const known = run.counts ? knownFailures[failureKey(outcome.browser, run, name)] : undefined;
         const status = result.pass
           ? known === undefined
             ? "PASS"
@@ -544,8 +471,7 @@ try {
       // The other browser still runs, and the tables show why this didn't.
       const message = launchError(error);
       console.log(`== ${name}\nFAIL: ${message}`);
-      for (const run of runs)
-        outcomes.push({ browser: name, run, results: [], error: message });
+      for (const run of runs) outcomes.push({ browser: name, run, results: [], error: message });
       continue;
     }
     try {
@@ -570,8 +496,7 @@ for (const outcome of outcomes) {
     if (result !== undefined) evaluated.add(key);
     const knownFailure = knownFailures[key];
     if (result?.pass === true) {
-      if (knownFailure !== undefined)
-        unexpected.push(`${key}: passed, but is listed as a known failure`);
+      if (knownFailure !== undefined) unexpected.push(`${key}: passed, but is listed as a known failure`);
     } else if (knownFailure === undefined) unexpected.push(`${key}: failed`);
     else if (result === undefined || !knownFailure.matches(result))
       unexpected.push(`${key}: failed, but not as the known failure does`);
@@ -580,8 +505,7 @@ for (const outcome of outcomes) {
 }
 if (args.browser === undefined && args.scenario === undefined)
   for (const key of Object.keys(knownFailures))
-    if (!evaluated.has(key))
-      unexpected.push(`${key}: listed as a known failure, but not run`);
+    if (!evaluated.has(key)) unexpected.push(`${key}: listed as a known failure, but not run`);
 console.log("");
 for (const line of known) console.log(`KNOWN FAILURE ${line}`);
 for (const line of unexpected) console.log(`UNEXPECTED ${line}`);

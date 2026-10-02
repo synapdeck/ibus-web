@@ -17,17 +17,6 @@ local linters = new Mapping<String, Step> {
   ["clang-format"] = Builtins.clang_format
   ["shfmt"] = Builtins.shfmt
   ["oxfmt"] = (Builtins.oxfmt) {
-    glob =
-      List(
-        "**/*.ts",
-        "**/*.mts",
-        "**/*.cts",
-        "**/*.js",
-        "**/*.mjs",
-        "**/*.json",
-        "**/*.yaml",
-        "**/*.yml",
-      )
     // pnpm rewrites its lockfile in its own style on every install.
     exclude = "pnpm-lock.yaml"
   }

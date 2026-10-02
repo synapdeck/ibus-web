@@ -25,12 +25,7 @@ import {
   type SideModule,
   type Storage,
 } from "../shared/control.ts";
-import {
-  installScenarios,
-  runInstallScenarios,
-  type InstallHarness,
-  type InstallScenario,
-} from "../shared/install.ts";
+import { installScenarios, runInstallScenarios, type InstallHarness, type InstallScenario } from "../shared/install.ts";
 import type { PageRunReport, PageRunSpec } from "../shared/report.ts";
 import {
   glibStress,
@@ -82,12 +77,9 @@ const byName = new Map<string, Scenario>(
   ].map((scenario) => [scenario.name, scenario]),
 );
 
-const installByName = new Map<string, InstallScenario>(
-  installScenarios.map((scenario) => [scenario.name, scenario]),
-);
+const installByName = new Map<string, InstallScenario>(installScenarios.map((scenario) => [scenario.name, scenario]));
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fetchOk = async (url: URL): Promise<Response> => {
   const response = await fetch(url);
@@ -141,8 +133,7 @@ const sampleMemory = async (): Promise<Record<string, number>> => {
       measureUserAgentSpecificMemory.call(performance),
       sleep(60_000).then(() => null),
     ]).catch(() => null);
-    if (measured !== null)
-      sample.userAgentSpecific = Math.round(measured.bytes / 2 ** 20);
+    if (measured !== null) sample.userAgentSpecific = Math.round(measured.bytes / 2 ** 20);
   }
   return sample;
 };
@@ -175,8 +166,7 @@ const storedChunkSize = (database: string): Promise<number | undefined> =>
     };
   });
 
-const readOnly = (message: HostMessage): boolean =>
-  message.type === "storage" && message.state === "read-only";
+const readOnly = (message: HostMessage): boolean => message.type === "storage" && message.state === "read-only";
 
 // How long a page waits for a terminated host's lock. Chromium lets go of
 // the locks of a Worker terminated while it sleeps in Atomics.wait() only
@@ -188,13 +178,7 @@ const LOCK_RELEASE_LIMIT_MS = 10_000;
 // as it is, and let go of at once; or after LOCK_RELEASE_LIMIT_MS, when
 // another host holds it.
 const lockReleased = (name: string): Promise<void> =>
-  navigator.locks
-    .request(
-      name,
-      { signal: AbortSignal.timeout(LOCK_RELEASE_LIMIT_MS) },
-      () => {},
-    )
-    .catch(() => {});
+  navigator.locks.request(name, { signal: AbortSignal.timeout(LOCK_RELEASE_LIMIT_MS) }, () => {}).catch(() => {});
 
 const storageOf = (storage: PageRunSpec["storage"]): Storage =>
   storage === "none"
@@ -209,8 +193,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
   const { ibusWebIndexedDBBytes } = globalThis as unknown as {
     ibusWebIndexedDBBytes?: () => Promise<number>;
   };
-  if (!crossOriginIsolated)
-    throw new Error("the page is not cross-origin isolated");
+  if (!crossOriginIsolated) throw new Error("the page is not cross-origin isolated");
   const pick = <T>(names: Map<string, T>): T[] =>
     spec.scenarios.map((name) => {
       const scenario = names.get(name);
@@ -221,9 +204,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
   const selectedInstalls = spec.install === true ? pick(installByName) : [];
   const runtimeUrl = new URL(spec.runtimeUrl, location.href);
   const [wasm, sides] = await Promise.all([
-    WebAssembly.compileStreaming(
-      fetchOk(new URL(runtimeUrl.href.replace(/\.js$/, ".wasm"))),
-    ),
+    WebAssembly.compileStreaming(fetchOk(new URL(runtimeUrl.href.replace(/\.js$/, ".wasm")))),
     Promise.all(
       spec.sideUrls.map(async (url): Promise<SideModule> => {
         const resolved = new URL(url, location.href);
@@ -235,24 +216,13 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     ),
   ]);
   const { data } = spec;
-  const dataUrl =
-    spec.dataUrl === undefined
-      ? undefined
-      : new URL(spec.dataUrl, location.href).href;
+  const dataUrl = spec.dataUrl === undefined ? undefined : new URL(spec.dataUrl, location.href).href;
   const named = { ...SPIKE_ENGINE, name: spec.engineName ?? SPIKE_ENGINE.name };
-  const engine =
-    data === undefined || dataUrl === undefined
-      ? named
-      : withData(named, data, dataUrl);
+  const engine = data === undefined || dataUrl === undefined ? named : withData(named, data, dataUrl);
 
   // The page's main thread can't block, so a call either spins until the
   // reply or waits for it asynchronously.
-  const waitFree = async (
-    words: Int32Array,
-    index: number,
-    value: number,
-    ms: number,
-  ): Promise<void> => {
+  const waitFree = async (words: Int32Array, index: number, value: number, ms: number): Promise<void> => {
     const result = waitAsync(words, index, value, ms);
     if (result.async) await result.value;
   };
@@ -273,11 +243,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
         };
 
   // Starts a host for engine, whose messages go to messages as they arrive.
-  const launch = (
-    engine: EngineManifest,
-    extra: Pick<HostInit, "installStallAt">,
-    messages: HostMessage[],
-  ) => {
+  const launch = (engine: EngineManifest, extra: Pick<HostInit, "installStallAt">, messages: HostMessage[]) => {
     const control = createControl();
     const worker = new Worker(new URL("../worker/host.js", import.meta.url), {
       type: "module",
@@ -296,13 +262,11 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       constants: spec.constants,
       ...extra,
     };
-    const started = startHost(worker, init, messages).then(
-      ({ startupMs, features }) => ({
-        startupMs,
-        features,
-        client: blockingClient(control, messages, clientOptions),
-      }),
-    );
+    const started = startHost(worker, init, messages).then(({ startupMs, features }) => ({
+      startupMs,
+      features,
+      client: blockingClient(control, messages, clientOptions),
+    }));
     return { worker, started };
   };
 
@@ -322,9 +286,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     poolLowWater: spec.poolLowWater,
     fsyncPaths: [
       "/tmp/fsync-memory.txt",
-      ...(spec.storage === "browser"
-        ? [`${engineDir(engine)}/fsync-idb.txt`]
-        : []),
+      ...(spec.storage === "browser" ? [`${engineDir(engine)}/fsync-idb.txt`] : []),
     ],
     pendingLimitMs: spec.pendingLimitMs,
     ...(spec.wakeMaxMs === undefined ? {} : { wakeMaxMs: spec.wakeMaxMs }),
@@ -343,9 +305,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     ...(spec.stress === undefined ? {} : { stress: spec.stress }),
     ...(spec.sampleMemory === true ? { sampleMemory } : {}),
     storageUsage: async () => (await navigator.storage.estimate()).usage ?? 0,
-    ...(ibusWebIndexedDBBytes === undefined
-      ? {}
-      : { indexedDBBytes: ibusWebIndexedDBBytes }),
+    ...(ibusWebIndexedDBBytes === undefined ? {} : { indexedDBBytes: ibusWebIndexedDBBytes }),
     userDataChunkSize: () => storedChunkSize(engineDatabase(engine)),
   });
   const report = async (
@@ -369,8 +329,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
   };
 
   if (spec.install === true) {
-    if (data === undefined || dataUrl === undefined)
-      throw new Error("install scenarios need the test archive");
+    if (data === undefined || dataUrl === undefined) throw new Error("install scenarios need the test archive");
     // Every host of a run shares the origin's storage and locks, as tabs
     // of one origin do.
     const workers: Worker[] = [];
@@ -382,12 +341,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       data,
       dataUrl,
       upgradeUrl: new URL(data.upgrade.archive, dataUrl).href,
-      lockFree: (name) =>
-        navigator.locks.request(
-          name,
-          { ifAvailable: true },
-          (lock) => lock !== null,
-        ),
+      lockFree: (name) => navigator.locks.request(name, { ifAvailable: true }, (lock) => lock !== null),
       tearMarker: (installed) =>
         new Promise<void>((resolve, reject) => {
           const request = indexedDB.open(engineDataDatabase(installed));
@@ -435,12 +389,9 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
             const { worker } = await launched;
             worker.terminate();
             if (!messages.some(readOnly)) {
-              const released = lockReleased(engineWriterLock(installed)).then(
-                () => {
-                  if (releasing.get(installed.name) === released)
-                    releasing.delete(installed.name);
-                },
-              );
+              const released = lockReleased(engineWriterLock(installed)).then(() => {
+                if (releasing.get(installed.name) === released) releasing.delete(installed.name);
+              });
               releasing.set(installed.name, released);
             }
           },

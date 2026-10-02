@@ -32,22 +32,14 @@ interface LibraryError<Message extends string> {
 type SigChar = "v" | "i" | "j" | "f" | "d" | "p" | "e";
 
 // A signature's characters, one element each, or never if one isn't valid.
-type SigChars<
-  S extends string,
-  Acc extends unknown[] = [],
-> = S extends `${SigChar}${infer Rest}`
+type SigChars<S extends string, Acc extends unknown[] = []> = S extends `${SigChar}${infer Rest}`
   ? SigChars<Rest, [...Acc, unknown]>
   : S extends ""
     ? Acc
     : never;
 
 // A signature is the result's character, then one per parameter.
-type CheckSig<
-  Sig,
-  Value,
-  Key extends string,
-  Symbol extends string,
-> = Sig extends string
+type CheckSig<Sig, Value, Key extends string, Symbol extends string> = Sig extends string
   ? string extends Sig
     ? LibraryError<`${Key}: a signature must be a string literal`>
     : [SigChars<Sig>] extends [never]
@@ -80,9 +72,7 @@ type CheckDecorator<
 // whole and the symbol is everything before it. A key that isn't a decorator
 // is a symbol.
 type CheckEntry<Entries, Key extends string> = {
-  [Name in Decorator]: Key extends `${infer Symbol}__${Name}`
-    ? CheckDecorator<Entries, Key, Symbol, Name>
-    : never;
+  [Name in Decorator]: Key extends `${infer Symbol}__${Name}` ? CheckDecorator<Entries, Key, Symbol, Name> : never;
 }[Decorator] extends infer Result
   ? [Result] extends [never]
     ? Entries[Key & keyof Entries] extends LibraryValue
@@ -97,21 +87,15 @@ type CheckLibrary<Entries> = {
 
 // A symbol's value: a function or class Emscripten emits from its source, or
 // a string holding one expression, which it emits as written.
-type LibraryValue =
-  | ((...args: never[]) => unknown)
-  | (abstract new (...args: never[]) => unknown)
-  | string;
+type LibraryValue = ((...args: never[]) => unknown) | (abstract new (...args: never[]) => unknown) | string;
 
 // Adds the entries to the library Emscripten links from, when it evaluates
 // the file at link time. Every decorator must name a symbol defined in the
 // same call, with a value of its decorator's type, and a `__sig` must have a
 // character for the result and for each of the function's parameters.
-declare function addToLibrary<
-  const Entries extends Record<
-    string,
-    LibraryValue | LibraryDecorators[Decorator]
-  >,
->(entries: Entries & NoInfer<CheckLibrary<Entries>>): void;
+declare function addToLibrary<const Entries extends Record<string, LibraryValue | LibraryDecorators[Decorator]>>(
+  entries: Entries & NoInfer<CheckLibrary<Entries>>,
+): void;
 
 // The runtime's error output, which every program has.
 declare function err(...args: unknown[]): void;

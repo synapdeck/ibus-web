@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
+  "$schema": "https://unpkg.com/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc"],
   "categories": {
-    "correctness": "error"
+    "correctness": "error",
   },
   "rules": {
     "no-var": "error",
     "prefer-const": "error",
-    "eqeqeq": "error"
-  }
+    "eqeqeq": "error",
+  },
 }

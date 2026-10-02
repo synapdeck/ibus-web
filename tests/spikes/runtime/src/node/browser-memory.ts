@@ -79,8 +79,7 @@ interface Variant {
 
 const variants: Variant[] = args.variant.map((spec) => {
   const match = /^([^=]+)=([^,]+),(\d+),(\d+)$/.exec(spec);
-  if (match === null)
-    throw new Error(`--variant ${spec}: not NAME=RUNTIME_JS,INITIAL,MAXIMUM`);
+  if (match === null) throw new Error(`--variant ${spec}: not NAME=RUNTIME_JS,INITIAL,MAXIMUM`);
   const [, name, runtime, initial, maximum] = match;
   return {
     name: name!,
@@ -98,25 +97,13 @@ const parallel = Number(args.parallel);
 const RUN_TIMEOUT_MS = 240_000;
 const MiB = 2 ** 20;
 
-const errno = JSON.parse(await readFile(args.errno!, "utf8")) as Record<
-  string,
-  number
->;
-const constants = JSON.parse(
-  await readFile(args.constants!, "utf8"),
-) as BuildConstants;
-const sideNames = (await readdir(args.sides!))
-  .filter((file) => file.endsWith(".wasm"))
-  .sort();
+const errno = JSON.parse(await readFile(args.errno!, "utf8")) as Record<string, number>;
+const constants = JSON.parse(await readFile(args.constants!, "utf8")) as BuildConstants;
+const sideNames = (await readdir(args.sides!)).filter((file) => file.endsWith(".wasm")).sort();
 
 const server = await servePage({
   "/sides/": args.sides!,
-  ...Object.fromEntries(
-    variants.map(({ name, runtime }) => [
-      `/runtime-${name}/`,
-      dirname(runtime),
-    ]),
-  ),
+  ...Object.fromEntries(variants.map(({ name, runtime }) => [`/runtime-${name}/`, dirname(runtime)])),
 });
 
 // The browser's processes, this one's descendants, as /proc has them: their
@@ -183,8 +170,7 @@ const runPage = async (
       if (message.type() === "error") logs.push(message.text());
     });
     page.on("pageerror", (error) => logs.push(error.message));
-    if (sampleMemory)
-      await page.exposeFunction("ibusWebSampleMemory", sampleProcesses);
+    if (sampleMemory) await page.exposeFunction("ibusWebSampleMemory", sampleProcesses);
     await page.goto(`${server.origin}/`);
     await page.waitForFunction(() => "runSpike" in globalThis);
     const spec: PageRunSpec = {
@@ -222,18 +208,14 @@ const runPage = async (
         spec,
       ),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`no result in ${RUN_TIMEOUT_MS} ms`)),
-          RUN_TIMEOUT_MS,
-        );
+        timer = setTimeout(() => reject(new Error(`no result in ${RUN_TIMEOUT_MS} ms`)), RUN_TIMEOUT_MS);
       }),
     ]).finally(() => clearTimeout(timer));
     return { report, console: logs };
   } catch (error) {
     return {
       report: null,
-      error:
-        error instanceof Error ? error.message.split("\n")[0] : String(error),
+      error: error instanceof Error ? error.message.split("\n")[0] : String(error),
       console: logs,
     };
   } finally {
@@ -266,8 +248,7 @@ interface Tally {
 // stack, as the host reported it.
 const trapSite = (text: string): string => {
   const lines = text.split("\n");
-  const error =
-    lines.find((line) => /RuntimeError|memory access/.test(line)) ?? lines[0]!;
+  const error = lines.find((line) => /RuntimeError|memory access/.test(line)) ?? lines[0]!;
   const frames = lines
     .filter((line) => /^\s*at |@|wasm-function/.test(line))
     .slice(0, 4)
@@ -280,9 +261,7 @@ const record = (tally: Tally, outcome: RunOutcome): void => {
   const result = outcome.report?.results[0];
   if (outcome.report === null || result === undefined) {
     tally.noResult++;
-    tally.failures.push(
-      `${outcome.error ?? "no result"}; ${outcome.console.slice(-2).join(" | ")}`,
-    );
+    tally.failures.push(`${outcome.error ?? "no result"}; ${outcome.console.slice(-2).join(" | ")}`);
     return;
   }
   if (result.pass) {
@@ -293,32 +272,20 @@ const record = (tally: Tally, outcome: RunOutcome): void => {
     if (typeof breakMiB === "number") tally.breakMiB.push(breakMiB);
     return;
   }
-  const crashed = outcome.report.messages.find(
-    (message) => message.type === "crashed",
-  );
-  const crash =
-    crashed !== undefined && "message" in crashed ? crashed.message : "";
+  const crashed = outcome.report.messages.find((message) => message.type === "crashed");
+  const crash = crashed !== undefined && "message" in crashed ? crashed.message : "";
   const evidence = [crash, ...outcome.console].join("\n");
   if (outOfMemoryAbort(evidence)) {
     tally.outOfMemory++;
-    tally.failures.push(
-      `aborted out of memory, by Emscripten rather than a trap: ${crash.split("\n")[0]}`,
-    );
-  } else if (
-    /RuntimeError|memory access out of bounds|out of bounds/i.test(evidence)
-  ) {
+    tally.failures.push(`aborted out of memory, by Emscripten rather than a trap: ${crash.split("\n")[0]}`);
+  } else if (/RuntimeError|memory access out of bounds|out of bounds/i.test(evidence)) {
     tally.traps++;
-    const source =
-      [crash, ...outcome.console].find((text) =>
-        /RuntimeError|out of bounds/i.test(text),
-      ) ?? evidence;
+    const source = [crash, ...outcome.console].find((text) => /RuntimeError|out of bounds/i.test(text)) ?? evidence;
     const site = trapSite(source);
     tally.sites[site] = (tally.sites[site] ?? 0) + 1;
   } else {
     tally.otherFailures++;
-    tally.failures.push(
-      `${result.error ?? JSON.stringify(result.measurements)}; ${crash}`,
-    );
+    tally.failures.push(`${result.error ?? JSON.stringify(result.measurements)}; ${crash}`);
   }
 };
 
@@ -329,16 +296,11 @@ const summary = (tally: Tally): string =>
   `${tally.browser} ${tally.variant} ${tally.workload}: ${tally.runs} runs, ${tally.passed} passed, ` +
   `${tally.outOfMemory} aborted out of memory, ${tally.traps} trapped otherwise, ` +
   `${tally.otherFailures} failed otherwise, ${tally.noResult} without a result` +
-  (tally.unsupported === undefined
-    ? ""
-    : ` (unsupported: ${tally.unsupported})`) +
+  (tally.unsupported === undefined ? "" : ` (unsupported: ${tally.unsupported})`) +
   `; elapsed ${range(tally.elapsedMs)} ms, memory at the end ${range(tally.memoryMiB)} MiB, ` +
   `heap's break at the end ${range(tally.breakMiB)} MiB`;
 
-const pool = async (
-  jobs: readonly (() => Promise<void>)[],
-  width: number,
-): Promise<void> => {
+const pool = async (jobs: readonly (() => Promise<void>)[], width: number): Promise<void> => {
   let next = 0;
   const worker = async (): Promise<void> => {
     while (next < jobs.length) await jobs[next++]!();
@@ -355,8 +317,7 @@ const show = (label: string, outcome: RunOutcome): void => {
       `${label} ${result.name}: ${result.pass ? "PASS" : "FAIL"} ${JSON.stringify(result.measurements)}` +
         (result.error === undefined ? "" : ` ${result.error}`),
     );
-  if (outcome.report === null)
-    console.log(`${label}: no result: ${outcome.error}`);
+  if (outcome.report === null) console.log(`${label}: no result: ${outcome.error}`);
 };
 
 try {
@@ -399,32 +360,18 @@ try {
             }),
             parallel,
           );
-          console.log(
-            `${summary(tally)}; ${((performance.now() - started) / 1000).toFixed(0)} s`,
-          );
-          for (const [site, count] of Object.entries(tally.sites))
-            console.log(`    ${count}× ${site}`);
-          for (const failure of tally.failures.slice(0, 3))
-            console.log(`    failure: ${failure}`);
+          console.log(`${summary(tally)}; ${((performance.now() - started) / 1000).toFixed(0)} s`);
+          for (const [site, count] of Object.entries(tally.sites)) console.log(`    ${count}× ${site}`);
+          for (const failure of tally.failures.slice(0, 3)) console.log(`    failure: ${failure}`);
         }
       costs[browserName] = {};
       for (const variant of variants) {
-        const outcome = await runPage(browser, variant, [
-          "memory-costs",
-          "dispatch",
-        ]);
-        costs[browserName][variant.name] =
-          outcome.report?.results ?? outcome.error ?? "none";
+        const outcome = await runPage(browser, variant, ["memory-costs", "dispatch"]);
+        costs[browserName][variant.name] = outcome.report?.results ?? outcome.error ?? "none";
         show(`${browserName} ${variant.name}`, outcome);
       }
-      const measured = await runPage(
-        browser,
-        variants[0]!,
-        ["worker-memory"],
-        true,
-      );
-      workerCost[browserName] =
-        measured.report?.results ?? measured.error ?? "none";
+      const measured = await runPage(browser, variants[0]!, ["worker-memory"], true);
+      workerCost[browserName] = measured.report?.results ?? measured.error ?? "none";
       show(`${browserName} ${variants[0]!.name}`, measured);
     } finally {
       await browser.close();
@@ -435,7 +382,5 @@ try {
 }
 
 console.log(`MEMORY ${JSON.stringify({ tallies, costs, workerCost })}`);
-const failed = tallies.some(
-  (tally) => !tally.grows && tally.passed < tally.runs,
-);
+const failed = tallies.some((tally) => !tally.grows && tally.passed < tally.runs);
 process.exit(failed ? 1 : 0);

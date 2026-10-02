@@ -173,13 +173,7 @@ export const moduleBytes = new Uint8Array([
 // startWorker() returns { post(message), onMessage(listener), terminate() }
 // for a Worker running growrace-worker.mjs. Resolves to how many pages were
 // published, the readers' traps (their messages) and their increments.
-export const race = async ({
-  readers,
-  pages,
-  access,
-  grow = true,
-  startWorker,
-}) => {
+export const race = async ({ readers, pages, access, grow = true, startWorker }) => {
   const memory = new WebAssembly.Memory({
     initial: grow ? 1 : 1 + pages,
     maximum: 1 + pages,
@@ -188,9 +182,7 @@ export const race = async ({
   // A custom section of its own makes each race's module new to the engine,
   // so no race reuses code an earlier one had tiered up.
   const nonce = new TextEncoder().encode(String(Math.random()));
-  const module = await WebAssembly.compile(
-    new Uint8Array([...moduleBytes, 0, 2 + nonce.length, 1, 0x6e, ...nonce]),
-  );
+  const module = await WebAssembly.compile(new Uint8Array([...moduleBytes, 0, 2 + nonce.length, 1, 0x6e, ...nonce]));
   const mode = accesses.indexOf(access);
   if (mode < 0) throw new Error(`no access ${access}`);
   const workers = Array.from({ length: readers }, startWorker);
@@ -200,9 +192,7 @@ export const race = async ({
       new Promise((resolve) => {
         let started;
         ready.push(new Promise((resolveReady) => (started = resolveReady)));
-        worker.onMessage((message) =>
-          message.type === "ready" ? started() : resolve(message),
-        );
+        worker.onMessage((message) => (message.type === "ready" ? started() : resolve(message)));
       }),
   );
   for (const worker of workers) worker.post({ memory, module, mode });
@@ -220,9 +210,7 @@ export const race = async ({
   for (const worker of workers) worker.terminate();
   return {
     published,
-    traps: outcomes
-      .filter(({ type }) => type === "trap")
-      .map(({ message }) => message),
+    traps: outcomes.filter(({ type }) => type === "trap").map(({ message }) => message),
     increments: outcomes.reduce((sum, { count }) => sum + (count ?? 0), 0),
   };
 };
@@ -232,10 +220,7 @@ export const race = async ({
 // resolves to a row per configuration: its races, the races in which a
 // reader trapped, the readers that did, and the first trap's message.
 export const matrix = async ({ readers, pages, runs, startWorker, report }) => {
-  const configurations = [
-    ...accesses.map((access) => ({ access, grow: true })),
-    { access: "atomic", grow: false },
-  ];
+  const configurations = [...accesses.map((access) => ({ access, grow: true })), { access: "atomic", grow: false }];
   const rows = [];
   for (const { access, grow } of configurations) {
     const row = {

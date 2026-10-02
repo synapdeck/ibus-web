@@ -214,6 +214,7 @@ Emscripten chooses Wasm and JS features from its `MIN_{CHROME,FIREFOX,SAFARI,NOD
 **Files:** `modules/baseline-browser-mapping/` (a module that builds the package inline and exposes it, and a check), `modules/toolchain/` (the minimums and `commonFlags`), `modules/toolchain/cache.nix` (probe variants), checks as needed.
 
 **Requirements:**
+
 - Package `baseline-browser-mapping` (github.com/web-platform-dx/baseline-browser-mapping, not in nixpkgs) from source with `buildNpmPackage`, pinned by tag and hash and updated with `nix-update-script`, as the user's nixpkgs-style package does. Derive the browser minimums for "Baseline Widely available" with its CLI in a derivation (no import-from-derivation; consumers read the derivation's output at build time), never hand-written. Pin the evaluation date to one derived from the pinned data (e.g. its release date), not the build machine's clock, so builds are reproducible. The Node minimum comes from `ibusWeb.typescript.nodejs`. Pass them as `-sMIN_*_VERSION` to every link (the cross stdenv, the runtime, side modules, tests, the cache's probes).
 - Add `-mextended-const` to `ibusWeb.toolchain.commonFlags`; Emscripten's feature check must accept it against the minimums.
 - Record which features the new minimums turn on or keep off (e.g. extended-const on; `GROWABLE_ARRAYBUFFERS=2` and non-legacy Wasm exceptions off) and the size/load-time effect on `ibus-runtime` and a side module.
