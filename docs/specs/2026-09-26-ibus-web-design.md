@@ -91,7 +91,7 @@ of in engine code, fix it there.
 | D10 | Settings             | GSettings backend bridge and API only                                                                                                                                                                                                      | Generated forms; per-engine UI                                                    |
 | D11 | UI                   | Headless core plus separate default panel package                                                                                                                                                                                          | Headless only; built-in themed panel                                              |
 | D12 | Surfaces             | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in                                                                                                                                                                    | Textarea only; CodeMirror adapter in v1                                           |
-| D13 | Storage              | WasmFS with the OPFS backend per Worker, one directory per engine                                                                                                                                                                          | Host-managed storage only                                                         |
+| D13 | Storage              | WasmFS per Worker on IndexedDB, through our own lazy backend that stores files as ArrayBuffer chunks; one directory per engine                                                                                                             | Host-managed storage only; WasmFS's OPFS backend; ZenFS; IDBFS                    |
 | D14 | Wire format          | IBus Engine D-Bus methods and signals, GVariant-encoded                                                                                                                                                                                    | Custom CBOR mapping                                                               |
 | D15 | Output transport     | One sequenced, variable-length, back-pressured output ring per Worker                                                                                                                                                                      | Fixed-size ring with eviction; ring of descriptors into a shared heap             |
 | D16 | TypeScript stack     | Effect 4 throughout, including the Worker host; the keystroke path and the Worker request loop are synchronous sections                                                                                                                    | Plain TypeScript; Effect 3                                                        |
@@ -107,7 +107,7 @@ of in engine code, fix it there.
 ```
  Page (MIT OR Apache-2.0)                     Worker, one per engine module (engine's GPL)
 ┌─────────────────────────────────────┐      ┌──────────────────────────────────────────┐
-│ Host app                            │      │ Worker host (Effect)                     │
+│ Host app                            │      │ Worker host (Effect), wake relay         │
 │   │                                 │      │   ▲ wait / dispatch / write ring         │
 │   ▼                                 │      │   │                                      │
 │ @ibus-web/core  (Effect)            │      │ ibus-runtime.wasm  (main module, LGPL)   │
@@ -121,7 +121,7 @@ of in engine code, fix it there.
 │ @ibus-web/protocol (Schema, codec)  │      │  ├─ engine glue (ibus-hangul, …)         │
 │ Surface adapters                    │      │  └─ engine libraries (libhangul, …)      │
 │ @ibus-web/panel (optional)          │      │                                          │
-└─────────────────────────────────────┘      │ OPFS: /engines/<name>/…                  │
+└─────────────────────────────────────┘      │ IndexedDB: /engines/<name>/…             │
                                              └──────────────────────────────────────────┘
 ```
 
@@ -231,9 +231,15 @@ the mismatch so the engine needs no patch.
 
 - Hooks for the pump (§5.2.4) and GSettings backend registration (§5.2.5).
   The pump hook includes the context wakeup: on WebAssembly,
-  `g_wakeup_signal` (reached through `g_main_context_wakeup`) also bumps
-  and notifies an atomic word the Worker host waits on, besides the
-  wakeup's own futex.
+  `g_wakeup_signal` (reached through `g_main_context_wakeup`) also calls a
+  hook, after waking the wakeup's own futex, from whichever thread
+  signals. `libibus-web` installs it with
+  `g_main_context_wasm_set_wake_hook()` on the default context; a context
+  takes one hook for its life, published with a compare-and-swap, so a
+  second call fails with a critical whatever `G_DISABLE_CHECKS` says. The
+  hook bumps and notifies the word in WASM memory the Worker host sleeps on
+  (§5.2.4). It also runs on the owning thread during its own iterations,
+  where it is harmless.
 - Blocking iteration (`g_main_context_iteration(ctx, TRUE)`,
   `g_main_loop_run`) sleeps. On WebAssembly a `GWakeup` is an atomic
   counter with futex wake and wait (`emscripten_futex_wake`/`_wait`), and a
@@ -307,8 +313,9 @@ each moves the GLib subtests it fixes from platform-difference skips into
   rather than failing) makes the fallback and stream converters exact.
 - **File monitoring.** A `GFileMonitor` backend that watches WasmFS itself,
   since every write to the Worker's files goes through it, for engines that
-  reload user dictionaries or configuration when they change. Changes made to
-  OPFS from another tab need `FileSystemObserver` or a message from that tab.
+  reload user dictionaries or configuration when they change. Changes
+  another tab makes to the same IndexedDB data (§5.6) need a message from
+  that tab.
 - **Network state.** `GNetworkMonitor` from `navigator.onLine` and its events.
 - **User and host.** `g_get_user_name()`, the home directory and the host name
   for a synthesized WebAssembly user rather than the `getpwuid_r` stub.
@@ -404,21 +411,54 @@ flushes the output buffer.
 #### 5.2.4 Pump
 
 No `GMainLoop` runs. The dispatcher calls `g_main_context_iteration(NULL,
-FALSE)` until nothing is pending, after every dispatch. Between requests, the
-Worker host waits on the request word with a timeout equal to the next source
-deadline from `g_main_context_query`, and pumps when the timeout expires. JS
-timers are never needed in the Worker, which matters because a Worker blocked
-in `Atomics.wait` never runs its event loop.
+FALSE)` until nothing is pending, after every dispatch (`ibusweb_pump()`,
+which returns the delay to the next source deadline from
+`g_main_context_query`). Between requests, the Worker host sleeps in the
+runtime: `ibusweb_wait(seen, timeout)` waits with `emscripten_futex_wait` on
+the **wake word**, a word in WASM memory, while it holds `seen`, for at most
+that delay, and the host pumps when it returns. JS timers are never needed in
+the Worker, which matters because a Worker serving requests never runs its
+event loop.
 
-Sources can also become ready on other threads: a `GTask` finishing in the
-thread pool, or an engine library's own thread calling `g_idle_add`. GLib
-announces these by signalling the context's wakeup, which on WebAssembly also
-notifies the word the host waits on (§5.1.3), so the host wakes and pumps then
-rather than at the next request or deadline. GLib signals for a source attached
-from another thread only when the context has an owner, so the pump's thread
-acquires the default context once for the Worker's lifetime; acquiring is
-recursive, so its non-blocking iterations still work. A test attaches a source from another thread
-while the host waits and checks that it is dispatched promptly.
+The host sleeps inside the runtime, not in `Atomics.wait`, because Emscripten
+runs the calls other threads proxy to the runtime's own thread only from that
+thread's event loop or from inside its futex waits. Those calls include
+`pthread_create()` from any other thread (only the thread that instantiated
+the runtime holds the Worker pool), JavaScript library calls proxied
+synchronously and, with the toolchain's patch, the cleanup of threads that end
+unjoined (§10.3). A host asleep on any other word never runs them, so a thread
+that creates threads, or a `GTask` started from another thread, hangs. Each
+`emscripten_futex_wait` on the runtime's thread runs them, so they complete
+while the host sleeps, under Node and in Chromium and Firefox. `ibusweb_wait`
+always sleeps once, even when the word has already moved, so a host woken
+often doesn't starve them; any result but success or a timeout is a crash.
+
+Two things bump the wake word:
+
+- **GLib's wake hook** (§5.1.3), from any thread, when a source becomes ready
+  there: a `GTask` finishing in the thread pool, or an engine library's own
+  thread calling `g_idle_add`. The host wakes and pumps then rather than at
+  the next request or deadline. GLib signals for a source attached from
+  another thread only when the context has an owner, so
+  `ibusweb_runtime_init()` acquires the default context on the pump's thread
+  for the Worker's lifetime; acquiring is recursive, so its non-blocking
+  iterations still work. A test attaches a source from another thread while
+  the host waits and checks that it is dispatched promptly.
+- **The wake relay**, for the page, which never touches WASM memory (§9.2).
+  The page bumps the control SAB's `wake` word (§6.2.1). The relay, a small
+  Worker the host starts, sleeps in `Atomics.wait` on that word and, for each
+  change, bumps and notifies the wake word. It needs no event loop after
+  startup. It compares the word with the value it last forwarded, never with
+  a re-read, which would lose a wake that lands mid-forward. The relay and the
+  sleep inside the runtime together add about 3 µs under Node and 20 µs in
+  the browsers to a request that finds the host asleep, at most. One relay
+  per page could serve every engine, through a page-wide doorbell word and a
+  sequence word per engine; that isn't built.
+
+Having the hook notify the control SAB instead, with the host asleep on it,
+was rejected: getting the SAB into every pthread's JavaScript realm, including
+Workers created later, rests on Emscripten internals, and a host asleep
+outside the runtime fails as above whatever delivers the buffer.
 
 Output produced by a pump outside a request goes to the ring followed by a
 doorbell `postMessage` (§6.2.3).
@@ -441,15 +481,61 @@ doorbell `postMessage` (§6.2.3).
 
 - **Contents.** libc, libc++/libc++abi, `pkgsWasm.glib` (GLib, GObject, GModule,
   the GIO subset), libffi and `libibus-web`.
-- **Build.** `-sMAIN_MODULE=2` with an explicit, versioned export list.
-  Everything is compiled with `-fPIC`. Threads are enabled with a
-  pre-allocated pool (`-sPTHREAD_POOL_SIZE`), so creating a thread never has to
-  yield to the event loop (§13, R2). GRegex overflows Emscripten's 64 KiB
-  default stack, so the link sets `-sSTACK_SIZE` to at least 1 MiB, and
-  `-sDEFAULT_PTHREAD_STACK_SIZE` too if GLib runs on a pthread.
-- **ABI version.** The export list's version is the runtime ABI version. Every
-  engine manifest records the version it was built against, and a mismatch is
-  a load failure (§8).
+- **Build.** `-sMAIN_MODULE=2` with an explicit export list (below), linked
+  with `em++` from `runtime/ibus-runtime/`. Everything is compiled with
+  `-fPIC`. GRegex overflows Emscripten's 64 KiB default stack, on any thread,
+  so the link sets `-sSTACK_SIZE` and `-sDEFAULT_PTHREAD_STACK_SIZE` to
+  1 MiB. `libibus-web`'s public API is marked `IBUSWEB_API` (default
+  visibility) and the library is built with hidden visibility, so only that
+  API is exported from it.
+- **Thread pool.** A browser starts a Worker only once the thread that created
+  it is back in its event loop (Chromium), or only while the page's main
+  thread is free (Firefox), so a Worker host that never returns to its event
+  loop can't wait for a new one. Threads run on a pool of Workers made with
+  the runtime (`-sPTHREAD_POOL_SIZE`), sized for the threads expected alive
+  at once plus spares, and `-sPTHREAD_POOL_SIZE_STRICT=2` makes a thread
+  beyond the pool fail at once with `EAGAIN` instead of waiting for good.
+  `ibusWeb.runtime.threadPool` derives the size from shares, by what starts
+  the threads: GLib's 3 (what one `GTask` in flight keeps alive: the worker
+  context's thread and the thread-pool spawner, kept for good, and a `GTask`
+  worker, kept 15.5 s after its last task), the storage backend's 1 (§5.6),
+  and each engine's share from its manifest; plus `lowWater`, 3 spare
+  Workers, GLib's share. GLib handles a failed thread creation badly:
+  `g_thread_new()` aborts, so the first `GTask` aborts the runtime if no
+  Worker is idle, and a `GTask` whose worker can't start stays queued until
+  some other worker is free. The spares keep GLib's threads available when an
+  engine starts more threads than its share. Whenever no request is pending
+  and fewer than `lowWater` Workers are idle, which happens only past the
+  shares, the Worker host tops the pool back up (§5.5); Workers added stay.
+  Bursts within the pool start without an event-loop turn in both browsers;
+  a top-up of one Worker takes 47–48 ms there.
+- **Export list.** The runtime exports what side modules may import, a
+  manifest per library, each identified by its whole version:
+  `libibus-web` (by `IBUSWEB_RUNTIME_ABI`); GLib, GObject, GModule and GIO
+  (GLib's version); libffi (its version; the names its public headers
+  declare); libc (Emscripten's musl by Emscripten's version: the whole
+  archive, Emscripten's C internals included, plus the JavaScript-implemented
+  functions libc's headers declare); compiler-rt, libc++, libc++abi and
+  libunwind (the bundled LLVM's version); and Emscripten's own API, the
+  functions, C or JavaScript, declared by an allowlist of its core headers
+  (`emscripten.h`, `em_asm.h`, `em_js.h`, `console.h`, `threading.h`,
+  `proxying.h`, `eventloop.h`, `heap.h`, `atomic.h`, `stack.h`, `wasmfs.h`;
+  not `syscalls.h`), less those that work only with Asyncify, listed before
+  libc so it owns those names. `runtime/ibus-runtime/exports.nix` derives
+  every list from the build, never by hand, into `exports.txt`, grouped by
+  library under a header with its version and count, and `exports.json`.
+  Every side module's imports are checked against it at build time
+  (`ibusWeb.runtime.checkSideModuleImports`).
+- **ABI.** The runtime's ABI identity is that set of library versions plus
+  `IBUSWEB_RUNTIME_ABI`. Every engine manifest records the identity it was
+  built against, and a mismatch is a load failure (§8).
+- **JavaScript surface.** The Worker host also uses parts of Emscripten's
+  JavaScript, `HEAPU8` and the pthread pool's `PThread`
+  (`-sEXPORTED_RUNTIME_METHODS`), which the export list, holding only WASM
+  symbols, doesn't cover, so neither does the ABI identity. The host refuses
+  to start if they are missing. `PThread` is Emscripten's internal pool; a
+  public Emscripten call to grow the pool and settle once its Workers can run
+  threads would replace it.
 - **Memory.** Fixed per Worker, made by the host. Growth with pthreads
   traps in V8: an atomic access that Liftoff compiled is bounds-checked
   against the memory size its thread last saw, which another thread's
@@ -482,11 +568,14 @@ doorbell `postMessage` (§6.2.3).
   engine so that one runtime binary serves every engine and the page
   compiles it once (Sharing, below). An engine's build sets `memory` to the
   runtime's minimum, plus the side module's own memory (its `dylink.0`
-  memory size), plus the data files it installs into WasmFS's memory
-  backend, plus 1 MiB per thread of its pool share, plus the heap its checks
-  measure at their peak, with a quarter more for margin, rounded up to whole
-  MiB. The page's budget is that memory, touched or not, plus each pool
-  Worker's own cost (the spike measures it per browser). GLib's tests and
+  memory size), plus any files it keeps in WasmFS's memory backend (engine
+  data in IndexedDB, §5.6, is read lazily and doesn't count), plus 1 MiB per
+  thread of its pool share, plus the heap its checks measure at their peak,
+  with a quarter more for margin, rounded up to whole MiB. The page's budget
+  is that memory, touched or not, plus each pool Worker's own cost, since
+  each holds an instance of the runtime: about 18 MiB in Chromium and
+  12–16 MiB in Firefox, and 3–5 MiB more once it has run a thread (about
+  42 MiB and 10 MiB under Node). GLib's tests and
   the checks that link with `ibusWeb.toolchain.testMainFlags` (the GLib
   smoke check, libhangul, the dynamic-linking spike, the toolchain and
   Emscripten-fix checks) use a fixed 512 MiB
@@ -536,10 +625,17 @@ Generated at build time, partly from the engine's component XML. Example
   "name": "hangul",
   "version": "1.5.4+ibusweb.1",
   "license": "GPL-2.0-or-later",
-  "runtimeAbi": 1,
+  // the runtime ABI identity: IBUSWEB_RUNTIME_ABI and every library's version (§5.3)
+  "runtimeAbi": {
+    "libibus-web": 1,
+    "glib-2.0": "2.88.3",
+    "libc": "1.2.6+emscripten.6.0.9",
+    // …
+  },
   "protocol": 1,
   "module": "hangul.wasm",
   "memory": 67108864, // bytes, whole 64 KiB pages, fixed for the runtime's life (§5.3)
+  "threads": 1, // the engine's share of the thread pool (§5.3)
   "data": [{ "path": "/usr/share/libhangul", "url": "hangul-data.tar" }],
   "engines": [
     {
@@ -565,39 +661,71 @@ page bundle (§9.2).
    `postMessage`.
 2. Builds the Worker's resources in nested scopes (below): makes the
    runtime's memory at the manifest's size (§5.3) and instantiates the
-   runtime with it, mounts storage (§5.6), fetches and installs data files, loads the
-   side module and calls `ibusweb_module_init`.
-3. Enters the request loop: `Atomics.wait` on the request word with the pump
+   runtime with it, starts the wake relay (§5.2.4), adds the engine's share
+   to the thread pool (§5.3), mounts storage (§5.6), fetches and installs
+   data files, loads the side module and calls `ibusweb_module_init`.
+3. Enters the request loop: `ibusweb_wait` on the wake word with the pump
    deadline as timeout, dispatch or pump, write the reply, repeat.
 4. Wraps every dispatch and pump in a handler for WASM traps (§8).
 
+The host grows the thread pool, at startup and in the top-up (§5.3), through
+Emscripten's `PThread`: it creates each Worker, loads the runtime into it, and
+keeps it out of the pool's free list until it has loaded, since Emscripten
+hands out any free Worker, loaded or not, and a thread on one that hasn't
+loaded would wait for the host's event loop. A top-up that hasn't finished
+within 10 s is a host error.
+
+Failures the host must report, beyond traps in its own calls:
+
+- **A thread traps.** Emscripten marks the runtime crashed and wakes the host,
+  whose call into the runtime then throws `"unwind"`; the thread's own error
+  reaches the host only afterwards, through its event loop. The host writes
+  `CRASHED` at once, then waits briefly for the thread's error and reports it
+  (§8).
+- **The relay fails.** A host asleep in the runtime never hears the relay's
+  `error` event, so the relay catches its own failure, writes `CRASHED` and
+  bumps both wake words. A relay killed without running its own code is
+  silent to a sleeping host; the page's hang detection (§8) is the backstop.
+- **Startup fails.** A failed `WebAssembly.instantiate()` inside Emscripten's
+  `instantiateWasm` hook, which Emscripten never hears of, fails the host's
+  startup rather than leaving it waiting.
+
 #### 5.5.1 Resource scopes
 
-| Scope                                                              | Acquire                                 | Release on normal close            | Release after a trap            |
-| ------------------------------------------------------------------ | --------------------------------------- | ---------------------------------- | ------------------------------- |
-| Worker                                                             | SAB views, `Logger` layer               | final `Log` records flushed        | crash record written            |
-| Runtime                                                            | instantiate `ibus-runtime.wasm`         | none (freed with the Worker)       | none                            |
-| Storage                                                            | WasmFS mounts, data archives            | flush and unmount OPFS             | close OPFS handles from JS only |
-| Engine module                                                      | load side module, `ibusweb_module_init` | module shutdown call               | skipped                         |
-| Engine instance (one per input context, child of the module scope) | `CreateEngine`                          | `DestroyEngine` (`g_object_unref`) | skipped                         |
+| Scope                                                              | Acquire                                 | Release on normal close                 | Release after a trap                     |
+| ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------- | ---------------------------------------- |
+| Worker                                                             | SAB views, `Logger` layer, wake relay   | final `Log` records flushed             | crash record written                     |
+| Runtime                                                            | instantiate `ibus-runtime.wasm`         | none (freed with the Worker)            | none                                     |
+| Storage                                                            | WasmFS mounts, data archives            | flush and unmount the IndexedDB backend | close IndexedDB connections from JS only |
+| Engine module                                                      | load side module, `ibusweb_module_init` | module shutdown call                    | skipped                                  |
+| Engine instance (one per input context, child of the module scope) | `CreateEngine`                          | `DestroyEngine` (`g_object_unref`)      | skipped                                  |
 
 - **Finalizers inspect the `Exit`.** After a trap the WASM heap cannot be
   trusted, so finalizers that call into the runtime run only on a normal close;
   JS-side cleanup and crash reporting always run.
 - **Nothing depends on finalizers for correctness.** A hang ends in
-  `worker.terminate()`, which runs no finalizers; the browser releases OPFS
-  access handles when the Worker ends. Emscripten side modules are not
+  `worker.terminate()`, which runs no finalizers; the browser closes the
+  Worker's IndexedDB connections when it ends. Emscripten side modules are not
   actually unloaded, so the module scope is bookkeeping; the Worker is the
   unit that frees memory.
 
 #### 5.5.2 The request loop and the Effect runtime
 
 The request loop is a single synchronous section inside the scoped program. A
-thread blocked in `Atomics.wait` runs no other fibers, so nothing in the
+thread asleep in `ibusweb_wait` runs no other fibers, so nothing in the
 Worker may rely on concurrent fibers or Effect timers while the loop runs; GLib
 time is handled by the wait timeout (§5.2.4). Engine-instance scopes are opened
 and closed synchronously from the loop as `CreateEngine` and `DestroyEngine`
 arrive.
+
+The loop leaves its synchronous section for one thing: a pool top-up (§5.3),
+which runs only while no request is pending. The host creates the missing
+Workers and sleeps with `Atomics.waitAsync` on the wake word, its event loop
+running, until they have loaded, serving requests and pumping meanwhile, then
+returns to `ibusweb_wait`. Threads that end unjoined don't need the event
+loop: the toolchain's Emscripten patch reclaims them inside `ibusweb_wait`
+(§10.3). Should that patch be dropped, the fallback is a brief, periodic
+return to the event loop while idle.
 
 #### 5.5.3 Logging
 
@@ -607,15 +735,47 @@ its own loggers with engine and domain annotations (§7.4).
 
 ### 5.6 Storage
 
-- **Filesystem.** WasmFS with the OPFS backend, mounted at `/engines/<name>/`,
-  for user dictionaries (libpinyin, Rime), Rime's deployed data and user YAML.
-  GSettings values are not stored here; the settings bridge hands them to the
-  host (§5.2.5).
+- **Filesystem.** WasmFS with our own IndexedDB backend, mounted at
+  `/engines/<name>/`, for engine data and for user dictionaries (libpinyin,
+  Rime), Rime's deployed data and user YAML. GSettings values are not stored
+  here; the settings bridge hands them to the host (§5.2.5).
+- **The backend.** Files are stored as chunks whose IndexedDB values are
+  `ArrayBuffer`s, never `Blob`s, and read and written lazily, a chunk at a
+  time. IndexedDB is asynchronous, so the backend serves calls on a thread of
+  its own, to which WasmFS proxies them and which takes the storage share of
+  the thread pool (§5.3), as WasmFS's OPFS backend does. Emscripten's WasmFS
+  has no IndexedDB backend; ours is written in C++ after the OPFS backend's
+  shape and is a candidate for upstream as `wasmfs_create_idb_backend`.
+  Milestone M0.5 builds it.
+- **Why IndexedDB.** In Firefox a Worker reads a `Blob`'s bytes (an OPFS
+  `File`, a `Blob` value in IndexedDB, a cached `Response`) only while the
+  page's main thread is free, so under the keystroke spin (§6.2.6) every such
+  read waits out the budget and replays; `ArrayBuffer` values come back with
+  the `get()` itself and never wait, nor do opening a database, writes and
+  their commits. Nothing in IndexedDB takes an exclusive lock: read-only
+  transactions run side by side across Workers and tabs, and one over a
+  store a read-write transaction holds waits for its commit rather than
+  failing. A random 4 KiB read costs 20–60 µs, a 64 KiB one 150–300 µs, in
+  the Worker itself, before the proxying round trip.
+- **Not OPFS.** Its synchronous access handles, the one OPFS read path that
+  doesn't wait for the page in Firefox, take an exclusive lock on the file
+  across the origin in Firefox (and, by the standard, Safari; only Chromium
+  has shared read-only handles), so a second tab or engine instance couldn't
+  open the same data; WasmFS's OPFS backend reads files opened read-only
+  through `Blob`s. **Not ZenFS**: its IndexedDB support plugs into
+  Emscripten's legacy JavaScript file system rather than WasmFS, its
+  synchronous path loads everything up front, and it is LGPL-3.0. **Not
+  IDBFS**: it belongs to the legacy file system too, and syncs whole trees
+  between memory and IndexedDB.
+- **Upgrades.** Adding or removing object stores needs a version change,
+  which waits until every other connection closes, so every connection
+  closes on `versionchange`. Replacing data within a version needs none.
 - **Data files.** Read-only engine data (m17n-db, Hangul Hanja tables, Rime's
-  prebuilt schemas) is fetched as archives listed in the manifest and
-  unpacked into an in-memory directory, cached by the browser's HTTP cache.
-- **Fallback.** Where OPFS is unavailable, the mount is in-memory and the host
-  receives a `storage: ephemeral` event (§8).
+  prebuilt schemas) is fetched as archives listed in the manifest, through
+  the browser's HTTP cache, and installed into the engine's IndexedDB data
+  once per version, then read lazily like any other file.
+- **Fallback.** Where IndexedDB is unavailable, the mount is in-memory and the
+  host receives a `storage: ephemeral` event (§8).
 - **Host API.** Usage report, export (a tar of the engine directory) and reset.
 
 ## 6. The Worker-boundary protocol
@@ -668,13 +828,15 @@ Each Worker has one **dedicated** `SharedArrayBuffer`, separate from its
 
 #### 6.2.1 Layout
 
-| Region         | Size (default) | Contents                                                                                                                                   |
-| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `doorbell` |
-| Request slot   | 64 KB          | one encoded request                                                                                                                        |
-| Output ring    | 256 KB         | framed records                                                                                                                             |
+| Region         | Size (default) | Contents                                                                                                                                           |
+| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `doorbell`, `wake` |
+| Request slot   | 64 KB          | one encoded request                                                                                                                                |
+| Output ring    | 256 KB         | framed records                                                                                                                                     |
 
-Sizes are configurable per Worker.
+Sizes are configurable per Worker. The page bumps and notifies `wake` after
+each request; the wake relay forwards it into WASM memory, where the host
+sleeps (§5.2.4).
 
 #### 6.2.2 Records and back-pressure
 
@@ -706,7 +868,8 @@ Sizes are configurable per Worker.
 
 Page:
 
-1. Write the request, store `reqLen`, set `state = REQUEST`, notify.
+1. Write the request, store `reqLen`, set `state = REQUEST`, then bump and
+   notify `wake`.
 2. Loop: drain available ring records into a pending batch. Stop when
    `state == REPLY` and every record up to `replyOutSeq` is drained; or when
    `state == CRASHED`; or when the time budget runs out.
@@ -714,7 +877,8 @@ Page:
 
 Worker:
 
-1. Wake on `state == REQUEST`; dispatch; pump; flush output to the ring
+1. Wake (through the relay) and find `state == REQUEST`; dispatch; pump;
+   flush output to the ring
    (waiting on back-pressure as needed).
 2. Write `replyRet` and `replyOutSeq`, set `state = REPLY`, notify.
 
@@ -735,6 +899,15 @@ ordered with keys.
   order, asynchronously. Keys the engine declines are applied by the adapter's
   `replayKey` (§7.2.1).
 - **Overflow or hang.** See §8.
+- **Nothing the Worker does for a request waits for the page.** The page's
+  main thread is busy spinning, and in Firefox some Worker operations wait
+  for it: `new Worker()` called from a Worker returns, and a Worker reads a
+  `Blob`'s bytes, only while the page's main thread is free. The design keeps
+  both off the request path: threads run on a pool made in advance (§5.3)
+  and storage reads `ArrayBuffer` values (§5.6). The pool's top-up creates
+  Workers only while no request is pending; a request that lands during
+  those calls (about 1 ms) costs at most a replay. Chromium depends on the
+  page for neither.
 
 ### 6.3 `@ibus-web/protocol`
 
@@ -969,18 +1142,20 @@ exposes them through subpath exports:
 A WASM trap leaves a Worker's state untrustworthy; a crashed Worker is always
 discarded, never repaired.
 
-| Failure                                                      | Detection                                    | Handling                                                                                                                                                                                                                                                              | Host sees                                                         |
-| ------------------------------------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`           | Writes `CRASHED` and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                    | `EngineCrashed` with message and symbolized stack in debug builds |
-| Hang                                                         | no progress for 2 s, or replay queue over 64 | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                         | `EngineHung`                                                      |
-| Restart                                                      | policy `Schedule`                            | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and OPFS data are not. | engine state `failed` after the limit                             |
-| Load failure                                                 | fetch, compile, manifest `memory` check, instantiate, data install | Engine never enabled; router stays in direct input                                                                                                                                                                                                                    | `EngineLoadFailed`                                                |
-| ABI or protocol mismatch                                     | manifest check; `Init` version check         | as load failure                                                                                                                                                                                                                                                       | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
-| No OPFS                                                      | mount fails                                  | in-memory mount                                                                                                                                                                                                                                                       | `storage: ephemeral`                                              |
-| Quota                                                        | write errors surface in the engine           | engine-specific                                                                                                                                                                                                                                                       | `storage` usage events, logs                                      |
-| Undecodable record                                           | protocol decode                              | dev builds throw; production drops and logs                                                                                                                                                                                                                           | `ProtocolError` log                                               |
-| GLib warnings and criticals                                  | GLib log handler                             | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                 | log entries                                                       |
-| Detached surface                                             | adapter detach                               | `DestroyEngine`; later output for the context dropped                                                                                                                                                                                                                 | nothing                                                           |
+| Failure                                                      | Detection                                                                        | Handling                                                                                                                                                                                                                                                                | Host sees                                                         |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`, or a thread's error after `"unwind"` (§5.5)  | Writes `CRASHED` and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                      | `EngineCrashed` with message and symbolized stack in debug builds |
+| Hang                                                         | no progress for 2 s, or replay queue over 64                                     | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                           | `EngineHung`                                                      |
+| Restart                                                      | policy `Schedule`                                                                | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and stored data are not. | engine state `failed` after the limit                             |
+| Load failure                                                 | fetch, compile, manifest `memory` check, instantiate, data install               | Engine never enabled; router stays in direct input                                                                                                                                                                                                                      | `EngineLoadFailed`                                                |
+| Relay failure                                                | the relay writes `CRASHED` and wakes the host; a relay killed outright is a hang | as trap                                                                                                                                                                                                                                                                 | `EngineCrashed`                                                   |
+| Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                             | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap                                                                                                                                                                                                 | engine-specific, or as trap                                       |
+| ABI or protocol mismatch                                     | manifest check; `Init` version check                                             | as load failure                                                                                                                                                                                                                                                         | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
+| No IndexedDB                                                 | mount fails                                                                      | in-memory mount                                                                                                                                                                                                                                                         | `storage: ephemeral`                                              |
+| Quota                                                        | write errors surface in the engine                                               | engine-specific                                                                                                                                                                                                                                                         | `storage` usage events, logs                                      |
+| Undecodable record                                           | protocol decode                                                                  | dev builds throw; production drops and logs                                                                                                                                                                                                                             | `ProtocolError` log                                               |
+| GLib warnings and criticals                                  | GLib log handler                                                                 | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                   | log entries                                                       |
+| Detached surface                                             | adapter detach                                                                   | `DestroyEngine`; later output for the context dropped                                                                                                                                                                                                                   | nothing                                                           |
 
 ## 9. Licensing
 
@@ -1014,7 +1189,9 @@ release.
    page-side bundle. Workers load by URL; bundler inlining is forbidden.
 2. The page communicates only through the dedicated SAB and `postMessage`,
    using the published protocol. It never touches WASM memory, and the
-   protocol never carries pointers into it.
+   protocol never carries pointers into it. The wake relay (§5.2.4) is
+   host-side: it holds the runtime's memory, to bump the wake word there, and
+   is started by the Worker host, not the page.
 3. The protocol describes IBus behavior. The router never special-cases a GPL
    engine's internals.
 4. At least one non-GPL engine ships: the custom table engine (MIT), second
@@ -1065,23 +1242,29 @@ runtime has one directory, `runtime/<part>/`, holding its sources, its
 modules (`package.nix`, `checks.nix`) and its tests, with runtime-wide
 options in `runtime/options.nix`; `engines/<name>/` has the same shape as
 `modules/<component>/` plus its manifest template and data. `flake.nix`
-passes `./modules`, `./runtime` and `./engines` to import-tree.
+passes `./modules`, `./runtime` and, once it exists, `./engines` to
+import-tree. Spikes' modules live in `modules/spikes/` until the code they
+test replaces them.
 
 ```
 ibus-web/
 ├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, treefmt-nix, devshell, flake-root, systems
+├─ package.json, pnpm-*.yaml       the pnpm workspace and its lockfile
 ├─ modules/
 │  ├─ flake/                       systems, formatting (treefmt-nix), dev shell, CI outputs
 │  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
 │  │  └─ checks/                   checks of the toolchain itself
 │  ├─ <component>/                 overlay.nix, patches/, checks/ for one component (glib, libhangul, …)
 │  ├─ engines/                     side-module packaging, data, source bundles
+│  ├─ baseline-browser-mapping/    the package Emscripten's minimum versions come from
 │  ├─ typescript/                  pnpm workspace builds, npm tarballs, protocol spec
+│  ├─ playwright/                  nixpkgs' browsers and the environment the harnesses launch them in
+│  ├─ spikes/                      spikes' checks and runners
 │  └─ release.nix                  the release set
 ├─ docs/                           specs, plans, spike reports
 ├─ runtime/                        the runtime component; options.nix
 │  ├─ libibus-web/                 C sources, ibus.h-compatible headers, package.nix, checks.nix, tests/
-│  └─ ibus-runtime/                the main-module link: package.nix, exports.nix, checks.nix
+│  └─ ibus-runtime/                the main-module link: package.nix, exports.nix, checks.nix, tests/
 ├─ engines/<name>/                 one component per engine: overlay.nix, patches/{port,casts}, checks/, manifest template, data
 ├─ packages/                       protocol, core, ibus-web, panel, worker-host
 └─ tests/                          conformance harness, Playwright suites, benchmarks, spikes
@@ -1151,9 +1334,15 @@ artifacts; WASM builds of nixpkgs packages are reached through
   files and devices, directory search and create permission, `O_NOCTTY`,
   pipes as FIFOs, `futimens()`, a backend's error when creating a file),
   its Node backend (`fsync()`, renames, host errors from `open()` and
-  `close()`, `chmod()` and `utimensat()` reaching the host) and,
-  backported from 6.0.10, `-sNODERAWFS` `fstat()` on the standard
-  streams. nixpkgs installs the patched tree, so
+  `close()`, `chmod()` and `utimensat()` reaching the host), pthreads
+  (a thread that ends without a join on the main runtime thread is
+  reclaimed whenever that thread processes its queued calls, inside
+  `emscripten_futex_wait()` too, not only from its event loop, with
+  `dlopen()`'s sync holding those cleanups off while it walks its threads;
+  a joined thread's late "finished" message no longer marks a new thread
+  that reuses its `pthread_t`), an imported memory's maximum without growth
+  (§5.3) and, backported from 6.0.10, `-sNODERAWFS` `fstat()` on the
+  standard streams. nixpkgs installs the patched tree, so
   the cache and every link see them; `checks.emscripten-fixes` checks
   each one's behaviour.
 - **`emscriptenCache`.** nixpkgs precompiles system libraries only for non-PIC
@@ -1163,14 +1352,30 @@ artifacts; WASM builds of nixpkgs packages are reached through
   settings, at `-O0` and `-O2`, so Emscripten's own link step populates the
   cache with the variants those flags select, rather than running
   `embuilder`. All other builds use it as a frozen, read-only cache.
+- **Minimum versions.** Emscripten chooses WebAssembly and JavaScript
+  features from `-sMIN_{CHROME,FIREFOX,SAFARI,NODE}_VERSION`, which every
+  link gets from `ibusWeb.toolchain.minimumVersions`, never by hand. The
+  browsers' are Baseline Widely available, from baseline-browser-mapping's
+  CLI in a derivation (the package built from source in
+  `modules/baseline-browser-mapping/`), evaluated on the date its data was
+  last updated rather than the build machine's clock; Node's is the
+  workspace's Node. With baseline-browser-mapping 2.11.27 that is Chrome
+  123, Firefox 124, Safari 17.4 and Node 24.19. They turn on extended-const
+  and leave off growable shared buffers (`-sGROWABLE_ARRAYBUFFERS=2`) and
+  the standard (exnref) encoding of WebAssembly exceptions (R18).
+  `checks.toolchain-cache` compares the features they enable with
+  `modules/toolchain/expected-features.txt`, so a change to the data that
+  moves them is reviewed.
 - **`pkgsWasm`.** `import nixpkgs` with `crossSystem` set to nixpkgs'
   `wasm32-unknown-none` example plus `isStatic = true` and
   `useEmscripten = true`, and
   `config.replaceCrossStdenv` swapping the compiler:
   - `emcc` and `em++` are wrapped by nixpkgs' `cc-wrapper` as a clang
     (`stdenv.cc.isClang`), with its version taken from the clang Emscripten
-    is built against. The wrapper adds `-O2 -fPIC -pthread -fwasm-exceptions`
-    to every compile and link. `-O2` goes before the command's own arguments,
+    is built against. The wrapper adds
+    `-O2 -fPIC -pthread -fwasm-exceptions -mextended-const`
+    (`ibusWeb.toolchain.commonFlags`) to every compile and link, and
+    Emscripten's minimum versions (below) to every link. `-O2` goes before the command's own arguments,
     so a package's own `-O` wins. An `-O2` link turns Emscripten's runtime
     assertions off, so every check and test link adds `-sASSERTIONS=1` itself.
   - The Emscripten binutils (`emar`, `emranlib`, LLVM's `nm`, `strip` and
@@ -1227,7 +1432,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
   `pkgsWasm.glib` by `flake.overlays.glib`, after nixpkgs' own `glib`
   patches, which are all kept. The patches README lists each patch with its
   source and the reason for it.
-  - **Series.** 16 patches. Kleis Auke Wolthuizen's series from his
+  - **Series.** 17 patches. Kleis Auke Wolthuizen's series from his
     `wasm-vips-<version>` branches of GLib (the one wasm-vips uses), rebased
     from 2.88.1 onto 2.88.3, without its GRegex removal and with its tool
     removal cut down to girepository and the fuzzers. Fluendo's
@@ -1240,7 +1445,8 @@ artifacts; WASM builds of nixpkgs packages are reached through
     subprocess tests skipped and `g_file_query_exists` without the
     `faccessat` flags Emscripten doesn't support; a futex-backed `GWakeup`
     that blocking iteration sleeps on (§5.1.3); platform backends
-    (§5.1.4); characters `iconv()` replaces; and test-only fixes.
+    (§5.1.4); characters `iconv()` replaces; test-only fixes; and the wake
+    hook the Worker host's pump relies on (§5.1.3).
   - **Tools.** GLib's tools (`glib-compile-schemas`,
     `glib-compile-resources`, `gio`, `gobject-query`, …) are built for
     WebAssembly as `.js` programs and run under Node; features they reach
@@ -1286,11 +1492,20 @@ artifacts; WASM builds of nixpkgs packages are reached through
     `gettext` and `libiconv` from the inputs (Emscripten's musl provides
     iconv and gettext), disables NLS, sysprof, documentation, tests and
     xattr, and drops the `devdoc` output.
-- **TypeScript.** One pnpm workspace; dependencies are a fixed-output
-  derivation (`fetchPnpmDeps`, installed offline with `pnpmConfigHook`). The
-  Playwright npm version is pinned to match nixpkgs' `playwright-driver`
-  (1.61.1 at `8ce4ef6`), whose Chromium, Firefox and WebKit builds the tests
-  use.
+- **TypeScript.** One pnpm workspace at the repository root (`package.json`,
+  `pnpm-workspace.yaml` over `packages/*` and `tests/spikes/*`). Its
+  dependencies are a fixed-output derivation (`fetchPnpmDeps` with pnpm 11,
+  installed offline with `pnpmConfigHook`), and `ibusWeb.typescript.workspace`
+  builds every package's `dist/` with `tsc`, the JavaScript browsers load.
+  Each package has one `tsconfig.json` per environment directory over a
+  shared base (`strict`, `erasableSyntaxOnly`, so Node runs the sources
+  directly while iterating): `shared/` sees no environment's globals,
+  `worker/` the WebWorker library, `page/` the DOM and `node/` Node's types.
+  Versions pnpm can't know are asserted against what it resolved: the
+  `playwright` package equals nixpkgs' `playwright-driver` (1.61.1 at
+  `8ce4ef6`), and `packageManager` names nixpkgs' pnpm 11. The tests use
+  `playwright-driver.browsers`, never downloaded, through
+  `ibusWeb.testing.playwright` (§11).
 
 #### 10.3.1 Derivation graph
 
@@ -1313,8 +1528,18 @@ emscriptenCache ─ pkgsWasm
 
 `nix flake check` runs:
 
-- TypeScript unit and keystroke-path tests (Vitest)
-- `libibus-web` C tests and the GLib test subset, under Node
+- TypeScript unit and keystroke-path tests (Vitest), and a type check of every
+  package in each of its environments (`checks.typescript`)
+- `libibus-web` C tests (GTest, run by `meson test` under Node) and the GLib
+  test subset, under Node
+- the runtime's export manifest against its libraries (`ibus-runtime-exports`),
+  its memory contract (`ibus-runtime-load`: it refuses a missing or
+  out-of-bounds memory and never grows one), and every side module's imports
+  against the manifest
+- the toolchain's Emscripten fixes (`emscripten-fixes`), and the cache against
+  every flag combination the builds use, with the features the minimum
+  versions enable (`toolchain-cache`)
+- the Worker host's scenarios under Node and in Chromium and Firefox (§11)
 - C/TS protocol parity
 - engine conformance golden tests and callback-audit gates
 - the license-boundary scan (§9.4)
@@ -1386,6 +1611,24 @@ specification and `release.json`.
    a whole. Also C tests for `libibus-web` (lifecycle, emitters, pump,
    settings backend) and, if the lazy arity lookup is built (§5.1.2),
    tests for it.
+   **The Worker host** runs one set of scenarios under Node, with
+   `worker_threads` standing in for browser Workers, and through Playwright
+   in headless Chromium and Firefox, offline in the Nix sandbox, against a
+   Node server that sends COOP/COEP headers on every response: request
+   latency from cold and back to back, wakes from other threads, source
+   deadlines, thread creation from the host and from other threads while the
+   host sleeps, the pool's exhaustion and top-up, threads that end unjoined,
+   proxied calls, `fsync()` from a thread, exceptions across modules and
+   thread crashes. The page spins for replies as the keystroke path does,
+   and each scenario reports the calls that held it past D6's 40 ms budget.
+   Known failures are listed per browser with a matcher for their cause, so
+   a known failure that passes or fails another way fails the check.
+   `ibusWeb.testing.playwright` supplies nixpkgs' browsers and their
+   environment; Chromium keeps its own sandbox unless a builder that forbids
+   unprivileged user namespaces turns it off (`chromiumSandbox`), and
+   Firefox needs a writable `HOME`. M0.4's spike harness
+   (`checks.runtime-spike-node`, `-browser`, `-memory`) holds these until
+   M1's Worker host replaces it.
 3. **Engine conformance.** A headless harness in Node with `worker_threads`
    and SAB (Node allows `Atomics.wait` on the main thread). Each engine has
    golden key-sequence tests, for example Hangul 2-set `g k s` → preedit `ㅎ`,
@@ -1403,18 +1646,20 @@ specification and `release.json`.
 
 ## 12. Milestones
 
-|        | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Questions answered                                                                                                                                                                                                                                   |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0     | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying                                                                                                                                                                                         | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)?                                                                                                                                                     |
-| ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike                                                                                                                                                                                                                                    | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling                                                  |
-| ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored                                                                                                                                      | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version`                                                             |
-| ↳ M0.3 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 16-patch Emscripten series (Wolthuizen's, Fluendo's `glist` fix, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse` | GLib 2.88.3 builds for WASM with GRegex and its tools; 277 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2) |
-| M1     | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates                                                                                                                                                                                                                                                                                                                                      | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table                                                                                                      |
-| M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                            | Router generality; non-GPL engine                                                                                                                                                                                                                    |
-| M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Surrounding text; large data sets                                                                                                                                                                                                                    |
-| M4     | libpinyin: C++ side module against the runtime's libc++, database backend, OPFS user dictionaries                                                                                                                                                                                                                                                                                                                                                                                                                 | C++ across modules; persistence; large lookup tables                                                                                                                                                                                                 |
-| M5     | Rime: librime and dependencies, deployer thread, schemas deployed at build time, YAML through the storage API                                                                                                                                                                                                                                                                                                                                                                                                     | Threads in a real engine; data size                                                                                                                                                                                                                  |
-| M6     | 1.0: finished facade, docs, generated protocol spec, release pipeline with source bundles                                                                                                                                                                                                                                                                                                                                                                                                                         |                                                                                                                                                                                                                                                      |
+|        | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Questions answered                                                                                                                                                                                                                                                                                                                                                                       |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0     | Flake, `emscriptenCache`, `pkgsWasm` and a first `nix flake check`; GLib Emscripten patches rebased onto nixpkgs `glib`; `pkgsWasm.glib` as main module; GLib test subset in Node; minimal `libibus-web`; load a trivial side module and one that starts a pthread; Worker wait loop with Emscripten threads and proxying; WasmFS IndexedDB backend                                                                                                                                                                                                                                                                                                                                                            | Does dynamic linking work with threads? Can the Worker block while threads and WasmFS work (R2)? Where do engine data and user files live?                                                                                                                                                                                                                                               |
+| ↳ M0.1 | **Done, merged.** Plan `docs/plans/2026-09-26-m0-1-toolchain-and-dynlink.md`. Dendritic flake (flake-parts, import-tree, treefmt-nix, devshell, flake-root); prebuilt, frozen Emscripten library cache; `wasmStdenv` (replaced in M0.2); WASM libhangul; dynamic-linking spike                                                                                                                                                                                                                                                                                                                                                                                                                                 | R3 answered yes for `-sMAIN_MODULE=1`/`-sNODERAWFS=1` under Node (`docs/spikes/2026-09-26-dynlink.md`); main modules must link with `em++`; Emscripten 6 defaults to legacy WASM exception handling                                                                                                                                                                                      |
+| ↳ M0.2 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-2-emscripten-cross-set.md`. `pkgsWasm` cross package set replacing `wasmStdenv`; Emscripten-gated overlays; `legacyPackages` outputs; libhangul, zlib and libffi from unmodified recipes; Meson and cross `pkg-config` proven; WasmFS `-sMAIN_MODULE=2` link check; C, C++ and shell formatting; Darwin evaluation restored                                                                                                                                                                                                                                                                                                                                   | nixpkgs' cross-compilation machinery works with Emscripten as its compiler (R17 resolved); libffi's WASM backend works; the wrapper must drop `-static-libgcc` and `--undefined-version`                                                                                                                                                                                                 |
+| ↳ M0.3 | **Done, merged.** Plan `docs/plans/2026-09-29-m0-3-glib.md`. `pkgsWasm.glib` from nixpkgs' `glib` with a 16-patch Emscripten series (Wolthuizen's, Fluendo's `glist` fix, ours); GLib's tools as `.js` programs under Node; patched `gdbus-codegen` for consumers; GLib's own tests under Node with a gating baseline; Meson host system `emscripten`; `-O2` builds; prefixed binutils; WASM dev shell with clangd; REUSE licensing metadata (`LICENSES/`, SPDX headers, `REUSE.toml`) enforced by `checks.reuse`                                                                                                                                                                                              | GLib 2.88.3 builds for WASM with GRegex and its tools; 277 of 300 of GLib's own tests pass under Node and gate CI; class handlers work without the arity lookup; the remaining function-pointer gap is user callbacks with fewer parameters (§5.1.2)                                                                                                                                     |
+| ↳ M0.4 | **Done.** Plan `docs/plans/2026-10-01-m0-4-runtime-skeleton.md`, spike `docs/spikes/2026-10-01-runtime-worker.md`. The `runtime/` component; GLib's wake hook; `libibus-web` skeleton (pump, `ibusweb_wait`, side-module loader, spike dispatcher; GTest under `meson test`); `ibus-runtime.wasm` with `-sMAIN_MODULE=2`, WasmFS, a fixed imported memory and a strict thread pool, and a per-library export manifest; Emscripten patches for blocked main threads' thread cleanup, reused `pthread_t`s and an imported memory's maximum; pnpm workspace built offline in Nix; spike Worker host and wake relay under Node, Chromium and Firefox; Emscripten's minimum versions from Baseline Widely available | R2 settled: the host sleeps in the runtime, woken by GLib's hook and a host-side relay; threads come from a pool sized from shares plus spares, strict, topped up while idle. R3 settled for `-sMAIN_MODULE=2`/WasmFS in Node, Chromium and Firefox. Memory is fixed per Worker, since V8 traps atomics on grown shared memory. OPFS is out: engine and user data go to IndexedDB (M0.5) |
+| ↳ M0.5 | WasmFS IndexedDB backend (full lazy): files as `ArrayBuffer` chunks, read and written lazily on the backend's own thread (§5.6); engine data installed into it; upstream candidate `wasmfs_create_idb_backend`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The cost of a lazy read through the proxying round trip, under the page's spin, in both browsers; chunk size; data shared across tabs and engine instances                                                                                                                                                                                                                               |
+| M1     | Hangul end to end: libhangul and ibus-hangul side module, Worker host, SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table                                                                                                                                                                                                                                          |
+| M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                        |
+| M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                        |
+| M4     | libpinyin: C++ side module against the runtime's libc++, database backend, user dictionaries in IndexedDB                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | C++ across modules; persistence; large lookup tables                                                                                                                                                                                                                                                                                                                                     |
+| M5     | Rime: librime and dependencies, deployer thread, schemas deployed at build time, YAML through the storage API                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Threads in a real engine; data size                                                                                                                                                                                                                                                                                                                                                      |
+| M6     | 1.0: finished facade, docs, generated protocol spec, release pipeline with source bundles                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## 13. Risks and open questions
 
@@ -1422,39 +1667,51 @@ specification and `release.json`.
   the cost of a JS call per mismatched callback, and whether `.length` is
   reliable for every table entry Emscripten creates, are measured in M1. If
   the audit finds few mismatches, engine patches replace it.
-- **R2. Blocking the Worker.** The Worker host blocks in `Atomics.wait`
-  outside the Emscripten runtime. Thread creation and work that Emscripten
-  proxies back to the Worker's thread (some filesystem and OPFS operations)
-  may need that thread to yield or to process its proxy queue. Options, in
-  order: pre-allocated thread pool and a wait loop in C that processes the
-  queue; running each engine on a pthread with the Worker's own thread left
-  free. A wait loop in C only covers calls proxied synchronously: calls
-  Emscripten proxies as promises (`fsync()` on the JavaScript file systems)
-  need the thread back in its JS event loop, which the request loop never
-  returns to. The M0 test includes one such call from a pthread while the host
-  waits. Settled in M0.
-- **R3. Dynamic linking with pthreads.** Weakest area of Emscripten dynamic
-  linking. §5.3's thread pool is pre-allocated, so its workers exist before
-  `main` runs and side modules load after the pool already exists: the
-  harder case for dynamic linking with pthreads. The M0.1 spike tested that
-  case in the `-sMAIN_MODULE=1`/`-sNODERAWFS=1`/Node configuration, and all
-  five probes passed, including a side module running on a pool thread
-  created before its `dlopen` and a C++ exception thrown in a side module
-  caught in the main module. See `docs/spikes/2026-09-26-dynlink.md`.
-  The same spike also passes with WasmFS under Node. Settled for those
-  configurations; open for §5.3's `-sMAIN_MODULE=2`/WasmFS/browser
-  configuration, which the runtime plan must test.
+- **R2. Blocking the Worker. Settled.** The Worker host sleeps inside the
+  runtime, in `ibusweb_wait`, so calls other threads proxy to its thread,
+  `pthread_create()` among them, run while it sleeps; a host-side relay
+  forwards the page's wakes into WASM memory (§5.2.4). Threads come from a
+  pool sized for the planned peak plus spares, fail with `EAGAIN` beyond it
+  and are topped up while the host is idle (§5.3). Threads that end unjoined
+  are reclaimed inside the wait by a toolchain patch to Emscripten, and
+  `dlopen()` with live threads needs a second (§10.3); both are tracked by
+  drafts in `docs/upstream/`. Calls Emscripten proxies as promises complete
+  too: `fsync()` on WasmFS's memory and Node backends doesn't proxy at all,
+  and on its OPFS backend, which proxies to the backend's own thread, it
+  completes in both browsers while the host sleeps, because the backend's
+  thread is notified directly through `Atomics.waitAsync`. All of this was
+  measured under Node, Chromium 149 and Firefox 151 (spike
+  `docs/spikes/2026-10-01-runtime-worker.md`). Still open: GLib's share
+  covers one `GTask` in flight, and `GTask`s in flight at once can take
+  more workers, up to its pool of 10 and beyond, so engines that run them
+  concurrently need a rule; and the top-up rests on Emscripten's internal
+  `PThread` until Emscripten has a public call to grow the pool.
+- **R3. Dynamic linking with pthreads. Settled.** §5.3's thread pool is
+  pre-allocated, so its workers exist before `main` runs and side modules
+  load after the pool already exists: the harder case for dynamic linking
+  with pthreads. The M0.1 spike passed in the `-sMAIN_MODULE=1`/`-sNODERAWFS=1`/Node
+  configuration (`docs/spikes/2026-09-26-dynlink.md`), and M0.4's in the
+  runtime's own, `-sMAIN_MODULE=2` with WasmFS, under Node and in
+  Chromium 149 and Firefox 151: side modules loaded into a runtime whose
+  pool already runs, threads on pool Workers calling into them, a C++
+  exception thrown in a side module and caught in the runtime, and
+  `dlopen()` while other threads run, once Emscripten's race on reused
+  `pthread_t`s is patched (§10.3). WebKit isn't run (R13).
 - **R4. GLib patch rebases.** The series is rebased from Wolthuizen's
   per-release `wasm-vips-<version>` branches, so each nixpkgs GLib update
   means rebasing from the nearest one. `checks.glib-patches` fails first
   when a nixpkgs update breaks the series. `ibusWeb.toolchain.mesonCrossFlags`
   imports nixpkgs' `pkgs/build-support/lib/meson.nix`, so an update that
   moves that file fails evaluation.
-- **R5. OPFS in Workers across browsers.** Synchronous access handles need
-  checking on current WebKit. Fallback is in-memory with an event.
+- **R5. The IndexedDB backend.** WasmFS's IndexedDB backend is ours to write
+  and keep (§5.6) until upstream takes it, and M0.5 measures what it costs:
+  each lazy read pays IndexedDB plus the round trip to the backend's thread.
+  Its values must stay `ArrayBuffer`s, since a `Blob` brings back Firefox's
+  wait on the page. WebKit's IndexedDB in Workers is unchecked. Fallback is
+  in-memory with an event.
 - **R6. libpinyin databases in WASM.** nixpkgs builds libpinyin with Kyoto
   Cabinet and ibus-libpinyin with Berkeley DB 5.3 and SQLite. All three must
-  build and perform acceptably on WasmFS/OPFS. Checked in M4.
+  build and perform acceptably on WasmFS's IndexedDB backend. Checked in M4.
 - **R7. Rime data size.** Prebuilt schemas can be large; lazy download per
   schema may be needed. Decided in M5.
 - **R8. Engine patch acceptance.** Cast fixes are UB fixes that upstreams may
@@ -1489,6 +1746,14 @@ specification and `release.json`.
   dependencies are routed by cross splicing and recipes' platform checks see
   WASM. Evaluation succeeds on Darwin again; Darwin builds are not yet
   verified on a Darwin builder.
+- **R18. WebAssembly exception encoding.** `-fwasm-exceptions` emits the
+  legacy encoding, which Firefox warns is deprecated for every runtime
+  instance. Emscripten's `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one
+  (exnref, `try_table`), a compile and link setting that rebuilds every
+  object and the cache. Its support (Chrome 137, Firefox 131, Safari 18.4)
+  is Baseline newly available, widely available from about November 2027;
+  Node 24 validates it. The switch waits until the minimum versions (§10.3)
+  include it.
 
 ## 14. References
 

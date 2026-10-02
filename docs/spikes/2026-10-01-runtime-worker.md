@@ -716,6 +716,7 @@ for the user:** whether an engine may read its data from OPFS lazily during
 keystrokes. If it may, Firefox forces a choice between a replay on every
 such read and exclusive locks that keep a second tab or engine instance from
 opening the same data; either constrains the spec's engine-data loading.
+The question went to IndexedDB, below, and was decided there.
 
 ### IndexedDB and Cache Storage under the spin
 
@@ -814,7 +815,8 @@ Emscripten 6.0.9's WasmFS has no IndexedDB backend (its backends are memory,
 Node, OPFS, fetch, JS file and ignore-case), so it would be ours to write and
 keep.
 
-**Evidence for the decision** (the user's to make):
+**Evidence for the decision** (decided: the second, under "Conclusions for
+the design"):
 
 - *Load engine data into memory at engine start.* Works in both browsers from
   any store, the Blob paths included, since engine start isn't under the
@@ -1054,43 +1056,54 @@ Node too. Startup is unchanged within the runs' noise.
   to the mark of idle Workers, from its event loop; threads within the shares
   never start a top-up. Bursts within the pool start without an event-loop
   turn in both browsers; the pool runs out cleanly; a top-up of three Workers
-  takes 54–60 ms, of one 47–48 ms. **Spec follow-ups:** an engine's share
-  comes from its manifest (Task 8), and the pool of a host is the runtime's
-  shares plus its engines' plus the spares; the low-water mark must cover
-  GLib's share, since GLib aborts or leaves work queued when it can't get a
-  thread; GLib's share covers one GTask in flight, so a rule for engines that
-  run GTasks concurrently (each concurrent one can take another worker, up to
-  GTask's pool of 10 and beyond) is open; the top-up rests on Emscripten's
-  internal `PThread` until Emscripten offers a call to grow the pool
-  (upstream-trackable), and the runtime's JavaScript surface the host uses
-  (`HEAPU8`, `PThread`) belongs in the export manifest's ABI, which today
-  lists only WASM symbols.
+  takes 54–60 ms, of one 47–48 ms. The spec (§5.3) takes this: an engine's
+  share comes from its manifest, and the pool of a host is the runtime's
+  shares plus its engines' plus the spares; the low-water mark covers GLib's
+  share, since GLib aborts or leaves work queued when it can't get a thread.
+  With OPFS out of the design (below), the OPFS backend's share becomes the
+  IndexedDB backend's, which also runs on a thread of its own. Still open: a
+  rule for engines that run GTasks concurrently, since GLib's share covers
+  one GTask in flight and each concurrent one can take another worker, up
+  to GTask's pool of 10 and beyond; and a public Emscripten call to grow the
+  pool, on which the top-up could rest instead of the internal `PThread`
+  (upstream-trackable). The runtime's JavaScript surface the host uses
+  (`HEAPU8`, `PThread`) stays outside the export manifest, which lists only
+  WASM symbols; the spec notes it.
 - **The page's spin stays as D6 (≤ 40 ms, then consume and replay)**, and by
   design nothing the host does during a request waits for the page any more,
-  with two exceptions in Firefox: a Blob read on OPFS (next item), and a
-  request that lands during a top-up's `new Worker()` calls (about 1 ms, only
-  when no request was pending), each costing at most a replay. In the
+  with two exceptions in Firefox: a Blob read (next item), which the storage
+  design now avoids, and a request that lands during a top-up's
+  `new Worker()` calls (about 1 ms, only when no request was pending), which
+  costs at most a replay. The spec records the constraint with D6 (§6.2.6):
+  nothing the Worker does for a request may wait for the page's main thread. In the
   harness's model of D6, the only other calls over 40 ms are pumps that start
   threads on Workers that have never run one in Chromium (about 12 ms per
   first thread; `spawn(4)` 50 ms). Running a thread on each pool Worker at
   startup would move that cost out of keystrokes (not tried).
-- **R3/OPFS works in both browsers:** WasmFS's OPFS backend mounts, writes,
-  `fsync`s and reads back from the host's thread and from pthreads while the
-  host sleeps, and takes one pool Worker for good. Firefox reads a file opened
-  read-only (WasmFS's Blob path) only while the page's main thread is free; a
-  file opened for writing reads through a sync access handle and doesn't wait.
-  Sync access handles take an exclusive lock across the origin in Firefox
-  (and, by the standard, Safari); only Chromium shares read-only ones.
-  **Recommended:** engine data read through the Blob path when the engine
-  loads, off the keystroke path; sync access handles for files a runtime owns
-  and writes. **Open for the user:** whether engines may read OPFS data
-  lazily during keystrokes, which in Firefox means replays or exclusive locks
-  that stop a second tab from opening the same data.
+- **R3 is settled for the runtime's configuration** (`-sMAIN_MODULE=2`,
+  WasmFS) under Node, Chromium 149 and Firefox 151: side modules load into a
+  runtime whose pool already runs, threads call into them, exceptions cross
+  modules, and `dlopen()` with live threads works once 0015 is applied.
+- **OPFS works, but is out of the design.** WasmFS's OPFS backend mounts,
+  writes, `fsync`s and reads back from the host's thread and from pthreads
+  while the host sleeps, and takes one pool Worker for good. But Firefox
+  reads a file opened read-only (WasmFS's Blob path) only while the page's
+  main thread is free, and a sync access handle, which doesn't wait, takes
+  an exclusive lock across the origin in Firefox (and, by the standard,
+  Safari); only Chromium shares read-only ones. **Decided:** engine and user
+  data live in IndexedDB, as chunks whose values are ArrayBuffers, never
+  Blobs, behind a WasmFS IndexedDB backend of our own that reads and writes
+  them lazily on a thread of its own (milestone M0.5, before M1; an upstream
+  candidate, `wasmfs_create_idb_backend`). IndexedDB's ArrayBuffer reads
+  complete during the spin in both browsers and take no lock (above). ZenFS
+  isn't adopted (its IndexedDB support targets Emscripten's legacy file
+  system, its synchronous path preloads everything, and it is LGPL-3.0), and
+  IDBFS belongs to the legacy file system too.
 - **§6.2.1** gains a `wake` word: the page bumps it after posting a request,
   and the relay watches it. The host sleeps on a word in WASM memory, not on
-  the request word §5.2.4 names. Any relay must forward against the value it
+  the request word §5.2.4 named. Any relay must forward against the value it
   last forwarded, never a re-read.
-- **§9.2 and §5.5 should name the relay as host-side.** It holds the runtime's
+- **The relay is host-side** (spec §5.2.4, §9.2). It holds the runtime's
   memory (it writes the wake word there), so it belongs with the host, not the
   page; the page still touches only the control buffer.
 - **Each engine Worker costs one more, small Worker,** the relay, which holds
@@ -1098,8 +1111,7 @@ Node too. Startup is unchanged within the runs' noise.
   and Firefox 151; WebKit wasn't run. In the browsers the relay and the
   in-runtime sleep add about 20 µs to a request that finds the host asleep
   (cold-wake means, one run), against 1–3 µs under Node.
-- **One relay per page could serve every engine** (an option for Task 7's
-  budget, not built): a page-wide doorbell word that the page bumps after
+- **One relay per page could serve every engine** (an option, not adopted): a page-wide doorbell word that the page bumps after
   posting to any engine, per-engine sequence words in each control buffer,
   and one relay that, on each ring, scans the engines' sequence words and
   bumps the WASM wake word of each engine whose sequence moved. It would need
@@ -1115,8 +1127,9 @@ Node too. Startup is unchanged within the runs' noise.
   every side module.
 - **Exceptions:** `-fwasm-exceptions` emits the legacy encoding, which Firefox
   warns is deprecated. `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one,
-  Baseline 2025 (newly available) and supported by Node v24.20; whether and
-  when to switch is a spec follow-up.
+  Baseline 2025 (newly available) and supported by Node v24.20, but outside
+  the project's minimum versions; the switch is a follow-up (spec R18).
 - `fsync()` on WasmFS's memory and Node backends doesn't proxy at all, so
   Node can't exhibit R2's promise-proxied case. On OPFS it does, and it
-  completes in both browsers.
+  completes in both browsers while the host sleeps; the IndexedDB backend,
+  proxied the same way, is M0.5's to check.
