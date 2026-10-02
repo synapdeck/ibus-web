@@ -344,31 +344,18 @@ static void check_heard(int found, const char *text) {
 /* A database that can't be opened, at a version newer than the backend's or
  * where IndexedDB refuses, gives no backend, its thread is gone, and the
  * host hears why. */
+static int threads_before_failures;
+
 static void closed_heard(int found) {
   check_heard(found, CLOSED_LOG);
-  int threads = running_threads();
+  threads_before_failures = running_threads();
   CHECK(wasmfs_create_idb_backend(DATABASE, 0) == NULL);
-  CHECK(running_threads() == threads);
+  CHECK(running_threads() == threads_before_failures);
   CHECK(wasmfs_create_idb_backend(DATABASE, WASMFS_IDB_READ_ONLY) == NULL);
-  CHECK(running_threads() == threads);
+  CHECK(running_threads() == threads_before_failures);
   fail_open();
   CHECK(wasmfs_create_idb_backend(REFUSED_DATABASE, 0) == NULL);
-  CHECK(running_threads() == threads);
-  /* The pool has one thread to spare, which a thread left running would
-   * have taken. It is taken before the event loop runs: WasmFS leaves an
-   * ended backend thread's heartbeat timer in the Worker that ran it, and
-   * the timer fails an assertion if it fires while that Worker runs no
-   * thread. */
-  if (test_failures)
-    finish_test("errors");
-  backend_t fresh = wasmfs_create_idb_backend(DATABASE "-fresh", 0);
-  CHECK(fresh != NULL);
-  CHECK(running_threads() == threads + 1);
-  if (fresh) {
-    CHECK(wasmfs_create_directory("/fresh", 0777, fresh) == 0);
-    write_file("/fresh/file", 0644, "fresh");
-    check_contents("/fresh/file", "fresh");
-  }
+  CHECK(running_threads() == threads_before_failures);
   await_line(NEWER_LOG, newer_heard);
 }
 
@@ -377,8 +364,20 @@ static void newer_heard(int found) {
   await_line(REFUSED_LOG, refused_heard);
 }
 
+/* The pool has one thread to spare, which a thread left running would have
+ * taken. */
 static void refused_heard(int found) {
   check_heard(found, REFUSED_LOG);
+  if (test_failures)
+    finish_test("errors");
+  backend_t fresh = wasmfs_create_idb_backend(DATABASE "-fresh", 0);
+  CHECK(fresh != NULL);
+  CHECK(running_threads() == threads_before_failures + 1);
+  if (fresh) {
+    CHECK(wasmfs_create_directory("/fresh", 0777, fresh) == 0);
+    write_file("/fresh/file", 0644, "fresh");
+    check_contents("/fresh/file", "fresh");
+  }
   free(data);
   finish_test("errors");
 }
