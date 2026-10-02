@@ -11,12 +11,18 @@
 #define BLOCK 512
 
 /* The ustar header's fields: offset and length. */
-#define NAME 0, 100
+#define NAME_OFFSET 0
+#define NAME NAME_OFFSET, 100
 #define MODE 100, 8
 #define SIZE 124, 12
-#define CHKSUM 148, 8
+#define CHKSUM_OFFSET 148
+#define CHKSUM_LEN 8
+#define CHKSUM CHKSUM_OFFSET, CHKSUM_LEN
 #define TYPEFLAG 156
-#define PREFIX 345, 155
+#define MAGIC 257, 6
+#define VERSION 263, 2
+#define PREFIX_OFFSET 345
+#define PREFIX PREFIX_OFFSET, 155
 
 typedef enum {
   /* Collecting the next header. */
@@ -84,12 +90,17 @@ static gboolean checksum_matches(const uint8_t *header) {
   uint64_t sum_unsigned = 0;
   int64_t sum_signed = 0;
   for (size_t i = 0; i < BLOCK; i++) {
-    gboolean in_field = i >= 148 && i < 148 + 8;
+    gboolean in_field = i >= CHKSUM_OFFSET && i < CHKSUM_OFFSET + CHKSUM_LEN;
     uint8_t byte = in_field ? ' ' : header[i];
     sum_unsigned += byte;
     sum_signed += (int8_t)byte;
   }
   return stored == sum_unsigned || (int64_t)stored == sum_signed;
+}
+
+static gboolean field_is(const uint8_t *header, size_t offset, size_t len,
+                         const char *value) {
+  return memcmp(header + offset, value, len) == 0;
 }
 
 static gboolean all_zero(const uint8_t *block) {
@@ -113,7 +124,7 @@ static GString *append_field(GString *out, const uint8_t *header, size_t offset,
  * result names the directory itself. */
 static char *relative_name(const uint8_t *header) {
   g_autoptr(GString) full = g_string_new(NULL);
-  if (header[345] != '\0') {
+  if (header[PREFIX_OFFSET] != '\0') {
     append_field(full, header, PREFIX);
     g_string_append_c(full, '/');
   }
@@ -150,13 +161,11 @@ static int ensure_dir(const char *path, mode_t mode) {
 /* Creates the parents of `rel` under the install's directory that are
  * missing, since an archive need not list them. */
 static int ensure_parents(IBusWebInstall *install, const char *rel) {
-  g_autofree char *path = g_build_filename(install->dir, rel, NULL);
-  size_t base = strlen(install->dir);
-  for (char *slash = strchr(path + base + 1, '/'); slash != NULL;
+  for (const char *slash = strchr(rel, '/'); slash != NULL;
        slash = strchr(slash + 1, '/')) {
-    *slash = '\0';
+    g_autofree char *parent = g_strndup(rel, (gsize)(slash - rel));
+    g_autofree char *path = g_build_filename(install->dir, parent, NULL);
     int ret = ensure_dir(path, 0755);
-    *slash = '/';
     if (ret != 0)
       return ret;
   }
@@ -185,8 +194,8 @@ static int take_header(IBusWebInstall *install) {
   if (install->zero_blocks > 0)
     return -EINVAL;
   /* POSIX's magic and version; GNU's older format has neither. */
-  if (memcmp(header + 257, "ustar", 6) != 0 ||
-      memcmp(header + 263, "00", 2) != 0 || !checksum_matches(header))
+  if (!field_is(header, MAGIC, "ustar") || !field_is(header, VERSION, "00") ||
+      !checksum_matches(header))
     return -EINVAL;
 
   uint64_t mode, size;
@@ -213,7 +222,13 @@ static int take_header(IBusWebInstall *install) {
     if (ret != 0)
       return ret;
     g_autofree char *path = g_build_filename(install->dir, rel, NULL);
-    return ensure_dir(path, (mode_t)mode | 0700);
+    mode |= 0700;
+    ret = ensure_dir(path, (mode_t)mode);
+    /* mkdir() applies the umask, and leaves a directory already there as it
+     * was. */
+    if (ret == 0 && chmod(path, (mode_t)mode) != 0)
+      ret = -errno;
+    return ret;
   }
 
   if (rel[0] == '\0')
@@ -226,6 +241,9 @@ static int take_header(IBusWebInstall *install) {
   if (fd < 0)
     return -errno;
   install->fd = fd;
+  /* open() applies the umask, and leaves a file already there its mode. */
+  if (fchmod(fd, (mode_t)mode) != 0)
+    return -errno;
   install->data_left = size;
   install->padding_left = (uint32_t)((BLOCK - size % BLOCK) % BLOCK);
   if (size > 0) {
@@ -256,8 +274,12 @@ int ibusweb_install_begin(const char *dir, IBusWebInstall **out) {
 
 int ibusweb_install_feed(IBusWebInstall *install, const uint8_t *data,
                          uint32_t len) {
-  if (install == NULL || (data == NULL && len > 0))
+  if (install == NULL)
     return -EINVAL;
+  if (install->state == STATE_FAILED)
+    return install->error;
+  if (data == NULL && len > 0)
+    return fail(install, -EINVAL);
   while (len > 0) {
     switch (install->state) {
     case STATE_FAILED:

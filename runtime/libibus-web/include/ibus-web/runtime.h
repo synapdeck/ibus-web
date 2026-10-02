@@ -161,11 +161,12 @@ IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request,
  * before its end-of-archive blocks. Files and directories take the
  * archive's permission bits, plus the owner's read and write (and search,
  * for a directory), so that an install can always redo what an earlier one
- * wrote; a file that exists already is truncated and
- * rewritten, a directory that exists already is kept, and missing parents
- * are created, so installing again over a tree an earlier install left
- * half-written completes it. Entries already written before a failure stay.
- * Each file is fsync()ed once written.
+ * wrote; a file that exists already is truncated and rewritten, a directory
+ * that exists already is kept, both take the archive's mode as new ones do,
+ * and missing parents are created, so installing again over a tree an
+ * earlier install left half-written completes it. Nothing the archive lacks
+ * is removed. Entries already written before a failure stay. Each file is
+ * fsync()ed once written.
  *
  * Call it on one thread at a time; the file system's own calls may block,
  * as the IndexedDB backend's do. */
@@ -177,8 +178,9 @@ typedef struct _IBusWebInstall IBusWebInstall;
 IBUSWEB_API int ibusweb_install_begin(const char *dir, IBusWebInstall **out);
 
 /* Feeds the next `len` bytes of the archive; returns 0 or a negative errno.
- * Once a feed has failed, every later one fails the same way. Bytes after
- * the end-of-archive blocks are ignored. */
+ * Once a feed has failed, every later one fails the same way; NULL data with
+ * a length fails it with -EINVAL. Bytes after the end-of-archive blocks are
+ * ignored. */
 IBUSWEB_API int ibusweb_install_feed(IBusWebInstall *install,
                                      const uint8_t *data, uint32_t len);
 
