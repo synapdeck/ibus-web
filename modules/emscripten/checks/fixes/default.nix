@@ -72,16 +72,13 @@
             em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} proxy-worker-exit.o -o proxy-worker-exit.js
             timeout 120 node proxy-worker-exit.js
 
-            # The memory's size comes from the command line, as its first
-            # argument in MiB.
-            echo 'if (!ENVIRONMENT_IS_PTHREAD) Module.INITIAL_MEMORY = Number(process.argv[2]) * 1024 * 1024;' > size.js
             # Fails to link where MAXIMUM_MEMORY is ignored without growth,
             # which emcc warns about.
             emcc ${toolchain.commonFlags} -O2 -c ${./imported-memory-maximum.c} -o imported-memory-maximum.o
             emcc ${toolchain.commonFlags} -O2 ${minimumFlags} -sASSERTIONS=1 -Werror=unused-command-line-argument \
               -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 -sIMPORTED_MEMORY=1 \
               -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=64MB -sPTHREAD_POOL_SIZE=1 -sEXIT_RUNTIME=1 \
-              --pre-js=size.js \
+              --pre-js=${./size-pre.js} \
               imported-memory-maximum.o -o imported-memory-maximum.js
             for mib in 16 48 64; do
               node imported-memory-maximum.js $mib

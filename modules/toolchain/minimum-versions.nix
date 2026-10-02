@@ -50,53 +50,9 @@
           }
           ''
             mkdir $out
-            node --input-type=module -e '
-              const { lastUpdated } = await import(process.argv[1]);
-              console.log(new Date(lastUpdated).toISOString().slice(0, 10));
-            ' "$timeline" > $out/date
-            # The CLI prints the array as Node inspects it, which is a
-            # JavaScript expression rather than JSON.
+            node ${./minimum-versions.ts} date "$timeline" > $out/date
             baseline-browser-mapping --suppress-warnings --widely-available-on-date "$(< $out/date)" |
-              node -e '
-                const { readFileSync, writeFileSync } = require("node:fs");
-                const vm = require("node:vm");
-                const found = vm.runInNewContext(`(''${readFileSync(0, "utf8")})`);
-                const encode = (version) => {
-                  const [major, minor = 0, patch = 0] = version.split(".").map(Number);
-                  if (![major, minor, patch].every(Number.isInteger)) {
-                    throw new Error(`unreadable version ''${version}`);
-                  }
-                  return major * 10000 + minor * 100 + patch;
-                };
-                const versionOf = (browser) => {
-                  const entries = found.filter((entry) => entry.browser === browser);
-                  if (entries.length !== 1) {
-                    throw new Error(`expected one ''${browser} version, found ''${entries.length}`);
-                  }
-                  return entries[0].version;
-                };
-                const baseline = {
-                  chrome: Number(versionOf("chrome")),
-                  firefox: Number(versionOf("firefox")),
-                  safari: encode(versionOf("safari")),
-                  node: Number(process.env.nodeMinimum),
-                };
-                const minimums = { ...baseline };
-                for (const [browser, floor] of Object.entries(JSON.parse(process.env.floors))) {
-                  if (!(browser in minimums)) throw new Error(`a floor for unknown ''${browser}`);
-                  minimums[browser] = Math.max(minimums[browser], floor);
-                }
-                for (const [browser, version] of Object.entries(minimums)) {
-                  if (!Number.isInteger(version)) throw new Error(`unreadable ''${browser} version`);
-                }
-                writeFileSync(process.argv[1], `''${JSON.stringify(minimums, null, 2)}\n`);
-                writeFileSync(
-                  process.argv[2],
-                  `''${Object.entries(minimums)
-                    .map(([browser, version]) => `-sMIN_''${browser.toUpperCase()}_VERSION=''${version}`)
-                    .join(" ")}\n`,
-                );
-              ' $out/versions.json $out/link-flags
+              node ${./minimum-versions.ts} versions $out/versions.json $out/link-flags
           '';
     in
     {

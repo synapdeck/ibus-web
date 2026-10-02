@@ -15,6 +15,9 @@
       inherit (config.ibusWeb.toolchain) pkgsWasm emscripten;
       inherit (runtime) wasmfsIdb;
 
+      # Run from the workspace, where its dependencies are installed.
+      libraryDeps = "${typescript.workspace}/runtime/wasmfs-idb/library-deps.ts";
+
       # Where the library's type check finds these types, beside its sources.
       typesDir = "emscripten-types";
 
@@ -33,7 +36,7 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
-          node ${./library-deps.mjs} emit ${wasmfsIdb.jsLibrary} ${emscripten}/share/emscripten $out
+          node ${libraryDeps} emit ${wasmfsIdb.jsLibrary} ${emscripten}/share/emscripten $out
           $CXX -sASSERTIONS=1 -sWASMFS=1 --no-entry \
             --js-library=${wasmfsIdb.jsLibrary} -lwasmfs-idb \
             -sEXPORTED_RUNTIME_METHODS=$(cat $out/exported-runtime-methods.txt) \
@@ -44,11 +47,15 @@
         dontInstall = true;
       };
 
+      # The sources at their places in the repository, so the configs'
+      # extends of its base config resolve.
+      root = ../..;
       sources = lib.fileset.toSource {
-        root = ./.;
+        inherit root;
         fileset = lib.fileset.unions (
           runtime.wasmfsIdbTestLibraries
           ++ [
+            ../../tsconfig.base.json
             ./src/tsconfig.json
             ./src/libwasmfs_idb.js
             ./src/emscripten-library.d.ts
@@ -60,6 +67,9 @@
           ]
         );
       };
+      # Where a source is in a copy of the sources.
+      sourcePath = path: lib.escapeShellArg (lib.path.removePrefix root path);
+      here = sourcePath ./.;
     in
     {
       checks.wasmfs-idb-types =
@@ -71,15 +81,13 @@
             ];
           }
           ''
-            node ${./library-deps.mjs} check ${sources}/src/libwasmfs_idb.js ${emscripten}/share/emscripten
-            for library in ${
-              lib.concatMapStringsSep " " (
-                library: "${sources}/tests/${baseNameOf library}"
-              ) runtime.wasmfsIdbTestLibraries
-            }; do
-              node ${./library-deps.mjs} check "$library" ${emscripten}/share/emscripten
+            cp -r --no-preserve=mode ${sources} source
+            cd source
+            node ${libraryDeps} check ${sourcePath ./src/libwasmfs_idb.js} ${emscripten}/share/emscripten
+            for library in ${lib.concatMapStringsSep " " sourcePath runtime.wasmfsIdbTestLibraries}; do
+              node ${libraryDeps} check "$library" ${emscripten}/share/emscripten
             done
-            cp -r --no-preserve=mode ${sources}/src ${sources}/tests .
+            cd ${here}
             ln -s ${types} src/${typesDir}
             tsc -p src
             tsc -p tests

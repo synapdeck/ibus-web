@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Scripts the Nix builds run with Node, which strips their types.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    // Explicit, because the default for the target includes DOM. TypeScript
+    // declares WebAssembly only in its web libraries; Node has the same API.
+    "lib": ["es2023", "webworker"],
+    "types": ["node"]
+  }
+}

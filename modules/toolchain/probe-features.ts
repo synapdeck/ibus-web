@@ -9,12 +9,16 @@
 import { readFileSync } from "node:fs";
 
 const [logPath, settingsPath] = process.argv.slice(2);
+if (logPath === undefined) {
+  console.error("usage: probe-features.ts <emcc log> [<settings.json>]");
+  process.exit(1);
+}
 const log = readFileSync(logPath, "utf8");
 
 // Settings whose value the minimum versions decide.
 const decided = ["GROWABLE_ARRAYBUFFERS", "MEMORY64", "WASM_BIGINT", "WASM_LEGACY_EXCEPTIONS"];
 
-const lines = new Set();
+const lines = new Set<string>();
 
 // Only clang's own -cc1 invocation lists the resolved target features.
 for (const command of log.matchAll(/^ +"?\/\S*\/(clang\S*|wasm-ld|wasm-opt)"? (.*)$/gm)) {
@@ -30,7 +34,7 @@ for (const command of log.matchAll(/^ +"?\/\S*\/(clang\S*|wasm-ld|wasm-opt)"? (.
 }
 
 if (settingsPath) {
-  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
   for (const name of decided) {
     lines.add(`setting ${name}=${name in settings ? settings[name] : "<default>"}`);
   }

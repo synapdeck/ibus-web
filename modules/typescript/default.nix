@@ -168,7 +168,7 @@
         };
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-+alkuvEjOzalto93eby9Y5r0F7bOSkl0KiP1pEg3iNU=";
+        hash = "sha256-4qVZ5EC/98wgbIKwA4qOX857dAmwzHpxGWFr2HIaXlQ=";
       };
 
       mkWorkspace =

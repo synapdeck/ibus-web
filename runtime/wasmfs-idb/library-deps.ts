@@ -27,37 +27,50 @@
 // an unknown name.
 
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import vm from "node:vm";
 
-const fail = (message) => {
+import * as acorn from "acorn";
+
+const fail = (message: string): never => {
   console.error(message);
   process.exit(1);
 };
 
 // Calls visit on every node of an acorn tree.
-const walk = (node, visit) => {
+const walk = (node: unknown, visit: (node: acorn.AnyNode) => void): void => {
   if (Array.isArray(node)) {
     for (const child of node) walk(child, visit);
     return;
   }
-  if (node === null || typeof node !== "object" || typeof node.type !== "string") return;
+  if (!isNode(node)) return;
   visit(node);
   for (const [key, child] of Object.entries(node)) {
     if (key !== "type") walk(child, visit);
   }
 };
 
+const isNode = (value: unknown): value is acorn.AnyNode =>
+  value !== null && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
+
+// A library: its entries by key, as addToLibrary was given them.
+type Library = Record<string, unknown>;
+
+interface Emscripten {
+  isDecorator: (key: string) => boolean;
+  isFunctionSource: (string: string) => boolean;
+  addImplicitDeps: (code: string, deps: string[]) => void;
+}
+
 // What Emscripten decides about a library's entries, taken from its sources:
 // which keys are decorators, which strings it treats as a function's source,
 // and the dependencies it adds for what a function's code mentions.
-const loadEmscripten = async (root) => {
+const loadEmscripten = async (root: string): Promise<Emscripten> => {
   const src = path.join(root, "src");
-  const require = createRequire(path.join(root, "package.json"));
-  const acorn = await import(pathToFileURL(require.resolve("acorn")).href);
-  const { decoratorSuffixes } = await import(pathToFileURL(path.join(src, "utility.mjs")).href);
+  const { decoratorSuffixes } = (await import(pathToFileURL(path.join(src, "utility.mjs")).href)) as {
+    decoratorSuffixes: string[];
+  };
 
   const jsifierFile = path.join(src, "jsifier.mjs");
   const jsifier = fs.readFileSync(jsifierFile, "utf8");
@@ -71,16 +84,20 @@ const loadEmscripten = async (root) => {
   // links set neither, so they get the defaults: WASM_BIGINT on, which only
   // -sWASM=0 turns off, and MEMORY64 off, for wasm32.
   const declaration = tree.body.find(
-    (node) => node.type === "FunctionDeclaration" && node.id.name === "addImplicitDeps",
+    (node): node is acorn.FunctionDeclaration =>
+      node.type === "FunctionDeclaration" && node.id.name === "addImplicitDeps",
   );
-  if (!declaration) fail(`${jsifierFile}: no addImplicitDeps`);
-  const settings = {};
+  if (!declaration) return fail(`${jsifierFile}: no addImplicitDeps`);
+  const settings: { WASM_BIGINT?: unknown; MEMORY64?: unknown } = {};
   vm.runInNewContext(fs.readFileSync(path.join(src, "settings.js"), "utf8"), settings);
-  const implicitDeps = vm.runInNewContext(`(${jsifier.slice(declaration.start, declaration.end)})`, {
-    WASM_BIGINT: settings.WASM_BIGINT,
-    MEMORY64: settings.MEMORY64,
-  });
-  const addImplicitDeps = (code, deps) => {
+  const implicitDeps: (code: string, deps: string[]) => void = vm.runInNewContext(
+    `(${jsifier.slice(declaration.start, declaration.end)})`,
+    {
+      WASM_BIGINT: settings.WASM_BIGINT,
+      MEMORY64: settings.MEMORY64,
+    },
+  );
+  const addImplicitDeps = (code: string, deps: string[]) => {
     try {
       implicitDeps(code, deps);
     } catch (e) {
@@ -90,19 +107,19 @@ const loadEmscripten = async (root) => {
 
   // The patterns in the test of the one branch that sets `isFunction` for a
   // string.
-  const patterns = [];
+  const patterns: RegExp[] = [];
   let branches = 0;
   walk(tree, (node) => {
     if (node.type !== "IfStatement" || node.consequent.type !== "BlockStatement") return;
     const setsIsFunction = node.consequent.body.some(
-      ({ type, expression }) =>
-        type === "ExpressionStatement" &&
-        expression.type === "AssignmentExpression" &&
-        expression.left.type === "Identifier" &&
-        expression.left.name === "isFunction",
+      (statement) =>
+        statement.type === "ExpressionStatement" &&
+        statement.expression.type === "AssignmentExpression" &&
+        statement.expression.left.type === "Identifier" &&
+        statement.expression.left.name === "isFunction",
     );
     if (!setsIsFunction) return;
-    const found = [];
+    const found: RegExp[] = [];
     walk(node.test, (literal) => {
       if (literal.type === "Literal" && literal.regex) {
         found.push(new RegExp(literal.regex.pattern, literal.regex.flags));
@@ -117,14 +134,13 @@ const loadEmscripten = async (root) => {
   }
 
   return {
-    acorn,
     isDecorator: (key) => decoratorSuffixes.some((s) => key.endsWith(s)),
     isFunctionSource: (string) => patterns.some((p) => p.test(string)),
     addImplicitDeps,
   };
 };
 
-const load = (file) => {
+const load = (file: string) => {
   const source = fs.readFileSync(file, "utf8");
   // Emscripten preprocesses a library before evaluating it, taking every
   // line that starts with # as a directive. This script and tsc read the
@@ -134,8 +150,12 @@ const load = (file) => {
   if (directive) {
     fail(`${file}: uses Emscripten's preprocessor: ${directive[0]}`);
   }
-  const library = {};
-  vm.runInNewContext(source, { addToLibrary: (entries) => Object.assign(library, entries) }, { filename: file });
+  const library: Library = {};
+  vm.runInNewContext(
+    source,
+    { addToLibrary: (entries: Library) => Object.assign(library, entries) },
+    { filename: file },
+  );
   return { source, library };
 };
 
@@ -143,13 +163,13 @@ const load = (file) => {
 // function, a class or a string Emscripten treats as a function's source,
 // those Emscripten infers from the code. A symbol's value is one of those
 // or a string holding one expression, the only kinds this script reads.
-const entries = (library, emscripten) =>
+const entries = (library: Library, emscripten: Emscripten) =>
   Object.keys(library)
     .filter((key) => !emscripten.isDecorator(key))
     .map((key) => {
       const value = library[key];
-      let code;
-      let isFunction;
+      let code: string;
+      let isFunction: boolean;
       if (typeof value === "function") {
         // Emscripten emits the value's code under the key's name, whatever
         // its own.
@@ -166,16 +186,16 @@ const entries = (library, emscripten) =>
         code = value.startsWith("=") ? value.slice(1) : value;
         isFunction = emscripten.isFunctionSource(value);
       } else {
-        fail(`${key}: unsupported library value of type ${typeof value}`);
+        return fail(`${key}: unsupported library value of type ${typeof value}`);
       }
 
-      let tree;
+      let tree: acorn.Expression;
       try {
-        tree = emscripten.acorn.parseExpressionAt(code, 0, {
+        tree = acorn.parseExpressionAt(code, 0, {
           ecmaVersion: "latest",
         });
       } catch (e) {
-        fail(`${key}: can't parse its code: ${e.message}`);
+        return fail(`${key}: can't parse its code: ${(e as Error).message}`);
       }
       if (code.slice(tree.end).trim() !== "") {
         fail(`${key}: its code is more than one expression`);
@@ -184,15 +204,17 @@ const entries = (library, emscripten) =>
         fail(`${key}: a string naming a symbol is an alias, which isn't supported`);
       }
 
-      const declared = (library[`${key}__deps`] ?? []).filter((dep) => typeof dep === "string");
+      const declared = ((library[`${key}__deps`] ?? []) as unknown[]).filter(
+        (dep): dep is string => typeof dep === "string",
+      );
       if (isFunction) emscripten.addImplicitDeps(code, declared);
       return { key, tree, deps: new Set(declared) };
     });
 
 // What the library takes from outside itself.
-const external = (library, emscripten) => {
-  const runtimeMethods = new Set();
-  const functions = new Set();
+const external = (library: Library, emscripten: Emscripten) => {
+  const runtimeMethods = new Set<string>();
+  const functions = new Set<string>();
   for (const { deps } of entries(library, emscripten)) {
     for (const dep of deps) {
       if (dep in library) continue;
@@ -209,14 +231,12 @@ const external = (library, emscripten) => {
 // The identifiers in the code but for property names, class names and
 // labels. Names the code binds are among them, so a local named like a
 // library symbol counts as a use of that symbol.
-const references = (node, found = []) => {
+const references = (node: unknown, found: string[] = []): string[] => {
   if (Array.isArray(node)) {
     for (const child of node) references(child, found);
     return found;
   }
-  if (node === null || typeof node !== "object" || typeof node.type !== "string") {
-    return found;
-  }
+  if (!isNode(node)) return found;
   switch (node.type) {
     case "Identifier":
       found.push(node.name);
@@ -251,7 +271,7 @@ const references = (node, found = []) => {
 };
 
 // The names a pattern binds.
-const bound = (pattern, names) => {
+const bound = (pattern: acorn.Pattern | null, names: Set<string>): void => {
   switch (pattern?.type) {
     case "Identifier":
       names.add(pattern.name);
@@ -275,8 +295,8 @@ const bound = (pattern, names) => {
 
 // The names the file declares at its top level, which the linked program
 // has only for those that are library symbols.
-const topLevel = (source, acorn) => {
-  const names = new Set();
+const topLevel = (source: string) => {
+  const names = new Set<string>();
   const tree = acorn.parse(source, {
     ecmaVersion: "latest",
     sourceType: "script",
@@ -291,26 +311,26 @@ const topLevel = (source, acorn) => {
   return names;
 };
 
-const check = async (file, root) => {
+const check = async (file: string, root: string) => {
   const emscripten = await loadEmscripten(root);
   const { source, library } = load(file);
   const all = entries(library, emscripten);
-  const declared = topLevel(source, emscripten.acorn);
+  const declared = topLevel(source);
   const emscriptenSymbols = new Set(
     all.flatMap(({ deps }) => [...deps].filter((dep) => dep.startsWith("$") && !(dep in library))),
   );
 
   // The dependency a reference to `name` needs, if it names a symbol at all.
-  const symbolFor = (name) => {
+  const symbolFor = (name: string) => {
     if (`$${name}` in library || emscriptenSymbols.has(`$${name}`)) return `$${name}`;
     if (name.startsWith("_")) return name.slice(1);
     return undefined;
   };
   // Whether the linked program has `name`, given that it is the name of one
   // of the file's top-level declarations.
-  const emitted = (name) => `$${name}` in library || (name.startsWith("_") && name.slice(1) in library);
+  const emitted = (name: string) => `$${name}` in library || (name.startsWith("_") && name.slice(1) in library);
 
-  const missing = [];
+  const missing: string[] = [];
   for (const { key, tree, deps } of all) {
     for (const name of new Set(references(tree))) {
       if (declared.has(name) && !emitted(name)) {
@@ -326,7 +346,7 @@ const check = async (file, root) => {
   if (missing.length > 0) fail(missing.join("\n"));
 };
 
-const emit = async (file, root, directory) => {
+const emit = async (file: string, root: string, directory: string) => {
   const emscripten = await loadEmscripten(root);
   const { runtimeMethods, functions } = external(load(file).library, emscripten);
   fs.mkdirSync(directory, { recursive: true });
@@ -350,6 +370,6 @@ if (command === "check" && file && root && !directory) {
   await emit(file, root, directory);
 } else {
   fail(
-    "usage: library-deps.mjs check <library.js> <emscripten root>\n       library-deps.mjs emit <library.js> <emscripten root> <directory>",
+    "usage: library-deps.ts check <library.js> <emscripten root>\n       library-deps.ts emit <library.js> <emscripten root> <directory>",
   );
 }
