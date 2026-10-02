@@ -2,12 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    {
-      config,
-      lib,
-      pkgs,
-      ...
-    }:
+    { config, lib, ... }:
     let
       inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) pkgsWasm;
@@ -79,12 +74,13 @@
         # handles its interrupts (V8 issues 529880019 and 533026477, fixed
         # from V8 15.7, in no Node release line yet). Linked without growth,
         # the runtime has no way to grow its memory, whatever maximum the
-        # host gave it, and a full heap aborts. The memory it imports is
-        # declared from the minimum up to maximumMemory, after the link,
-        # since the linker can't declare a maximum above the initial size of
-        # a memory that doesn't grow.
+        # host gave it, and a full heap aborts. Its memory import is declared
+        # from the minimum up to maximumMemory, so that one runtime takes
+        # every engine's size.
         "-sALLOW_MEMORY_GROWTH=0"
+        "-sIMPORTED_MEMORY=1"
         "-sINITIAL_MEMORY=${toString minimumMemory}"
+        "-sMAXIMUM_MEMORY=${toString maximumMemory}"
         # Also the default without growth. With assertions, the abort's
         # message advises a larger INITIAL_MEMORY or growth; the remedy is
         # a larger memory from the host.
@@ -108,10 +104,7 @@
           inherit pname;
           inherit (runtime.libibusWeb) version;
           dontUnpack = true;
-          nativeBuildInputs = [
-            pkgsWasm.pkg-config
-            pkgs.python3
-          ];
+          nativeBuildInputs = [ pkgsWasm.pkg-config ];
           buildInputs = [
             runtime.libibusWeb
             pkgsWasm.libffi
@@ -128,8 +121,6 @@
             $CXX $($PKG_CONFIG --static --libs libibus-web gio-2.0 gobject-2.0 libffi) \
               ${linkFlags} -sEXPORTED_FUNCTIONS=@${exportList}/exports.txt ${extraFlags} \
               -o ibus-runtime.js
-            python3 ${./memory-maximum.py} --emscripten ${toolchain.emscripten}/share/emscripten \
-              --maximum ${toString maximumMemory} ibus-runtime.wasm
             runHook postBuild
           '';
           installPhase = ''

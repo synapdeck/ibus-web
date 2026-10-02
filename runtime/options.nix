@@ -37,7 +37,7 @@
       };
       link = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
-        description = "Given { pname, extraFlags }, links ibus-runtime as the package does, with extraFlags after its own flags, which they override.";
+        description = "Given { pname, extraFlags }, links ibus-runtime as the package does, with extraFlags after its own flags, which they override. A link that grows its memory (-sALLOW_MEMORY_GROWTH=1) keeps -sMAXIMUM_MEMORY=memory.maximum as the most it grows to unless extraFlags sets another.";
       };
       memory = {
         minimum = lib.mkOption {
@@ -51,7 +51,7 @@
       };
       linkFlags = lib.mkOption {
         type = lib.types.str;
-        description = "ibus-runtime's link flags but for its export list: toolchain.runtimeMainFlags and the settings that shape its memory, threads and JavaScript. Linked with these alone, the runtime accepts only a memory of memory.minimum bytes; link also raises the maximum its memory import declares to memory.maximum.";
+        description = "ibus-runtime's link flags but for its export list: toolchain.runtimeMainFlags and the settings that shape its memory, threads and JavaScript. Its memory, imported and never grown, is declared from memory.minimum to memory.maximum.";
       };
       exportList = lib.mkOption {
         type = lib.types.package;
