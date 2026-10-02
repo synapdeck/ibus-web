@@ -802,12 +802,21 @@ its own loggers with engine and domain annotations (§7.4).
   Firefox waits while the page spins (§6.2.6), so installing stays off the
   request path; and two tabs installing the same version at once need a
   rule.
-- **Fallback.** Where IndexedDB is unavailable, the mount is in-memory: the
-  data files sit in WasmFS's memory backend, so the host makes the runtime's
+- **Fallback.** A browser lacks IndexedDB only for an opaque origin (a
+  sandboxed iframe without `allow-same-origin`, a `data:` URL, where
+  `indexedDB.open()` throws `SecurityError`), where the user or an enterprise
+  policy blocks site data, or where a third-party iframe is denied storage.
+  Private browsing has it in every browser at the Baseline floor, cleared
+  when the session ends. In those cases the mount is in-memory: the data
+  files sit in WasmFS's memory backend, so the host makes the runtime's
   memory larger than the manifest's `memory` by the data's size, the sum of
   the manifest's archive sizes (§5.3). The memory is fixed once made, so the
   host opens IndexedDB before making it. User data then lasts only as long
   as the Worker, and the host receives a `storage: ephemeral` event (§8).
+  Node, which the runtime also targets, has no IndexedDB at all, and that is
+  not this fallback: there the mount is a Node-side WasmFS backend (Node's
+  file system, or memory) chosen for that environment. Which is M0.5's to
+  settle.
 - **Host API.** Usage report, export (a tar of the engine directory) and reset.
 
 ## 6. The Worker-boundary protocol
@@ -1193,7 +1202,7 @@ discarded, never repaired.
 | Relay failure                                                | the relay writes `CRASHED` and wakes the host; a relay killed outright is a hang | as trap                                                                                                                                                                                                                                                                 | `EngineCrashed`                                                   |
 | Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                             | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap; a `GTask` whose worker can't start stays queued, silently, until a worker is free                                                                                                              | engine-specific, or as trap; nothing for a queued `GTask`         |
 | ABI or protocol mismatch                                     | manifest check; `Init` version check                                             | as load failure                                                                                                                                                                                                                                                         | `RuntimeAbiMismatch`, `ProtocolMismatch`                          |
-| No IndexedDB                                                 | opening IndexedDB fails at startup, before the runtime's memory is made          | in-memory mount, with the runtime's memory made larger by the data's size from the manifest (§5.6); user data lasts as long as the Worker                                                                                                                               | `storage: ephemeral`                                              |
+| No IndexedDB                                                 | opening IndexedDB fails at startup, before the runtime's memory is made (an opaque origin, blocked site data, a third-party iframe denied storage; never Node, which mounts a Node-side backend) | in-memory mount, with the runtime's memory made larger by the data's size from the manifest (§5.6); user data lasts as long as the Worker                                                                                                                               | `storage: ephemeral`                                              |
 | Quota                                                        | write errors surface in the engine                                               | engine-specific                                                                                                                                                                                                                                                         | `storage` usage events, logs                                      |
 | Undecodable record                                           | protocol decode                                                                  | dev builds throw; production drops and logs                                                                                                                                                                                                                             | `ProtocolError` log                                               |
 | GLib warnings and criticals                                  | GLib log handler                                                                 | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                   | log entries                                                       |
