@@ -1053,9 +1053,9 @@ write, `fsync()` and close are proxied to the backend's own thread, never
 to the sleeping host. The scenario counts no wakes, so that the host never
 woke rests on the time, within one poll step of the memory backend's, and
 on where the calls run. With IndexedDB mounted, `thread-create-blocked`
-finds 10 of the pool's 11 Workers idle in both browsers (11 of 11 under
-Node and in memory): the backend's thread is exactly the storage share,
-one per backend.
+finds 10 of the pool's 12 Workers idle in both browsers (12 of 12 under
+Node and in memory): two Workers, one per backend, exactly the storage
+share.
 
 ### Engine data, a database per version
 

@@ -55,14 +55,16 @@
             # A link for some environments only gets the minimums emcc uses
             # for them, so it warns about none; the last ENVIRONMENT wins.
             EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CC ${testing.browserLinkFlags} \
-              -Werror=unused-command-line-argument probe-compiled.o -o probe-worker.js 2> worker.log
+              -Werror=unused-command-line-argument probe-compiled.o -o probe-worker.js 2> worker.log \
+              || { cat worker.log >&2; exit 1; }
             grep -qF -- "-sMIN_FIREFOX_VERSION=" worker.log
             if grep -qF -- "-sMIN_NODE_VERSION=" worker.log; then
               echo "a worker link was given Node's minimum" >&2
               exit 1
             fi
             EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CXX ${toolchain.testMainFlags} -sENVIRONMENT=web \
-              -s ENVIRONMENT=node -Werror=unused-command-line-argument probe.o -o probe-node.js 2> node.log
+              -s ENVIRONMENT=node -Werror=unused-command-line-argument probe.o -o probe-node.js 2> node.log \
+              || { cat node.log >&2; exit 1; }
             grep -qF -- "-sMIN_NODE_VERSION=" node.log
             if grep -qF -- "-sMIN_FIREFOX_VERSION=" node.log; then
               echo "a Node link was given the browsers' minimums" >&2

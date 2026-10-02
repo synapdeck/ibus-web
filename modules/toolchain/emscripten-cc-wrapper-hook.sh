@@ -71,7 +71,8 @@ if [ "$dontLink" != 1 ]; then
   for emscriptenFlag in "${emscriptenMinimumVersionFlags[@]}"; do
     case "$emscriptenFlag" in
     -sMIN_NODE_VERSION=*) [ -z "$emscriptenForNode" ] || emscriptenMinimums+=("$emscriptenFlag") ;;
-    *) [ -z "$emscriptenForBrowsers" ] || emscriptenMinimums+=("$emscriptenFlag") ;;
+    -sMIN_*_VERSION=*) [ -z "$emscriptenForBrowsers" ] || emscriptenMinimums+=("$emscriptenFlag") ;;
+    *) emscriptenMinimums+=("$emscriptenFlag") ;;
     esac
   done
   extraBefore=("${emscriptenMinimums[@]}" "${extraBefore[@]}")

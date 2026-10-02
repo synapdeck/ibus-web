@@ -79,7 +79,8 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
   last close. Inodes no directory holds, which a page that closed with a
   file unlinked but open leaves behind, are swept, in one transaction, when
   a read-write backend is created; a sweep that fails is logged and the
-  backend mounts anyway.
+  backend mounts anyway, unless it failed because the connection closed,
+  which fails the open.
 - WasmFS keeps file identity in its own cache (`maintainsFileIdentity()` is
   false), and each file's constructor loads its stored mode and times.
 
@@ -203,7 +204,10 @@ runs it.
   line on stderr; failed opens giving their thread back (`errors`);
 - the orphan sweep after a program that ended with a file unlinked but
   open, a sweep that fails, and a read-only backend that doesn't sweep
-  (`sweep.1`, `sweep.2`).
+  (`sweep.1`, `sweep.2`);
+- `wasmfs_idb_backend_seal()`, our own call (below): a sealed backend
+  refusing every change with `EROFS`, even through a descriptor opened for
+  writing before, while reads work (`seal`).
 
 **Depends on four fixes** we carry as patches to 6.0.9, each with a draft
 of its own:

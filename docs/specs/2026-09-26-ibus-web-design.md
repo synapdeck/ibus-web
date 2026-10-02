@@ -815,7 +815,8 @@ its own loggers with engine and domain annotations (§7.4).
   holds, which a page that ended with a file unlinked but open leaves, are
   swept, in one transaction, when a read-write backend is created; a
   read-only one doesn't sweep. A sweep that fails is logged and the backend
-  mounts anyway.
+  mounts anyway, unless it failed because the connection closed, which
+  fails the open.
 - **Chunk size.** 16 KiB for the databases the backend creates; a database
   keeps the size in its `meta`, and any positive size there is read,
   larger ones included. 16 KiB is the cheapest chunk for the random 4 KiB
@@ -879,8 +880,10 @@ its own loggers with engine and domain annotations (§7.4).
   thread hears it from its event loop, sets the backend's closed flag, logs
   why, and fails every later call with `EIO`; nothing reopens the
   connection. The host checks `wasmfs_idb_backend_closed()` for both mounts
-  each time it wakes and reports `storage: closed` (§8). Replacing data
-  within a version needs no version change.
+  each time it wakes and reports `storage: closed` (§8). Installing a
+  version deletes its data's database first, a version change with no
+  connection to close, since no host mounts a version before its marker
+  exists (Installing, below).
 - **The page keeps out.** The page opens no transaction on an engine's
   databases. A transaction commits on the thread that made it, so one the
   page made and hadn't seen commit when it began to spin held up the
@@ -982,7 +985,8 @@ its own loggers with engine and domain annotations (§7.4).
   closing it at once. If that fails, the mount is in memory: the data files
   sit in WasmFS's memory backend, so the host makes the runtime's memory
   and its maximum larger than the manifest's `memory` by the data's size,
-  the sum of the manifest's archive sizes in whole pages (§5.3), and
+  the sum of the manifest's data sizes (unpacked bytes, §5.4.4) in whole
+  pages (§5.3), and
   installs the data at every start, with no lock. A memory that this takes
   past the runtime's maximum fails the memory check, a load failure (§8)
   whose message gives the size but not the data's part in it. User data
@@ -1608,16 +1612,15 @@ artifacts; WASM builds of nixpkgs packages are reached through
   Firefox's is 126, the first with `indexedDB.databases()`, which the host
   lists old versions' data with (§5.6); Firefox 124 and 125 together are
   some 0.02% of users. With baseline-browser-mapping 2.11.27 that is Chrome
-  123, Firefox 126, Safari 17.4 and Node 24.19. A link gets only the
-  minimums of the environments its `-sENVIRONMENT` allows (all of them
-  when it names none), since emcc ignores the rest with a warning. They
-  turn on extended-const
+  123, Firefox 126, Safari 17.4 and Node 24.19. They turn on extended-const
   and leave off growable shared buffers (`-sGROWABLE_ARRAYBUFFERS=2`) and
   the standard (exnref) encoding of WebAssembly exceptions (R18).
   `checks.toolchain-cache` compares the features they enable with
   `modules/toolchain/expected-features.txt`, so a change to the data that
   moves them is reviewed, and `checks.toolchain-exnref` fails once they
-  reach exnref's (R18).
+  reach exnref's (R18). A link gets only the minimums of the environments
+  its `-sENVIRONMENT` allows (all of them when it names none), since emcc
+  ignores the rest with a warning.
 - **`pkgsWasm`.** `import nixpkgs` with `crossSystem` set to nixpkgs'
   `wasm32-unknown-none` example plus `isStatic = true` and
   `useEmscripten = true`, and

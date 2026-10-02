@@ -24,7 +24,7 @@
       threadPool = {
         shares = lib.mkOption {
           type = lib.types.attrsOf lib.types.ints.positive;
-          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: how many each is planned to have alive at once. GLib's is what one GTask in flight keeps alive, GTasks in flight at once taking more; the storage backend's is its own thread.";
+          description = "The threads ibus-runtime's pthread pool is sized for, by what starts them: how many each is planned to have alive at once. GLib's is what one GTask in flight keeps alive, GTasks in flight at once taking more; the storage backends' is a thread per backend, two per engine.";
         };
         size = lib.mkOption {
           type = lib.types.ints.positive;
