@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// The negative test of addToLibrary's type: checking this must fail, with an
+// error for each call in rejected.js.
+{
+  "extends": "../../src/tsconfig.json",
+  "files": ["../../src/emscripten-library.d.ts", "rejected.js"]
+}

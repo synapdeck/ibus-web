@@ -37,6 +37,8 @@ local linters = new Mapping<String, Step> {
         "**/*.cjs",
         "**/tsconfig.json",
       )
+    // A negative test: its check must fail, which the Nix check asserts.
+    exclude = "**/runtime/wasmfs-idb/tests/library-types/**"
     check = new CommandSpec {
       // hk's evaluator leaves interpolation in multi-line strings unexpanded.
       command =

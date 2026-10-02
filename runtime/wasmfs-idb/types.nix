@@ -64,6 +64,8 @@
             ./tests/errors-post.js
             ./tests/wasm-exports.d.ts
             ./tests/post-js.d.ts
+            ./tests/library-types/tsconfig.json
+            ./tests/library-types/rejected.js
           ]
         );
       };
@@ -95,10 +97,8 @@
             # The library's own type must reject what Emscripten would: a
             # file of calls that each break one rule fails with one error
             # per call, each carrying the message written above the call.
-            rejected=${./tests/library-types/rejected.js}
-            if tsc --noEmit --strict --allowJs --checkJs --target es2022 \
-              --lib es2022 --module preserve --types "" \
-              src/emscripten-library.d.ts "$rejected" > errors.txt; then
+            rejected=tests/library-types/rejected.js
+            if tsc -p tests/library-types > errors.txt; then
               echo "$rejected: type-checks, but every call in it is wrong" >&2
               exit 1
             fi

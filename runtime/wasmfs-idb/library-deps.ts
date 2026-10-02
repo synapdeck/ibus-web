@@ -20,7 +20,9 @@
 //     exported-functions.txt (the Wasm exports, as C names with their leading
 //     underscore) and globals.d.ts, which declares each of them as the bare
 //     global the library's code sees, typed from the declarations
-//     `--emit-tsd` writes beside it as emscripten.d.ts.
+//     `--emit-tsd` writes beside it as emscripten.d.ts; and decorators.d.ts,
+//     the decorators Emscripten accepts, for the library's type to be
+//     checked against.
 //
 // An Emscripten symbol that no entry depends on is in neither list, so the
 // type check of the library, which sees only the listed ones, reports it as
@@ -58,9 +60,10 @@ const isNode = (value: unknown): value is acorn.AnyNode =>
 type Library = Record<string, unknown>;
 
 interface Emscripten {
+  decoratorSuffixes: string[];
   isDecorator: (key: string) => boolean;
   isFunctionSource: (string: string) => boolean;
-  addImplicitDeps: (code: string, deps: string[]) => void;
+  addImplicitDeps: (key: string, code: string, deps: string[]) => void;
 }
 
 // What Emscripten decides about a library's entries, taken from its sources:
@@ -90,25 +93,29 @@ const loadEmscripten = async (root: string): Promise<Emscripten> => {
   if (!declaration) return fail(`${jsifierFile}: no addImplicitDeps`);
   const settings: { WASM_BIGINT?: unknown; MEMORY64?: unknown } = {};
   vm.runInNewContext(fs.readFileSync(path.join(src, "settings.js"), "utf8"), settings);
-  const implicitDeps: (code: string, deps: string[]) => void = vm.runInNewContext(
-    `(${jsifier.slice(declaration.start, declaration.end)})`,
-    {
-      WASM_BIGINT: settings.WASM_BIGINT,
-      MEMORY64: settings.MEMORY64,
-    },
-  );
-  const addImplicitDeps = (code: string, deps: string[]) => {
+  const context = vm.createContext({
+    WASM_BIGINT: settings.WASM_BIGINT,
+    MEMORY64: settings.MEMORY64,
+  });
+  const implicitDeps = vm.runInContext(`(${jsifier.slice(declaration.start, declaration.end)})`, context) as (
+    code: string,
+    deps: string[],
+  ) => void;
+  // A name the function reads that the context lacks throws the context's
+  // own ReferenceError, not this realm's.
+  const ContextReferenceError = vm.runInContext("ReferenceError", context) as ReferenceErrorConstructor;
+  const addImplicitDeps = (key: string, code: string, deps: string[]) => {
     try {
       implicitDeps(code, deps);
     } catch (e) {
-      fail(`${jsifierFile}: addImplicitDeps needs more than it is given: ${e}`);
+      if (!(e instanceof ContextReferenceError)) throw e;
+      fail(`${key}: ${jsifierFile}: addImplicitDeps needs more than it is given: ${e.message}`);
     }
   };
 
-  // The patterns in the test of the one branch that sets `isFunction` for a
-  // string.
-  const patterns: RegExp[] = [];
-  let branches = 0;
+  // The test of the one branch that sets `isFunction` from what `snippet`, a
+  // string, holds. The test is evaluated as written, with `snippet` bound.
+  const tests: vm.Script[] = [];
   walk(tree, (node) => {
     if (node.type !== "IfStatement" || node.consequent.type !== "BlockStatement") return;
     const setsIsFunction = node.consequent.body.some(
@@ -119,23 +126,21 @@ const loadEmscripten = async (root: string): Promise<Emscripten> => {
         statement.expression.left.name === "isFunction",
     );
     if (!setsIsFunction) return;
-    const found: RegExp[] = [];
-    walk(node.test, (literal) => {
-      if (literal.type === "Literal" && literal.regex) {
-        found.push(new RegExp(literal.regex.pattern, literal.regex.flags));
-      }
+    let readsSnippet = false;
+    walk(node.test, (child) => {
+      if (child.type === "Identifier" && child.name === "snippet") readsSnippet = true;
     });
-    if (found.length === 0) return;
-    branches += 1;
-    patterns.push(...found);
+    if (readsSnippet) tests.push(new vm.Script(jsifier.slice(node.test.start, node.test.end)));
   });
-  if (branches !== 1) {
-    fail(`${jsifierFile}: expected one test for a function's source in a string, found ${branches}`);
+  if (tests.length !== 1) {
+    fail(`${jsifierFile}: expected one test for a function's source in a string, found ${tests.length}`);
   }
+  const [isFunctionTest] = tests;
 
   return {
+    decoratorSuffixes,
     isDecorator: (key) => decoratorSuffixes.some((s) => key.endsWith(s)),
-    isFunctionSource: (string) => patterns.some((p) => p.test(string)),
+    isFunctionSource: (string) => Boolean(isFunctionTest.runInNewContext({ snippet: string })),
     addImplicitDeps,
   };
 };
@@ -172,9 +177,10 @@ const entries = (library: Library, emscripten: Emscripten) =>
       let isFunction: boolean;
       if (typeof value === "function") {
         // Emscripten emits the value's code under the key's name, whatever
-        // its own.
+        // its own. A function written inline under the key is named after
+        // the key, `$` and all, which is as good.
         const own = key.startsWith("$") ? key.slice(1) : key;
-        if (value.name !== own) {
+        if (value.name !== own && value.name !== key) {
           fail(`${key}: its value is ${value.name || "anonymous"}, not ${own}`);
         }
         code = value.toString();
@@ -207,7 +213,7 @@ const entries = (library: Library, emscripten: Emscripten) =>
       const declared = ((library[`${key}__deps`] ?? []) as unknown[]).filter(
         (dep): dep is string => typeof dep === "string",
       );
-      if (isFunction) emscripten.addImplicitDeps(code, declared);
+      if (isFunction) emscripten.addImplicitDeps(key, code, declared);
       return { key, tree, deps: new Set(declared) };
     });
 
@@ -360,6 +366,16 @@ const emit = async (file: string, root: string, directory: string) => {
     `// What ${path.basename(file)} uses from Emscripten, as the globals its code sees.\n` +
       `import type { MainModule } from "./emscripten.js";\n\n` +
       `declare global {\n${globals.join("")}}\n`,
+  );
+  const decorators = emscripten.decoratorSuffixes.map((suffix) =>
+    suffix.startsWith("__")
+      ? JSON.stringify(suffix.slice(2))
+      : fail(`decorator suffix ${suffix} doesn't start with __`),
+  );
+  fs.writeFileSync(
+    path.join(directory, "decorators.d.ts"),
+    "// The decorators Emscripten accepts on a library symbol, by the name after `__`.\n" +
+      `export type EmscriptenDecorator = ${decorators.join(" | ")};\n`,
   );
 };
 

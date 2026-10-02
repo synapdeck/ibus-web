@@ -24,6 +24,17 @@ interface LibraryDecorators {
 }
 type Decorator = keyof LibraryDecorators & string;
 
+// Fails the type check when the decorators above aren't exactly those the
+// Emscripten tree in use accepts.
+type LibraryDecoratorsMatch<Actual extends true> = Actual;
+type LibraryDecoratorsAreEmscriptens = LibraryDecoratorsMatch<
+  (<T>() => T extends Decorator ? 1 : 2) extends <
+    T,
+  >() => T extends import("./emscripten-types/decorators.js").EmscriptenDecorator ? 1 : 2
+    ? true
+    : false
+>;
+
 // Fails the property it's intersected with, and says why in the error.
 interface LibraryError<Message extends string> {
   "addToLibrary error": Message;
