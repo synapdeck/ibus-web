@@ -84,7 +84,9 @@ export const reportLines = (
   }
   for (const message of messages) {
     const text =
-      message.type === "install"
+      message.type === "install" ||
+      message.type === "collect" ||
+      message.type === "waiting"
         ? JSON.stringify(message)
         : `${message.type === "storage" ? `${message.state}: ` : ""}${"message" in message ? message.message : ""}`;
     lines.push(`    host ${message.type}: ${text}`);

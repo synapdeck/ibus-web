@@ -3,8 +3,9 @@
 
 // The spike's Worker host. Its one message is a HostInit: it decides what to
 // mount at its engine's directory, makes the runtime's memory to suit,
-// instantiates the runtime, mounts storage, installs the engine's data if
-// this version's isn't there yet, loads the side modules, reports storage
+// instantiates the runtime, mounts storage, mounts its version's data,
+// installing it first if it isn't there yet, deletes other versions' data
+// no host uses, loads the side modules, reports storage
 // that isn't what the engine was promised, sets the runtime up, then
 // serves requests from the control buffer for good, sleeping between them
 // with the next GLib deadline as the timeout, and topping the pthread pool
@@ -22,7 +23,9 @@ import {
   State,
   Word,
   type BuildConstants,
+  type CollectReport,
   type ControlViews,
+  type EngineManifest,
   type HostFeatures,
   type HostInit,
   type HostMessage,
@@ -31,12 +34,16 @@ import {
   type Mount,
   type SideModule,
   type Storage,
+  encodeVersion,
   engineDatabase,
   engineDataBytes,
+  engineDataDatabase,
+  engineDataDatabasePrefix,
   engineDataDir,
+  engineDataLock,
+  engineDataRoot,
   engineDir,
   engineInstallLock,
-  engineMarker,
 } from "../shared/control.ts";
 import type { RelayInit } from "./relay.ts";
 
@@ -50,9 +57,6 @@ interface Runtime {
   _malloc(bytes: number): number;
   _free(ptr: number): void;
   _creat(path: number, mode: number): number;
-  // open()'s third argument is where its variadic mode is.
-  _open(path: number, flags: number, varargs: number): number;
-  _read(fd: number, buf: number, count: number): number;
   _write(fd: number, buf: number, count: number): number;
   _fsync(fd: number): number;
   _close(fd: number): number;
@@ -241,43 +245,105 @@ interface HeldLock {
   lockedAt: number;
 }
 
-// Requests the lock and resolves once it is held. A Worker that ends lets go
-// of its locks, so a host that dies mid-install never holds one for good.
-const holdLock = async (name: string): Promise<HeldLock> => {
+const lockManager = (name: string): LockManager => {
   const locks = (globalThis.navigator as { locks?: LockManager } | undefined)
     ?.locks;
   if (locks === undefined)
     throw new Error(`no Web Locks here to take ${name} with`);
-  const requestedAt = performance.now();
-  return new Promise<HeldLock>((resolve, reject) => {
-    locks
-      .request(
-        name,
-        () =>
-          new Promise<void>((release) =>
-            resolve({
-              release,
-              waitMs: performance.now() - requestedAt,
-              lockedAt: Date.now(),
-            }),
-          ),
+  return locks;
+};
+
+// The lock once granted, or null if options.ifAvailable and it is held.
+const requestLock = (
+  name: string,
+  options: LockOptions,
+  requestedAt: number,
+): Promise<HeldLock | null> =>
+  new Promise((resolve, reject) => {
+    lockManager(name)
+      .request(name, options, (lock) =>
+        lock === null
+          ? resolve(null)
+          : new Promise<void>((release) =>
+              resolve({
+                release,
+                waitMs: performance.now() - requestedAt,
+                lockedAt: Date.now(),
+              }),
+            ),
       )
       .catch(reject);
   });
+
+const LOCK_ROUND_MS = 1000;
+// Far longer than an install takes; a host that waits this long gives up
+// rather than never start.
+const LOCK_LIMIT_MS = 120_000;
+
+// Requests the lock and resolves once it is held, calling waiting() first
+// if it isn't free. Node (24.20) lets go of the locks of a worker_thread
+// that is terminated, but grants a request already queued for one only
+// once another request for it arrives, so the wait is made of requests of
+// LOCK_ROUND_MS each, each made again when the last times out. A Worker
+// that ends lets go of its locks, so a host that dies holding one never
+// holds it for good.
+const holdLock = async (
+  name: string,
+  mode: LockMode,
+  waiting: () => void,
+): Promise<HeldLock> => {
+  const requestedAt = performance.now();
+  const now = await requestLock(name, { mode, ifAvailable: true }, requestedAt);
+  if (now !== null) return now;
+  waiting();
+  const deadline = requestedAt + LOCK_LIMIT_MS;
+  for (
+    let left = LOCK_LIMIT_MS;
+    left > 0;
+    left = deadline - performance.now()
+  ) {
+    const signal = AbortSignal.timeout(Math.min(LOCK_ROUND_MS, left));
+    try {
+      const held = await requestLock(name, { mode, signal }, requestedAt);
+      if (held !== null) return held;
+    } catch (error) {
+      if ((error as { name?: unknown } | null)?.name !== "TimeoutError")
+        throw error;
+    }
+  }
+  throw new Error(
+    `${name}: not granted in ${LOCK_LIMIT_MS} ms; another host holds it`,
+  );
 };
 
+// The locks this host holds. A host whose start fails stays alive to say
+// why, so it lets go of them all, rather than keep other hosts from
+// installing or collecting.
+class Held {
+  #locks = new Set<HeldLock>();
+
+  add(lock: HeldLock): HeldLock {
+    this.#locks.add(lock);
+    return lock;
+  }
+
+  release(lock: HeldLock): void {
+    this.#locks.delete(lock);
+    lock.release();
+  }
+
+  releaseAll(): void {
+    for (const lock of this.#locks) lock.release();
+    this.#locks.clear();
+  }
+}
+
 // What the host mounts at the engine's directory, decided before the
-// runtime's memory is made, since a mount in memory needs a larger one. A
-// mount that outlives the Worker comes with the engine's install lock held.
+// runtime's memory is made, since a mount in memory needs a larger one.
 type StoragePlan =
   | { mount: "none" }
-  | { mount: "node"; hostPath: string; installLock: HeldLock }
-  | {
-      mount: "indexeddb";
-      database: string;
-      flags: number;
-      installLock: HeldLock;
-    }
+  | { mount: "node"; hostPath: string }
+  | { mount: "indexeddb"; database: string; flags: number }
   // Why IndexedDB can't be opened.
   | { mount: "memory"; why: string };
 
@@ -302,71 +368,64 @@ const briefly = (error: unknown): string =>
     ? `${error.name}: ${error.message}`
     : String(error);
 
-// Whether IndexedDB opens the database: null if it does, or why not. The
-// backend opens its own connection, on its own thread, so this one closes
-// at once, before it can hold up another's version change. Opening a
-// database that doesn't exist would create it, empty, at the version the
-// backend creates its object stores in, so the probe aborts that creation,
-// which leaves nothing behind.
-const probeIndexedDB = (database: string): Promise<string | null> =>
-  new Promise((resolve) => {
-    const factory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
-    if (factory === undefined) {
-      resolve("this environment has no IndexedDB");
-      return;
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = factory.open(database);
-    } catch (error) {
-      resolve(briefly(error));
-      return;
-    }
+// Opens the database if it exists, without creating it: opening a database
+// that doesn't exist would create it, empty, at the version the backend
+// creates its object stores in, so that creation is aborted, which leaves
+// nothing behind. Resolves with the connection, or null if there is no
+// such database; a connection closes when another asks for a version
+// change, so that it never holds one up.
+const openExisting = (database: string): Promise<IDBDatabase | null> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(database);
     let creating = false;
     request.onupgradeneeded = () => {
       creating = true;
       request.transaction?.abort();
     };
     request.onsuccess = () => {
-      request.result.close();
-      resolve(null);
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
     };
     request.onerror = (event) => {
       event.preventDefault();
-      resolve(
-        creating && request.error?.name === "AbortError"
-          ? null
-          : briefly(request.error),
-      );
+      if (creating && request.error?.name === "AbortError") resolve(null);
+      else reject(request.error ?? new Error(`opening ${database} failed`));
     };
   });
 
+// Whether IndexedDB opens the database: null if it does, or why not. The
+// backend opens its own connection, on its own thread, so this one closes
+// at once.
+const probeIndexedDB = async (database: string): Promise<string | null> => {
+  if ((globalThis as { indexedDB?: IDBFactory }).indexedDB === undefined)
+    return "this environment has no IndexedDB";
+  try {
+    (await openExisting(database))?.close();
+    return null;
+  } catch (error) {
+    return briefly(error);
+  }
+};
+
 const planStorage = async (
   storage: Storage,
-  engine: HostInit["engine"],
+  engine: EngineManifest,
 ): Promise<StoragePlan> => {
   switch (storage.kind) {
     case "none":
       return { mount: "none" };
     case "node":
-      return {
-        mount: "node",
-        hostPath: storage.hostPath,
-        installLock: await holdLock(engineInstallLock(engine)),
-      };
+      return { mount: "node", hostPath: storage.hostPath };
     case "browser": {
       if (storage.withoutIndexedDB === true) withoutIndexedDB();
       const database = engineDatabase(engine);
       const why = await probeIndexedDB(database);
       if (why !== null) return { mount: "memory", why };
-      // Taken before anything about the database is decided and held until
-      // the engine's data is installed, so that hosts starting together
-      // decide and install one at a time.
-      const installLock = await holdLock(engineInstallLock(engine));
       // The flags are decided before the backend exists because creating it
       // sweeps the database of what a crash left behind, which needs
       // exclusive write access to the database.
-      return { mount: "indexeddb", database, flags: 0, installLock };
+      return { mount: "indexeddb", database, flags: 0 };
     }
   }
 };
@@ -376,39 +435,87 @@ const planStorage = async (
 const memoryFor = (
   memory: HostInit["memory"],
   plan: StoragePlan,
-  engine: HostInit["engine"],
+  engine: EngineManifest,
 ): HostInit["memory"] => {
   if (plan.mount !== "memory") return memory;
   const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
   return { initial: memory.initial + data, maximum: memory.maximum + data };
 };
 
-// The engine's directory as mounted, and whether IndexedDB's connection has
-// closed under it.
+// What the engine's directory and data are mounted on, and whether an
+// IndexedDB connection under either has closed.
 interface Mounted {
   mount: Mount;
   closed(): boolean;
 }
 
-const mount = (heap: Heap, plan: StoragePlan, dir: string): Mounted => {
-  if (plan.mount === "none") return { mount: "none", closed: () => false };
-  const { rt } = heap;
-  // Its parents, in memory; one that exists already fails harmlessly.
-  const parts = dir.split("/").filter((part) => part !== "");
-  for (let i = 1; i < parts.length; i++)
+// What a host under Node uses of node:fs/promises.
+interface NodeFs {
+  readFile(path: string, encoding: "utf8"): Promise<string>;
+  readdir(path: string): Promise<string[]>;
+  mkdir(path: string, options: { recursive: true }): Promise<unknown>;
+  rm(path: string, options: { recursive: true; force: true }): Promise<void>;
+}
+
+// Only a host under Node is given Node storage, so only it imports this.
+const nodeFs = (): Promise<NodeFs> =>
+  import("node:fs/promises" as string) as Promise<NodeFs>;
+
+// Under Node, the engine's own files are kept apart from its data.
+const nodeUserDir = (hostPath: string): string => `${hostPath}/user`;
+
+// mkdir -p; a directory that exists already fails harmlessly.
+const makeDirs = (heap: Heap, path: string): void => {
+  const parts = path.split("/").filter((part) => part !== "");
+  for (let i = 1; i <= parts.length; i++)
     heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) =>
-      rt._mkdir(ptr, 0o755),
+      heap.rt._mkdir(ptr, 0o755),
     );
-  // The IndexedDB backend starts a thread of its own, from the pool, that
-  // runs its calls for good, and blocks this thread while that thread opens
-  // the database; it reports why it couldn't on stderr.
+};
+
+// Mounts the backend, which is 0 if it couldn't be made, at dir.
+const mountAt = (
+  heap: Heap,
+  backend: number,
+  dir: string,
+  what: string,
+): void => {
+  if (backend === 0)
+    throw new Error(
+      what === "indexeddb"
+        ? `storage failed to open ${dir} on IndexedDB although IndexedDB was available; the backend logged the cause to the Worker's stderr/console`
+        : `no ${what} backend for ${dir}`,
+    );
+  check(
+    `mount ${dir}`,
+    heap.withString(dir, (ptr) =>
+      heap.rt._wasmfs_create_directory(ptr, 0o777, backend),
+    ),
+  );
+};
+
+// Mounts the engine's own files at dir, its parents in memory. The
+// IndexedDB backend starts a thread of its own, from the pool, that runs
+// its calls for good, and blocks this thread while that thread opens the
+// database; it reports why it couldn't on stderr.
+const mount = async (
+  heap: Heap,
+  plan: StoragePlan,
+  dir: string,
+): Promise<{ closed(): boolean }> => {
+  if (plan.mount === "none") return { closed: () => false };
+  const { rt } = heap;
+  makeDirs(heap, dir.slice(0, dir.lastIndexOf("/")));
   let backend: number;
   switch (plan.mount) {
-    case "node":
-      backend = heap.withString(plan.hostPath, (ptr) =>
+    case "node": {
+      const user = nodeUserDir(plan.hostPath);
+      await (await nodeFs()).mkdir(user, { recursive: true });
+      backend = heap.withString(user, (ptr) =>
         rt._wasmfs_create_node_backend(ptr),
       );
       break;
+    }
     case "indexeddb":
       backend = heap.withString(plan.database, (ptr) =>
         rt._wasmfs_create_idb_backend(ptr, plan.flags),
@@ -418,20 +525,8 @@ const mount = (heap: Heap, plan: StoragePlan, dir: string): Mounted => {
       backend = rt._wasmfs_create_memory_backend();
       break;
   }
-  if (backend === 0)
-    throw new Error(
-      plan.mount === "indexeddb"
-        ? `storage failed to open ${dir} on IndexedDB although IndexedDB was available; the backend logged the cause to the Worker's stderr/console`
-        : `no ${plan.mount} backend for ${dir}`,
-    );
-  check(
-    `mount ${dir}`,
-    heap.withString(dir, (ptr) =>
-      rt._wasmfs_create_directory(ptr, 0o777, backend),
-    ),
-  );
+  mountAt(heap, backend, dir, plan.mount);
   return {
-    mount: plan.mount,
     closed:
       plan.mount === "indexeddb"
         ? () => rt._wasmfs_idb_backend_closed(backend) !== 0
@@ -461,25 +556,6 @@ const loadSides = (heap: Heap, sides: readonly SideModule[]): void => {
   }
 };
 
-const O_RDONLY = 0;
-
-// The file's contents as text, or null if it can't be read.
-const readText = (heap: Heap, path: string, most: number): string | null => {
-  const { rt } = heap;
-  const fd = heap.withString(path, (ptr) => rt._open(ptr, O_RDONLY, 0));
-  if (fd < 0) return null;
-  const buf = heap.alloc(most);
-  try {
-    const got = rt._read(fd, buf, most);
-    return got < 0
-      ? null
-      : new TextDecoder().decode(heap.bytes.slice(buf, buf + got));
-  } finally {
-    rt._free(buf);
-    rt._close(fd);
-  }
-};
-
 // Creates or truncates the file, writes text, fsync()s and closes it.
 const writeSynced = (heap: Heap, path: string, text: string): void => {
   const { rt } = heap;
@@ -496,18 +572,13 @@ const writeSynced = (heap: Heap, path: string, text: string): void => {
   }
 };
 
-// mkdir -p; a directory that exists already fails harmlessly.
-const makeDirs = (heap: Heap, path: string): void => {
-  const parts = path.split("/").filter((part) => part !== "");
-  for (let i = 1; i <= parts.length; i++)
-    heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) =>
-      heap.rt._mkdir(ptr, 0o755),
-    );
-};
-
 // The response body reaches the extractor through a buffer of this size in
 // the runtime's memory, which also bounds each of the extractor's writes.
 const INSTALL_PIECE = 65536;
+
+// An archive that sends nothing for this long fails the install, and with
+// it the host's start, rather than keep the install lock for good.
+const ARCHIVE_IDLE_MS = 30_000;
 
 // Streams the archive at url into the extractor, unpacking it into dir.
 // Returns the bytes fed; with stallAt, stops for good once that many have
@@ -521,23 +592,40 @@ const installArchive = async (
   stalled: (bytes: number) => void,
 ): Promise<number> => {
   const { rt } = heap;
-  const response = await fetch(url);
-  if (!response.ok || response.body === null)
-    throw new Error(`fetch ${url}: ${response.status}`);
-  const reader = response.body.getReader();
-  makeDirs(heap, dir);
+  const idle = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const progressed = (): void => {
+    clearTimeout(timer);
+    timer = setTimeout(
+      () =>
+        idle.abort(
+          new Error(`fetch ${url}: nothing arrived for ${ARCHIVE_IDLE_MS} ms`),
+        ),
+      ARCHIVE_IDLE_MS,
+    );
+  };
+  progressed();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let install = 0;
+  let done = false;
   const out = heap.alloc(4);
   const piece = heap.alloc(INSTALL_PIECE);
-  let install = 0;
   try {
+    const response = await fetch(url, { signal: idle.signal });
+    if (!response.ok || response.body === null)
+      throw new Error(`fetch ${url}: ${response.status}`);
+    reader = response.body.getReader();
+    makeDirs(heap, dir);
     check(
       `ibusweb_install_begin ${dir}`,
       heap.withString(dir, (ptr) => rt._ibusweb_install_begin(ptr, out)),
     );
     install = heap.words[out / 4]! >>> 0;
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const next = await reader.read();
+      if (next.done) break;
+      progressed();
+      const { value } = next;
       for (let at = 0; at < value.length; at += INSTALL_PIECE) {
         let part = value.subarray(at, at + INSTALL_PIECE);
         if (stallAt !== undefined && fed + part.length >= stallAt)
@@ -549,47 +637,34 @@ const installArchive = async (
         );
         fed += part.length;
         if (fed === stallAt) {
+          clearTimeout(timer);
           stalled(fed);
           await new Promise<never>(() => {});
         }
       }
     }
+    done = true;
     const ended = rt._ibusweb_install_end(install);
     install = 0;
     check(`install ${url}`, ended);
     return fed;
   } finally {
+    clearTimeout(timer);
     if (install !== 0) rt._ibusweb_install_end(install);
     rt._free(piece);
     rt._free(out);
-    reader.releaseLock();
+    if (reader !== undefined && !done) reader.cancel().catch(() => {});
   }
 };
 
-// Installs the engine's data unless the marker says this version's is
-// there, then writes the marker, last, so that an install cut short leaves
-// none and the next host to start does it again.
-const installData = async (
+// Installs every archive of the engine's data under its data directory;
+// returns the bytes fed.
+const installArchives = async (
   heap: Heap,
-  engine: HostInit["engine"],
-  lock: Pick<HeldLock, "waitMs" | "lockedAt">,
+  engine: EngineManifest,
   stallAt: number | undefined,
-): Promise<InstallReport> => {
-  const startedAt = performance.now();
-  const marker = engineMarker(engine);
-  const report = (state: InstallReport["state"], bytes: number) => ({
-    state,
-    version: engine.version,
-    lockWaitMs: lock.waitMs,
-    lockedAt: lock.lockedAt,
-    releasedAt: 0,
-    bytes,
-    installMs: performance.now() - startedAt,
-  });
-  // A version longer than this is no version this host wrote.
-  const markerMost = engine.version.length * 4 + 1;
-  if (readText(heap, marker, markerMost) === engine.version)
-    return report("present", 0);
+  stalled: (bytes: number) => void,
+): Promise<number> => {
   let fed = 0;
   for (const data of engine.data)
     fed = await installArchive(
@@ -598,10 +673,325 @@ const installData = async (
       engineDataDir(engine, data),
       fed,
       stallAt,
-      (bytes) => post({ type: "install", ...report("stalled", bytes) }),
+      stalled,
     );
-  writeSynced(heap, marker, engine.version);
-  return report("installed", fed);
+  return fed;
+};
+
+// Where a mount that outlives the Worker keeps each version's data, apart
+// from the engine's own files: an IndexedDB database, or a directory on the
+// host, per version. A version's data is installed into storage emptied
+// first, and its marker is written last, so that data with a marker is
+// whole and the version's alone; nothing writes it once marked.
+interface DataStore {
+  // Whether this version's data was installed whole. The marker is read
+  // before the data is mounted, so that a store about to be emptied has no
+  // connection of this host's open.
+  installed(): Promise<boolean>;
+  // Empties this version's storage.
+  clear(): Promise<void>;
+  // A backend over this version's storage, or 0. The Node backend has no
+  // read-only mode.
+  backend(readOnly: boolean): number;
+  // Marks this version's data installed, durably, once the data is.
+  mark(): Promise<void>;
+  // Every other version whose data is kept, encoded.
+  others(): Promise<string[]>;
+  remove(version: string): Promise<void>;
+  closed(): boolean;
+}
+
+// How long the deletion of a database may stay blocked. Every connection
+// the runtime makes closes when another asks to delete its database, so a
+// deletion stays blocked only behind one that doesn't.
+const DELETE_LIMIT_MS = 10_000;
+
+const deleteDatabase = (name: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    request.onerror = () => {
+      clearTimeout(timer);
+      reject(request.error ?? new Error(`deleting ${name} failed`));
+    };
+    request.onblocked = () => {
+      timer ??= setTimeout(
+        () =>
+          reject(
+            new Error(
+              `deleting ${name}: another connection to it stayed open for ${DELETE_LIMIT_MS} ms after it was asked to close`,
+            ),
+          ),
+        DELETE_LIMIT_MS,
+      );
+    };
+  });
+
+// The key of the marker in the database's meta store. The store is the
+// backend's, which reads only its own keys; the host writes this one on a
+// connection of its own, after every file of the data has been fsync()ed,
+// that is committed.
+const MARKER_KEY = "installed";
+
+const idbRequest = <T>(request: IDBRequest<T>): Promise<T> =>
+  new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+const idbStore = (
+  heap: Heap,
+  engine: EngineManifest,
+  readOnlyFlag: number,
+): DataStore => {
+  const database = engineDataDatabase(engine);
+  const prefix = engineDataDatabasePrefix(engine);
+  let backend = 0;
+  return {
+    async installed() {
+      const db = await openExisting(database);
+      if (db === null) return false;
+      try {
+        if (!db.objectStoreNames.contains("meta")) return false;
+        const marker = await idbRequest(
+          db
+            .transaction("meta", "readonly")
+            .objectStore("meta")
+            .get(MARKER_KEY),
+        );
+        return marker === engine.version;
+      } finally {
+        db.close();
+      }
+    },
+    clear: () => deleteDatabase(database),
+    backend(readOnly) {
+      backend = heap.withString(database, (ptr) =>
+        heap.rt._wasmfs_create_idb_backend(ptr, readOnly ? readOnlyFlag : 0),
+      );
+      return backend;
+    },
+    async mark() {
+      const db = await openExisting(database);
+      if (db === null) throw new Error(`${database} is gone`);
+      try {
+        const tx = db.transaction("meta", "readwrite", {
+          durability: "strict",
+        });
+        const committed = new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onabort = () =>
+            reject(tx.error ?? new Error(`marking ${database} aborted`));
+        });
+        tx.objectStore("meta").put(engine.version, MARKER_KEY);
+        await committed;
+      } finally {
+        db.close();
+      }
+    },
+    async others() {
+      // Not Baseline Widely available yet (Firefox has it from 126 only);
+      // without it, other versions' data stays until a host that has it
+      // starts.
+      if (typeof indexedDB.databases !== "function")
+        throw new Error("indexedDB.databases() is missing here");
+      return (await indexedDB.databases())
+        .map(({ name }) => name ?? "")
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => name.slice(prefix.length))
+        .filter(
+          (version) =>
+            version !== "" &&
+            !version.includes("/") &&
+            `${prefix}${version}` !== database,
+        );
+    },
+    remove: (version) => deleteDatabase(`${prefix}${version}`),
+    closed: () =>
+      backend !== 0 && heap.rt._wasmfs_idb_backend_closed(backend) !== 0,
+  };
+};
+
+const nodeStore = async (
+  heap: Heap,
+  engine: EngineManifest,
+  hostPath: string,
+): Promise<DataStore> => {
+  const fs = await nodeFs();
+  const root = `${hostPath}/data`;
+  const own = encodeVersion(engine.version);
+  const dirOf = (version: string): string => `${root}/${version}`;
+  const markerOf = (version: string): string => `${dirOf(version)}/.installed`;
+  // The marker goes first, so that a removal cut short leaves no marker.
+  const remove = async (version: string): Promise<void> => {
+    await fs.rm(markerOf(version), { recursive: true, force: true });
+    await fs.rm(dirOf(version), { recursive: true, force: true });
+  };
+  return {
+    installed: () =>
+      fs.readFile(markerOf(own), "utf8").then(
+        (marker) => marker === engine.version,
+        () => false,
+      ),
+    async clear() {
+      await remove(own);
+      await fs.mkdir(dirOf(own), { recursive: true });
+    },
+    backend: () =>
+      heap.withString(dirOf(own), (ptr) =>
+        heap.rt._wasmfs_create_node_backend(ptr),
+      ),
+    // Through the runtime, as the data was, so that its fsync() orders it
+    // after the data's.
+    mark: async () =>
+      writeSynced(heap, `${engineDataRoot(engine)}/.installed`, engine.version),
+    others: async () =>
+      (await fs.readdir(root).catch(() => [] as string[])).filter(
+        (version) => version !== own,
+      ),
+    remove,
+    closed: () => false,
+  };
+};
+
+// Deletes the data of every other version no host is using. A host using a
+// version holds its data lock shared, so one granted exclusively at once
+// is one no host uses, and no host can start using it until it is let go.
+// Best-effort: a failure is reported, never thrown.
+const collect = async (
+  store: DataStore,
+  engine: EngineManifest,
+): Promise<CollectReport> => {
+  const report: CollectReport = { removed: [], inUse: [] };
+  try {
+    for (const version of await store.others()) {
+      const lock = await requestLock(
+        engineDataLock(engine, version),
+        { mode: "exclusive", ifAvailable: true },
+        performance.now(),
+      );
+      if (lock === null) {
+        report.inUse.push(version);
+        continue;
+      }
+      try {
+        await store.remove(version);
+        report.removed.push(version);
+      } finally {
+        lock.release();
+      }
+    }
+  } catch (error) {
+    report.error = briefly(error);
+  }
+  return report;
+};
+
+// Mounts this version's data at the engine's data directory, installing
+// it first unless its marker says it is there, then lets other versions'
+// data go. A mount in memory is this host's alone and starts empty, so it
+// installs with no lock. Otherwise the host holds the version's data lock,
+// shared, for as long as it runs, and decides and installs under its
+// install lock, so that of hosts starting together one installs and the
+// others then find the marker. An install cut short leaves no marker, and
+// the next host empties the version's storage and installs again, so no
+// partial tree and no other version's file survives, and a host using
+// another version never sees its own data change.
+//
+// The host that installs keeps its read-write backend mounted rather than
+// mount a read-only one as well, since a backend's thread lasts as long as
+// the runtime; it never writes there again.
+const provideData = async (
+  heap: Heap,
+  init: HostInit<WebAssembly.Module>,
+  plan: StoragePlan,
+  held: Held,
+): Promise<() => boolean> => {
+  const { engine, installStallAt } = init;
+  if (plan.mount === "none") return () => false;
+  if (engine.version === "")
+    throw new Error(`engine ${engine.name}'s manifest has no version`);
+  const root = engineDataRoot(engine);
+  const startedAt = performance.now();
+  const stalled =
+    (lock: Pick<HeldLock, "waitMs" | "lockedAt">) =>
+    (bytes: number): void =>
+      post({
+        type: "install",
+        state: "stalled",
+        version: engine.version,
+        lockWaitMs: lock.waitMs,
+        lockedAt: lock.lockedAt,
+        releasedAt: 0,
+        bytes,
+        installMs: performance.now() - startedAt,
+      });
+  if (plan.mount === "memory") {
+    makeDirs(heap, root);
+    const lock = { waitMs: 0, lockedAt: Date.now() };
+    const bytes = await installArchives(
+      heap,
+      engine,
+      installStallAt,
+      stalled(lock),
+    );
+    post({
+      type: "install",
+      state: "installed",
+      version: engine.version,
+      lockWaitMs: lock.waitMs,
+      lockedAt: lock.lockedAt,
+      releasedAt: Date.now(),
+      bytes,
+      installMs: performance.now() - startedAt,
+    });
+    return () => false;
+  }
+
+  const waiting = (lock: string) => (): void => post({ type: "waiting", lock });
+  const dataLock = engineDataLock(engine, encodeVersion(engine.version));
+  held.add(await holdLock(dataLock, "shared", waiting(dataLock)));
+  const installLock = engineInstallLock(engine);
+  const lock = held.add(
+    await holdLock(installLock, "exclusive", waiting(installLock)),
+  );
+  const store =
+    plan.mount === "node"
+      ? await nodeStore(heap, engine, plan.hostPath)
+      : idbStore(heap, engine, init.constants.idbReadOnly);
+  const what = plan.mount;
+  let state: InstallReport["state"];
+  let bytes = 0;
+  if (await store.installed()) {
+    mountAt(heap, store.backend(true), root, what);
+    state = "present";
+  } else {
+    await store.clear();
+    mountAt(heap, store.backend(false), root, what);
+    bytes = await installArchives(heap, engine, installStallAt, stalled(lock));
+    await store.mark();
+    state = "installed";
+  }
+  // Read before letting go, so that a host waiting on the lock can't take
+  // it at an earlier time than this.
+  const releasedAt = Date.now();
+  held.release(lock);
+  post({
+    type: "install",
+    state,
+    version: engine.version,
+    lockWaitMs: lock.waitMs,
+    lockedAt: lock.lockedAt,
+    releasedAt,
+    bytes,
+    installMs: performance.now() - startedAt,
+  });
+  post({ type: "collect", ...(await collect(store, engine)) });
+  return () => store.closed();
 };
 
 // Resolves once the relay has started; a failure after that only reaches
@@ -869,6 +1259,7 @@ const bringUp = async (
   init: HostInit<WebAssembly.Module>,
   createRuntime: CreateRuntime,
   plan: StoragePlan,
+  held: Held,
 ): Promise<Brought> => {
   const { constants } = init;
   const memoryBytes = memoryFor(init.memory, plan, init.engine);
@@ -907,48 +1298,49 @@ const bringUp = async (
   requireRuntime(rt);
   const heap = new Heap(rt, memory);
 
-  const mounted = mount(heap, plan, engineDir(init.engine));
+  const user = await mount(heap, plan, engineDir(init.engine));
   if (plan.mount === "memory")
     post({ type: "storage", state: "ephemeral", message: plan.why });
-  if (plan.mount !== "none") {
-    // A mount in memory is this host's alone and starts empty.
-    const lock =
-      plan.mount === "memory"
-        ? { waitMs: 0, lockedAt: Date.now() }
-        : plan.installLock;
-    const report = await installData(
-      heap,
-      init.engine,
-      lock,
-      init.installStallAt,
-    );
-    // Read before letting go, so that a host waiting on the lock can't take
-    // it at an earlier time than this.
-    const releasedAt = Date.now();
-    if ("release" in lock) lock.release();
-    post({ type: "install", ...report, releasedAt });
-  }
+  const dataClosed = await provideData(heap, init, plan, held);
+  const mounted: Mounted = {
+    mount: plan.mount,
+    closed: () => user.closed() || dataClosed(),
+  };
   return { rt, heap, workers, mounted };
 };
 
 const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   const startedAt = performance.now();
   const control = controlViews(init.control);
-  const { constants } = init;
   const { default: createRuntime } = (await import(init.runtimeUrl)) as {
     default: CreateRuntime;
   };
-  const plan = await planStorage(init.storage, init.engine);
-  let brought: Brought;
+  const held = new Held();
   try {
-    brought = await bringUp(init, createRuntime, plan);
+    await serveFrom(init, control, startedAt, createRuntime, held);
   } catch (error) {
-    // A host that fails to start stays alive to report it, and mustn't keep
-    // the next one from installing.
-    if ("installLock" in plan) plan.installLock.release();
+    held.releaseAll();
     throw error;
   }
-  const { rt, heap, workers, mounted } = brought;
+};
+
+// Starts the runtime and serves requests for good. A host that fails to
+// start stays alive to say why, so its caller lets go of its locks.
+const serveFrom = async (
+  init: HostInit<WebAssembly.Module>,
+  control: ControlViews,
+  startedAt: number,
+  createRuntime: CreateRuntime,
+  held: Held,
+): Promise<void> => {
+  const { constants } = init;
+  const plan = await planStorage(init.storage, init.engine);
+  const { rt, heap, workers, mounted } = await bringUp(
+    init,
+    createRuntime,
+    plan,
+    held,
+  );
   loadSides(heap, init.sides);
 
   const wake = heap.alloc(4);
@@ -1105,6 +1497,7 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   } catch (error) {
     postCrash(control);
     relay.terminate();
+    held.releaseAll();
     post({ type: "crashed", message: await crashCause(error) });
   }
 };

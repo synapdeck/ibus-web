@@ -25,11 +25,14 @@
         # and past it while they all stay busy, which this share doesn't
         # cover.
         glib = 3;
-        # The IndexedDB backend's thread: IndexedDB is asynchronous, so the
+        # The IndexedDB backends' threads: IndexedDB is asynchronous, so each
         # backend runs its calls on a thread of its own, from mount for good.
-        # The Node backend and the memory backend, mounted where there is no
+        # A host mounts two, each over a database of its own: the engine's
+        # own files, and its version's data, which every version keeps apart
+        # so that installing one never touches another in use. The Node
+        # backend and the memory backend, mounted where there is no
         # IndexedDB, run on the calling thread and take none.
-        storage = 1;
+        storage = 2;
         # The spike's side modules' largest burst, spawn(4). An engine's
         # share would come from its manifest.
         engine = 4;

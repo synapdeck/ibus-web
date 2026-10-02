@@ -23,7 +23,7 @@
 // first hosts fails.
 
 import { mkdirSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -222,12 +222,26 @@ try {
   failed ||= !passed(fallback, 1);
   memoryOnly.worker.terminate();
 
+  const installsDir = join(hostDir, "installs");
   const installs: InstallHarness = {
     env: env(10_000, memoryOnly),
     data: testData,
     dataUrl,
+    upgradeUrl: `${server.origin}/data/${testData.upgrade.archive}`,
+    // Node's Web Locks are shared by the process's threads, so the hosts'
+    // Workers' locks are this thread's to request too.
+    lockFree: (name) =>
+      navigator.locks.request(
+        name,
+        { ifAvailable: true },
+        (lock) => lock !== null,
+      ),
+    versions: (installed) =>
+      readdir(join(installsDir, installed.name, "data")).catch(
+        () => [] as string[],
+      ),
     start: (installed: EngineManifest, options = {}) => {
-      const hostPath = join(hostDir, "installs", installed.name);
+      const hostPath = join(installsDir, installed.name);
       mkdirSync(hostPath, { recursive: true });
       const messages: HostMessage[] = [];
       const { worker, host } = launchNodeHost(

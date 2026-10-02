@@ -90,6 +90,8 @@ export interface BuildConstants {
   pumpError: number;
   // ibusweb_wait()'s -ETIMEDOUT.
   waitTimedOut: number;
+  // WASMFS_IDB_READ_ONLY.
+  idbReadOnly: number;
   // struct mallinfo's size, and the offset of uordblks (bytes in use).
   mallinfo: { bytes: number; inUseOffset: number };
   // The least and the most memory the runtime's memory import admits, in
@@ -109,13 +111,17 @@ export interface BuildConstants {
 //    calls.
 export type WaitMode = "runtime" | "runtime-async" | "control";
 
-// What the host mounts at its engine's directory, /engines/<name>.
+// What the host mounts at its engine's directory, /engines/<name>, for the
+// engine's own files, and at its data directory, /engines/<name>/data, for
+// the data its version installs.
 export type Storage =
   // Nothing: the engine's directory doesn't exist.
   | { kind: "none" }
-  // WasmFS's Node backend over hostPath.
+  // WasmFS's Node backend over directories in hostPath, the engine's
+  // directory on the host: user/ for its own files, and data/<version>/
+  // for each version's data.
   | { kind: "node"; hostPath: string }
-  // The engine's IndexedDB database, through the runtime's IndexedDB
+  // The engine's IndexedDB databases, through the runtime's IndexedDB
   // backend, or, where IndexedDB can't be opened, WasmFS's memory backend.
   // withoutIndexedDB is a spike instrument: indexedDB.open() throws in the
   // host, as it does in an opaque origin.
@@ -146,14 +152,20 @@ export const SPIKE_ENGINE: EngineManifest = {
   data: [],
 };
 
-// The test archive as its build describes it (tree.json): its file name, a
-// version derived from its bytes, its unpacked size and the listing an
-// installed tree matches.
-export interface TestData {
+// A test archive as its build describes it: its file name, a version
+// derived from its bytes, its unpacked size and the listing an installed
+// tree matches.
+export interface TestArchive {
   archive: string;
   version: string;
   size: number;
   listing: string;
+}
+
+// The test archives (tree.json): the engine's data, and the next version's,
+// which drops a file and turns another into a directory.
+export interface TestData extends TestArchive {
+  upgrade: TestArchive;
 }
 
 // The directory the spike's engine expects its data at.
@@ -163,7 +175,7 @@ export const SPIKE_DATA_PATH = "/usr/share/spike";
 // archive's version as its own.
 export const withData = (
   engine: EngineManifest,
-  data: TestData,
+  data: TestArchive,
   url: string,
 ): EngineManifest => ({
   ...engine,
@@ -174,25 +186,47 @@ export const withData = (
 export const engineDir = ({ name }: EngineManifest): string =>
   `/engines/${name}`;
 
-// Where an archive's data lands: under the engine's directory, at the path
-// the engine expects it.
+// Where the engine's data is mounted, apart from its own files.
+export const engineDataRoot = (engine: EngineManifest): string =>
+  `${engineDir(engine)}/data`;
+
+// Where an archive's data lands: under the data's mount, at the path the
+// engine expects it.
 export const engineDataDir = (
   engine: EngineManifest,
   { path }: EngineData,
-): string => `${engineDir(engine)}/data${path}`;
+): string => `${engineDataRoot(engine)}${path}`;
 
-// The file whose contents, the engine's version, say its data is installed
-// whole. The host writes it last.
-export const engineMarker = (engine: EngineManifest): string =>
-  `${engineDir(engine)}/.installed`;
+// A version as it appears in database, lock and directory names: no "/",
+// no ":", and never "." or "..".
+export const encodeVersion = (version: string): string =>
+  encodeURIComponent(version).replace(
+    /[!'()*.~]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 
-// The IndexedDB database the engine's directory lives in.
+// The IndexedDB database the engine's own files live in.
 export const engineDatabase = ({ name }: EngineManifest): string =>
   `ibus-web/${name}`;
 
-// The Web Lock an engine's data is installed under.
-export const engineInstallLock = ({ name }: EngineManifest): string =>
-  `ibus-web:install:${name}`;
+// The prefix of the IndexedDB databases that hold the engine's data, one
+// per version; the encoded version follows it.
+export const engineDataDatabasePrefix = ({ name }: EngineManifest): string =>
+  `ibus-web/${name}/data/`;
+
+export const engineDataDatabase = (engine: EngineManifest): string =>
+  `${engineDataDatabasePrefix(engine)}${encodeVersion(engine.version)}`;
+
+// The Web Lock a version's data is installed under, held exclusively.
+export const engineInstallLock = (engine: EngineManifest): string =>
+  `ibus-web:install:${engine.name}:${encodeVersion(engine.version)}`;
+
+// The Web Lock every host using a version's data holds, shared, for as long
+// as it runs; a host takes it exclusively to delete that version's data.
+export const engineDataLock = (
+  { name }: EngineManifest,
+  encodedVersion: string,
+): string => `ibus-web:data:${name}:${encodedVersion}`;
 
 // The engine's data's size: what the host adds to the runtime's memory when
 // the data sits in it.
@@ -246,8 +280,8 @@ export interface HostFeatures {
 export type StorageState = "ephemeral" | "closed";
 
 // How the host found the engine's data at start: "installed", it installed
-// it; "present", the marker said this version was installed already;
-// "stalled", the install stopped where HostInit.installStallAt said.
+// it; "present", the version's data was installed already; "stalled", the
+// install stopped where HostInit.installStallAt said.
 // lockWaitMs is how long the host waited for the install lock; lockedAt and
 // releasedAt, when it took and let go of it, in Date.now() milliseconds,
 // which hosts share; bytes, the archive bytes fed.
@@ -261,10 +295,23 @@ export interface InstallReport {
   installMs: number;
 }
 
+// What the host did with other versions' data once its own was mounted:
+// the encoded versions it deleted, those another host still uses, and why
+// it couldn't look, if it couldn't.
+export interface CollectReport {
+  removed: string[];
+  inUse: string[];
+  error?: string;
+}
+
 export type HostMessage =
   | { type: "ready"; startupMs: number; features: HostFeatures }
   | { type: "storage"; state: StorageState; message: string }
   | ({ type: "install" } & InstallReport)
+  | ({ type: "collect" } & CollectReport)
+  // A spike instrument: the host's request for the lock wasn't granted at
+  // once, so it is waiting.
+  | { type: "waiting"; lock: string }
   | { type: "error"; message: string }
   | { type: "crashed"; message: string };
 

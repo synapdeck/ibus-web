@@ -7,12 +7,16 @@
 // an install lock, of its own, named after it.
 
 import {
+  encodeVersion,
   engineDataDir,
-  engineMarker,
+  engineDataLock,
+  engineInstallLock,
   withData,
+  type CollectReport,
   type EngineManifest,
   type HostMessage,
   type InstallReport,
+  type TestArchive,
   type TestData,
 } from "./control.ts";
 import {
@@ -34,15 +38,21 @@ export interface InstallHost {
 
 export interface InstallHarness {
   env: Env;
-  // The test archive, and the URL hosts fetch it from.
+  // The test archives, and the URLs hosts fetch them from.
   data: TestData;
   dataUrl: string;
+  upgradeUrl: string;
   // Starts a host for engine on the storage every host for that engine
   // shares.
   start(
     engine: EngineManifest,
     options?: { installStallAt?: number },
   ): InstallHost;
+  // Whether no host holds the lock or waits for it: a request for it,
+  // exclusive, is granted at once, and let go.
+  lockFree(name: string): Promise<boolean>;
+  // The versions, encoded, whose data the engine's storage keeps.
+  versions(engine: EngineManifest): Promise<string[]>;
 }
 
 export interface InstallScenario {
@@ -75,44 +85,141 @@ const installOf = (host: InstallHost): InstallReport | undefined =>
       message.type === "install" && message.state !== "stalled",
   );
 
+const collectOf = (host: InstallHost): CollectReport | undefined =>
+  host.messages.find(
+    (message): message is { type: "collect" } & CollectReport =>
+      message.type === "collect",
+  );
+
 const summary = (report: InstallReport | undefined): string =>
   report === undefined
     ? "no install report"
-    : `${report.state}: ${report.bytes} bytes in ${round(report.installMs)} ms, ` +
+    : `${report.state} ${report.version}: ${report.bytes} bytes in ${round(report.installMs)} ms, ` +
       `after waiting ${round(report.lockWaitMs)} ms for the lock`;
 
-// Whether the engine's installed tree is the archive's, and its marker
-// holds the archive's version.
+const collected = (report: CollectReport | undefined): string =>
+  report === undefined
+    ? "no collect report"
+    : `removed [${report.removed.join(", ")}], in use [${report.inUse.join(", ")}]` +
+      (report.error === undefined ? "" : `; ${report.error}`);
+
+// The engine's next version, whose data is the upgrade archive.
+const upgradeOf = (
+  harness: InstallHarness,
+  engine: EngineManifest,
+): EngineManifest => withData(engine, harness.data.upgrade, harness.upgradeUrl);
+
+// The engine's installed tree as the host sees it, and whether it is
+// archive's.
 const inspect = async (
   harness: InstallHarness,
   engine: EngineManifest,
   client: Client,
-): Promise<{ pass: boolean; tree: string; marker: string }> => {
-  const { env, data } = harness;
+  archive: TestArchive = harness.data,
+): Promise<{ pass: boolean; tree: string; text: string | undefined }> => {
+  const { env } = harness;
   const dir = engineDataDir(engine, engine.data[0]!);
   const tree = replyFile(
     await client.call(env.ops.listTree, env.utf8(dir)),
     env,
   );
-  const marker = replyFile(
-    await client.call(env.ops.readFile, env.utf8(engineMarker(engine))),
-    env,
-  );
   return {
-    pass: tree.text === data.listing && marker.text === data.version,
+    pass: tree.text === archive.listing,
     tree:
-      tree.text === data.listing
-        ? "the archive's"
+      tree.text === archive.listing
+        ? `${archive.archive}'s`
         : (tree.text ?? `error ${tree.status}`),
-    marker: marker.text ?? `error ${marker.status}`,
+    text: tree.text,
   };
+};
+
+// Polls until the message arrives, or gives up after limitMs.
+const waitForMessage = async <T extends HostMessage>(
+  harness: InstallHarness,
+  host: InstallHost,
+  match: (message: HostMessage) => message is T,
+  limitMs: number,
+): Promise<T | undefined> => {
+  const { env } = harness;
+  const deadline = env.now() + limitMs;
+  let early = false;
+  void host.ready.then(
+    () => {},
+    () => {
+      early = true;
+    },
+  );
+  for (;;) {
+    const found = host.messages.find(match);
+    if (found !== undefined || early || env.now() >= deadline) return found;
+    await env.sleep(10);
+  }
+};
+
+const LOCK_FREE_LIMIT_MS = 10_000;
+
+// Whether the lock comes free within LOCK_FREE_LIMIT_MS: a Worker that is
+// terminated lets go of its locks once it is gone, which in a browser is
+// after terminate() returns.
+const whenFree = async (
+  harness: InstallHarness,
+  name: string,
+): Promise<boolean> => {
+  const deadline = harness.env.now() + LOCK_FREE_LIMIT_MS;
+  for (;;) {
+    if (await harness.lockFree(name)) return true;
+    if (harness.env.now() >= deadline) return false;
+    await harness.env.sleep(10);
+  }
+};
+
+const STALL_LIMIT_MS = 30_000;
+
+// Starts a host for engine that stalls halfway through installing, and
+// waits until it has.
+const stalledHost = async (
+  harness: InstallHarness,
+  engine: EngineManifest,
+  started: InstallHost[],
+  size: number,
+): Promise<{
+  host: InstallHost;
+  stallAt: number;
+  stalled: string;
+  bytes?: number;
+}> => {
+  const stallAt = Math.floor(size / 2);
+  const host = harness.start(engine, { installStallAt: stallAt });
+  started.push(host);
+  const stalled = await waitForMessage(
+    harness,
+    host,
+    (message): message is { type: "install" } & InstallReport =>
+      message.type === "install" && message.state === "stalled",
+    STALL_LIMIT_MS,
+  );
+  if (stalled !== undefined)
+    return {
+      host,
+      stallAt,
+      stalled: `after ${stalled.bytes} bytes`,
+      bytes: stalled.bytes,
+    };
+  const why = await Promise.race([
+    host.ready.then(
+      () => "ready, without stalling",
+      (error: unknown) => String(error),
+    ),
+    harness.env.sleep(0).then(() => `no stall in ${STALL_LIMIT_MS} ms`),
+  ]);
+  return { host, stallAt, stalled: why };
 };
 
 const installFresh: InstallScenario = {
   name: "install-fresh",
   criterion:
     "a host starting on storage that holds nothing installs the engine's data before it is " +
-    "ready: the tree is the archive's, and the marker holds its version",
+    "ready, and the tree is the archive's",
   async run(harness, engine, started): Promise<Outcome> {
     const host = harness.start(engine);
     started.push(host);
@@ -121,11 +228,7 @@ const installFresh: InstallScenario = {
     const seen = await inspect(harness, engine, client);
     return {
       pass: report?.state === "installed" && seen.pass,
-      measurements: {
-        install: summary(report),
-        tree: seen.tree,
-        marker: seen.marker,
-      },
+      measurements: { install: summary(report), tree: seen.tree },
     };
   },
 };
@@ -155,7 +258,6 @@ const installSkip: InstallScenario = {
         first: summary(firstReport),
         second: summary(secondReport),
         tree: seen.tree,
-        marker: seen.marker,
       },
     };
   },
@@ -192,54 +294,26 @@ const installConcurrent: InstallScenario = {
             ? `${present[0]!.lockedAt - installed[0]!.releasedAt} ms after`
             : "no single installer",
         trees: seen.map(({ tree }) => tree),
-        markers: seen.map(({ marker }) => marker),
       },
     };
   },
 };
 
-const STALL_LIMIT_MS = 30_000;
-
 const installInterrupted: InstallScenario = {
   name: "install-interrupted",
   criterion:
     "a host whose Worker is terminated halfway through installing leaves no marker: the next " +
-    "host to start installs again, over what the first left, and the tree is the archive's, " +
-    "whole and correct",
+    "host to start installs again, and the tree is the archive's, whole and correct",
   async run(harness, engine, started): Promise<Outcome> {
-    const { env, data } = harness;
-    const stallAt = Math.floor(data.size / 2);
-    const first = harness.start(engine, { installStallAt: stallAt });
-    started.push(first);
-    const failed = first.ready.then(
-      () => "ready, without stalling",
-      (error: unknown) => String(error),
+    const first = await stalledHost(
+      harness,
+      engine,
+      started,
+      harness.data.size,
     );
-    const deadline = env.now() + STALL_LIMIT_MS;
-    let stalled: InstallReport | undefined;
-    let early: string | undefined;
-    void failed.then((why) => {
-      early = why;
-    });
-    while (
-      stalled === undefined &&
-      early === undefined &&
-      env.now() < deadline
-    ) {
-      stalled = first.messages.find(
-        (message): message is { type: "install" } & InstallReport =>
-          message.type === "install" && message.state === "stalled",
-      );
-      if (stalled === undefined) await env.sleep(10);
-    }
-    if (stalled === undefined)
-      return {
-        pass: false,
-        measurements: {
-          stalled: early ?? `no stall in ${STALL_LIMIT_MS} ms`,
-        },
-      };
-    await first.terminate();
+    if (first.bytes === undefined)
+      return { pass: false, measurements: { stalled: first.stalled } };
+    await first.host.terminate();
     const second = harness.start(engine);
     started.push(second);
     const client = await ready(harness, second);
@@ -247,12 +321,283 @@ const installInterrupted: InstallScenario = {
     const seen = await inspect(harness, engine, client);
     return {
       pass:
-        stalled.bytes === stallAt && report?.state === "installed" && seen.pass,
+        first.bytes === first.stallAt &&
+        report?.state === "installed" &&
+        seen.pass,
       measurements: {
-        stalled: `after ${stalled.bytes} bytes`,
+        stalled: first.stalled,
         next: summary(report),
         tree: seen.tree,
-        marker: seen.marker,
+      },
+    };
+  },
+};
+
+const WAITING_LIMIT_MS = 30_000;
+
+// Under Node, a request already queued when the holder's Worker is
+// terminated is the case the host's rounds of requests are for.
+const installInterruptedQueued: InstallScenario = {
+  name: "install-interrupted-queued",
+  criterion:
+    "a host already waiting on the install lock when the installing host's Worker is " +
+    "terminated halfway gets the lock, installs again, and the tree is the archive's",
+  async run(harness, engine, started): Promise<Outcome> {
+    const first = await stalledHost(
+      harness,
+      engine,
+      started,
+      harness.data.size,
+    );
+    if (first.bytes === undefined)
+      return { pass: false, measurements: { stalled: first.stalled } };
+    const second = harness.start(engine);
+    started.push(second);
+    const lock = engineInstallLock(engine);
+    const waiting = await waitForMessage(
+      harness,
+      second,
+      (message): message is { type: "waiting"; lock: string } =>
+        message.type === "waiting" && message.lock === lock,
+      WAITING_LIMIT_MS,
+    );
+    if (waiting === undefined)
+      return {
+        pass: false,
+        measurements: {
+          stalled: first.stalled,
+          waiting: `the second host never waited on ${lock}`,
+        },
+      };
+    await first.host.terminate();
+    const client = await ready(harness, second);
+    const report = installOf(second);
+    const seen = await inspect(harness, engine, client);
+    return {
+      pass: report?.state === "installed" && seen.pass,
+      measurements: {
+        stalled: first.stalled,
+        waiting: `on ${waiting.lock}`,
+        next: summary(report),
+        tree: seen.tree,
+      },
+    };
+  },
+};
+
+const upgradeWhileRunning: InstallScenario = {
+  name: "upgrade-while-running",
+  criterion:
+    "with a host of one version running, a host of the next installs that version's data " +
+    "apart, leaves the first's alone since it is in use, and the first still reads its own " +
+    "tree; once the first is gone, the next host to start deletes its version's data",
+  async run(harness, engine, started): Promise<Outcome> {
+    const next = upgradeOf(harness, engine);
+    const old = harness.start(engine);
+    started.push(old);
+    const oldClient = await ready(harness, old);
+    const upgrading = harness.start(next);
+    started.push(upgrading);
+    const upgradingClient = await ready(harness, upgrading);
+    const oldSeen = await inspect(harness, engine, oldClient);
+    const nextSeen = await inspect(
+      harness,
+      next,
+      upgradingClient,
+      harness.data.upgrade,
+    );
+    const oldVersion = encodeVersion(engine.version);
+    const nextVersion = encodeVersion(next.version);
+    const kept = collectOf(upgrading);
+    await old.terminate();
+    const freed = await whenFree(harness, engineDataLock(engine, oldVersion));
+    const later = harness.start(next);
+    started.push(later);
+    const laterClient = await ready(harness, later);
+    const laterSeen = await inspect(
+      harness,
+      next,
+      laterClient,
+      harness.data.upgrade,
+    );
+    const removed = collectOf(later);
+    const versions = await harness.versions(engine);
+    return {
+      pass:
+        installOf(old)?.state === "installed" &&
+        installOf(upgrading)?.state === "installed" &&
+        installOf(later)?.state === "present" &&
+        oldSeen.pass &&
+        nextSeen.pass &&
+        laterSeen.pass &&
+        kept?.inUse.includes(oldVersion) === true &&
+        kept.removed.length === 0 &&
+        freed &&
+        removed?.removed.includes(oldVersion) === true &&
+        versions.length === 1 &&
+        versions[0] === nextVersion,
+      measurements: {
+        old: summary(installOf(old)),
+        upgrading: summary(installOf(upgrading)),
+        upgradingCollected: collected(kept),
+        oldTreeAfterUpgrade: oldSeen.tree,
+        upgradedTree: nextSeen.tree,
+        oldLockFreed: freed,
+        later: summary(installOf(later)),
+        laterCollected: collected(removed),
+        laterTree: laterSeen.tree,
+        versionsKept: versions.join(", "),
+      },
+    };
+  },
+};
+
+const interruptedUpgradeThenOld: InstallScenario = {
+  name: "interrupted-upgrade-then-old",
+  criterion:
+    "a host of the next version terminated halfway through installing leaves the installed " +
+    "version as it was: a host of that version started next finds it present and reads its " +
+    "tree whole",
+  async run(harness, engine, started): Promise<Outcome> {
+    const next = upgradeOf(harness, engine);
+    const first = harness.start(engine);
+    started.push(first);
+    await ready(harness, first);
+    await first.terminate();
+    const upgrading = await stalledHost(
+      harness,
+      next,
+      started,
+      harness.data.upgrade.size,
+    );
+    if (upgrading.bytes === undefined)
+      return { pass: false, measurements: { stalled: upgrading.stalled } };
+    await upgrading.host.terminate();
+    const old = harness.start(engine);
+    started.push(old);
+    const client = await ready(harness, old);
+    const seen = await inspect(harness, engine, client);
+    return {
+      pass:
+        installOf(first)?.state === "installed" &&
+        installOf(old)?.state === "present" &&
+        seen.pass,
+      measurements: {
+        first: summary(installOf(first)),
+        upgradeStalled: upgrading.stalled,
+        old: summary(installOf(old)),
+        oldCollected: collected(collectOf(old)),
+        tree: seen.tree,
+      },
+    };
+  },
+};
+
+// The listings' paths that the upgrade drops, and those it turns from a
+// file into a directory.
+const changes = (
+  from: TestArchive,
+  to: TestArchive,
+): { dropped: string[]; turned: string[] } => {
+  const entries = (archive: TestArchive) =>
+    new Map(
+      archive.listing
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => {
+          const [path = "", kind = ""] = line.split("\t");
+          return [path, kind.startsWith("d") ? "d" : "f"] as const;
+        }),
+    );
+  const before = entries(from);
+  const after = entries(to);
+  return {
+    dropped: [...before.keys()].filter((path) => !after.has(path)),
+    turned: [...before].flatMap(([path, kind]) =>
+      kind === "f" && after.get(path) === "d" ? [path] : [],
+    ),
+  };
+};
+
+const staleFile: InstallScenario = {
+  name: "stale-file",
+  criterion:
+    "installing the next version over storage holding the last leaves none of the last's " +
+    "files: one the next archive drops is absent, and one it turns into a directory is a " +
+    "directory; the tree is the next archive's",
+  async run(harness, engine, started): Promise<Outcome> {
+    const next = upgradeOf(harness, engine);
+    const { dropped, turned } = changes(harness.data, harness.data.upgrade);
+    if (dropped.length === 0 || turned.length === 0)
+      throw new Error(
+        "the upgrade archive must drop a file and turn one into a directory",
+      );
+    const first = harness.start(engine);
+    started.push(first);
+    await ready(harness, first);
+    await first.terminate();
+    const upgrading = harness.start(next);
+    started.push(upgrading);
+    const client = await ready(harness, upgrading);
+    const seen = await inspect(harness, next, client, harness.data.upgrade);
+    const lines = new Set((seen.text ?? "").split("\n"));
+    const has = (path: string, kind: "d" | "f"): boolean =>
+      [...lines].some((line) => line.startsWith(`${path}\t${kind}`));
+    const absent = dropped.filter((path) => !has(path, "f") && !has(path, "d"));
+    const directories = turned.filter((path) => has(path, "d"));
+    return {
+      pass:
+        installOf(upgrading)?.state === "installed" &&
+        seen.pass &&
+        absent.length === dropped.length &&
+        directories.length === turned.length,
+      measurements: {
+        upgrading: summary(installOf(upgrading)),
+        dropped: `${absent.length} of [${dropped.join(", ")}] absent`,
+        turned: `${directories.length} of [${turned.join(", ")}] directories`,
+        tree: seen.tree,
+      },
+    };
+  },
+};
+
+const failedStartReleasesLocks: InstallScenario = {
+  name: "failed-start-releases-locks",
+  criterion:
+    "a host whose start fails, here for an archive that isn't there, stays alive to say " +
+    "why and holds none of the engine's locks; the next host installs",
+  async run(harness, engine, started): Promise<Outcome> {
+    const missing = harness.dataUrl.replace(/[^/]*$/, "missing.tar");
+    const broken: EngineManifest = {
+      ...engine,
+      data: engine.data.map((data) => ({ ...data, url: missing })),
+    };
+    const failing = harness.start(broken);
+    started.push(failing);
+    const why = await ready(harness, failing).then(
+      () => null,
+      (error: unknown) => String(error).split("\n")[0]!,
+    );
+    const locks = [
+      engineInstallLock(engine),
+      engineDataLock(engine, encodeVersion(engine.version)),
+    ];
+    const free = await Promise.all(locks.map((name) => harness.lockFree(name)));
+    const next = harness.start(engine);
+    started.push(next);
+    const client = await ready(harness, next);
+    const seen = await inspect(harness, engine, client);
+    return {
+      pass:
+        why?.includes("404") === true &&
+        free.every((ok) => ok) &&
+        installOf(next)?.state === "installed" &&
+        seen.pass,
+      measurements: {
+        failed: why ?? "started",
+        locks: locks.map((name, i) => `${name}: ${free[i] ? "free" : "held"}`),
+        next: summary(installOf(next)),
+        tree: seen.tree,
       },
     };
   },
@@ -263,6 +608,11 @@ export const installScenarios: readonly InstallScenario[] = [
   installSkip,
   installConcurrent,
   installInterrupted,
+  installInterruptedQueued,
+  upgradeWhileRunning,
+  interruptedUpgradeThenOld,
+  staleFile,
+  failedStartReleasesLocks,
 ];
 
 // Runs each scenario on an engine of its own, terminating the hosts it

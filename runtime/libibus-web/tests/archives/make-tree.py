@@ -5,10 +5,14 @@
 refuse, and the listing an installed tree must match.
 
 Usage: make-tree.py TREE OUT
+       make-tree.py --upgrade TREE OUT
+       make-tree.py --corrupt OUT
 
 TREE receives the tree, from which the caller builds OUT/tree.tar with GNU
 tar; this script writes the refused archives and OUT/listing.txt, and
-OUT/corrupt.tar once tree.tar exists (run with --corrupt).
+OUT/corrupt.tar once tree.tar exists (run with --corrupt). With --upgrade,
+TREE receives the next version's tree, which drops a file and turns
+another into a directory, and OUT/listing-upgrade.txt its listing.
 """
 
 import hashlib
@@ -32,6 +36,13 @@ FILES = {
 }
 EMPTY_DIRS = ["share/empty"]
 
+# The next version: share/dict/blocks.bin is gone, and README is a
+# directory.
+UPGRADE_FILES = {
+    **{name: contents for name, contents in FILES.items() if name not in ("README", "share/dict/blocks.bin")},
+    "README/en.txt": b"Data the installer's tests extract, upgraded.\n",
+}
+
 
 def pseudo_random(name, size):
     """Bytes no two files share and no chunk of zeros could pass for, since
@@ -44,8 +55,8 @@ def pseudo_random(name, size):
     return bytes(out[:size])
 
 
-def write_tree(root):
-    for name, contents in FILES.items():
+def write_tree(root, files=FILES):
+    for name, contents in files.items():
         path = os.path.join(root, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         data = contents if isinstance(contents, bytes) else pseudo_random(name, contents)
@@ -113,6 +124,12 @@ def write_corrupt(out):
 if __name__ == "__main__":
     if sys.argv[1] == "--corrupt":
         write_corrupt(sys.argv[2])
+    elif sys.argv[1] == "--upgrade":
+        tree, out = sys.argv[2:4]
+        write_tree(tree, UPGRADE_FILES)
+        os.makedirs(out, exist_ok=True)
+        with open(f"{out}/listing-upgrade.txt", "w") as f:
+            f.write(listing(tree))
     else:
         tree, out = sys.argv[1:3]
         write_tree(tree)

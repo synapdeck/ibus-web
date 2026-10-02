@@ -12,6 +12,7 @@ import {
   createControl,
   engineDatabase,
   engineDataBytes,
+  engineDataDatabasePrefix,
   engineDir,
   SPIKE_ENGINE,
   withData,
@@ -317,6 +318,20 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       env: envFor([]),
       data,
       dataUrl,
+      upgradeUrl: new URL(data.upgrade.archive, dataUrl).href,
+      lockFree: (name) =>
+        navigator.locks.request(
+          name,
+          { ifAvailable: true },
+          (lock) => lock !== null,
+        ),
+      versions: async (installed) => {
+        const prefix = engineDataDatabasePrefix(installed);
+        return (await indexedDB.databases())
+          .map(({ name }) => name ?? "")
+          .filter((name) => name.startsWith(prefix))
+          .map((name) => name.slice(prefix.length));
+      },
       start: (installed, options = {}) => {
         const messages: HostMessage[] = [];
         const { worker, started } = launch(installed, options, messages);

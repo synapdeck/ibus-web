@@ -73,7 +73,8 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
-          $CC $($PKG_CONFIG --cflags libibus-web) -c constants.c -o constants.o
+          $CC $($PKG_CONFIG --cflags libibus-web) -I${runtime.wasmfsIdb}/include \
+            -c constants.c -o constants.o
           $CXX ${toolchain.testMainFlags} constants.o -o constants.js
           node constants.js |
             jq -c --argjson minimum ${toString runtime.memory.minimum} \
@@ -121,6 +122,11 @@
       browserTimeout = "timeout --kill-after=10 900";
     in
     {
+      # The IndexedDB backend's header comes with no pkg-config module.
+      ibusWeb.toolchain.clangdPathFlags."tests/spikes/runtime/sides/constants\\.c" = [
+        "-I${runtime.wasmfsIdb}/include"
+      ];
+
       # The asserting runtime loads every spike side module and runs each
       # operation once.
       checks.runtime-spike-smoke =
