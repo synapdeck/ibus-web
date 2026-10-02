@@ -836,6 +836,149 @@ keep.
   the read waits for the page, not for its bytes, so the cost is per
   keystroke that reads, however little.
 
+## Memory growth
+
+GLib's tests, linked with memory growth, lost a pthread now and then to
+`RuntimeError: memory access out of bounds` (13 of 300 runs of the
+many-thread tests under load) and never did with a fixed memory. This part
+finds out why, and whether the runtime can grow its memory.
+`nix run .#runtime-spike-memory` runs all of it (parts `growrace`,
+`emufutex`, `node`, `browsers`; counts from `RUNS`, `BROWSER_RUNS`,
+`PARALLEL`, `EMUFUTEX_PARALLEL` and `GROWRACE_RUNS`). Node 24.19.0 (V8
+13.6.233.17), Chromium 149 and Firefox 151 (Playwright's builds), Bun 1.3.13;
+32 cores, shared with other work.
+
+### Root cause: V8 bounds-checks atomics against a stale length
+
+`growrace` (`tests/spikes/memory/`) needs neither Emscripten nor GLib: the
+page grows a shared memory a page at a time and, after each growth,
+`Atomics.store`s the new page's last word's address at address 0; sixteen
+Workers spin in WebAssembly on an atomic load of address 0 and increment
+each new address they see. A reader only touches memory a sequentially
+consistent load told it was grown, so none should trap. Races in which one
+did, of 20 per cell, 8192 growths each:
+
+| Engine | plain load and store | atomic RMW | atomic RMW in a callee | atomic RMW after a JS call | atomic RMW, never grown |
+| --- | --- | --- | --- | --- | --- |
+| Node, default | 0 | **20** (42 readers) | 0 | 0 | 0 |
+| Node, `--liftoff --no-wasm-tier-up` | 0 | **20** (34 readers) | 0 | 0 | 0 |
+| Node, `--no-liftoff` | 0 | 0 | 0 | 0 | 0 |
+| Chromium 149 | 0 | **20** (29 readers) | 0 | 0 | 0 |
+| Firefox 151 | 0 | 0 | 0 | 0 | 0 |
+| Bun 1.3.13 (JavaScriptCore) | 0 | 0 | 0 | 0 | 0 |
+
+The same race in C through Emscripten's pthreads (`growrace.c`) trapped in
+5 of 5 runs under Node. Only V8 traps, only on atomic accesses, only in
+Liftoff code, and only when the access follows the load with no call
+between them. A call is a stack check, where V8 handles interrupts, and V8
+told other threads about a growth through an interrupt: each instance kept
+its own copy of a shared memory's length for bounds checks, which a plain
+access doesn't need (it relies on the guard region) and an atomic one does.
+V8 knows: issues 529880019 and 533026477, fixed on V8's main branch by CLs
+8466625 (bounds checks on shared memory read the backing store's length)
+and 8480479 (growth orders that length `seq_cst`), merged 2026-09-29 and
+-30. Both are in V8 15.7, so Chrome 157 (stable 2026-11-03); no Node release
+line has them (Node 24: V8 13.6, 25: 14.1, 26: 14.6). Details in
+`docs/upstream/v8-liftoff-atomics-grown-shared-memory.md`.
+
+### The workloads, growing and fixed
+
+Each run is a Worker host of its own with 100 threads alive at once on a
+pool of 103 (no top-up during a run): *mem-stress*, without GLib's code,
+threads that each round keep one more block of fresh memory, hand one to a
+neighbour that increments a word of it atomically, and have JavaScript fill
+another; *glib-stress*, GLib's `1bit-emufutex` workload (threads from
+`g_rand_new()` taking random bit locks over the emulated futex). *Growth* is
+the runtime linked with `-sGROWABLE_ARRAYBUFFERS=1`, its memory made at the
+32 MiB minimum with a 2 GiB maximum; *growable* the same with `=2`; *fixed*
+a 512 MiB memory whose maximum is its size. Node ran 6 runs at once,
+browsers 2 pages at once. Runs in which a thread trapped:
+
+| Configuration | Node (of 300) | Chromium (of 50) | Firefox (of 50) |
+| --- | --- | --- | --- |
+| fixed, mem-stress | 0 | 0 | 0 |
+| fixed, glib-stress | 0 | 0 | 0 |
+| growth, mem-stress | **3** | 0 | 0 |
+| growth, glib-stress | 0 | 0 | 0 |
+| growable (`=2`), mem-stress | not run (Node 24 lacks it) | 0 | no result |
+| growable (`=2`), glib-stress | not run | 0 | no result |
+
+GLib's own `1bit-emufutex` test, rebuilt from today's GLib tests with only
+its memory flags changed, 32 copies at once under Node: with growth
+(`-sALLOW_MEMORY_GROWTH=1 -sGROWABLE_ARRAYBUFFERS=1`) a thread trapped in
+**15 of 300** runs, 11 of them at one site; fixed at 104 MiB, 0 of 300.
+All three Node traps in mem-stress were at one instruction, the
+`i32.atomic.rmw.add` by which a thread increments a word of a block its
+neighbour had just allocated. The browsers' workloads didn't trap in 50 runs,
+but Chromium's V8 has the same bug (growrace traps there every time): fewer
+runs, two at a time, give the race fewer chances. Firefox 151's `=2` build
+never produced a result (stopped after 4 runs of 240 s), as expected of a
+Firefox before 154, where a growable shared buffer doesn't survive
+`postMessage` to a pthread's Worker (not traced further). In an earlier
+batch Firefox's browser process went away once during growth, glib-stress
+(not reproduced; this batch's 50 such runs passed).
+
+### What growth and its polling cost
+
+One `memory-costs` run per build: the first 64 MiB allocation, which a
+32 MiB memory must grow for, then the same again, and 10,000 calls into
+JavaScript that write 64 bytes into the memory (`getentropy`), which a build
+that polls for growth checks its views for first. *Unpolled* is a fixed
+512 MiB link without growth support, for comparison.
+
+| | Chromium | Firefox | Node (loaded machine) |
+| --- | --- | --- | --- |
+| first 64 MiB malloc: fixed / growth | 15 µs / 240 µs | 20 µs / 3.4 ms | 26 µs / 443 µs |
+| touching it, any build | 10–13 ms | 8.6–8.8 ms | 11–27 ms |
+| `getentropy` call: fixed / growth / `=2` / unpolled | 880 / 1049 / 1041 / 911 ns | 732 / 710 / no result / 704 ns | 2980 / 2581 / not run / 1231 ns |
+| dispatch p50: fixed / growth / `=2` / unpolled | 15 / 15 / 10 / 15 µs | 20 / 20 / no result / 20 µs | 10.5 / 11.9 / not run / 6.9 µs |
+
+Growth costs once per growth, 0.2–0.4 ms in V8 and 3.4 ms in Firefox for
+64 MiB; polling (Firefox's and Node's `=1` path) costs nothing measurable
+per call next to run-to-run noise. Node's figures come from a machine busy
+with other work and vary by 2× between batches.
+
+### What a pool Worker costs
+
+`worker-memory` adds 20 Workers to a fixed-memory host's pool, each loading
+the runtime, then runs a first thread on each, which loads the side modules
+into it; two batches, the spike's and the check's. Growth of the browser's
+processes (proportional set size, from `/proc`) or of Node's process
+(resident set), per Worker:
+
+| | Chromium | Firefox | Node |
+| --- | --- | --- | --- |
+| per added pool Worker | 17.8–17.9 MiB | 11.7–15.6 MiB | 41.4–41.8 MiB |
+| per Worker's first thread | 4.4–4.7 MiB | 2.8–3.1 MiB | 9.7–9.8 MiB |
+
+The spike's pool of 11 Workers costs about 200 MiB in Chromium and up to
+170 MiB in Firefox, 250 and 200 MiB once each has run a thread, on top of
+the runtime's memory.
+
+### Decision
+
+The approved rule was growth with `-sGROWABLE_ARRAYBUFFERS=1` unless growth
+traps in some engine. It traps in V8, and no Node line has the fix, so **each
+runtime's memory is fixed**, made by the host:
+
+- The runtime is linked to import its memory (`wasmMemory`), any size from
+  `ibusWeb.runtime.memory.minimum` (32 MiB) to 2 GiB, and refuses to start
+  without one (`checks.ibus-runtime-load` asserts it). `ALLOW_MEMORY_GROWTH`
+  stays on only so the import accepts any size; the host makes the memory
+  with its maximum at its size, so it never grows, and a full heap aborts
+  (`-sABORTING_MALLOC=1`). Growth support makes Emscripten's JavaScript
+  check its views before each access, which the *fixed* and *unpolled*
+  costs above show to cost nothing measurable in the browsers (Node's
+  loaded batch is too noisy to tell).
+- The size is the engine manifest's `memory` field (spec §5.3, §8), not a
+  link per engine, so one compiled runtime serves every engine. The Worker
+  host makes `new WebAssembly.Memory({ initial, maximum: initial, shared:
+  true })` from it.
+- `ibusWeb.runtime.link { pname, extraFlags }` links the runtime with other
+  flags; the spike's growth builds use it.
+- `checks.runtime-spike-memory` runs both workloads on the fixed memory,
+  under Node and in both browsers, and fails on any trap.
+
 ## Conclusions for the design
 
 - **R2's wake question is settled:** option 2, as decided above. Emscripten
@@ -909,12 +1052,15 @@ keep.
   and one relay that, on each ring, scans the engines' sequence words and
   bumps the WASM wake word of each engine whose sequence moved. It would need
   every engine's memory, so it is still host-side, shared by the hosts.
-- **For Task 7 (memory):** every pool Worker holds an instance of the
-  runtime (about 45 MiB under Node, unmeasured in browsers), and the spike's
-  pool is 11, 3 of them spares. Adding a Worker costs 18–20 ms (three
-  in 54–60 ms, released runtime), and its first thread about 12 ms more in
-  Chromium, 2–5 ms in Firefox, since each loads the runtime and every side
-  module.
+- **Memory is fixed per Worker, made by the host** (Memory growth, above):
+  growth traps in V8, whose fix is in no Node release line. The runtime
+  imports a memory of the engine manifest's `memory` bytes whose maximum is
+  its size, and won't start without one. Every pool Worker holds an instance
+  of the runtime: about 18 MiB in Chromium, 12–16 MiB in Firefox, 42 MiB
+  under Node, and its first thread 3–10 MiB more. Adding a Worker costs
+  18–20 ms (three in 54–60 ms, released runtime), and its first thread about
+  12 ms more in Chromium, 2–5 ms in Firefox, since each loads the runtime and
+  every side module.
 - **Exceptions:** `-fwasm-exceptions` emits the legacy encoding, which Firefox
   warns is deprecated. `-sWASM_LEGACY_EXCEPTIONS=0` emits the standard one,
   Baseline 2025 (newly available) and supported by Node v24.20; whether and
