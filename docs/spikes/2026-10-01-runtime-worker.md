@@ -14,7 +14,7 @@
 ## Setup
 
 `ibus-runtime` as packaged (`-sMAIN_MODULE=2 -sWASMFS=1`, a pthread pool of
-8 with `-sPTHREAD_POOL_SIZE_STRICT=2`, both under "Threads beyond the pool"
+11 with `-sPTHREAD_POOL_SIZE_STRICT=2`, both under "Threads beyond the pool"
 below, fixed 32 MiB memory, 1 MiB stacks), with six spike side modules: `trivial`,
 `thread`, `throw`, `fsync`, and two new ones, `proxy` and `timer`. Their
 opcodes are one list in `sides/spike.h`; the build compiles a small program
@@ -209,8 +209,9 @@ check's pass condition.
 | --- | --- | --- | --- |
 | `dispatch` | 1000 `add` round trips back to back, every sum right | PASS | p50 9.8 µs, p99 39.8 µs, max 302.7 µs; mean of ten batches of 100 timed whole 11.6 µs (9.6–17.0); 998 of 1001 requests found the host asleep (asserting: 9.4 / 30.5 / 310.4 µs, mean 11.6 µs) |
 | `cold-wake` | 300 `add` round trips, each sent 2 ms after the last reply: every sum right, every request found the host asleep | PASS | p50 27.6 µs, p99 44.3 µs, max 47.8 µs, mean 25.9 µs; 301 of 301 asleep (asserting: 17.4 / 51.7 / 76.0 µs, mean 18.9 µs) |
-| `thread-create-blocked` | a burst of the side modules' share of the pool (4) alive at once, `spawn(4)` from a pump and `spawn-nested(3)` from a thread, starts and joins every thread, creating no Worker and never returning the host to its event loop | PASS | 8 of 8 Workers idle; `spawn(4)` 71.9 ms, `spawn-nested(3)` 2.2 ms; 0 Workers created, 0 event-loop turns |
-| `thread-exit-blocked` | above, with rounds of `spawn-detached(4)` | PASS | heap 0.18 MiB in every round and after a turn; 0 Workers created, 8 idle at each round's start |
+| `thread-create-blocked` | a burst of the side modules' share of the pool (4) alive at once, `spawn(4)` from a pump and `spawn-nested(3)` from a thread, starts and joins every thread, creating no Worker and never returning the host to its event loop | PASS | 11 of 11 Workers idle; `spawn(4)` 71.3 ms, `spawn-nested(3)` 2.2 ms; 0 Workers created, 0 event-loop turns |
+| `pool-top-up` | with as many threads alive as the shares plan for (8) and the host idle, the pool stays as it is with its 3 spare Workers idle; with one more alive, the host tops it up by one Worker, back to 3 idle | PASS | peak: 8 alive, 3 of 11 idle, 0 Workers created, 0 top-ups, 0 event-loop turns; one more: a top-up of 1 Worker in 73.8 ms, 3 of 12 idle |
+| `thread-exit-blocked` | above, with rounds of `spawn-detached(4)` | PASS | heap 0.18 MiB in every round and after a turn; 0 Workers created, 12 idle at each round's start |
 | `cross-thread-wake` | `idle-later(50)` ×20, host idle: attach → dispatch ≤ 20 ms | PASS | ε p50 0.050 ms, max 0.080 ms |
 | `deadline` | `g_timeout_add(100)` ×5, no requests: 100 ± 10 ms | PASS | 100.096–100.234 ms; worst deviation 0.234 ms |
 | `sync-proxied` | while the host sleeps: a call proxied synchronously to its thread, a thread creating threads, and a GTask that a thread other than the host's starts, all complete | PASS | `proxy-sync` 557 µs; `spawn-nested(2)` joined 2; GTask 2294 µs, after which GLib keeps 3 Workers |
@@ -221,9 +222,11 @@ check's pass condition.
 `spawn-nested` is R2's case: a thread other than the host's creates threads
 while the host sleeps in `ibusweb_wait`. Each creation is proxied to the host,
 which runs it inside its sleep on a Worker from the pool. The rows for
-`dispatch`, `cold-wake`, `thread-create-blocked`, `thread-exit-blocked` and
-`sync-proxied` are from a run after the pool was resized ("Threads beyond
-the pool", under Browsers); the others are from the run before. Under Node, Emscripten ignores
+`thread-create-blocked`, `pool-top-up` and `thread-exit-blocked` are from a
+run with the pool of 11 ("Threads beyond the pool", under Browsers); those
+for `dispatch`, `cold-wake` and `sync-proxied` from one with a pool of 8,
+the shares alone; the others from a run before the pool was sized from
+shares. Under Node, Emscripten ignores
 `PTHREAD_POOL_SIZE_STRICT` and starts a Worker beyond the pool whenever one
 is needed, so the scenario that exhausts the pool runs in browsers only.
 
@@ -387,17 +390,20 @@ free (Firefox; both shown under "Where the engines differ"). The host never
 returns to its event loop, so it can't wait for a Worker beyond the pool.
 Instead:
 
-**The pool is sized for the expected peak.** `ibusWeb.runtime.threadPool`
-(`runtime/ibus-runtime/package.nix`) derives `PTHREAD_POOL_SIZE` from shares:
+**The pool is sized for the planned peak, plus spares.**
+`ibusWeb.runtime.threadPool` (`runtime/ibus-runtime/package.nix`) derives
+`PTHREAD_POOL_SIZE` from shares and a low-water mark of spare Workers:
 
 | Share | Threads | Kept | How it was counted |
 | --- | --- | --- | --- |
-| GLib | 3 | the first two for good, the third 15.5 s after its last task | `sync-proxied`: after its GTask, 3 more Workers are busy than before, in Node and both browsers. GTask's first use starts GLib's worker-context thread (`g_task_thread_pool_init` attaches its pool manager to `g_get_worker_context()`, which starts `gmain`), the thread-pool spawner, and a worker the spawner starts, which waits 0.5 s in the GTask pool, then 15 s among unused threads |
+| GLib | 3 | the first two for good, the third 15.5 s after its last task | `sync-proxied`, which now asserts it: after its GTask, 3 more Workers are busy than before, in Node and both browsers. This is the footprint of one GTask in flight, not GLib's maximum. GTask's first use starts GLib's worker-context thread (`g_task_thread_pool_init` attaches its pool manager to `g_get_worker_context()`, which starts `gmain`), the thread-pool spawner, and a worker the spawner starts, which waits 0.5 s in the GTask pool, then 15 s among unused threads. GTasks in flight at once start more workers: GTask's pool allows `G_TASK_POOL_SIZE` (10), and its pool manager raises that while every worker stays busy |
 | OPFS backend | 1 | from mount, for good | 7 of 8 Workers idle with OPFS mounted, 8 of 8 without |
 | Engine (the spike's side modules) | 4 | while they run | the largest burst a scenario starts, `spawn(4)`; an engine's share would come from its manifest |
-| Pool | **8** | | glib 3 + opfs 1 + engine 4 |
+| Planned | 8 | | glib 3 + opfs 1 + engine 4 |
+| Spare (`lowWater`) | 3 | | GLib's share, below |
+| Pool | **11** | | planned 8 + spare 3 |
 
-Starting the runtime starts no thread (8 of 8 idle before any scenario).
+Starting the runtime starts no thread (11 of 11 idle before any scenario).
 
 **Exceeding it fails at once.** `-sPTHREAD_POOL_SIZE_STRICT=2` makes
 Emscripten's `getNewWorker()` return nothing when the pool is empty, so
@@ -417,18 +423,26 @@ creates a Worker, which starts there anyway. What GLib (2.88) does with
   that aborts too.
 - `g_thread_pool_push()` asks the spawner for a worker, which it creates with
   `g_thread_try_new()`. On failure the push returns `FALSE` but leaves the
-  task queued, and GTask passes no `GError` and ignores the result: the GTask
-  waits in the queue until a later push starts a worker, or for good.
+  task queued, and GTask passes no `GError` and ignores the result. A worker
+  the pool already has picks the task up once it is free; only if the pool
+  has none does the GTask wait until a later push starts one, possibly for
+  good.
 - The spike's side modules use `g_thread_try_new()` where a scenario exceeds
   the pool, and report `-EAGAIN`; their `g_thread_new()` calls would abort.
 
 `pool-exhausted` (browsers only) holds top-ups off, takes every idle Worker
 with threads that wait (`hold`), and creates one more thread, from a pump and
 then from another thread (proxied to the host): both fail with `EAGAIN`, in
-0.5–1.0 ms and 4.1–4.3 ms, and the host goes on answering.
+0.5–1.0 ms and 4.1–4.3 ms, and the host goes on answering. It reads the idle
+count once and relies on it holding: `sync-proxied`'s GTask worker lives some
+15.5 s after its task, against about 0.1 s between the two scenarios. The
+check marks the warnings these failures print (the spike's "Error creating
+thread: Resource temporarily unavailable" and, asserting, Emscripten's "the
+thread pool is exhausted") as expected.
 
 **The host tops the pool up.** Whenever no request is pending and fewer than
-`lowWater` Workers are idle, the host creates the missing Workers and waits
+`lowWater` Workers are idle, which happens only once more threads are alive
+than the shares plan for, the host creates the missing Workers and waits
 for requests with `Atomics.waitAsync` instead of `ibusweb_wait`, its event
 loop running, until they have loaded; it serves requests meanwhile. It uses
 Emscripten's own pool, which the runtime exports for it
@@ -438,13 +452,37 @@ and settles once it reports `loaded`. Emscripten hands out any Worker in
 `PThread.unusedWorkers`, loaded or not, so the host keeps a new Worker out of
 it until it has loaded; otherwise a pump that created a thread right away
 would block on a Worker that can't start. A top-up completes when the last
-Worker has loaded.
+Worker has loaded; one that hasn't within 10 s is reported as a host error,
+and the host stops topping up. The host refuses to start if the runtime
+lacks `HEAPU8` or the `PThread` members it uses.
 
 `lowWater` is GLib's share, 3: GLib's first GTask needs all three of its
-threads at once, and every way GLib fails to get one is bad (above). The
-pool's own size already covers the expected peak, so the top-up only keeps
-that much room when an engine overshoots its share; a higher mark would grow
-the pool on every peak an engine plans for. Once added, Workers stay.
+threads at once, and every way GLib fails to get one is bad (above). The pool
+starts with those 3 spares beyond the planned 8, so whenever the host is
+idle at least 3 Workers are free: a thread an engine starts beyond its share
+takes a spare, not one GLib counts on, and the host replaces it. Threads
+within the shares never take a spare, so the pool grows only on an
+overshoot. Once added, Workers stay.
+
+The alternative was a pool of 8 whose top-up keeps 3 Workers idle beyond what
+the shares still reserve (8 minus the threads alive). With 8 Workers that
+reserve-adjusted count is 0 from the start, so the host would top up to 11
+at its first idle moment anyway: the same Workers and memory, loaded after
+"ready" instead of with the runtime, through a 47–60 ms top-up and, in
+Firefox, a `new Worker()` window while the page may already be sending
+keystrokes. Starting with 11 costs the 3 Workers' memory up front (about
+45 MiB each under Node; not measured in browsers) and 15–30 ms of startup
+(one sandbox run each, released: Chromium 160–171 ms against 138–164 ms
+with 8, Firefox 147–156 ms against 118–131 ms, Node 184 ms against 163 ms).
+The way to save that memory is fewer spares, not a lazier top-up, and that
+trade is Task 7's.
+
+`pool-top-up` checks both halves in Node and both browsers: with 8 threads
+alive (`hold`) and the host idle, 3 of 11 Workers stay idle and the host
+creates no Worker, starts no top-up and makes no event-loop turn; with 9, it
+tops the pool up by one Worker in 47–48 ms in the browsers and 74 ms in Node
+(asserting: 78–83 ms, 118 ms), back to 3 idle. Against the earlier sizing (a
+pool of 8, mark 3) it fails: the planned peak starts a top-up of 3.
 
 Measured by `pool-exhausted` (released runtime): with every Worker taken,
 allowing top-ups again adds 3 Workers in 54–60 ms in both browsers (asserting
@@ -457,9 +495,13 @@ Worker is created and the host's event-loop turns don't move.
 
 In Firefox the top-up has one window: `new Worker()` on the host returns only
 once the page's main thread is free, so a request posted during those 1 ms
-spins until the page lets go. Under D6 that is at most 40 ms and a replay. The
-top-up rests on Emscripten internals (`PThread`), an upstream-trackable gap: a
-public call to grow the pool and settle once the Workers can run threads.
+spins until the page lets go. Under D6 that is at most 40 ms and a replay;
+`pool-top-up` hit it when it asked for stats right after the overshoot, and
+now lets the page go free first. The top-up rests on Emscripten internals
+(`PThread`), an upstream-trackable gap: a public call to grow the pool and
+settle once the Workers can run threads. The host's whole JavaScript surface
+of the runtime, `HEAPU8` and `PThread`, lies outside the export manifest,
+which lists only WASM symbols.
 
 ### Results against Node
 
@@ -480,6 +522,7 @@ which reads the same coarsened clock.
 | `dispatch` p50 / p99 / max; batch mean (range) | 9.8 / 39.8 / 303 µs; 11.6 µs (9.6–17.0) | 5 / 30 / 425 µs; 6.3 µs (5.4–10.4) | 20 / 40 / 380 µs; 10.0 µs (9.4–18.2) |
 | `cold-wake` p50 / p99 / max; mean | 27.6 / 44.3 / 47.8 µs; 25.9 µs | 30 / 60 / 75 µs; 31.6 µs | 20 / 40 / 100 µs; 19.4 µs |
 | `thread-create-blocked` | PASS: `spawn(4)` 71.9 ms, `spawn-nested(3)` 2.2 ms | PASS: 50.1 ms, 4.2 ms | PASS: 17.7 ms, 4.2 ms |
+| `pool-top-up` (pool of 11) | PASS: no growth at 8 alive; top-up of 1 in 73.8 ms at 9 | PASS: the same; 47.3 ms | PASS: the same; 48.4 ms |
 | `thread-exit-blocked` | PASS: 0.18 MiB every round, 0 Workers created | PASS: the same (2.2 MiB before, on a host that the failed `thread-create-blocked` had left with threads that never started) | PASS: the same |
 | `cross-thread-wake` ε p50 / max | 0.050 / 0.091 ms | 0.035 / 0.085 ms | 0.061 / 0.120 ms |
 | `deadline` worst deviation | 0.190 ms | 0.211 ms | 0.239 ms |
@@ -805,21 +848,28 @@ keep.
   fallback, should the patch be dropped, is a brief, periodic return to the
   event loop while idle. Idling in `Atomics.waitAsync` also avoids the leak
   and passes every scenario under Node and in both browsers tested.
-- **Threads beyond the pool (decided: a pool sized for the peak, strict, and
-  topped up while idle).** The pool's size is the sum of shares derived in
-  Nix: GLib's 3 (measured: GLib's worker-context thread and thread-pool
-  spawner, kept for good, and a GTask worker), the OPFS backend's 1, and an
-  engine's. A thread beyond it fails with `EAGAIN`
+- **Threads beyond the pool (decided: a pool sized for the planned peak plus
+  spares, strict, and topped up while idle).** The pool's size is the sum of
+  shares derived in Nix, GLib's 3 (measured: what one GTask in flight keeps
+  alive: GLib's worker-context thread and thread-pool spawner, kept for good,
+  and a GTask worker), the OPFS backend's 1 and an engine's, plus a low-water
+  mark of spares, GLib's share. A thread beyond it fails with `EAGAIN`
   (`-sPTHREAD_POOL_SIZE_STRICT=2`) instead of waiting for a Worker that can't
-  start, and the host, whenever no request is pending, tops the pool up to
-  GLib's share of idle Workers, from its event loop. Bursts within the pool
-  start without an event-loop turn in both browsers; the pool runs out
-  cleanly; a top-up of three Workers takes 54–60 ms. **Spec follow-ups:** an
-  engine's share comes from its manifest (Task 8), and the pool of a host is
-  the runtime's shares plus its engines'; the low-water mark must cover
-  GLib's share, since GLib aborts or silently queues work when it can't get a
-  thread; the top-up rests on Emscripten's internal `PThread` until Emscripten
-  offers a call to grow the pool (upstream-trackable).
+  start, and the host, whenever no request is pending, tops the pool back up
+  to the mark of idle Workers, from its event loop; threads within the shares
+  never start a top-up. Bursts within the pool start without an event-loop
+  turn in both browsers; the pool runs out cleanly; a top-up of three Workers
+  takes 54–60 ms, of one 47–48 ms. **Spec follow-ups:** an engine's share
+  comes from its manifest (Task 8), and the pool of a host is the runtime's
+  shares plus its engines' plus the spares; the low-water mark must cover
+  GLib's share, since GLib aborts or leaves work queued when it can't get a
+  thread; GLib's share covers one GTask in flight, so a rule for engines that
+  run GTasks concurrently (each concurrent one can take another worker, up to
+  GTask's pool of 10 and beyond) is open; the top-up rests on Emscripten's
+  internal `PThread` until Emscripten offers a call to grow the pool
+  (upstream-trackable), and the runtime's JavaScript surface the host uses
+  (`HEAPU8`, `PThread`) belongs in the export manifest's ABI, which today
+  lists only WASM symbols.
 - **The page's spin stays as D6 (≤ 40 ms, then consume and replay)**, and by
   design nothing the host does during a request waits for the page any more,
   with two exceptions in Firefox: a Blob read on OPFS (next item), and a
@@ -860,7 +910,8 @@ keep.
   bumps the WASM wake word of each engine whose sequence moved. It would need
   every engine's memory, so it is still host-side, shared by the hosts.
 - **For Task 7 (memory):** every pool Worker holds an instance of the
-  runtime, and the spike's pool is 8. Adding a Worker costs 18–20 ms (three
+  runtime (about 45 MiB under Node, unmeasured in browsers), and the spike's
+  pool is 11, 3 of them spares. Adding a Worker costs 18–20 ms (three
   in 54–60 ms, released runtime), and its first thread about 12 ms more in
   Chromium, 2–5 ms in Firefox, since each loads the runtime and every side
   module.
