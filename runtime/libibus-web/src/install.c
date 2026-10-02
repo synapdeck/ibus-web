@@ -47,6 +47,9 @@ struct _IBusWebInstall {
   int fd;
   uint64_t data_left;
   uint32_t padding_left;
+  /* Regular files written whole, and the bytes written. */
+  uint32_t files;
+  uint64_t bytes;
 };
 
 static int fail(IBusWebInstall *install, int error) {
@@ -180,7 +183,10 @@ static int finish_file(IBusWebInstall *install) {
     close(fd);
     return -error;
   }
-  return close(fd) == 0 ? 0 : -errno;
+  if (close(fd) != 0)
+    return -errno;
+  install->files++;
+  return 0;
 }
 
 static int take_header(IBusWebInstall *install) {
@@ -311,6 +317,7 @@ int ibusweb_install_feed(IBusWebInstall *install, const uint8_t *data,
       data += written;
       len -= (uint32_t)written;
       install->data_left -= (uint64_t)written;
+      install->bytes += (uint64_t)written;
       if (install->data_left == 0) {
         int ret = finish_file(install);
         if (ret != 0)
@@ -332,6 +339,14 @@ int ibusweb_install_feed(IBusWebInstall *install, const uint8_t *data,
     }
   }
   return install->state == STATE_FAILED ? install->error : 0;
+}
+
+void ibusweb_install_count(const IBusWebInstall *install, uint32_t *files,
+                           uint64_t *bytes) {
+  if (files != NULL)
+    *files = install == NULL ? 0 : install->files;
+  if (bytes != NULL)
+    *bytes = install == NULL ? 0 : install->bytes;
 }
 
 int ibusweb_install_end(IBusWebInstall *install) {

@@ -133,6 +133,39 @@ static void test_whole(void) {
   assert_tree(dir);
 }
 
+/* The count is of the files in the listing and their sizes. */
+static void test_count(void) {
+  g_autoptr(GBytes) tree = archive("tree.tar");
+  g_autoptr(GBytes) expected = archive("listing.txt");
+  g_autofree char *text =
+      g_strndup(g_bytes_get_data(expected, NULL), g_bytes_get_size(expected));
+  g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
+  uint32_t want_files = 0;
+  uint64_t want_bytes = 0;
+  for (char **line = lines; *line != NULL; line++) {
+    const char *kind = strchr(*line, '\t');
+    if (kind != NULL && kind[1] == 'f') {
+      want_files++;
+      want_bytes += g_ascii_strtoull(kind + 3, NULL, 10);
+    }
+  }
+  g_autofree char *dir = fresh_dir();
+  IBusWebInstall *install = NULL;
+  g_assert_cmpint(ibusweb_install_begin(dir, &install), ==, 0);
+  uint32_t files = 1;
+  uint64_t bytes = 1;
+  ibusweb_install_count(install, &files, &bytes);
+  g_assert_cmpuint(files, ==, 0);
+  g_assert_cmpuint(bytes, ==, 0);
+  g_assert_cmpint(
+      feed(install, g_bytes_get_data(tree, NULL), g_bytes_get_size(tree), 4096),
+      ==, 0);
+  ibusweb_install_count(install, &files, &bytes);
+  g_assert_cmpuint(files, ==, want_files);
+  g_assert_cmpuint(bytes, ==, want_bytes);
+  g_assert_cmpint(ibusweb_install_end(install), ==, 0);
+}
+
 /* Header and data boundaries fall anywhere within a piece. */
 static void test_pieces(void) {
   g_autoptr(GBytes) tree = archive("tree.tar");
@@ -498,6 +531,7 @@ int main(int argc, char **argv) {
       {"fifo.tar", "fifo"},
   };
   g_test_add_func("/install/whole", test_whole);
+  g_test_add_func("/install/count", test_count);
   g_test_add_func("/install/pieces", test_pieces);
   g_test_add_func("/install/over-partial", test_over_partial);
   for (gsize i = 0; i < G_N_ELEMENTS(refused); i++) {

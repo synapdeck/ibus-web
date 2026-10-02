@@ -184,6 +184,11 @@ IBUSWEB_API int ibusweb_install_begin(const char *dir, IBusWebInstall **out);
 IBUSWEB_API int ibusweb_install_feed(IBusWebInstall *install,
                                      const uint8_t *data, uint32_t len);
 
+/* What the install has written so far: the regular files written whole,
+ * and the bytes of file data written. Either pointer may be NULL. */
+IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
+                                       uint32_t *files, uint64_t *bytes);
+
 /* Finishes: fsyncs what it wrote, returns 0 or a negative errno, frees
  * `install`. Returns a failed feed's error, or -EINVAL if the archive ended
  * early. */
