@@ -1,0 +1,16 @@
+{
+  "name": "nixd-lsp",
+  "description": "Nix language server (nixd) for code intelligence",
+  "version": "1.0.0",
+  "lspServers": {
+    "nixd": {
+      "command": "nixd",
+      "extensionToLanguage": {
+        ".nix": "nix"
+      }
+    }
+  },
+  "author": {
+    "name": "Synapdeck, Inc."
+  }
+}

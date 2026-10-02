@@ -1,0 +1,16 @@
+{
+  "name": "pkl-lsp",
+  "description": "Pkl language server (pkl-lsp) for code intelligence",
+  "version": "1.0.0",
+  "lspServers": {
+    "pkl": {
+      "command": "pkl-lsp",
+      "extensionToLanguage": {
+        ".pkl": "pkl"
+      }
+    }
+  },
+  "author": {
+    "name": "Synapdeck, Inc."
+  }
+}

@@ -116,6 +116,7 @@
       # still enters while the library or the backend doesn't build. The
       # out-link keeps the types from garbage collection.
       devshells.default.devshell.startup.wasmfs-idb-types.text = ''
+        rm -f "$FLAKE_ROOT/runtime/wasmfs-idb/src/${typesDir}"
         nix build "$FLAKE_ROOT#packages.${system}.wasmfs-idb-types" \
           --out-link "$FLAKE_ROOT/runtime/wasmfs-idb/src/${typesDir}" ||
           echo "wasmfs-idb types unavailable" >&2

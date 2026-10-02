@@ -1,0 +1,17 @@
+{
+  "enabledPlugins": {
+    "clangd-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "nixd-lsp@ibus-web": true,
+    "pkl-lsp@ibus-web": true
+  },
+  "extraKnownMarketplaces": {
+    "ibus-web": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      },
+      "autoUpdate": true
+    }
+  }
+}

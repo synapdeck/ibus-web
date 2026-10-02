@@ -1,0 +1,47 @@
+{
+  "name": "ibus-web",
+  "owner": {
+    "name": "Synapdeck, Inc."
+  },
+  "description": "Language servers for ibus-web's development tooling",
+  "plugins": [
+    {
+      "name": "nixd-lsp",
+      "description": "Nix language server (nixd) for code intelligence",
+      "version": "1.0.0",
+      "source": "./tools/claude/nixd-lsp",
+      "category": "development",
+      "strict": false,
+      "lspServers": {
+        "nixd": {
+          "command": "nixd",
+          "extensionToLanguage": {
+            ".nix": "nix"
+          }
+        }
+      },
+      "author": {
+        "name": "Synapdeck, Inc."
+      }
+    },
+    {
+      "name": "pkl-lsp",
+      "description": "Pkl language server (pkl-lsp) for code intelligence",
+      "version": "1.0.0",
+      "source": "./tools/claude/pkl-lsp",
+      "category": "development",
+      "strict": false,
+      "lspServers": {
+        "pkl": {
+          "command": "pkl-lsp",
+          "extensionToLanguage": {
+            ".pkl": "pkl"
+          }
+        }
+      },
+      "author": {
+        "name": "Synapdeck, Inc."
+      }
+    }
+  ]
+}

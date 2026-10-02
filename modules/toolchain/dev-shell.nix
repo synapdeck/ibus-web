@@ -7,6 +7,7 @@
       config,
       lib,
       pkgs,
+      system,
       ...
     }:
     let
@@ -51,6 +52,14 @@
       # told to trust.
       clangd = pkgs.writeShellScriptBin "clangd" ''
         exec ${emscripten.llvmEnv}/bin/clangd --query-driver=${cc}/bin/${targetPrefix}* "$@"
+      '';
+
+      # Claude Code's TypeScript plugin starts `typescript-language-server`,
+      # which speaks to tsserver; TypeScript 7 ships no tsserver, its compiler
+      # serves LSP itself. This serves the workspace's TypeScript under the
+      # name the plugin runs.
+      typescriptLanguageServer = pkgs.writeShellScriptBin "typescript-language-server" ''
+        exec ${config.ibusWeb.typescript.tsc}/bin/tsc --lsp --stdio
       '';
 
       # Compilation databases name the compiler themselves. Loose sources
@@ -111,6 +120,9 @@
           pkgs.meson
           pkgs.ninja
           clangd
+          typescriptLanguageServer
+          pkgs.nixd
+          pkgs.pkl-lsp
         ];
         env = [
           # Outside a build no stdenv role is active, so the cross pkg-config
@@ -129,10 +141,25 @@
             } "$@"'';
           }
         ];
+        # An out-link keeps the config current with the flake and rooted
+        # against garbage collection; a stale one is removed so the editor
+        # never silently runs on an old configuration.
         devshell.startup.clangd.text = ''
-          ln -sfn ${clangdConfig} "$FLAKE_ROOT/.clangd"
+          if ! nix build "$FLAKE_ROOT#packages.${system}.clangd-config" --out-link "$FLAKE_ROOT/.clangd"; then
+            rm -f "$FLAKE_ROOT/.clangd"
+            echo "clangd config unavailable: removed .clangd so the editor doesn't use a stale one" >&2
+          fi
+        '';
+        # Keeps the default greeting and command menu, adding the reminder.
+        motd = ''
+          {202}🔨 Welcome to the ibus-web dev shell{reset}
+          Start Claude Code inside this shell: its language servers (clangd,
+          typescript-language-server, nixd, pkl-lsp) resolve from this PATH.
+          $(type -p menu &>/dev/null && menu)
         '';
       };
+
+      packages.clangd-config = clangdConfig;
 
       # Every C and C++ source in the repository must parse cleanly under the
       # editor configuration, so it can't drift from the build.
