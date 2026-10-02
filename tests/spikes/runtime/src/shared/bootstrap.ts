@@ -48,7 +48,7 @@ export const startHost = (
           features: message.features,
           messages,
         });
-      } else if (message.type === "error")
+      } else if (message.type === "error" && !started)
         reject(new Error(`host: ${message.message}`));
       else messages.push(message);
     });

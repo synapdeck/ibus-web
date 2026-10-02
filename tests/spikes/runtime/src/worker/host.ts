@@ -61,6 +61,7 @@ interface Runtime {
   PThread: EmscriptenPool;
 }
 
+// Emscripten's internals, not an API: requireRuntime() checks they are there.
 interface EmscriptenPool {
   // The Workers pthread_create() hands threads to, last first.
   unusedWorkers: Worker[];
@@ -291,20 +292,30 @@ interface Counters {
   eventLoopTurns: number;
 }
 
-// The pthread pool is sized for the most threads alive at once, and
 // pthread_create() fails with EAGAIN rather than wait for a Worker beyond
-// it: a browser starts a new Worker, or in Firefox even creates one, only
-// while the thread creating it is back in its event loop, which a host that
-// sleeps in the runtime isn't. Whenever no request is pending and fewer than
-// lowWater Workers are idle, the host adds Workers to make up lowWater and
-// stays in its event loop, still serving requests, until they have loaded.
+// the pool: a browser starts a new Worker, or in Firefox even creates one,
+// only while the thread creating it is back in its event loop, which a host
+// that sleeps in the runtime isn't. The pool starts with lowWater Workers
+// beyond the threads its shares plan for, so fewer than lowWater are idle
+// only once more threads are alive than planned. Whenever that is so and no
+// request is pending, the host adds Workers to make up lowWater and stays in
+// its event loop, still serving requests, until they have loaded.
 interface Pool {
   lowWater: number;
   // A spike instrument: HostOp.topUp holds top-ups off.
   held: boolean;
+  // Set once a top-up has failed; another would most likely fail the same
+  // way.
+  failed: boolean;
   topping: Promise<void> | null;
 }
 
+// Far longer than a top-up takes, under 0.2 s, and than the page's spin,
+// which holds back a Worker's new Worker() in Firefox.
+const TOP_UP_LIMIT_MS = 10_000;
+
+// Rejects if the Workers haven't all loaded within TOP_UP_LIMIT_MS; any that
+// load later still join the pool.
 const topUp = (
   rt: Runtime,
   want: number,
@@ -318,7 +329,12 @@ const topUp = (
     // started yet wouldn't start while the host then blocks, so a new Worker
     // joins the pool only once it has loaded.
     const worker = PThread.allocateUnusedWorker();
-    PThread.unusedWorkers.splice(PThread.unusedWorkers.indexOf(worker), 1);
+    const index = PThread.unusedWorkers.indexOf(worker);
+    if (index < 0)
+      throw new Error(
+        "PThread.allocateUnusedWorker() didn't add its Worker to PThread.unusedWorkers",
+      );
+    PThread.unusedWorkers.splice(index, 1);
     loading.push(
       PThread.loadWasmModuleToWorker(worker).then(() => {
         PThread.unusedWorkers.push(worker);
@@ -326,12 +342,47 @@ const topUp = (
     );
   }
   const createMs = performance.now() - startedAt;
-  return Promise.all(loading).then(() => {
-    counters.topUps++;
-    counters.topUpWorkers += want;
-    counters.lastTopUpMs = performance.now() - startedAt;
-    counters.lastTopUpCreateMs = createMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `pool top-up: ${want} Workers not all loaded in ${TOP_UP_LIMIT_MS} ms`,
+          ),
+        ),
+      TOP_UP_LIMIT_MS,
+    );
   });
+  return Promise.race([Promise.all(loading), late])
+    .then(() => {
+      counters.topUps++;
+      counters.topUpWorkers += want;
+      counters.lastTopUpMs = performance.now() - startedAt;
+      counters.lastTopUpCreateMs = createMs;
+    })
+    .finally(() => clearTimeout(timer));
+};
+
+// The host leans on Emscripten internals that a new Emscripten may rename or
+// drop; better to refuse to start than to fail at the first top-up.
+const requireRuntime = (rt: Runtime): void => {
+  const pool = (rt as Partial<Runtime>).PThread as
+    Partial<EmscriptenPool> | undefined;
+  const missing = [
+    ...(rt.HEAPU8 instanceof Uint8Array ? [] : ["HEAPU8"]),
+    ...(Array.isArray(pool?.unusedWorkers) ? [] : ["PThread.unusedWorkers"]),
+    ...(typeof pool?.allocateUnusedWorker === "function"
+      ? []
+      : ["PThread.allocateUnusedWorker"]),
+    ...(typeof pool?.loadWasmModuleToWorker === "function"
+      ? []
+      : ["PThread.loadWasmModuleToWorker"]),
+  ];
+  if (missing.length > 0)
+    throw new Error(
+      `the runtime lacks what the host uses of it: ${missing.join(", ")}`,
+    );
 };
 
 // Answers the request in the slot. Only HostOp.yield answers later, after
@@ -436,6 +487,7 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
     instantiateFailed,
   ]);
   workers.counting = true;
+  requireRuntime(rt);
   const heap = new Heap(rt);
 
   mount(heap, init.storage);
@@ -493,6 +545,7 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   const pool: Pool = {
     lowWater: init.poolLowWater,
     held: false,
+    failed: false,
     topping: null,
   };
   const startupMs = performance.now() - startedAt;
@@ -536,11 +589,21 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
       if (after === State.request || after === State.crashed) continue;
       const timeout = delay < 0 ? Infinity : delay;
       const idle = rt.PThread.unusedWorkers.length;
-      if (pool.topping === null && !pool.held && idle < pool.lowWater) {
+      if (
+        pool.topping === null &&
+        !pool.held &&
+        !pool.failed &&
+        idle < pool.lowWater
+      ) {
         counters.eventLoopTurns++;
-        pool.topping = topUp(rt, pool.lowWater - idle, counters).finally(() => {
-          pool.topping = null;
-        });
+        pool.topping = topUp(rt, pool.lowWater - idle, counters)
+          .catch((error: unknown) => {
+            pool.failed = true;
+            post({ type: "error", message: describe(error) });
+          })
+          .finally(() => {
+            pool.topping = null;
+          });
       }
       if (pool.topping !== null) {
         const result = waitAsync(sleepWords, sleepIndex, seen, timeout);
