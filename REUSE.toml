@@ -7,7 +7,7 @@ path = [
   ".clang-format",
   ".gitignore",
   "tests/spikes/dynlink/expected.txt",
-  "tests/browser/fixtures/*.args",
+  "modules/testing/fixtures/*.args",
   "modules/toolchain/expected-features.txt",
 ]
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."

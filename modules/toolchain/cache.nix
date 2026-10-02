@@ -51,6 +51,10 @@
       mainLinkNodeWasmfs =
         object: "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sEXIT_RUNTIME=1 ${nodeHostFsFlags object}";
 
+      # GoogleTest programs run main() on a pthread, which takes a startup
+      # object of its own, in a PIC and a non-PIC build.
+      proxyMainFlags = "-sPROXY_TO_PTHREAD=1 -sEXIT_RUNTIME=1";
+
       # A fixed memory for Node-run tests: with pthreads, a memory that grows
       # has let threads fault out of bounds, and a test that outgrows a fixed
       # one fails plainly instead. GLib's largest test peaks at 280 MiB.
@@ -102,6 +106,9 @@
               em++ ${commonFlags} $opt ${minimumFlags} ${runtimeMainFlags} -sASSERTIONS=$assertions \
                 probe.cpp -o $TMPDIR/probe-runtime-cpp.js
             done
+            em++ ${commonFlags} $opt ${minimumFlags} ${proxyMainFlags} probe.cpp -o $TMPDIR/probe-proxy.js
+            em++ ${commonFlags} $opt ${minimumFlags} ${mainLinkNodeWasmfs "$TMPDIR/node-host-fs.o"} \
+              ${testMemoryFlags} ${dynamicLinkFlags} ${proxyMainFlags} probe.cpp -o $TMPDIR/probe-proxy-main.js
             emcc ${commonFlags} $opt ${minimumFlags} ${sideModuleFlags} probe_side.c -o $TMPDIR/probe-side.wasm
             em++ ${commonFlags} $opt ${minimumFlags} ${sideModuleFlags} probe_side.cpp -o $TMPDIR/probe-side-cpp.wasm
           done
@@ -109,6 +116,7 @@
           node $TMPDIR/probe-c.js
           node $TMPDIR/probe-cpp.js
           node $TMPDIR/probe-plain-wasmfs.js
+          node $TMPDIR/probe-proxy-main.js
           runHook postBuild
         '';
 
@@ -178,6 +186,13 @@
             emcc ${toolchain.commonFlags} -O2 ${minimumFlags} -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} \
               ${toolchain.testMemoryFlags} probe.o -o probe-plain-wasmfs.js
             test "$(node probe-plain-wasmfs.js)" = "probe 7"
+
+            em++ ${toolchain.commonFlags} ${minimumFlags} -sASSERTIONS=1 ${toolchain.nodeHostFsFlags} \
+              ${toolchain.testMemoryFlags} ${proxyMainFlags} probe.cpp -o probe-proxy.js
+            test "$(node probe-proxy.js)" = "probe 2"
+            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} ${proxyMainFlags} \
+              probe.cpp -o probe-proxy-main.js
+            test "$(node probe-proxy-main.js)" = "probe 2"
 
             emcc ${toolchain.commonFlags} ${minimumFlags} probe.o -o probe-plain.js
             test "$(node probe-plain.js)" = "probe 7"
