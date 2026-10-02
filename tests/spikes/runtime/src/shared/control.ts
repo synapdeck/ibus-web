@@ -197,36 +197,37 @@ export const engineDataDir = (
   { path }: EngineData,
 ): string => `${engineDataRoot(engine)}${path}`;
 
-// A version as it appears in database, lock and directory names: no "/",
-// no ":", and never "." or "..".
-export const encodeVersion = (version: string): string =>
-  encodeURIComponent(version).replace(
+// A name or version as it appears in database, lock and directory names:
+// no "/", no ":", and never "." or "..", so that one engine's or version's
+// names never run into another's.
+export const encodeComponent = (text: string): string =>
+  encodeURIComponent(text).replace(
     /[!'()*.~]/g,
     (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 
 // The IndexedDB database the engine's own files live in.
 export const engineDatabase = ({ name }: EngineManifest): string =>
-  `ibus-web/${name}`;
+  `ibus-web/${encodeComponent(name)}`;
 
 // The prefix of the IndexedDB databases that hold the engine's data, one
 // per version; the encoded version follows it.
-export const engineDataDatabasePrefix = ({ name }: EngineManifest): string =>
-  `ibus-web/${name}/data/`;
+export const engineDataDatabasePrefix = (engine: EngineManifest): string =>
+  `${engineDatabase(engine)}/data/`;
 
 export const engineDataDatabase = (engine: EngineManifest): string =>
-  `${engineDataDatabasePrefix(engine)}${encodeVersion(engine.version)}`;
+  `${engineDataDatabasePrefix(engine)}${encodeComponent(engine.version)}`;
 
 // The Web Lock a version's data is installed under, held exclusively.
 export const engineInstallLock = (engine: EngineManifest): string =>
-  `ibus-web:install:${engine.name}:${encodeVersion(engine.version)}`;
+  `ibus-web:install:${encodeComponent(engine.name)}:${encodeComponent(engine.version)}`;
 
 // The Web Lock every host using a version's data holds, shared, for as long
 // as it runs; a host takes it exclusively to delete that version's data.
 export const engineDataLock = (
   { name }: EngineManifest,
   encodedVersion: string,
-): string => `ibus-web:data:${name}:${encodedVersion}`;
+): string => `ibus-web:data:${encodeComponent(name)}:${encodedVersion}`;
 
 // The engine's data's size: what the host adds to the runtime's memory when
 // the data sits in it.

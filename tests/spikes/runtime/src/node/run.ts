@@ -236,10 +236,16 @@ try {
         { ifAvailable: true },
         (lock) => lock !== null,
       ),
-    versions: (installed) =>
-      readdir(join(installsDir, installed.name, "data")).catch(
-        () => [] as string[],
+    // A version's directory, its marker, or both.
+    versions: async (installed) => [
+      ...new Set(
+        (
+          await readdir(join(installsDir, installed.name, "data")).catch(
+            () => [] as string[],
+          )
+        ).map((name) => name.replace(/\.installed$/, "")),
       ),
+    ],
     start: (installed: EngineManifest, options = {}) => {
       const hostPath = join(installsDir, installed.name);
       mkdirSync(hostPath, { recursive: true });

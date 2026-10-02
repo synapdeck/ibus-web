@@ -174,7 +174,7 @@ export const replyInt32s = ({ ret, bytes }: Reply): number[] => {
   );
 };
 
-const call32 = async (
+export const call32 = async (
   client: Client,
   opcode: number,
   payload?: Uint8Array,

@@ -7,7 +7,9 @@
 // an install lock, of its own, named after it.
 
 import {
-  encodeVersion,
+  encodeComponent,
+  engineDatabase,
+  engineDataDatabasePrefix,
   engineDataDir,
   engineDataLock,
   engineInstallLock,
@@ -20,6 +22,7 @@ import {
   type TestData,
 } from "./control.ts";
 import {
+  call32,
   replyFile,
   type Client,
   type Env,
@@ -406,8 +409,8 @@ const upgradeWhileRunning: InstallScenario = {
       upgradingClient,
       harness.data.upgrade,
     );
-    const oldVersion = encodeVersion(engine.version);
-    const nextVersion = encodeVersion(next.version);
+    const oldVersion = encodeComponent(engine.version);
+    const nextVersion = encodeComponent(next.version);
     const kept = collectOf(upgrading);
     await old.terminate();
     const freed = await whenFree(harness, engineDataLock(engine, oldVersion));
@@ -456,8 +459,8 @@ const interruptedUpgradeThenOld: InstallScenario = {
   name: "interrupted-upgrade-then-old",
   criterion:
     "a host of the next version terminated halfway through installing leaves the installed " +
-    "version as it was: a host of that version started next finds it present and reads its " +
-    "tree whole",
+    "version as it was: a host of that version started next finds it present, reads its " +
+    "tree whole, and deletes the next version's partial data",
   async run(harness, engine, started): Promise<Outcome> {
     const next = upgradeOf(harness, engine);
     const first = harness.start(engine);
@@ -473,21 +476,31 @@ const interruptedUpgradeThenOld: InstallScenario = {
     if (upgrading.bytes === undefined)
       return { pass: false, measurements: { stalled: upgrading.stalled } };
     await upgrading.host.terminate();
+    const partial = encodeComponent(next.version);
+    const freed = await whenFree(harness, engineDataLock(engine, partial));
     const old = harness.start(engine);
     started.push(old);
     const client = await ready(harness, old);
     const seen = await inspect(harness, engine, client);
+    const collectedByOld = collectOf(old);
+    const versions = await harness.versions(engine);
     return {
       pass:
         installOf(first)?.state === "installed" &&
         installOf(old)?.state === "present" &&
-        seen.pass,
+        seen.pass &&
+        freed &&
+        collectedByOld?.removed.includes(partial) === true &&
+        versions.length === 1 &&
+        versions[0] === encodeComponent(engine.version),
       measurements: {
         first: summary(installOf(first)),
         upgradeStalled: upgrading.stalled,
+        partialLockFreed: freed,
         old: summary(installOf(old)),
-        oldCollected: collected(collectOf(old)),
+        oldCollected: collected(collectedByOld),
         tree: seen.tree,
+        versionsKept: versions.join(", "),
       },
     };
   },
@@ -580,7 +593,7 @@ const failedStartReleasesLocks: InstallScenario = {
     );
     const locks = [
       engineInstallLock(engine),
-      engineDataLock(engine, encodeVersion(engine.version)),
+      engineDataLock(engine, encodeComponent(engine.version)),
     ];
     const free = await Promise.all(locks.map((name) => harness.lockFree(name)));
     const next = harness.start(engine);
@@ -603,16 +616,136 @@ const failedStartReleasesLocks: InstallScenario = {
   },
 };
 
+// Starting from emptied storage is what keeps a file no archive of the
+// version has out of its tree: here the interrupted host installs, under
+// the same version, the upgrade archive, whose README is a directory with a
+// file in it, where the version's own archive has a file.
+const installInterruptedStray: InstallScenario = {
+  name: "install-interrupted-stray",
+  criterion:
+    "a host terminated halfway through installing a tree with entries the version's archive " +
+    "lacks leaves them behind for no one: the next host empties the version's storage first, " +
+    "and the tree is exactly the archive's",
+  async run(harness, engine, started): Promise<Outcome> {
+    const { upgrade } = harness.data;
+    const stray: EngineManifest = {
+      ...engine,
+      data: engine.data.map((data) => ({
+        ...data,
+        url: harness.upgradeUrl,
+        size: upgrade.size,
+      })),
+    };
+    const first = await stalledHost(harness, stray, started, upgrade.size);
+    if (first.bytes === undefined)
+      return { pass: false, measurements: { stalled: first.stalled } };
+    await first.host.terminate();
+    const second = harness.start(engine);
+    started.push(second);
+    const client = await ready(harness, second);
+    const report = installOf(second);
+    const seen = await inspect(harness, engine, client);
+    return {
+      pass: report?.state === "installed" && seen.pass,
+      measurements: {
+        stalled: `${first.stalled} of ${upgrade.archive}`,
+        next: summary(report),
+        tree: seen.tree,
+      },
+    };
+  },
+};
+
+// The IndexedDB backend refuses changes to marked data, sealed on the host
+// that installed it and mounted read-only on the others; the Node backend
+// has no read-only mode, so under Node the writes are recorded, not judged.
+const dataReadOnly: InstallScenario = {
+  name: "data-read-only",
+  criterion:
+    "with IndexedDB, a file written under the engine's data directory fails with EROFS, on " +
+    "the host that installed the data and on one that found it present, and the tree stays " +
+    "the archive's",
+  async run(harness, engine, started): Promise<Outcome> {
+    const { env } = harness;
+    const dir = engineDataDir(engine, engine.data[0]!);
+    const write = (client: Client): Promise<number> =>
+      call32(client, env.ops.writeFile, env.utf8(`${dir}/written.txt\0x`));
+    const installing = harness.start(engine);
+    started.push(installing);
+    const installingWrote = await write(await ready(harness, installing));
+    const present = harness.start(engine);
+    started.push(present);
+    const presentClient = await ready(harness, present);
+    const presentWrote = await write(presentClient);
+    const seen = await inspect(harness, engine, presentClient);
+    const enforced = env.engine?.mount === "indexeddb";
+    const refused = -env.errno.EROFS!;
+    return {
+      pass:
+        installOf(installing)?.state === "installed" &&
+        installOf(present)?.state === "present" &&
+        (!enforced ||
+          (installingWrote === refused &&
+            presentWrote === refused &&
+            seen.pass)),
+      measurements: {
+        enforced,
+        installingHost: installingWrote,
+        presentHost: presentWrote,
+        expected: enforced ? refused : "not enforced here",
+        tree: seen.tree,
+      },
+    };
+  },
+};
+
+// Names of storage made from engine names and versions, which may hold any
+// character: none runs into another's. Runs no host.
+const storageNames: InstallScenario = {
+  name: "storage-names",
+  criterion:
+    "encoded, a name or version has no / or :, and is never . or ..; and engine a/data/x's " +
+    "database isn't one of engine a's data databases",
+  async run(): Promise<Outcome> {
+    const inputs = ["/", ":", ".", "..", "a/b:c", "%2F"];
+    const encoded = inputs.map(encodeComponent);
+    const safe = encoded.every(
+      (text) =>
+        !text.includes("/") &&
+        !text.includes(":") &&
+        text !== "." &&
+        text !== "..",
+    );
+    const distinct = new Set(encoded).size === inputs.length;
+    const nested = engineDatabase({ name: "a/data/x", version: "", data: [] });
+    const prefix = engineDataDatabasePrefix({
+      name: "a",
+      version: "",
+      data: [],
+    });
+    return {
+      pass: safe && distinct && !nested.startsWith(prefix),
+      measurements: {
+        encoded: inputs.map((input, i) => `${input} → ${encoded[i]}`),
+        nestedEngine: `${nested} against ${prefix}`,
+      },
+    };
+  },
+};
+
 export const installScenarios: readonly InstallScenario[] = [
   installFresh,
   installSkip,
   installConcurrent,
   installInterrupted,
   installInterruptedQueued,
+  installInterruptedStray,
   upgradeWhileRunning,
   interruptedUpgradeThenOld,
   staleFile,
   failedStartReleasesLocks,
+  dataReadOnly,
+  storageNames,
 ];
 
 // Runs each scenario on an engine of its own, terminating the hosts it

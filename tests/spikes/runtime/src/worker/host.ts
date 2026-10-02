@@ -34,7 +34,7 @@ import {
   type Mount,
   type SideModule,
   type Storage,
-  encodeVersion,
+  encodeComponent,
   engineDatabase,
   engineDataBytes,
   engineDataDatabase,
@@ -65,6 +65,7 @@ interface Runtime {
   _wasmfs_create_memory_backend(): number;
   _wasmfs_create_idb_backend(database: number, flags: number): number;
   _wasmfs_idb_backend_closed(backend: number): number;
+  _wasmfs_idb_backend_seal(backend: number): void;
   _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
   _ibusweb_pump(): number;
@@ -73,6 +74,7 @@ interface Runtime {
   _ibusweb_install_begin(dir: number, installOut: number): number;
   _ibusweb_install_feed(install: number, data: number, len: number): number;
   _ibusweb_install_end(install: number): number;
+  _ibusweb_install_count(install: number, files: number, bytes: number): void;
   _ibusweb_dispatch(
     request: number,
     requestLen: number,
@@ -276,12 +278,17 @@ const requestLock = (
   });
 
 const LOCK_ROUND_MS = 1000;
-// Far longer than an install takes; a host that waits this long gives up
-// rather than never start.
+// How long a host waits for a lock without word from its holder before it
+// gives up rather than never start. A host installing says it is still
+// going on a BroadcastChannel named after the lock, at most every
+// PROGRESS_MS, and each word starts the wait over, so an install that takes
+// longer than this but keeps going holds no one up for good.
 const LOCK_LIMIT_MS = 120_000;
+const PROGRESS_MS = 1000;
 
 // Requests the lock and resolves once it is held, calling waiting() first
-// if it isn't free. Node (24.20) lets go of the locks of a worker_thread
+// if it isn't free. With progress, the holder's word on that channel
+// extends the wait. Node (24.20) lets go of the locks of a worker_thread
 // that is terminated, but grants a request already queued for one only
 // once another request for it arrives, so the wait is made of requests of
 // LOCK_ROUND_MS each, each made again when the last times out. A Worker
@@ -291,29 +298,56 @@ const holdLock = async (
   name: string,
   mode: LockMode,
   waiting: () => void,
+  progress?: string,
 ): Promise<HeldLock> => {
   const requestedAt = performance.now();
   const now = await requestLock(name, { mode, ifAvailable: true }, requestedAt);
   if (now !== null) return now;
   waiting();
-  const deadline = requestedAt + LOCK_LIMIT_MS;
-  for (
-    let left = LOCK_LIMIT_MS;
-    left > 0;
-    left = deadline - performance.now()
-  ) {
-    const signal = AbortSignal.timeout(Math.min(LOCK_ROUND_MS, left));
-    try {
-      const held = await requestLock(name, { mode, signal }, requestedAt);
-      if (held !== null) return held;
-    } catch (error) {
-      if ((error as { name?: unknown } | null)?.name !== "TimeoutError")
-        throw error;
+  let heard = requestedAt;
+  const channel =
+    progress === undefined ? undefined : new BroadcastChannel(progress);
+  if (channel !== undefined)
+    channel.onmessage = () => {
+      heard = performance.now();
+    };
+  try {
+    for (
+      let left = LOCK_LIMIT_MS;
+      left > 0;
+      left = heard + LOCK_LIMIT_MS - performance.now()
+    ) {
+      const signal = AbortSignal.timeout(Math.min(LOCK_ROUND_MS, left));
+      try {
+        const held = await requestLock(name, { mode, signal }, requestedAt);
+        if (held !== null) return held;
+      } catch (error) {
+        if ((error as { name?: unknown } | null)?.name !== "TimeoutError")
+          throw error;
+      }
     }
+  } finally {
+    channel?.close();
   }
   throw new Error(
-    `${name}: not granted in ${LOCK_LIMIT_MS} ms; another host holds it`,
+    `${name}: not granted after ${LOCK_LIMIT_MS} ms without word from the host holding it`,
   );
+};
+
+// Says, on the channel, at most every PROGRESS_MS, that this host is still
+// installing.
+const progressOn = (name: string): { said(): void; close(): void } => {
+  const channel = new BroadcastChannel(name);
+  let last = 0;
+  return {
+    said() {
+      const now = performance.now();
+      if (now - last < PROGRESS_MS) return;
+      last = now;
+      channel.postMessage(null);
+    },
+    close: () => channel.close(),
+  };
 };
 
 // The locks this host holds. A host whose start fails stays alive to say
@@ -451,6 +485,14 @@ interface Mounted {
 
 // What a host under Node uses of node:fs/promises.
 interface NodeFs {
+  open(
+    path: string,
+    flags: "w",
+  ): Promise<{
+    writeFile(text: string): Promise<void>;
+    sync(): Promise<void>;
+    close(): Promise<void>;
+  }>;
   readFile(path: string, encoding: "utf8"): Promise<string>;
   readdir(path: string): Promise<string[]>;
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;
@@ -556,22 +598,6 @@ const loadSides = (heap: Heap, sides: readonly SideModule[]): void => {
   }
 };
 
-// Creates or truncates the file, writes text, fsync()s and closes it.
-const writeSynced = (heap: Heap, path: string, text: string): void => {
-  const { rt } = heap;
-  const fd = heap.withString(path, (ptr) => rt._creat(ptr, 0o644));
-  check(`creat ${path}`, fd);
-  const data = encoder.encode(text);
-  try {
-    const written = heap.with(data, (ptr) => rt._write(fd, ptr, data.length));
-    if (written !== data.length)
-      throw new Error(`write ${path}: ${written} of ${data.length}`);
-    check(`fsync ${path}`, rt._fsync(fd));
-  } finally {
-    rt._close(fd);
-  }
-};
-
 // The response body reaches the extractor through a buffer of this size in
 // the runtime's memory, which also bounds each of the extractor's writes.
 const INSTALL_PIECE = 65536;
@@ -580,17 +606,27 @@ const INSTALL_PIECE = 65536;
 // it the host's start, rather than keep the install lock for good.
 const ARCHIVE_IDLE_MS = 30_000;
 
-// Streams the archive at url into the extractor, unpacking it into dir.
-// Returns the bytes fed; with stallAt, stops for good once that many have
-// been, after calling stalled() with them.
+// What an install has done: archive bytes fed, and the files and bytes of
+// file data written.
+interface Tally {
+  fed: number;
+  files: number;
+  bytes: number;
+}
+
+// Streams the archive at url into the extractor, unpacking it into dir,
+// and adds what it did to tally, calling progressed() as bytes arrive;
+// with stallAt, stops for good once that many bytes have been fed in all,
+// after calling stalled() with them.
 const installArchive = async (
   heap: Heap,
   url: string,
   dir: string,
-  fed: number,
+  tally: Tally,
   stallAt: number | undefined,
   stalled: (bytes: number) => void,
-): Promise<number> => {
+  arrived: () => void,
+): Promise<void> => {
   const { rt } = heap;
   const idle = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -608,7 +644,8 @@ const installArchive = async (
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let install = 0;
   let done = false;
-  const out = heap.alloc(4);
+  // The install's handle, then its count: files, then bytes as a uint64.
+  const out = heap.alloc(16);
   const piece = heap.alloc(INSTALL_PIECE);
   try {
     const response = await fetch(url, { signal: idle.signal });
@@ -625,29 +662,36 @@ const installArchive = async (
       const next = await reader.read();
       if (next.done) break;
       progressed();
+      arrived();
       const { value } = next;
       for (let at = 0; at < value.length; at += INSTALL_PIECE) {
         let part = value.subarray(at, at + INSTALL_PIECE);
-        if (stallAt !== undefined && fed + part.length >= stallAt)
-          part = part.subarray(0, stallAt - fed);
+        if (stallAt !== undefined && tally.fed + part.length >= stallAt)
+          part = part.subarray(0, stallAt - tally.fed);
         heap.bytes.set(part, piece);
         check(
-          `install ${url} at byte ${fed}`,
+          `install ${url} at byte ${tally.fed}`,
           rt._ibusweb_install_feed(install, piece, part.length),
         );
-        fed += part.length;
-        if (fed === stallAt) {
+        tally.fed += part.length;
+        if (tally.fed === stallAt) {
           clearTimeout(timer);
-          stalled(fed);
+          stalled(tally.fed);
           await new Promise<never>(() => {});
         }
       }
     }
     done = true;
+    rt._ibusweb_install_count(install, out + 4, out + 8);
+    const { words } = heap;
+    const files = words[(out + 4) / 4]! >>> 0;
+    const bytes =
+      (words[(out + 8) / 4]! >>> 0) + (words[(out + 12) / 4]! >>> 0) * 2 ** 32;
     const ended = rt._ibusweb_install_end(install);
     install = 0;
     check(`install ${url}`, ended);
-    return fed;
+    tally.files += files;
+    tally.bytes += bytes;
   } finally {
     clearTimeout(timer);
     if (install !== 0) rt._ibusweb_install_end(install);
@@ -657,32 +701,48 @@ const installArchive = async (
   }
 };
 
-// Installs every archive of the engine's data under its data directory;
-// returns the bytes fed.
+// Installs every archive of the engine's data under its data directory.
 const installArchives = async (
   heap: Heap,
   engine: EngineManifest,
   stallAt: number | undefined,
   stalled: (bytes: number) => void,
-): Promise<number> => {
-  let fed = 0;
+  arrived: () => void = () => {},
+): Promise<Tally> => {
+  const tally: Tally = { fed: 0, files: 0, bytes: 0 };
   for (const data of engine.data)
-    fed = await installArchive(
+    await installArchive(
       heap,
       data.url,
       engineDataDir(engine, data),
-      fed,
+      tally,
       stallAt,
       stalled,
+      arrived,
     );
-  return fed;
+  return tally;
 };
+
+// The marker of a version's data installed whole.
+interface Marker {
+  version: string;
+  files: number;
+  bytes: number;
+}
+
+const markerFor = (value: unknown, version: string): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as Partial<Marker>).version === version;
 
 // Where a mount that outlives the Worker keeps each version's data, apart
 // from the engine's own files: an IndexedDB database, or a directory on the
 // host, per version. A version's data is installed into storage emptied
 // first, and its marker is written last, so that data with a marker is
-// whole and the version's alone; nothing writes it once marked.
+// whole and the version's alone. Once marked, the data is read-only to the
+// engine where the backend can refuse changes, as the IndexedDB backend
+// can; the Node backend has no read-only mode, nor has the memory
+// fallback, so there the engine is trusted not to write its data.
 interface DataStore {
   // Whether this version's data was installed whole. The marker is read
   // before the data is mounted, so that a store about to be emptied has no
@@ -694,7 +754,9 @@ interface DataStore {
   // read-only mode.
   backend(readOnly: boolean): number;
   // Marks this version's data installed, durably, once the data is.
-  mark(): Promise<void>;
+  mark(marker: Marker): Promise<void>;
+  // Refuses every later change through the backend, where it can.
+  seal(): void;
   // Every other version whose data is kept, encoded.
   others(): Promise<string[]>;
   remove(version: string): Promise<void>;
@@ -763,7 +825,7 @@ const idbStore = (
             .objectStore("meta")
             .get(MARKER_KEY),
         );
-        return marker === engine.version;
+        return markerFor(marker, engine.version);
       } finally {
         db.close();
       }
@@ -775,7 +837,11 @@ const idbStore = (
       );
       return backend;
     },
-    async mark() {
+    // Every file was fsync()ed, so the data is committed. The directory
+    // entries made after a file's last fsync() were committed relaxed; this
+    // commit's strict durability flushes them too, since a strict commit
+    // makes every earlier change to the database durable.
+    async mark(marker) {
       const db = await openExisting(database);
       if (db === null) throw new Error(`${database} is gone`);
       try {
@@ -787,7 +853,7 @@ const idbStore = (
           tx.onabort = () =>
             reject(tx.error ?? new Error(`marking ${database} aborted`));
         });
-        tx.objectStore("meta").put(engine.version, MARKER_KEY);
+        tx.objectStore("meta").put(marker, MARKER_KEY);
         await committed;
       } finally {
         db.close();
@@ -811,6 +877,9 @@ const idbStore = (
         );
     },
     remove: (version) => deleteDatabase(`${prefix}${version}`),
+    seal() {
+      if (backend !== 0) heap.rt._wasmfs_idb_backend_seal(backend);
+    },
     closed: () =>
       backend !== 0 && heap.rt._wasmfs_idb_backend_closed(backend) !== 0,
   };
@@ -823,9 +892,11 @@ const nodeStore = async (
 ): Promise<DataStore> => {
   const fs = await nodeFs();
   const root = `${hostPath}/data`;
-  const own = encodeVersion(engine.version);
+  const own = encodeComponent(engine.version);
   const dirOf = (version: string): string => `${root}/${version}`;
-  const markerOf = (version: string): string => `${dirOf(version)}/.installed`;
+  // Beside the version's directory, outside the tree the engine sees.
+  const MARKER = ".installed";
+  const markerOf = (version: string): string => `${dirOf(version)}${MARKER}`;
   // The marker goes first, so that a removal cut short leaves no marker.
   const remove = async (version: string): Promise<void> => {
     await fs.rm(markerOf(version), { recursive: true, force: true });
@@ -834,7 +905,7 @@ const nodeStore = async (
   return {
     installed: () =>
       fs.readFile(markerOf(own), "utf8").then(
-        (marker) => marker === engine.version,
+        (text) => markerFor(JSON.parse(text), engine.version),
         () => false,
       ),
     async clear() {
@@ -845,14 +916,27 @@ const nodeStore = async (
       heap.withString(dirOf(own), (ptr) =>
         heap.rt._wasmfs_create_node_backend(ptr),
       ),
-    // Through the runtime, as the data was, so that its fsync() orders it
-    // after the data's.
-    mark: async () =>
-      writeSynced(heap, `${engineDataRoot(engine)}/.installed`, engine.version),
-    others: async () =>
-      (await fs.readdir(root).catch(() => [] as string[])).filter(
-        (version) => version !== own,
+    // Every file of the data was fsync()ed before this is written.
+    async mark(marker) {
+      const file = await fs.open(markerOf(own), "w");
+      try {
+        await file.writeFile(JSON.stringify(marker));
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+    },
+    seal: () => {},
+    // A version's directory, its marker, or both.
+    others: async () => [
+      ...new Set(
+        (await fs.readdir(root).catch(() => [] as string[]))
+          .map((name) =>
+            name.endsWith(MARKER) ? name.slice(0, -MARKER.length) : name,
+          )
+          .filter((version) => version !== own),
       ),
+    ],
     remove,
     closed: () => false,
   };
@@ -902,9 +986,9 @@ const collect = async (
 // partial tree and no other version's file survives, and a host using
 // another version never sees its own data change.
 //
-// The host that installs keeps its read-write backend mounted rather than
-// mount a read-only one as well, since a backend's thread lasts as long as
-// the runtime; it never writes there again.
+// The host that installs keeps its read-write backend mounted and seals it
+// once the marker is durable, rather than mount a read-only one as well,
+// since a backend's thread lasts as long as the runtime.
 const provideData = async (
   heap: Heap,
   init: HostInit<WebAssembly.Module>,
@@ -933,7 +1017,7 @@ const provideData = async (
   if (plan.mount === "memory") {
     makeDirs(heap, root);
     const lock = { waitMs: 0, lockedAt: Date.now() };
-    const bytes = await installArchives(
+    const { fed: bytes } = await installArchives(
       heap,
       engine,
       installStallAt,
@@ -953,11 +1037,11 @@ const provideData = async (
   }
 
   const waiting = (lock: string) => (): void => post({ type: "waiting", lock });
-  const dataLock = engineDataLock(engine, encodeVersion(engine.version));
+  const dataLock = engineDataLock(engine, encodeComponent(engine.version));
   held.add(await holdLock(dataLock, "shared", waiting(dataLock)));
   const installLock = engineInstallLock(engine);
   const lock = held.add(
-    await holdLock(installLock, "exclusive", waiting(installLock)),
+    await holdLock(installLock, "exclusive", waiting(installLock), installLock),
   );
   const store =
     plan.mount === "node"
@@ -972,8 +1056,25 @@ const provideData = async (
   } else {
     await store.clear();
     mountAt(heap, store.backend(false), root, what);
-    bytes = await installArchives(heap, engine, installStallAt, stalled(lock));
-    await store.mark();
+    const progress = progressOn(installLock);
+    try {
+      const tally = await installArchives(
+        heap,
+        engine,
+        installStallAt,
+        stalled(lock),
+        progress.said,
+      );
+      bytes = tally.fed;
+      await store.mark({
+        version: engine.version,
+        files: tally.files,
+        bytes: tally.bytes,
+      });
+    } finally {
+      progress.close();
+    }
+    store.seal();
     state = "installed";
   }
   // Read before letting go, so that a host waiting on the lock can't take
