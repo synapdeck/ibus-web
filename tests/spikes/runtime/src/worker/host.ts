@@ -79,6 +79,7 @@ type InstantiateWasm = (
 
 type CreateRuntime = (settings: {
   instantiateWasm?: InstantiateWasm;
+  wasmMemory?: WebAssembly.Memory;
 }) => Promise<Runtime>;
 
 // What Emscripten throws to unwind the runtime's thread once another thread
@@ -130,16 +131,40 @@ const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
   ]);
 
+const WASM_PAGE = 65536;
+
 class Heap {
   readonly rt: Runtime;
-  readonly bytes: Uint8Array;
-  readonly words: Int32Array;
+  // The memory the host made for the runtime. Only a memory that can grow
+  // needs it here: when another thread grows it, the views this thread has
+  // keep the old length until they are made again from its buffer.
+  readonly memory: WebAssembly.Memory;
+  #bytes: Uint8Array;
+  #words: Int32Array;
 
-  constructor(rt: Runtime) {
+  constructor(rt: Runtime, memory: WebAssembly.Memory) {
     this.rt = rt;
-    // The runtime's memory never grows, so these views stay valid.
-    this.bytes = rt.HEAPU8;
-    this.words = new Int32Array(this.bytes.buffer);
+    this.memory = memory;
+    this.#bytes = rt.HEAPU8;
+    this.#words = new Int32Array(this.#bytes.buffer);
+  }
+
+  #current(): void {
+    const { buffer } = this.memory;
+    if (buffer !== this.#bytes.buffer) {
+      this.#bytes = new Uint8Array(buffer);
+      this.#words = new Int32Array(buffer);
+    }
+  }
+
+  get bytes(): Uint8Array {
+    this.#current();
+    return this.#bytes;
+  }
+
+  get words(): Int32Array {
+    this.#current();
+    return this.#words;
   }
 
   alloc(bytes: number): number {
@@ -408,6 +433,7 @@ const serve = (
           workersCreated: workers.created,
           idleWorkers: heap.rt.PThread.unusedWorkers.length,
           heapInUse: heapInUse(heap, constants, buffers.mallinfo),
+          memoryBytes: heap.bytes.byteLength,
           ...counters,
         };
         const json = encoder.encode(JSON.stringify(stats));
@@ -421,6 +447,15 @@ const serve = (
         pool.held = arg(1) === 0;
         postReply(control, 0);
         return undefined;
+      case HostOp.addWorkers:
+        counters.eventLoopTurns++;
+        return topUp(heap.rt, arg(1), counters).then(
+          () => postReply(control, 0),
+          (error: unknown) => {
+            post({ type: "error", message: describe(error) });
+            postReply(control, -1);
+          },
+        );
     }
   }
   heap.bytes.set(request, buffers.request);
@@ -464,6 +499,11 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   };
   const workers = trackWorkers();
   const { wasm } = init;
+  const memory = new WebAssembly.Memory({
+    initial: init.memory.initial / WASM_PAGE,
+    maximum: init.memory.maximum / WASM_PAGE,
+    shared: true,
+  });
   // Emscripten has no way to hear that instantiateWasm failed, so a failure
   // ends the wait for the runtime here instead.
   let failInstantiate: (error: unknown) => void = () => {};
@@ -471,8 +511,9 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
     failInstantiate = reject;
   });
   const rt = await Promise.race([
-    createRuntime(
-      wasm === undefined
+    createRuntime({
+      wasmMemory: memory,
+      ...(wasm === undefined
         ? {}
         : {
             instantiateWasm: (imports, done) => {
@@ -482,13 +523,13 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
               );
               return {};
             },
-          },
-    ),
+          }),
+    }),
     instantiateFailed,
   ]);
   workers.counting = true;
   requireRuntime(rt);
-  const heap = new Heap(rt);
+  const heap = new Heap(rt, memory);
 
   mount(heap, init.storage);
   loadSides(heap, init.sides);

@@ -39,6 +39,13 @@ const opNames = [
   "readFileRdwr",
   "hold",
   "release",
+  "memStress",
+  "memStressResult",
+  "glibStress",
+  "glibStressResult",
+  "memInfo",
+  "memGrow",
+  "jsHeap",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
@@ -108,6 +115,12 @@ export interface Env {
   // reads a file there without the runtime: its contents, or null if there
   // is no such file.
   persistent?: { dir: string; read(name: string): Promise<string | null> };
+  // The memory workloads' sizes: threads alive at once, mem-stress's rounds
+  // per thread and glib-stress's lock takes per thread.
+  stress?: { threads: number; rounds: number; iterations: number };
+  // The memory the harness can see the runtime's process or processes use,
+  // in MiB by what it measured.
+  sampleMemory?: () => Promise<Record<string, number>>;
 }
 
 export type Measurement =
@@ -258,7 +271,7 @@ const latencies = (sorted: readonly number[]): Record<string, number> => ({
 // steps in tens of microseconds, about a round trip, so each batch of
 // requests is also timed whole, between two readings, for a mean finer than
 // the step.
-const dispatch: Scenario = {
+export const dispatch: Scenario = {
   name: "dispatch",
   criterion: "1000 add round trips back to back, every sum right",
   async run(client, env) {
@@ -913,6 +926,154 @@ export const threadCrash: Scenario = {
         report.startsWith("a thread crashed: ") &&
         !report.includes("never arrived"),
       measurements: { crashed, report: report ?? "none" },
+    };
+  },
+};
+
+const KiB = 1024;
+
+const stressOf = (env: Env): NonNullable<Env["stress"]> => {
+  if (env.stress === undefined)
+    throw new Error("the memory scenarios need the workloads' sizes");
+  return env.stress;
+};
+
+// A memory workload: its threads run while the host sleeps, and its result
+// comes once all have finished. A thread that traps takes the host down,
+// which fails the scenario with the host's report.
+const workload = (
+  name: string,
+  what: string,
+  start: (ops: Ops) => number,
+  result: (ops: Ops) => number,
+  size: (stress: NonNullable<Env["stress"]>) => number,
+): Scenario => ({
+  name,
+  criterion:
+    `${what}: every thread starts and finishes, finds nothing corrupt and gets every allocation, ` +
+    "and none traps",
+  async run(client, env): Promise<Outcome> {
+    const stress = stressOf(env);
+    const started = await call32(
+      client,
+      start(env.ops),
+      int32s(stress.threads, size(stress)),
+    );
+    if (started < 0) throw new Error(`${name}: ${started}`);
+    const outcome = await poll(client, env, result(env.ops), 20);
+    if (outcome === null)
+      return {
+        pass: false,
+        measurements: { started, pendingAfterMs: env.pendingLimitMs },
+      };
+    const [, errors, outOfMemory, us, before, after] = outcome.values;
+    return {
+      pass: started === stress.threads && errors === 0 && outOfMemory === 0,
+      measurements: {
+        threads: started,
+        errors: errors!,
+        outOfMemory: outOfMemory!,
+        elapsedMs: round(us! / 1000, 1),
+        memoryMiB: [round(before! / KiB, 1), round(after! / KiB, 1)],
+      },
+    };
+  },
+});
+
+export const memStress = workload(
+  "mem-stress",
+  "without GLib, threads that each keep one more block of fresh memory a round, hand one to a " +
+    "neighbour, which increments a word of it atomically, and have JavaScript fill another",
+  (ops) => ops.memStress,
+  (ops) => ops.memStressResult,
+  ({ rounds }) => rounds,
+);
+
+export const glibStress = workload(
+  "glib-stress",
+  "GLib's 1bit-emufutex workload: threads, each from g_rand_new(), taking random bit locks over an " +
+    "emulated futex",
+  (ops) => ops.glibStress,
+  (ops) => ops.glibStressResult,
+  ({ iterations }) => iterations,
+);
+
+// What growing costs, on a host that hasn't grown yet: the first
+// allocation that outgrows the memory, then the same allocation again,
+// which the memory now holds; and JavaScript's writes into the memory, which
+// a build that grows memory without growable buffers checks its view for
+// first.
+export const memoryCosts: Scenario = {
+  name: "memory-costs",
+  criterion: "every allocation and call succeeds",
+  async run(client, env) {
+    const info = replyInt32s(await client.call(env.ops.memInfo));
+    const grow = async (mib: number): Promise<number[]> => {
+      const values = replyInt32s(
+        await client.call(env.ops.memGrow, int32s(mib)),
+      );
+      if (values[0]! < 0) throw new Error(`mem-grow(${mib}): ${values[0]}`);
+      return values;
+    };
+    const describe = ([allocUs, touchUs, before, after]: number[]): string =>
+      `alloc ${allocUs} µs, touch ${touchUs} µs, memory ${round(before! / KiB, 1)} → ${round(after! / KiB, 1)} MiB`;
+    const first = await grow(64);
+    const again = await grow(64);
+    const calls = 10_000;
+    const jsUs = await call32(client, env.ops.jsHeap, int32s(calls));
+    if (jsUs < 0) throw new Error(`js-heap: ${jsUs}`);
+    return {
+      pass: true,
+      measurements: {
+        startMemoryMiB: round(info[0]! / KiB, 1),
+        startBreakMiB: round(info[1]! / KiB, 1),
+        grow64MiB: describe(first),
+        again64MiB: describe(again),
+        getentropy64BytesNs: round((jsUs * 1000) / calls, 1),
+      },
+    };
+  },
+};
+
+// What a pool Worker costs: the memory the harness sees grow as the host adds
+// Workers to its pool, each instantiating the runtime, then as each of them
+// runs a first thread, which loads the side modules into it.
+export const workerMemory: Scenario = {
+  name: "worker-memory",
+  criterion: "the host adds Workers to its pool, and a thread runs on each",
+  async run(client, env) {
+    if (env.sampleMemory === undefined)
+      throw new Error("the harness can't measure memory");
+    const added = 20;
+    await setTopUps(client, false);
+    const before = await env.sampleMemory();
+    const { ret } = await client.call(HostOp.addWorkers, int32s(added));
+    if (ret !== 0) throw new Error(`host add-workers: ${ret}`);
+    const loaded = await env.sampleMemory();
+    // Emscripten hands out the Workers added last first, so these threads
+    // run on the added ones.
+    await hold(client, env, added);
+    await release(client, env);
+    const ran = await env.sampleMemory();
+    await setTopUps(client, true);
+    const per = (
+      from: Record<string, number>,
+      to: Record<string, number>,
+      n: number,
+    ): Record<string, number> =>
+      Object.fromEntries(
+        Object.keys(to)
+          .filter((key) => key in from)
+          .map((key) => [key, round((to[key]! - from[key]!) / n, 1)]),
+      );
+    return {
+      pass: true,
+      measurements: {
+        added,
+        beforeMiB: JSON.stringify(before),
+        perAddedWorkerMiB: JSON.stringify(per(before, loaded, added)),
+        perFirstThreadMiB: JSON.stringify(per(loaded, ran, added)),
+      },
     };
   },
 };

@@ -163,9 +163,14 @@
             em++ ${toolchain.commonFlags} probe.cpp -o probe-plain-cpp.js
             test "$(node probe-plain-cpp.js)" = "probe 2"
 
-            # The runtime's link settings, released and asserting.
+            # The runtime's link settings, released and asserting, with the
+            # memory a host must make for it.
             # A file, not node -e: the pool's Workers inherit Node's flags.
-            echo 'await (await import(process.argv[2])).default();' > instantiate.mjs
+            pages=$(( ${toString runtime.memory.minimum} / 65536 ))
+            echo "const pages = $pages;
+              await (await import(process.argv[2])).default({
+                wasmMemory: new WebAssembly.Memory({ initial: pages, maximum: pages, shared: true }),
+              });" > instantiate.mjs
             for assertions in 0 1; do
               em++ ${toolchain.commonFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 -sEXPORTED_FUNCTIONS=_main,_wasmfs_create_opfs_backend probe.o -o probe-runtime.js

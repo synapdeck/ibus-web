@@ -31,6 +31,14 @@
           description = "The spare Workers the pool starts with beyond its shares, and the idle Workers a Worker host tops it back up to whenever no request is pending; threads alive within the shares leave at least this many idle, so the pool grows only past them.";
         };
       };
+      link = lib.mkOption {
+        type = lib.types.functionTo lib.types.package;
+        description = "Given { pname, extraFlags }, links ibus-runtime as the package does, with extraFlags after its own flags, which they override.";
+      };
+      memory.minimum = lib.mkOption {
+        type = lib.types.ints.positive;
+        description = "The least memory, in bytes, a host may make for ibus-runtime: the initial size of the memory it imports. The host makes each runtime's memory at its engine's size with its maximum at that size, so it never grows.";
+      };
       linkFlags = lib.mkOption {
         type = lib.types.str;
         description = "ibus-runtime's link flags but for its export list: toolchain.runtimeMainFlags and the settings that shape its memory, threads and JavaScript.";
@@ -54,7 +62,7 @@
       };
       nodeHarness = lib.mkOption {
         type = lib.types.package;
-        description = "harness.mjs, which drives the runtime at the C level from Node, and the errno.json it reads.";
+        description = "harness.mjs, which drives the runtime at the C level from Node, and the errno.json and memory.json (the runtime's least memory) it reads.";
       };
       nodeTimeout = lib.mkOption {
         type = lib.types.str;

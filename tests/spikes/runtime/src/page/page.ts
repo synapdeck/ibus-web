@@ -15,6 +15,9 @@ import {
 } from "../shared/control.ts";
 import type { PageRunReport, PageRunSpec } from "../shared/report.ts";
 import {
+  glibStress,
+  memoryCosts,
+  memStress,
   opfs,
   opfsReadOnly,
   opsFrom,
@@ -22,6 +25,7 @@ import {
   runScenarios,
   scenarios,
   threadCrash,
+  workerMemory,
   type Env,
   type Scenario,
 } from "../shared/scenarios.ts";
@@ -46,9 +50,17 @@ const { waitAsync } = Atomics as unknown as {
 };
 
 const byName = new Map<string, Scenario>(
-  [...scenarios, poolExhausted, opfs, opfsReadOnly, threadCrash].map(
-    (scenario) => [scenario.name, scenario],
-  ),
+  [
+    ...scenarios,
+    poolExhausted,
+    opfs,
+    opfsReadOnly,
+    threadCrash,
+    memStress,
+    glibStress,
+    memoryCosts,
+    workerMemory,
+  ].map((scenario) => [scenario.name, scenario]),
 );
 
 const sleep = (ms: number): Promise<void> =>
@@ -79,6 +91,30 @@ const readOpfs = async (name: string): Promise<string | null> => {
       return null;
     throw error;
   }
+};
+
+// The harness's measure of the browser's processes, which it exposes to the
+// page, and, where the browser has it, the page's own measure of its memory
+// and its Workers'.
+const sampleMemory = async (): Promise<Record<string, number>> => {
+  const { ibusWebSampleMemory } = globalThis as unknown as {
+    ibusWebSampleMemory?: () => Promise<Record<string, number>>;
+  };
+  const sample = (await ibusWebSampleMemory?.()) ?? {};
+  const { measureUserAgentSpecificMemory } = performance as unknown as {
+    measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
+  };
+  // Chromium declares it but refuses it without a flag, as its headless
+  // shell does.
+  if (measureUserAgentSpecificMemory !== undefined) {
+    const measured = await Promise.race([
+      measureUserAgentSpecificMemory.call(performance),
+      sleep(60_000).then(() => null),
+    ]).catch(() => null);
+    if (measured !== null)
+      sample.userAgentSpecific = Math.round(measured.bytes / 2 ** 20);
+  }
+  return sample;
 };
 
 const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
@@ -114,6 +150,7 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
     runtimeUrl: runtimeUrl.href,
     poolLowWater: spec.poolLowWater,
     wasm,
+    memory: spec.memory,
     control,
     sides,
     storage:
@@ -178,6 +215,8 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       ...(spec.opfsMount === undefined
         ? {}
         : { persistent: { dir: spec.opfsMount, read: readOpfs } }),
+      ...(spec.stress === undefined ? {} : { stress: spec.stress }),
+      ...(spec.sampleMemory === true ? { sampleMemory } : {}),
     };
     const results = await runScenarios(client, env, selected);
     // The host's own messages, such as a crash report, arrive only once

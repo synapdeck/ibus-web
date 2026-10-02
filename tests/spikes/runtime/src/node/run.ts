@@ -4,42 +4,39 @@
 // Usage: node run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
 //                    --constants CONSTANTS_JSON --pool N --planned-threads N
 //                    --engine-threads N --glib-threads N --pool-low-water N
-//                    [--compare]
+//                    --memory BYTES [--compare]
 //
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
-// requests over the control buffer as a page would. The host sleeps in the
+// requests over the control buffer as a page would. The host makes the
+// runtime's memory, of BYTES that never grow. The host sleeps in the
 // runtime (ibusweb_wait); then a host of its own runs the crash scenario.
 // With --compare, for the record, the scenarios run again on a host that
 // waits asynchronously while idle, and those that tell the wake paths apart
 // on one that sleeps in Atomics.wait() on the control buffer. Exits 1 if any
 // scenario of the first two hosts fails.
 
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { startHost as bootHost } from "../shared/bootstrap.ts";
-import { blockingClient } from "../shared/client.ts";
-import {
-  createControl,
-  type BuildConstants,
-  type HostFeatures,
-  type HostInit,
-  type HostMessage,
-  type WaitMode,
-} from "../shared/control.ts";
 import { reportLines } from "../shared/report.ts";
 import {
   opsFrom,
   runScenarios,
   scenarios,
   threadCrash,
-  type Client,
   type Env,
   type Result,
 } from "../shared/scenarios.ts";
-import { BrowserWorker } from "./worker-adapter.ts";
+import {
+  compileRuntime,
+  readConstants,
+  readJson,
+  readSides,
+  startNodeHost as startHost,
+  type NodeHost as Host,
+} from "./host.ts";
 
 const { values: args } = parseArgs({
   options: {
@@ -52,6 +49,7 @@ const { values: args } = parseArgs({
     "engine-threads": { type: "string" },
     "glib-threads": { type: "string" },
     "pool-low-water": { type: "string" },
+    memory: { type: "string" },
     compare: { type: "boolean", default: false },
   },
 });
@@ -64,10 +62,11 @@ if (
   args["planned-threads"] === undefined ||
   args["engine-threads"] === undefined ||
   args["glib-threads"] === undefined ||
-  args["pool-low-water"] === undefined
+  args["pool-low-water"] === undefined ||
+  args.memory === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads and --pool-low-water are required",
+    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads, --pool-low-water and --memory are required",
   );
 }
 const runtimeJs = args.runtime;
@@ -77,50 +76,7 @@ const plannedThreads = Number(args["planned-threads"]);
 const engineThreads = Number(args["engine-threads"]);
 const glibThreads = Number(args["glib-threads"]);
 const poolLowWater = Number(args["pool-low-water"]);
-
-// Node's types leave WebAssembly to the DOM library, which Node code here
-// doesn't load; this is the one call made, and the module only passes
-// through to the host.
-declare const WebAssembly: { compile(bytes: Uint8Array): Promise<object> };
-
-const REPLY_TIMEOUT_MS = 30_000;
-
-interface Host {
-  worker: BrowserWorker;
-  client: Client;
-  startupMs: number;
-  features: HostFeatures;
-  // Messages after "ready", such as a crash report.
-  messages: HostMessage[];
-}
-
-const startHost = async (
-  wait: WaitMode,
-  base: Omit<HostInit<object>, "control" | "wait">,
-): Promise<Host> => {
-  const control = createControl();
-  const worker = new BrowserWorker(
-    new URL("../worker/host.js", import.meta.url),
-  );
-  const init: HostInit<object> = { ...base, control, wait };
-  const { startupMs, features, messages } = await bootHost(worker, init);
-  return {
-    worker,
-    // Blocks this thread until the host replies, as the page's synchronous
-    // keystroke path would spin.
-    client: blockingClient(control, messages, {
-      now: () => performance.now(),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      block: (words, index, value, ms) => {
-        Atomics.wait(words, index, value, ms);
-      },
-      replyTimeoutMs: REPLY_TIMEOUT_MS,
-    }),
-    startupMs,
-    features,
-    messages,
-  };
-};
+const memoryBytes = Number(args.memory);
 
 // Waits a moment first: the host's own messages, such as a crash report,
 // arrive only once this thread's event loop runs.
@@ -135,32 +91,11 @@ const report = async (
   for (const line of lines) console.log(line);
 };
 
-const errno = JSON.parse(await readFile(args.errno, "utf8")) as Record<
-  string,
-  number
->;
-const constants = JSON.parse(
-  await readFile(args.constants, "utf8"),
-) as BuildConstants;
+const errno = await readJson<Record<string, number>>(args.errno);
+const constants = await readConstants(args.constants);
 const ops = opsFrom(constants);
-const wasm = await WebAssembly.compile(
-  await readFile(join(runtimeJs, "..", "ibus-runtime.wasm")),
-);
-const sides = await Promise.all(
-  (await readdir(sidesDir))
-    .filter((file) => file.endsWith(".wasm"))
-    .sort()
-    .map(async (file) => {
-      const bytes = await readFile(join(sidesDir, file));
-      return {
-        name: basename(file, ".wasm"),
-        bytes: bytes.buffer.slice(
-          bytes.byteOffset,
-          bytes.byteOffset + bytes.byteLength,
-        ) as ArrayBuffer,
-      };
-    }),
-);
+const wasm = await compileRuntime(runtimeJs);
+const sides = await readSides(sidesDir);
 const hostDir = await mkdtemp(join(tmpdir(), "ibus-web-spike-"));
 const mountPath = "/host";
 
@@ -185,6 +120,7 @@ const env = (pendingLimitMs: number): Env => ({
 const base = {
   runtimeUrl: pathToFileURL(runtimeJs).href,
   wasm,
+  memory: { initial: memoryBytes, maximum: memoryBytes },
   sides,
   storage: { kind: "node", hostPath: hostDir, mountPath },
   constants,

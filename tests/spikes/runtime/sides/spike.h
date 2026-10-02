@@ -39,7 +39,14 @@
   X(READ_FILE, 21)                                                             \
   X(READ_FILE_RDWR, 22)                                                        \
   X(HOLD, 23)                                                                  \
-  X(RELEASE, 24)
+  X(RELEASE, 24)                                                               \
+  X(MEM_STRESS, 25)                                                            \
+  X(MEM_STRESS_RESULT, 26)                                                     \
+  X(GLIB_STRESS, 27)                                                           \
+  X(GLIB_STRESS_RESULT, 28)                                                    \
+  X(MEM_INFO, 29)                                                              \
+  X(MEM_GROW, 30)                                                              \
+  X(JS_HEAP, 31)
 
 #define SPIKE_OP_ENUM(name, opcode) SPIKE_OP_##name = opcode,
 enum { SPIKE_OPS(SPIKE_OP_ENUM) };

@@ -44,6 +44,9 @@ export const HostOp = {
   // Holds off topping the pool up while the int32 payload is 0, and allows
   // it again otherwise; replies 0.
   topUp: 0xffff_0003,
+  // Adds the int32 payload's count of Workers to the pool, then replies 0
+  // once they have all loaded the runtime, or -1.
+  addWorkers: 0xffff_0004,
 } as const;
 
 // A spike instrument: what HostOp.stats reports.
@@ -64,6 +67,8 @@ export interface HostStats {
   eventLoopTurns: number;
   // Bytes malloc() has handed out and not had back.
   heapInUse: number;
+  // The runtime's memory's size.
+  memoryBytes: number;
   // Requests the host has served, this one included.
   requests: number;
   // Of those, the ones that arrived while the host slept: it found them
@@ -117,6 +122,10 @@ export interface HostInit<Wasm = unknown> {
   // to this many idle Workers.
   poolLowWater: number;
   wasm?: Wasm;
+  // The runtime's memory, in bytes, which the host makes and passes to it,
+  // since the runtime won't start without one; a memory with a maximum above
+  // its initial size can grow.
+  memory: { initial: number; maximum: number };
   control: SharedArrayBuffer;
   sides: SideModule[];
   storage: Storage;

@@ -33,6 +33,11 @@ export interface PageRunSpec {
   pageWait: "spin" | "async";
   // Where the host mounts the OPFS backend, if it does.
   opfsMount?: string;
+  // The runtime's memory (HostInit.memory).
+  memory: { initial: number; maximum: number };
+  stress?: { threads: number; rounds: number; iterations: number };
+  // Whether the page measures the memory its Workers use, for worker-memory.
+  sampleMemory?: boolean;
 }
 
 export interface PageRunReport {

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Usage: node load.mjs RUNTIME_JS SIDE_WASM
-// Loads a side module into the runtime and dispatches its operations.
+// Checks the runtime refuses to start without a memory from the host, then
+// loads a side module into it and dispatches its operations.
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -11,6 +12,11 @@ import { errno, int32s, startRuntime, utf8 } from "./harness.mjs";
 
 const [runtime, side] = process.argv.slice(2);
 const runtimeUrl = pathToFileURL(runtime);
+
+// Without a memory from the host, the runtime would make one that grows.
+const { default: createRuntime } = await import(runtimeUrl.href);
+await assert.rejects(async () => createRuntime(), /must pass wasmMemory/);
+
 const rt = await startRuntime(runtime);
 
 // The runtime's loader hands a side module, for each import, the function

@@ -5,6 +5,7 @@
 //                            --constants CONSTANTS_JSON --pool N
 //                            --planned-threads N --engine-threads N
 //                            --glib-threads N --pool-low-water N
+//                            --memory BYTES
 //                            [--browser chromium|firefox]... [--scenario NAME]...
 //                            [--compare]
 //
@@ -12,7 +13,8 @@
 // Playwright: a page served with cross-origin isolation starts the Worker
 // host by URL and plays the page's part over the control buffer. Each host
 // runs in a browser context of its own, so the origin's private file system
-// starts empty every time. In each browser the host sleeps in the runtime
+// starts empty every time. Each host makes the runtime's memory, of BYTES
+// that never grow. In each browser the host sleeps in the runtime
 // and runs every scenario, a host of its own with OPFS mounted runs the
 // storage scenarios on it, and another the crash scenario. With --compare,
 // for the record, the same with the page waiting asynchronously, the idle
@@ -56,6 +58,7 @@ const { values: args } = parseArgs({
     "engine-threads": { type: "string" },
     "glib-threads": { type: "string" },
     "pool-low-water": { type: "string" },
+    memory: { type: "string" },
     browser: { type: "string", multiple: true },
     // Runs only these scenarios, where a host would run them.
     scenario: { type: "string", multiple: true },
@@ -71,12 +74,14 @@ if (
   args["planned-threads"] === undefined ||
   args["engine-threads"] === undefined ||
   args["glib-threads"] === undefined ||
-  args["pool-low-water"] === undefined
+  args["pool-low-water"] === undefined ||
+  args.memory === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads and --pool-low-water are required",
+    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads, --pool-low-water and --memory are required",
   );
 }
+const memoryBytes = Number(args.memory);
 
 const browserNames = browsersNamed(args.browser);
 
@@ -298,6 +303,7 @@ const runOne = async (
       poolLowWater: Number(args["pool-low-water"]),
       pendingLimitMs: run.pendingLimitMs,
       pageWait: run.pageWait,
+      memory: { initial: memoryBytes, maximum: memoryBytes },
       ...(run.opfs ? { opfsMount: OPFS_MOUNT } : {}),
     };
     const report = await withTimeout(

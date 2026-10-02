@@ -20,9 +20,15 @@ export const int32s = (...values) => new Uint8Array(new Int32Array(values).buffe
 
 export const utf8 = (text) => new TextEncoder().encode(text);
 
+// The least memory the runtime takes, which is enough for the checks.
+const { minimum } = JSON.parse(await readFile(new URL("memory.json", import.meta.url), "utf8"));
+
 export async function startRuntime(path) {
   const { default: createRuntime } = await import(pathToFileURL(path).href);
-  const rt = await createRuntime();
+  const pages = minimum / 65536;
+  const rt = await createRuntime({
+    wasmMemory: new WebAssembly.Memory({ initial: pages, maximum: pages, shared: true }),
+  });
   // The memory is fixed, so views over it stay valid.
   const memory = rt.HEAPU8;
   const words = new Int32Array(memory.buffer);
