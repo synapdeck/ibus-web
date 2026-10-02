@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+     SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<meta charset="utf-8" />
+<title>growrace</title>
+<!-- growrace.mjs in a page: the page grows the memory, module Workers read.
+     Needs cross-origin isolation for the shared memory. Call
+     race({ readers, pages, access, grow }). -->
+<script type="module">
+  import { race } from "./growrace.mjs";
+
+  const startWorker = () => {
+    const worker = new Worker(new URL("./growrace-worker.mjs", import.meta.url), {
+      type: "module",
+    });
+    return {
+      post: (message) => worker.postMessage(message),
+      onMessage: (listener) =>
+        worker.addEventListener("message", ({ data }) => listener(data)),
+      terminate: () => worker.terminate(),
+    };
+  };
+  globalThis.race = (options) => race({ ...options, startWorker });
+</script>
