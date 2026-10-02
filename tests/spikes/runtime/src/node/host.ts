@@ -36,33 +36,43 @@ export interface NodeHost {
   messages: HostMessage[];
 }
 
-export const startNodeHost = async (
+// Starts a host, whose messages go to messages as they arrive; host
+// settles once it is ready, or rejects with why it didn't start.
+export const launchNodeHost = (
   wait: WaitMode,
   base: Omit<HostInit<object>, "control" | "wait">,
-): Promise<NodeHost> => {
+  messages: HostMessage[] = [],
+): { worker: BrowserWorker; host: Promise<NodeHost> } => {
   const control = createControl();
   const worker = new BrowserWorker(
     new URL("../worker/host.js", import.meta.url),
   );
   const init: HostInit<object> = { ...base, control, wait };
-  const { startupMs, features, messages } = await bootHost(worker, init);
-  return {
-    worker,
-    // Blocks this thread until the host replies, as the page's synchronous
-    // keystroke path would spin.
-    client: blockingClient(control, messages, {
-      now: () => performance.now(),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      block: (words, index, value, ms) => {
-        Atomics.wait(words, index, value, ms);
-      },
-      replyTimeoutMs: REPLY_TIMEOUT_MS,
+  const host = bootHost(worker, init, messages).then(
+    ({ startupMs, features }) => ({
+      worker,
+      // Blocks this thread until the host replies, as the page's
+      // synchronous keystroke path would spin.
+      client: blockingClient(control, messages, {
+        now: () => performance.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        block: (words, index, value, ms) => {
+          Atomics.wait(words, index, value, ms);
+        },
+        replyTimeoutMs: REPLY_TIMEOUT_MS,
+      }),
+      startupMs,
+      features,
+      messages,
     }),
-    startupMs,
-    features,
-    messages,
-  };
+  );
+  return { worker, host };
 };
+
+export const startNodeHost = (
+  wait: WaitMode,
+  base: Omit<HostInit<object>, "control" | "wait">,
+): Promise<NodeHost> => launchNodeHost(wait, base).host;
 
 export const readJson = async <T>(path: string): Promise<T> =>
   JSON.parse(await readFile(path, "utf8")) as T;

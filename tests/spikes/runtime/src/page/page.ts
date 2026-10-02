@@ -14,10 +14,20 @@ import {
   engineDataBytes,
   engineDir,
   SPIKE_ENGINE,
+  withData,
+  type EngineManifest,
+  type HostFeatures,
   type HostInit,
+  type HostMessage,
   type SideModule,
   type Storage,
 } from "../shared/control.ts";
+import {
+  installScenarios,
+  runInstallScenarios,
+  type InstallHarness,
+  type InstallScenario,
+} from "../shared/install.ts";
 import type { PageRunReport, PageRunSpec } from "../shared/report.ts";
 import {
   glibStress,
@@ -32,6 +42,7 @@ import {
   threadCrash,
   workerMemory,
   type Env,
+  type Result,
   type Scenario,
 } from "../shared/scenarios.ts";
 
@@ -66,6 +77,10 @@ const byName = new Map<string, Scenario>(
     memoryCosts,
     workerMemory,
   ].map((scenario) => [scenario.name, scenario]),
+);
+
+const installByName = new Map<string, InstallScenario>(
+  installScenarios.map((scenario) => [scenario.name, scenario]),
 );
 
 const sleep = (ms: number): Promise<void> =>
@@ -140,11 +155,14 @@ const storageOf = (storage: PageRunSpec["storage"]): Storage =>
 const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
   if (!crossOriginIsolated)
     throw new Error("the page is not cross-origin isolated");
-  const selected = spec.scenarios.map((name) => {
-    const scenario = byName.get(name);
-    if (scenario === undefined) throw new Error(`no scenario ${name}`);
-    return scenario;
-  });
+  const pick = <T>(names: Map<string, T>): T[] =>
+    spec.scenarios.map((name) => {
+      const scenario = names.get(name);
+      if (scenario === undefined) throw new Error(`no scenario ${name}`);
+      return scenario;
+    });
+  const selected = spec.install === true ? [] : pick(byName);
+  const selectedInstalls = spec.install === true ? pick(installByName) : [];
   const runtimeUrl = new URL(spec.runtimeUrl, location.href);
   const [wasm, sides] = await Promise.all([
     WebAssembly.compileStreaming(
@@ -160,93 +178,120 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       }),
     ),
   ]);
+  const { data } = spec;
+  const dataUrl =
+    spec.dataUrl === undefined
+      ? undefined
+      : new URL(spec.dataUrl, location.href).href;
+  const engine =
+    data === undefined || dataUrl === undefined
+      ? SPIKE_ENGINE
+      : withData(SPIKE_ENGINE, data, dataUrl);
 
-  const control = createControl();
-  const worker = new Worker(new URL("../worker/host.js", import.meta.url), {
-    type: "module",
-    name: "ibus-web-host",
-  });
-  const init: HostInit<WebAssembly.Module> = {
-    runtimeUrl: runtimeUrl.href,
-    poolLowWater: spec.poolLowWater,
-    wasm,
-    memory: spec.memory,
-    control,
-    sides,
-    engine: SPIKE_ENGINE,
-    storage: storageOf(spec.storage),
-    wait: spec.wait,
-    constants: spec.constants,
+  // The page's main thread can't block, so a call either spins until the
+  // reply or waits for it asynchronously.
+  const waitFree = async (
+    words: Int32Array,
+    index: number,
+    value: number,
+    ms: number,
+  ): Promise<void> => {
+    const result = waitAsync(words, index, value, ms);
+    if (result.async) await result.value;
   };
-  try {
-    const { startupMs, features, messages } = await startHost(worker, init);
-    // The page's main thread can't block, so a call either spins until the
-    // reply or waits for it asynchronously.
-    const waitFree = async (
-      words: Int32Array,
-      index: number,
-      value: number,
-      ms: number,
-    ): Promise<void> => {
-      const result = waitAsync(words, index, value, ms);
-      if (result.async) await result.value;
-    };
-    const client = blockingClient(
-      control,
-      messages,
-      spec.pageWait === "spin"
-        ? {
-            now: () => performance.now(),
-            sleep,
-            block: () => {},
-            replyTimeoutMs: SPIN_LIMIT_MS,
-            lateReply: { wait: waitFree, ms: REPLY_TIMEOUT_MS },
-          }
-        : {
-            now: () => performance.now(),
-            sleep,
-            block: waitFree,
-            replyTimeoutMs: REPLY_TIMEOUT_MS,
-          },
-    );
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    const env: Env = {
-      now: () => performance.now(),
-      sleep,
-      utf8: (text) => encoder.encode(text),
-      decode: (bytes) => decoder.decode(bytes),
-      errno: spec.errno,
-      ops: opsFrom(spec.constants),
-      poolSize: spec.poolSize,
-      plannedThreads: spec.plannedThreads,
-      engineThreads: spec.engineThreads,
-      glibThreads: spec.glibThreads,
+  const clientOptions =
+    spec.pageWait === "spin"
+      ? {
+          now: () => performance.now(),
+          sleep,
+          block: () => {},
+          replyTimeoutMs: SPIN_LIMIT_MS,
+          lateReply: { wait: waitFree, ms: REPLY_TIMEOUT_MS },
+        }
+      : {
+          now: () => performance.now(),
+          sleep,
+          block: waitFree,
+          replyTimeoutMs: REPLY_TIMEOUT_MS,
+        };
+
+  // Starts a host for engine, whose messages go to messages as they arrive.
+  const launch = (
+    engine: EngineManifest,
+    extra: Pick<HostInit, "installStallAt">,
+    messages: HostMessage[],
+  ) => {
+    const control = createControl();
+    const worker = new Worker(new URL("../worker/host.js", import.meta.url), {
+      type: "module",
+      name: "ibus-web-host",
+    });
+    const init: HostInit<WebAssembly.Module> = {
+      runtimeUrl: runtimeUrl.href,
       poolLowWater: spec.poolLowWater,
-      fsyncPaths: [
-        "/tmp/fsync-memory.txt",
-        ...(spec.storage === "browser"
-          ? [`${engineDir(SPIKE_ENGINE)}/fsync-idb.txt`]
-          : []),
-      ],
-      pendingLimitMs: spec.pendingLimitMs,
-      ...(spec.wakeMaxMs === undefined ? {} : { wakeMaxMs: spec.wakeMaxMs }),
-      memoryBytes: spec.memory.initial,
-      ...(spec.storage === "none"
-        ? {}
-        : {
-            engine: {
-              dir: engineDir(SPIKE_ENGINE),
-              mount: spec.storage === "browser" ? "indexeddb" : "memory",
-              dataBytes: engineDataBytes(SPIKE_ENGINE),
-            },
-          }),
-      hostMessages: () => messages,
-      upgradeDatabase,
-      ...(spec.stress === undefined ? {} : { stress: spec.stress }),
-      ...(spec.sampleMemory === true ? { sampleMemory } : {}),
+      wasm,
+      memory: spec.memory,
+      control,
+      sides,
+      engine,
+      storage: storageOf(spec.storage),
+      wait: spec.wait,
+      constants: spec.constants,
+      ...extra,
     };
-    const results = await runScenarios(client, env, selected);
+    const started = startHost(worker, init, messages).then(
+      ({ startupMs, features }) => ({
+        startupMs,
+        features,
+        client: blockingClient(control, messages, clientOptions),
+      }),
+    );
+    return { worker, started };
+  };
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const envFor = (messages: readonly HostMessage[]): Env => ({
+    now: () => performance.now(),
+    sleep,
+    utf8: (text) => encoder.encode(text),
+    decode: (bytes) => decoder.decode(bytes),
+    errno: spec.errno,
+    ops: opsFrom(spec.constants),
+    poolSize: spec.poolSize,
+    plannedThreads: spec.plannedThreads,
+    engineThreads: spec.engineThreads,
+    glibThreads: spec.glibThreads,
+    poolLowWater: spec.poolLowWater,
+    fsyncPaths: [
+      "/tmp/fsync-memory.txt",
+      ...(spec.storage === "browser"
+        ? [`${engineDir(engine)}/fsync-idb.txt`]
+        : []),
+    ],
+    pendingLimitMs: spec.pendingLimitMs,
+    ...(spec.wakeMaxMs === undefined ? {} : { wakeMaxMs: spec.wakeMaxMs }),
+    memoryBytes: spec.memory.initial,
+    ...(spec.storage === "none"
+      ? {}
+      : {
+          engine: {
+            dir: engineDir(engine),
+            mount: spec.storage === "browser" ? "indexeddb" : "memory",
+            dataBytes: engineDataBytes(engine),
+          },
+        }),
+    hostMessages: () => messages,
+    upgradeDatabase,
+    ...(spec.stress === undefined ? {} : { stress: spec.stress }),
+    ...(spec.sampleMemory === true ? { sampleMemory } : {}),
+  });
+  const report = async (
+    startupMs: number,
+    features: HostFeatures,
+    results: Result[],
+    messages: HostMessage[],
+  ): Promise<PageRunReport> => {
     // The host's own messages, such as a crash report, arrive only once
     // this thread's event loop runs.
     await sleep(100);
@@ -259,6 +304,52 @@ const runSpike = async (spec: PageRunSpec): Promise<PageRunReport> => {
       results,
       messages,
     };
+  };
+
+  if (spec.install === true) {
+    if (data === undefined || dataUrl === undefined)
+      throw new Error("install scenarios need the test archive");
+    // Every host of a run shares the origin's storage and locks, as tabs
+    // of one origin do.
+    const workers: Worker[] = [];
+    let first: { startupMs: number; features: HostFeatures } | undefined;
+    const harness: InstallHarness = {
+      env: envFor([]),
+      data,
+      dataUrl,
+      start: (installed, options = {}) => {
+        const messages: HostMessage[] = [];
+        const { worker, started } = launch(installed, options, messages);
+        workers.push(worker);
+        return {
+          messages,
+          ready: started.then((host) => {
+            first ??= host;
+            return host.client;
+          }),
+          terminate: async () => worker.terminate(),
+        };
+      },
+    };
+    try {
+      const results = await runInstallScenarios(harness, selectedInstalls);
+      return await report(
+        first?.startupMs ?? Number.NaN,
+        first?.features ?? { atomicsWaitAsync: false, clockStepUs: Number.NaN },
+        results,
+        [],
+      );
+    } finally {
+      for (const worker of workers) worker.terminate();
+    }
+  }
+
+  const messages: HostMessage[] = [];
+  const { worker, started } = launch(engine, {}, messages);
+  try {
+    const { startupMs, features, client } = await started;
+    const results = await runScenarios(client, envFor(messages), selected);
+    return await report(startupMs, features, results, messages);
   } finally {
     worker.terminate();
   }

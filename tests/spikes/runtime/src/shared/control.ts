@@ -121,27 +121,78 @@ export type Storage =
   // host, as it does in an opaque origin.
   | { kind: "browser"; withoutIndexedDB?: boolean };
 
-// What the host reads of an engine's manifest: the engine's name, and the
-// archives of data it installs, by their sizes in bytes.
-export interface EngineManifest {
-  name: string;
-  data: readonly { size: number }[];
+// An archive of the engine's data: where the host fetches it (an absolute
+// URL), the directory it unpacks to as the engine sees it, and its size
+// once unpacked, in bytes.
+export interface EngineData {
+  url: string;
+  path: string;
+  size: number;
 }
 
-// The spike's stand-in for an engine's manifest. Its data, which nothing
-// installs, only sizes the memory of a host without IndexedDB; it isn't a
-// whole number of pages, as an archive's size seldom is.
+// What the host reads of an engine's manifest: the engine's name, its
+// version, which its installed data is marked with, and its data.
+export interface EngineManifest {
+  name: string;
+  version: string;
+  data: readonly EngineData[];
+}
+
+// The spike's stand-in for an engine's manifest, without data; harnesses
+// that have the test archive add it with withData().
 export const SPIKE_ENGINE: EngineManifest = {
   name: "spike",
-  data: [{ size: 1_048_576 }, { size: 300_001 }],
+  version: "0",
+  data: [],
 };
+
+// The test archive as its build describes it (tree.json): its file name, a
+// version derived from its bytes, its unpacked size and the listing an
+// installed tree matches.
+export interface TestData {
+  archive: string;
+  version: string;
+  size: number;
+  listing: string;
+}
+
+// The directory the spike's engine expects its data at.
+export const SPIKE_DATA_PATH = "/usr/share/spike";
+
+// The engine with the test archive, fetched from url, as its data, and the
+// archive's version as its own.
+export const withData = (
+  engine: EngineManifest,
+  data: TestData,
+  url: string,
+): EngineManifest => ({
+  ...engine,
+  version: data.version,
+  data: [{ url, path: SPIKE_DATA_PATH, size: data.size }],
+});
 
 export const engineDir = ({ name }: EngineManifest): string =>
   `/engines/${name}`;
 
+// Where an archive's data lands: under the engine's directory, at the path
+// the engine expects it.
+export const engineDataDir = (
+  engine: EngineManifest,
+  { path }: EngineData,
+): string => `${engineDir(engine)}/data${path}`;
+
+// The file whose contents, the engine's version, say its data is installed
+// whole. The host writes it last.
+export const engineMarker = (engine: EngineManifest): string =>
+  `${engineDir(engine)}/.installed`;
+
 // The IndexedDB database the engine's directory lives in.
 export const engineDatabase = ({ name }: EngineManifest): string =>
   `ibus-web/${name}`;
+
+// The Web Lock an engine's data is installed under.
+export const engineInstallLock = ({ name }: EngineManifest): string =>
+  `ibus-web:install:${name}`;
 
 // The engine's data's size: what the host adds to the runtime's memory when
 // the data sits in it.
@@ -172,6 +223,10 @@ export interface HostInit<Wasm = unknown> {
   storage: Storage;
   wait: WaitMode;
   constants: BuildConstants;
+  // A spike instrument: the host stops installing, for good, once it has fed
+  // the extractor this many bytes of the engine's data, and reports
+  // install: stalled.
+  installStallAt?: number;
 }
 
 export type Mount = "none" | "node" | "indexeddb" | "memory";
@@ -190,9 +245,26 @@ export interface HostFeatures {
 // fails with EIO.
 export type StorageState = "ephemeral" | "closed";
 
+// How the host found the engine's data at start: "installed", it installed
+// it; "present", the marker said this version was installed already;
+// "stalled", the install stopped where HostInit.installStallAt said.
+// lockWaitMs is how long the host waited for the install lock; lockedAt and
+// releasedAt, when it took and let go of it, in Date.now() milliseconds,
+// which hosts share; bytes, the archive bytes fed.
+export interface InstallReport {
+  state: "installed" | "present" | "stalled";
+  version: string;
+  lockWaitMs: number;
+  lockedAt: number;
+  releasedAt: number;
+  bytes: number;
+  installMs: number;
+}
+
 export type HostMessage =
   | { type: "ready"; startupMs: number; features: HostFeatures }
   | { type: "storage"; state: StorageState; message: string }
+  | ({ type: "install" } & InstallReport)
   | { type: "error"; message: string }
   | { type: "crashed"; message: string };
 

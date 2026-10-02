@@ -24,6 +24,7 @@ const types: Readonly<Record<string, string>> = {
   ".json": "application/json",
   ".map": "application/json",
   ".wasm": "application/wasm",
+  ".tar": "application/x-tar",
 };
 
 export interface Server {

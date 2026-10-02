@@ -4,33 +4,46 @@
 // Usage: node run.js --runtime RUNTIME_JS --sides DIR --errno ERRNO_JSON
 //                    --constants CONSTANTS_JSON --pool N --planned-threads N
 //                    --engine-threads N --glib-threads N --pool-low-water N
-//                    --memory BYTES [--compare]
+//                    --memory BYTES --install-data DIR [--compare]
 //
 // Runs the runtime spike's scenarios against the Worker host in Node, posting
 // requests over the control buffer as a page would. The host makes the
 // runtime's memory, of BYTES that never grow. The host sleeps in the
 // runtime (ibusweb_wait) and mounts a WasmFS Node backend over a temporary
-// directory at the engine's directory; then a host of its own runs the crash
+// directory at the engine's directory, installing the engine's data, DIR's
+// tree.tar, served over HTTP, into it; then a host of its own runs the crash
 // scenario, another one heap-full, and another, told to mount the engine's
-// IndexedDB database, which Node lacks, storage-fallback. Hosts given a
-// memory the runtime can't take must refuse to load.
+// IndexedDB database, which Node lacks, storage-fallback. The install
+// scenarios follow, each starting hosts of its own on a directory of its
+// own. Hosts given a memory the runtime can't take must refuse to load.
 // With --compare, for the record, the scenarios run again on a host that
 // waits asynchronously while idle, and those that tell the wake paths apart
 // on one that sleeps in Atomics.wait() on the control buffer, and every
 // cross-thread wake must take at most 20 ms. Exits 1 if any scenario of the
 // first hosts fails.
 
+import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { serve } from "@ibus-web/test-browser/server";
 import {
   engineDataBytes,
   engineDir,
   SPIKE_ENGINE,
+  withData,
+  type EngineManifest,
+  type HostMessage,
   type Mount,
+  type TestData,
 } from "../shared/control.ts";
+import {
+  installScenarios,
+  runInstallScenarios,
+  type InstallHarness,
+} from "../shared/install.ts";
 import { reportLines } from "../shared/report.ts";
 import {
   heapFull,
@@ -44,6 +57,7 @@ import {
 } from "../shared/scenarios.ts";
 import {
   compileRuntime,
+  launchNodeHost,
   readConstants,
   readJson,
   readSides,
@@ -63,6 +77,7 @@ const { values: args } = parseArgs({
     "glib-threads": { type: "string" },
     "pool-low-water": { type: "string" },
     memory: { type: "string" },
+    "install-data": { type: "string" },
     compare: { type: "boolean", default: false },
   },
 });
@@ -76,10 +91,11 @@ if (
   args["engine-threads"] === undefined ||
   args["glib-threads"] === undefined ||
   args["pool-low-water"] === undefined ||
-  args.memory === undefined
+  args.memory === undefined ||
+  args["install-data"] === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads, --pool-low-water and --memory are required",
+    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads, --pool-low-water, --memory and --install-data are required",
   );
 }
 const runtimeJs = args.runtime;
@@ -112,7 +128,15 @@ const ops = opsFrom(constants);
 const wasm = await compileRuntime(runtimeJs);
 const sides = await readSides(sidesDir);
 const hostDir = await mkdtemp(join(tmpdir(), "ibus-web-spike-"));
-const dir = engineDir(SPIKE_ENGINE);
+const installData = args["install-data"];
+const testData = await readJson<TestData>(join(installData, "tree.json"));
+// Hosts fetch the engine's data as a browser's would.
+const server = await serve(join(installData, "tree.json"), {
+  "/data/": installData,
+});
+const dataUrl = `${server.origin}/data/${testData.archive}`;
+const engine = withData(SPIKE_ENGINE, testData, dataUrl);
+const dir = engineDir(engine);
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -136,7 +160,7 @@ const env = (
   pendingLimitMs,
   memoryMaximum: constants.memory.maximum,
   memoryBytes,
-  engine: { dir, mount, dataBytes: engineDataBytes(SPIKE_ENGINE) },
+  engine: { dir, mount, dataBytes: engineDataBytes(engine) },
   hostMessages: () => host.messages,
   ...(args.compare ? { wakeMaxMs: STRICT_WAKE_MAX_MS } : {}),
 });
@@ -146,7 +170,7 @@ const base = {
   wasm,
   memory: { initial: memoryBytes, maximum: memoryBytes },
   sides,
-  engine: SPIKE_ENGINE,
+  engine,
   storage: { kind: "node", hostPath: hostDir },
   constants,
   poolLowWater,
@@ -197,6 +221,41 @@ try {
   );
   failed ||= !passed(fallback, 1);
   memoryOnly.worker.terminate();
+
+  const installs: InstallHarness = {
+    env: env(10_000, memoryOnly),
+    data: testData,
+    dataUrl,
+    start: (installed: EngineManifest, options = {}) => {
+      const hostPath = join(hostDir, "installs", installed.name);
+      mkdirSync(hostPath, { recursive: true });
+      const messages: HostMessage[] = [];
+      const { worker, host } = launchNodeHost(
+        "runtime",
+        {
+          ...base,
+          engine: installed,
+          storage: { kind: "node", hostPath },
+          ...options,
+        },
+        messages,
+      );
+      return {
+        messages,
+        ready: host.then(({ client }) => client),
+        terminate: () => worker.terminate(),
+      };
+    },
+  };
+  const installResults = await runInstallScenarios(installs);
+  for (const line of reportLines(
+    "install: hosts sharing an engine's directory, each scenario its own",
+    0,
+    installResults,
+    [],
+  ))
+    console.log(line);
+  failed ||= !passed(installResults, installScenarios.length);
 
   // A size that isn't whole pages and one below the least the runtime takes.
   console.log("memory the runtime can't take:");
@@ -251,6 +310,7 @@ try {
     relayless.worker.terminate();
   }
 } finally {
+  await server.close();
   await rm(hostDir, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

@@ -48,6 +48,7 @@ const opNames = [
   "memInfo",
   "memGrow",
   "jsHeap",
+  "listTree",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
@@ -803,7 +804,7 @@ const exceptions: Scenario = {
 };
 
 // A read-file reply: the file's size, then its contents.
-const replyFile = (
+export const replyFile = (
   { ret, bytes }: Reply,
   env: Env,
 ): { status: number; text?: string } => {

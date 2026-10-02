@@ -7,6 +7,7 @@ import type {
   BuildConstants,
   HostFeatures,
   HostMessage,
+  TestData,
   WaitMode,
 } from "./control.ts";
 import type { Result } from "./scenarios.ts";
@@ -17,8 +18,15 @@ export interface PageRunSpec {
   runtimeUrl: string;
   sideUrls: string[];
   wait: WaitMode;
-  // Scenario names, run in this order.
+  // Scenario names, run in this order. With install, they are install
+  // scenarios, each starting hosts of its own, rather than ones run on one
+  // host.
   scenarios: string[];
+  install?: boolean;
+  // The test archive, which the engine installs as its data, and its URL,
+  // resolved against the page's; without them, the engine has no data.
+  data?: TestData;
+  dataUrl?: string;
   constants: BuildConstants;
   errno: Record<string, number>;
   poolSize: number;
@@ -74,10 +82,13 @@ export const reportLines = (
       lines.push(`    ${key}: ${format(value)}`);
     if (error !== undefined) lines.push(`    error: ${error}`);
   }
-  for (const message of messages)
-    lines.push(
-      `    host ${message.type}: ${message.type === "storage" ? `${message.state}: ` : ""}${"message" in message ? message.message : ""}`,
-    );
+  for (const message of messages) {
+    const text =
+      message.type === "install"
+        ? JSON.stringify(message)
+        : `${message.type === "storage" ? `${message.state}: ` : ""}${"message" in message ? message.message : ""}`;
+    lines.push(`    host ${message.type}: ${text}`);
+  }
   lines.push(`RESULTS ${JSON.stringify({ label, startupMs, results })}`);
   return lines;
 };

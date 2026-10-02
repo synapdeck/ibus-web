@@ -5,7 +5,7 @@
 //                            --constants CONSTANTS_JSON --pool N
 //                            --planned-threads N --engine-threads N
 //                            --glib-threads N --pool-low-water N
-//                            --memory BYTES
+//                            --memory BYTES --install-data DIR
 //                            [--browser chromium|firefox]... [--scenario NAME]...
 //                            [--compare]
 //
@@ -15,10 +15,12 @@
 // runs in a browser context of its own, so the origin's storage starts empty
 // every time. Each host makes the runtime's memory, of BYTES that never
 // grow, and mounts the engine's IndexedDB database at the engine's
-// directory. In each browser the host sleeps in the runtime and runs every
-// scenario; a host of its own runs the crash scenario, another
-// storage-closed, and another, in which indexedDB.open() throws,
-// storage-fallback. With --compare, for the record, the same with the page
+// directory, installing the engine's data, DIR's tree.tar, there. In each
+// browser the host sleeps in the runtime and runs every scenario; a host of
+// its own runs the crash scenario, another storage-closed, and another, in
+// which indexedDB.open() throws, storage-fallback; then the install
+// scenarios start hosts of their own, from one page, sharing the context's
+// storage and locks as tabs of one origin do. With --compare, for the record, the same with the page
 // waiting asynchronously, the idle host that waits asynchronously and the
 // relay-less one follow, and every cross-thread wake must take at most
 // 20 ms.
@@ -34,7 +36,9 @@ import { basename, dirname } from "node:path";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import type { Browser } from "playwright";
-import type { BuildConstants, WaitMode } from "../shared/control.ts";
+import { join } from "node:path";
+import type { BuildConstants, TestData, WaitMode } from "../shared/control.ts";
+import { installScenarios } from "../shared/install.ts";
 import {
   reportLines,
   type PageRunReport,
@@ -61,6 +65,7 @@ const { values: args } = parseArgs({
     "glib-threads": { type: "string" },
     "pool-low-water": { type: "string" },
     memory: { type: "string" },
+    "install-data": { type: "string" },
     browser: { type: "string", multiple: true },
     // Runs only these scenarios, where a host would run them.
     scenario: { type: "string", multiple: true },
@@ -77,10 +82,11 @@ if (
   args["engine-threads"] === undefined ||
   args["glib-threads"] === undefined ||
   args["pool-low-water"] === undefined ||
-  args.memory === undefined
+  args.memory === undefined ||
+  args["install-data"] === undefined
 ) {
   throw new Error(
-    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads, --pool-low-water and --memory are required",
+    "--runtime, --sides, --errno, --constants, --pool, --planned-threads, --engine-threads, --glib-threads, --pool-low-water, --memory and --install-data are required",
   );
 }
 const memoryBytes = Number(args.memory);
@@ -104,9 +110,15 @@ const sideNames = (await readdir(args.sides))
   .filter((file) => file.endsWith(".wasm"))
   .sort();
 
+const installData = args["install-data"];
+const testData = JSON.parse(
+  await readFile(join(installData, "tree.json"), "utf8"),
+) as TestData;
+
 const server = await servePage({
   "/runtime/": dirname(args.runtime),
   "/sides/": args.sides,
+  "/data/": installData,
 });
 
 interface Run {
@@ -115,6 +127,8 @@ interface Run {
   label: string;
   // Whether a failure here fails the harness.
   counts: boolean;
+  // Whether its scenarios are install scenarios.
+  install?: boolean;
   wait: WaitMode;
   pageWait: PageRunSpec["pageWait"];
   scenarios: string[];
@@ -170,6 +184,18 @@ const runs: Run[] = [
     scenarios: [storageFallback.name],
     pendingLimitMs: 10_000,
     storage: "browser-without-indexeddb",
+  },
+  {
+    id: "install",
+    label:
+      "install: hosts started from one page share the origin's storage and locks, each scenario on an engine of its own",
+    counts: true,
+    install: true,
+    wait: "runtime",
+    pageWait: "spin",
+    scenarios: names(installScenarios),
+    pendingLimitMs: 10_000,
+    storage: "browser",
   },
 ];
 if (args.compare)
@@ -291,6 +317,9 @@ const runOne = async (
       sideUrls: sideNames.map((file) => `/sides/${file}`),
       wait: run.wait,
       scenarios: run.scenarios,
+      ...(run.install === true ? { install: true } : {}),
+      data: testData,
+      dataUrl: `/data/${testData.archive}`,
       constants,
       errno,
       poolSize: Number(args.pool),

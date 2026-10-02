@@ -69,9 +69,11 @@ export class BrowserWorker {
     this.#worker.postMessage(message, transfer);
   }
 
-  terminate(): void {
+  // Settles once the Worker has stopped, which a browser's terminate()
+  // doesn't wait for.
+  async terminate(): Promise<void> {
     this.#terminated = true;
-    void this.#worker.terminate();
+    await this.#worker.terminate();
   }
 }
 

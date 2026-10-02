@@ -3,8 +3,9 @@
 
 // The spike's Worker host. Its one message is a HostInit: it decides what to
 // mount at its engine's directory, makes the runtime's memory to suit,
-// instantiates the runtime, mounts storage, loads the side modules, reports
-// storage that isn't what the engine was promised, sets the runtime up, then
+// instantiates the runtime, mounts storage, installs the engine's data if
+// this version's isn't there yet, loads the side modules, reports storage
+// that isn't what the engine was promised, sets the runtime up, then
 // serves requests from the control buffer for good, sleeping between them
 // with the next GLib deadline as the timeout, and topping the pthread pool
 // up when it runs low. Only this Worker, and the relay it starts, touch the
@@ -26,12 +27,16 @@ import {
   type HostInit,
   type HostMessage,
   type HostStats,
+  type InstallReport,
   type Mount,
   type SideModule,
   type Storage,
   engineDatabase,
   engineDataBytes,
+  engineDataDir,
   engineDir,
+  engineInstallLock,
+  engineMarker,
 } from "../shared/control.ts";
 import type { RelayInit } from "./relay.ts";
 
@@ -45,7 +50,11 @@ interface Runtime {
   _malloc(bytes: number): number;
   _free(ptr: number): void;
   _creat(path: number, mode: number): number;
+  // open()'s third argument is where its variadic mode is.
+  _open(path: number, flags: number, varargs: number): number;
+  _read(fd: number, buf: number, count: number): number;
   _write(fd: number, buf: number, count: number): number;
+  _fsync(fd: number): number;
   _close(fd: number): number;
   _mkdir(path: number, mode: number): number;
   _wasmfs_create_node_backend(root: number): number;
@@ -57,6 +66,9 @@ interface Runtime {
   _ibusweb_pump(): number;
   _ibusweb_wait(seen: number, timeoutMs: number): number;
   _ibusweb_load_module(path: number, moduleOut: number): number;
+  _ibusweb_install_begin(dir: number, installOut: number): number;
+  _ibusweb_install_feed(install: number, data: number, len: number): number;
+  _ibusweb_install_end(install: number): number;
   _ibusweb_dispatch(
     request: number,
     requestLen: number,
@@ -220,12 +232,52 @@ const check = (what: string, ret: number): void => {
   if (ret < 0) throw new Error(`${what}: ${ret}`);
 };
 
+// A Web Lock this host holds until it calls release().
+interface HeldLock {
+  release(): void;
+  // How long the request waited, and when it was granted, in Date.now()
+  // milliseconds.
+  waitMs: number;
+  lockedAt: number;
+}
+
+// Requests the lock and resolves once it is held. A Worker that ends lets go
+// of its locks, so a host that dies mid-install never holds one for good.
+const holdLock = async (name: string): Promise<HeldLock> => {
+  const locks = (globalThis.navigator as { locks?: LockManager } | undefined)
+    ?.locks;
+  if (locks === undefined)
+    throw new Error(`no Web Locks here to take ${name} with`);
+  const requestedAt = performance.now();
+  return new Promise<HeldLock>((resolve, reject) => {
+    locks
+      .request(
+        name,
+        () =>
+          new Promise<void>((release) =>
+            resolve({
+              release,
+              waitMs: performance.now() - requestedAt,
+              lockedAt: Date.now(),
+            }),
+          ),
+      )
+      .catch(reject);
+  });
+};
+
 // What the host mounts at the engine's directory, decided before the
-// runtime's memory is made, since a mount in memory needs a larger one.
+// runtime's memory is made, since a mount in memory needs a larger one. A
+// mount that outlives the Worker comes with the engine's install lock held.
 type StoragePlan =
   | { mount: "none" }
-  | { mount: "node"; hostPath: string }
-  | { mount: "indexeddb"; database: string; flags: number }
+  | { mount: "node"; hostPath: string; installLock: HeldLock }
+  | {
+      mount: "indexeddb";
+      database: string;
+      flags: number;
+      installLock: HeldLock;
+    }
   // Why IndexedDB can't be opened.
   | { mount: "memory"; why: string };
 
@@ -297,16 +349,24 @@ const planStorage = async (
     case "none":
       return { mount: "none" };
     case "node":
-      return { mount: "node", hostPath: storage.hostPath };
+      return {
+        mount: "node",
+        hostPath: storage.hostPath,
+        installLock: await holdLock(engineInstallLock(engine)),
+      };
     case "browser": {
       if (storage.withoutIndexedDB === true) withoutIndexedDB();
       const database = engineDatabase(engine);
       const why = await probeIndexedDB(database);
       if (why !== null) return { mount: "memory", why };
+      // Taken before anything about the database is decided and held until
+      // the engine's data is installed, so that hosts starting together
+      // decide and install one at a time.
+      const installLock = await holdLock(engineInstallLock(engine));
       // The flags are decided before the backend exists because creating it
       // sweeps the database of what a crash left behind, which needs
       // exclusive write access to the database.
-      return { mount: "indexeddb", database, flags: 0 };
+      return { mount: "indexeddb", database, flags: 0, installLock };
     }
   }
 };
@@ -399,6 +459,149 @@ const loadSides = (heap: Heap, sides: readonly SideModule[]): void => {
       heap.withString(path, (ptr) => rt._ibusweb_load_module(ptr, 0)),
     );
   }
+};
+
+const O_RDONLY = 0;
+
+// The file's contents as text, or null if it can't be read.
+const readText = (heap: Heap, path: string, most: number): string | null => {
+  const { rt } = heap;
+  const fd = heap.withString(path, (ptr) => rt._open(ptr, O_RDONLY, 0));
+  if (fd < 0) return null;
+  const buf = heap.alloc(most);
+  try {
+    const got = rt._read(fd, buf, most);
+    return got < 0
+      ? null
+      : new TextDecoder().decode(heap.bytes.slice(buf, buf + got));
+  } finally {
+    rt._free(buf);
+    rt._close(fd);
+  }
+};
+
+// Creates or truncates the file, writes text, fsync()s and closes it.
+const writeSynced = (heap: Heap, path: string, text: string): void => {
+  const { rt } = heap;
+  const fd = heap.withString(path, (ptr) => rt._creat(ptr, 0o644));
+  check(`creat ${path}`, fd);
+  const data = encoder.encode(text);
+  try {
+    const written = heap.with(data, (ptr) => rt._write(fd, ptr, data.length));
+    if (written !== data.length)
+      throw new Error(`write ${path}: ${written} of ${data.length}`);
+    check(`fsync ${path}`, rt._fsync(fd));
+  } finally {
+    rt._close(fd);
+  }
+};
+
+// mkdir -p; a directory that exists already fails harmlessly.
+const makeDirs = (heap: Heap, path: string): void => {
+  const parts = path.split("/").filter((part) => part !== "");
+  for (let i = 1; i <= parts.length; i++)
+    heap.withString(`/${parts.slice(0, i).join("/")}`, (ptr) =>
+      heap.rt._mkdir(ptr, 0o755),
+    );
+};
+
+// The response body reaches the extractor through a buffer of this size in
+// the runtime's memory, which also bounds each of the extractor's writes.
+const INSTALL_PIECE = 65536;
+
+// Streams the archive at url into the extractor, unpacking it into dir.
+// Returns the bytes fed; with stallAt, stops for good once that many have
+// been, after calling stalled() with them.
+const installArchive = async (
+  heap: Heap,
+  url: string,
+  dir: string,
+  fed: number,
+  stallAt: number | undefined,
+  stalled: (bytes: number) => void,
+): Promise<number> => {
+  const { rt } = heap;
+  const response = await fetch(url);
+  if (!response.ok || response.body === null)
+    throw new Error(`fetch ${url}: ${response.status}`);
+  const reader = response.body.getReader();
+  makeDirs(heap, dir);
+  const out = heap.alloc(4);
+  const piece = heap.alloc(INSTALL_PIECE);
+  let install = 0;
+  try {
+    check(
+      `ibusweb_install_begin ${dir}`,
+      heap.withString(dir, (ptr) => rt._ibusweb_install_begin(ptr, out)),
+    );
+    install = heap.words[out / 4]! >>> 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (let at = 0; at < value.length; at += INSTALL_PIECE) {
+        let part = value.subarray(at, at + INSTALL_PIECE);
+        if (stallAt !== undefined && fed + part.length >= stallAt)
+          part = part.subarray(0, stallAt - fed);
+        heap.bytes.set(part, piece);
+        check(
+          `install ${url} at byte ${fed}`,
+          rt._ibusweb_install_feed(install, piece, part.length),
+        );
+        fed += part.length;
+        if (fed === stallAt) {
+          stalled(fed);
+          await new Promise<never>(() => {});
+        }
+      }
+    }
+    const ended = rt._ibusweb_install_end(install);
+    install = 0;
+    check(`install ${url}`, ended);
+    return fed;
+  } finally {
+    if (install !== 0) rt._ibusweb_install_end(install);
+    rt._free(piece);
+    rt._free(out);
+    reader.releaseLock();
+  }
+};
+
+// Installs the engine's data unless the marker says this version's is
+// there, then writes the marker, last, so that an install cut short leaves
+// none and the next host to start does it again.
+const installData = async (
+  heap: Heap,
+  engine: HostInit["engine"],
+  lock: Pick<HeldLock, "waitMs" | "lockedAt">,
+  stallAt: number | undefined,
+): Promise<InstallReport> => {
+  const startedAt = performance.now();
+  const marker = engineMarker(engine);
+  const report = (state: InstallReport["state"], bytes: number) => ({
+    state,
+    version: engine.version,
+    lockWaitMs: lock.waitMs,
+    lockedAt: lock.lockedAt,
+    releasedAt: 0,
+    bytes,
+    installMs: performance.now() - startedAt,
+  });
+  // A version longer than this is no version this host wrote.
+  const markerMost = engine.version.length * 4 + 1;
+  if (readText(heap, marker, markerMost) === engine.version)
+    return report("present", 0);
+  let fed = 0;
+  for (const data of engine.data)
+    fed = await installArchive(
+      heap,
+      data.url,
+      engineDataDir(engine, data),
+      fed,
+      stallAt,
+      (bytes) => post({ type: "install", ...report("stalled", bytes) }),
+    );
+  writeSynced(heap, marker, engine.version);
+  return report("installed", fed);
 };
 
 // Resolves once the relay has started; a failure after that only reaches
@@ -653,14 +856,21 @@ const crashCause = async (error: unknown): Promise<string> => {
   return `a thread crashed: ${await within(uncaught, 1000, "its error never arrived")}`;
 };
 
-const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
-  const startedAt = performance.now();
-  const control = controlViews(init.control);
+// The runtime, instantiated in a memory made for it, with the engine's
+// directory mounted and its data installed.
+interface Brought {
+  rt: Runtime;
+  heap: Heap;
+  workers: Workers;
+  mounted: Mounted;
+}
+
+const bringUp = async (
+  init: HostInit<WebAssembly.Module>,
+  createRuntime: CreateRuntime,
+  plan: StoragePlan,
+): Promise<Brought> => {
   const { constants } = init;
-  const { default: createRuntime } = (await import(init.runtimeUrl)) as {
-    default: CreateRuntime;
-  };
-  const plan = await planStorage(init.storage, init.engine);
   const memoryBytes = memoryFor(init.memory, plan, init.engine);
   checkMemory(memoryBytes, constants.memory);
   const workers = trackWorkers();
@@ -700,6 +910,45 @@ const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
   const mounted = mount(heap, plan, engineDir(init.engine));
   if (plan.mount === "memory")
     post({ type: "storage", state: "ephemeral", message: plan.why });
+  if (plan.mount !== "none") {
+    // A mount in memory is this host's alone and starts empty.
+    const lock =
+      plan.mount === "memory"
+        ? { waitMs: 0, lockedAt: Date.now() }
+        : plan.installLock;
+    const report = await installData(
+      heap,
+      init.engine,
+      lock,
+      init.installStallAt,
+    );
+    // Read before letting go, so that a host waiting on the lock can't take
+    // it at an earlier time than this.
+    const releasedAt = Date.now();
+    if ("release" in lock) lock.release();
+    post({ type: "install", ...report, releasedAt });
+  }
+  return { rt, heap, workers, mounted };
+};
+
+const start = async (init: HostInit<WebAssembly.Module>): Promise<void> => {
+  const startedAt = performance.now();
+  const control = controlViews(init.control);
+  const { constants } = init;
+  const { default: createRuntime } = (await import(init.runtimeUrl)) as {
+    default: CreateRuntime;
+  };
+  const plan = await planStorage(init.storage, init.engine);
+  let brought: Brought;
+  try {
+    brought = await bringUp(init, createRuntime, plan);
+  } catch (error) {
+    // A host that fails to start stays alive to report it, and mustn't keep
+    // the next one from installing.
+    if ("installLock" in plan) plan.installLock.release();
+    throw error;
+  }
+  const { rt, heap, workers, mounted } = brought;
   loadSides(heap, init.sides);
 
   const wake = heap.alloc(4);

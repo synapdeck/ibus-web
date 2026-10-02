@@ -32,11 +32,13 @@ export interface StartedHost {
 }
 
 // Rejects if the host reports an error or its Worker fails before "ready".
+// The host's other messages, from its first on, go to messages as they
+// arrive.
 export const startHost = (
   worker: HostWorker,
   init: HostInit,
+  messages: HostMessage[] = [],
 ): Promise<StartedHost> => {
-  const messages: HostMessage[] = [];
   let started = false;
   const ready = new Promise<StartedHost>((resolve, reject) => {
     worker.addEventListener("message", ({ data }) => {

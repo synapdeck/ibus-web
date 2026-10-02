@@ -53,6 +53,10 @@
               name = "memstress";
               source = "memstress.c";
             }
+            {
+              name = "tree";
+              source = "tree.c";
+            }
           ];
 
       # The values the TypeScript side shares with the C side, as the
@@ -107,6 +111,9 @@
       # The hosts make the runtime's memory at its least size, which the
       # spike's side modules fit in.
       memoryArg = "--memory ${toString runtime.memory.minimum}";
+      # The engine's data the hosts install, and the archives the install
+      # scenarios use.
+      installArg = "--install-data ${runtime.installArchives}";
       dist = "${typescript.workspace}/tests/spikes/runtime/dist";
 
       # A browser run's own limits catch a host that stops answering; this
@@ -149,7 +156,7 @@
             # has finished by the time run returns.
             run() (
               set -o pipefail
-              ${runtime.nodeTimeout} node ${dist}/node/run.js ${harnessArgs} ${memoryArg} "$@" 2>&1 1>&3 3>&- |
+              ${runtime.nodeTimeout} node ${dist}/node/run.js ${harnessArgs} ${memoryArg} ${installArg} "$@" 2>&1 1>&3 3>&- |
                 sed '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' >&2
             ) 3>&1
             echo "# asserting runtime" > $out
@@ -183,7 +190,7 @@
             # marked expected.
             run() (
               set -o pipefail
-              ${browserTimeout} node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} "$@" 2>&1 1>&3 3>&- |
+              ${browserTimeout} node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} ${installArg} "$@" 2>&1 1>&3 3>&- |
                 sed -e '/ibus-web-WARNING.*Operation [0-9]* threw/s/$/ [expected: the exceptions scenario]/' \
                   -e '/WARNING.*spawn: thread [0-9]* of [0-9]*: Error creating thread: Resource temporarily unavailable/s/$/ [expected: the pool-exhausted scenario]/' \
                   -e '/Tried to spawn a new thread, but the thread pool is exhausted/s/$/ [expected: the pool-exhausted scenario]/' \
@@ -215,9 +222,9 @@
               export ${lib.concatStringsSep " " (lib.attrNames playwright.env)}
               runtime=${runtime.ibusRuntime}/ibus-runtime.js
               echo "# Node" >&2
-              node ${dist}/node/run.js ${harnessArgs} ${memoryArg} --runtime "$runtime" --compare
+              node ${dist}/node/run.js ${harnessArgs} ${memoryArg} ${installArg} --runtime "$runtime" --compare
               echo "# browsers" >&2
-              node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} --runtime "$runtime" --compare "$@"
+              node ${dist}/node/browser-run.js ${harnessArgs} ${memoryArg} ${installArg} --runtime "$runtime" --compare "$@"
             '';
           }
         );
