@@ -14,6 +14,7 @@ import {
   engineDataLock,
   engineDir,
   engineInstallLock,
+  engineWriterLock,
   withData,
   type CollectReport,
   type EngineManifest,
@@ -171,7 +172,9 @@ const LOCK_FREE_LIMIT_MS = 10_000;
 
 // Whether the lock comes free within LOCK_FREE_LIMIT_MS: a Worker that is
 // terminated lets go of its locks once it is gone, which in a browser is
-// after terminate() returns.
+// after terminate() returns, and one that lets go of a lock itself does so
+// on a channel to the lock manager of its own, which nothing orders with
+// the message saying it has.
 const whenFree = async (
   harness: InstallHarness,
   name: string,
@@ -586,7 +589,7 @@ const failedStartReleasesLocks: InstallScenario = {
   name: "failed-start-releases-locks",
   criterion:
     "a host whose start fails, here for an archive that isn't there, stays alive to say " +
-    "why and holds none of the engine's locks; the next host installs",
+    "why and lets go of every engine lock it took, the writer lock included; the next host installs",
   async run(harness, engine, started): Promise<Outcome> {
     const missing = harness.dataUrl.replace(/[^/]*$/, "missing.tar");
     const broken: EngineManifest = {
@@ -602,8 +605,11 @@ const failedStartReleasesLocks: InstallScenario = {
     const locks = [
       engineInstallLock(engine),
       engineDataLock(engine, encodeComponent(engine.version)),
+      engineWriterLock(engine),
     ];
-    const free = await Promise.all(locks.map((name) => harness.lockFree(name)));
+    const free = await Promise.all(
+      locks.map((name) => whenFree(harness, name)),
+    );
     const next = harness.start(engine);
     started.push(next);
     const client = await ready(harness, next);

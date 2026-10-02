@@ -354,12 +354,28 @@ const progressOn = (name: string): { said(): void; close(): void } => {
 // The locks this host holds. A host whose start fails stays alive to say
 // why, so it lets go of them all, rather than keep other hosts from
 // installing, collecting or writing the engine's user data.
+//
+// Its runtime, and any engine thread already started, can still write
+// through the read-write user backend, and a host that became writer then
+// would sweep beside it; so the backend is sealed before the writer lock
+// goes. A runtime that can't be called to seal it keeps the writer lock
+// until the Worker, and every thread of the runtime with it, is gone.
 class Held {
   #locks = new Set<HeldLock>();
+  #writer: HeldLock | null = null;
+  #seal: (() => void) | null = null;
 
   add(lock: HeldLock): HeldLock {
     this.#locks.add(lock);
     return lock;
+  }
+
+  addWriter(lock: HeldLock): void {
+    this.#writer = this.add(lock);
+  }
+
+  sealWith(seal: () => void): void {
+    this.#seal = seal;
   }
 
   release(lock: HeldLock): void {
@@ -368,8 +384,17 @@ class Held {
   }
 
   releaseAll(): void {
-    for (const lock of this.#locks) lock.release();
+    let sealed = true;
+    try {
+      this.#seal?.();
+    } catch {
+      sealed = false;
+    }
+    for (const lock of this.#locks)
+      if (sealed || lock !== this.#writer) lock.release();
     this.#locks.clear();
+    this.#writer = null;
+    this.#seal = null;
   }
 }
 
@@ -458,7 +483,7 @@ const takeWriterLock = async (
     performance.now(),
   );
   if (lock === null) return false;
-  held.add(lock);
+  held.addWriter(lock);
   return true;
 };
 
@@ -577,6 +602,7 @@ const mount = async (
   heap: Heap,
   plan: StoragePlan,
   dir: string,
+  held: Held,
 ): Promise<{ closed(): boolean }> => {
   if (plan.mount === "none") return { closed: () => false };
   const { rt } = heap;
@@ -601,6 +627,8 @@ const mount = async (
       break;
   }
   mountAt(heap, backend, dir, plan.mount);
+  if (plan.mount === "indexeddb" && !plan.readOnly)
+    held.sealWith(() => rt._wasmfs_idb_backend_seal(backend));
   return {
     closed:
       plan.mount === "indexeddb"
@@ -1449,7 +1477,7 @@ const bringUp = async (
   requireRuntime(rt);
   const heap = new Heap(rt, memory);
 
-  const user = await mount(heap, plan, engineDir(init.engine));
+  const user = await mount(heap, plan, engineDir(init.engine), held);
   if (plan.mount === "memory")
     post({ type: "storage", state: "ephemeral", message: plan.why });
   if ((plan.mount === "indexeddb" || plan.mount === "node") && plan.readOnly)
