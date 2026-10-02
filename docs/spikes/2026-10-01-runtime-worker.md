@@ -1033,6 +1033,182 @@ visibility, import every data address as a `GOT.mem` global, so their
 for old WebKit go, and random bytes come from `crypto.getRandomValues` under
 Node too. Startup is unchanged within the runs' noise.
 
+## The IndexedDB backend: one writer, and what it costs (M0.5)
+
+The host mounts the engine's own files at `/engines/<name>/` on our WasmFS
+IndexedDB backend, over the database `ibus-web/<name>`, and each version's
+data, sealed read-only once installed, over a database of its own. This part
+covers who may write the first, and what the backend costs.
+
+### One writer per engine's user data
+
+Every tab or Worker running an engine mounts the same user-data database.
+IndexedDB serializes transactions but not files: two writers would interleave
+writes to one file, and each writer's backend sweeps the database at mount of
+the inodes no directory holds, which are another writer's files unlinked
+while open. So one host writes and the others read:
+
+- Before it creates the user-data backend, the host requests
+  `ibus-web:writer:<name>` (the name encoded as in the other locks) with
+  `ifAvailable`. Granted, it holds the lock for the Worker's life and mounts
+  read-write; refused, it mounts with `WASMFS_IDB_READ_ONLY`, which also
+  skips the sweep, and posts `storage: read-only` to the page. Hosts don't
+  queue for it: a backend can't become writable, so a host that started read-only
+  stays so, and the page restarts it to get a writer.
+- A host whose start fails, or whose runtime crashes, lets go of the writer
+  lock with its others. The memory fallback is the host's alone and takes no
+  lock. Engine data needs none: it is read-only to every host.
+- Under Node the host takes the lock and reports the same, but the Node
+  backend has no read-only mode, so nothing refuses the reader's writes; Web
+  Locks there coordinate the threads of one process only.
+
+`writer-lock` (an install scenario: an engine of its own, hosts from one page
+sharing the origin's storage and locks, or under Node one directory) starts
+two hosts at once: exactly one reports no `storage: read-only` and writes,
+the other's write fails with `EROFS` (IndexedDB) and it reads the file the
+writer wrote, through its own backend. Once the writer's Worker is
+terminated, a host started next takes the lock and writes; the reader stays
+read-only. It failed under Node and in both browsers before the lock (both
+hosts wrote, both swept), and passes in all three since.
+
+**A terminated Worker's locks.** Chromium lets go of the locks of a Worker
+terminated while it sleeps in `Atomics.wait()`, as the host does between
+requests, only some 2 s after `terminate()`: 2.0 s in two runs of the page
+polling with `ifAvailable`. A host idling in `Atomics.waitAsync()` instead,
+its event loop running, lets go at once (its successor was ready 0.22 s
+after the terminate). Firefox lets go at once, and Node once
+`terminate()`'s promise settles. A host started within those 2 s
+would find the lock taken and stay read-only for good. So the page, having
+terminated a host that didn't report `storage: read-only`, waits for that
+engine's writer lock to come free, with a queued request it lets go of at
+once (bounded at 10 s, after which another tab holds it), before starting the
+engine's next host; `writer-lock`'s next host is ready 2.2 s after the
+terminate in Chromium (four runs), 0.26–0.27 s in Firefox. Node grants a queued request
+for a terminated thread's lock only once another request arrives (above,
+under the install lock); no waiting is needed there, since `ifAvailable` sees
+the lock free.
+
+**The page must keep out of the engine's databases.** A transaction the page
+opens on an engine's database and hasn't seen commit when it starts to spin
+holds up the backend's writes to the same object store until the spin ends:
+a page that read the user-data database's `meta` store just before a request
+got its reply only once its 1 s spin gave up (both browsers), since the
+transaction's commit runs on the page's thread. Waiting for the
+transaction's `complete` before the request removes it. The harness reads
+the chunk size that way; the real page has no reason to open the engine's
+databases at all (§9.2).
+
+### What it costs
+
+`storage-costs` works an engine-like dictionary file in the engine's
+directory: 4,200 KiB (4 MiB and 104 KiB, so that it ends 8, 40 and 104 KiB
+into a chunk of 16, 64 and 256 KiB), written in 64 KiB `write()`s and
+`fsync()`ed, then read at random, 4 KiB and 64 KiB aligned reads, then
+appended to in 100 64-byte records, each `fsync()`ed. Every byte is a
+function of its offset that looks random (so no store compresses it), and
+every read is checked: the scenario passes on correctness alone. Each call is
+made on the host's thread from the `bench` side module, so it blocks for the
+proxied round trip to the backend's thread and its IndexedDB transaction, and
+is timed there with `emscripten_get_now()`; single reads are also requested
+one at a time from the page, the file kept open, and timed there, request,
+read, check of the bytes and reply. The check runs it in its main host under
+Node and in both browsers.
+
+The chunk size is fixed per database, in its `meta` store, when the backend
+creates it. To compare sizes without a setting in the runtime as released,
+`nix run .#runtime-spike-storage-costs` links the released runtime with one
+more JavaScript library (`modules/spikes/runtime/chunk-size.js`), which
+changes the size the backend writes into `meta` for a database whose name
+ends in `-chunk-<bytes>`, and names the engine so; the page reads the size
+back from `meta` to confirm it. The released runtime has no such hook, and
+the library is linked nowhere else. Each run gets a browser of its own with
+its profile on disk (`launchPersistentContext()`): a context of a shared
+browser is off the record, and Chromium keeps such a context's IndexedDB in
+memory, which the check's runs, and the storage experiments above, use. The
+profiles are on this host's ZFS.
+
+Five runs per browser, chunk size and page mode, released runtime. Each cell
+is the median over the runs of each run's median, in µs, page spinning /
+page idle (`Atomics.waitAsync()`):
+
+| Chromium 149 | 16 KiB | 64 KiB | 256 KiB |
+| --- | --- | --- | --- |
+| random 4 KiB read | 125 / 110 | 310 / 300 | 500 / 520 |
+| random 64 KiB read | 170 / 200 | 335 / 325 | 700 / 565 |
+| 4 KiB read, page round trip | 165 / 240 | 395 / 455 | 680 / 660 |
+| 64 KiB read, page round trip | 275 / 350 | 465 / 510 | 800 / 690 |
+| 64 KiB `write()`, sequential | 295 / 295 | 805 / 785 | 1785 / 1775 |
+| 64-byte append `write()` | 235 / 270 | 325 / 290 | 1920 / 1935 |
+| its `fsync()` | 35 / 45 | 40 / 35 | 80 / 90 |
+| `fsync()` after the whole write | 110 / 120 | 135 / 120 | 190 / 140 |
+
+| Firefox 151 | 16 KiB | 64 KiB | 256 KiB |
+| --- | --- | --- | --- |
+| random 4 KiB read | 200 / 160 | 340 / 260 | 620 / 560 |
+| random 64 KiB read | 240 / 220 | 320 / 280 | 600 / 560 |
+| 4 KiB read, page round trip | 320 / 340 | 460 / 400 | 760 / 740 |
+| 64 KiB read, page round trip | 700 / 620 | 700 / 620 | 980 / 940 |
+| 64 KiB `write()`, sequential | 420 / 400 | 480 / 440 | 780 / 720 |
+| 64-byte append `write()` | 400 / 360 | 400 / 380 | 840 / 780 |
+| its `fsync()` | 60 / 60 | 60 / 60 | 80 / 80 |
+| `fsync()` after the whole write | 100 / 80 | 120 / 120 | 120 / 140 |
+
+The step of each browser's clock (5 µs, 20 µs) bounds these; means run
+10–40% above the medians, and a run's mean can be twice another's. A page
+round trip includes checking the bytes read; Firefox's for 64 KiB sit some
+0.4 ms above the read itself, Chromium's 0.1 ms (not broken down). The
+longest single read from the page, in any run, took 26 ms (Chromium, 256 KiB
+chunks), and at 16 KiB 6 ms in Chromium and 22 ms in Firefox; none in Chromium or Firefox waited for the
+page: with the page spinning, no reply in any of the 30 runs came late, and
+the calls that held the page past D6's 40 ms were the batched ones (the
+whole write, 256 reads, 100 appends in one request). A lazy 4 KiB read costs
+a keystroke 0.17–0.34 ms at 16 KiB chunks.
+
+Storage (KiB), from the sizes of the files the browser keeps IndexedDB in
+(Chromium's `estimate()` gives the same; Firefox's leaves out some 280 KiB
+of its own), the same in every run: the growth over the steps, then the
+whole once the browser closed, which includes the engine's installed data
+(1,918 KiB in Chromium and 1,129 KiB in Firefox before the write):
+
+| | 16 KiB | 64 KiB | 256 KiB |
+| --- | --- | --- | --- |
+| Chromium: the 4,200 KiB write | +4,258 | +4,280 | +4,294 |
+| Chromium: the 100 appends (6.25 KiB) | +2,316 | +8,640 | +155 |
+| Chromium: once closed | 8,492 | 6,917 | 6,366 |
+| Firefox: the 4,200 KiB write | +6,244 | +5,500 | +11,455 |
+| Firefox: the 100 appends | +2,861 | +6,333 | −3,417 |
+| Firefox: once closed | 5,432 | 5,312 | 5,296 |
+
+Everything stored beyond the file's bytes is the stores' own: each append
+rewrites the file's last chunk whole (8, 40 and 104 KiB in), so 100 appends
+write 0.8, 4 and 10 MiB. Firefox's write-ahead log holds them until a
+checkpoint, which closing the browser makes: settled, 16 KiB chunks take
+120 KiB (2.9% of the file) more than 64 KiB ones, and 256 KiB ones 16 KiB
+less. Chromium's LevelDB keeps every rewrite until it compacts, which hadn't
+happened when the browser closed but apparently had during the appends at
+256 KiB; one run in five at 64 KiB closed at 14,953 KiB rather than 6,917.
+
+**Chromium's 64 KiB cliff.** At 64 KiB chunks Chromium is two to three times
+slower than at 16 KiB, for writes as for reads. Two runs more with chunks of
+32 KiB and of 65,000 bytes put the cliff at 64 KiB itself: 65,000-byte
+chunks cost what 16 and 32 KiB ones do (4 KiB reads 135–140 µs against
+295–300 µs at 65,536 bytes; 64 KiB writes 270–295 µs against 800–830 µs).
+That fits Blink storing a value whose serialization exceeds 64 KiB as a Blob
+of its own (`IDBValueWrapper`), not traced here; the backend's values never
+reach the page, so this costs time, not a wait for the page.
+
+**Decided: 16 KiB.** It is the cheapest chunk for the random 4 KiB read that
+lookups make, the read the keystroke path pays for (1.6–2.7 times cheaper
+than 64 KiB, 3–4.7 times cheaper than 256 KiB), the cheapest or as cheap for
+appends and sequential writes, and it keeps every chunk well below
+Chromium's cliff. What it costs: some 3% more storage in Firefox once
+settled, more records per file (263 for this one), and in Chromium more
+LevelDB churn between compactions. Reads of 64 KiB at once, which 16 KiB
+chunks serve from four records, are still the cheapest. The backend's default is
+now 16 KiB. A database keeps the chunk size it was created with, so one made
+at 64 KiB keeps 64 KiB chunks and works as before; only new databases take
+16 KiB. Nothing outside tests has created one yet.
+
 ## Conclusions for the design
 
 - **R2's wake question is settled:** option 2, as decided above. Emscripten
@@ -1141,3 +1317,12 @@ Node too. Startup is unchanged within the runs' noise.
   Node can't exhibit R2's promise-proxied case. On OPFS it does, and it
   completes in both browsers while the host sleeps; the IndexedDB backend,
   proxied the same way, is M0.5's to check.
+- **One writer per engine's user data, in chunks of 16 KiB (M0.5).** The
+  host holding `ibus-web:writer:<name>` mounts the engine's user data
+  read-write; every other host mounts it read-only and reports
+  `storage: read-only`. A page that terminates the writer waits for its lock
+  before starting the engine's next host (Chromium lets go of it some 2 s
+  late), and keeps out of the engine's databases, whose writes its own
+  transactions would hold up while it spins. The backend's chunks are now
+  16 KiB: a lazy 4 KiB read costs a keystroke 0.17–0.34 ms in both browsers,
+  and no read or write waits for the page's spin.

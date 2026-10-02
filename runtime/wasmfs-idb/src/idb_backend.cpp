@@ -34,8 +34,11 @@ using wasmfs::oflags_t;
 using wasmfs::Symlink;
 
 // Chunk size for databases this backend creates; a database keeps the size it
-// was created with.
-constexpr uint32_t defaultChunkSize = 64 * 1024;
+// was created with. A read fetches every chunk it touches whole, and a write
+// rewrites every chunk it covers in part, so small chunks keep random reads
+// and appends cheap. In Chromium, a chunk of 64 KiB or more also costs two
+// to three times as much to read or write as one just under that size.
+constexpr uint32_t defaultChunkSize = 16 * 1024;
 
 // Every offset a file may reach is a double holding an integer exactly.
 constexpr off_t maxFileSize = (off_t(1) << 53) - 1;
