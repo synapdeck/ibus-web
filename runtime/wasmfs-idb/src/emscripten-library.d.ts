@@ -7,9 +7,9 @@
 // The type of each decorator's value, as Emscripten checks it when it merges
 // a library. A decorator `<symbol>__<name>` configures `<symbol>`.
 interface LibraryDecorators {
-  deps: readonly (string | ((...args: never[]) => unknown))[];
+  deps: readonly (string | (() => unknown))[];
   sig: string;
-  proxy: string;
+  proxy: "sync" | "async" | "none";
   asm: boolean;
   postset: string | (() => string | void);
   docs: string;
@@ -48,13 +48,15 @@ type CheckSig<
   Key extends string,
   Symbol extends string,
 > = Sig extends string
-  ? [SigChars<Sig>] extends [never]
-    ? LibraryError<`${Key}: a signature's characters are v i j f d p e`>
-    : Value extends (...args: infer Params) => unknown
-      ? SigChars<Sig>["length"] extends [unknown, ...Params]["length"]
-        ? unknown
-        : LibraryError<`${Key} has ${SigChars<Sig>["length"]} characters, but ${Symbol} takes ${Params["length"]} parameter(s) and a result`>
-      : unknown
+  ? string extends Sig
+    ? LibraryError<`${Key}: a signature must be a string literal`>
+    : [SigChars<Sig>] extends [never]
+      ? LibraryError<`${Key}: a signature's characters are v i j f d p e`>
+      : Value extends (...args: infer Params) => unknown
+        ? SigChars<Sig>["length"] extends [unknown, ...Params]["length"]
+          ? unknown
+          : LibraryError<`${Key} has ${SigChars<Sig>["length"]} characters, but ${Symbol} takes ${Params["length"]} parameter(s) and a result`>
+        : unknown
   : unknown;
 
 type CheckDecorator<
@@ -72,17 +74,20 @@ type CheckDecorator<
           : unknown
         : unknown
     : LibraryError<`${Key}: a __${Name} decorator's value is ${LibraryDecorators[Name] extends boolean ? "a boolean" : "the wrong type"}`>
-  : LibraryError<`${Key} decorates ${Symbol}, which this library doesn't define`>;
+  : LibraryError<`${Key} decorates ${Symbol}, which this addToLibrary call doesn't define`>;
 
 // Emscripten splits a decorator at its last `__`, so the suffix is matched
-// whole and the symbol is everything before it.
+// whole and the symbol is everything before it. A key that isn't a decorator
+// is a symbol.
 type CheckEntry<Entries, Key extends string> = {
   [Name in Decorator]: Key extends `${infer Symbol}__${Name}`
     ? CheckDecorator<Entries, Key, Symbol, Name>
     : never;
 }[Decorator] extends infer Result
   ? [Result] extends [never]
-    ? unknown
+    ? Entries[Key & keyof Entries] extends LibraryValue
+      ? unknown
+      : LibraryError<`${Key}: a symbol's value is a function, a class or a string of code`>
     : Result
   : never;
 
@@ -91,20 +96,21 @@ type CheckLibrary<Entries> = {
 };
 
 // A symbol's value: a function or class Emscripten emits from its source, or
-// a string it emits as written.
+// a string holding one expression, which it emits as written.
 type LibraryValue =
   | ((...args: never[]) => unknown)
   | (abstract new (...args: never[]) => unknown)
-  | string
-  | boolean
-  | readonly unknown[];
+  | string;
 
 // Adds the entries to the library Emscripten links from, when it evaluates
 // the file at link time. Every decorator must name a symbol defined in the
 // same call, with a value of its decorator's type, and a `__sig` must have a
 // character for the result and for each of the function's parameters.
 declare function addToLibrary<
-  const Entries extends Record<string, LibraryValue>,
+  const Entries extends Record<
+    string,
+    LibraryValue | LibraryDecorators[Decorator]
+  >,
 >(entries: Entries & NoInfer<CheckLibrary<Entries>>): void;
 
 // The runtime's error output, which every program has.

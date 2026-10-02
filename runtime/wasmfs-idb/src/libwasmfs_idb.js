@@ -40,13 +40,20 @@
  * @property {Set<number>} unlinked Open inodes no directory holds any more.
  */
 
+/** @typedef {InstanceType<typeof HandleAllocator>} WasmfsIdbHandleAllocator */
+
 /**
  * The open databases, by the handle the C++ side holds. Emscripten evaluates
  * this file before the module exists, so the allocator is emitted from the
- * text of its value below; this declaration gives it its type.
+ * text of its value below; this declaration gives it its type. Emscripten's
+ * allocator is untyped, so the methods that take or return a state are
+ * typed here, and only if the allocator has them.
  * @type {{
- *   allocate: (state: WasmfsIdbState) => number,
- *   get: (id: number) => WasmfsIdbState,
+ *   [K in keyof WasmfsIdbHandleAllocator]: K extends "allocate"
+ *     ? (state: WasmfsIdbState) => number
+ *     : K extends "get"
+ *       ? (id: number) => WasmfsIdbState
+ *       : WasmfsIdbHandleAllocator[K];
  * }}
  */
 let wasmfsIdbBackends;

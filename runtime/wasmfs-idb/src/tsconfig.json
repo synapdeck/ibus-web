@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Type-checks the backend's JavaScript library, which runs on the backend's
-// thread: a Worker. emscripten-types/ holds what the library uses from
-// Emscripten, generated from a link of the library; the dev shell links it
-// here, and the check puts it here too.
+// thread: a Worker. emscripten-types/ is generated, not written: the types
+// of what the library uses from Emscripten, from a link of the library.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {

@@ -7,6 +7,7 @@
       config,
       lib,
       pkgs,
+      system,
       ...
     }:
     let
@@ -14,8 +15,7 @@
       inherit (config.ibusWeb.toolchain) pkgsWasm emscripten;
       inherit (runtime) wasmfsIdb;
 
-      # Where the type check and the editor find these types, relative to the
-      # library's sources; tsconfig.json names it.
+      # Where the library's type check finds these types, beside its sources.
       typesDir = "emscripten-types";
 
       # Types for what the JavaScript library uses from Emscripten, from a
@@ -33,7 +33,7 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
-          node ${./library-deps.mjs} emit ${wasmfsIdb.jsLibrary} $out
+          node ${./library-deps.mjs} emit ${wasmfsIdb.jsLibrary} ${emscripten}/share/emscripten $out
           $CXX -sASSERTIONS=1 -sWASMFS=1 --no-entry \
             --js-library=${wasmfsIdb.jsLibrary} -lwasmfs-idb \
             -sEXPORTED_RUNTIME_METHODS=$(cat $out/exported-runtime-methods.txt) \
@@ -67,11 +67,42 @@
             cp -r --no-preserve=mode ${sources} src
             ln -s ${types} src/${typesDir}
             tsc -p src
+
+            # The library's own type must reject what Emscripten would: a
+            # file of calls that each break one rule fails with one error
+            # per call, each carrying the message written above the call.
+            rejected=${./tests/library-types/rejected.js}
+            if tsc --noEmit --strict --allowJs --checkJs --target es2022 \
+              --lib es2022 --module preserve --types "" \
+              src/emscripten-library.d.ts "$rejected" > errors.txt; then
+              echo "$rejected: type-checks, but every call in it is wrong" >&2
+              exit 1
+            fi
+            expected=$(grep -c '^// error: ' "$rejected")
+            if [ "$(grep -c 'error TS' errors.txt)" != "$expected" ]; then
+              cat errors.txt >&2
+              echo "$rejected: expected $expected errors" >&2
+              exit 1
+            fi
+            sed -n 's|^// error: ||p' "$rejected" | while IFS= read -r message; do
+              if ! grep -qF -- "$message" errors.txt; then
+                cat errors.txt >&2
+                echo "$rejected: no error says: $message" >&2
+                exit 1
+              fi
+            done
             touch $out
           '';
 
+      packages.wasmfs-idb-types = types;
+
+      # Built when the shell starts rather than as part of it, so the shell
+      # still enters while the library or the backend doesn't build. The
+      # out-link keeps the types from garbage collection.
       devshells.default.devshell.startup.wasmfs-idb-types.text = ''
-        ln -sfn ${types} "$FLAKE_ROOT/runtime/wasmfs-idb/src/${typesDir}"
+        nix build "$FLAKE_ROOT#packages.${system}.wasmfs-idb-types" \
+          --out-link "$FLAKE_ROOT/runtime/wasmfs-idb/src/${typesDir}" ||
+          echo "wasmfs-idb types unavailable" >&2
       '';
     };
 }
