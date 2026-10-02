@@ -12,7 +12,9 @@ the Worker runs another thread, it locks and reads freed memory.
 Keep the Worker's timer in a JS variable, and have the destructor clear
 it on the worker thread, with a synchronous proxied call, before it
 cancels the thread. The destructor is the only way a ProxyWorker's
-thread ends while the program runs.
+thread ends while the program runs. The stop waits behind whatever the
+thread is running and anything queued before it, so the destructor now
+lets that work finish before it cancels the thread.
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-proxy-worker-heartbeat.md
@@ -63,7 +65,7 @@ index e5c36ba..d4d7cd3 100644
    _wasmfs_stdin_get_char__deps: ['$FS_stdin_getChar'],
    _wasmfs_stdin_get_char: () => {
 diff --git a/system/lib/wasmfs/thread_utils.h b/system/lib/wasmfs/thread_utils.h
-index e05e236..2e6515f 100644
+index e05e236..1b44032 100644
 --- a/system/lib/wasmfs/thread_utils.h
 +++ b/system/lib/wasmfs/thread_utils.h
 @@ -15,6 +15,7 @@
@@ -74,16 +76,22 @@ index e05e236..2e6515f 100644
  }
  
  namespace emscripten {
-@@ -89,6 +90,12 @@ public:
+@@ -89,6 +90,18 @@ public:
  
    // Kill the worker thread.
    ~ProxyWorker() {
 +    // Stop the heartbeat first, on the thread, the only one that can reach
 +    // its timer: the thread's Worker outlives it and goes back to the pool,
 +    // timers and all, while the queue the heartbeat executes is freed once
-+    // the thread is joined.
-+    queue.proxySync(thread.native_handle(),
-+                    []() { _wasmfs_thread_utils_heartbeat_stop(); });
++    // the thread is joined. The stop can't overtake the heartbeat's start:
++    // the thread runs its queue only from its event loop, which it enters
++    // after starting the heartbeat. Work the thread is already running, and
++    // anything queued before the stop, finishes first.
++    [[maybe_unused]] bool stopped =
++      queue.proxySync(thread.native_handle(),
++                      []() { _wasmfs_thread_utils_heartbeat_stop(); });
++    // The thread takes proxied work until it is canceled below.
++    assert(stopped);
      pthread_cancel(thread.native_handle());
      thread.join();
    }

@@ -136,7 +136,7 @@ freed queue is still readable and empty, so nothing shows.
 Worker hosts one thread at a time, so it needs only one variable for the
 timer, and `~ProxyWorker()` clears it with a synchronous call proxied to the
 thread (only the thread can reach its Worker's timers) before it cancels and
-joins it, so no tick can follow the queue being freed. 19 lines added, 3
+joins it, so no tick can follow the queue being freed. 25 lines added, 3
 removed:
 
 ```diff
@@ -194,16 +194,22 @@ diff --git a/system/lib/wasmfs/thread_utils.h b/system/lib/wasmfs/thread_utils.h
  }
  
  namespace emscripten {
-@@ -89,6 +90,12 @@ public:
+@@ -89,6 +90,18 @@ public:
  
    // Kill the worker thread.
    ~ProxyWorker() {
 +    // Stop the heartbeat first, on the thread, the only one that can reach
 +    // its timer: the thread's Worker outlives it and goes back to the pool,
 +    // timers and all, while the queue the heartbeat executes is freed once
-+    // the thread is joined.
-+    queue.proxySync(thread.native_handle(),
-+                    []() { _wasmfs_thread_utils_heartbeat_stop(); });
++    // the thread is joined. The stop can't overtake the heartbeat's start:
++    // the thread runs its queue only from its event loop, which it enters
++    // after starting the heartbeat. Work the thread is already running, and
++    // anything queued before the stop, finishes first.
++    [[maybe_unused]] bool stopped =
++      queue.proxySync(thread.native_handle(),
++                      []() { _wasmfs_thread_utils_heartbeat_stop(); });
++    // The thread takes proxied work until it is canceled below.
++    assert(stopped);
      pthread_cancel(thread.native_handle());
      thread.join();
    }
@@ -213,10 +219,26 @@ With this applied the test case prints `done` and exits 0, 10 times in 10.
 `setInterval()` returns an object in Node, which is why the timer stays in
 JavaScript rather than being handed to C++ to clear.
 
+The stop can't overtake the heartbeat's start: a ProxyWorker's thread
+runs its queue only from its event loop (the heartbeat's ticks included),
+which it enters after starting the heartbeat, so a destructor that runs as
+soon as the constructor returns still queues the stop behind the start.
+`proxySync()` fails only when the task can't be queued (no memory for it)
+or its thread ends before running it, and this thread takes proxied work
+until the destructor cancels it, so the destructor asserts that the stop
+ran.
+
 The proxied call costs one more round trip to the thread when a backend is
-destroyed; the join already waits for one. While the program runs, the
-destructor is the only way a ProxyWorker's thread ends, so stopping the
-heartbeat there covers every case. Alternatives considered:
+destroyed; the join already waits for one. It also changes when the thread
+is canceled: the stop runs after whatever the thread is running and
+anything queued before it, so the destructor now lets that work finish
+before it cancels the thread, where a cancel alone could end the thread at
+a cancellation point inside it. A backend is destroyed once nothing is
+using it, so there is normally nothing to wait for; work that never
+finishes now holds up the destructor rather than being cut short. While
+the program runs, the destructor is the only way a ProxyWorker's thread
+ends, so stopping the heartbeat there covers every case. Alternatives
+considered:
 
 - A `thread_local` whose destructor stops the heartbeat as the thread exits
   (thread-specific data destructors run on cancellation too). It also
