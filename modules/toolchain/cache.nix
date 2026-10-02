@@ -194,7 +194,7 @@
               });" > instantiate.mjs
             for assertions in 0 1; do
               em++ ${toolchain.commonFlags} ${minimumFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
-                -sEXPORTED_FUNCTIONS=_main,_wasmfs_create_opfs_backend probe.o -o probe-runtime.js
+                probe.o -o probe-runtime.js
               test "$(node instantiate.mjs ./probe-runtime.js)" = "probe 7"
               em++ ${toolchain.commonFlags} ${minimumFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 probe.cpp -o probe-runtime-cpp.js

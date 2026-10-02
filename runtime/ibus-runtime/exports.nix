@@ -90,6 +90,15 @@
               packages = [ "libffi" ];
             };
           }
+          # The IndexedDB backend, part of the runtime and versioned with
+          # it. Its archive leaves its C++ internals visible; side modules
+          # get its header's API alone.
+          {
+            name = "wasmfs-idb";
+            version = "{abi}";
+            archives = [ "${runtime.wasmfsIdb}/lib/libwasmfs-idb.a" ];
+            declaredIn.headers = [ "ibus-web/wasmfs-idb.h" ];
+          }
           # Emscripten's own API, implemented partly in C, in whichever system
           # library, and partly in JavaScript. It comes before the libraries
           # that implement it, so its names are its own.
@@ -98,7 +107,10 @@
           # webgl, wget, fetch and websocket are browser APIs engines don't
           # use, and listing them would put their JavaScript in every
           # runtime; syscalls.h is out because side modules make system calls
-          # only through libc.
+          # only through libc. Of wasmfs.h, the OPFS backend is out: in
+          # Firefox its reads of files opened read-only wait for the page's
+          # main thread, and its other reads lock the file across the
+          # origin, so engines' storage is the IndexedDB backend.
           #
           # Weak definitions are hooks a program overrides at its own link,
           # which a side module can't. Functions that need ASYNCIFY are stubs
@@ -122,6 +134,7 @@
               "stack"
               "wasmfs"
             ];
+            declaredIn.except = [ "wasmfs_create_opfs_backend" ];
             skipWeak = true;
           }
           # Emscripten's C and C++ runtime, whole: side modules link no system
@@ -186,6 +199,7 @@
         ];
         buildInputs = [
           runtime.libibusWeb
+          runtime.wasmfsIdb
           pkgsWasm.libffi
         ];
         dontFixup = true;

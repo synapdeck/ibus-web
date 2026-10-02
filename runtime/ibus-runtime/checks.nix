@@ -51,8 +51,9 @@
       };
 
       # The manifest's two files must agree, each library must be at the
-      # version the build's inputs carry, and libibus-web must export exactly
-      # the API its header declares, but for what side modules define.
+      # version the build's inputs carry, and libibus-web and the IndexedDB
+      # backend must each export exactly the API its header declares, but
+      # for what side modules define.
       exportListCheck = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-ibus-runtime-exports-check";
         dontUnpack = true;
@@ -60,7 +61,10 @@
           pkgsWasm.pkg-config
           pkgs.python3
         ];
-        buildInputs = [ runtime.libibusWeb ];
+        buildInputs = [
+          runtime.libibusWeb
+          runtime.wasmfsIdb
+        ];
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
@@ -88,11 +92,13 @@
               ]
             } \
             --expect libffi=${pkgsWasm.libffi.version} \
+            --expect wasmfs-idb=$abi \
             --expect "libc=$musl+emscripten.${emscripten.version}" \
             --expect "libc++=$((libcxx / 10000)).$((libcxx / 100 % 100)).$((libcxx % 100))" \
             --expect-major compiler-rt=$clang \
             --expect emscripten=${emscripten.version} \
-            --api-library libibus-web --api-header ibus-web/runtime.h --api-pkg-config libibus-web \
+            --api libibus-web=ibus-web/runtime.h --api wasmfs-idb=ibus-web/wasmfs-idb.h \
+            --api-hidden libibus-web --api-pkg-config libibus-web \
             --api-side-defined ibusweb_module_init \
             > summary.txt
           cat summary.txt

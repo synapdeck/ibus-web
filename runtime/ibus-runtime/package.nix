@@ -25,9 +25,10 @@
         # and past it while they all stay busy, which this share doesn't
         # cover.
         glib = 3;
-        # The storage backend's thread: a WasmFS backend whose storage is
-        # asynchronous runs its calls on a thread of its own, from mount for
-        # good.
+        # The IndexedDB backend's thread: IndexedDB is asynchronous, so the
+        # backend runs its calls on a thread of its own, from mount for good.
+        # The Node backend and the memory backend, mounted where there is no
+        # IndexedDB, run on the calling thread and take none.
         storage = 1;
         # The spike's side modules' largest burst, spawn(4). An engine's
         # share would come from its manifest.
@@ -108,18 +109,21 @@
           nativeBuildInputs = [ pkgsWasm.pkg-config ];
           buildInputs = [
             runtime.libibusWeb
+            runtime.wasmfsIdb
             pkgsWasm.libffi
           ];
           # The output is files for the web, which need no fixing up and
           # depend on nothing.
           dontFixup = true;
           # Everything the runtime holds comes from libraries; the export
-          # list decides what of them is linked, and the GIO subset, GObject
-          # and libffi are on it whether libibus-web uses them or not. The
-          # flags come after the libraries' own, which set a pool size too.
+          # list decides what of them is linked, and the GIO subset, GObject,
+          # libffi and the IndexedDB backend are on it whether libibus-web
+          # uses them or not. The flags come after the libraries' own, which
+          # set a pool size too.
           buildPhase = ''
             runHook preBuild
             $CXX $($PKG_CONFIG --static --libs libibus-web gio-2.0 gobject-2.0 libffi) \
+              -lwasmfs-idb --js-library=${runtime.wasmfsIdb.jsLibrary} \
               ${linkFlags} -sEXPORTED_FUNCTIONS=@${exportList}/exports.txt ${extraFlags} \
               -o ibus-runtime.js
             runHook postBuild

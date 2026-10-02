@@ -15,7 +15,7 @@
       };
       ibusRuntime = lib.mkOption {
         type = lib.types.package;
-        description = "ibus-runtime: the main module engines' side modules load into, as ibus-runtime.js and ibus-runtime.wasm, with its export list.";
+        description = "ibus-runtime: the main module engines' side modules load into, as ibus-runtime.js and ibus-runtime.wasm, with its export list. It carries wasmfsIdb, whose header's API is on the list.";
       };
       ibusRuntimeAsserting = lib.mkOption {
         type = lib.types.package;

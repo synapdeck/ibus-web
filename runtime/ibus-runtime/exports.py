@@ -154,10 +154,11 @@ def parse_header(header, flags, probe):
 
 
 def declarations(rule):
-    """The names the headers a rule names declare, each with whether it is
-    declared with default visibility. Each header is parsed on its own by the
-    compiler, as C. Those only C++ can parse must be exactly the rule's
-    cxxOnly, and those neither can, exactly its unparseable."""
+    """The names the headers a rule names declare, but for the rule's except,
+    each with whether it is declared with default visibility. Each header is
+    parsed on its own by the compiler, as C. Those only C++ can parse must be
+    exactly the rule's cxxOnly, and those neither can, exactly its
+    unparseable."""
     headers = header_files(rule)
     flags = cflags(rule.get("packages", []))
     names = {}
@@ -180,6 +181,11 @@ def declarations(rule):
     for key, found in failed.items():
         if found != set(rule.get(key, [])):
             sys.exit(f"{key} headers: {sorted(found)}, expected {sorted(rule.get(key, []))}")
+    # An exception the headers no longer declare would hide a rule gone stale.
+    if stale := sorted(set(rule.get("except", [])) - names.keys()):
+        sys.exit(f"excepted, but declared by none of the headers: {stale}")
+    for name in rule.get("except", []):
+        del names[name]
     return names
 
 
@@ -448,27 +454,38 @@ def verify(args):
         if versions.get(name, "").split(".")[0] != major:
             fail(f"{name} is at {versions.get(name)}, expected major release {major}")
 
-    apis = [symbols for name, _, _, symbols in sections if name == args.api_library]
-    if len(apis) != 1:
-        fail(f"{len(apis)} sections are named {args.api_library}")
-    api = set(apis[0])
-    declared = declarations({"headers": [args.api_header], "packages": args.api_pkg_config})
-    if stray := sorted(api - declared.keys()):
-        fail(f"{args.api_library} exports what <{args.api_header}> doesn't declare: {stray}")
-    # All the header declares is API, each with default visibility; side
-    # modules define some of it, for the runtime to call.
-    if hidden := sorted(name for name, default in declared.items() if not default):
-        fail(f"<{args.api_header}> declares without default visibility: {hidden}")
     side = set(args.api_side_defined)
-    if not side <= declared.keys():
-        fail(f"<{args.api_header}> doesn't declare {sorted(side - declared.keys())}")
-    if unexported := sorted(declared.keys() - api - side):
-        fail(f"{args.api_library} doesn't export {unexported}")
+    side_declared = set()
+    apis = []
+    for api_spec in args.api:
+        library, header = api_spec.split("=", 1)
+        found = [symbols for name, _, _, symbols in sections if name == library]
+        if len(found) != 1:
+            fail(f"{len(found)} sections are named {library}")
+        api = set(found[0])
+        declared = declarations({"headers": [header], "packages": args.api_pkg_config})
+        if stray := sorted(api - declared.keys()):
+            fail(f"{library} exports what <{header}> doesn't declare: {stray}")
+        # A library built with hidden visibility exports only what its
+        # header declares with default visibility, which must be all of it.
+        if library in args.api_hidden and (
+            hidden := sorted(name for name, default in declared.items() if not default)
+        ):
+            fail(f"<{header}> declares without default visibility: {hidden}")
+        # All the header declares is API; side modules define some of it, for
+        # the runtime to call.
+        side_declared |= side & declared.keys()
+        if unexported := sorted(declared.keys() - api - side):
+            fail(f"{library} doesn't export {unexported}")
+        apis.append((library, api))
+    if not side <= side_declared:
+        fail(f"no API header declares {sorted(side - side_declared)}")
 
     print(f"ABI {abi}: {len(seen)} symbols")
     for name, version, count, _ in sections:
         print(f"  {name} {version}: {count}")
-    print(f"API: {' '.join(sorted(api))}")
+    for library, api in apis:
+        print(f"API of {library}: {' '.join(sorted(api))}")
     print(f"API side modules define: {' '.join(sorted(side))}")
 
 
@@ -493,8 +510,18 @@ def main():
     command.add_argument(
         "--expect-major", action="append", default=[], help="NAME=MAJOR, the first part of VERSION"
     )
-    command.add_argument("--api-library", required=True)
-    command.add_argument("--api-header", required=True)
+    command.add_argument(
+        "--api",
+        action="append",
+        required=True,
+        help="LIBRARY=HEADER: LIBRARY's section must be exactly HEADER's declarations",
+    )
+    command.add_argument(
+        "--api-hidden",
+        action="append",
+        default=[],
+        help="an --api LIBRARY built with hidden visibility",
+    )
     command.add_argument("--api-pkg-config", action="append", default=[])
     command.add_argument(
         "--api-side-defined",
