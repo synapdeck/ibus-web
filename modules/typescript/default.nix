@@ -11,7 +11,7 @@
     }:
     let
       inherit (config.ibusWeb.typescript) nodejs;
-      pnpm = pkgs.pnpm_11;
+      inherit (pkgs) pnpm;
       root = ../..;
 
       # pnpm-workspace.yaml's `packages:` block list. Nix has no YAML reader, so
@@ -128,7 +128,7 @@
         lib.throwIfNot (rootManifest.packageManager or null == "pnpm@${pnpm.version}")
           "package.json: packageManager is ${
             builtins.toJSON (rootManifest.packageManager or null)
-          }, but nixpkgs' pnpm_11 is ${pnpm.version}"
+          }, but nixpkgs' pnpm is ${pnpm.version}"
           (
             map (file: root + "/${file}") [
               "package.json"
@@ -150,20 +150,11 @@
           "peerDependencies"
         ]
       ) ([ "." ] ++ packageDirs);
-      assertPlaywrightVersion = lib.concatMapStrings (dir: ''
-        (
-          cd ${lib.escapeShellArg dir}
-          installed=$(node -p "
-            const { createRequire } = require('node:module');
-            createRequire(process.cwd() + '/package.json')('playwright/package.json').version
-          ")
-          if [ "$installed" != ${lib.escapeShellArg pkgs.playwright-driver.version} ]; then
-            echo "${dir}: playwright resolves to $installed, but its browsers come from" \\
-              "nixpkgs' playwright-driver ${pkgs.playwright-driver.version}; pin playwright to exactly that version" >&2
-            exit 1
-          fi
-        )
-      '') playwrightDependents;
+      assertPlaywrightVersion = ''
+        node ${./assert-playwright.ts} ${
+          lib.escapeShellArgs ([ pkgs.playwright-driver.version ] ++ playwrightDependents)
+        }
+      '';
 
       # Installing needs only the manifests, so editing a source leaves the
       # dependency fetch's inputs alone.
@@ -177,7 +168,7 @@
         };
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-wp7A+e+J2J5iKK8d1aAoVOl3OUFkaGYgC4J/xtZw8e4=";
+        hash = "sha256-+alkuvEjOzalto93eby9Y5r0F7bOSkl0KiP1pEg3iNU=";
       };
 
       mkWorkspace =
@@ -187,7 +178,10 @@
             inherit name pnpmDeps;
             src = lib.fileset.toSource {
               inherit root;
-              fileset = lib.fileset.unions (workspaceFiles ++ map packageSources packageDirs);
+              # Every package's tsconfig extends the repository's base.
+              fileset = lib.fileset.unions (
+                workspaceFiles ++ [ (root + "/tsconfig.base.json") ] ++ map packageSources packageDirs
+              );
             };
             nativeBuildInputs = [
               nodejs

@@ -5,3 +5,11 @@ packages:
   - "tests/browser"
   - "tests/spikes/*"
   - "packages/*"
+
+# What must be one version across the repository. Packages name these as
+# `catalog:`, never with a version of their own.
+catalog:
+  "@types/node": ^24.19.0
+  # Exactly nixpkgs' playwright-driver, whose browsers it drives.
+  playwright: 1.63.0
+  typescript: ^7.0.2

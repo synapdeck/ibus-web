@@ -19,14 +19,8 @@
 // every config emits to dist/ with the layout of src/.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "strict": true,
-    "erasableSyntaxOnly": true,
-    "verbatimModuleSyntax": true,
-    "rewriteRelativeImportExtensions": true,
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "target": "es2023",
     "rootDir": "src",
     "outDir": "dist"
   }

@@ -1,0 +1,19 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// The repository's standard compiler options. Every tsconfig.json extends
+// this, directly or through a package's own base, and overrides only what its
+// files need: their environment's lib and types, where they emit, or checking
+// JavaScript that Emscripten reads.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023"
+  }
+}

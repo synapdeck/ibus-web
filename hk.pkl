@@ -57,6 +57,16 @@ local linters = new Mapping<String, Step> {
       effect = "read"
     }
   }
+  // Every tsconfig shares the repository's standard options; the script
+  // reads every config git tracks, since a change to one can break another's
+  // chain.
+  ["tsconfig-extends"] {
+    glob = List("**/tsconfig*.json")
+    check = new CommandSpec {
+      command = "node modules/flake/tsconfig-extends.ts"
+      effect = "read"
+    }
+  }
   // Every file needs its licence, so this lints the whole tree each time.
   ["reuse"] {
     check = new CommandSpec {

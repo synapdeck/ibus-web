@@ -1,5 +1,10 @@
 {
   "name": "ibus-web",
   "private": true,
-  "packageManager": "pnpm@11.27.0"
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  },
+  "packageManager": "pnpm@12.3.4"
 }
