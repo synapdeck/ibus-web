@@ -3,41 +3,14 @@
 
 // The browsers the harnesses drive, headless, and the page they load.
 
-import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox, type Browser, type BrowserType } from "playwright";
-import { serve, type Server } from "./server.ts";
+import { serve, type Server } from "@ibus-web/test-browser/server";
 
-export const browserTypes: Readonly<Record<string, BrowserType>> = {
-  chromium,
-  firefox,
-};
-
-// The named browsers, or all of them; throws on a name it doesn't know.
-export const browsersNamed = (
-  names: readonly string[] | undefined,
-): string[] => {
-  const all = names ?? Object.keys(browserTypes);
-  for (const name of all)
-    if (!(name in browserTypes)) throw new Error(`no browser ${name}`);
-  return [...all];
-};
-
-// Playwright turns Chromium's own sandbox off unless asked; the harnesses
-// run it as a browser would unless IBUS_WEB_CHROMIUM_SANDBOX=0.
-const chromiumSandbox = process.env.IBUS_WEB_CHROMIUM_SANDBOX !== "0";
-
-export const launch = (name: string): Promise<Browser> =>
-  browserTypes[name]!.launch(
-    name === "chromium"
-      ? { headless: true, chromiumSandbox }
-      : { headless: true },
-  );
-
-// Its first line: Playwright's launch errors go on to list the browser's
-// whole output.
-export const launchError = (error: unknown): string =>
-  `launch failed: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`;
+export {
+  browsersNamed,
+  launch,
+  launchError,
+} from "@ibus-web/test-browser/browsers";
 
 // Serves the page at / and the TypeScript build under /dist/, with dirs
 // besides, by URL prefix.

@@ -1,0 +1,29 @@
+{
+  "name": "@ibus-web/test-browser",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./browsers": {
+      "ibus-web-source": "./src/node/browsers.ts",
+      "default": "./dist/node/browsers.js"
+    },
+    "./server": {
+      "ibus-web-source": "./src/node/server.ts",
+      "default": "./dist/node/server.js"
+    }
+  },
+  "scripts": {
+    "build": "status=0; for env in shared worker page node; do tsc -p src/$env || status=1; done; exit $status",
+    "typecheck": "status=0; for env in shared worker page node; do tsc --noEmit -p src/$env || status=1; done; exit $status"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "playwright": "1.61.1",
+    "typescript": "^7.0.2"
+  },
+  "ibusWeb": {
+    "assets": [
+      "src/page/index.html"
+    ]
+  }
+}

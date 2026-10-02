@@ -28,11 +28,41 @@
         description = "Shell commands a Nix build runs before launching the browsers. For builds only: it points HOME at a fresh directory.";
       };
     };
+    options.ibusWeb.testing.browserLinkFlags = lib.mkOption {
+      type = lib.types.str;
+      description = "Link flags for a C or C++ test program that browserRun runs: an ES module whose factory a dedicated Worker calls, with assertions on.";
+    };
+    options.ibusWeb.testing.browserRun = lib.mkOption {
+      type = lib.types.functionTo lib.types.package;
+      description = ''
+        A function making a check that runs test programs in headless Chromium and Firefox,
+        taking:
+
+        - name: a name for the check.
+        - programs: directories, each holding programs linked with browserLinkFlags as
+          NAME.js and NAME.wasm, and optionally NAME.args, the program's arguments one per
+          line.
+        - timeout (default 120): the seconds each program has to exit, in each browser.
+
+        Each program runs in a dedicated Worker on a page served with cross-origin
+        isolation, in a fresh browser context, except that programs named PREFIX.1,
+        PREFIX.2 and so on run in that order in one context, so a later one sees what an
+        earlier one stored. The check prints each program's output per browser and fails
+        unless every program exits 0 in both browsers.
+      '';
+    };
   };
 
   config.perSystem =
-    { config, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
+      inherit (config.ibusWeb) typescript;
+      inherit (config.ibusWeb.testing) playwright;
       # Headless Chromium runs as its headless shell, so the full browser,
       # WebKit and ffmpeg (for recording video) stay out of the closure.
       browsers = pkgs.playwright-driver.browsers.override {
@@ -60,5 +90,35 @@
           export HOME=$(mktemp -d)
         '';
       };
+
+      ibusWeb.testing.browserLinkFlags = "-sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=worker -sEXIT_RUNTIME=1";
+
+      ibusWeb.testing.browserRun =
+        {
+          name,
+          programs,
+          timeout ? 120,
+        }:
+        pkgs.runCommand "ibus-web-browser-run-${name}"
+          (
+            {
+              nativeBuildInputs = [ typescript.nodejs ];
+            }
+            // playwright.env
+          )
+          ''
+            ${playwright.setup}
+            dirs=(${lib.escapeShellArgs programs})
+            # The runner holds each program to its own limit; this one, past
+            # every program's in both browsers, catches a browser or runner
+            # that hangs outright.
+            count=$(for dir in "''${dirs[@]}"; do ls "$dir"; done | grep -c '\.wasm$')
+            limit=$(( (${toString timeout} + 60) * 2 * count + 300 ))
+            timeout --kill-after=10 "$limit" \
+              node ${typescript.workspace}/tests/browser/dist/node/run.js \
+                --timeout ${toString timeout} "''${dirs[@]/#/--program=}" > $out ||
+              { cat $out; exit 1; }
+            cat $out
+          '';
     };
 }

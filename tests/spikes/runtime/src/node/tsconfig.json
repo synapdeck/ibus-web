@@ -10,7 +10,11 @@
     // code it runs in pages. Without DOM those references fail to resolve;
     // skipping declaration checks accepts that rather than adding DOM, which
     // would let Node code use page globals.
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // Workspace packages export their TypeScript sources under this
+    // condition, so this resolves their types without their dist/ being
+    // built first; Node, which doesn't know the condition, loads dist/.
+    "customConditions": ["ibus-web-source"]
   },
   "include": [".", "../shared"]
 }

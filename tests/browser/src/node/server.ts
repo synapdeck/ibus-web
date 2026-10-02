@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// A static HTTP server for the browser harness. Every response, errors
+// A static HTTP server for pages driven in browsers. Every response, errors
 // included, carries the headers that make the page cross-origin isolated,
-// which SharedArrayBuffer and so the whole runtime need.
+// which SharedArrayBuffer, and so any program with threads, needs.
 
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";

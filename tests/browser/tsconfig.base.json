@@ -1,0 +1,33 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Sources are split by the environment they run in. Each directory under src/
+// has its own tsconfig.json extending this one, so no program sees another
+// environment's globals, and an editor checks a file under the config nearest
+// to it:
+//
+//   src/worker/  WebWorker globals: the Worker a test program runs in.
+//   src/page/    DOM globals: the page that starts those Workers.
+//   src/node/    Node globals: the server and the runner driving browsers.
+//   src/shared/  no environment's globals, only the language. The other three
+//                configs include it too, so their imports of it resolve.
+//
+// An environment statically imports only its own directory and src/shared/.
+// Another environment's code is reached at run time by URL (a Worker script,
+// a page's module script), because a static import would type-check it under
+// the importer's globals. rootDir and outDir resolve against this file, so
+// every config emits to dist/ with the layout of src/.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "rootDir": "src",
+    "outDir": "dist"
+  }
+}

@@ -76,8 +76,13 @@
           isPackage =
             name: type: type == "directory" && builtins.pathExists (root + "/${parent}/${name}/package.json");
         in
-        if !lib.hasSuffix "/*" glob || lib.hasInfix "*" parent then
-          throw "pnpm-workspace.yaml: only `<dir>/*` package globs are supported, not ${glob}"
+        if !lib.hasInfix "*" glob then
+          if builtins.pathExists (root + "/${glob}/package.json") then
+            [ glob ]
+          else
+            throw "pnpm-workspace.yaml: ${glob} has no package.json"
+        else if !lib.hasSuffix "/*" glob || lib.hasInfix "*" parent then
+          throw "pnpm-workspace.yaml: only `<dir>` and `<dir>/*` package globs are supported, not ${glob}"
         else if !builtins.pathExists (root + "/${parent}") then
           [ ]
         else
