@@ -2,11 +2,13 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include <dirent.h>
+#include <emscripten/heap.h>
 #include <emscripten/wasmfs.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
 #include <ibus-web/runtime.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -501,6 +503,67 @@ static void test_null_feed(void) {
   g_assert_cmpint(ibusweb_install_end(install), ==, -EINVAL);
 }
 
+/* A host that mounts the engine's data in memory adds the data's size, in
+ * whole pages, to the runtime's memory, so a large file has to fit in about
+ * its own size: grown piece by piece, the memory backend's buffer would
+ * reach twice the file, and need the old buffer beside the new while it
+ * moves. The test first takes the rest of the memory, in blocks small
+ * enough to come from the top of the heap, leaving the file's pages and
+ * HEADROOM, which stands for what the runtime's own memory has spare. */
+#define LARGE_FILE (16 * 1024 * 1024 + 1)
+#define WASM_PAGE 65536
+#define HEADROOM (1024 * 1024)
+#define FILL_BLOCK 65536
+
+static uint8_t large_byte(gsize at) { return (uint8_t)(at % 251 + 1); }
+
+static void test_large_file(void) {
+  /* No zero bytes, so neither strlen() nor an unwritten stretch, which
+   * reads as zeros, can pass for the data. */
+  char *data = g_malloc(LARGE_FILE + 1);
+  for (gsize i = 0; i < LARGE_FILE; i++)
+    data[i] = (char)large_byte(i);
+  data[LARGE_FILE] = '\0';
+  const Member member = {
+      .name = "large.bin", .type = '0', .mode = 0644, .data = data};
+  g_autoptr(GBytes) tar = make_archive(&member, 1);
+  g_free(data);
+  g_autofree char *dir = fresh_dir();
+
+  gsize budget =
+      (LARGE_FILE + WASM_PAGE - 1) / WASM_PAGE * WASM_PAGE + HEADROOM;
+  size_t heap = emscripten_get_heap_size();
+  g_assert_cmpuint(heap - *emscripten_get_sbrk_ptr(), >, budget);
+  g_autoptr(GPtrArray) rest = g_ptr_array_new_with_free_func(free);
+  while (heap - *emscripten_get_sbrk_ptr() > budget) {
+    void *block = malloc(FILL_BLOCK);
+    g_assert_nonnull(block);
+    g_ptr_array_add(rest, block);
+  }
+  int installed = install(dir, tar, 65536);
+  g_ptr_array_set_size(rest, 0);
+  g_assert_cmpint(installed, ==, 0);
+
+  g_autofree char *path = g_build_filename(dir, "large.bin", NULL);
+  int fd = open(path, O_RDONLY);
+  g_assert_cmpint(fd, >=, 0);
+  static uint8_t buf[65536];
+  gsize at = 0;
+  for (;;) {
+    ssize_t got = read(fd, buf, sizeof buf);
+    g_assert_cmpint(got, >=, 0);
+    if (got == 0)
+      break;
+    for (ssize_t i = 0; i < got; i++)
+      if (buf[i] != large_byte(at + (gsize)i))
+        g_error("large.bin differs at byte %" G_GSIZE_FORMAT, at + (gsize)i);
+    at += (gsize)got;
+  }
+  close(fd);
+  g_assert_cmpuint(at, ==, LARGE_FILE);
+  g_assert_cmpint(unlink(path), ==, 0);
+}
+
 static void test_begin_errors(void) {
   IBusWebInstall *install = NULL;
   g_assert_cmpint(ibusweb_install_begin(NULL, &install), ==, -EINVAL);
@@ -550,5 +613,6 @@ int main(int argc, char **argv) {
   g_test_add_func("/install/modes", test_modes);
   g_test_add_func("/install/null-feed", test_null_feed);
   g_test_add_func("/install/begin-errors", test_begin_errors);
+  g_test_add_func("/install/large-file", test_large_file);
   return g_test_run();
 }

@@ -252,11 +252,17 @@ static int take_header(IBusWebInstall *install) {
     return -errno;
   install->data_left = size;
   install->padding_left = (uint32_t)((BLOCK - size % BLOCK) % BLOCK);
-  if (size > 0) {
-    install->state = STATE_DATA;
-    return 0;
-  }
-  return finish_file(install);
+  if (size == 0)
+    return finish_file(install);
+  /* Sized before its data arrives, a file in memory takes its size once,
+   * where appending each piece would grow it to as much as twice that and
+   * need the old copy beside the new while it moves. Until the data is
+   * written the file reads as zeros; an install cut short leaves no marker,
+   * so nothing trusts such a file. */
+  if (ftruncate(fd, (off_t)size) != 0)
+    return -errno;
+  install->state = STATE_DATA;
+  return 0;
 }
 
 int ibusweb_install_begin(const char *dir, IBusWebInstall **out) {
