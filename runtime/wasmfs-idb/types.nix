@@ -45,11 +45,14 @@
       };
 
       sources = lib.fileset.toSource {
-        root = ./src;
+        root = ./.;
         fileset = lib.fileset.unions [
           ./src/tsconfig.json
           ./src/libwasmfs_idb.js
           ./src/emscripten-library.d.ts
+          ./tests/tsconfig.json
+          ./tests/chunk-counts.js
+          ./tests/wasm-exports.d.ts
         ];
       };
     in
@@ -63,10 +66,12 @@
             ];
           }
           ''
-            node ${./library-deps.mjs} check ${sources}/libwasmfs_idb.js ${emscripten}/share/emscripten
-            cp -r --no-preserve=mode ${sources} src
+            node ${./library-deps.mjs} check ${sources}/src/libwasmfs_idb.js ${emscripten}/share/emscripten
+            node ${./library-deps.mjs} check ${sources}/tests/chunk-counts.js ${emscripten}/share/emscripten
+            cp -r --no-preserve=mode ${sources}/src ${sources}/tests .
             ln -s ${types} src/${typesDir}
             tsc -p src
+            tsc -p tests
 
             # The library's own type must reject what Emscripten would: a
             # file of calls that each break one rule fails with one error

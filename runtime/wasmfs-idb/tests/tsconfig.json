@@ -1,0 +1,23 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Type-checks the tests' JavaScript library, which runs on every thread of a
+// test program, the backend's Worker among them.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "es2022",
+    "lib": ["es2022", "webworker"],
+    "module": "preserve",
+    "types": []
+  },
+  "files": [
+    "chunk-counts.js",
+    "wasm-exports.d.ts",
+    "../src/emscripten-library.d.ts"
+  ]
+}

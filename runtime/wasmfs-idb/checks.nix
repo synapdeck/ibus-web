@@ -13,7 +13,8 @@
       # A directory holding one test program, name.js and name.wasm, from
       # name.c or name.cpp; C++ tests reach into WasmFS's internals. The
       # backend's own thread comes from the pool, which the program's main
-      # thread can't grow while it blocks on the backend.
+      # thread can't grow while it blocks on the backend. The chunk counter's
+      # library adds nothing to a program that doesn't ask for it.
       program =
         source:
         let
@@ -35,7 +36,8 @@
             runHook preBuild
             ${if cxx then "$CXX -std=c++17 ${wasmfsIdb.cflags}" else "$CC"} -c ${source} -o ${name}.o
             $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=1 \
-              --js-library=${wasmfsIdb.jsLibrary} ${name}.o -lwasmfs-idb -o ${name}.js
+              --js-library=${wasmfsIdb.jsLibrary} \
+              --js-library=${./tests/chunk-counts.js} ${name}.o -lwasmfs-idb -o ${name}.js
             runHook postBuild
           '';
           installPhase = ''
@@ -52,6 +54,7 @@
           "basic.1.c"
           "basic.2.c"
           "open-unlinked.cpp"
+          "lazy.c"
         ];
       };
     };
