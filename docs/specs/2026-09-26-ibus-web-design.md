@@ -1765,7 +1765,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
 - **TypeScript.** One pnpm workspace at the repository root (`package.json`,
   `pnpm-workspace.yaml` over `packages/*`, `tests/browser` and
   `tests/spikes/*`). Its
-  dependencies are a fixed-output derivation (`fetchPnpmDeps` with pnpm 11,
+  dependencies are a fixed-output derivation (`fetchPnpmDeps` with pnpm 12,
   installed offline with `pnpmConfigHook`), and `ibusWeb.typescript.workspace`
   builds every package's `dist/` with `tsc`, the JavaScript browsers load.
   Every `tsconfig.json` in the repository extends one standard
@@ -1776,7 +1776,7 @@ artifacts; WASM builds of nixpkgs packages are reached through
   `worker/` the WebWorker library, `page/` the DOM and `node/` Node's types.
   Versions pnpm can't know are asserted against what it resolved: the
   `playwright` package equals nixpkgs' `playwright-driver` (1.61.1 at
-  `8ce4ef6`), and `packageManager` names nixpkgs' pnpm 11. The tests use
+  `8ce4ef6`), and `packageManager` names nixpkgs' pnpm 12. The tests use
   `playwright-driver.browsers`, never downloaded, through
   `ibusWeb.testing.playwright` (§11).
 
