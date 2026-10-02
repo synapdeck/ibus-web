@@ -14,4 +14,7 @@ declare function _wasmfs_idb_test_take_delete_failure(store: number): number;
 
 declare function _wasmfs_idb_test_take_open_failure(): number;
 
-declare function _wasmfs_idb_test_strict_commit(files: number): void;
+declare function _wasmfs_idb_test_strict_commit(
+  files: number,
+  wrote: number,
+): void;

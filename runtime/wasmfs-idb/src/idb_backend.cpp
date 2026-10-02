@@ -33,12 +33,19 @@ using wasmfs::File;
 using wasmfs::oflags_t;
 using wasmfs::Symlink;
 
+// The largest chunk a database may be created with. Chromium stores a value
+// whose serialized form exceeds 64 KiB as a Blob of its own, which costs two
+// to three times as much to read or write; the margin covers the bytes the
+// serialization adds around an ArrayBuffer's.
+constexpr uint32_t maxChunkSize = 63 * 1024;
+
 // Chunk size for databases this backend creates; a database keeps the size it
 // was created with. A read fetches every chunk it touches whole, and a write
 // rewrites every chunk it covers in part, so small chunks keep random reads
-// and appends cheap. In Chromium, a chunk of 64 KiB or more also costs two
-// to three times as much to read or write as one just under that size.
+// and appends cheap.
 constexpr uint32_t defaultChunkSize = 16 * 1024;
+static_assert(defaultChunkSize <= maxChunkSize,
+              "Chromium would store each chunk as a Blob");
 
 // Every offset a file may reach is a double holding an integer exactly.
 constexpr off_t maxFileSize = (off_t(1) << 53) - 1;
@@ -191,7 +198,7 @@ private:
     }
     int err = 0;
     backend.proxy(
-        [&](auto ctx) { _wasmfs_idb_flush(ctx.ctx, backend.id, &err); });
+        [&](auto ctx) { _wasmfs_idb_flush(ctx.ctx, backend.id, ino, &err); });
     return err;
   }
 

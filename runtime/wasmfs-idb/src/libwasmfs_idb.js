@@ -1059,24 +1059,40 @@ const _wasmfs_idb_set_times = (ctx, id, ino, atime, mtime, errPtr) => {
 };
 
 /**
- * Commits an empty read-write transaction over the stores files live in.
- * Every change has already committed, so once a strict commit after them
- * completes, they are on disk.
+ * Commits a read-write transaction over the stores files live in, with
+ * strict durability, that puts the inode's record back as it is. Every
+ * change has already committed, so once a strict commit after them
+ * completes, they are on disk. The transaction must write: Chromium and
+ * Firefox commit an empty one without syncing anything to disk.
  * @param {number} ctx
  * @param {number} id
+ * @param {number} ino
  * @param {number} errPtr
  */
-const _wasmfs_idb_flush = (ctx, id, errPtr) =>
+const _wasmfs_idb_flush = (ctx, id, ino, errPtr) => {
+  ino >>>= 0;
   wasmfsIdbRun(
     ctx,
     id,
     (state) =>
-      wasmfsIdbTransact(state, ["inodes", "chunks"], "readwrite", () => {}, {
-        durability: "strict",
-      }),
+      wasmfsIdbTransact(
+        state,
+        ["inodes", "chunks"],
+        "readwrite",
+        async (tx) => {
+          const inodes = tx.objectStore("inodes");
+          const inode = /** @type {WasmfsIdbInode | undefined} */ (
+            await wasmfsIdbRequest(inodes.get(ino))
+          );
+          if (!inode) throw new WasmfsIdbError(-ERRNO_CODES.ENOENT);
+          inodes.put(inode, ino);
+        },
+        { durability: "strict" },
+      ),
     () => {},
     (errno) => (HEAP32[errPtr >> 2] = errno),
   );
+};
 
 addToLibrary({
   $wasmfsIdbBackends__deps: ["$HandleAllocator"],
@@ -1301,7 +1317,13 @@ addToLibrary({
   ],
   _wasmfs_idb_set_times: _wasmfs_idb_set_times,
 
-  _wasmfs_idb_flush__sig: "vpip",
-  _wasmfs_idb_flush__deps: ["$wasmfsIdbRun", "$wasmfsIdbTransact"],
+  _wasmfs_idb_flush__sig: "vpiip",
+  _wasmfs_idb_flush__deps: [
+    "$ERRNO_CODES",
+    "$WasmfsIdbError",
+    "$wasmfsIdbRequest",
+    "$wasmfsIdbRun",
+    "$wasmfsIdbTransact",
+  ],
   _wasmfs_idb_flush: _wasmfs_idb_flush,
 });

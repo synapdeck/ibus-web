@@ -2,8 +2,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
 /* fsync() is the durability barrier: a commit with strict durability over
- * the stores a file lives in, complete before fsync() returns, while writes
- * commit with the browser's default. Prints what an fsync() costs, as a
+ * the stores a file lives in that writes a record, since a browser syncs
+ * nothing for one that writes none, complete before fsync() returns, while
+ * writes commit with the browser's default. Prints what an fsync() costs, as a
  * record rather than a check. */
 
 #include <fcntl.h>
@@ -20,18 +21,20 @@
 #define ROUNDS 50
 
 /* Whether a call made exactly `all` strict commits, `files` of them over
- * the stores a file lives in. */
+ * the stores a file lives in, each of those writing a record. */
 #define CHECK_STRICT(call, all, files)                                         \
   do {                                                                         \
     reset_strict_commits();                                                    \
     CHECK(call);                                                               \
     unsigned check_all_ = atomic_load(&strict_commits);                        \
     unsigned check_files_ = atomic_load(&strict_file_commits);                 \
-    if (check_all_ != (all) || check_files_ != (files)) {                      \
+    unsigned check_wrote_ = atomic_load(&strict_file_writes);                  \
+    if (check_all_ != (all) || check_files_ != (files) ||                      \
+        check_wrote_ != (files)) {                                             \
       printf("%s:%d: %s made %u strict commit(s), %u over a file's stores, "   \
-             "expected %u and %u\n",                                           \
+             "%u of those writing, expected %u and %u, all writing\n",         \
              __FILE__, __LINE__, #call, check_all_, check_files_,              \
-             (unsigned)(all), (unsigned)(files));                              \
+             check_wrote_, (unsigned)(all), (unsigned)(files));                \
       test_failures++;                                                         \
     }                                                                          \
   } while (0)
@@ -83,6 +86,7 @@ static void run_test(const struct idb_test_layout *layout) {
     fsync_max = cost > fsync_max ? cost : fsync_max;
   }
   CHECK(atomic_load(&strict_file_commits) == ROUNDS);
+  CHECK(atomic_load(&strict_file_writes) == ROUNDS);
   printf("fsync: %d rounds of a 4 KiB pwrite() then fsync(): pwrite %.3f ms "
          "mean; fsync %.3f ms mean, %.3f min, %.3f max\n",
          ROUNDS, write_total / ROUNDS, fsync_total / ROUNDS, fsync_min,

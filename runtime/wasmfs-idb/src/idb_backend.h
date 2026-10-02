@@ -115,8 +115,9 @@ void _wasmfs_idb_set_size(em_proxying_ctx *ctx, int id, uint32_t ino,
 void _wasmfs_idb_set_mode(em_proxying_ctx *ctx, int id, uint32_t ino,
                           uint32_t mode, int *err);
 
-// Returns once everything committed before it is durable.
-void _wasmfs_idb_flush(em_proxying_ctx *ctx, int id, int *err);
+// Returns once everything committed before it is durable: a commit with
+// strict durability that puts the inode's record back as it is.
+void _wasmfs_idb_flush(em_proxying_ctx *ctx, int id, uint32_t ino, int *err);
 
 // Infinity leaves that time as it is.
 void _wasmfs_idb_set_times(em_proxying_ctx *ctx, int id, uint32_t ino,
