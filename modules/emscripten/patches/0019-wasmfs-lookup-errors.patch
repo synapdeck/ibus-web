@@ -5,17 +5,18 @@ mkdir(), unlink(), rename() and symlink() took every backend failure for
 a missing file: ENOENT, or, for mkdir() and symlink(), an attempt to
 create one. It now returns a MaybeFile, which carries a negative error
 code; the callers pass it on. The Node backend reports the host's
-(EACCES, ENOTDIR, ...), and the OPFS backend its EIO. Backends that still
-return plain null get ENOENT, as before.
+(EACCES, ENOTDIR, ...; EIO for a host code with no errno), and the OPFS
+backend its EIO, or ENOTDIR when the entry changes kind between its two
+lookups. Backends that still return plain null get ENOENT, as before.
 
 Upstream: not filed yet
 Draft: docs/upstream/emscripten-wasmfs-lookup-errors.md
 
 diff --git a/src/lib/libwasmfs_node.js b/src/lib/libwasmfs_node.js
-index ed55304..7d2f98c 100644
+index ed55304..60a1422 100644
 --- a/src/lib/libwasmfs_node.js
 +++ b/src/lib/libwasmfs_node.js
-@@ -91,15 +91,12 @@ var wasmFSNodeLibrary = {
+@@ -91,15 +91,14 @@ var wasmFSNodeLibrary = {
      });
    },
  
@@ -26,12 +27,15 @@ index ed55304..7d2f98c 100644
 -      return 1;
 -    }
 +  _wasmfs_node_get_mode__deps: ['$wasmfsTry', '$wasmfsNodeFixStat'],
++  // Without ASSERTIONS, a host code with no errno converts to undefined, which
++  // must not read as success: the mode was never written.
 +  _wasmfs_node_get_mode: (path_p, mode_p) => wasmfsTry(() => {
 +    let stat = wasmfsNodeFixStat(fs.lstatSync(UTF8ToString(path_p)));
      {{{ makeSetValue('mode_p', 0, 'stat.mode', 'i32') }}};
-     // implicitly return 0
+-    // implicitly return 0
 -  },
-+  }),
++    return 0;
++  }) ?? {{{ cDefs.EIO }}},
  
    _wasmfs_node_stat_size__deps: ['$wasmfsNodeLstat'],
    _wasmfs_node_stat_size: (path_p, size_p) => {
@@ -202,10 +206,10 @@ index 3ea4d50..8bfd11d 100644
    // Add a child to this directory's entry cache without actually inserting it
    // in the underlying backend. Assumes a child with this name does not already
 diff --git a/system/lib/wasmfs/js_api.cpp b/system/lib/wasmfs/js_api.cpp
-index 85c1992..0178aa3 100644
+index 85c1992..985aaf4 100644
 --- a/system/lib/wasmfs/js_api.cpp
 +++ b/system/lib/wasmfs/js_api.cpp
-@@ -75,8 +75,13 @@ int _wasmfs_write_file(const char* pathname, const uint8_t* data, size_t data_si
+@@ -75,9 +75,14 @@ int _wasmfs_write_file(const char* pathname, const uint8_t* data, size_t data_si
    std::shared_ptr<File> child;
    {
      auto lockedParent = parent->locked();
@@ -213,13 +217,15 @@ index 85c1992..0178aa3 100644
 +    auto found = lockedParent.getChild(childName);
 +    child = found;
      if (!child) {
+-      // Lookup failed; try creating the file.
 +      if (found.getError(-ENOENT) != -ENOENT) {
 +        // The lookup failed rather than finding nothing.
 +        return 0;
 +      }
-       // Lookup failed; try creating the file.
++      // Nothing there; try creating the file.
        child = lockedParent.insertDataFile(childName, 0777);
        if (!child) {
+         // File creation failed; nothing else to do.
 diff --git a/system/lib/wasmfs/memory_backend.h b/system/lib/wasmfs/memory_backend.h
 index 033f254..72db149 100644
 --- a/system/lib/wasmfs/memory_backend.h

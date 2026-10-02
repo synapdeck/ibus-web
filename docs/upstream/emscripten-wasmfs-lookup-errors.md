@@ -143,13 +143,18 @@ failed symlinks: still a `std::shared_ptr`, but able to carry a negative
 error code. Null with no code keeps meaning "no such file", so backends that
 return plain null are unchanged, and callers ask for `getError(-ENOENT)`.
 Path parsing, `unlinkat()`, the unmount syscall and `rename()` (for the
-source) return the code; `open()`, `mkdir()`, `symlink()`, `rename()` (for
-the target) and `FS.writeFile` fail with it rather than take the file for
-missing. The Node backend's `_wasmfs_node_get_mode` returns the host's
-errno and `getChild()` passes it on; the OPFS backend passes on everything
-but its "not found". The memory, fetch, ignore-case and virtual directories
-change only their signatures. The preload loop in `wasmfs.cpp` still asks
-only whether a child exists; it aborts on any failure anyway.
+source) return the code; `open()`, `mkdir()`, `symlink()` and `rename()`
+(for the target) fail with it rather than take the file for missing.
+`FS.writeFile` fails too instead of creating the file, but
+`_wasmfs_write_file` returns only 0 for a failure, so the code goes no
+further. The Node backend's `_wasmfs_node_get_mode` returns the host's
+errno (`EIO` for a host code with none) and `getChild()` passes it on; the
+OPFS backend passes on everything but its "not found". The memory, fetch,
+ignore-case and virtual directories change only their signatures. The
+preload loop in `wasmfs.cpp` still asks only whether a child exists: it
+runs at start-up, before anything can be mounted, so it only looks in the
+root directory's backend, which is the memory backend unless the program
+supplies its own root, and a memory directory's lookup can't fail.
 
 The diff applies on top of the ones in those two reports, which add
 `MaybeFile` and `getError(unexplained)`. It was made on a tree carrying
@@ -158,7 +163,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 ```diff
 --- a/src/lib/libwasmfs_node.js
 +++ b/src/lib/libwasmfs_node.js
-@@ -91,15 +91,12 @@
+@@ -91,15 +91,14 @@
      });
    },
  
@@ -169,12 +174,15 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 -      return 1;
 -    }
 +  _wasmfs_node_get_mode__deps: ['$wasmfsTry', '$wasmfsNodeFixStat'],
++  // Without ASSERTIONS, a host code with no errno converts to undefined, which
++  // must not read as success: the mode was never written.
 +  _wasmfs_node_get_mode: (path_p, mode_p) => wasmfsTry(() => {
 +    let stat = wasmfsNodeFixStat(fs.lstatSync(UTF8ToString(path_p)));
      {{{ makeSetValue('mode_p', 0, 'stat.mode', 'i32') }}};
-     // implicitly return 0
+-    // implicitly return 0
 -  },
-+  }),
++    return 0;
++  }) ?? {{{ cDefs.EIO }}},
  
    _wasmfs_node_stat_size__deps: ['$wasmfsNodeLstat'],
    _wasmfs_node_stat_size: (path_p, size_p) => {
@@ -332,7 +340,7 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
    // in the underlying backend. Assumes a child with this name does not already
 --- a/system/lib/wasmfs/js_api.cpp
 +++ b/system/lib/wasmfs/js_api.cpp
-@@ -75,8 +75,13 @@
+@@ -75,9 +75,14 @@
    std::shared_ptr<File> child;
    {
      auto lockedParent = parent->locked();
@@ -340,13 +348,15 @@ other fixes too, so some hunks sit at other lines on plain 6.0.9:
 +    auto found = lockedParent.getChild(childName);
 +    child = found;
      if (!child) {
+-      // Lookup failed; try creating the file.
 +      if (found.getError(-ENOENT) != -ENOENT) {
 +        // The lookup failed rather than finding nothing.
 +        return 0;
 +      }
-       // Lookup failed; try creating the file.
++      // Nothing there; try creating the file.
        child = lockedParent.insertDataFile(childName, 0777);
        if (!child) {
+         // File creation failed; nothing else to do.
 --- a/system/lib/wasmfs/memory_backend.h
 +++ b/system/lib/wasmfs/memory_backend.h
 @@ -65,7 +65,7 @@
@@ -531,9 +541,12 @@ open = -1 (Permission denied)
   fails on stock 6.0.9; a 192-test WasmFS selection (`other.test_wasmfs*`,
   `other.test_unistd*`, `wasmfs.test_unistd*`, `test_fcntl*`, `test_stat*`,
   `test_fs_*`, `test_dirent*`) has the same eleven failures on both, all
-  from the environment, and no others. ibus-web's `checks.emscripten-fixes`
-  runs the same case under Node, and the IndexedDB backend's browser tests
-  check that a lookup in a closed database is `EIO`.
+  from the environment, and no others. Those runs predate the Node
+  backend's `EIO` fallback and a reworded comment in `js_api.cpp`; the
+  fallback changes nothing on a host code that has an errno. ibus-web's
+  `checks.emscripten-fixes` runs the same case under Node, and the
+  IndexedDB backend's browser tests check that a lookup in a closed
+  database is `EIO`.
 - **Depends on the create-EIO and symlink reports.** The diff uses their
   `MaybeFile` and `getError(unexplained)`. Filed alone, it would have to add
   them itself.
