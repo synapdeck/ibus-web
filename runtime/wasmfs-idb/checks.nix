@@ -20,7 +20,7 @@
         {
           source,
           threads ? 1,
-          postJs ? null,
+          postJs ? [ ],
         }:
         let
           cxx = lib.hasSuffix ".cpp" source;
@@ -43,7 +43,7 @@
             $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=${toString threads} \
               --js-library=${wasmfsIdb.jsLibrary} \
               ${lib.concatMapStringsSep " " (library: "--js-library=${library}") testLibraries} \
-              ${lib.optionalString (postJs != null) "--post-js=${postJs}"} \
+              ${lib.concatMapStringsSep " " (file: "--post-js=${file}") postJs} \
               ${name}.o -lwasmfs-idb -o ${name}.js
             runHook postBuild
           '';
@@ -79,7 +79,10 @@
           {
             source = "errors.c";
             threads = 3;
-            postJs = ./tests/errors-post.js;
+            postJs = [
+              ./tests/stderr-post.js
+              ./tests/errors-post.js
+            ];
           }
           { source = "sweep.1.c"; }
           # The first writer, a read-only backend, the writer whose sweep
@@ -87,6 +90,7 @@
           {
             source = "sweep.2.c";
             threads = 4;
+            postJs = [ ./tests/stderr-post.js ];
           }
         ];
       };

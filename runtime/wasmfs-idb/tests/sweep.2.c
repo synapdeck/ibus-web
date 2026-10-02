@@ -6,7 +6,8 @@
  * is created: an orphan that turns up later stays through everything the
  * backend does until another backend is created, and a read-only backend,
  * which changes nothing, doesn't sweep it either. A sweep that fails leaves
- * the orphans for the next one and doesn't stop the backend mounting. */
+ * the orphans for the next one, doesn't stop the backend mounting, and the
+ * host hears why. */
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -19,6 +20,7 @@
 #define READ_ONLY_MOUNT "/sweep-ro"
 #define FAILED_MOUNT "/sweep-failed"
 #define AGAIN_MOUNT "/sweep-again"
+#define FAILED_LOG "wasmfs-idb: sweeping " SWEEP_DATABASE " failed:"
 
 EM_JS_DEPS(sweep, "$callUserCallback,$UTF8ToString");
 
@@ -50,6 +52,13 @@ EM_JS(void, insert_orphan, (const char *database), {
     };
     tx.onabort = () => done(0);
   };
+});
+
+/* A line from the backend's thread reaches this one as a message, so it can
+ * only be heard from the event loop. */
+EM_JS(void, await_stderr, (const char *text), {
+  wasmfsIdbTestAwaitStderr(UTF8ToString(text), (found) =>
+    callUserCallback(() => _sweep_failure_heard(found)));
 });
 /* clang-format on */
 
@@ -131,6 +140,15 @@ static void survived_read_only(const struct idb_test_layout *layout) {
   if (failed) {
     CHECK(wasmfs_create_directory(FAILED_MOUNT, 0777, failed) == 0);
     check_contents(FAILED_MOUNT "/kept", "kept");
+  }
+  await_stderr(FAILED_LOG);
+}
+
+/* The host hears why the sweep failed. */
+EMSCRIPTEN_KEEPALIVE void sweep_failure_heard(int found) {
+  if (!found) {
+    printf("stderr never said: %s\n", FAILED_LOG);
+    test_failures++;
   }
   read_layout_then(SWEEP_DATABASE, survived_failure);
 }

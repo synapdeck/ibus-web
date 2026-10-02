@@ -19,6 +19,7 @@
     "chunk-counts.js",
     "faults.js",
     "strict-commits.js",
+    "stderr-post.js",
     "errors-post.js",
     "wasm-exports.d.ts",
     "post-js.d.ts",

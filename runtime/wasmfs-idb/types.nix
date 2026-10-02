@@ -54,6 +54,7 @@
           ./tests/chunk-counts.js
           ./tests/faults.js
           ./tests/strict-commits.js
+          ./tests/stderr-post.js
           ./tests/errors-post.js
           ./tests/wasm-exports.d.ts
           ./tests/post-js.d.ts
