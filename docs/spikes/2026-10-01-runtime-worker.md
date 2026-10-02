@@ -907,6 +907,10 @@ GLib's own `1bit-emufutex` test, rebuilt from today's GLib tests with only
 its memory flags changed, 32 copies at once under Node: with growth
 (`-sALLOW_MEMORY_GROWTH=1 -sGROWABLE_ARRAYBUFFERS=1`) a thread trapped in
 **15 of 300** runs, 11 of them at one site; fixed at 104 MiB, 0 of 300.
+The same build with function names (`--profiling-funcs`) trapped in 9 of
+another 300 runs, all at one `i32.atomic.rmw.add`: a libc++ `shared_ptr`
+reference count in WasmFS's `OpenFileState::create`, under the `open()` of
+`/dev/urandom` that `g_rand_new()` makes as each thread starts.
 All three Node traps in mem-stress were at one instruction, the
 `i32.atomic.rmw.add` by which a thread increments a word of a block its
 neighbour had just allocated. The browsers' workloads didn't trap in 50 runs,
@@ -923,13 +927,15 @@ batch Firefox's browser process went away once during growth, glib-stress
 One `memory-costs` run per build: the first 64 MiB allocation, which a
 32 MiB memory must grow for, then the same again, and 10,000 calls into
 JavaScript that write 64 bytes into the memory (`getentropy`), which a build
-that polls for growth checks its views for first. *Unpolled* is a fixed
-512 MiB link without growth support, for comparison.
+that polls for growth checks its views for first. Here *fixed* is the link
+with growth support given a fixed 512 MiB memory, and *unpolled* a fixed
+512 MiB link without growth support, for comparison (the runtime is now
+linked as *unpolled* was).
 
 | | Chromium | Firefox | Node (loaded machine) |
 | --- | --- | --- | --- |
 | first 64 MiB malloc: fixed / growth | 15 µs / 240 µs | 20 µs / 3.4 ms | 26 µs / 443 µs |
-| touching it, any build | 10–13 ms | 8.6–8.8 ms | 11–27 ms |
+| touching it, any build | 9.9–13.0 ms | 8.6–8.8 ms | 11–27 ms |
 | `getentropy` call: fixed / growth / `=2` / unpolled | 880 / 1049 / 1041 / 911 ns | 732 / 710 / no result / 704 ns | 2980 / 2581 / not run / 1231 ns |
 | dispatch p50: fixed / growth / `=2` / unpolled | 15 / 15 / 10 / 15 µs | 20 / 20 / no result / 20 µs | 10.5 / 11.9 / not run / 6.9 µs |
 
@@ -961,23 +967,32 @@ The approved rule was growth with `-sGROWABLE_ARRAYBUFFERS=1` unless growth
 traps in some engine. It traps in V8, and no Node line has the fix, so **each
 runtime's memory is fixed**, made by the host:
 
-- The runtime is linked to import its memory (`wasmMemory`), any size from
-  `ibusWeb.runtime.memory.minimum` (32 MiB) to 2 GiB, and refuses to start
-  without one (`checks.ibus-runtime-load` asserts it). `ALLOW_MEMORY_GROWTH`
-  stays on only so the import accepts any size; the host makes the memory
-  with its maximum at its size, so it never grows, and a full heap aborts
-  (`-sABORTING_MALLOC=1`). Growth support makes Emscripten's JavaScript
-  check its views before each access, which the *fixed* and *unpolled*
-  costs above show to cost nothing measurable in the browsers (Node's
-  loaded batch is too noisy to tell).
+- The runtime is linked without growth (`-sALLOW_MEMORY_GROWTH=0`), so
+  nothing in it can grow its memory, and imports its memory
+  (`wasmMemory`); it refuses to start without one. The linker ties a
+  memory that doesn't grow to its initial size, so the build then raises
+  the import's declared maximum to 2 GiB, and the runtime takes any size
+  from `ibusWeb.runtime.memory.minimum` (32 MiB) to 2 GiB, whatever
+  maximum the memory has. A full heap aborts (`-sABORTING_MALLOC=1`), even
+  for `g_try_malloc()`. `checks.ibus-runtime-load` asserts the refusal,
+  the bounds, and that a memory with room to grow is never grown. Without
+  growth support Emscripten's JavaScript doesn't check its views before
+  each access, as the *unpolled* build above didn't; that build is now
+  the *fixed* one.
 - The size is the engine manifest's `memory` field (spec §5.3, §8), not a
   link per engine, so one compiled runtime serves every engine. The Worker
-  host makes `new WebAssembly.Memory({ initial, maximum: initial, shared:
-  true })` from it.
+  host checks it is whole pages within the runtime's bounds, failing the
+  load otherwise, and makes `new WebAssembly.Memory({ initial, maximum:
+  initial, shared: true })` from it. `checks.runtime-spike-node` asserts
+  the refusals and that a full heap reaches the host as a crash.
 - `ibusWeb.runtime.link { pname, extraFlags }` links the runtime with other
   flags; the spike's growth builds use it.
-- `checks.runtime-spike-memory` runs both workloads on the fixed memory,
-  under Node and in both browsers, and fails on any trap.
+- `checks.runtime-spike-memory` runs both workloads on a fixed 320 MiB,
+  under Node and in both browsers, one run at a time, and fails on any
+  trap or abort. The workloads' heaps peaked at 248 MiB (mem-stress in
+  Firefox; 173 MiB under Node, 165 MiB in Chromium; glib-stress 104 MiB);
+  the check's peak memory, some 5.9 GiB, is nearly all the pool's 103
+  Workers' own instances under Node.
 
 ## Conclusions for the design
 

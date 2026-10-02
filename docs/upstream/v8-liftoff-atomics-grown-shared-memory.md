@@ -27,9 +27,16 @@ branch by two CLs:
   2026-11-03. Confidence: high.
 - **No Node release line.** Node 24 ships V8 13.6, Node 25 V8 14.1, Node 26
   and Node's main branch V8 14.6 (each line's
-  `deps/v8/include/v8-version.h`), and a search of the commits on Node's
-  main branch finds no backport. The first Node major on V8 15.7 or later would carry it; which
-  one that is isn't known yet. Confidence: high that no line has it today.
+  `deps/v8/include/v8-version.h`). A backport would be a cherry-pick into
+  `deps/v8`, which leaves that version as it is, so the version alone
+  doesn't rule one out: the commits touching `deps/v8` since 2026-09-28 on
+  `main`, `v24.x`, `v25.x`, `v26.x` and their `-staging` branches (GitHub's
+  commit listing, 2026-10-01) are three cherry-picks of other V8 commits,
+  and no pull request on nodejs/node names either commit or the first CL's
+  subject. The first Node major on V8 15.7 or later would carry the fix;
+  which one that is isn't known yet. Confidence: high that no line has it
+  today, resting mostly on the CLs being two and three days old; a backport
+  could land at any time.
 
 ## Our reproduction
 
@@ -78,11 +85,16 @@ increments), but there no access can be out of bounds at all.
 
 The same program in C through Emscripten's pthreads (`growrace.c`, 8 readers,
 8192 pages, `-sALLOW_MEMORY_GROWTH`) trapped in 5 of 5 runs under Node.
-Through Emscripten's runtime and libc it shows as rare thread deaths in musl's
-locks, libc++'s `shared_ptr` reference counts and any atomic access to fresh
-memory, all under Node: GLib's `1bit-emufutex` test, 32 copies at once,
-trapped in 15 of 300 runs (0 of 300 with a fixed memory); ibus-web's
-GLib-free allocation workload, 100 threads, in 3 of 300 (0 of 300 fixed).
+Through Emscripten's runtime it shows as rare thread deaths, all under
+Node, at whatever atomic access a thread makes to memory grown since its last
+stack check: in GLib's `1bit-emufutex` test, 32 copies at once, 15 of 300
+runs trapped (0 of 300 with a fixed memory), and a build with function names
+put all 9 traps of another 300 runs at one `i32.atomic.rmw.add`, a libc++
+`shared_ptr` reference count in WasmFS's `OpenFileState::create`, under the
+`open()` of `/dev/urandom` that `g_rand_new()` makes at each thread's start;
+in ibus-web's GLib-free allocation workload, 100 threads, 3 of 300 runs
+trapped (0 of 300 fixed), at the workload's own atomic increment of a word in
+a freshly allocated block.
 ibus-web gives each Worker a fixed memory instead.
 
 ## Worth a comment on the issue?
