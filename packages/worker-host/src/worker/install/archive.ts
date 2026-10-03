@@ -67,7 +67,13 @@ const installArchive = async (
   let intact = true;
   // The install's handle, then its count: files, then bytes as a uint64.
   const out = alloc(handle, 16);
-  const piece = alloc(handle, INSTALL_PIECE);
+  let piece: number;
+  try {
+    piece = alloc(handle, INSTALL_PIECE);
+  } catch (error) {
+    handle.rt._free(out);
+    throw error;
+  }
   try {
     const response = await outside(`fetch ${url}`, fetch(url, { signal: idle.signal }));
     if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
@@ -85,7 +91,14 @@ const installArchive = async (
       const { value } = next;
       for (let at = 0; at < value.length; at += INSTALL_PIECE) {
         const part = value.subarray(at, at + INSTALL_PIECE);
-        await hooks.beforePiece(tally);
+        // Time the install spends held up here isn't the archive's to be
+        // idle in.
+        const held = hooks.beforePiece(tally);
+        if (held !== undefined) {
+          clearTimeout(timer);
+          await held;
+          arrived();
+        }
         handle.bytes.set(part, piece);
         check(`install ${url} at byte ${tally.fed}`, rt._ibusweb_install_feed(install, piece, part.length));
         tally.fed += part.length;

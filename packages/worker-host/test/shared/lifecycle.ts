@@ -67,7 +67,11 @@ export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released =
     }
     const report = await host.client.crashReport(2000);
     h.record("relay-failure", { answered, report: report ?? "none" });
-    expect(answered, "requests answered before the relay failed").toBe(3);
+    // The relay fails on its fourth wait, but waits don't map to requests:
+    // changes that land together are forwarded as one wake, a request the
+    // host finds while awake costs the relay nothing, and a wait that
+    // returns with nothing new costs it one. Only the failure is certain.
+    expect(failure, "a request failed within ten").toBeDefined();
     expect(String(failure), "the request after").toMatch(/crashed/);
     expect(report, "the crash report").toMatch(/^relay: .*the relay fails on purpose/);
   } finally {

@@ -168,7 +168,9 @@ type ArchiveDescription = Omit<TestArchive, "url"> & { upgrade: Omit<TestArchive
 
 // Serves the directories by name under the prefix to the hosts under Node,
 // which can't fetch a file: URL, from a server that stays up for as long as
-// the tests run; resolves with its origin.
+// the tests run; resolves with its origin. The configuration has no
+// teardown of its own, and every test file's hosts fetch from the server,
+// so it is unref'd rather than closed: it goes when Vitest's process ends.
 const serveToNode = async (dirs: Readonly<Record<string, string>>): Promise<string> => {
   const handle = rawHandler(dirs);
   const server = createServer((request, response) =>

@@ -34,6 +34,9 @@ const collectOf = (messages: readonly Message[]): CollectReport | undefined => {
   return report;
 };
 
+// The bytes the host feeds the extractor at a time.
+const INSTALL_PIECE = 65536;
+
 // The text as a regular expression matches it.
 const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -119,12 +122,16 @@ const stalled = (message: Message): message is { type: "stalled"; bytes: number 
 
 // Launches a host that stops for good halfway through installing the
 // archive, and waits until it has.
+// The host stops at the first 64 KiB piece boundary at or past halfway, so
+// the archive must span more than two pieces for that to fall short of its
+// end.
 const stalledHost = async (
   h: Harness,
   launch: (engine: EngineManifest, more?: Partial<HostOptions>) => LaunchedHost,
   engine: EngineManifest,
   archive: TestArchive,
 ): Promise<LaunchedHost> => {
+  expect(archive.size, `${archive.archive}'s size`).toBeGreaterThan(2 * INSTALL_PIECE);
   const host = launch(engine, { test: { stallAt: Math.floor(archive.size / 2) } });
   const { bytes } = await waitFor(h, host, stalled, "the install stalling");
   expect(bytes, "archive bytes fed before the stall").toBeGreaterThan(0);
@@ -489,12 +496,22 @@ export const waitFailsWithoutProgress = (h: Harness, runtime: RuntimeBuild): Pro
     const engine = engineFor(h, "wait-fails-without-progress", runtime);
     const lockLimitMs = 500;
     await stalledHost(h, launch, engine, h.data.archives.tree);
-    const startedAt = h.now();
+    const lock = engineInstallLock(engine);
     const waiter = launch(engine, { config: { lockLimitMs, lockRoundMs: 100 } });
-    await expect(waiter.ready, "the waiter's start").rejects.toThrow(
-      `host: Error: ${engineInstallLock(engine)}: not granted after ${lockLimitMs} ms without word from the host holding it`,
+    const failed = expect(waiter.ready, "the waiter's start").rejects.toThrow(
+      `host: Error: ${lock}: not granted after ${lockLimitMs} ms without word from the host holding it`,
     );
-    expect(h.now() - startedAt, "how long the waiter waited").toBeGreaterThanOrEqual(lockLimitMs);
+    await waitFor(
+      h,
+      waiter,
+      (message): message is { type: "waiting"; lock: string } => message.type === "waiting" && message.lock === lock,
+      `the waiter waiting on ${lock}`,
+    );
+    const waitingAt = h.now();
+    await failed;
+    // The wait starts with the host's first request, a moment before it says
+    // it is waiting, and the message reaches this thread a poll later still.
+    expect(h.now() - waitingAt, "how long the waiter waited").toBeGreaterThanOrEqual(lockLimitMs - 50);
   });
 
 // Waits until the host holds the engine's install lock.
