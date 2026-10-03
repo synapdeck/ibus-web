@@ -104,6 +104,10 @@ class Deletion : public idb_test::IdbTest {};
 
 } // namespace
 
+TEST_F(Basic, StartsWithAnEmptyDatabase) {
+  EXPECT_EQ(mounted.layout.inodes, 1u);
+}
+
 TEST_F(Basic, MakeDirectory) {
   EXPECT_EQ(mkdir(BASIC_MOUNT "/dir", 0755), 0) << errno_text();
   EXPECT_ERRNO(mkdir(BASIC_MOUNT "/dir", 0755), EEXIST);

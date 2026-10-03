@@ -36,9 +36,10 @@ EM_JS(void, upgrade_database, (void *call, uint32_t *out, const char *database),
 });
 
 // `out` gets the count of the program's threads, the backends' among them,
-// that are running, once it is `expected`, or after 5 seconds if it never
-// gets there. A thread that ended leaves the count once the main thread
-// takes its Worker back for the pool.
+// that are running, once enough have ended to bring it down to `expected`,
+// or after 5 seconds if they never do. A thread that ended leaves the count
+// once the main thread takes its Worker back for the pool, which is when the
+// count is checked again; nothing here notices a thread starting.
 EM_JS(void, await_threads, (void *call, uint32_t *out, int expected), {
   const count = () => Object.keys(PThread.pthreads).length;
   const { returnWorkerToPool } = PThread;
@@ -71,8 +72,8 @@ int running_threads() {
       { return Object.keys(PThread.pthreads).length; });
 }
 
-// The threads running, once they are `expected`, or as many as are left
-// if they never are.
+// The threads running, once enough have ended to leave `expected`, or as
+// many as are left if they never do.
 int threads_settled_at(int expected) {
   auto out = idb_test::on_main_thread(
       "waiting for the threads", [&](idb_test::MainThreadCall *call) {
@@ -187,7 +188,7 @@ protected:
     const std::string fresh_mount = mount_path + "-fresh";
     backend_t opened = wasmfs_create_idb_backend(fresh.c_str(), 0);
     ASSERT_NE(opened, nullptr);
-    EXPECT_EQ(threads_settled_at(threads + 1), threads + 1);
+    EXPECT_EQ(running_threads(), threads + 1);
     ASSERT_EQ(wasmfs_create_directory(fresh_mount.c_str(), 0777, opened), 0);
     write_file(fresh_mount + "/file", 0644, "fresh");
     EXPECT_EQ(read_file(fresh_mount + "/file"), "fresh");
