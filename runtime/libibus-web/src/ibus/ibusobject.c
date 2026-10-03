@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* ibus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2013 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2019 Red Hat, Inc.
  *
@@ -49,8 +50,8 @@ static GObject  *ibus_object_constructor    (GType               type,
                                              guint               n,
                                              GObjectConstructParam
                                                                 *args);
-static void      ibus_object_dispose        (IBusObject         *obj);
-static void      ibus_object_finalize       (IBusObject         *obj);
+static void      ibus_object_dispose        (GObject *object_base);
+static void      ibus_object_finalize       (GObject *object_base);
 static void      ibus_object_real_destroy   (IBusObject         *obj);
 
 G_DEFINE_TYPE_WITH_PRIVATE (IBusObject, ibus_object, G_TYPE_INITIALLY_UNOWNED)
@@ -61,8 +62,8 @@ ibus_object_class_init     (IBusObjectClass *class)
     GObjectClass *gobject_class = G_OBJECT_CLASS (class);
 
     gobject_class->constructor = ibus_object_constructor;
-    gobject_class->dispose = (GObjectFinalizeFunc) ibus_object_dispose;
-    gobject_class->finalize = (GObjectFinalizeFunc) ibus_object_finalize;
+    gobject_class->dispose = ibus_object_dispose;
+    gobject_class->finalize = ibus_object_finalize;
 
     class->destroy = ibus_object_real_destroy;
 
@@ -125,8 +126,9 @@ ibus_object_constructor (GType                   type,
 
 
 static void
-ibus_object_dispose (IBusObject *obj)
+ibus_object_dispose (GObject *object_base)
 {
+    IBusObject *obj = (IBusObject *) object_base;
     if (! (IBUS_OBJECT_FLAGS (obj) & IBUS_IN_DESTRUCTION)) {
         IBUS_OBJECT_SET_FLAGS (obj, IBUS_IN_DESTRUCTION);
         if (! (IBUS_OBJECT_FLAGS (obj) & IBUS_DESTROYED)) {
@@ -140,8 +142,9 @@ ibus_object_dispose (IBusObject *obj)
 }
 
 static void
-ibus_object_finalize (IBusObject *obj)
+ibus_object_finalize (GObject *object_base)
 {
+    IBusObject *obj = (IBusObject *) object_base;
 #ifdef DEBUG_MEMORY
     guint count;
 

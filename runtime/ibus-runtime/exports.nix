@@ -35,6 +35,15 @@
             macros = [ "IBUSWEB_RUNTIME_ABI" ];
             packages = [ "libibus-web" ];
           };
+          ibus = {
+            include = "ibusversion.h";
+            macros = [
+              "IBUS_MAJOR_VERSION"
+              "IBUS_MINOR_VERSION"
+              "IBUS_MICRO_VERSION"
+            ];
+            packages = [ "ibus-1.0" ];
+          };
           glib.modversion = "glib-2.0";
           libffi.modversion = "libffi";
           emscripten = {
@@ -60,6 +69,16 @@
             name = "libibus-web";
             version = "{abi}";
             archives = [ "${runtime.libibusWeb}/lib/libibus-web.a" ];
+          }
+          {
+            name = "ibus";
+            version = "{ibus}+ibus-web.{abi}";
+            archives = [ "${runtime.libibusWeb}/lib/libibus-web-ibus.a" ];
+            declaredIn = {
+              headers = [ "ibus.h" ];
+              packages = [ "ibus-1.0" ];
+              transitive = true;
+            };
           }
         ]
         # GLib is built with hidden visibility too: its default-visible

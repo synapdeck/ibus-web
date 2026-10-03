@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* ibus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2018-2025 Takao Fujiwara <takao.fujiwara1@gmail.com>
  * Copyright (C) 2008-2019 Red Hat, Inc.
@@ -37,11 +38,13 @@ struct _IBusSerializablePrivate {
 // static guint    object_signals[LAST_SIGNAL] = { 0 };
 
 /* functions prototype */
-static void      ibus_serializable_base_init        (IBusSerializableClass  *class);
-static void      ibus_serializable_base_fini        (IBusSerializableClass  *class);
-static void      ibus_serializable_class_init       (IBusSerializableClass  *class);
-static void      ibus_serializable_init             (IBusSerializable       *object);
-static void      ibus_serializable_destroy          (IBusSerializable       *object);
+static void      ibus_serializable_base_init        (gpointer object_base);
+static void      ibus_serializable_base_fini        (gpointer object_base);
+static void      ibus_serializable_class_init       (gpointer object_base,
+                              gpointer class_data G_GNUC_UNUSED);
+static void      ibus_serializable_init             (GTypeInstance *object_base,
+                        gpointer g_class G_GNUC_UNUSED);
+static void      ibus_serializable_destroy          (IBusObject *object_base);
 static gboolean  ibus_serializable_real_serialize   (IBusSerializable       *object,
                                                      GVariantBuilder        *builder);
 static gint      ibus_serializable_real_deserialize (IBusSerializable       *object,
@@ -66,14 +69,14 @@ ibus_serializable_get_type (void)
 
     static const GTypeInfo type_info = {
         sizeof (IBusSerializableClass),
-        (GBaseInitFunc)     ibus_serializable_base_init,
-        (GBaseFinalizeFunc) ibus_serializable_base_fini,
-        (GClassInitFunc)    ibus_serializable_class_init,
+        ibus_serializable_base_init,
+        ibus_serializable_base_fini,
+        ibus_serializable_class_init,
         NULL,               /* class finalize */
         NULL,               /* class data */
         sizeof (IBusSerializable),
         0,
-        (GInstanceInitFunc) ibus_serializable_init,
+        ibus_serializable_init,
     };
 
     if (type == 0) {
@@ -96,18 +99,20 @@ ibus_serializable_new (void)
 }
 
 static void
-ibus_serializable_base_init     (IBusSerializableClass *class)
+ibus_serializable_base_init     (gpointer class G_GNUC_UNUSED)
 {
 }
 
 static void
-ibus_serializable_base_fini     (IBusSerializableClass *class)
+ibus_serializable_base_fini     (gpointer class G_GNUC_UNUSED)
 {
 }
 
 static void
-ibus_serializable_class_init     (IBusSerializableClass *class)
+ibus_serializable_class_init     (gpointer object_base,
+                              gpointer class_data G_GNUC_UNUSED)
 {
+    IBusSerializableClass *class = (IBusSerializableClass *) object_base;
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
 
     parent_class = (IBusObjectClass *) g_type_class_peek_parent (class);
@@ -117,7 +122,7 @@ ibus_serializable_class_init     (IBusSerializableClass *class)
                                             &ibus_serializable_private_offset);
     }
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_serializable_destroy;
+    object_class->destroy = ibus_serializable_destroy;
 
     class->serialize = ibus_serializable_real_serialize;
     class->deserialize = ibus_serializable_real_deserialize;
@@ -125,25 +130,30 @@ ibus_serializable_class_init     (IBusSerializableClass *class)
 }
 
 static void
-ibus_serializable_init (IBusSerializable *serializable)
+ibus_serializable_init (GTypeInstance *object_base,
+                        gpointer g_class G_GNUC_UNUSED)
 {
+    IBusSerializable *serializable = (IBusSerializable *) object_base;
     serializable->priv = IBUS_SERIALIZABLE_GET_PRIVATE (serializable);
     serializable->priv->attachments = NULL;
     g_datalist_init (&serializable->priv->attachments);
 }
 
 static void
-ibus_serializable_destroy (IBusSerializable *serializable)
+ibus_serializable_destroy (IBusObject *object_base)
 {
+    IBusSerializable *serializable = (IBusSerializable *) object_base;
     g_datalist_clear (&serializable->priv->attachments);
     parent_class->destroy (IBUS_OBJECT (serializable));
 }
 
 static void
 _serialize_cb (GQuark           key,
-               GVariant        *value,
-               GVariantBuilder *array)
+               gpointer value_data,
+               gpointer user_data)
 {
+    GVariant *value = value_data;
+    GVariantBuilder *array = user_data;
     g_variant_builder_add (array, "{sv}",
                 g_quark_to_string (key), g_variant_new_variant (value));
 }
@@ -156,7 +166,7 @@ ibus_serializable_real_serialize (IBusSerializable *serializable,
     g_variant_builder_init (&array, G_VARIANT_TYPE ("a{sv}"));
 
     g_datalist_foreach (&serializable->priv->attachments,
-                        (GDataForeachFunc) _serialize_cb,
+                        _serialize_cb,
                         &array);
     g_variant_builder_add (builder, "a{sv}", &array);
     return TRUE;
@@ -182,14 +192,22 @@ ibus_serializable_real_deserialize (IBusSerializable *object,
 }
 
 static void
-_copy_cb (GQuark     key,
-          GVariant  *value,
-          GData    **datalist)
+variant_unref (gpointer value)
 {
+    g_variant_unref (value);
+}
+
+static void
+_copy_cb (GQuark     key,
+          gpointer value_data,
+          gpointer user_data)
+{
+    GVariant *value = value_data;
+    GData **datalist = user_data;
     g_datalist_id_set_data_full (datalist,
                                  key,
                                  g_variant_ref (value),
-                                 (GDestroyNotify) g_variant_unref);
+                                 variant_unref);
 }
 
 static gboolean
@@ -202,7 +220,7 @@ ibus_serializable_real_copy (IBusSerializable *dest,
     dest_priv = IBUS_SERIALIZABLE_GET_PRIVATE (dest);
 
     g_datalist_foreach (&src_priv->attachments,
-                        (GDataForeachFunc) _copy_cb,
+                        _copy_cb,
                         &dest_priv->attachments);
     return TRUE;
 }
@@ -218,7 +236,7 @@ ibus_serializable_set_qattachment (IBusSerializable *serializable,
     g_datalist_id_set_data_full (&serializable->priv->attachments,
                                  key,
                                  value ? g_variant_ref_sink (value) : NULL,
-                                 (GDestroyNotify) g_variant_unref);
+                                 variant_unref);
 }
 
 GVariant *

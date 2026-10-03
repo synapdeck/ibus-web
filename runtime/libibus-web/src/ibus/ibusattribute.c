@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2025 Red Hat, Inc.
  *
@@ -28,12 +29,12 @@
 
 /* functions prototype */
 // static void         ibus_attribute_destroy      (IBusAttribute          *attr);
-static gboolean     ibus_attribute_serialize    (IBusAttribute          *attr,
-                                                 GVariantBuilder        *builder);
-static gint         ibus_attribute_deserialize  (IBusAttribute          *attr,
-                                                 GVariant               *variant);
-static gboolean     ibus_attribute_copy         (IBusAttribute          *dest,
-                                                 const IBusAttribute    *src);
+static gboolean     ibus_attribute_serialize    (IBusSerializable *object_base,
+                          GVariantBuilder        *builder);
+static gint         ibus_attribute_deserialize  (IBusSerializable *object_base,
+                            GVariant               *variant);
+static gboolean     ibus_attribute_copy         (IBusSerializable *object_base,
+                     const IBusSerializable *source_base);
 
 G_DEFINE_TYPE (IBusAttribute, ibus_attribute, IBUS_TYPE_SERIALIZABLE)
 
@@ -42,9 +43,9 @@ ibus_attribute_class_init (IBusAttributeClass *class)
 {
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_attribute_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_attribute_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_attribute_copy;
+    serializable_class->serialize   = ibus_attribute_serialize;
+    serializable_class->deserialize = ibus_attribute_deserialize;
+    serializable_class->copy        = ibus_attribute_copy;
 }
 
 static void
@@ -53,9 +54,10 @@ ibus_attribute_init (IBusAttribute *attr)
 }
 
 static gboolean
-ibus_attribute_serialize (IBusAttribute   *attr,
+ibus_attribute_serialize (IBusSerializable *object_base,
                           GVariantBuilder *builder)
 {
+    IBusAttribute   *attr = (IBusAttribute   *) object_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_attribute_parent_class)->serialize ((IBusSerializable *) attr, builder);
@@ -70,9 +72,10 @@ ibus_attribute_serialize (IBusAttribute   *attr,
 }
 
 static gint
-ibus_attribute_deserialize (IBusAttribute *attr,
+ibus_attribute_deserialize (IBusSerializable *object_base,
                             GVariant      *variant)
 {
+    IBusAttribute *attr = (IBusAttribute *) object_base;
     gint retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_attribute_parent_class)->deserialize ((IBusSerializable *) attr, variant);
@@ -88,9 +91,11 @@ ibus_attribute_deserialize (IBusAttribute *attr,
 }
 
 static gboolean
-ibus_attribute_copy (IBusAttribute       *dest,
-                     const IBusAttribute *src)
+ibus_attribute_copy (IBusSerializable *object_base,
+                     const IBusSerializable *source_base)
 {
+    IBusAttribute       *dest = (IBusAttribute       *) object_base;
+    const IBusAttribute *src = (const IBusAttribute *) source_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_attribute_parent_class)->copy ((IBusSerializable *)dest,

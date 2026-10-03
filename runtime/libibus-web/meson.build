@@ -15,6 +15,11 @@ glib = dependency('glib-2.0')
 # symbol of the runtime past its export list.
 gmodule = dependency('gmodule-no-export-2.0')
 
+gobject = dependency('gobject-2.0')
+gio = dependency('gio-2.0')
+ibus_includes = include_directories('include/ibus-1.0', 'src/ibus')
+subdir('src/ibus')
+
 libibus_web = static_library(
   'ibus-web',
   'src/runtime.c',
@@ -34,9 +39,10 @@ libibus_web = static_library(
 install_headers('include/ibus-web/runtime.h', subdir: 'ibus-web')
 
 libibus_web_dep = declare_dependency(
-  link_with: libibus_web,
-  include_directories: include_directories('include'),
-  dependencies: glib,
+  link_with: [libibus_web, libibus_ibus],
+  include_directories: [include_directories('include'), ibus_includes],
+  dependencies: [glib, gobject, gio],
+  sources: ibus_enums[1],
 )
 
 import('pkgconfig').generate(
@@ -44,8 +50,31 @@ import('pkgconfig').generate(
   filebase: 'libibus-web',
   name: 'libibus-web',
   description: 'The C library the ibus-web runtime\'s Worker host drives',
-  requires: [glib],
+  libraries: libibus_ibus,
+  requires: [glib, gobject, gio],
 )
+
+# Engines compile against IBus headers but resolve symbols from the main
+# module. This .pc must not link a second IBus implementation.
+ibus_version_parts = []
+foreach part : ['MAJOR', 'MINOR', 'MICRO']
+  ibus_version_parts += meson.get_compiler('c').get_define(
+    'IBUS_' + part + '_VERSION',
+    prefix: '#include <ibusversion.h>',
+    include_directories: ibus_includes,
+    dependencies: glib,
+  ).strip('()')
+endforeach
+ibus_version = '.'.join(ibus_version_parts)
+import('pkgconfig').generate(
+  filebase: 'ibus-1.0',
+  name: 'IBus',
+  description: 'IBus headers provided by the ibus-web runtime',
+  version: ibus_version,
+  subdirs: 'ibus-1.0',
+  requires: [glib, gobject, gio],
+)
+install_subdir('include/ibus-1.0', install_dir: get_option('includedir'))
 
 if get_option('tests')
   subdir('tests')

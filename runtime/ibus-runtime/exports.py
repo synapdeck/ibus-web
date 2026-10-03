@@ -104,16 +104,17 @@ def name_files(tree):
             pending.append(iter(value))
 
 
-def header_declarations(tree, header, probe):
+def header_declarations(tree, header, probe, transitive=False):
     """Functions and variables declared in header, which probe includes, by
     their linkage names, each with whether it is declared with default
     visibility. A header may be a chain of files of the same name, each
     including the next (#include_next): an overlay that adds declarations to
-    another's. Declarations of the headers it includes are left out."""
+    another's. Included headers are left out unless transitive is requested
+    for an umbrella API header."""
     for node in tree.get("inner", []):
         kind = node.get("kind")
         if kind in ("LinkageSpecDecl", "NamespaceDecl"):
-            yield from header_declarations(node, header, probe)
+            yield from header_declarations(node, header, probe, transitive)
             continue
         if kind not in ("FunctionDecl", "VarDecl") or node.get("isImplicit"):
             continue
@@ -121,8 +122,9 @@ def header_declarations(tree, header, probe):
         loc = node.get("loc", {})
         loc = loc.get("expansionLoc", loc)
         includer = loc.get("includedFrom", {}).get("file", "")
-        if loc.get("file", "").endswith(f"/{header}") and (
-            includer == probe or includer.endswith(f"/{header}")
+        if transitive or (
+            loc.get("file", "").endswith(f"/{header}")
+            and (includer == probe or includer.endswith(f"/{header}"))
         ):
             visible = any(
                 attr.get("kind") == "VisibilityAttr" and attr.get("visibility") == "default"
@@ -131,7 +133,7 @@ def header_declarations(tree, header, probe):
             yield node.get("mangledName", node["name"]), visible
 
 
-def parse_header(header, flags, probe):
+def parse_header(header, flags, probe, transitive=False):
     """header's declarations, parsed as C from a source file at probe that
     includes it; "c++" if only C++ can parse it, or None if neither can."""
     with open(probe, "w") as source:
@@ -150,7 +152,7 @@ def parse_header(header, flags, probe):
         return "c++" if cxx.returncode == 0 else None
     tree = json.loads(dump.stdout)
     name_files(tree)
-    return dict(header_declarations(tree, header, probe))
+    return dict(header_declarations(tree, header, probe, transitive))
 
 
 def declarations(rule):
@@ -168,7 +170,8 @@ def declarations(rule):
         with concurrent.futures.ThreadPoolExecutor(workers) as pool:
             probes = [os.path.join(tmp, f"{index}.c") for index in range(len(headers))]
             parsed = pool.map(
-                lambda header, probe: parse_header(header, flags, probe), headers, probes
+                lambda header, probe: parse_header(header, flags, probe, rule.get("transitive", False)),
+                headers, probes
             )
             for header, declared in zip(headers, parsed):
                 if declared == "c++":
@@ -457,12 +460,16 @@ def verify(args):
     side = set(args.api_side_defined)
     side_declared = set()
     apis = []
-    for library, header in args.api:
+    for library, header in args.api + args.api_subset:
         found = [symbols for name, _, _, symbols in sections if name == library]
         if len(found) != 1:
             fail(f"{len(found)} sections are named {library}")
         api = set(found[0])
-        declared = declarations({"headers": [header], "packages": args.api_pkg_config})
+        declared = declarations({
+            "headers": [header],
+            "packages": args.api_pkg_config,
+            "transitive": (library, header) in args.api_subset,
+        })
         if stray := sorted(api - declared.keys()):
             fail(f"{library} exports what <{header}> doesn't declare: {stray}")
         # A library built with hidden visibility exports only what its
@@ -474,7 +481,7 @@ def verify(args):
         # All the header declares is API; side modules define some of it, for
         # the runtime to call.
         side_declared |= side & declared.keys()
-        if unexported := sorted(declared.keys() - api - side):
+        if (library, header) in args.api and (unexported := sorted(declared.keys() - api - side)):
             fail(f"{library} doesn't export {unexported}")
         apis.append((library, api))
     if not side <= side_declared:
@@ -524,6 +531,13 @@ def main():
         help="LIBRARY=HEADER: LIBRARY's section must be exactly HEADER's declarations",
     )
     command.add_argument(
+        "--api-subset",
+        action="append",
+        default=[],
+        type=library_header,
+        help="LIBRARY=HEADER: each export must be declared; unused declarations are allowed",
+    )
+    command.add_argument(
         "--api-hidden",
         action="append",
         default=[],
@@ -571,4 +585,5 @@ def main():
     args.run(args)
 
 
-main()
+if __name__ == "__main__":
+    main()

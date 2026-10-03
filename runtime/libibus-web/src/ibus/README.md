@@ -1,0 +1,86 @@
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: LGPL-2.1-or-later -->
+
+# IBus source inventory
+
+Imported from IBus 1.5.34, released at
+<https://github.com/ibus/ibus/archive/refs/tags/1.5.34.tar.gz>.
+The locked nixpkgs fetcher's unpacked-source hash is
+`sha256-MCxzMnG+g2FC4pZtDOP2c7vSRG5Zk6EfrkGnEyFvBfQ=`.
+Upstream files were committed unchanged before adaptation. Paths below are
+relative to `runtime/libibus-web`; generated build outputs are not vendored.
+
+Callback changes preserve layouts and serialization. Explicit callbacks use
+the base class's actual function type and convert object pointers inside the
+function. The hand-written serializable GType initializers take both arguments
+GLib passes. The cast-audit allow-list documents the seven GLib-generated
+adapters whose pointer parameters have identical WASM signatures.
+
+Meson generates enums and marshallers with the cross GLib tools. Its explicit
+IBus identifier and symbol prefixes replace upstream's post-generation sed
+renaming. The generated marshallers use their callback-specific typedefs.
+
+To compare against an unpacked release, set `IBUS_SOURCE` to its directory
+and run this from the repository root. A diff exit status of 1 means that
+an adapted file differs; files marked ours have no upstream counterpart.
+
+```sh
+for local in runtime/libibus-web/src/ibus/* runtime/libibus-web/include/ibus-1.0/*; do
+  upstream="$IBUS_SOURCE/src/${local##*/}"
+  case "$local" in
+    *.gschema.xml) upstream="$IBUS_SOURCE/data/dconf/${local##*/}" ;;
+  esac
+  if test -f "$upstream"; then
+    diff -u "$upstream" "$local"
+  fi
+done
+```
+
+| File                                        | Origin and purpose; changes                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/ibus/README.md`                        | Ours: this inventory and adaptation record.                                                                         |
+| `src/ibus/ibusattribute.c`                  | Upstream attributes and end-index representation; exact serialization callback signatures.                          |
+| `src/ibus/ibusattrlist.c`                   | Upstream attribute lists and color helpers; exact virtual method signatures.                                        |
+| `src/ibus/ibusattrlistprivate.h`            | Upstream internal color representation; mark conversion helpers internal so they are not exported.                  |
+| `src/ibus/ibusenumtypes.c.template`         | Upstream enum implementation template; unchanged.                                                                   |
+| `src/ibus/ibusenumtypes.h.template`         | Upstream enum declaration template; unchanged.                                                                      |
+| `src/ibus/ibuserror.c`                      | Upstream attribute error domain; D-Bus registration replaced with a local quark.                                    |
+| `src/ibus/ibusinternal.h`                   | Upstream private string-helper declaration and constants; unchanged.                                                |
+| `src/ibus/ibuskeys.c`                       | Upstream key names, case conversion and key-event strings; unchanged.                                               |
+| `src/ibus/ibuskeyuni.c`                     | Upstream keysym/Unicode conversion; unchanged.                                                                      |
+| `src/ibus/ibuslookuptable.c`                | Upstream candidate and label tables; exact virtual method signatures.                                               |
+| `src/ibus/ibusmarshalers.list`              | Upstream signal signatures; unchanged.                                                                              |
+| `src/ibus/ibusobject.c`                     | Upstream base object and floating ownership; exact GObject disposal and finalization signatures.                    |
+| `src/ibus/ibusproperty.c`                   | Upstream properties; exact GObject and serialization callback signatures.                                           |
+| `src/ibus/ibusproplist.c`                   | Upstream property lists; exact virtual method signatures.                                                           |
+| `src/ibus/ibusserializable.c`               | Upstream serialization and attachments; exact GType, destroy, data-foreach and variant cleanup callback signatures. |
+| `src/ibus/ibustext.c`                       | Upstream text serialization; exact base-class virtual method signatures.                                            |
+| `src/ibus/ibusutil.c`                       | Upstream property string deserialization helper only; unused language-resource helpers deleted.                     |
+| `src/ibus/ibusversion.h.in`                 | Upstream version template; unchanged.                                                                               |
+| `src/ibus/keynamesprivate.h`                | Upstream generated key-name lookup table; unchanged.                                                                |
+| `src/ibus/meson.build`                      | Ours: enum and marshaller generation and static library.                                                            |
+| `src/ibus/org.freedesktop.ibus.gschema.xml` | Upstream schemas needed by engines; unchanged.                                                                      |
+| `include/ibus-1.0/ibus-visibility.h`        | Upstream version/deprecation annotations; unchanged.                                                                |
+| `include/ibus-1.0/ibus.h`                   | Ours: umbrella for the provided data and engine types; no bus API.                                                  |
+| `include/ibus-1.0/ibusattribute.h`          | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusattrlist.h`           | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusdebug.h`              | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusengine.h`             | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusenginesimple.h`       | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibuserror.h`              | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusfactory.h`            | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibuskeymap.h`             | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibuskeys.h`               | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibuskeysyms-compat.h`     | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibuskeysyms.h`            | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibuslookuptable.h`        | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusmessage.h`            | Upstream message declarations required by ibusengine.h; no implementation exported.                                 |
+| `include/ibus-1.0/ibusobject.h`             | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusproperty.h`           | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusproplist.h`           | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusserializable.h`       | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusservice.h`            | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusshare.h`              | Upstream key-event declarations and constants; unchanged.                                                           |
+| `include/ibus-1.0/ibustext.h`               | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibustypes.h`              | Upstream public type layout and declarations; unchanged.                                                            |
+| `include/ibus-1.0/ibusversion.h`            | Generated from the upstream template with release 1.5.34.                                                           |

@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* ibus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2011 Peng Huang <shawn.p.huang@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -21,21 +22,8 @@
 
 #include "ibuserror.h"
 
-#include <gio/gio.h>
-#include "ibustypes.h"
-
-static const GDBusErrorEntry ibus_error_entries[] =
-{
-    { IBUS_ERROR_NO_ENGINE,         "org.freedesktop.IBus.Error.NoEngine" },
-};
-
 GQuark
 ibus_error_quark (void)
 {
-    static volatile gsize quark_volatile = 0;
-    g_dbus_error_register_error_domain ("ibus-error-quark",
-                                        &quark_volatile,
-                                        ibus_error_entries,
-                                        G_N_ELEMENTS (ibus_error_entries));
-    return (GQuark) quark_volatile;
+    return g_quark_from_static_string ("ibus-error-quark");
 }

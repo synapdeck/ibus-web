@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2013 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2025 Red Hat, Inc.
  *
@@ -24,13 +25,13 @@
 #include "ibuserror.h"
 
 /* functions prototype */
-static void         ibus_attr_list_destroy      (IBusAttrList           *attr_list);
-static gboolean     ibus_attr_list_serialize    (IBusAttrList           *attr_list,
-                                                 GVariantBuilder        *builder);
-static gint         ibus_attr_list_deserialize  (IBusAttrList           *attr_list,
-                                                 GVariant               *variant);
-static gboolean     ibus_attr_list_copy         (IBusAttrList           *dest,
-                                                 const IBusAttrList     *src);
+static void         ibus_attr_list_destroy      (IBusObject *object_base);
+static gboolean     ibus_attr_list_serialize    (IBusSerializable *object_base,
+                          GVariantBuilder        *builder);
+static gint         ibus_attr_list_deserialize  (IBusSerializable *object_base,
+                            GVariant               *variant);
+static gboolean     ibus_attr_list_copy         (IBusSerializable *object_base,
+                     const IBusSerializable *source_base);
 
 G_DEFINE_TYPE (IBusAttrList, ibus_attr_list, IBUS_TYPE_SERIALIZABLE)
 
@@ -40,11 +41,11 @@ ibus_attr_list_class_init (IBusAttrListClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_attr_list_destroy;
+    object_class->destroy = ibus_attr_list_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_attr_list_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_attr_list_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_attr_list_copy;
+    serializable_class->serialize   = ibus_attr_list_serialize;
+    serializable_class->deserialize = ibus_attr_list_deserialize;
+    serializable_class->copy        = ibus_attr_list_copy;
 }
 
 static void
@@ -54,8 +55,9 @@ ibus_attr_list_init (IBusAttrList *attr_list)
 }
 
 static void
-ibus_attr_list_destroy (IBusAttrList *attr_list)
+ibus_attr_list_destroy (IBusObject *object_base)
 {
+    IBusAttrList *attr_list = (IBusAttrList *) object_base;
     g_assert (IBUS_IS_ATTR_LIST (attr_list));
 
     gint i;
@@ -75,9 +77,10 @@ ibus_attr_list_destroy (IBusAttrList *attr_list)
 }
 
 static gboolean
-ibus_attr_list_serialize (IBusAttrList    *attr_list,
+ibus_attr_list_serialize (IBusSerializable *object_base,
                           GVariantBuilder *builder)
 {
+    IBusAttrList    *attr_list = (IBusAttrList    *) object_base;
     gboolean retval;
     guint i;
 
@@ -106,9 +109,10 @@ ibus_attr_list_serialize (IBusAttrList    *attr_list,
 }
 
 static gint
-ibus_attr_list_deserialize (IBusAttrList    *attr_list,
+ibus_attr_list_deserialize (IBusSerializable *object_base,
                             GVariant        *variant)
 {
+    IBusAttrList    *attr_list = (IBusAttrList    *) object_base;
     gint retval = IBUS_SERIALIZABLE_CLASS (ibus_attr_list_parent_class)->deserialize ((IBusSerializable *)attr_list, variant);
     g_return_val_if_fail (retval, 0);
 
@@ -127,9 +131,11 @@ ibus_attr_list_deserialize (IBusAttrList    *attr_list,
 
 
 static gboolean
-ibus_attr_list_copy (IBusAttrList       *dest,
-                     const IBusAttrList *src)
+ibus_attr_list_copy (IBusSerializable *object_base,
+                     const IBusSerializable *source_base)
 {
+    IBusAttrList       *dest = (IBusAttrList       *) object_base;
+    const IBusAttrList *src = (const IBusAttrList *) source_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_attr_list_parent_class)->copy ((IBusSerializable *)dest,

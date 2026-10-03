@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
@@ -22,13 +23,13 @@
 #include "ibuslookuptable.h"
 
 /* functions prototype */
-static void         ibus_lookup_table_destroy       (IBusLookupTable        *table);
-static gboolean     ibus_lookup_table_serialize     (IBusLookupTable        *table,
-                                                     GVariantBuilder        *builder);
-static gint         ibus_lookup_table_deserialize   (IBusLookupTable        *table,
-                                                     GVariant               *variant);
-static gboolean     ibus_lookup_table_copy          (IBusLookupTable        *dest,
-                                                     IBusLookupTable        *src);
+static void         ibus_lookup_table_destroy       (IBusObject *object_base);
+static gboolean     ibus_lookup_table_serialize     (IBusSerializable *object_base,
+                             GVariantBuilder        *builder);
+static gint         ibus_lookup_table_deserialize   (IBusSerializable *object_base,
+                               GVariant               *variant);
+static gboolean     ibus_lookup_table_copy          (IBusSerializable *object_base,
+                        const IBusSerializable *source_base);
 
 G_DEFINE_TYPE (IBusLookupTable, ibus_lookup_table, IBUS_TYPE_SERIALIZABLE)
 
@@ -38,11 +39,11 @@ ibus_lookup_table_class_init (IBusLookupTableClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_lookup_table_destroy;
+    object_class->destroy = ibus_lookup_table_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_lookup_table_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_lookup_table_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_lookup_table_copy;
+    serializable_class->serialize   = ibus_lookup_table_serialize;
+    serializable_class->deserialize = ibus_lookup_table_deserialize;
+    serializable_class->copy        = ibus_lookup_table_copy;
 }
 
 static void
@@ -53,8 +54,9 @@ ibus_lookup_table_init (IBusLookupTable *table)
 }
 
 static void
-ibus_lookup_table_destroy (IBusLookupTable *table)
+ibus_lookup_table_destroy (IBusObject *object_base)
 {
+    IBusLookupTable *table = (IBusLookupTable *) object_base;
     IBusText **p;
     gint i;
 
@@ -81,9 +83,10 @@ ibus_lookup_table_destroy (IBusLookupTable *table)
 }
 
 static gboolean
-ibus_lookup_table_serialize (IBusLookupTable *table,
+ibus_lookup_table_serialize (IBusSerializable *object_base,
                              GVariantBuilder *builder)
 {
+    IBusLookupTable *table = (IBusLookupTable *) object_base;
     gboolean retval;
     guint i;
 
@@ -136,9 +139,10 @@ ibus_lookup_table_serialize (IBusLookupTable *table,
 }
 
 static gint
-ibus_lookup_table_deserialize (IBusLookupTable *table,
+ibus_lookup_table_deserialize (IBusSerializable *object_base,
                                GVariant        *variant)
 {
+    IBusLookupTable *table = (IBusLookupTable *) object_base;
     gint retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_lookup_table_parent_class)->deserialize ((IBusSerializable *)table, variant);
@@ -173,9 +177,11 @@ ibus_lookup_table_deserialize (IBusLookupTable *table,
 }
 
 static gboolean
-ibus_lookup_table_copy (IBusLookupTable *dest,
-                        IBusLookupTable *src)
+ibus_lookup_table_copy (IBusSerializable *object_base,
+                        const IBusSerializable *source_base)
 {
+    IBusLookupTable *dest = (IBusLookupTable *) object_base;
+    IBusLookupTable *src = (IBusLookupTable *) source_base;
     gboolean retval;
     guint i;
 

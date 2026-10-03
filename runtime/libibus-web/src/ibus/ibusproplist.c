@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
@@ -22,13 +23,13 @@
 #include "ibusproplist.h"
 
 /* functions prototype */
-static void         ibus_prop_list_destroy      (IBusPropList       *prop_list);
-static gboolean     ibus_prop_list_serialize    (IBusPropList       *prop_list,
-                                                 GVariantBuilder    *builder);
-static gint         ibus_prop_list_deserialize  (IBusPropList       *prop_list,
-                                                 GVariant           *variant);
-static gboolean     ibus_prop_list_copy         (IBusPropList       *dest,
-                                                 const IBusPropList *src);
+static void         ibus_prop_list_destroy      (IBusObject *object_base);
+static gboolean     ibus_prop_list_serialize    (IBusSerializable *object_base,
+                          GVariantBuilder    *builder);
+static gint         ibus_prop_list_deserialize  (IBusSerializable *object_base,
+                            GVariant           *variant);
+static gboolean     ibus_prop_list_copy         (IBusSerializable *object_base,
+                     const IBusSerializable *source_base);
 
 G_DEFINE_TYPE (IBusPropList, ibus_prop_list, IBUS_TYPE_SERIALIZABLE)
 
@@ -38,11 +39,11 @@ ibus_prop_list_class_init (IBusPropListClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_prop_list_destroy;
+    object_class->destroy = ibus_prop_list_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_prop_list_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_prop_list_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_prop_list_copy;
+    serializable_class->serialize   = ibus_prop_list_serialize;
+    serializable_class->deserialize = ibus_prop_list_deserialize;
+    serializable_class->copy        = ibus_prop_list_copy;
 }
 
 static void
@@ -52,8 +53,9 @@ ibus_prop_list_init (IBusPropList *prop_list)
 }
 
 static void
-ibus_prop_list_destroy (IBusPropList *prop_list)
+ibus_prop_list_destroy (IBusObject *object_base)
 {
+    IBusPropList *prop_list = (IBusPropList *) object_base;
     IBusProperty **p;
     gint i;
 
@@ -68,9 +70,10 @@ ibus_prop_list_destroy (IBusPropList *prop_list)
 }
 
 static gboolean
-ibus_prop_list_serialize (IBusPropList    *prop_list,
+ibus_prop_list_serialize (IBusSerializable *object_base,
                           GVariantBuilder *builder)
 {
+    IBusPropList    *prop_list = (IBusPropList    *) object_base;
     gboolean retval;
     guint i;
 
@@ -96,9 +99,10 @@ ibus_prop_list_serialize (IBusPropList    *prop_list,
 }
 
 gint
-ibus_prop_list_deserialize (IBusPropList    *prop_list,
+ibus_prop_list_deserialize (IBusSerializable *object_base,
                             GVariant        *variant)
 {
+    IBusPropList    *prop_list = (IBusPropList    *) object_base;
     gint retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_prop_list_parent_class)->deserialize ((IBusSerializable *) prop_list, variant);
@@ -122,9 +126,11 @@ ibus_prop_list_deserialize (IBusPropList    *prop_list,
 
 
 static gboolean
-ibus_prop_list_copy (IBusPropList       *dest,
-                     const IBusPropList *src)
+ibus_prop_list_copy (IBusSerializable *object_base,
+                     const IBusSerializable *source_base)
 {
+    IBusPropList       *dest = (IBusPropList       *) object_base;
+    const IBusPropList *src = (const IBusPropList *) source_base;
     gboolean retval;
     IBusProperty *prop;
     guint i;

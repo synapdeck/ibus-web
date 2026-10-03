@@ -1,10 +1,24 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# The library's sources and tests see its in-tree headers, not an installed
-# copy. Fallback compile commands run in the source file's directory.
+# Fallback commands run in each source file's directory. Prefer in-tree
+# headers; the generated root configuration supplies installed build outputs.
 If:
-  PathMatch: (src|tests)/.*
+  PathMatch: (src|tests)/[^/]+
 CompileFlags:
   Add:
     - -I../include
+    - -I../include/ibus-1.0
+---
+If:
+  PathMatch: src/ibus/.*
+CompileFlags:
+  Add:
+    - -DIBUS_COMPILATION
+    - -I../../include/ibus-1.0
+---
+If:
+  PathMatch: include/ibus-1.0/.*
+CompileFlags:
+  Add:
+    - -DIBUS_COMPILATION

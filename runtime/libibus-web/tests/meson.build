@@ -51,3 +51,11 @@ install_env = environment()
 install_env.set('IBUSWEB_TEST_ARCHIVES', get_option('test_archives'))
 
 test('install', test_install, protocol: 'tap', env: install_env)
+
+test_serializable = executable(
+  'test-serializable',
+  'test-serializable.c',
+  dependencies: libibus_web_dep,
+  link_args: get_option('test_main_link_args'),
+)
+test('serializable', test_serializable, protocol: 'tap')

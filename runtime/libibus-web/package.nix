@@ -1,56 +1,17 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
-
 {
   perSystem =
-    { config, lib, ... }:
+    { config, ... }:
     let
-      inherit (config.ibusWeb.toolchain) pkgsWasm;
-
-      # Meson's project() declares the version.
-      version =
-        let
-          versions = lib.concatMap (
-            line:
-            let
-              m = builtins.match " *version: '([^']*)',?" line;
-            in
-            lib.optional (m != null) (builtins.head m)
-          ) (lib.splitString "\n" (builtins.readFile ./meson.build));
-        in
-        assert lib.length versions == 1;
-        builtins.head versions;
-
-      # What the library builds from; its tests, the Nix modules and editor
-      # configuration stay out, so changing them doesn't rebuild it.
-      fileset = lib.fileset.unions [
-        ./meson.build
-        ./meson.options
-        ./include
-        ./src
-      ];
-
-      libibusWeb = pkgsWasm.stdenv.mkDerivation {
-        pname = "libibus-web";
-        inherit version;
-        src = lib.fileset.toSource {
-          root = ./.;
-          inherit fileset;
-        };
-        passthru = { inherit fileset; };
-        nativeBuildInputs = [
-          pkgsWasm.meson
-          pkgsWasm.ninja
-          pkgsWasm.pkg-config
-        ];
-        # The header includes GLib's, and the static library's users link
-        # GLib too.
-        propagatedBuildInputs = [ pkgsWasm.glib ];
-      };
+      inherit (config.ibusWeb.toolchain.pkgsWasm) libibus-web;
     in
     {
-      ibusWeb.runtime.libibusWeb = libibusWeb;
-      ibusWeb.toolchain.devLibraries = [ libibusWeb ];
-      packages.libibus-web = libibusWeb;
+      ibusWeb.runtime.libibusWeb = libibus-web;
+      ibusWeb.toolchain.devLibraries = [ libibus-web ];
+      packages.libibus-web = libibus-web;
+      ibusWeb.toolchain.clangdPathFlags."runtime/libibus-web/src/ibus/.*" = [
+        "-I${libibus-web}/include/ibus-web/private"
+      ];
     };
 }

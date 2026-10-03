@@ -14,7 +14,7 @@ G_BEGIN_DECLS
 #define IBUSWEB_API __attribute__((visibility("default"))) extern
 
 /* Runtime ABI version; the runtime's export list is versioned by it. */
-#define IBUSWEB_RUNTIME_ABI 0
+#define IBUSWEB_RUNTIME_ABI 1
 
 /* Errors are negative errno values, as Emscripten's libc numbers them. */
 

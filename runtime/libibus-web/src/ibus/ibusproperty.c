@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2019 Red Hat, Inc.
  *
@@ -62,21 +63,21 @@ struct _IBusPropertyPrivate {
    ((IBusPropertyPrivate *)ibus_property_get_instance_private (o))
 
 /* functions prototype */
-static void         ibus_property_set_property  (IBusProperty       *prop,
-                                                 guint               prop_id,
-                                                 const GValue       *value,
-                                                 GParamSpec         *pspec);
-static void         ibus_property_get_property  (IBusProperty       *prop,
-                                                 guint               prop_id,
-                                                 GValue             *value,
-                                                 GParamSpec         *pspec);
-static void         ibus_property_destroy       (IBusProperty       *prop);
-static gboolean     ibus_property_serialize     (IBusProperty       *prop,
-                                                 GVariantBuilder    *builder);
-static gint         ibus_property_deserialize   (IBusProperty       *prop,
-                                                 GVariant           *variant);
-static gboolean     ibus_property_copy          (IBusProperty       *dest,
-                                                 const IBusProperty *src);
+static void         ibus_property_set_property  (GObject *object_base,
+                            guint               prop_id,
+                            const GValue       *value,
+                            GParamSpec         *pspec);
+static void         ibus_property_get_property  (GObject *object_base,
+                            guint               prop_id,
+                            GValue             *value,
+                            GParamSpec         *pspec);
+static void         ibus_property_destroy       (IBusObject *object_base);
+static gboolean     ibus_property_serialize     (IBusSerializable *object_base,
+                         GVariantBuilder    *builder);
+static gint         ibus_property_deserialize   (IBusSerializable *object_base,
+                           GVariant           *variant);
+static gboolean     ibus_property_copy          (IBusSerializable *object_base,
+                    const IBusSerializable *source_base);
 
 G_DEFINE_TYPE_WITH_PRIVATE (IBusProperty, ibus_property, IBUS_TYPE_SERIALIZABLE)
 
@@ -87,14 +88,14 @@ ibus_property_class_init (IBusPropertyClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    gobject_class->set_property = (GObjectSetPropertyFunc) ibus_property_set_property;
-    gobject_class->get_property = (GObjectGetPropertyFunc) ibus_property_get_property;
+    gobject_class->set_property = ibus_property_set_property;
+    gobject_class->get_property = ibus_property_get_property;
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_property_destroy;
+    object_class->destroy = ibus_property_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_property_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_property_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_property_copy;
+    serializable_class->serialize   = ibus_property_serialize;
+    serializable_class->deserialize = ibus_property_deserialize;
+    serializable_class->copy        = ibus_property_copy;
 
     /* install properties */
     /**
@@ -241,11 +242,12 @@ ibus_property_init (IBusProperty *prop)
 
 }
 static void
-ibus_property_set_property (IBusProperty *prop,
+ibus_property_set_property (GObject *object_base,
                             guint         prop_id,
                             const GValue *value,
                             GParamSpec   *pspec)
 {
+    IBusProperty *prop = (IBusProperty *) object_base;
     switch (prop_id) {
     case PROP_KEY:
         g_assert (prop->priv->key == NULL);
@@ -285,11 +287,12 @@ ibus_property_set_property (IBusProperty *prop,
 }
 
 static void
-ibus_property_get_property (IBusProperty *prop,
+ibus_property_get_property (GObject *object_base,
                             guint         prop_id,
                             GValue       *value,
                             GParamSpec   *pspec)
 {
+    IBusProperty *prop = (IBusProperty *) object_base;
     switch (prop_id) {
     case PROP_KEY:
         g_value_set_string (value, ibus_property_get_key (prop));
@@ -327,8 +330,9 @@ ibus_property_get_property (IBusProperty *prop,
 }
 
 static void
-ibus_property_destroy (IBusProperty *prop)
+ibus_property_destroy (IBusObject *object_base)
 {
+    IBusProperty *prop = (IBusProperty *) object_base;
     g_free (prop->priv->key);
     prop->priv->key = NULL;
 
@@ -359,9 +363,10 @@ ibus_property_destroy (IBusProperty *prop)
 }
 
 gboolean
-ibus_property_serialize (IBusProperty    *prop,
+ibus_property_serialize (IBusSerializable *object_base,
                          GVariantBuilder *builder)
 {
+    IBusProperty    *prop = (IBusProperty    *) object_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_property_parent_class)->serialize ((IBusSerializable *) prop, builder);
@@ -405,9 +410,10 @@ ibus_property_serialize (IBusProperty    *prop,
 }
 
 static gint
-ibus_property_deserialize (IBusProperty *prop,
+ibus_property_deserialize (IBusSerializable *object_base,
                            GVariant     *variant)
 {
+    IBusProperty *prop = (IBusProperty *) object_base;
     gint retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_property_parent_class)->deserialize ((IBusSerializable *) prop, variant);
@@ -459,9 +465,11 @@ ibus_property_deserialize (IBusProperty *prop,
 }
 
 static gboolean
-ibus_property_copy (IBusProperty       *dest,
-                    const IBusProperty *src)
+ibus_property_copy (IBusSerializable *object_base,
+                    const IBusSerializable *source_base)
 {
+    IBusProperty       *dest = (IBusProperty       *) object_base;
+    const IBusProperty *src = (const IBusProperty *) source_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_property_parent_class)->copy ((IBusSerializable *) dest, (IBusSerializable *) src);

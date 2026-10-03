@@ -115,6 +115,7 @@
           clang=$(macro __clang_major__)
           python3 ${./exports.py} verify --dir $manifest \
             --expect libibus-web=$abi \
+            --expect "ibus=$($PKG_CONFIG --modversion ibus-1.0)+ibus-web.$abi" \
             ${
               lib.concatMapStringsSep " " (library: "--expect ${library}=${pkgsWasm.glib.version}") [
                 "glib-2.0"
@@ -130,6 +131,7 @@
             --expect-major compiler-rt=$clang \
             --expect emscripten=${emscripten.version} \
             --api libibus-web=ibus-web/runtime.h --api wasmfs-idb=ibus-web/wasmfs-idb.h \
+            --api-subset ibus=ibus.h --api-pkg-config ibus-1.0 \
             --api-hidden libibus-web --api-pkg-config libibus-web \
             --api-side-defined ibusweb_module_init \
             > summary.txt
@@ -145,6 +147,18 @@
       ibusWeb.runtime = { inherit nodeHarness; };
 
       checks.ibus-runtime-exports = exportListCheck;
+      checks.ibus-runtime-exports-script =
+        pkgs.runCommand "ibus-runtime-exports-script"
+          {
+            CC = "${emscripten.llvmEnv}/bin/clang";
+            CXX = "${emscripten.llvmEnv}/bin/clang++";
+          }
+          ''
+            cp ${./exports.py} exports.py
+            cp ${./test-exports.py} test-exports.py
+            ${pkgs.python3}/bin/python3 -B test-exports.py > $out 2>&1
+            cat $out
+          '';
 
       # The released and the asserting runtime each load side modules (C,
       # C++, and one with a static library linked in) and dispatch to them,

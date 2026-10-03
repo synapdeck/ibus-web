@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb) toolchain runtime;
       # Array options take a Python list literal, since flags such as
@@ -10,6 +15,47 @@
       mesonArray = flags: builtins.toJSON (lib.filter (flag: flag != "") (lib.splitString " " flags));
     in
     {
+      checks.libibus-web-vendored = pkgs.runCommand "libibus-web-vendored" { } ''
+        ${config.ibusWeb.typescript.nodejs}/bin/node ${../../tools/vendor-inventory.ts} \
+          ${runtime.libibusWeb.src} ${./src/ibus/README.md} > $out
+        cat $out
+      '';
+
+      checks.libibus-web-cast-audit =
+        (config.ibusWeb.engines.castAudit {
+          name = "libibus-web";
+          src = runtime.libibusWeb.src;
+          sources = map (name: "../src/ibus/${name}.c") [
+            "ibusobject"
+            "ibusserializable"
+            "ibustext"
+            "ibusattribute"
+            "ibusattrlist"
+            "ibuslookuptable"
+            "ibusproperty"
+            "ibusproplist"
+            "ibuskeys"
+            "ibuskeyuni"
+            "ibusutil"
+            "ibuserror"
+          ];
+          cflags = "-DIBUS_COMPILATION -I../include/ibus-1.0 -Isrc/ibus";
+          buildInputs = [ toolchain.pkgsWasm.glib ];
+          pkgConfigModules = [ "gio-2.0" ];
+          allowList = ./cast-audit.jsonc;
+        }).overrideAttrs
+          (old: {
+            # Generate the same headers as the library before compiling diagnostics.
+            dontConfigure = false;
+            nativeBuildInputs = old.nativeBuildInputs ++ [
+              toolchain.pkgsWasm.meson
+              toolchain.pkgsWasm.ninja
+            ];
+            postConfigure = ''
+              ninja src/ibus/ibusenumtypes.h src/ibus/ibusmarshalers.h
+            '';
+          });
+
       # libibus-web built with its test suite, which Meson runs under Node,
       # the cross file's exe wrapper. nixpkgs never runs checkPhase when the
       # build machine can't execute host binaries, so the tests run here.

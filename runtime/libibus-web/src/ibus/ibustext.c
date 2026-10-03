@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2011-2025 Takao Fujiwara <takao.fujiwara1@gmail.com>
  * Copyright (C) 2008-2021 Red Hat, Inc.
@@ -23,13 +24,13 @@
 #include "ibustext.h"
 
 /* functions prototype */
-static void         ibus_text_destroy      (IBusText            *text);
-static gboolean     ibus_text_serialize    (IBusText            *text,
-                                            GVariantBuilder     *builder);
-static int          ibus_text_deserialize  (IBusText            *text,
-                                            GVariant            *variant);
-static gboolean     ibus_text_copy         (IBusText            *dest,
-                                            const IBusText      *src);
+static void         ibus_text_destroy      (IBusObject *object_base);
+static gboolean     ibus_text_serialize    (IBusSerializable *object_base,
+                     GVariantBuilder     *builder);
+static int          ibus_text_deserialize  (IBusSerializable *object_base,
+                       GVariant            *variant);
+static gboolean     ibus_text_copy         (IBusSerializable *object_base,
+                const IBusSerializable *source_base);
 
 G_DEFINE_TYPE (IBusText, ibus_text, IBUS_TYPE_SERIALIZABLE)
 
@@ -41,11 +42,11 @@ ibus_text_class_init (IBusTextClass *class)
 
     ibus_text_parent_class = (IBusSerializableClass *) g_type_class_peek_parent (class);
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_text_destroy;
+    object_class->destroy = ibus_text_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_text_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_text_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_text_copy;
+    serializable_class->serialize   = ibus_text_serialize;
+    serializable_class->deserialize = ibus_text_deserialize;
+    serializable_class->copy        = ibus_text_copy;
 }
 
 static void
@@ -57,8 +58,9 @@ ibus_text_init (IBusText *text)
 }
 
 static void
-ibus_text_destroy (IBusText *text)
+ibus_text_destroy (IBusObject *object_base)
 {
+    IBusText *text = (IBusText *) object_base;
     if (text->text != NULL && text->is_static == FALSE) {
         g_free (text->text);
         text->text = NULL;
@@ -73,9 +75,10 @@ ibus_text_destroy (IBusText *text)
 }
 
 static gboolean
-ibus_text_serialize (IBusText        *text,
+ibus_text_serialize (IBusSerializable *object_base,
                      GVariantBuilder *builder)
 {
+    IBusText        *text = (IBusText        *) object_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_text_parent_class)->serialize (
@@ -102,9 +105,10 @@ ibus_text_serialize (IBusText        *text,
 }
 
 static gint
-ibus_text_deserialize (IBusText *text,
+ibus_text_deserialize (IBusSerializable *object_base,
                        GVariant *variant)
 {
+    IBusText *text = (IBusText *) object_base;
     gint retval;
     retval = IBUS_SERIALIZABLE_CLASS (ibus_text_parent_class)->deserialize (
                             (IBusSerializable *)text, variant);
@@ -126,9 +130,11 @@ ibus_text_deserialize (IBusText *text,
 }
 
 static gboolean
-ibus_text_copy (IBusText       *dest,
-                const IBusText *src)
+ibus_text_copy (IBusSerializable *object_base,
+                const IBusSerializable *source_base)
 {
+    IBusText       *dest = (IBusText       *) object_base;
+    const IBusText *src = (const IBusText *) source_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_text_parent_class)->copy (

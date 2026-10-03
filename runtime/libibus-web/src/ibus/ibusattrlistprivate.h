@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* IBus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2025 Takao Fujiwara <takao.fujiwara1@gmail.com>
  * Copyright (C) 2025 Red Hat, Inc.
  *
@@ -44,7 +45,7 @@
  * Since: 1.5.33
  * Stability: Unstable
  */
-IBusAttrList        *ibus_attr_list_copy_format_to_rgba
+G_GNUC_INTERNAL IBusAttrList *ibus_attr_list_copy_format_to_rgba
                                                 (IBusAttrList   *attr_list,
                                                  const IBusRGBA *selected_fg,
                                                  const IBusRGBA *selected_bg,
@@ -62,7 +63,7 @@ IBusAttrList        *ibus_attr_list_copy_format_to_rgba
  * Since: 1.5.33
  * Stability: Unstable
  */
-IBusAttrList        *ibus_attr_list_copy_format_to_hint
+G_GNUC_INTERNAL IBusAttrList *ibus_attr_list_copy_format_to_hint
                                                 (IBusAttrList *attr_list,
                                                  GError      **error);
 

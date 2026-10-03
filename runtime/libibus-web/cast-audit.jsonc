@@ -1,0 +1,56 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "$schema": "../../tools/cast-audit/cast-audit.schema.jsonc",
+  "casts": [
+    {
+      "file": "../src/ibus/ibusobject.c",
+      "function": null,
+      "from": "void (*)(IBusObject *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibustext.c",
+      "function": null,
+      "from": "void (*)(IBusText *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusattribute.c",
+      "function": null,
+      "from": "void (*)(IBusAttribute *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusattrlist.c",
+      "function": null,
+      "from": "void (*)(IBusAttrList *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibuslookuptable.c",
+      "function": null,
+      "from": "void (*)(IBusLookupTable *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusproperty.c",
+      "function": null,
+      "from": "void (*)(IBusProperty *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusproplist.c",
+      "function": null,
+      "from": "void (*)(IBusPropList *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+  ],
+}
