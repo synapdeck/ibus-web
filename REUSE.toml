@@ -52,6 +52,11 @@ SPDX-License-Identifier = "MIT OR Apache-2.0"
 
 # Claude Code's manifests are strict JSON.
 [[annotations]]
-path = [".claude/settings.json", ".claude-plugin/marketplace.json", "tools/claude/*/.claude-plugin/plugin.json"]
+path = [
+  ".claude/settings.json",
+  ".claude-plugin/marketplace.json",
+  "tools/claude/*/.claude-plugin/plugin.json",
+  ".zed/settings.json",
+]
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
