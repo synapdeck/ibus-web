@@ -153,7 +153,9 @@ const awaitTopUp = async (h: Harness, client: Client, since: HostStats): Promise
   return latest;
 };
 
-// Round trips of add, each with its sum checked, in microseconds.
+// Round trips of add, each with its sum checked, in microseconds. Every
+// other first operand is negative, as is its sum, so that signed payloads
+// and replies are checked too.
 const addRoundTrips = async (
   h: Harness,
   client: Client,
@@ -165,9 +167,10 @@ const addRoundTrips = async (
   for (let i = 0; i < rounds; i++) {
     if (gapMs > 0) await h.sleep(gapMs);
     const start = h.now();
-    const sum = await call32(client, opsOf(h).add, int32s(i, 1000));
+    const a = i % 2 === 0 ? i : -1000 - i;
+    const sum = await call32(client, opsOf(h).add, int32s(a, 1000));
     times.push((h.now() - start) * 1000);
-    if (sum !== i + 1000) wrong++;
+    if (sum !== a + 1000) wrong++;
   }
   times.sort((a, b) => a - b);
   return { times, wrong };
@@ -245,12 +248,19 @@ export const coldWake = async (h: Harness, { client }: RunningHost): Promise<voi
 // pending, so only GLib's wake can get it dispatched; the first poll wakes
 // the host too, so it waits until a source left for that would be later
 // than the bound. The bound is generous: a host on a loaded machine is
-// descheduled now and then.
+// descheduled now and then. The host it runs on has had no idle-later before,
+// so idle-result has nothing to report yet; and a second idle-later while the
+// first is pending is refused, since there is one source to time.
 export const crossThreadWake = async (h: Harness, { client }: RunningHost, boundMs = 200): Promise<void> => {
   const ops = opsOf(h);
+  expect(await call32(client, ops.idleResult), "idle-result before any idle-later").toBe(-errno(h, "ENOENT"));
   const epsilons: number[] = [];
   for (let i = 0; i < 20; i++) {
     expect(await call32(client, ops.idleLater, int32s(50)), "idle-later").toBe(0);
+    if (i === 0)
+      expect(await call32(client, ops.idleLater, int32s(50)), "idle-later while one is pending").toBe(
+        -errno(h, "EBUSY"),
+      );
     await h.sleep(50 + boundMs + 150);
     epsilons.push((await poll(h, client, ops.idleResult)).value / 1000);
   }

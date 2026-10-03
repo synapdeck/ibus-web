@@ -43,10 +43,6 @@
           description = "The spare Workers the pool starts with beyond its shares, and the idle Workers a Worker host tops it back up to whenever no request is pending; threads alive within the shares leave at least this many idle, so the pool grows only past them.";
         };
       };
-      link = lib.mkOption {
-        type = lib.types.functionTo lib.types.package;
-        description = "Given { pname, extraFlags }, links ibus-runtime as the package does, with extraFlags after its own flags, which they override.";
-      };
       memory = {
         minimum = lib.mkOption {
           type = lib.types.ints.positive;
@@ -83,15 +79,11 @@
       };
       nodeHarness = lib.mkOption {
         type = lib.types.package;
-        description = "What harness.ts, which drives the runtime at the C level from Node, reads, and the module itself: errno.json (Emscripten's errno values), memory.json (the least and the most memory the runtime takes), constants.json (the header's pumpError) and harness.ts.";
+        description = "ibus-runtime's load tests' harness, harness.ts, which drives the runtime at the C level from Node, and what it reads: memory.json (the least and the most memory the runtime takes), constants.json (the header's pumpError) and errno.json (Emscripten's errno values, which the Worker host's tests read too).";
       };
       installArchives = lib.mkOption {
         type = lib.types.package;
         description = "Archives for testing engine data installs: tree.tar, a deterministic ustar of nested directories and files spanning several storage chunks; tree.json, its version (from its bytes), its unpacked size in bytes and its listing; listing.txt, the listing alone, one `PATH<TAB>d` or `PATH<TAB>f SIZE SHA256` line per entry, sorted bytewise; and archives the installer must refuse: absolute.tar, dotdot.tar, symlink.tar, hardlink.tar, fifo.tar (each a valid file, then the refused member) and corrupt.tar (tree.tar with a header's checksum broken).";
-      };
-      nodeTimeout = lib.mkOption {
-        type = lib.types.str;
-        description = "A command prefix that bounds a Node check's run from outside Node.";
       };
     };
   };

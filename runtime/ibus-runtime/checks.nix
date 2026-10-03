@@ -142,12 +142,7 @@
       };
     in
     {
-      ibusWeb.runtime = {
-        inherit nodeHarness;
-        # A blocked main thread (a join on a thread that never ends, say)
-        # never returns to Node's event loop, where a timer would fire.
-        nodeTimeout = "timeout --kill-after=10 300";
-      };
+      ibusWeb.runtime = { inherit nodeHarness; };
 
       checks.ibus-runtime-exports = exportListCheck;
 

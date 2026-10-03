@@ -33,8 +33,7 @@
         # backend and the memory backend, mounted where there is no
         # IndexedDB, run on the calling thread and take none.
         storage = 2;
-        # An engine's share would come from its manifest; until one does,
-        # this covers the test side modules' largest burst, spawn(4).
+        # The most threads a side module bursts to under test.
         engine = 4;
       };
       plannedThreads = lib.foldl' builtins.add 0 (lib.attrValues threadShares);
@@ -143,7 +142,7 @@
     in
     {
       ibusWeb.runtime = {
-        inherit ibusRuntime link linkFlags;
+        inherit ibusRuntime linkFlags;
         memory = {
           minimum = minimumMemory;
           maximum = maximumMemory;

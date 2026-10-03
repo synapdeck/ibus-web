@@ -97,7 +97,8 @@ IBUSWEB_API int ibusweb_wait(int32_t seen, int32_t timeout_ms);
  * code an operation dispatched meanwhile could be running. */
 typedef struct _IBusWebModule IBusWebModule;
 
-/* A test operation: reads the request's payload and appends its reply.
+/* A test operation, which side modules register for tests to call through
+ * ibusweb_dispatch(): reads the request's payload and appends its reply.
  *
  * A C++ exception it throws fails the dispatch, which isolates the failure
  * only if the exception unwound through C++ frames alone. One that crossed C
@@ -137,7 +138,8 @@ IBUSWEB_API void ibusweb_module_init(IBusWebModule *module);
 IBUSWEB_API int ibusweb_load_module(const char *path,
                                     IBusWebModule **module_out);
 
-/* Test dispatcher. A request is a little-endian uint32_t opcode followed by
+/* Test dispatcher, through which a host's tests call the operations side
+ * modules register. A request is a little-endian uint32_t opcode followed by
  * the operation's payload; the reply the operation appends is copied into
  * reply. Returns the reply's length, -EINVAL for a request shorter than an
  * opcode, -ENOSYS for an opcode nobody registered, -ECANCELED if the operation
