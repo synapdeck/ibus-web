@@ -4,7 +4,6 @@
 packages:
   - "runtime/wasmfs-idb"
   - "modules/glib/checks/tests"
-  - "tests/spikes/*"
   - "packages/*"
 
 # What must be one version across the repository. Packages name these as

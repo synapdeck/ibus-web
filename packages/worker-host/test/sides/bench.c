@@ -8,7 +8,7 @@
  * values takes them at their size. Times are from emscripten_get_now(), the
  * Worker's performance.now(), whose step the browser coarsens. */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <emscripten.h>
 #include <errno.h>
@@ -86,15 +86,15 @@ static void times_reply(Times *times, GString *reply) {
   for (guint i = 0; i < ms->len; i++)
     sum += g_array_index(ms, double, i);
   g_array_sort(ms, by_value);
-  spike_reply(reply, (int32_t)ms->len);
+  test_reply(reply, (int32_t)ms->len);
   if (ms->len == 0) {
     for (int i = 0; i < 4; i++)
-      spike_reply(reply, 0);
+      test_reply(reply, 0);
   } else {
-    spike_reply(reply, ns(sum / ms->len));
-    spike_reply(reply, ns(g_array_index(ms, double, ms->len / 2)));
-    spike_reply(reply, ns(g_array_index(ms, double, ms->len * 95 / 100)));
-    spike_reply(reply, ns(g_array_index(ms, double, ms->len - 1)));
+    test_reply(reply, ns(sum / ms->len));
+    test_reply(reply, ns(g_array_index(ms, double, ms->len / 2)));
+    test_reply(reply, ns(g_array_index(ms, double, ms->len * 95 / 100)));
+    test_reply(reply, ns(g_array_index(ms, double, ms->len - 1)));
   }
   g_array_free(ms, TRUE);
 }
@@ -104,7 +104,7 @@ static void times_reply(Times *times, GString *reply) {
 static char *args_and_path(const uint8_t *payload, uint32_t len, uint32_t count,
                            int32_t *args) {
   for (uint32_t i = 0; i < count; i++)
-    if (!spike_arg(payload, len, i, &args[i]))
+    if (!test_arg(payload, len, i, &args[i]))
       return NULL;
   uint32_t at = count * 4;
   if (len <= at || memchr(payload + at, '\0', len - at) != NULL)
@@ -125,7 +125,7 @@ static void bench_write(const uint8_t *payload, uint32_t len, GString *reply) {
   close_kept();
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0) {
-    spike_reply(reply, -errno);
+    test_reply(reply, -errno);
     return;
   }
   uint8_t *buf = g_malloc(piece);
@@ -149,13 +149,13 @@ static void bench_write(const uint8_t *payload, uint32_t len, GString *reply) {
   if (close(fd) != 0 && ret == 0)
     ret = -errno;
   g_free(buf);
-  spike_reply(reply, ret);
+  test_reply(reply, ret);
   if (ret != 0) {
     g_array_free(writes.ms, TRUE);
     return;
   }
   times_reply(&writes, reply);
-  spike_reply(reply, ns(fsync_ms));
+  test_reply(reply, ns(fsync_ms));
 }
 
 /* bench-read(size, count, seed, from, path), on path kept open: count reads of
@@ -170,7 +170,7 @@ static void bench_read(const uint8_t *payload, uint32_t len, GString *reply) {
     return;
   int fd = open_kept(path);
   if (fd < 0) {
-    spike_reply(reply, -errno);
+    test_reply(reply, -errno);
     return;
   }
   struct stat st;
@@ -178,7 +178,7 @@ static void bench_read(const uint8_t *payload, uint32_t len, GString *reply) {
                 : st.st_size - from < size ? -EINVAL
                                            : 0;
   if (err != 0) {
-    spike_reply(reply, err);
+    test_reply(reply, err);
     return;
   }
   int32_t slots = (int32_t)MIN((st.st_size - from) / size, G_MAXINT32);
@@ -199,7 +199,7 @@ static void bench_read(const uint8_t *payload, uint32_t len, GString *reply) {
   g_free(expected);
   g_free(buf);
   g_rand_free(rand);
-  spike_reply(reply, wrong);
+  test_reply(reply, wrong);
   times_reply(&reads, reply);
 }
 
@@ -216,7 +216,7 @@ static void bench_append(const uint8_t *payload, uint32_t len, GString *reply) {
   int fd = open(path, O_WRONLY | O_APPEND);
   struct stat st;
   if (fd < 0 || fstat(fd, &st) != 0) {
-    spike_reply(reply, -errno);
+    test_reply(reply, -errno);
     if (fd >= 0)
       close(fd);
     return;
@@ -240,7 +240,7 @@ static void bench_append(const uint8_t *payload, uint32_t len, GString *reply) {
   if (close(fd) != 0 && ret == 0)
     ret = -errno;
   g_free(buf);
-  spike_reply(reply, ret);
+  test_reply(reply, ret);
   if (ret != 0) {
     g_array_free(writes.ms, TRUE);
     g_array_free(fsyncs.ms, TRUE);
@@ -251,9 +251,9 @@ static void bench_append(const uint8_t *payload, uint32_t len, GString *reply) {
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_BENCH_WRITE, "bench-write",
+  ibusweb_module_add_op(module, TEST_OP_BENCH_WRITE, "bench-write",
                         bench_write);
-  ibusweb_module_add_op(module, SPIKE_OP_BENCH_READ, "bench-read", bench_read);
-  ibusweb_module_add_op(module, SPIKE_OP_BENCH_APPEND, "bench-append",
+  ibusweb_module_add_op(module, TEST_OP_BENCH_READ, "bench-read", bench_read);
+  ibusweb_module_add_op(module, TEST_OP_BENCH_APPEND, "bench-append",
                         bench_append);
 }

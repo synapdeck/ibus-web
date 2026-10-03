@@ -1,5 +1,0 @@
-PASS side_basic.wasm
-PASS side_thread.wasm
-PASS side_cxx.wasm
-CAUGHT side_throw.wasm: thrown in side module
-PASS side_hangul.wasm

@@ -15,7 +15,7 @@ import type { Printed } from "./printed.ts";
 // Values the test side modules and the runtime's build define, printed by
 // the build for the WebAssembly target.
 export interface BuildConstants extends RuntimeConstants {
-  // The test side modules' opcodes, by their C names without SPIKE_OP_.
+  // The test side modules' opcodes, by their C names without TEST_OP_.
   ops: Readonly<Record<string, number>>;
   // struct mallinfo's size, and the offset of uordblks (bytes in use).
   mallinfo: { bytes: number; inUseOffset: number };

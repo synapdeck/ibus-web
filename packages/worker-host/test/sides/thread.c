@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <errno.h>
 
@@ -59,16 +59,16 @@ static gpointer sleep_then_idle(gpointer ms) {
  * default context from off the pumping thread. */
 static void idle_later(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t ms;
-  if (!spike_arg(payload, len, 0, &ms) || ms < 0)
+  if (!test_arg(payload, len, 0, &ms) || ms < 0)
     return;
   if (idle_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   idle_state = PENDING;
   g_thread_unref(
       g_thread_new("idle-later", sleep_then_idle, GINT_TO_POINTER(ms)));
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* idle-result(): microseconds from the attach to the dispatch. */
@@ -77,13 +77,13 @@ static void idle_result(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)len;
   switch (idle_state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, (int32_t)MIN(idle_delay, G_MAXINT32));
+    test_reply(reply, (int32_t)MIN(idle_delay, G_MAXINT32));
     break;
   }
 }
@@ -153,15 +153,15 @@ static gboolean spawn_all(gpointer n) {
 /* spawn(n): the next pump creates n threads, then joins them. */
 static void spawn(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t n;
-  if (!spike_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
+  if (!test_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
     return;
   if (spawn_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   spawn_state = PENDING;
   g_idle_add(spawn_all, GINT_TO_POINTER(n));
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* spawn-result(): how many of the threads started and were joined, then
@@ -171,14 +171,14 @@ static void spawn_result(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)len;
   switch (spawn_state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, spawn_joined);
-    spike_reply(reply, spawn_error);
+    test_reply(reply, spawn_joined);
+    test_reply(reply, spawn_error);
     break;
   }
 }
@@ -201,10 +201,10 @@ static gpointer report_and_exit(gpointer data) {
 static void spawn_detached(const uint8_t *payload, uint32_t len,
                            GString *reply) {
   int32_t n;
-  if (!spike_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
+  if (!test_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
     return;
   if (detached_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   detached_expected = 0;
@@ -225,7 +225,7 @@ static void spawn_detached(const uint8_t *payload, uint32_t len,
   }
   if (detached_expected == 0)
     detached_state = DONE;
-  spike_reply(reply, detached_expected);
+  test_reply(reply, detached_expected);
 }
 
 /* spawn-detached-result(): how many of the threads reported. */
@@ -235,13 +235,13 @@ static void spawn_detached_result(const uint8_t *payload, uint32_t len,
   (void)len;
   switch (detached_state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, detached_reported);
+    test_reply(reply, detached_reported);
     break;
   }
 }
@@ -271,10 +271,10 @@ static gpointer create_from_thread(gpointer n) {
  * creation waits for that thread to run it. */
 static void spawn_nested(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t n;
-  if (!spike_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
+  if (!test_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
     return;
   if (nested_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   /* g_thread_new() would abort the runtime on a full pool. */
@@ -282,13 +282,13 @@ static void spawn_nested(const uint8_t *payload, uint32_t len, GString *reply) {
   GThread *thread = g_thread_try_new("nested", create_from_thread,
                                      GINT_TO_POINTER(n), &error);
   if (thread == NULL) {
-    spike_reply(reply, creation_error(error));
+    test_reply(reply, creation_error(error));
     g_error_free(error);
     return;
   }
   nested_state = PENDING;
   g_thread_unref(thread);
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* spawn-nested-result(): how many of the threads started and were joined,
@@ -299,14 +299,14 @@ static void spawn_nested_result(const uint8_t *payload, uint32_t len,
   (void)len;
   switch (nested_state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, nested_joined);
-    spike_reply(reply, nested_error);
+    test_reply(reply, nested_joined);
+    test_reply(reply, nested_error);
     break;
   }
 }
@@ -326,10 +326,10 @@ static gpointer wait_for_release(gpointer started) {
  * error that stopped the rest. */
 static void hold(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t n;
-  if (!spike_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
+  if (!test_arg(payload, len, 0, &n) || n < 0 || n > MAX_SPAWN)
     return;
   if (held != NULL) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   GThread *threads[MAX_SPAWN];
@@ -341,8 +341,8 @@ static void hold(const uint8_t *payload, uint32_t len, GString *reply) {
   held = g_ptr_array_new();
   for (int i = 0; i < running; i++)
     g_ptr_array_add(held, threads[i]);
-  spike_reply(reply, running);
-  spike_reply(reply, error);
+  test_reply(reply, running);
+  test_reply(reply, error);
 }
 
 /* release(): lets hold()'s threads end and joins them; replies how many. */
@@ -350,7 +350,7 @@ static void release(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;
   if (held == NULL) {
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     return;
   }
   g_mutex_lock(&held_lock);
@@ -361,7 +361,7 @@ static void release(const uint8_t *payload, uint32_t len, GString *reply) {
   for (guint i = 0; i < held->len; i++)
     g_thread_join(g_ptr_array_index(held, i));
   g_clear_pointer(&held, g_ptr_array_unref);
-  spike_reply(reply, joined);
+  test_reply(reply, joined);
 }
 
 static gpointer trap(gpointer data) {
@@ -374,26 +374,26 @@ static void crash_thread(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;
   g_thread_unref(g_thread_new("crash", trap, NULL));
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_IDLE_LATER, "idle-later", idle_later);
-  ibusweb_module_add_op(module, SPIKE_OP_IDLE_RESULT, "idle-result",
+  ibusweb_module_add_op(module, TEST_OP_IDLE_LATER, "idle-later", idle_later);
+  ibusweb_module_add_op(module, TEST_OP_IDLE_RESULT, "idle-result",
                         idle_result);
-  ibusweb_module_add_op(module, SPIKE_OP_SPAWN, "spawn", spawn);
-  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_RESULT, "spawn-result",
+  ibusweb_module_add_op(module, TEST_OP_SPAWN, "spawn", spawn);
+  ibusweb_module_add_op(module, TEST_OP_SPAWN_RESULT, "spawn-result",
                         spawn_result);
-  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_DETACHED, "spawn-detached",
+  ibusweb_module_add_op(module, TEST_OP_SPAWN_DETACHED, "spawn-detached",
                         spawn_detached);
-  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_DETACHED_RESULT,
+  ibusweb_module_add_op(module, TEST_OP_SPAWN_DETACHED_RESULT,
                         "spawn-detached-result", spawn_detached_result);
-  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_NESTED, "spawn-nested",
+  ibusweb_module_add_op(module, TEST_OP_SPAWN_NESTED, "spawn-nested",
                         spawn_nested);
-  ibusweb_module_add_op(module, SPIKE_OP_SPAWN_NESTED_RESULT,
+  ibusweb_module_add_op(module, TEST_OP_SPAWN_NESTED_RESULT,
                         "spawn-nested-result", spawn_nested_result);
-  ibusweb_module_add_op(module, SPIKE_OP_CRASH_THREAD, "crash-thread",
+  ibusweb_module_add_op(module, TEST_OP_CRASH_THREAD, "crash-thread",
                         crash_thread);
-  ibusweb_module_add_op(module, SPIKE_OP_HOLD, "hold", hold);
-  ibusweb_module_add_op(module, SPIKE_OP_RELEASE, "release", release);
+  ibusweb_module_add_op(module, TEST_OP_HOLD, "hold", hold);
+  ibusweb_module_add_op(module, TEST_OP_RELEASE, "release", release);
 }

@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -73,7 +73,7 @@ static void list_tree(const uint8_t *payload, uint32_t len, GString *reply) {
   g_autofree char *root = g_strndup((const char *)payload, len);
   g_autoptr(GPtrArray) lines = g_ptr_array_new_with_free_func(g_free);
   int ret = list_into(root, "", lines);
-  spike_reply(reply, ret);
+  test_reply(reply, ret);
   if (ret != 0)
     return;
   g_ptr_array_sort(lines, by_bytes);
@@ -84,5 +84,5 @@ static void list_tree(const uint8_t *payload, uint32_t len, GString *reply) {
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_LIST_TREE, "list-tree", list_tree);
+  ibusweb_module_add_op(module, TEST_OP_LIST_TREE, "list-tree", list_tree);
 }

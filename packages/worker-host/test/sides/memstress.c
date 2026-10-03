@@ -6,7 +6,7 @@
  * costs of growing. Each workload's threads run while the host sleeps; its
  * result operation joins them once all have finished. */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <emscripten/heap.h>
 #include <errno.h>
@@ -40,12 +40,12 @@ typedef struct {
 } Totals;
 
 static void reply_totals(GString *reply, const Totals *totals) {
-  spike_reply(reply, totals->started);
-  spike_reply(reply, totals->errors);
-  spike_reply(reply, totals->out_of_memory);
-  spike_reply(reply, totals->elapsed_us);
-  spike_reply(reply, totals->heap_kib_before);
-  spike_reply(reply, totals->heap_kib_after);
+  test_reply(reply, totals->started);
+  test_reply(reply, totals->errors);
+  test_reply(reply, totals->out_of_memory);
+  test_reply(reply, totals->elapsed_us);
+  test_reply(reply, totals->heap_kib_before);
+  test_reply(reply, totals->heap_kib_after);
 }
 
 /* ---- Without GLib: pthreads, malloc() and the JavaScript getentropy(). */
@@ -176,12 +176,12 @@ static void *churn(void *data) {
  * GLib. Replies how many started. */
 static void mem_stress(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t threads, rounds;
-  if (!spike_arg(payload, len, 0, &threads) ||
-      !spike_arg(payload, len, 1, &rounds) || threads < 1 ||
+  if (!test_arg(payload, len, 0, &threads) ||
+      !test_arg(payload, len, 1, &rounds) || threads < 1 ||
       threads > MAX_THREADS || rounds < 1)
     return;
   if (churn_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   churn_state = PENDING;
@@ -205,7 +205,7 @@ static void mem_stress(const uint8_t *payload, uint32_t len, GString *reply) {
     }
   }
   churn_totals.started = started;
-  spike_reply(reply, started);
+  test_reply(reply, started);
 }
 
 /* mem-stress-result(): once every thread has finished, joins them and
@@ -215,12 +215,12 @@ static void mem_stress_result(const uint8_t *payload, uint32_t len,
   (void)payload;
   (void)len;
   if (churn_state == IDLE) {
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     return;
   }
   if (churn_state == PENDING) {
     if (atomic_load(&churn_finished) < churn_totals.started) {
-      spike_reply(reply, -EAGAIN);
+      test_reply(reply, -EAGAIN);
       return;
     }
     churn_totals.elapsed_us = since(churn_started);
@@ -358,12 +358,12 @@ static gpointer contend(gpointer data) {
  * the locks iterations times. Replies how many started. */
 static void glib_stress(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t threads, iterations;
-  if (!spike_arg(payload, len, 0, &threads) ||
-      !spike_arg(payload, len, 1, &iterations) || threads < 1 ||
+  if (!test_arg(payload, len, 0, &threads) ||
+      !test_arg(payload, len, 1, &iterations) || threads < 1 ||
       threads > MAX_THREADS || iterations < 1)
     return;
   if (glib_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   glib_state = PENDING;
@@ -386,7 +386,7 @@ static void glib_stress(const uint8_t *payload, uint32_t len, GString *reply) {
     }
   }
   glib_totals.started = started;
-  spike_reply(reply, started);
+  test_reply(reply, started);
 }
 
 /* glib-stress-result(): once every thread has finished, joins them, checks
@@ -396,12 +396,12 @@ static void glib_stress_result(const uint8_t *payload, uint32_t len,
   (void)payload;
   (void)len;
   if (glib_state == IDLE) {
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     return;
   }
   if (glib_state == PENDING) {
     if (g_atomic_int_get(&glib_finished) < glib_totals.started) {
-      spike_reply(reply, -EAGAIN);
+      test_reply(reply, -EAGAIN);
       return;
     }
     glib_totals.elapsed_us = since(glib_started);
@@ -423,8 +423,8 @@ static void glib_stress_result(const uint8_t *payload, uint32_t len,
 static void mem_info(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;
-  spike_reply(reply, heap_kib());
-  spike_reply(reply, (int32_t)((uintptr_t)sbrk(0) / 1024));
+  test_reply(reply, heap_kib());
+  test_reply(reply, (int32_t)((uintptr_t)sbrk(0) / 1024));
 }
 
 /* mem-grow(mib): allocates mib MiB past the heap's break, touches a byte of
@@ -433,7 +433,7 @@ static void mem_info(const uint8_t *payload, uint32_t len, GString *reply) {
  * before and after; -ENOMEM if the allocation fails. */
 static void mem_grow(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t mib;
-  if (!spike_arg(payload, len, 0, &mib) || mib < 1)
+  if (!test_arg(payload, len, 0, &mib) || mib < 1)
     return;
   size_t size = (size_t)mib * 1024 * 1024;
   int32_t before = heap_kib();
@@ -441,7 +441,7 @@ static void mem_grow(const uint8_t *payload, uint32_t len, GString *reply) {
   volatile uint8_t *block = malloc(size);
   int32_t alloc_us = since(start);
   if (block == NULL) {
-    spike_reply(reply, -ENOMEM);
+    test_reply(reply, -ENOMEM);
     return;
   }
   start = g_get_monotonic_time();
@@ -449,10 +449,10 @@ static void mem_grow(const uint8_t *payload, uint32_t len, GString *reply) {
     block[offset] = 1;
   int32_t touch_us = since(start);
   free((void *)block);
-  spike_reply(reply, alloc_us);
-  spike_reply(reply, touch_us);
-  spike_reply(reply, before);
-  spike_reply(reply, heap_kib());
+  test_reply(reply, alloc_us);
+  test_reply(reply, touch_us);
+  test_reply(reply, before);
+  test_reply(reply, heap_kib());
 }
 
 /* js-heap(calls): getentropy() of 64 bytes, calls times. Each call's
@@ -462,26 +462,26 @@ static void mem_grow(const uint8_t *payload, uint32_t len, GString *reply) {
 static void js_heap(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t calls;
   uint8_t bytes[64];
-  if (!spike_arg(payload, len, 0, &calls) || calls < 1)
+  if (!test_arg(payload, len, 0, &calls) || calls < 1)
     return;
   gint64 start = g_get_monotonic_time();
   for (int32_t i = 0; i < calls; i++)
     if (getentropy(bytes, sizeof bytes) != 0) {
-      spike_reply(reply, -EIO);
+      test_reply(reply, -EIO);
       return;
     }
-  spike_reply(reply, since(start));
+  test_reply(reply, since(start));
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_MEM_STRESS, "mem-stress", mem_stress);
-  ibusweb_module_add_op(module, SPIKE_OP_MEM_STRESS_RESULT, "mem-stress-result",
+  ibusweb_module_add_op(module, TEST_OP_MEM_STRESS, "mem-stress", mem_stress);
+  ibusweb_module_add_op(module, TEST_OP_MEM_STRESS_RESULT, "mem-stress-result",
                         mem_stress_result);
-  ibusweb_module_add_op(module, SPIKE_OP_GLIB_STRESS, "glib-stress",
+  ibusweb_module_add_op(module, TEST_OP_GLIB_STRESS, "glib-stress",
                         glib_stress);
-  ibusweb_module_add_op(module, SPIKE_OP_GLIB_STRESS_RESULT,
+  ibusweb_module_add_op(module, TEST_OP_GLIB_STRESS_RESULT,
                         "glib-stress-result", glib_stress_result);
-  ibusweb_module_add_op(module, SPIKE_OP_MEM_INFO, "mem-info", mem_info);
-  ibusweb_module_add_op(module, SPIKE_OP_MEM_GROW, "mem-grow", mem_grow);
-  ibusweb_module_add_op(module, SPIKE_OP_JS_HEAP, "js-heap", js_heap);
+  ibusweb_module_add_op(module, TEST_OP_MEM_INFO, "mem-info", mem_info);
+  ibusweb_module_add_op(module, TEST_OP_MEM_GROW, "mem-grow", mem_grow);
+  ibusweb_module_add_op(module, TEST_OP_JS_HEAP, "js-heap", js_heap);
 }

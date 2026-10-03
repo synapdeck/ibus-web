@@ -6,7 +6,7 @@
 #include <ibus-web/runtime.h>
 #include <string.h>
 
-/* Opcodes of the spike side modules' operations, unique across all of them
+/* Opcodes of the test side modules' operations, unique across all of them
  * since a host loads them together. Payloads and replies are little-endian
  * int32 values unless an operation says otherwise; a payload an operation
  * can't read gets an empty reply. Operations that start work reply 0 or
@@ -15,7 +15,7 @@
  *
  * A list of X(NAME, opcode), which the build also prints for the
  * TypeScript side. */
-#define SPIKE_OPS(X)                                                           \
+#define TEST_OPS(X)                                                            \
   X(ADD, 1)                                                                    \
   X(IDLE_LATER, 2)                                                             \
   X(IDLE_RESULT, 3)                                                            \
@@ -52,13 +52,13 @@
   X(BENCH_READ, 34)                                                            \
   X(BENCH_APPEND, 35)
 
-#define SPIKE_OP_ENUM(name, opcode) SPIKE_OP_##name = opcode,
-enum { SPIKE_OPS(SPIKE_OP_ENUM) };
-#undef SPIKE_OP_ENUM
+#define TEST_OP_ENUM(name, opcode) TEST_OP_##name = opcode,
+enum { TEST_OPS(TEST_OP_ENUM) };
+#undef TEST_OP_ENUM
 
 /* Reads the index-th int32 of a payload; FALSE if it is too short. */
-static inline gboolean spike_arg(const uint8_t *payload, uint32_t len,
-                                 uint32_t index, int32_t *value) {
+static inline gboolean test_arg(const uint8_t *payload, uint32_t len,
+                                uint32_t index, int32_t *value) {
   uint32_t le;
   if (len / sizeof le <= index)
     return FALSE;
@@ -67,7 +67,7 @@ static inline gboolean spike_arg(const uint8_t *payload, uint32_t len,
   return TRUE;
 }
 
-static inline void spike_reply(GString *reply, int32_t value) {
+static inline void test_reply(GString *reply, int32_t value) {
   uint32_t le = GUINT32_TO_LE((uint32_t)value);
   g_string_append_len(reply, (const char *)&le, sizeof le);
 }

@@ -6,7 +6,6 @@ path = [
   "**/README.md",
   ".clang-format",
   ".gitignore",
-  "tests/spikes/dynlink/expected.txt",
   "modules/testing/fixtures/*.args",
   "modules/toolchain/expected-features.txt",
 ]

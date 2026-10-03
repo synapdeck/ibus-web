@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -55,7 +55,7 @@ static void fsync_op(const uint8_t *payload, uint32_t len, GString *reply) {
   if (len == 0 || memchr(payload, '\0', len) != NULL)
     return;
   if (state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   g_free(path);
@@ -69,11 +69,11 @@ static void fsync_op(const uint8_t *payload, uint32_t len, GString *reply) {
   pthread_attr_destroy(&attr);
   if (ret != 0) {
     state = IDLE;
-    spike_reply(reply, -ret);
+    test_reply(reply, -ret);
     return;
   }
   state = PENDING;
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* fsync-result(): the file's size once written, or the writer's error. */
@@ -83,18 +83,18 @@ static void fsync_result(const uint8_t *payload, uint32_t len, GString *reply) {
   struct stat st;
   switch (state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
     if (status < 0)
-      spike_reply(reply, status);
+      test_reply(reply, status);
     else if (stat(path, &st) != 0)
-      spike_reply(reply, -errno);
+      test_reply(reply, -errno);
     else
-      spike_reply(reply, (int32_t)MIN(st.st_size, G_MAXINT32));
+      test_reply(reply, (int32_t)MIN(st.st_size, G_MAXINT32));
     break;
   }
 }
@@ -110,7 +110,7 @@ static void write_file_op(const uint8_t *payload, uint32_t len,
   const uint8_t *data = nul + 1;
   size_t size = len - (size_t)(data - payload);
   int ret = write_synced((const char *)payload, data, size);
-  spike_reply(reply, ret < 0 ? ret : (int32_t)size);
+  test_reply(reply, ret < 0 ? ret : (int32_t)size);
 }
 
 /* Reads path, opened with flags, on the pumping thread: replies the file's
@@ -122,7 +122,7 @@ static void read_file(const uint8_t *payload, uint32_t len, int flags,
   g_autofree char *file = g_strndup((const char *)payload, len);
   int fd = open(file, flags);
   if (fd < 0) {
-    spike_reply(reply, -errno);
+    test_reply(reply, -errno);
     return;
   }
   GString *contents = g_string_new(NULL);
@@ -133,7 +133,7 @@ static void read_file(const uint8_t *payload, uint32_t len, int flags,
   int32_t ret = n < 0 ? -errno : (int32_t)MIN(contents->len, G_MAXINT32);
   if (close(fd) != 0 && ret >= 0)
     ret = -errno;
-  spike_reply(reply, ret);
+  test_reply(reply, ret);
   if (ret >= 0)
     g_string_append_len(reply, contents->str, contents->len);
   g_string_free(contents, TRUE);
@@ -151,12 +151,12 @@ static void read_file_rdwr_op(const uint8_t *payload, uint32_t len,
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_FSYNC, "fsync", fsync_op);
-  ibusweb_module_add_op(module, SPIKE_OP_FSYNC_RESULT, "fsync-result",
+  ibusweb_module_add_op(module, TEST_OP_FSYNC, "fsync", fsync_op);
+  ibusweb_module_add_op(module, TEST_OP_FSYNC_RESULT, "fsync-result",
                         fsync_result);
-  ibusweb_module_add_op(module, SPIKE_OP_WRITE_FILE, "write-file",
+  ibusweb_module_add_op(module, TEST_OP_WRITE_FILE, "write-file",
                         write_file_op);
-  ibusweb_module_add_op(module, SPIKE_OP_READ_FILE, "read-file", read_file_op);
-  ibusweb_module_add_op(module, SPIKE_OP_READ_FILE_RDWR, "read-file-rdwr",
+  ibusweb_module_add_op(module, TEST_OP_READ_FILE, "read-file", read_file_op);
+  ibusweb_module_add_op(module, TEST_OP_READ_FILE_RDWR, "read-file-rdwr",
                         read_file_rdwr_op);
 }

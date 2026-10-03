@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <errno.h>
 
@@ -22,16 +22,16 @@ static gboolean record(gpointer data) {
 /* timeout(ms): adds a ms timeout to the default context. */
 static void timeout(const uint8_t *payload, uint32_t len, GString *reply) {
   int32_t ms;
-  if (!spike_arg(payload, len, 0, &ms) || ms < 0)
+  if (!test_arg(payload, len, 0, &ms) || ms < 0)
     return;
   if (state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   state = PENDING;
   added = g_get_monotonic_time();
   g_timeout_add((guint)ms, record, NULL);
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* timeout-result(): microseconds from the add to the dispatch. */
@@ -41,19 +41,19 @@ static void timeout_result(const uint8_t *payload, uint32_t len,
   (void)len;
   switch (state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, delay);
+    test_reply(reply, delay);
     break;
   }
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_TIMEOUT, "timeout", timeout);
-  ibusweb_module_add_op(module, SPIKE_OP_TIMEOUT_RESULT, "timeout-result",
+  ibusweb_module_add_op(module, TEST_OP_TIMEOUT, "timeout", timeout);
+  ibusweb_module_add_op(module, TEST_OP_TIMEOUT_RESULT, "timeout-result",
                         timeout_result);
 }

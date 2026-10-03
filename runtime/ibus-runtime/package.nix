@@ -33,8 +33,8 @@
         # backend and the memory backend, mounted where there is no
         # IndexedDB, run on the calling thread and take none.
         storage = 2;
-        # The spike's side modules' largest burst, spawn(4). An engine's
-        # share would come from its manifest.
+        # An engine's share would come from its manifest; until one does,
+        # this covers the test side modules' largest burst, spawn(4).
         engine = 4;
       };
       plannedThreads = lib.foldl' builtins.add 0 (lib.attrValues threadShares);

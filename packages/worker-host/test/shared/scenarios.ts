@@ -13,7 +13,7 @@ import type { Harness, RunningHost, RuntimeBuild } from "./harness.ts";
 import { HostOp, type HostStats } from "./testing.ts";
 
 // The test side modules' operations, under their C names in camel case
-// (SPIKE_OP_SPAWN_DETACHED is spawnDetached).
+// (TEST_OP_SPAWN_DETACHED is spawnDetached).
 const opNames = [
   "add",
   "idleLater",

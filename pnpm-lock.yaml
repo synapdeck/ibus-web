@@ -237,18 +237,6 @@ importers:
         specifier: ^8.18.0
         version: 8.18.0
 
-  tests/spikes/runtime:
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.0
-      playwright:
-        specifier: 'catalog:'
-        version: 1.63.0
-      typescript:
-        specifier: 'catalog:'
-        version: 7.0.2
-
 packages:
 
   '@blazediff/core@1.10.0':

@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-#include "spike.h"
+#include "test-ops.h"
 
 #include <emscripten/proxying.h>
 #include <emscripten/threading.h>
@@ -51,13 +51,13 @@ static void proxy_sync(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;
   if (proxy_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   proxy_state = PENDING;
   proxy_started = g_get_monotonic_time();
   g_thread_unref(g_thread_new("proxy-sync", proxy_then_report, NULL));
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* proxy-sync-result(): microseconds from the request to the report, or
@@ -68,13 +68,13 @@ static void proxy_sync_result(const uint8_t *payload, uint32_t len,
   (void)len;
   switch (proxy_state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, proxy_result);
+    test_reply(reply, proxy_result);
     break;
   }
 }
@@ -120,13 +120,13 @@ static void task(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)payload;
   (void)len;
   if (task_state == PENDING) {
-    spike_reply(reply, -EBUSY);
+    test_reply(reply, -EBUSY);
     return;
   }
   task_state = PENDING;
   task_started = g_get_monotonic_time();
   g_thread_unref(g_thread_new("task", start_task, NULL));
-  spike_reply(reply, 0);
+  test_reply(reply, 0);
 }
 
 /* task-result(): microseconds from the request to the callback. */
@@ -136,22 +136,22 @@ static void task_result_op(const uint8_t *payload, uint32_t len,
   (void)len;
   switch (task_state) {
   case IDLE:
-    spike_reply(reply, -ENOENT);
+    test_reply(reply, -ENOENT);
     break;
   case PENDING:
-    spike_reply(reply, -EAGAIN);
+    test_reply(reply, -EAGAIN);
     break;
   case DONE:
-    spike_reply(reply, task_result);
+    test_reply(reply, task_result);
     break;
   }
 }
 
 void ibusweb_module_init(IBusWebModule *module) {
-  ibusweb_module_add_op(module, SPIKE_OP_PROXY_SYNC, "proxy-sync", proxy_sync);
-  ibusweb_module_add_op(module, SPIKE_OP_PROXY_SYNC_RESULT, "proxy-sync-result",
+  ibusweb_module_add_op(module, TEST_OP_PROXY_SYNC, "proxy-sync", proxy_sync);
+  ibusweb_module_add_op(module, TEST_OP_PROXY_SYNC_RESULT, "proxy-sync-result",
                         proxy_sync_result);
-  ibusweb_module_add_op(module, SPIKE_OP_TASK, "task", task);
-  ibusweb_module_add_op(module, SPIKE_OP_TASK_RESULT, "task-result",
+  ibusweb_module_add_op(module, TEST_OP_TASK, "task", task);
+  ibusweb_module_add_op(module, TEST_OP_TASK_RESULT, "task-result",
                         task_result_op);
 }
