@@ -20,8 +20,15 @@
         packages = [
           "runtime/wasmfs-idb"
           "modules/glib/checks/tests"
+          "tools"
           "packages/*"
         ];
+        # These packages ship N-API binaries for every supported build platform.
+        allowBuilds = {
+          tree-sitter = false;
+          tree-sitter-c = false;
+          tree-sitter-cpp = false;
+        };
         # What must be one version across the repository, and the tools
         # packages share. Packages name these as `catalog:`, never with a
         # version of their own.
@@ -189,7 +196,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-JAs0FiRYC/BhvuUqBo/Aiqzq3ptb5E4G9vl8cB0qAW0=";
+        hash = "sha256-BeXAV3AWYTtDIarQfO1B3Cs0ZQoz6z5gCfJKTzrYVxE=";
       };
 
       # Each package's node_modules, and the root's, installed offline

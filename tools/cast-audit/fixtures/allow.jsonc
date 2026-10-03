@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "$schema": "../cast-audit.schema.jsonc",
+  "casts": [
+    {
+      "file": "casts.c",
+      "function": "one",
+      "from": "void (*)(gpointer)",
+      "to": "GFunc",
+      "reason": "Intentional one-parameter callback cast to a two-parameter type for the audit fixture.",
+    },
+  ],
+}

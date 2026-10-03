@@ -1,0 +1,131 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/cos02/schemas/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "artifacts": [
+        {
+          "length": 435,
+          "location": {
+            "index": 0,
+            "uri": "casts.c"
+          },
+          "mimeType": "text/plain",
+          "roles": ["resultFile"]
+        }
+      ],
+      "columnKind": "unicodeCodePoints",
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "index": 0,
+                  "uri": "casts.c"
+                },
+                "region": {
+                  "endColumn": 30,
+                  "endLine": 12,
+                  "startColumn": 20,
+                  "startLine": 12
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "index": 0,
+                  "uri": "casts.c"
+                },
+                "region": {
+                  "endColumn": 20,
+                  "startColumn": 20,
+                  "startLine": 12
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "cast from 'void (*)(gpointer)' (aka 'void (*)(void *)') to 'GFunc' (aka 'void (*)(void *, void *)') converts to incompatible function type"
+          },
+          "ruleId": "6749",
+          "ruleIndex": 0
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "index": 0,
+                  "uri": "casts.c"
+                },
+                "region": {
+                  "endColumn": 39,
+                  "endLine": 13,
+                  "startColumn": 24,
+                  "startLine": 13
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "index": 0,
+                  "uri": "casts.c"
+                },
+                "region": {
+                  "endColumn": 24,
+                  "startColumn": 24,
+                  "startLine": 13
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "cast from 'void (*)(gpointer)' (aka 'void (*)(void *)') to 'GCallback' (aka 'void (*)(void)') converts to incompatible function type"
+          },
+          "ruleId": "6749",
+          "ruleIndex": 1
+        }
+      ],
+      "tool": {
+        "driver": {
+          "fullName": "",
+          "informationUri": "https://clang.llvm.org/docs/UsersManual.html",
+          "language": "en-US",
+          "name": "clang",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "warning",
+                "rank": -1
+              },
+              "fullDescription": {
+                "text": ""
+              },
+              "id": "6749",
+              "name": ""
+            },
+            {
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "warning",
+                "rank": -1
+              },
+              "fullDescription": {
+                "text": ""
+              },
+              "id": "6749",
+              "name": ""
+            }
+          ],
+          "version": "22.1.8"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

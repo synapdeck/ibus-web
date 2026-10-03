@@ -1,0 +1,24 @@
+{
+  "name": "@ibus-web/tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run cast-audit"
+  },
+  "dependencies": {
+    "@microsoft/sarif": "^5.7.0",
+    "jsonc-parser": "catalog:",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-cpp": "^0.23.4"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  },
+  "ibusWeb": {
+    "assets": [
+      "cast-audit/fixtures"
+    ]
+  }
+}

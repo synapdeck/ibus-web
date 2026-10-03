@@ -1,6 +1,10 @@
 # Generated from modules/typescript/default.nix by `nix run .#write-files`.
 %YAML 1.1
 ---
+allowBuilds:
+  tree-sitter: false
+  tree-sitter-c: false
+  tree-sitter-cpp: false
 catalog:
   '@effect/vitest': ^4.0.0
   '@types/node': ^24.19.0
@@ -16,4 +20,5 @@ catalog:
 packages:
 - runtime/wasmfs-idb
 - modules/glib/checks/tests
+- tools
 - packages/*
