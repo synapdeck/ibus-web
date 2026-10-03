@@ -39,12 +39,29 @@
             push.branches = [ "master" ];
           };
           inherit permissions;
+          # A pull request's new push makes its running checks moot; every
+          # push to master keeps its own run, since it may publish.
+          concurrency = {
+            group = "\${{ github.workflow }}-\${{ github.event.pull_request.number || github.run_id }}";
+            cancelInProgress = true;
+          };
           jobs.check = {
             name = "nix flake check";
             runsOn = "ubuntu-latest";
+            # Stops a hung check well before GitHub's six hours, with room
+            # for a cold run, which rebuilds the patched Emscripten, its
+            # cache and everything WASM.
+            timeoutMinutes = 240;
             steps = [
               checkout
               installNix
+              # Ubuntu 24.04's AppArmor forbids unprivileged user namespaces,
+              # which Chromium's sandbox needs, and the browser checks keep
+              # that sandbox on.
+              {
+                name = "Allow unprivileged user namespaces";
+                run = "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0";
+              }
               # GitHub's token for a pull request from a fork lacks the
               # claims FlakeHub Cache needs, so those runs build without it.
               {
@@ -68,9 +85,12 @@
             needs = [ "check" ];
             if_ = "github.event_name == 'push' && github.ref == 'refs/heads/master'";
             runsOn = "ubuntu-latest";
+            timeoutMinutes = 30;
             steps = [
               checkout
               installNix
+              # flakehub-push is tagged by major version only, so it can't be
+              # pinned to a release as the other actions are.
               {
                 name = "Publish";
                 uses = "DeterminateSystems/flakehub-push@v7";

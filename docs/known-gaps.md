@@ -216,12 +216,10 @@ An item leaves this page when it is fixed or decided.
 - **The pre-commit hook needs the dev shell.** A commit from a shell without `hk` on `PATH` fails unless it
   sets `HK=0`; commit with `nix develop -c git commit …` or from a direnv shell. The hook stashes unstaged
   work (`stash = "git"`) while it runs.
-- **An unexplained 80-column rewrap.** Committing once from a package directory, hk's oxfmt step rewrapped
-  Markdown at 80 columns instead of `.oxfmtrc.jsonc`'s 120; suspected oxfmt run without the root config.
-  Passing `-c .oxfmtrc.jsonc` in `hk.pkl` would rule it out.
 - **hk's version check is weak**: it compares hk's source with `pkgs.hk`, which come from the same place.
-- **Paths repeated by hand**: `hk.pkl` and `.gitignore` both name the Nix-built types links; `.envrc`'s
-  watch list of files that feed the generated editor configuration is maintained by hand.
+- **Paths repeated by hand**: `hk.pkl` and `.gitignore` both name the Nix-built types links. `hk.pkl`
+  spells out oxfmt's three commands to add `-c`, since hk's evaluator has no list operations to derive them
+  from the builtin's.
 - **Claude Code plugins**: `marketplace.json` and the plugins' `plugin.json` both list `lspServers`; the
   marketplace's relative `directory` path is untested; the dev shell's greeting hard-codes its name.
 - **The pnpm catalog's comment** says it holds what must be one version across the repository, but it also
@@ -242,8 +240,6 @@ An item leaves this page when it is fixed or decided.
   publish exists to attach access to, so only a second run proves the cache.
 - **Fork pull requests** get no cache (FlakeHub Cache can't authenticate their OIDC tokens); their
   behaviour is unverified.
-- **`DeterminateSystems/flakehub-push@v7` floats** on its major tag, unlike the other actions, which are
-  pinned to releases; it needs a pin or a comment saying why not.
 - **Only x86_64-linux is checked**; the flake's checks are defined for Darwin and aarch64 too.
 - **The files writer never deletes** a file it no longer configures; a removed workflow needs `git rm`.
 

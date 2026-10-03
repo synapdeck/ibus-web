@@ -301,7 +301,8 @@ package must be exactly `playwright-driver`'s version, which the Nix build asser
   would look for the host's distribution packages), and `IBUS_WEB_CHROMIUM_SANDBOX`.
 - `chromiumSandbox` (default true): Chromium keeps its own sandbox, as a browser does. It needs
   unprivileged user namespaces, which the Nix sandbox allows on Linux unless the builder forbids
-  them; on such a builder, set it to false.
+  them (Ubuntu 24.04's AppArmor does by default; CI lifts that with a `sysctl` step,
+  [tooling.md](tooling.md#ci)); on such a builder, set it to false.
 - `setup`: a fresh `HOME`. Firefox writes its XDG directories under `HOME` as it starts and hangs
   before Playwright can connect if it can't.
 

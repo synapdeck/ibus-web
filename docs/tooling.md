@@ -7,9 +7,9 @@ workspace for TypeScript, language servers for editors and Claude Code, and CI w
 ## The dev shell
 
 `nix develop` enters it; with direnv, `.envrc` (`use flake`) enters it on `cd`. `.envrc` also
-watches the inputs of the generated editor configuration that direnv's `use flake` doesn't see
-(the Emscripten and GLib patches, `modules/toolchain/*.nix`, and the modules that set clangd path
-flags), so editing a patch reloads the shell.
+watches every tracked `*.nix` and `*.patch` file, which direnv's `use flake` doesn't see and any
+of which can feed the generated editor configuration, so editing a patch or a module reloads the
+shell.
 
 What it provides:
 
@@ -55,7 +55,7 @@ The steps:
 | `nixfmt`           | `*.nix`                                                               | nixfmt                                            |
 | `clang-format`     | C, C++                                                                | clang-format, `.clang-format` (LLVM style)        |
 | `shfmt`            | `*.sh`                                                                | shfmt, two-space indent from `.editorconfig`      |
-| `oxfmt`            | TS, JS, JSON/JSONC, YAML, Markdown, HTML, TOML (not `pnpm-lock.yaml`) | oxfmt                                             |
+| `oxfmt`            | TS, JS, JSON/JSONC, YAML, Markdown, HTML, TOML (not `pnpm-lock.yaml`) | oxfmt, `.oxfmtrc.jsonc`                           |
 | `pkl-format`       | `*.pkl`                                                               | pkl                                               |
 | `oxlint`           | TS, JS                                                                | oxlint, `.oxlintrc.jsonc`                         |
 | `tsc`              | every directory with a `tsconfig.json`                                | `tsc --noEmit -p` with the workspace's TypeScript |
@@ -159,14 +159,16 @@ Then run `hk check --all` in the shell, and `nix build .#checks.x86_64-linux.hk 
 
 - **oxfmt** formats TypeScript, JavaScript, JSON and JSONC, YAML, Markdown, HTML and TOML at 120
   columns, two-space indent (`.oxfmtrc.jsonc`). It leaves `pnpm-lock.yaml` alone, since pnpm
-  rewrites it in its own style on every install.
+  rewrites it in its own style on every install, and the generated workflow, which actionlint
+  checks.
 - **oxlint** (`.oxlintrc.jsonc`) runs the `typescript`, `unicorn` and `oxc` plugins with the
   `correctness` category as errors, plus `no-var`, `prefer-const` and `eqeqeq`. Nothing is turned
   off for a file or the repository; the few findings that are deliberate are allowed in place with
   `// oxlint-disable-next-line <rule> -- <why>` (an EM_ASM caller oxlint can't see, a `let` that
   only carries a JSDoc type).
-- Both configs are JSONC with a `$schema` and an SPDX header; oxfmt and oxlint find the `.jsonc`
-  names without `-c`.
+- Both configs are JSONC with a `$schema` and an SPDX header; oxlint finds its `.jsonc` name
+  without `-c`. hk's `oxfmt` step names `-c .oxfmtrc.jsonc`, since oxfmt run where it finds no
+  config formats with its own defaults, silently, and a named one it can't find fails the step.
 - **clang-format** is the LLVM from Emscripten's toolchain, LLVM style (`.clang-format`).
   clang-format mangles JavaScript inside `EM_ASM` bodies (`!==` becomes `!= =`); test fixtures
   that need JavaScript use `EM_JS` between `// clang-format off` and `on`.
@@ -286,7 +288,7 @@ check. Details in [worker-host.md](worker-host.md).
   test's `-D`s). The dev shell rebuilds the link on entry, so it follows the flake;
   `checks.clangd` runs `clangd --check` on every C and C++ source in the repository, so the
   configuration can't drift from the build. A module that adds sources needing extra flags adds a
-  `clangdPathFlags` entry beside them, and `.envrc` should watch that module.
+  `clangdPathFlags` entry beside them; `.envrc` already watches every module.
 - **Claude Code** gets language servers through plugins, enabled in `.claude/settings.json`:
   `clangd-lsp` and `typescript-lsp` from the official marketplace, and `nixd-lsp` and `pkl-lsp`
   from the repository's own marketplace (`.claude-plugin/marketplace.json`, plugins under
@@ -327,23 +329,27 @@ module writes it into the tree as `.github/workflows/ci.yml`. Never edit the YAM
 ### What it does
 
 `ci.yml` runs on pull requests and on pushes to `master`, with `contents: read` and
-`id-token: write` (Determinate Nix and FlakeHub Cache authenticate with the job's OIDC token):
+`id-token: write` (Determinate Nix and FlakeHub Cache authenticate with the job's OIDC token). A
+pull request's new push cancels its run in progress (`concurrency`, grouped by pull request);
+every push to `master` keeps its own run.
 
-- **`check`** — check out, install Determinate Nix, enable FlakeHub Cache, then
-  `nix flake check -L --system x86_64-linux`. Checks are defined for x86_64-linux, aarch64-linux
-  and aarch64-darwin; the hosted runners are x86_64-linux, and the other systems' checks need
-  their own machines.
+- **`check`** — check out, install Determinate Nix, allow unprivileged user namespaces
+  (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`: Ubuntu 24.04's AppArmor
+  forbids them, and Chromium's sandbox, which the browser checks keep on, needs them), enable
+  FlakeHub Cache, then `nix flake check -L --system x86_64-linux`, within 240 minutes. Checks
+  are defined for x86_64-linux, aarch64-linux and aarch64-darwin; the hosted runners are
+  x86_64-linux, and the other systems' checks need their own machines.
 - **`publish`** — `needs: [check]`, and runs only on a push to `master`
   (`if: github.event_name == 'push' && github.ref == 'refs/heads/master'`). It publishes the flake
-  to FlakeHub as `synapdeck/ibus-web`, private and rolling (`flakehub-push`). FlakeHub Cache grants
-  access per published flake, so the cache needs this flake published; only a `master` that
-  passed its checks is.
+  to FlakeHub as `synapdeck/ibus-web`, private and rolling (`flakehub-push`), within 30 minutes.
+  FlakeHub Cache grants access per published flake, so the cache needs this flake published; only
+  a `master` that passed its checks is.
 
 Actions are pinned to release tags: `actions/checkout@v7.0.1`; `determinate-nix-action` and
 `flakehub-cache-action` both at one `determinateVersion` (`v3.23.0`), since they release together
 and mismatched versions are untested against each other. `flakehub-push` follows its major tag,
-`v7` ([known-gaps.md](known-gaps.md#ci)). To bump one, edit `ci.nix`, then
-`nix run .#write-files`.
+`v7`: it is tagged by major version only, so it can't be pinned to a release. To bump one, edit
+`ci.nix`, then `nix run .#write-files`.
 
 ### The cache
 
@@ -372,9 +378,14 @@ it.
 3. **A second run substitutes.** Re-run, or push a trivial commit: the `nix flake check -L` log
    shows `copying path … from 'https://cache.flakehub.com'` for the heavy derivations (the patched
    Emscripten, the cache and toolchain, pkgsWasm's GLib) rather than `building …`.
-4. **Cold-run cost.** Note the first run's wall time against GitHub's six-hour job limit, and
-   watch for disk exhaustion on `ubuntu-latest` (about 14 GB free): a cold run rebuilds the
-   patched Emscripten and everything WASM.
-5. **Fork pull requests** still run and pass, without cache, at cold-run cost.
-6. **Determinate Nix** logs that `determinate-nixd` authenticated to FlakeHub through OIDC; it
+4. **Cold-run cost.** Note the first run's wall time against the `check` job's 240-minute limit
+   (GitHub's own is six hours), and watch for disk exhaustion on `ubuntu-latest` (about 14 GB
+   free): a cold run rebuilds the patched Emscripten and everything WASM.
+5. **Chromium's sandbox.** `checks.worker-host-browser` and the browser test-program checks pass
+   with Chromium's sandbox on, which shows the user-namespace step took effect; if Chromium fails
+   to launch with a sandbox error, that step didn't.
+6. **Fork pull requests** still run and pass, without cache, at cold-run cost.
+7. **Superseded runs.** A second push to a pull request cancels the first's run; a push to
+   `master` doesn't cancel another.
+8. **Determinate Nix** logs that `determinate-nixd` authenticated to FlakeHub through OIDC; it
    fails visibly if `id-token: write` is missing.
