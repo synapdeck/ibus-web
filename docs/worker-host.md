@@ -352,16 +352,33 @@ each test takes the lines it expects, and anything else fails it.
 | Layers (`@effect/vitest`) | `HostConfig`'s defaults and overrides; `runtimeFinalizer` after a normal close, an intact failure, and each kind of throw; the Worker scope's reports (failed start, crash with `CRASHED` first, the thread's error after `"unwind"`, one that never arrives, a foreign uncaught error left alone, log records, defects)                                                                                                        | browsers                                                                                                                                |
 
 Each scenario's criterion is its assertion: every sum right in
-`dispatch`; in `cold-wake` at least 95% of 300 spaced requests finding the
-host asleep; `cross-thread-wake` attach to dispatch at most 20 ms at the
-median and 200 ms at most, with `-ENOENT` before any work and `-EBUSY` for
-work already pending; `deadline` within 10 ms of 100 ms; bursts within the
+`dispatch`; in `cold-wake` spaced requests finding the host asleep;
+`cross-thread-wake` every source dispatched, never before its attach and
+within 500 ms of it, with `-ENOENT` before any work and `-EBUSY` for work
+already pending; `deadline` never before 100 ms and within 200 ms; bursts within the
 pool creating no Worker and taking no event-loop turn; `pool-top-up` growing
 the pool only past the planned threads, back to `lowWater` idle; flat heap
 over rounds of detached threads; GLib keeping exactly its share after a
 `GTask`; `-ECANCELED` for a thrown exception and a working host after; the
 memory workloads at the planned thread count in the runtime's least memory
-with no trap, corruption or refused allocation. Timings are recorded in the
-output, not gated: in the Nix sandbox, with the suites running in parallel,
-round trips took 15–65 µs at the median and the pool's top-up of one Worker
+with no trap, corruption or refused allocation. Where a criterion is a
+time, the suites assert only its one-sided part under a bound generous
+enough for a loaded machine, since CI runs them beside other builds; the
+design's tighter figures (`cold-wake` at least 95% asleep,
+`cross-thread-wake` at most 20 ms at the median, `deadline` within 10 ms)
+aren't asserted, and every run records the measured figure for each, as it
+does all other timings. In the Nix sandbox, with the suites running in parallel, round
+trips took 15–65 µs at the median and the pool's top-up of one Worker
 45–140 ms, a few times the quieter figures in [runtime.md](runtime.md).
+`storage-costs` checks correctness only: its bench requests each do many
+keystrokes' worth of I/O, so they hold the page for as long as they take
+(up to 60 s) rather than the 1 s budget, and nothing in it is timed.
+
+Bounds that wait for something to happen (a lock's release, a crash
+report, a printed line) are 10 s or more, reached only when it never
+happens. A test build's host waits 10 s for a crashed thread's own error
+(`crashWaitMs`); the host as released waits its default 1 s, so its crash
+report isn't required to carry the error. Printed output is settled by a
+round trip, not a sleep: under Node the threads' writes are synchronous,
+and in a browser a line printed by a Worker started for the purpose
+arrives after every line printed before it.

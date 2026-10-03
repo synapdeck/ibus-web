@@ -18,6 +18,7 @@ import {
   hostUrlFor,
   launchingAsAPage,
   startFrom,
+  testHostConfig,
   type Harness,
   type Launch,
   type LaunchedHost,
@@ -35,6 +36,9 @@ import "./commands.ts";
 // thread, and fails the test that waited.
 const SPIN_LIMIT_MS = 1000;
 const LATE_REPLY_MS = 30_000;
+
+// A bound on a console line's way to the commands, for a loaded machine.
+const SETTLE_LIMIT_MS = 10_000;
 
 const clock: Clock = {
   now: () => performance.now(),
@@ -106,6 +110,31 @@ const deleteDatabase = (name: string): Promise<void> =>
     };
   });
 
+// What the page's Workers printed, once everything printed before the call
+// has arrived. Their consoles reach the commands over the one connection to
+// the browser, in the order the browser sends them, so once a line printed
+// by a Worker started now has arrived, so has every line printed earlier.
+const settledConsole = async (): Promise<string[]> => {
+  const marker = `ibus-web-settled-${crypto.randomUUID()}`;
+  const url = URL.createObjectURL(new Blob([`console.log(${JSON.stringify(marker)});`], { type: "text/javascript" }));
+  const worker = new Worker(url);
+  try {
+    const lines: string[] = [];
+    const deadline = performance.now() + SETTLE_LIMIT_MS;
+    for (;;) {
+      const taken = await commands.consoleTake();
+      const at = taken.indexOf(marker);
+      if (at >= 0) return [...lines, ...taken.slice(0, at), ...taken.slice(at + 1)];
+      lines.push(...taken);
+      if (performance.now() >= deadline) throw new Error(`a Worker's console line took over ${SETTLE_LIMIT_MS} ms`);
+      await clock.sleep(5);
+    }
+  } finally {
+    worker.terminate();
+    URL.revokeObjectURL(url);
+  }
+};
+
 export const browserHarness = async (): Promise<Harness> => {
   if (!crossOriginIsolated) throw new Error("the page is not cross-origin isolated");
   await commands.consoleBegin();
@@ -139,7 +168,7 @@ export const browserHarness = async (): Promise<Harness> => {
     const minimum = data.constants.memory.minimum;
     const test: TestInit = {
       mallinfo: data.constants.mallinfo,
-      ...(options.config === undefined ? {} : { config: options.config }),
+      config: testHostConfig(options),
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
       ...options.test,
     };
@@ -207,7 +236,7 @@ export const browserHarness = async (): Promise<Harness> => {
       await Promise.all([...databases].map(deleteDatabase));
       databases.clear();
     },
-    printed: printedFrom(() => commands.consoleTake(), clock),
+    printed: printedFrom(() => commands.consoleTake(), settledConsole, clock),
     record: (name, measurements) => console.log(`${name}: ${JSON.stringify(measurements)}`),
     pendingLimitMs: 10_000,
   };

@@ -46,8 +46,14 @@ export interface LateReply {
   afterMs: number;
 }
 
+export interface CallOptions {
+  // How long this call holds its thread, in place of the client's budget:
+  // for a request that isn't keystroke-sized, whose time is no criterion.
+  budgetMs?: number;
+}
+
 export interface Client {
-  call(opcode: number, payload?: Uint8Array): Promise<Reply>;
+  call(opcode: number, payload?: Uint8Array, options?: CallOptions): Promise<Reply>;
   // The host's report of why it crashed, or null if none came within
   // timeoutMs.
   crashReport(timeoutMs: number): Promise<string | null>;
@@ -68,18 +74,18 @@ export const blockingClient = (
   const lateReplies: LateReply[] = [];
   const heldMs: number[] = [];
 
-  const awaitLateReply = async (opcode: number, timedOutAt: number): Promise<Reply> => {
+  const awaitLateReply = async (opcode: number, budgetMs: number, timedOutAt: number): Promise<Reply> => {
     const deadline = timedOutAt + env.lateReply.ms;
     for (;;) {
       const state = Atomics.load(views.words, Word.state);
       if (state === State.reply) {
-        lateReplies.push({ opcode, heldMs: env.budgetMs, afterMs: Number((env.now() - timedOutAt).toFixed(1)) });
+        lateReplies.push({ opcode, heldMs: budgetMs, afterMs: Number((env.now() - timedOutAt).toFixed(1)) });
         return takeReply(views);
       }
       if (state === State.crashed) throw new Error(`the host crashed on opcode ${opcode}`);
       const left = deadline - env.now();
       if (left <= 0)
-        throw new Error(`no reply to opcode ${opcode} in ${env.budgetMs} ms, nor ${env.lateReply.ms} ms after that`);
+        throw new Error(`no reply to opcode ${opcode} in ${budgetMs} ms, nor ${env.lateReply.ms} ms after that`);
       await env.lateReply.wait(views.words, Word.state, state, left);
     }
   };
@@ -87,12 +93,12 @@ export const blockingClient = (
   return {
     lateReplies,
     heldMs,
-    call: (opcode, payload) => {
+    call: (opcode, payload, { budgetMs = env.budgetMs } = {}) => {
       if (Atomics.load(views.words, Word.state) === State.crashed)
         return Promise.reject(new Error("the host has crashed"));
       postRequest(views, encodeRequest(opcode, payload));
       const postedAt = env.now();
-      const deadline = postedAt + env.budgetMs;
+      const deadline = postedAt + budgetMs;
       for (;;) {
         const state = Atomics.load(views.words, Word.state);
         if (state === State.reply) {
@@ -103,7 +109,7 @@ export const blockingClient = (
         const left = deadline - env.now();
         if (left <= 0) {
           heldMs.push(env.now() - postedAt);
-          return awaitLateReply(opcode, env.now());
+          return awaitLateReply(opcode, budgetMs, env.now());
         }
         env.block(views.words, Word.state, state, left);
       }

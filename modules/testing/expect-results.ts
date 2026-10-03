@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Fails unless Vitest's JSON report holds exactly the expected tests, each
-// at its expected place with its expected result:
+// at its expected place with its expected result, and prints the time of
+// each test whose time is expected:
 //
 //   expect-results.ts <results.json> <expected.json>
 //
@@ -68,6 +69,7 @@ for (const [environment, tests] of Object.entries(expected)) {
     if (got.status !== status) problems.push(`${key}: ${got.status}, expected ${status}`);
     if (durationMs !== undefined) {
       const [min, max] = durationMs;
+      console.log(`${key}: took ${got.duration} ms, expected ${min} to ${max}`);
       if (got.duration === undefined || got.duration < min || got.duration > max)
         problems.push(`${key}: took ${got.duration} ms, expected ${min} to ${max}`);
     }

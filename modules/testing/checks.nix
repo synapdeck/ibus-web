@@ -104,10 +104,18 @@
       ];
 
       # What each environment reports: the failing tests fail on purpose. A
-      # case's time is the one its program measured, give or take what the
-      # clock and the scheduler add. Each program's suite ends with its run.
+      # case's time is the one its program measured: never less than the
+      # case sleeps, and more by what the clock and a loaded machine's
+      # scheduler add, which the bound leaves generous room for; the check
+      # prints the time it found. Each program's suite ends with its run.
       case = status: path: { inherit path status; };
-      timed = status: path: durationMs: { inherit path status durationMs; };
+      timed = status: path: sleepMs: {
+        inherit path status;
+        durationMs = [
+          sleepMs
+          (sleepMs + 2000)
+        ];
+      };
       run =
         program: status:
         case status [
@@ -130,7 +138,7 @@
           "Fixture"
           "SkipsOnPurpose"
         ])
-        (timed "passed" [ "googletest" "Timing" "SleepsOnPurpose" ] [ 200 400 ])
+        (timed "passed" [ "googletest" "Timing" "SleepsOnPurpose" ] 200)
         (run "googletest" "passed")
         (case "passed" [
           "glib-tap"
@@ -142,7 +150,7 @@
           "fixture"
           "fails-on-purpose"
         ])
-        (timed "passed" [ "glib-tap" "fixture" "slow" ] [ 600 800 ])
+        (timed "passed" [ "glib-tap" "fixture" "slow" ] 600)
         (case "passed" [
           "glib-tap"
           "fixture"

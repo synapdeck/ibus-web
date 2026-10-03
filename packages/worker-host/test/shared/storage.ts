@@ -11,7 +11,14 @@ import type { Reply } from "../../src/shared/control.ts";
 import { memoryWithData, type EngineManifest, type StorageState } from "../../src/shared/messages.ts";
 import { encodeComponent, engineDataLock, engineDir, engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";
-import type { Harness, HostOptions, RunningHost, RuntimeBuild, TestArchive } from "./harness.ts";
+import {
+  CRASH_REPORT_LIMIT_MS,
+  type Harness,
+  type HostOptions,
+  type RunningHost,
+  type RuntimeBuild,
+  type TestArchive,
+} from "./harness.ts";
 import type { Message } from "./testing.ts";
 import { LOCK_RELEASE_LIMIT_MS } from "./locks.ts";
 import {
@@ -157,7 +164,7 @@ export const storageClosed = async (h: Harness, { client, messages }: RunningHos
   const after = await stats(client);
   // The host posts its report when it wakes for a request; this thread
   // receives it once its event loop runs.
-  const deadline = h.now() + 2000;
+  const deadline = h.now() + h.pendingLimitMs;
   while (storageEvents(messages).length === 0 && h.now() < deadline) await h.sleep(10);
   await stats(client);
   const events = storageEvents(messages);
@@ -248,17 +255,25 @@ const benchPayload = (path: string, ...args: number[]): Uint8Array => {
 // A few MiB that end partway into a chunk, as a file's end usually does.
 const DICTIONARY_BYTES = 4096 * KiB + 104 * KiB;
 
+// How long one bench request may hold the page: its time depends on the
+// disk, and a host that never replies still fails.
+const BENCH_BUDGET_MS = 60_000;
+
 // An engine-like dictionary file in the engine's directory, written in
 // 64 KiB writes and fsync()ed, read at random in 4 KiB and 64 KiB reads, one
 // batch and then one read a request, and appended to in 64-byte records
 // each fsync()ed, which read back too: every write and fsync() succeeds and
 // every read returns the file's bytes. A bench reply starts with its status
 // and, for reads, the count of reads that returned the file's bytes.
+// Correctness only: a batch is many keystrokes' worth of I/O in one request,
+// with real fsync()s under Node and strict commits in a browser, so each
+// request holds the page for as long as it takes, up to BENCH_BUDGET_MS, and
+// nothing here is timed.
 export const storageCosts = async (h: Harness, { client }: RunningHost, engine: EngineManifest): Promise<void> => {
   const ops = opsOf(h);
   const path = `${engineDir(engine)}/dictionary-${Math.random().toString(36).slice(2)}.bin`;
   const bench = async (opcode: number, ...args: number[]) =>
-    replyInt32s(await client.call(opcode, benchPayload(path, ...args)));
+    replyInt32s(await client.call(opcode, benchPayload(path, ...args), { budgetMs: BENCH_BUDGET_MS }));
   expect((await bench(ops.benchWrite, DICTIONARY_BYTES, 64 * KiB))[0], "write").toBe(0);
   let seed = 1;
   for (const [size, batch, single] of [
@@ -278,10 +293,10 @@ export const storageCosts = async (h: Harness, { client }: RunningHost, engine: 
 // The lock a host holds beside the writer lock for as long as it runs.
 const dataLock = (engine: EngineManifest): string => engineDataLock(engine, encodeComponent(engine.version));
 
-// Polls until the lock is free, for at most a second: a lock a host lets go
-// of reaches the lock manager a moment later.
+// Polls until the lock is free, for at most the page's bound on a lock's
+// release: a lock a host lets go of reaches the lock manager a moment later.
 const freeSoon = async (h: Harness, name: string): Promise<boolean> => {
-  const deadline = h.now() + 1000;
+  const deadline = h.now() + LOCK_RELEASE_LIMIT_MS;
   for (;;) {
     if (await h.locks.free(name)) return true;
     if (h.now() >= deadline) return false;
@@ -289,12 +304,17 @@ const freeSoon = async (h: Harness, name: string): Promise<boolean> => {
   }
 };
 
-// The locks as a host that stopped left them: every other lock free, and
-// whether the writer lock is. A page's own wait for the writer lock, once it
-// has seen a host fail, may hold it a moment.
-const locksAfter = async (h: Harness, engine: EngineManifest): Promise<{ writerFree: boolean }> => {
+// The locks as a host that stopped left them: every other lock free, and the
+// writer lock free or kept, as expected. A host that lets go of the writer
+// lock does so before the data lock, which it took later, so once the data
+// lock is free a writer lock still held is kept, and needs no longer wait. A
+// page's own wait for the writer lock, once it has seen a host fail, may
+// hold it a moment.
+const locksAfter = async (h: Harness, engine: EngineManifest, writerFree: boolean): Promise<void> => {
   expect(await freeSoon(h, dataLock(engine)), "the data lock let go of").toBe(true);
-  return { writerFree: await freeSoon(h, engineWriterLock(engine)) };
+  const writer = engineWriterLock(engine);
+  if (writerFree) expect(await freeSoon(h, writer), "the writer lock let go of").toBe(true);
+  else expect(await h.locks.free(writer), "the writer lock kept").toBe(false);
 };
 
 const crashedLogs = (host: RunningHost): string[] =>
@@ -309,7 +329,7 @@ export const crashReleasesLocks = async (h: Harness, runtime: RuntimeBuild): Pro
     expect(await h.locks.free(dataLock(engine)), "the data lock while the host runs").toBe(false);
     expect(await h.locks.free(engineWriterLock(engine)), "the writer lock while the host runs").toBe(false);
     await crashByRelay(h, host);
-    expect(await locksAfter(h, engine), "after the crash").toEqual({ writerFree: true });
+    await locksAfter(h, engine, true);
     expect(crashedLogs(host), "logs").toEqual([]);
   } finally {
     await host.terminate();
@@ -323,7 +343,7 @@ const crashByRelay = async (h: Harness, { client }: RunningHost): Promise<void> 
     } catch {
       break;
     }
-  expect(await client.crashReport(2000), "the crash report").toMatch(/^relay: /);
+  expect(await client.crashReport(CRASH_REPORT_LIMIT_MS), "the crash report").toMatch(/^relay: /);
 };
 
 // Terminates the host, whose Worker ends with it, and with the Worker any
@@ -347,7 +367,7 @@ export const sealThrows = async (h: Harness, runtime: RuntimeBuild): Promise<voi
   });
   try {
     await crashByRelay(h, host);
-    expect(await locksAfter(h, engine), "after the crash").toEqual({ writerFree: false });
+    await locksAfter(h, engine, false);
     expect(crashedLogs(host), "logs").toEqual([
       expect.stringMatching(
         new RegExp(
@@ -369,7 +389,7 @@ export const trapKeepsWriter = async (h: Harness, runtime: RuntimeBuild): Promis
   try {
     await threadCrash(h, host);
     await crashPrinted(h, runtime);
-    expect(await locksAfter(h, engine), "after the crash").toEqual({ writerFree: h.storageMount === "node" });
+    await locksAfter(h, engine, h.storageMount === "node");
   } finally {
     await writerFreedByTerminate(h, host, engine);
   }
@@ -387,7 +407,7 @@ export const failedStartReleasesLocks = async (h: Harness, runtime: RuntimeBuild
       moreSides: [{ name: "trivial-again", bytes: trivial.bytes }],
     }),
   ).rejects.toThrow(`host: Error: load trivial-again: -${errno(h, "EEXIST")}`);
-  expect(await locksAfter(h, engine), "after the failed start").toEqual({ writerFree: true });
+  await locksAfter(h, engine, true);
   await h.printed.take(/ibus-web-WARNING.*Module \/sides\/trivial-again\.wasm can't register add as opcode/, {
     count: 1,
   });

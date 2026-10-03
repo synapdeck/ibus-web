@@ -155,6 +155,22 @@ export interface Harness extends Clock {
   pendingLimitMs: number;
 }
 
+// How long a test build's host waits for a crashed thread's own error
+// before it reports the crash without it, far past the moment the error
+// takes, so that a loaded machine never cuts the report short.
+export const CRASH_WAIT_MS = 10_000;
+
+// A crash report comes within the host's wait for the thread's error, and
+// reaches this thread well within as long again.
+export const CRASH_REPORT_LIMIT_MS = 2 * CRASH_WAIT_MS;
+
+// The configuration a test build's host runs with: the test's own, over
+// the host's defaults but for its wait for a crashed thread's error.
+export const testHostConfig = (options: HostOptions): Partial<HostConfigValues> => ({
+  crashWaitMs: CRASH_WAIT_MS,
+  ...options.config,
+});
+
 declare module "vitest" {
   interface ProvidedContext {
     workerHost: TestData;

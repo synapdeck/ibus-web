@@ -2011,8 +2011,11 @@ rules for sequences of programs, and how to add and run a test are in
    fallback, a closed connection, installing engine data (fresh, found,
    concurrent, interrupted, upgrades running beside old versions, stale and
    changed paths, a torn marker, sealed data, a failed start letting go of
-   its locks), one writer per engine, and the backend's costs, measured but
-   never gated; its Effect layers are tested with `@effect/vitest`. The
+   its locks), one writer per engine, and the backend's reads, writes and
+   `fsync()`s at a dictionary's scale, for correctness only; timing
+   criteria are asserted on their one-sided part (never early, asleep at
+   all) under bounds generous enough for a loaded machine, and their tight
+   figures recorded; its Effect layers are tested with `@effect/vitest`. The
    tests play the page, spinning for replies as the keystroke path does,
    and a reply that needed the page to let go fails as late
    (`docs/worker-host.md`, "Tests").

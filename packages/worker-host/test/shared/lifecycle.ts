@@ -5,7 +5,7 @@
 // runs as released: each against hosts of its own.
 
 import { expect } from "vitest";
-import type { Harness, RuntimeBuild } from "./harness.ts";
+import { CRASH_REPORT_LIMIT_MS, type Harness, type RuntimeBuild } from "./harness.ts";
 import { call32, int32s, opsFrom, stats } from "./scenarios.ts";
 import { HostOp } from "./testing.ts";
 
@@ -65,7 +65,7 @@ export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released =
         failure = error;
       }
     }
-    const report = await host.client.crashReport(2000);
+    const report = await host.client.crashReport(CRASH_REPORT_LIMIT_MS);
     h.record("relay-failure", { answered, report: report ?? "none" });
     // The relay fails on its fourth wait, but waits don't map to requests:
     // changes that land together are forwarded as one wake, a request the

@@ -21,6 +21,7 @@ import {
   hostUrlFor,
   launchingAsAPage,
   startFrom,
+  testHostConfig,
   type Harness,
   type Launch,
   type LaunchedHost,
@@ -88,7 +89,7 @@ export const nodeHarness = async (): Promise<Harness> => {
     const minimum = data.constants.memory.minimum;
     const test: TestInit = {
       mallinfo: data.constants.mallinfo,
-      ...(options.config === undefined ? {} : { config: options.config }),
+      config: testHostConfig(options),
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
       ...options.test,
     };
@@ -168,7 +169,9 @@ export const nodeHarness = async (): Promise<Harness> => {
       rmSync(join(scratch, "engines"), { recursive: true, force: true });
     },
     withoutIndexedDB: {},
-    printed: printedFrom(drain, clock),
+    // The hosts' threads write synchronously into the file drain() reads,
+    // so what they printed is there already.
+    printed: printedFrom(drain, drain, clock),
     record: (name, measurements) => console.log(`${name}: ${JSON.stringify(measurements)}`),
     pendingLimitMs: 10_000,
   };
