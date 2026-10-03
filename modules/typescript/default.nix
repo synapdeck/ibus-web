@@ -190,29 +190,59 @@
         hash = "sha256-5g9FGePWwjfsBCfTugEZToxZEjWRTbEHXGSQw4vRThE=";
       };
 
-      mkWorkspace =
-        name: attrs:
-        pkgs.stdenvNoCC.mkDerivation (
-          {
-            inherit name pnpmDeps;
-            src = lib.fileset.toSource {
-              inherit root;
-              # Every package's tsconfig extends the repository's base.
-              fileset = lib.fileset.unions (
-                workspaceFiles ++ [ (root + "/tsconfig.base.json") ] ++ map packageSources packageDirs
-              );
-            };
-            nativeBuildInputs = [
-              nodejs
-              pnpm
-              pkgs.pnpmConfigHook
-            ];
-            preBuild = assertPlaywrightVersion;
-          }
-          // attrs
-        );
+      # Each package's node_modules, and the root's, installed offline
+      # without the sources.
+      nodeModules = pkgs.stdenvNoCC.mkDerivation {
+        name = "ibus-web-node-modules";
+        inherit pnpmDeps;
+        src = manifests;
+        nativeBuildInputs = [
+          nodejs
+          pnpm
+          pkgs.pnpmConfigHook
+        ];
+        buildPhase = ''
+          runHook preBuild
+          ${assertPlaywrightVersion}
+          runHook postBuild
+        '';
+        # A package with no dependencies has no node_modules.
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out
+          cp -R node_modules $out/
+          for dir in ${lib.escapeShellArgs packageDirs}; do
+            if [ -d "$dir/node_modules" ]; then
+              mkdir -p "$out/$dir"
+              cp -R "$dir/node_modules" "$out/$dir/"
+            fi
+          done
+          runHook postInstall
+        '';
+      };
 
-      workspace = mkWorkspace "ibus-web-typescript" {
+      # The sources with nodeModules laid over them, whose links between
+      # packages and into the root's store are relative, then compiled.
+      workspace = pkgs.stdenvNoCC.mkDerivation {
+        name = "ibus-web-typescript";
+        src = lib.fileset.toSource {
+          inherit root;
+          # Every package's tsconfig extends the repository's base.
+          fileset = lib.fileset.unions (
+            workspaceFiles ++ [ (root + "/tsconfig.base.json") ] ++ map packageSources packageDirs
+          );
+        };
+        nativeBuildInputs = [
+          nodejs
+          pnpm
+        ];
+        configurePhase = ''
+          runHook preConfigure
+          # Modes kept, for the executables; the store's are read-only.
+          cp -R ${nodeModules}/. .
+          chmod -R u+w .
+          runHook postConfigure
+        '';
         buildPhase = ''
           runHook preBuild
           pnpm -r run build
@@ -230,33 +260,10 @@
         '';
       };
 
-      # Each package's node_modules, and the root's, without the sources.
-      nodeModules = pkgs.stdenvNoCC.mkDerivation {
-        name = "ibus-web-node-modules";
-        inherit pnpmDeps;
-        src = manifests;
-        nativeBuildInputs = [
-          nodejs
-          pnpm
-          pkgs.pnpmConfigHook
-        ];
-        dontBuild = true;
-        installPhase = ''
-          runHook preInstall
-          mkdir -p $out
-          cp -R node_modules $out/
-          ${lib.concatMapStrings (dir: ''
-            mkdir -p $out/${dir}
-            cp -R ${dir}/node_modules $out/${dir}/
-          '') packageDirs}
-          runHook postInstall
-        '';
-      };
-
       # The lockfile resolves typescript to one version, whichever packages
       # depend on it.
       tsc = pkgs.runCommand "ibus-web-tsc" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
-        packages=(${workspace}/node_modules/.pnpm/typescript@*/node_modules/typescript)
+        packages=(${nodeModules}/node_modules/.pnpm/typescript@*/node_modules/typescript)
         if [ ''${#packages[@]} -ne 1 ] || [ ! -d "''${packages[0]}" ]; then
           echo "expected one typescript in the workspace, found: ''${packages[*]}" >&2
           exit 1
@@ -268,6 +275,14 @@
       ibusWeb.typescript = {
         nodejs = pkgs.nodejs_24;
         inherit workspace nodeModules tsc;
+        packageNodeModules =
+          dir:
+          let
+            relative = lib.path.removePrefix root dir;
+          in
+          lib.throwIfNot (lib.elem (lib.removePrefix "./" relative) packageDirs)
+            "packageNodeModules: ${relative} isn't a package of the workspace"
+            "${nodeModules}/${relative}/node_modules";
         assertDependency = ./assert-dependency.ts;
       };
 

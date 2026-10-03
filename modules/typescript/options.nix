@@ -26,6 +26,10 @@
           build that shouldn't follow every change to the workspace's sources.
         '';
       };
+      packageNodeModules = lib.mkOption {
+        type = lib.types.functionTo lib.types.str;
+        description = "Given a workspace package's directory, as a path, its node_modules in nodeModules.";
+      };
       workspace = lib.mkOption {
         type = lib.types.package;
         description = ''
