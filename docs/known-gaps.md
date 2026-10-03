@@ -26,8 +26,6 @@ An item leaves this page when it is fixed or decided.
 - **Probe and cache link flags are spelled twice** in `modules/toolchain/cache.nix` (`-sMAIN_MODULE`,
   `-sPTHREAD_POOL_SIZE`, `-sEXIT_RUNTIME` in the probe links and in the cache's own list).
 - **The side-module library guard sees only `-l` flags**, and would refuse a shared `-lm` too.
-- **`imported-memory-maximum-<n>` derivations** in `checks.emscripten-fixes` lack the `ibus-web-` prefix
-  every other derivation has.
 - **The dev shell's `.emcache` is never refreshed.** It is copied from the frozen cache only when it doesn't
   exist, so it goes stale when the cache changes; delete it to reseed.
 - **Thread fixes not proven red in our checks.** The fix checks for patches 0014, 0015 and 0018 keep the

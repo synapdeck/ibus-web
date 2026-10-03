@@ -84,7 +84,7 @@
           name = "imported-memory-maximum-${toString mib}";
           module = importedMemoryModule;
         in
-        pkgs.runCommand name
+        pkgs.runCommand "ibus-web-${name}"
           {
             passthru.testProgram = {
               inherit name;
