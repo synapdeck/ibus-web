@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# Copied from the repository's LICENSES/ while the package is packed.
+# Copied from the repository root while the package is packed.
 /LICENSE-MIT
 /LICENSE-APACHE
