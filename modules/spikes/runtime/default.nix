@@ -20,7 +20,7 @@
             { name, source }:
             runtime.mkSideModule {
               inherit name;
-              src = ../../../tests/spikes/runtime/sides;
+              src = ../../../packages/worker-host/test/sides;
               sources = [ source ];
             }
           )
@@ -67,7 +67,7 @@
       # WebAssembly target defines them, and the runtime's memory bounds.
       constants = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-runtime-spike-constants";
-        src = ../../../tests/spikes/runtime/sides;
+        src = ../../../packages/worker-host/test/sides;
         nativeBuildInputs = [
           pkgsWasm.pkg-config
           typescript.nodejs
@@ -141,11 +141,6 @@
       browserTimeout = "timeout --kill-after=10 900";
     in
     {
-      # The IndexedDB backend's header comes with no pkg-config module.
-      ibusWeb.toolchain.clangdPathFlags."tests/spikes/runtime/sides/constants\\.c" = [
-        "-I${runtime.wasmfsIdb}/include"
-      ];
-
       # The asserting runtime loads every spike side module and runs each
       # operation once.
       checks.runtime-spike-smoke =
