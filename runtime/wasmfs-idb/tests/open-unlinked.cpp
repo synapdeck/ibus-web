@@ -1,27 +1,27 @@
-/* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
- * SPDX-License-Identifier: MIT OR Apache-2.0 */
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
-/* An open that resolved a file before another thread unlinked it, and
- * reaches the backend after: WasmFS's open looks the name up under the
- * parent's lock, drops it, and only then opens the file. Looking the file up
- * through WasmFS's own paths and opening it after the unlink replays that
- * order deterministically. The open must fail as if it came after the
- * unlink, rather than hand out a descriptor whose every read finds nothing. */
+// An open that resolved a file before another thread unlinked it, and
+// reaches the backend after: WasmFS's open looks the name up under the
+// parent's lock, drops it, and only then opens the file. Looking the file up
+// through WasmFS's own paths and opening it after the unlink replays that
+// order deterministically. The open must fail as if it came after the
+// unlink, rather than hand out a descriptor whose every read finds nothing.
 
-#include <cerrno>
-#include <fcntl.h>
 #include <memory>
-#include <unistd.h>
 
 #include "file.h"
 #include "paths.h"
 
 #include "idb-test.h"
 
-#define DATABASE "ibus-web-test-open-unlinked"
-#define MOUNT "/race"
+using idb_test::errno_text;
+using idb_test::read_file;
+using idb_test::write_file;
 
-static std::shared_ptr<wasmfs::DataFile> resolve(const char *path) {
+namespace {
+
+std::shared_ptr<wasmfs::DataFile> resolve(const std::string &path) {
   auto parsed = wasmfs::path::parseFile(path);
   if (parsed.getError()) {
     return nullptr;
@@ -29,36 +29,37 @@ static std::shared_ptr<wasmfs::DataFile> resolve(const char *path) {
   return parsed.getFile()->dynCast<wasmfs::DataFile>();
 }
 
-static void run_test(const struct idb_test_layout *layout) {
-  CHECK(layout->inodes == 1);
+class OpenUnlinked : public idb_test::IdbTest {};
 
-  write_file(MOUNT "/unlinked", 0644, "unlinked");
-  auto file = resolve(MOUNT "/unlinked");
-  CHECK(file);
-  CHECK(unlink(MOUNT "/unlinked") == 0);
-  if (file) {
-    CHECK(file->locked().open(O_RDONLY) == -ENOENT);
-  }
+} // namespace
 
-  write_file(MOUNT "/replaced", 0644, "replaced");
-  write_file(MOUNT "/replacement", 0644, "replacement");
-  file = resolve(MOUNT "/replaced");
-  CHECK(file);
-  CHECK(rename(MOUNT "/replacement", MOUNT "/replaced") == 0);
-  if (file) {
-    CHECK(file->locked().open(O_RDONLY) == -ENOENT);
-  }
-  check_contents(MOUNT "/replaced", "replacement");
-
-  /* A file the open finds still there opens as usual. */
-  file = resolve(MOUNT "/replaced");
-  CHECK(file);
-  if (file) {
-    CHECK(file->locked().open(O_RDONLY) == 0);
-    CHECK(file->locked().close() == 0);
-  }
-
-  finish_test("open-unlinked");
+TEST_F(OpenUnlinked, OpenAfterUnlinkFails) {
+  write_file(path("unlinked"), 0644, "unlinked");
+  auto file = resolve(path("unlinked"));
+  ASSERT_TRUE(file);
+  EXPECT_EQ(unlink(path("unlinked").c_str()), 0) << errno_text();
+  EXPECT_EQ(file->locked().open(O_RDONLY), -ENOENT);
 }
 
-int main() { start_test(DATABASE, MOUNT); }
+TEST_F(OpenUnlinked, OpenAfterRenameOverFails) {
+  write_file(path("replaced"), 0644, "replaced");
+  write_file(path("replacement"), 0644, "replacement");
+  auto file = resolve(path("replaced"));
+  ASSERT_TRUE(file);
+  EXPECT_EQ(rename(path("replacement").c_str(), path("replaced").c_str()), 0)
+      << errno_text();
+  EXPECT_EQ(file->locked().open(O_RDONLY), -ENOENT);
+  EXPECT_EQ(read_file(path("replaced")), "replacement");
+}
+
+// A file the open finds still there opens as usual.
+TEST_F(OpenUnlinked, OpenOfALinkedFileWorks) {
+  write_file(path("replaced"), 0644, "replaced");
+  write_file(path("replacement"), 0644, "replacement");
+  EXPECT_EQ(rename(path("replacement").c_str(), path("replaced").c_str()), 0)
+      << errno_text();
+  auto file = resolve(path("replaced"));
+  ASSERT_TRUE(file);
+  EXPECT_EQ(file->locked().open(O_RDONLY), 0);
+  EXPECT_EQ(file->locked().close(), 0);
+}

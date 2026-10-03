@@ -53,9 +53,8 @@
           "-std=c++17"
           cflags
         ];
-        # Tests in C++ reach into WasmFS's internals; those in C can't take
-        # a C++ standard.
-        "runtime/wasmfs-idb/tests/.*\\.cpp" = [
+        # Some tests reach into WasmFS's internals.
+        "runtime/wasmfs-idb/tests/.*\\.(cpp|h)" = [
           "-std=c++17"
           cflags
         ];
