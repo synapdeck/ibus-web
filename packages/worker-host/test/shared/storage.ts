@@ -173,18 +173,25 @@ export const storageClosed = async (h: Harness, { client, messages }: RunningHos
 const readOnlyOf = (host: RunningHost): boolean =>
   storageEvents(host.messages).some(({ state }) => state === "read-only");
 
-// Of two hosts started at once on one engine, exactly one takes the
-// engine's writer lock and mounts its user data read-write; the other
+// Of two hosts started on one engine, at once unless together is false,
+// exactly one takes the engine's writer lock and mounts its user data read-write; the other
 // reports storage: read-only, and with IndexedDB its writes fail with
 // EROFS, while it reads what the writer wrote. Once the writer's Worker is
 // terminated, a host started next, as a page starts it, takes the lock and
 // writes. The Node backend has no read-only mode, so under Node only the
 // lock and the report tell the hosts apart.
-export const writerLock = async (h: Harness, runtime: RuntimeBuild, engine: EngineManifest): Promise<void> => {
+export const writerLock = async (
+  h: Harness,
+  runtime: RuntimeBuild,
+  engine: EngineManifest,
+  together = true,
+): Promise<void> => {
   const dir = engineDir(engine);
   const enforced = h.storageMount === "indexeddb";
   const refused = -errno(h, "EROFS");
-  const hosts = await Promise.all([storedHost(h, runtime, engine), storedHost(h, runtime, engine)]);
+  const hosts = together
+    ? await Promise.all([storedHost(h, runtime, engine), storedHost(h, runtime, engine)])
+    : [await storedHost(h, runtime, engine), await storedHost(h, runtime, engine)];
   let next: RunningHost | undefined;
   try {
     const readOnly = hosts.map(readOnlyOf);

@@ -44,7 +44,6 @@ import {
 import {
   dataReadOnly,
   failedInstallReleasesLocks,
-  installConcurrent,
   installedInMemory,
   installFresh,
   installInterrupted,
@@ -164,7 +163,8 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
       },
       { storage: { kind: "browser" }, test: h.withoutIndexedDB },
     ));
-  test("writer-lock", () => writerLock(h, runtime, engineFor(h, "writer-lock", runtime)));
+  // Node's Web Locks can grant an exclusive lock twice, so hosts sharing storage start one at a time.
+  test("writer-lock", () => writerLock(h, runtime, engineFor(h, "writer-lock", runtime), false));
   test("a crash with the runtime intact seals the user data and lets go of every lock", () =>
     crashReleasesLocks(h, runtime));
   test("a trap lets go of every lock but a sealable backend's writer lock, until the Worker ends", () =>
@@ -172,10 +172,10 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
   test("a failed start seals the user data and lets go of every lock", () => failedStartReleasesLocks(h, runtime));
 });
 
+// Node's Web Locks can grant an exclusive lock twice, so install-concurrent runs only in browsers.
 describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => {
   test("install-fresh", () => installFresh(h, runtime));
   test("install-skip", () => installSkip(h, runtime));
-  test("install-concurrent", () => installConcurrent(h, runtime));
   test("install-interrupted", () => installInterrupted(h, runtime));
   test("install-interrupted-queued", () => installInterruptedQueued(h, runtime));
   test("install-interrupted-stray", () => installInterruptedStray(h, runtime));

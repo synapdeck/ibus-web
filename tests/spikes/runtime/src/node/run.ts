@@ -237,7 +237,11 @@ try {
       };
     },
   };
-  const installResults = await runInstallScenarios(installs);
+  // Node's Web Locks can grant an exclusive lock twice, so scenarios that start hosts together expecting exclusion run only in browsers.
+  const nodeInstallScenarios = installScenarios.filter(
+    ({ name }) => name !== "install-concurrent" && name !== "writer-lock",
+  );
+  const installResults = await runInstallScenarios(installs, nodeInstallScenarios);
   for (const line of reportLines(
     "install: hosts sharing an engine's directory, each scenario its own",
     0,
@@ -245,7 +249,7 @@ try {
     [],
   ))
     console.log(line);
-  failed ||= !passed(installResults, installScenarios.length);
+  failed ||= !passed(installResults, nodeInstallScenarios.length);
 
   // A size that isn't whole pages and one below the least the runtime takes.
   console.log("memory the runtime can't take:");

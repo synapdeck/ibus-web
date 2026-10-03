@@ -1025,9 +1025,12 @@ its own loggers with engine and domain annotations (§7.4).
   over it, with the directory synced after; one that doesn't parse counts
   as absent, and removal deletes the marker first. The host takes the same
   locks and reports the same states, but the Node backend has no read-only
-  mode, so neither a read-only mount nor a seal refuses writes there, and
-  Web Locks coordinate the threads of one Node process only: two processes
-  sharing a directory are not coordinated.
+  mode, so neither a read-only mount nor a seal refuses writes there. Node
+  hosts are for tests. Web Locks coordinate the threads of one Node process
+  only, so two processes sharing a directory are not coordinated, and not
+  reliably even those threads: Node can grant one exclusive lock to two
+  `worker_threads` at once (`docs/upstream/node-web-locks-worker-threads.md`).
+  Node hosts sharing a directory must therefore not be started concurrently.
 - **Host API.** Usage report, export (a tar of the engine directory) and reset.
 
 ## 6. The Worker-boundary protocol
