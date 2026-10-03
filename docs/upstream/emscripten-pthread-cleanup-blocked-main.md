@@ -1,5 +1,32 @@
 # pthreads: a blocked main thread never reclaims detached threads
 
+**Issue posted; the PR is still to post.** The issue body below went up as
+[#27840](https://github.com/emscripten-core/emscripten/issues/27840)
+(2026-10-01, no replies yet). Post the two commits under "Suggested fix" as
+one PR with the tests from
+`emscripten-pthread-cleanup-blocked-main.tests.patch`, saying "Fixes:
+#27840" and linking #27841/#27846 (patch 0015), which this change makes
+easier to hit.
+
+Checked against `main` 5977ecc (2026-10-02): the cleanup path is unchanged,
+and 0014 applies there alone with offsets only (-2 and -3 lines; with 0015 on
+top too). `main` moved `emscripten_futex_wait.c` (#27760: a notified wait
+now returns `0`, not `-EINTR`), so the line links below are 6.0.9's. Run with
+Emscripten's runner on `main`, emsdk's toolchain for it
+(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133)
+and Node 24.21.0 (logs: `task14-upstream-main-{unpatched,0014,stack}.log`):
+
+| Tree                                | `cleanup_blocked_main` | `dlsync_freed` | `dlsync_held` |
+| ----------------------------------- | ---------------------- | -------------- | ------------- |
+| `main`                              | FAIL                   | FAIL           | FAIL          |
+| `main` + 0014                       | ok                     | ok             | ok            |
+| `main` + 0002–0019 (not 0004, 0016) | ok                     | ok             | ok            |
+
+(`other.test_pthread_cleanup_blocked_main`, `core2.test_pthread_dlsync_*`;
+`main` already has 0001's, 0004's and 0016's changes.)
+With 0014 alone, 0015's `core2.test_pthread_dlsync_reused` fails ("table
+index is out of bounds"), as expected.
+
 **Draft: new issue, with a PR.** #16763 reported the symptom in 2022 and
 was closed by its reporter after the workarounds in the thread; no change
 followed. This draft asks for the fix itself and offers one.
@@ -1064,9 +1091,10 @@ diff --git a/test/test_core.py b/test/test_core.py
   message is gone; nothing else read it.
 - **Side effects to mention in the PR.**
   - Each unjoined exit now also notifies the main thread, so a main thread in
-    `emscripten_futex_wait()` returns early (`-EINTR`) once per such exit, as
-    it already does whenever work is proxied to it. Callers loop on spurious
-    wakeups anyway.
+    `emscripten_futex_wait()` returns early once per such exit, as it
+    already does whenever work is proxied to it: `-EINTR` on 6.0.9, `0` on
+    `main` since #27760 ("Explicitly allow spurious wakeups in
+    emscripten_futex_wait"). Callers loop on spurious wakeups anyway.
   - The cleanup can now run inside any blocking call on the main thread,
     as a proxied call can, and `returnWorkerToPool()` already defers its
     `free()` to the end for that reason. Unlike a proxied call, though, it

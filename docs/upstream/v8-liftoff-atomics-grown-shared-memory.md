@@ -17,6 +17,12 @@ branch by two CLs:
   `refs/heads/main@{#110205}`, merged 2026-09-30): growth updates that length
   with `seq_cst` ordering.
 
+Checked 2026-10-02: Gerrit still lists both Change-Ids on `main` only (no
+cherry-pick to `refs/branch-heads/15.6`, whose newest CLs are 15.6.75.x
+merges) and no revert; no nodejs/node pull request names either CL. Both
+issues are public (they load without signing in). Nothing to post: V8 has
+the bug and the fix; the comment below stays optional.
+
 ## Where the fix lands
 
 - **Chrome 157.** `include/v8-version.h` reads 15.7.0 at both commits, so
@@ -40,11 +46,10 @@ branch by two CLs:
 
 ## Our reproduction
 
-No Emscripten: a hand-assembled module over an imported shared memory
-(`tests/spikes/memory/growrace.mjs`, readers in `growrace-worker.mjs`, run by
-`growrace-node.mjs` under Node or Bun and `growrace.html` in a browser;
-`nix run .#runtime-spike-memory -- growrace` runs the matrix below). The page,
-or Node's main thread, grows the memory a page at a time, 8192 times, and
+No Emscripten: a hand-assembled module over an imported shared memory, run
+under Node or Bun and in a browser page (the M0 memory spike's `growrace`,
+since removed from the tree; posting it means writing it out again from
+this description). The page, or Node's main thread, grows the memory a page at a time, 8192 times, and
 after each growth `Atomics.store`s at address 0 the address of the last word
 of the new page. Sixteen reader Workers spin in WebAssembly on
 `i32.atomic.load` of address 0 and increment each new address they see. A
@@ -83,7 +88,7 @@ the cached length and interrupt that 8466625 removes. In the control the
 grower publishes faster than readers follow (about a tenth as many
 increments), but there no access can be out of bounds at all.
 
-The same program in C through Emscripten's pthreads (`growrace.c`, 8 readers,
+The same program in C through Emscripten's pthreads (8 readers,
 8192 pages, `-sALLOW_MEMORY_GROWTH`) trapped in 5 of 5 runs under Node.
 Through Emscripten's runtime it shows as rare thread deaths, all under
 Node, at whatever atomic access a thread makes to memory grown since its last

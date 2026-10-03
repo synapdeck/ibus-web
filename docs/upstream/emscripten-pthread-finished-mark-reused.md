@@ -1,5 +1,21 @@
 # pthreads + dynamic linking: a late "finished" mark makes dlopen() skip a running thread
 
+**Posted: don't post again.** Filed as
+[#27841](https://github.com/emscripten-core/emscripten/issues/27841)
+(2026-10-01), with the fix and its test as PR
+[#27846](https://github.com/emscripten-core/emscripten/pull/27846) ("[pthread]
+Don't let a stale "finished" message mark a reused thread in dlopen sync",
+open, no review yet).
+
+Checked against `main` 5977ecc (2026-10-02): the message handler,
+`markAsFinished()`, `cleanupThread()` and the dlsync loops are unchanged, and
+0015 applies there alone with offsets only. With Emscripten's runner, emsdk's
+toolchain for `main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git
+d3e9891b, Binaryen 133) and Node 24.21.0,
+`core2.test_pthread_dlsync_reused` fails on `main` ("table index is out of
+bounds") and on `main` with 0014 alone, and passes on `main` with 0015 alone
+and with the whole stack (logs: `task14-upstream-main-*.log`).
+
 **Draft: new issue, with a PR.** Separate from
 `emscripten-pthread-cleanup-blocked-main.md` on purpose: this bug is in stock
 6.0.9 with nothing else applied, the fix is 15 lines and applies to `main`

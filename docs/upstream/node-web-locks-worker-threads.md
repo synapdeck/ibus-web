@@ -1,7 +1,18 @@
 # Node: Web Locks grant one exclusive lock to two worker_threads at once
 
-**Draft: new issue, for the user to file.** We found no existing report. Node's
-`navigator.locks` is shared by every thread of a process. When two
+**Draft: new issue, for the user to file.** Not posted. We found no existing
+report: on 2026-10-02, `gh search issues --repo nodejs/node` for "web locks",
+"navigator.locks", "LockManager", "locks worker_threads", "locks.request",
+"node_locks", "exclusive lock worker", "lock granted worker_threads", "locks
+race" and "steal lock" (and `gh search prs` for "web locks", "LockManager",
+"locks") turned up only #59142 (a flaky WPT test, closed), #62644 ("locks.request
+live lock", closed) and its fix #65520 ("src: fix live lock between
+environments with blocked requests", merged 2026-09-02, in 26.9.0), which
+changes which environments `ProcessQueue()` wakes, not which requests it
+grants. Rerun the same day, the double grant is still there on Node 26.10.0,
+which has #65520 (table below).
+
+Node's `navigator.locks` is shared by every thread of a process. When two
 `worker_threads` request the same exclusive lock at the same moment, both
 are sometimes granted it, and each callback runs while the other still holds
 the lock. This happens with `ifAvailable: true` and with ordinary queued
@@ -16,8 +27,7 @@ Web Locks: an exclusive lock is sometimes granted to two worker_threads at once
 
 ---
 
-**Version:** v24.21.0 and v24.20.0, x86_64 Linux. We have not tried other
-lines.
+**Version:** v26.10.0, v24.21.0 and v24.20.0, x86_64 Linux.
 
 **Platform:** Linux 6.18 x86_64.
 
@@ -89,6 +99,8 @@ It reproduces in a few percent of rounds. Each figure is double grants in
 | 24.21.0 | `queued.mjs`                        | 8             |
 | 24.21.0 | independent runs of the same race   | 9, 4          |
 | 24.20.0 | an independent run of the same race | 11            |
+| 26.10.0 | `ifavailable.mjs`                   | 9             |
+| 26.10.0 | `queued.mjs`                        | 11            |
 
 Both requests have to come from different threads at nearly the same time.
 

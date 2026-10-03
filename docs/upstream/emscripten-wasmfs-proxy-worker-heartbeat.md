@@ -1,6 +1,23 @@
 # WasmFS: a destroyed ProxyWorker's heartbeat keeps running its freed queue
 
-**Draft: new issue, with a PR.** Not posted.
+**Issue posted; the PR is still to post.** The issue went up as
+[#27858](https://github.com/emscripten-core/emscripten/issues/27858)
+(2026-10-02, no replies yet). Post the fix (patch 0018) as a PR with
+`other.test_wasmfs_proxy_worker_exit` from
+`emscripten-wasmfs-proxy-worker-heartbeat.tests.patch`, saying "Fixes:
+#27858".
+
+Checked against `main` 5977ecc (2026-10-02): `thread_utils.h` and the
+heartbeat are unchanged, and 0018 applies there alone with offsets only (-5
+and -23 lines). With Emscripten's runner, emsdk's toolchain for `main`
+(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133)
+and Node 24.21.0, `other.test_wasmfs_proxy_worker_exit` fails on `main`
+(`Assertion failed: pthread_self()` in `emscripten_proxy_execute_queue`) and
+passes on `main` with 0018 alone and with the whole stack;
+`other.test_gen_sig_info` passes with 0018 (logs:
+`task14-upstream-main-{unpatched,0018,stack}.log`).
+
+**Draft: new issue, with a PR.**
 
 ## Issue title
 

@@ -1,5 +1,19 @@
 # WasmFS Node backend: `chmod()` (and `utimensat()`) never reach the host
 
+**Posted: don't post again.** Filed as
+[#27823](https://github.com/emscripten-core/emscripten/issues/27823)
+(2026-10-01, no replies yet). The `futimens()` fix at its end (patch 0008) is
+PR [#27845](https://github.com/emscripten-core/emscripten/pull/27845),
+approved by sbc100 on 2026-10-01 and not merged yet. The chmod/utimensat fix
+itself (0013) can follow as a PR once #27825's and #27832's are in, since it
+builds on 0010 and 0012.
+
+Checked against `main` 5977ecc (2026-10-02): the Node backend is unchanged
+since 6.0.9; `utimensat()`'s timestamp conversion was reworked (#27786,
+#27794), not its effect on the host. 0008 applies alone exactly; 0013
+applies after 0002–0012 (not 0004) with 5-line offsets and not alone (it
+needs 0009's `libsigs.js` lines).
+
 **Draft: new issue.** No existing issue covers it.
 
 ## Issue title

@@ -1,5 +1,12 @@
 # WasmFS: `open(O_CREAT)` ignores the parent directory's write permission
 
+**Posted: don't post again.** The comment below went on #18033 on
+2026-10-01; no reply yet. Its suggested fix (patch 0007) can follow as a PR
+once a maintainer answers.
+
+Checked against `main` 5977ecc (2026-10-02): `doOpen()`'s create path still
+skips the parent's write check, and 0007 applies there with a 2-line offset.
+
 **Draft: do not post as a new issue.** This is already reported as
 [#18033](https://github.com/emscripten-core/emscripten/issues/18033) ("WasmFS: A
 file can be created in a read-only directory", open since 2022; one maintainer

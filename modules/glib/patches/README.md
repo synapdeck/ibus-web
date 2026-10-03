@@ -739,8 +739,8 @@ shut down at exit. It is Emscripten's diagnostic, not a GLib failure.
 
 ## 0017: the wake hook
 
-The runtime's Worker host sleeps in `Atomics.wait()` on a word of its own
-between non-blocking iterations of the default context, so it neither
+The runtime's Worker host sleeps in `ibusweb_wait()`, a futex wait on a
+word of its own, between non-blocking iterations of the default context, so it neither
 waits on the context's futex nor polls a wakeup fd. 0017 lets it hear the
 wakeup anyway:
 

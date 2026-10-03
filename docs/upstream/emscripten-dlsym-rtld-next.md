@@ -1,5 +1,16 @@
 # `dlsym(RTLD_NEXT, …)` aborts in dynamic-linking builds
 
+**Posted: don't post again.** Filed as
+[#27830](https://github.com/emscripten-core/emscripten/issues/27830)
+(2026-10-01); the fix is PR
+[#27838](https://github.com/emscripten-core/emscripten/pull/27838) ("[dylink]
+Fail dlsym(RTLD_NEXT) cleanly rather than aborting"), approved by sbc100 on
+2026-10-01 and not merged yet. ibus-web carries no patch for it.
+
+Checked against `main` 5977ecc (2026-10-02): `__dlsym` in `dynlink.c` and
+`_dlsym_js`'s assertion are unchanged since 6.0.9, so the abort stands until
+#27838 lands.
+
 **Draft: new issue, reframed.** The bug we found, "`HAVE_RTLD_NEXT` is detected
 but `dlsym(RTLD_NEXT, …)` returns NULL in static links", is **not** filed:
 

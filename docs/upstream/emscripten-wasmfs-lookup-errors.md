@@ -1,5 +1,21 @@
 # WasmFS: backend failures to look up a file are reported as `ENOENT`
 
+**Still to post.** The create-`EIO` report went up as
+[#27832](https://github.com/emscripten-core/emscripten/issues/27832)
+(2026-10-01) without the symlink and lookup halves, so post this as its own
+issue citing #27832, after the symlink report; its PR goes on top of theirs.
+No issue or PR filed since covers it (searches for "wasmfs getChild",
+"wasmfs lookup ENOENT", "wasmfs EACCES", "wasmfs ENOENT", 2026-10-02).
+
+Checked against `main` 5977ecc (2026-10-02): `getChild()` still returns a
+bare `std::shared_ptr`, and 0019 applies on `main` after 0002–0018 (not
+0004, 0016) with offsets only (+2 lines); it doesn't apply alone, since it
+builds on 0012 and 0017. With Emscripten's runner, emsdk's toolchain for
+`main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b,
+Binaryen 133) and Node 24.21.0, `other.test_wasmfs_node_lookup_errors` fails
+on `main` (`No such file or directory` for both calls) and passes with that
+stack (logs: `task14-upstream-main-{unpatched,stack}.log`).
+
 **Draft: new issue, with a PR.** No existing issue covers it. It is the
 lookup half of the reports on `EIO` from failed creates
 (`emscripten-wasmfs-node-create-eio.md`) and `EPERM` from failed symlinks

@@ -1,5 +1,13 @@
 # WasmFS: `poll()` reports empty regular files and devices as not readable
 
+**Posted: don't post again.** Filed as
+[#27828](https://github.com/emscripten-core/emscripten/issues/27828)
+(2026-10-01, no replies yet). The fix (0003) can follow as a PR.
+
+Checked against `main` 5977ecc (2026-10-02): `__syscall_poll` still sets
+`POLLIN` on a data file only for a non-zero size, and 0003 applies there
+alone with a 17-line offset (#27815 added lines above it).
+
 **Draft: new issue.** No existing issue covers it. #20615 ("WasmFS: real
 poll/select support") and #26736 ("WASMFS missing support for blocking
 select/poll") are about blocking and timeouts, not readiness.

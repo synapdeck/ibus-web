@@ -1,5 +1,14 @@
 # WasmFS: `open()` with `O_NOCTTY` aborts on an assertion in `doOpen`
 
+**Posted: don't post again.** Filed as
+[#27826](https://github.com/emscripten-core/emscripten/issues/27826)
+(2026-10-01), with a fix and test as PR
+[#27843](https://github.com/emscripten-core/emscripten/pull/27843) ("[WasmFS]
+Accept O_NOCTTY, O_SYNC and O_DSYNC in open()", open, no review yet).
+
+Checked against `main` 5977ecc (2026-10-02): `doOpen()`'s flag assertion is
+unchanged, and 0005 applies there with a 2-line offset.
+
 **Draft: new issue.** No existing issue covers the WasmFS side.
 [#11927](https://github.com/emscripten-core/emscripten/issues/11927) ("NODEFS.flagsForNode
 does not support O_NOCTTY", closed 2020) was the same flag in the legacy NODEFS,

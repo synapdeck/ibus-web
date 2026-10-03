@@ -1,5 +1,16 @@
 # WasmFS: backend failures to create a file or directory are reported as `EIO`
 
+**Posted: don't post again.** Filed as
+[#27832](https://github.com/emscripten-core/emscripten/issues/27832)
+(2026-10-01, no replies yet), without the symlink and lookup halves, which
+are still to post (`emscripten-wasmfs-symlink-errors.md`,
+`emscripten-wasmfs-lookup-errors.md`). The fix (0012) can follow as a PR
+after #27825's, since it builds on 0010.
+
+Checked against `main` 5977ecc (2026-10-02): the `EIO` TODOs in `doOpen()`
+and `doMkdir()` and the Node backend's inserts are unchanged; 0012 applies
+on `main` after 0007 and 0010 with 2-line offsets, and not alone.
+
 **Draft: new issue (low priority).** No existing issue covers it. The source
 already admits the gap with a TODO at each site, so this is more a request to
 track it than a bug report. Consider skipping it, or filing it only together

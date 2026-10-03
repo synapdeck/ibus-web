@@ -1,5 +1,25 @@
 # MAXIMUM_MEMORY is ignored for an imported memory without growth
 
+**Done upstream: don't post.** Filed as
+[#27859](https://github.com/emscripten-core/emscripten/issues/27859) and
+fixed by [#27862](https://github.com/emscripten-core/emscripten/pull/27862)
+("Honor MAXIMUM_MEMORY for an imported memory without growth", merged
+2026-10-02 as 994494bf2). Its `tools/link.py` and `tools/building.py` hunks
+are 0016's; the settings text is reworded (the module takes the embedder's
+word that the memory isn't grown from outside), and its test is one more
+line in `other.test_bad_memory_size` instead of the test below. It landed
+after 6.0.11 (a0014542110d, marked released 2026-10-02), so the first
+release with it is 6.0.12; drop 0016 then.
+
+Checked against `main` 5977ecc (2026-10-02), with emsdk's toolchain for it
+(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133)
+and Node 24.21.0: `other.test_imported_memory_maximum_no_growth` from
+`emscripten-imported-memory-maximum.tests.patch` (applied with `-C1`, since
+#27862 changed the lines around it) passes on `main`, and fails with
+#27862's `tools/` hunks reverted (the `-Werror` warning);
+`other.test_bad_memory_size` passes. 0016 itself no longer applies to
+`main`.
+
 **Draft: new issue, with a PR.** No existing issue asks for it. The
 nearest is #25905 ("ios 26.2 shared memory issues", open), where the
 workaround offered for a growth bug in WebKit is to turn growth off and

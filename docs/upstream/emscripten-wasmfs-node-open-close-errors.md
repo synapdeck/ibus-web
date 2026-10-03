@@ -1,5 +1,17 @@
 # WasmFS Node backend: a failed host `open` becomes a file descriptor; `close` errors trip an assertion
 
+**Posted: don't post again.** Filed as
+[#27825](https://github.com/emscripten-core/emscripten/issues/27825)
+(2026-10-01, no replies yet). A related report filed the same day,
+[#27847](https://github.com/emscripten-core/emscripten/issues/27847) ("Node
+backend can't open a write-only (0200) file for writing"), cites it; no
+draft here covers that one, and no patch fixes it. The fix (0010) can
+follow as a PR; the create-`EIO` (0012) and chmod (0013) fixes build on it.
+
+Checked against `main` 5977ecc (2026-10-02): `NodeState::open` and
+`NodeState::close` are unchanged since 6.0.9, and 0010 applies there alone
+with offsets only.
+
 **Draft: new issue.** No existing issue covers it. #26598 (merged) fixed the
 same sign mix-up for `insertMove`.
 

@@ -12,6 +12,11 @@ on every file system. **It's fixed in 6.0.10** (tagged 2026-09-18), whose
 packaged by nixpkgs predates the fix. Nothing needs to go upstream. When nixpkgs
 moves to 6.0.10 or later, re-run the reproduction below to confirm.
 
+Checked against `main` 5977ecc (2026-10-02): patch 0001 reverse-applies
+cleanly there (`git apply -R --check`), so `main` has the same
+`libnoderawfs.js` change and nothing more is needed. Keep 0001 until nixpkgs
+packages 6.0.10 or later.
+
 The rest of this file records what we saw, so the check is quick.
 
 ## Reproduction (6.0.9)

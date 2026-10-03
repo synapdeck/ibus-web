@@ -1,5 +1,15 @@
 # Pipes have no capacity: a non-blocking writer never sees `EAGAIN`
 
+**Posted: don't post again.** Filed as
+[#27831](https://github.com/emscripten-core/emscripten/issues/27831)
+(2026-10-01, no replies yet). ibus-web doesn't carry a fix, by decision.
+
+Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged
+since 6.0.9 and `pipe_backend.h` still queues without limit (its only change
+is #27842's `S_IFIFO`), so the report stands. #27815 lets WasmFS's `pipe2()`
+take `O_NONBLOCK`, which makes a non-blocking pipe easier to get but adds no
+capacity.
+
 **Draft: new issue (judgement call).** No existing issue covers it. Unbounded
 pipes look partly deliberate. `pipe_backend.h` has "TODO: Consider switching to
 a ring buffer … if we don't need unbounded pipes", and Emscripten pipes can't

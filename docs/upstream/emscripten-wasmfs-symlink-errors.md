@@ -1,5 +1,18 @@
 # WasmFS: backend failures to create a symlink are reported as `EPERM`
 
+**Still to post.** The create-`EIO` report went up as
+[#27832](https://github.com/emscripten-core/emscripten/issues/27832)
+(2026-10-01) without this half, so post this as its own issue citing #27832
+(or as a comment there); the lookup report follows it. No issue or PR filed
+since covers it (searches for "wasmfs symlink EPERM", "symlinkat EPERM",
+"insertSymlink", 2026-10-02).
+
+Checked against `main` 5977ecc (2026-10-02): `__syscall_symlinkat` still
+turns any null from `insertSymlink()` into `EPERM`, and 0017 applies on
+`main` after 0002–0016 (not 0004, 0016) with a 2-line offset; alone it
+doesn't, since it builds on 0012. The draft has no suite-format test, so
+nothing was run for it on `main`.
+
 **Draft: new issue (low priority).** No existing issue covers it. It is the
 symlink half of the report on `EIO` from failed creates
 (`emscripten-wasmfs-node-create-eio.md`) and its fix builds on that one's;

@@ -1,5 +1,13 @@
 # WasmFS: directory search (execute) permission is never checked
 
+**Posted: don't post again.** Filed as
+[#27829](https://github.com/emscripten-core/emscripten/issues/27829)
+(2026-10-01, no replies yet). The fix (0006) can follow as a PR.
+
+Checked against `main` 5977ecc (2026-10-02): path lookup and `chdir()` still
+check no search permission, and 0006 applies there alone with a 2-line
+offset.
+
 **Draft: new issue.** No existing issue covers it. The closest is #18033 (a file
 can be created in a read-only directory; see the companion draft
 `emscripten-wasmfs-create-permission.md`). There a maintainer noted "the

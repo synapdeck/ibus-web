@@ -1,5 +1,12 @@
 # WasmFS: `getcwd()` drops the name of a mount point in a memory directory
 
+**Posted: don't post again.** The comment below went on #18112 on
+2026-10-01, with a pointer to it on #23756 the same day; no replies yet, and
+#23756 is still open and unmerged.
+
+Checked against `main` 5977ecc (2026-10-02): the code is unchanged, and 0002
+applies there exactly.
+
 **Draft: do not post as a new issue.** This is already reported as
 [#18112](https://github.com/emscripten-core/emscripten/issues/18112) ("WasmFS:
 Current directory ignores custom backend", open since 2022). A fix is open as

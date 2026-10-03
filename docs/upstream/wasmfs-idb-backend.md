@@ -1,8 +1,23 @@
 # WasmFS: an IndexedDB backend, `wasmfs_create_idb_backend`
 
-**Draft: proposal, as a feature request and then a PR.** Not posted, and
-not yet searched for an existing issue (see the notes). It depends on five
-of the toolchain's other drafts (below), which go first.
+**Draft: proposal, as a comment on #15942 and then a PR.** Not posted. The
+feature request already exists:
+[#15942](https://github.com/emscripten-core/emscripten/issues/15942)
+("WasmFS: IndexedDB backend", open since 2022, `wasmfs` label), where tlively
+wanted a backend that loads data on demand (2022-03-07) and later leaned
+towards bridging WasmFS to the legacy IDBFS instead (#18935, 2023-10-05). So
+post the body below as a comment there, not as a new issue. #17122 (stable
+backend APIs, "allow more backend methods to return error codes") names an
+IndexedDB backend as one that would firm the API up. It depends on five of
+the toolchain's other drafts (below), which go first.
+
+Checked 2026-10-02 against `main` 5977ecc: `system/lib/wasmfs/backends/`
+has no IndexedDB backend, and searches for "wasmfs indexeddb", "wasmfs idb",
+"IndexedDB backend" and "IDBFS wasmfs" turned up only #15942, #15412 (the
+same request for the old file system), #17122 and #18935. Of the five
+dependencies, the create-`EIO` and chmod reports are filed (#27832, #27823)
+with no PR yet, the heartbeat report is filed (#27858) with its PR still to
+post, and the symlink and lookup reports are still to post.
 
 ## Issue title
 
@@ -125,14 +140,21 @@ back as it is, and returns once it completes. A strict commit makes every
 earlier change to the database durable, but only if it writes. We counted
 the sync system calls of every browser process under
 `strace -f -e trace=fsync,fdatasync,sync_file_range,syncfs`, on a profile on
-disk, for 50 rounds of a relaxed write transaction followed by a strict
-one, from a plain page:
+disk (ZFS), for 50 rounds of a relaxed write transaction followed by a
+strict one, from a plain page, three runs each, with the headless Chromium
+and the Firefox of Playwright 1.63.0
+([`evidence/idb-sync-calls/`](evidence/idb-sync-calls/README.md) has the
+harness, the counts and traces):
 
-| 50 rounds of a relaxed write, then           | Chromium 149   | Firefox 151  |
+| 50 rounds of a relaxed write, then           | Chromium 153   | Firefox 155  |
 | -------------------------------------------- | -------------- | ------------ |
 | nothing                                      | no sync call   | no sync call |
 | an empty strict transaction                  | no sync call   | no sync call |
 | a strict transaction that puts a record back | 50 `fdatasync` | 50 `fsync`   |
+
+Every run gave the same counts. The browsers' own syncs fall outside the
+rounds: an idle page saw none in Chromium over 5 s, and in Firefox one burst
+shortly after launch.
 
 So an empty strict transaction, the obvious barrier, makes nothing durable
 in either browser. A backend created read-only commits nothing on
@@ -180,8 +202,9 @@ before the browser closed). An `fsync()` from a pthread while the main
 thread is blocked completes in both browsers, since the backend's thread
 runs it.
 
-**Tests.** Ten programs, run in a dedicated Worker in Chromium and Firefox
-(our runner; upstream they would be `btest_exit` tests, like
+**Tests.** Ten GoogleTest programs, each run in a dedicated Worker in
+Chromium and Firefox and reported case by case through Vitest (our
+harness; upstream they would be `btest_exit` tests, like
 `test_wasmfs_opfs`, with a second run for persistence):
 
 - files, directories, renames, unlinks and their persistence across two
@@ -264,17 +287,23 @@ of its own:
 - **Where it lives here.** `runtime/wasmfs-idb/` (`include/ibus-web/wasmfs-idb.h`,
   `src/idb_backend.{cpp,h}`, `src/libwasmfs_idb.js`, `tests/`), checked by
   `checks.wasmfs-idb` and `checks.wasmfs-idb-types`; spec §5.6.
-- **The measurements** are the M0.5 spike's (`docs/spikes/2026-10-01-runtime-worker.md`,
-  "What it costs" and "IndexedDB and Cache Storage under the spin"), on one
-  machine. The `strace` counts were taken by hand and the traces not kept;
-  rerun them before posting.
+- **The measurements** are those in [storage.md](../storage.md)
+  ("[What it costs](../storage.md#what-it-costs)", "[Chunk
+  size](../storage.md#chunk-size)", "[Why IndexedDB](../storage.md#why-indexeddb)"),
+  on one machine. The `strace` counts are rerunnable: `evidence/idb-sync-calls/`
+  has the harness, how to run it, each run's counts and one trace per
+  browser and variant. Rerun it against current browsers before posting.
 - **Licensing.** The code is ours, `MIT OR Apache-2.0`; contributing it
   means relicensing it under Emscripten's MIT and University of
   Illinois/NCSA licenses, which the company has to agree to.
 - **Order.** Post the five dependency drafts first; the PR needs them.
-  Before posting, check `main` for an IndexedDB backend and for changes to
-  `ProxyWorker`, `MaybeFile` and the OPFS backend's shape, and search issues
-  for "IndexedDB" and "wasmfs idb".
+  Before posting, check `main` again for an IndexedDB backend and for
+  changes to `ProxyWorker`, `MaybeFile` and the OPFS backend's shape, and
+  read #15942 for new replies (last checked 2026-10-02, above).
+- **Where the tests run here.** `checks.wasmfs-idb` builds the ten programs
+  and hands them to the `@ibus-web/test-programs` Vitest shim
+  (`runtime/wasmfs-idb/tests`); [storage.md](../storage.md#tests) describes
+  them.
 - **Not run upstream.** Emscripten's own test suite wasn't run with the
   backend; the tests above run on our toolchain (6.0.9 with patches
   0001–0019).

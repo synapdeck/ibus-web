@@ -1,5 +1,19 @@
 # WasmFS Node backend: a renamed file or directory keeps its old host path
 
+**Posted: don't post again.** Filed as
+[#27824](https://github.com/emscripten-core/emscripten/issues/27824)
+(2026-10-01), with the fix (0011, directories included) and a test as PR
+[#27849](https://github.com/emscripten-core/emscripten/pull/27849) ("[WasmFS]
+Update host paths of renamed files in the Node backend", open, no review
+yet). #27849 explains how its locks sit with
+[#27685](https://github.com/emscripten-core/emscripten/pull/27685) (someone
+else's open fix for a lock-order deadlock in `renameat`, #27684): neither
+depends on the other.
+
+Checked against `main` 5977ecc (2026-10-02): the Node backend and
+`renameat` are unchanged since 6.0.9 (#27685 isn't merged), and 0011
+applies there alone with offsets only.
+
 **Draft: new issue.** No existing issue covers it.
 
 ## Issue title

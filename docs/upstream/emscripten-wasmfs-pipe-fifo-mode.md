@@ -1,5 +1,16 @@
 # WasmFS: `fstat()` on a pipe reports `S_IFREG`, not `S_IFIFO`
 
+**Done upstream: don't post.** Filed as
+[#27827](https://github.com/emscripten-core/emscripten/issues/27827) and
+fixed by [#27842](https://github.com/emscripten-core/emscripten/pull/27842)
+("[WasmFS] Report pipes as S_IFIFO", merged 2026-10-02 as a0014542110d, with
+`test/unistd/pipe.c` asserting `S_ISFIFO()` on both ends). That commit is
+the 6.0.11 release (marked released on `main` 2026-10-02; emsdk's 6.0.11
+builds it), so drop patch 0004 once nixpkgs packages 6.0.11 or later.
+
+Checked against `main` 5977ecc (2026-10-02): 0004 reverse-applies cleanly
+(`git apply -R --check`); `main` makes the same one-line change.
+
 **Draft: new issue.** No existing issue covers it. #16158 ("mkfifo() and
 mknod() create regular file with NODERAWFS=1", open) is a different code path:
 NODERAWFS's `mknod`, not WasmFS's `pipe()`.

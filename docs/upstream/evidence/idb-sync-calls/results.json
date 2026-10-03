@@ -1,0 +1,467 @@
+{
+  "conditions": {
+    "date": "2026-10-03T06:45:57.855Z",
+    "node": "v24.20.0",
+    "playwright": "1.63.0",
+    "strace": "strace -- version 7.2",
+    "kernel": "6.18.52-xanmod1",
+    "profileRoot": "/tmp/claude-1000/-home-awilliams-Development-ibus/4842911a-75dd-47cc-af06-4dfbefbe04a3/scratchpad/idbsync",
+    "profileFileSystem": "zfs",
+    "chromiumSandbox": false,
+    "settleMs": 1000,
+    "baselineWindowMs": 5000,
+    "afterMs": 2000
+  },
+  "runs": [
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "baseline",
+      "run": 1,
+      "rounds": 0,
+      "windowMs": 5000,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 59
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 3
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "baseline",
+      "run": 2,
+      "rounds": 0,
+      "windowMs": 5000,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 59
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 3
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "baseline",
+      "run": 3,
+      "rounds": 0,
+      "windowMs": 5001,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 59
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 3
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "relaxed-only",
+      "run": 1,
+      "rounds": 50,
+      "windowMs": 19,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "relaxed-only",
+      "run": 2,
+      "rounds": 50,
+      "windowMs": 26,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "relaxed-only",
+      "run": 3,
+      "rounds": 50,
+      "windowMs": 25,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "empty-strict",
+      "run": 1,
+      "rounds": 50,
+      "windowMs": 29,
+      "strictMeanMs": 0.15199999809265136,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "empty-strict",
+      "run": 2,
+      "rounds": 50,
+      "windowMs": 43,
+      "strictMeanMs": 0.17800000548362732,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "empty-strict",
+      "run": 3,
+      "rounds": 50,
+      "windowMs": 31,
+      "strictMeanMs": 0.1500000023841858,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {},
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "put-strict",
+      "run": 1,
+      "rounds": 50,
+      "windowMs": 54,
+      "strictMeanMs": 0.6940000033378602,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {
+          "fdatasync": 50
+        },
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "put-strict",
+      "run": 2,
+      "rounds": 50,
+      "windowMs": 52,
+      "strictMeanMs": 0.67,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {
+          "fdatasync": 50
+        },
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "chromium",
+      "browserVersion": "153.0.8010.12",
+      "variant": "put-strict",
+      "run": 3,
+      "rounds": 50,
+      "windowMs": 52,
+      "strictMeanMs": 0.6659999883174896,
+      "syncs": {
+        "beforeWindow": {
+          "fdatasync": 74
+        },
+        "window": {
+          "fdatasync": 50
+        },
+        "afterWindow": {
+          "fdatasync": 8
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "baseline",
+      "run": 1,
+      "rounds": 0,
+      "windowMs": 5001,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 212
+        },
+        "window": {
+          "fsync": 12
+        },
+        "afterWindow": {
+          "fsync": 21
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "baseline",
+      "run": 2,
+      "rounds": 0,
+      "windowMs": 5000,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 212
+        },
+        "window": {
+          "fsync": 12
+        },
+        "afterWindow": {
+          "fsync": 21
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "baseline",
+      "run": 3,
+      "rounds": 0,
+      "windowMs": 5000,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 212
+        },
+        "window": {
+          "fsync": 12
+        },
+        "afterWindow": {
+          "fsync": 21
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "relaxed-only",
+      "run": 1,
+      "rounds": 50,
+      "windowMs": 52,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {},
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "relaxed-only",
+      "run": 2,
+      "rounds": 50,
+      "windowMs": 41,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {},
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "relaxed-only",
+      "run": 3,
+      "rounds": 50,
+      "windowMs": 27,
+      "strictMeanMs": null,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {},
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "empty-strict",
+      "run": 1,
+      "rounds": 50,
+      "windowMs": 56,
+      "strictMeanMs": 0.2,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {},
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "empty-strict",
+      "run": 2,
+      "rounds": 50,
+      "windowMs": 49,
+      "strictMeanMs": 0.24,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {},
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "empty-strict",
+      "run": 3,
+      "rounds": 50,
+      "windowMs": 44,
+      "strictMeanMs": 0.12,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 245
+        },
+        "window": {},
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "put-strict",
+      "run": 1,
+      "rounds": 50,
+      "windowMs": 71,
+      "strictMeanMs": 0.72,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {
+          "fsync": 50
+        },
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "put-strict",
+      "run": 2,
+      "rounds": 50,
+      "windowMs": 70,
+      "strictMeanMs": 0.76,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {
+          "fsync": 50
+        },
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    },
+    {
+      "browser": "firefox",
+      "browserVersion": "155.0",
+      "variant": "put-strict",
+      "run": 3,
+      "rounds": 50,
+      "windowMs": 82,
+      "strictMeanMs": 0.86,
+      "syncs": {
+        "beforeWindow": {
+          "fsync": 244
+        },
+        "window": {
+          "fsync": 50
+        },
+        "afterWindow": {
+          "fsync": 47
+        }
+      }
+    }
+  ]
+}

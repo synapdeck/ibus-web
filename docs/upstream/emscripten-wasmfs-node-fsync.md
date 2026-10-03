@@ -1,5 +1,14 @@
 # WasmFS Node backend: `fsync()` traps (`NodeFile::flush` is unreachable)
 
+**Posted: don't post again.** Filed as
+[#27822](https://github.com/emscripten-core/emscripten/issues/27822)
+(2026-10-01), with the fix and a test as PR
+[#27844](https://github.com/emscripten-core/emscripten/pull/27844) ("[WasmFS]
+Implement fsync for the Node backend", open, no review yet).
+
+Checked against `main` 5977ecc (2026-10-02): `NodeFile::flush` is still
+`WASMFS_UNREACHABLE`, and 0009 applies there alone exactly.
+
 **Draft: new issue.** No existing issue covers it.
 
 ## Issue title

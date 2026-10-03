@@ -1,5 +1,12 @@
 # Pipe `read()` at EOF fails with EAGAIN while `poll()` reports POLLHUP
 
+**Posted: don't post again.** The comment below went on #26708 on
+2026-10-01; no reply yet, and neither #26708 nor #22032 has moved since.
+ibus-web doesn't carry a fix, by decision.
+
+Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged
+since 6.0.9, so `read()` still fails with `EAGAIN` at EOF.
+
 **Draft: do not post as a new issue.** This is already reported as
 [#26708](https://github.com/emscripten-core/emscripten/issues/26708) ("read() on
 a pipe returns -1 instead of 0 after the write end is closed", open, no comments
