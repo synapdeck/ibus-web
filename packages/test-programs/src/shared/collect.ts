@@ -138,9 +138,11 @@ interface Group {
   failed?: string;
 }
 
-// Runs a sequence's programs before `upTo` that haven't run, in full, for
-// the storage they leave to it: when Vitest selects only later programs,
-// those still see what the earlier ones stored.
+// Runs a sequence's programs before `upTo` that haven't run, for the
+// storage they leave to it: when Vitest selects only later programs, those
+// still see what the earlier ones stored. A program has run already if
+// Vitest selected any of its cases, filtered to those; one run here is one
+// Vitest selected none of, so it runs in full.
 const catchUp = async (group: Group, upTo: number, environment: Environment, timeoutMs: number): Promise<void> => {
   for (; group.ran < upTo && group.failed === undefined; group.ran++) {
     const { program, paths } = group.members[group.ran]!;
@@ -306,9 +308,7 @@ const declareProgram = (
       return;
     }
     let outcome: Outcome = { output: [], cases: new Map() };
-    // Vitest reads the first parameter's pattern for the fixtures it asks
-    // for; the suite comes second.
-    // oxlint-disable-next-line no-empty-pattern
+    // oxlint-disable-next-line no-empty-pattern -- Vitest reads it for fixtures; the suite comes second.
     beforeAll(async ({}, suite) => {
       outcome = await runProgram(program, suite as RunnerTestSuite, group, environment, timeoutMs);
     });

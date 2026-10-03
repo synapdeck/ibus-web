@@ -29,8 +29,10 @@ export const describe = (error: unknown): string => {
   return String(error);
 };
 
-// A failure outside the runtime: importing or instantiating it, the locks,
-// the probe.
+// A failure in a step that calls nothing in a runtime the host keeps: the
+// locks, the probe, the store's own IndexedDB or file work, the relay, or
+// starting the runtime, whose start function and constructors do run inside
+// it, but which is never handed back to be called if they throw.
 export const startupFailed = (error: unknown): StartupFailed => new StartupFailed({ message: describe(error) });
 
 // A failure in a block that calls into the runtime. Only a failure the host

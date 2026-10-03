@@ -133,8 +133,8 @@
           that order and share their storage (the origin's IndexedDB, or under Node the
           working directory), and stop at the first that fails; every other program
           starts with that storage empty. When Vitest selects cases of a later program of
-          a sequence only, the earlier ones still run first, in full, for the storage
-          they leave. A program's "run" test selected without any of its cases passes
+          a sequence, the earlier ones still run first for the storage they leave: in full
+          when none of their cases is selected, otherwise filtered to those. A program's "run" test selected without any of its cases passes
           without running the program.
         '';
       };

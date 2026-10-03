@@ -161,8 +161,9 @@ working.
 ### Selecting tests
 
 `-t` selects cases, and the program runs only those. When the selection names cases of a later
-program of a sequence only, the earlier programs still run first, in full, for the storage they
-leave (the catch-up run); if one fails, the selected program is "not run". A `run` test selected
+program of a sequence, the earlier programs still run first for the storage they leave: one with
+none of its cases selected runs in full (the catch-up run), one with some runs only those; if one
+fails, the selected program is "not run". A `run` test selected
 without any of its program's cases passes without running the program, so a pattern that leaves
 out every `run` hides run-level failures ([known-gaps.md](known-gaps.md#testing)).
 

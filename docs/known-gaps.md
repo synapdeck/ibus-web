@@ -174,15 +174,12 @@ An item leaves this page when it is fixed or decided.
   unanalyzable-import warning is filtered by its text.
 - **`pnpmDeps`' hash is verified on x86_64-linux only**; rolldown's native binding is a per-platform
   optional dependency.
-- **Small findings**: the `startupFailed` comment calls instantiation "outside the runtime" though the start
-  function and constructors run in it; a failed `node:fs` import is classed as trapped (safe, but wrong);
-  the browser tests' `deleteDatabase` limit equals Vitest's 10 s hook timeout.
+- **A failed `node:fs` import is classed as trapped**: safe, but wrong.
 
 ## Testing
 
 - **Sequences under `-t`.** Cases inside a sequence program depend on the ones before them, so a `-t` that
-  selects one later case of `basic.1` or `sweep.2` alone fails. When `-t` selects cases in both `PREFIX.1`
-  and `PREFIX.2`, `PREFIX.1` runs filtered, not "in full" as the catch-up's comment says.
+  selects one later case of `basic.1` or `sweep.2` alone fails.
 - **The catch-up run hides its output.** A sequence program run for its storage that fails reports only
   "failed, run for the storage it leaves", without its output.
 - **`run` hides under `-t`**: a pattern that excludes a program's `run` test hides run-level failures
@@ -200,7 +197,11 @@ An item leaves this page when it is fixed or decided.
   ([testing.md](testing.md)).
 - **A failed check keeps no `results.json`**: the derivation's output exists only when it passes, so a
   failure's results are in the log alone.
-- **One lint suppression has no reason**: `no-empty-pattern` in the runner's `beforeAll`.
+- **The library checker leans on the jsifier's shape.** `runtime/wasmfs-idb/library-deps.ts` finds the
+  test that tells a function's source held in a string by its shape in Emscripten's jsifier (the one `if`
+  whose block sets `isFunction` and whose test reads `snippet`), so an Emscripten that restructures it
+  fails the check rather than being followed; and whatever name `addImplicitDeps` needs that the checker's
+  context lacks fails with one catch-all message, naming it only through the engine's `ReferenceError`.
 - **A check's Vitest file shows under its store name** (`../../../<hash>-fixes.test.ts`): it is copied
   into the store alone, so it can't use relative imports.
 - **`nodeTests` copies `.d.ts` files** along with the tests.
@@ -208,8 +209,7 @@ An item leaves this page when it is fixed or decided.
   workspace output duplicates the root `node_modules` (disk only).
 - **TypeScript loose ends**: the workspace's `fileFilter` matches by extension anywhere in a package; two
   `pre-js.d.ts` declare `ENVIRONMENT_IS_PTHREAD` (accepted, one per environment); the `webassembly.d.ts`
-  shims may collide with a future `@types/node`; `assert-dependency.ts` advises "pin … to exactly", against
-  the caret-range convention.
+  shims may collide with a future `@types/node`.
 
 ## Tooling
 
