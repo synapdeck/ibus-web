@@ -17,6 +17,16 @@
     };
     flake-root.url = "github:srid/flake-root";
     systems.url = "github:nix-systems/triplet";
+    github-actions-nix = {
+      url = "https://flakehub.com/f/synapdeck/github-actions-nix/0.2";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+    };
+    # Its flake is for its own development; the module is a file in it.
+    files = {
+      url = "github:mightyiam/files";
+      flake = false;
+    };
   };
 
   outputs =

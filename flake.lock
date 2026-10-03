@@ -20,6 +20,22 @@
         "type": "github"
       }
     },
+    "files": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790966993,
+        "narHash": "sha256-7x4B726HJxZWo3GrraImYC9QenhzzGpow5AfIda72KY=",
+        "owner": "mightyiam",
+        "repo": "files",
+        "rev": "90e0ddb3895bc18905a956d22cb75f52997e68bf",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mightyiam",
+        "repo": "files",
+        "type": "github"
+      }
+    },
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": [
@@ -54,6 +70,28 @@
         "type": "github"
       }
     },
+    "github-actions-nix": {
+      "inputs": {
+        "flake-parts": [
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1780538232,
+        "narHash": "sha256-4fAohjPxuyg7m9iK1A9j/bLgsrNf7Nkqsl9BUks02SE=",
+        "rev": "9068b31c3acd21b5d3354268faf182dafb21f5a5",
+        "revCount": 23,
+        "type": "tarball",
+        "url": "https://api.flakehub.com/f/pinned/synapdeck/github-actions-nix/0.2.0/019e905f-2473-7672-bfd4-3e70f1fceb4b/source.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://flakehub.com/f/synapdeck/github-actions-nix/0.2"
+      }
+    },
     "import-tree": {
       "locked": {
         "lastModified": 1788467110,
@@ -86,8 +124,10 @@
     "root": {
       "inputs": {
         "devshell": "devshell",
+        "files": "files",
         "flake-parts": "flake-parts",
         "flake-root": "flake-root",
+        "github-actions-nix": "github-actions-nix",
         "import-tree": "import-tree",
         "nixpkgs": "nixpkgs",
         "systems": "systems"
