@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
-  "$schema": "../../tools/cast-audit/cast-audit.schema.jsonc",
+  "$schema": "../../tools/cast-audit/cast-audit.schema.json",
   "casts": [
     {
       "file": "../src/ibus/ibusobject.c",

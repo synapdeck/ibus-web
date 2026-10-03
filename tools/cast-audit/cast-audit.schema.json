@@ -1,5 +1,3 @@
-// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
-// SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Allowed function-pointer casts",
@@ -19,9 +17,9 @@
           "function": { "type": ["string", "null"] },
           "from": { "type": "string", "minLength": 1 },
           "to": { "type": "string", "minLength": 1 },
-          "reason": { "type": "string", "minLength": 1 },
-        },
-      },
-    },
-  },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
 }
