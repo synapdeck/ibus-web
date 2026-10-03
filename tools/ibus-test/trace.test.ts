@@ -12,6 +12,7 @@ const valid = {
     { op: "wait", context: "first", event: "UpdatePreeditText", timeoutMs: 100 },
     { op: "destroy", context: "first" },
     { op: "create", context: "first", engine: "example" },
+    { op: "destroy", context: "first" },
   ],
 };
 
@@ -20,6 +21,7 @@ test("accepts typed settings and reuse after context destruction", () => {
 });
 
 test.each([
+  ["open context at end", [{ op: "create", context: "a", engine: "e" }]],
   [
     "duplicate live context",
     [

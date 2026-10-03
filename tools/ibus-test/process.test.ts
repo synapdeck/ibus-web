@@ -11,7 +11,14 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-const trace = { version: 1 as const, settings: [], steps: [{ op: "create" as const, context: "a", engine: "e" }] };
+const trace = {
+  version: 1 as const,
+  settings: [],
+  steps: [
+    { op: "create" as const, context: "a", engine: "e" },
+    { op: "destroy" as const, context: "a" },
+  ],
+};
 const fixture = fileURLToPath(new URL("adapter-fixture.ts", import.meta.url));
 function run(mode: string, extra: string[] = [], options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
   const artifactDir = mkdtempSync(join(tmpdir(), "ibus-test-process-"));

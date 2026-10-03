@@ -51,7 +51,9 @@
       # paths, as for any cross toolchain; clangd only runs drivers it is
       # told to trust.
       clangd = pkgs.writeShellScriptBin "clangd" ''
-        exec ${emscripten.llvmEnv}/bin/clangd --query-driver=${cc}/bin/${targetPrefix}* "$@"
+        exec ${emscripten.llvmEnv}/bin/clangd --query-driver=${
+          lib.concatStringsSep "," ([ "${cc}/bin/${targetPrefix}*" ] ++ toolchain.clangdQueryDrivers)
+        } "$@"
       '';
 
       # Claude Code's TypeScript plugin starts `typescript-language-server`,
@@ -108,6 +110,10 @@
               '') flags}
             '') toolchain.clangdPathFlags
           )}
+          ${lib.concatMapStrings (fragment: ''
+            echo "---"
+            cat ${fragment}
+          '') toolchain.clangdFragments}
         } > $out
       '';
     in
@@ -168,7 +174,10 @@
         cd src
         ln -s ${clangdConfig} .clangd
         export HOME=$TMPDIR EM_CACHE=${toolchain.emscriptenCache} EM_FROZEN_CACHE=1
-        find . \( -name '*.c' -o -name '*.cpp' \) -print0 |
+        # Native IBus tooling is Linux-only, matching its package/check gate.
+        find . \( -name '*.c' -o -name '*.cpp' \) ${
+          lib.optionalString (!pkgs.stdenv.hostPlatform.isLinux) "! -path './tools/ibus-test/native/*'"
+        } -print0 |
           while IFS= read -r -d "" file; do
             ${clangd}/bin/clangd --check="$file" --check-locations=false > /dev/null 2> "$TMPDIR/log" || {
               grep '^E\[' "$TMPDIR/log" >&2

@@ -78,6 +78,16 @@
         default = { };
         description = "Compiler flags the editor adds for sources whose repository-relative paths match each key, a regular expression, beyond the flags every loose source gets: for sources built with flags of their own, such as include paths into the toolchain.";
       };
+      clangdFragments = lib.mkOption {
+        type = lib.types.listOf lib.types.path;
+        default = [ ];
+        description = "Generated clangd configuration fragments for sources using a different compiler than the WASM default.";
+      };
+      clangdQueryDrivers = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = "Additional compiler paths clangd may query for target and system include directories.";
+      };
       pkgsWasm = lib.mkOption {
         type = lib.types.raw;
         description = "nixpkgs for wasm32-unknown-none, compiled with Emscripten.";

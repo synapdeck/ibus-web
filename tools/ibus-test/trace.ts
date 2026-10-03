@@ -89,6 +89,7 @@ export function validateTrace(input: unknown): Trace {
     }
     return step;
   });
+  if (live.size !== 0) throw new TypeError("trace: explicit destroy required for every context");
   return { version: 1, settings, steps };
 }
 
