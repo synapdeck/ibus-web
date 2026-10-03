@@ -17,6 +17,10 @@
         type = lib.types.listOf lib.types.path;
         description = "The JavaScript libraries wasmfs-idb's test programs link with --js-library besides the backend's own; each one's __deps are checked and it is type-checked.";
       };
+      libraryDeps = lib.mkOption {
+        type = lib.types.str;
+        description = "The JavaScript library checker, a Node script run as `node <it> check <library.js> <emscripten root>` or `node <it> emit <library.js> <emscripten root> <directory>`, beside the dependencies it imports and nothing else of the workspace, so editing another source rebuilds nothing that runs it.";
+      };
       ibusRuntime = lib.mkOption {
         type = lib.types.package;
         description = "ibus-runtime: the main module engines' side modules load into, as ibus-runtime.js and ibus-runtime.wasm, with its export list. It carries wasmfsIdb, whose header's API is on the list.";

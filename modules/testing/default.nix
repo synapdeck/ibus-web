@@ -284,8 +284,7 @@
           };
         };
 
-      # Run from the workspace, where its dependencies are installed.
-      libraryDeps = "${typescript.workspace}/runtime/wasmfs-idb/library-deps.ts";
+      inherit (config.ibusWeb.runtime) libraryDeps;
 
       # Types for what the report library uses from Emscripten, from a link
       # that exports exactly that.

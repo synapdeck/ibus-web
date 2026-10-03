@@ -15,8 +15,15 @@
       inherit (config.ibusWeb.toolchain) pkgsWasm emscripten;
       inherit (runtime) wasmfsIdb;
 
-      # Run from the workspace, where its dependencies are installed.
-      libraryDeps = "${typescript.workspace}/runtime/wasmfs-idb/library-deps.ts";
+      # The checker with its package's manifest, which makes it a module, and
+      # the dependencies it imports.
+      libraryDepsDir = pkgs.runCommand "ibus-web-library-deps" { } ''
+        mkdir $out
+        cp ${./library-deps.ts} $out/library-deps.ts
+        cp ${./package.json} $out/package.json
+        ln -s ${typescript.packageNodeModules ./.} $out/node_modules
+      '';
+      libraryDeps = "${libraryDepsDir}/library-deps.ts";
 
       # Where the library's type check finds these types, beside its sources.
       typesDir = "emscripten-types";
@@ -148,6 +155,8 @@
           emscripten = "${emscripten}/share/emscripten";
         };
       };
+
+      ibusWeb.runtime = { inherit libraryDeps; };
 
       packages.wasmfs-idb-types = types;
 
