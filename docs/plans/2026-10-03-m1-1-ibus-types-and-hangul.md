@@ -346,6 +346,7 @@ the cast; the golden tests' traps cover those.
     - `IBusProperty` `(sa{sv}suvsvbbuvv)`
     - `IBusPropList` `(sa{sv}av)`
   - Each round-trips through `ibus_serializable_deserialize`, with fields equal; a text with attributes and a lookup table with labels are among the cases.
+  - An attribute whose end is `-1` (ibus-hangul appends its foreground and background attributes that way) serializes its end as `0xffffffff` and round-trips.
   - New objects are floating.
   - `ibus_prop_list_append` and `ibus_lookup_table_append_candidate` sink their arguments.
   - `ibus_key_event_from_string("Shift+space")` gives `IBUS_space` and `IBUS_SHIFT_MASK`; `ibus_keyval_from_name("Hangul_Hanja")` gives `IBUS_Hangul_Hanja`.
@@ -514,21 +515,23 @@ the cast; the golden tests' traps cover those.
   - A g_test program (TAP) built with `ibusWeb.testing.program { format = "tap"; gtest = false; }`, a main module like libibus-web's `test-runtime`: `testMainFlags` without `nodeHostFsFlags`' object, plus libibus-web, with `-sASSERTIONS=1`.
   - It defines `wasmfs_create_root_dir()` to return a memory backend and, in `main` before `g_test_init`'s cases run, mounts Node backends: `$out/data/usr/share` at `/usr/share`, and the directory of `hangul.wasm` at `/sides`. The paths come from the program's `.args` (`--data DIR --module FILE`), parsed after `g_test_init`.
   - Run with `ibusWeb.testing.programs { environments = [ "node" ]; }` as `checks.hangul-golden`.
-- **Per-case setup** (a fixture): `ibusweb_runtime_init` once; `Init` with an empty snapshot (or the case's own, for settings cases) once per process; `ibusweb_load_module("/sides/hangul.wasm")` once; then per case `CreateEngine(ic, "hangul")`, `SetCapabilities` (preedit, auxiliary text, lookup table, surrounding text, focus), `FocusIn`, with a fresh `ic` per case and `DestroyEngine` at teardown. Pump after every request, as the host will, and collect records.
+- **Per-case setup** (a fixture): `ibusweb_runtime_init` once; `Init` once per process, with a snapshot of one non-default key, `hanja-keys` = `"Hangul_Hanja,F9,F8"` (case 6 shows it reached the engine's init); `ibusweb_load_module("/sides/hangul.wasm")` once; then per case `CreateEngine(ic, "hangul")`, `SetCapabilities` (preedit, auxiliary text, lookup table, surrounding text, focus; **not** `IBUS_CAP_SYNC_PROCESS_KEY_V2`, see case 14), `FocusIn`, with a fresh `ic` per case and `DestroyEngine` at teardown. Pump after every request, as the host will, and collect records.
 - **Keys** are sent as the router will send them: layout-`us` keyvals from `keysymdef.h` names (`IBUS_g`…), evdev keycodes, and modifiers; releases with `IBUS_RELEASE_MASK` too.
 - **Cases** (assertions decode payloads with GVariant and `ibus_serializable_deserialize`):
   1. Initial input mode is Latin (`initial-input-mode` `latin`): `g` passes through (reply 0, no preedit).
   2. `Hangul` toggles to Hangul mode: an `UpdateProperty` for `InputMode` with symbol 한.
-  3. 2-set `g k s` → `UpdatePreeditText` ㅎ, 하, 한 in turn; `space` → `CommitText` 한, then the space passes through.
+  3. 2-set `g k s` → `UpdatePreeditText` ㅎ, 하, 한 in turn, each with mode `IBUS_ENGINE_PREEDIT_COMMIT`, an underline attribute and foreground/background attributes ending at `-1`; `space` → `CommitText` 한, then the space passes through (reply 0). With CapsLock in the modifiers, `G K S` composes the same (ibus-hangul inverts case under CapsLock).
   4. `BackSpace` inside a syllable edits the preedit (한 → 하).
-  5. `FocusOut` with a preedit commits it (as ibus-hangul does with its default settings) or clears it; assert what upstream's code does and say which.
-  6. Hanja: 한 then `F9` → `UpdateLookupTable` whose candidates include 韓, visible; `Down`/`Return` or `CandidateClicked` → `CommitText` 韓 and `HideLookupTable`.
+  5. `FocusOut` with a preedit emits no `CommitText`. ibus-hangul resets its composition and relies on the client committing a preedit whose mode was `IBUS_ENGINE_PREEDIT_COMMIT`. So assert no `CommitText` and that the last preedit record carried that mode. `Reset` behaves the same, because the declared IBus version is ≥ 1.5.20. While the Hanja list is open, the mode is `IBUS_ENGINE_PREEDIT_CLEAR`, and `FocusOut` hides the lookup table and auxiliary text. The page's duty to commit a `COMMIT`-mode preedit on blur and reset goes into the known gaps for M1.4's router and adapters.
+  6. Hanja: 한 then `F9` → `UpdateLookupTable` whose candidates include 韓, visible (nine to a page, with the auxiliary text); `Down`/`Return` or `CandidateClicked` → `CommitText` 韓 and `HideLookupTable`. `Page_Down` pages. `F8` opens the list too, from the `Init` snapshot.
   7. A digit past the last candidate on the last page doesn't abort (red before port 0002: the program aborts, which the shim reports as the case failing).
-  8. Settings: a snapshot with `hangul-keyboard` = `"39"` makes 3-set keys compose. A `SettingChanged` of `hangul-keyboard` back to `"2"` takes effect for live engines.
+  8. Settings: a `SettingChanged` of `hangul-keyboard` to `"39"` with an engine alive makes 3-set keys compose; back to `"2"` restores 2-set. A `SettingChanged` of `preedit-mode` to `"word"` keeps the whole word in the preedit across syllables until a commit key.
   9. `DestroyEngine`, then a `SettingChanged`, then a new engine composes correctly. Red before port 0001 (use-after-free); under `-sASSERTIONS=1` and Emscripten's allocator a freed engine may not trap, so make the case observe the engine's destruction directly (e.g. a weak reference on the destroyed engine and a check that `settings_changed` didn't run for it, via a `Log` record or a counting handler on the settings object). If a reliable red can't be built, say so in the report and keep the case as a regression test.
   10. `SetContentType` with purpose `IBUS_INPUT_PURPOSE_PASSWORD` makes Hangul-mode keys pass through.
   11. `Enable` emits `RequireSurroundingText`.
-  12. No `Log` record of level warning or worse in any case, beyond expected ones listed in the case (the simple engine's missing compose resource doesn't apply: it is ours).
+  12. Hanja from surrounding text: with no preedit and `SetSurroundingText` holding 한 before the cursor, `F9` offers candidates for it. Choosing one emits `DeleteSurroundingText` (a negative offset) then `CommitText`, and the engine's cached surrounding text reflects the deletion.
+  13. No `Log` record of level warning or worse in any case, beyond expected ones listed in the case (the simple engine's missing compose resource doesn't apply: it is ours).
+  14. With `IBUS_CAP_SYNC_PROCESS_KEY_V2` in the capabilities (and `use-event-forwarding` at its default, true), `space` after 한 is consumed (reply 1), and the records are `CommitText` 한 then `ForwardKeyEvent` space, in that order. The router doesn't advertise that capability: its reply already carries the records in order, and declining the key lets the browser apply it natively. That choice goes into the known gaps as a decision for M1.4.
 - **Port patches.** Write port 0001 and 0002 here, after cases 9 and 7 are red; both go green with them.
 - **Report:** the patch count per layer (casts 1, port 2, unless something else turned up) and any engine behaviour that surprised.
 
@@ -566,6 +569,7 @@ the cast; the golden tests' traps cover those.
   - its globals read only at init and updated only through live engines' handlers (a `SettingChanged` with no engine alive is missed until the next init);
   - the host's FHS data mapping and Init-before-load ordering (M1.3);
   - the runtime has no module shutdown, so `ibus_hangul_exit` never runs;
+  - for M1.4: the page commits a preedit whose last mode was `IBUS_ENGINE_PREEDIT_COMMIT` on blur and on reset (ibus-hangul relies on it), and the router doesn't advertise `IBUS_CAP_SYNC_PROCESS_KEY_V2`;
   - anything a task reported as left.
 - **The spec:**
   - §5.2.3: `ibusweb_dispatch(request, len)` returns the reply; the host pumps; Init precedes loading the engine module.
