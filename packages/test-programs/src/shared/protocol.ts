@@ -29,6 +29,7 @@ export interface Plan {
 declare module "vitest" {
   export interface ProvidedContext {
     testPrograms: Plan;
+    nodeTestData: Record<string, string>;
   }
   export interface TaskMeta {
     // The time a program measured for a case or suite, or the time the

@@ -6,11 +6,15 @@
 //
 //   { "timeout": SECONDS, "environments": ["node", "chromium", "firefox"],
 //     "programs": [{ "name": NAME, "dir": DIR,
-//                    "format": "gtest-json" | "tap" }, ...] }
+//                    "format": "gtest-json" | "tap" }, ...],
+//     "nodeTests": { "files": [PATH, ...], "data": { KEY: VALUE, ... } } }
 //
 // DIR holds NAME.js and NAME.wasm and, optionally, NAME.args, the program's
 // arguments one per line. Programs named PREFIX.1, PREFIX.2 and so on form a
-// sequence that runs in that order and shares its storage.
+// sequence that runs in that order and shares its storage. nodeTests, which
+// may be left out, are Vitest test files run in the node environment beside
+// the programs, for what a program can't report on itself; they read data,
+// paths to what they test, say, with inject("nodeTestData").
 
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -31,6 +35,7 @@ interface Manifest {
   timeout: number;
   environments: Environment[];
   programs: { name: string; format: Format; dir: string }[];
+  nodeTests?: { files: string[]; data: Record<string, string> };
 }
 
 const readManifest = (): Manifest => {
@@ -42,6 +47,8 @@ const readManifest = (): Manifest => {
     if (!environments.includes(environment)) throw new Error(`${path}: no environment ${environment}`);
   for (const { name, format } of manifest.programs)
     if (!["gtest-json", "tap"].includes(format)) throw new Error(`${path}: ${name}'s format is ${format}`);
+  if (manifest.nodeTests !== undefined && !manifest.environments.includes("node"))
+    throw new Error(`${path}: nodeTests run in the node environment, which isn't among the environments`);
   return manifest;
 };
 
@@ -193,7 +200,11 @@ export const testProgramsConfig = (): ViteUserConfig => {
   if (manifest.environments.includes("node")) {
     projects.push({
       extends: true,
-      test: { name: "node", include: ["dist/node/programs.test.js"], runner: "./dist/node/runner.js" },
+      test: {
+        name: "node",
+        include: ["dist/node/programs.test.js", ...(manifest.nodeTests?.files ?? [])],
+        runner: "./dist/node/runner.js",
+      },
     });
   }
   if (browsers.length > 0) {
@@ -223,7 +234,7 @@ export const testProgramsConfig = (): ViteUserConfig => {
     plugins: [servePrograms(manifest.programs.map(({ dir }) => dir))],
     server: { headers: isolation },
     test: {
-      provide: { testPrograms: plan },
+      provide: { testPrograms: plan, nodeTestData: manifest.nodeTests?.data ?? {} },
       // A program runs in its suite's beforeAll, and has its own limit.
       hookTimeout: plan.timeoutMs + 60_000,
       // A program's output is logged inside each of its tests, to be shown

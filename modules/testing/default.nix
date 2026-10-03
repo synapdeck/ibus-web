@@ -78,6 +78,13 @@
             paths, with those results and times, instead of when every test passes.
           - vitestArgs (default none): more arguments for Vitest, such as `-t PATTERN` to
             run only the cases it names.
+          - nodeTests (default none): Vitest test files, TypeScript, that run in the node
+            environment beside the programs, for what a program can't report on itself,
+            such as the status it exits with. They import from vitest, which resolves
+            from the shim's package wherever the files are.
+          - nodeTestData (default empty): strings the nodeTests read as
+            `inject("nodeTestData").KEY`, such as the paths of what they run; they
+            declare its type in ProvidedContext themselves.
 
           Under a suite named after the environment, each program is a suite holding the
           suites and cases it lists (GoogleTest's --gtest_list_tests, g_test's -l), nested
@@ -240,6 +247,8 @@
           timeout ? 120,
           expectedResults ? null,
           vitestArgs ? [ ],
+          nodeTests ? [ ],
+          nodeTestData ? { },
         }:
         let
           entry =
@@ -256,10 +265,18 @@
               dir = "${program}";
             };
           manifest = pkgs.writeText "ibus-web-test-programs-${name}.json" (
-            builtins.toJSON {
-              inherit timeout environments;
-              programs = map entry programs;
-            }
+            builtins.toJSON (
+              {
+                inherit timeout environments;
+                programs = map entry programs;
+              }
+              // lib.optionalAttrs (nodeTests != [ ]) {
+                nodeTests = {
+                  files = map (file: "${file}") nodeTests;
+                  data = nodeTestData;
+                };
+              }
+            )
           );
         in
         assert lib.assertMsg (
@@ -268,6 +285,8 @@
         assert lib.assertMsg
           (environments != [ ] && lib.all (environment: lib.elem environment allEnvironments) environments)
           "programs ${name}: environments must be some of ${toString allEnvironments}, not ${toString environments}";
+        assert lib.assertMsg (nodeTests == [ ] || lib.elem "node" environments)
+          "programs ${name}: nodeTests run in the node environment, which isn't among ${toString environments}";
         runVitest {
           inherit
             name
@@ -277,9 +296,13 @@
             ;
           inBrowsers = environments != [ "node" ];
           # Vitest holds each program to its own limit; this one, past every
-          # program's in every environment, catches a browser or Vitest that
-          # hangs outright.
-          limit = toString ((timeout + 60) * builtins.length environments * builtins.length programs + 300);
+          # program's in every environment, and as long again for each test
+          # file, catches a browser or Vitest that hangs outright.
+          limit = toString (
+            (timeout + 60)
+            * (builtins.length environments * builtins.length programs + builtins.length nodeTests)
+            + 300
+          );
         };
     in
     {
