@@ -103,20 +103,22 @@ export const topUpLimit = async (h: Harness, runtime: RuntimeBuild): Promise<voi
       { type: "log", level: "Error", message: expect.stringMatching(/1 Workers not all loaded in 1 ms/) },
     ]);
     expect(await call32(client, ops.release), "release").toBeGreaterThanOrEqual(0);
-    // Once the Worker that loaded late has joined the pool, idle like every
-    // Worker not running a thread from before, the spares are taken again,
-    // one more than they number: the host tops up no more.
+    // Once the released threads have ended, their Workers are idle again,
+    // and the spares are taken again, one more than they number: the host
+    // tops up no more. The Worker that loaded late joins the pool only on an
+    // event-loop turn, which the host no longer takes, so it stays out of the
+    // idle count throughout.
     const aliveNow = (at: HostStats): number => h.data.pool.size + at.workersCreated - at.idleWorkers;
-    const joinedBy = h.now() + h.pendingLimitMs;
-    let joined = await stats(client);
-    while (aliveNow(joined) !== alive && h.now() < joinedBy) {
+    const endedBy = h.now() + h.pendingLimitMs;
+    let ended = await stats(client);
+    while (aliveNow(ended) > alive + 1 && h.now() < endedBy) {
       await h.sleep(10);
-      joined = await stats(client);
+      ended = await stats(client);
     }
     expect(
-      { created: joined.workersCreated - first.workersCreated, alive: aliveNow(joined) },
-      "the late Worker joined the pool, idle",
-    ).toEqual({ created: 1, alive });
+      { created: ended.workersCreated - first.workersCreated, alive: aliveNow(ended) },
+      "the held threads ended, the late Worker created but not idle",
+    ).toEqual({ created: 1, alive: alive + 1 });
     const before = await stats(client);
     const short = before.idleWorkers - h.data.pool.lowWater + 1;
     expect(replyHeld(await client.call(ops.hold, int32s(short)))).toBe(short);

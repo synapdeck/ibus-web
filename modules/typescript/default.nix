@@ -125,10 +125,13 @@
           );
 
       # The sources with pnpm-workspace.yaml as Nix generates it, so the build
-      # follows the Nix even before `write-files` has updated the tree.
+      # follows the Nix even before `write-files` has updated the tree. Named
+      # as a fileset's source is: pnpm records the directory it installed in,
+      # and the build that runs scripts over nodeModules must unpack to the
+      # same one, or pnpm takes the install for stale and tries to fetch.
       withWorkspaceFile =
-        name: src:
-        pkgs.runCommand name { } ''
+        src:
+        pkgs.runCommand "source" { } ''
           cp -R ${src} $out
           chmod u+w $out
           cp ${pnpmWorkspaceFile} $out/pnpm-workspace.yaml
@@ -173,7 +176,7 @@
 
       # Installing needs only the manifests, so editing a source leaves the
       # dependency fetch's inputs alone.
-      manifests = withWorkspaceFile "ibus-web-manifests" (
+      manifests = withWorkspaceFile (
         lib.fileset.toSource {
           inherit root;
           fileset = lib.fileset.unions (
@@ -224,7 +227,7 @@
       # packages and into the root's store are relative, then compiled.
       workspace = pkgs.stdenvNoCC.mkDerivation {
         name = "ibus-web-typescript";
-        src = withWorkspaceFile "ibus-web-typescript-source" (
+        src = withWorkspaceFile (
           lib.fileset.toSource {
             inherit root;
             # Every package's tsconfig extends the repository's base.
