@@ -139,6 +139,18 @@ const stalledHost = async (
   return host;
 };
 
+// A host terminated while connected to a version's database may still be
+// connected when the next host deletes that database: its backend's thread
+// can hear the version change before the Worker is gone, and says so.
+const terminatedHostMayClose = async (h: Harness, database: string): Promise<void> => {
+  if (h.storageMount !== "indexeddb") return;
+  const closed = await h.printed.take(new RegExp(`^wasmfs-idb: ${literal(database)} closed for a version change$`), {
+    min: 0,
+    waitMs: 0,
+  });
+  expect(closed.length, `lines saying ${database} closed`).toBeLessThanOrEqual(1);
+};
+
 // Whether the lock comes free within the page's bound: a terminated Worker
 // lets go of its locks once it is gone, which in a browser is after
 // terminate() returns.
@@ -197,6 +209,7 @@ export const installInterrupted = (h: Harness, runtime: RuntimeBuild): Promise<v
     const next = await launch(engine).ready;
     expectInstall(next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
 
 // A host already waiting on the install lock when the installing host's
@@ -219,6 +232,7 @@ export const installInterruptedQueued = (h: Harness, runtime: RuntimeBuild): Pro
     const host = await second.ready;
     expectInstall(host.messages, "installed", h.data.archives.tree);
     await expectTree(h, host.client, engine, h.data.archives.tree);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
 
 // A host terminated halfway through installing a tree with entries the
@@ -240,6 +254,7 @@ export const installInterruptedStray = (h: Harness, runtime: RuntimeBuild): Prom
     const next = await launch(engine).ready;
     expectInstall(next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
 
 // A marker that doesn't parse, as a write cut short leaves it, counts as
@@ -254,6 +269,7 @@ export const installTornMarker = (h: Harness, runtime: RuntimeBuild): Promise<vo
     const second = await launch(engine).ready;
     expectInstall(second.messages, "installed", h.data.archives.tree);
     await expectTree(h, second.client, engine, h.data.archives.tree);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
 
 // With a host of one version running, a host of the next installs that
@@ -284,6 +300,7 @@ export const upgradeWhileRunning = (h: Harness, runtime: RuntimeBuild): Promise<
     expect(collectOf(later.messages), "what the later host collected").toEqual({ removed: [oldVersion], inUse: [] });
     await expectTree(h, later.client, next, upgrade);
     expect(await h.versions(engine), "the versions kept").toEqual([nextVersion]);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
 
 // A host of the next version terminated halfway through installing leaves
@@ -309,6 +326,7 @@ export const interruptedUpgradeThenOld = (h: Harness, runtime: RuntimeBuild): Pr
     });
     await expectTree(h, old.client, engine, h.data.archives.tree);
     expect(await h.versions(engine), "the versions kept").toEqual([encodeComponent(engine.version)]);
+    await terminatedHostMayClose(h, engineDataDatabase(next));
   });
 
 // The listings' paths that the upgrade drops, and those it turns from a file
