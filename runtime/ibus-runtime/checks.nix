@@ -9,7 +9,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) toolchain runtime typescript;
+      inherit (config.ibusWeb) toolchain runtime testing;
       inherit (toolchain) emscripten pkgsWasm;
 
       nodeHarness = pkgsWasm.stdenv.mkDerivation {
@@ -23,7 +23,7 @@
         dontFixup = true;
         installPhase = ''
           mkdir $out
-          cp ${./tests/harness.mjs} $out/harness.mjs
+          cp ${./tests/harness.ts} $out/harness.ts
           # Emscripten's errno values are WASI's, defined through macros of
           # its own, so the preprocessor evaluates each name.
           names=$(echo '#include <errno.h>' | $CC -dM -E -x c - |
@@ -40,15 +40,47 @@
         '';
       };
 
-      # A side module of the runtime's own, for checks of the runtime alone.
-      testSide = runtime.mkSideModule {
+      # Side modules of the runtime's own, for checks of the runtime alone.
+      sideModule =
+        {
+          name,
+          source,
+          ...
+        }@args:
+        runtime.mkSideModule (
+          removeAttrs args [ "source" ]
+          // {
+            src = lib.fileset.toSource {
+              root = ./tests;
+              fileset = ./tests + "/${source}";
+            };
+            sources = [ source ];
+          }
+        );
+      testSide = sideModule {
         name = "side";
-        src = lib.fileset.toSource {
-          root = ./tests;
-          fileset = ./tests/side.c;
-        };
-        sources = [ "side.c" ];
+        source = "side.c";
       };
+      cxxSide = sideModule {
+        name = "cxx-side";
+        source = "cxx-side.cpp";
+      };
+      throwSide = sideModule {
+        name = "throw-side";
+        source = "throw-side.cpp";
+      };
+      hangulSide = sideModule {
+        name = "hangul-side";
+        source = "hangul-side.c";
+        buildInputs = [ pkgsWasm.libhangul ];
+        pkgConfigModules = [ "libhangul" ];
+      };
+      sides = [
+        testSide
+        cxxSide
+        throwSide
+        hangulSide
+      ];
 
       # The manifest's two files must agree, each library must be at the
       # version the build's inputs carry, and libibus-web and the IndexedDB
@@ -119,22 +151,28 @@
 
       checks.ibus-runtime-exports = exportListCheck;
 
-      # The released and the asserting runtime each load a side module and
-      # dispatch to it.
-      checks.ibus-runtime-load =
-        pkgs.runCommand "ibus-web-ibus-runtime-load-check"
-          {
-            nativeBuildInputs = [ typescript.nodejs ];
-          }
-          ''
-            cp ${nodeHarness}/* .
-            cp ${./tests/load.mjs} load.mjs
-            for build in ${runtime.ibusRuntime} ${runtime.ibusRuntimeAsserting}; do
-              ${runtime.nodeTimeout} node load.mjs $build/ibus-runtime.js ${testSide.wasm} >> $out
-            done
-            cat $out
-          '';
+      # The released and the asserting runtime each load side modules (C,
+      # C++, and one with a static library linked in) and dispatch to them,
+      # under Node.
+      checks.ibus-runtime-load = testing.programs {
+        name = "ibus-runtime-load";
+        environments = [ "node" ];
+        programs = [ ];
+        nodeTests = ./tests;
+        nodeTestData = {
+          harness = "${nodeHarness}";
+          released = "${runtime.ibusRuntime}/ibus-runtime.js";
+          asserting = "${runtime.ibusRuntimeAsserting}/ibus-runtime.js";
+          side = testSide.wasm;
+          cxxSide = cxxSide.wasm;
+          throwSide = throwSide.wasm;
+          hangulSide = hangulSide.wasm;
+        };
+      };
 
-      checks.ibus-runtime-side-imports = testSide.importsCheck;
+      checks.ibus-runtime-side-imports = runtime.checkSideModuleImports {
+        name = "ibus-runtime-test-sides";
+        modules = map (side: side.wasm) sides;
+      };
     };
 }

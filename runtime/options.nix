@@ -72,15 +72,18 @@
       mkSideModule = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
-          Given { name, src, sources }, builds the side module name.wasm from sources (paths
-          relative to src; .c with $CC, .cpp/.cc/.cxx with $CXX, and nothing else) against libibus-web, with
-          toolchain.sideModuleFlags. The result has passthru.wasm, the module's path, and
-          passthru.importsCheck, its checkSideModuleImports check.
+          Given { name, src, sources, buildInputs ? [ ], pkgConfigModules ? [ ] }, builds the
+          side module name.wasm from sources (paths relative to src; .c with $CC,
+          .cpp/.cc/.cxx with $CXX, and nothing else) against libibus-web, with
+          toolchain.sideModuleFlags. pkgConfigModules name static libraries, from
+          buildInputs, that are compiled against and linked into the module. The result has
+          passthru.wasm, the module's path, and passthru.importsCheck, its
+          checkSideModuleImports check.
         '';
       };
       nodeHarness = lib.mkOption {
         type = lib.types.package;
-        description = "harness.mjs, which drives the runtime at the C level from Node, and what it reads: errno.json, memory.json (the least and the most memory the runtime takes) and constants.json (the header's pumpError).";
+        description = "What harness.ts, which drives the runtime at the C level from Node, reads, and the module itself: errno.json (Emscripten's errno values), memory.json (the least and the most memory the runtime takes), constants.json (the header's pumpError) and harness.ts.";
       };
       installArchives = lib.mkOption {
         type = lib.types.package;

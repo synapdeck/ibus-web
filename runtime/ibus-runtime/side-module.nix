@@ -21,6 +21,8 @@
           name,
           src,
           sources,
+          buildInputs ? [ ],
+          pkgConfigModules ? [ ],
         }:
         let
           unknown = lib.filter (file: !(isC file || isCxx file)) sources;
@@ -30,10 +32,10 @@
             name = "ibus-web-side-module-${name}";
             inherit src;
             nativeBuildInputs = [ pkgsWasm.pkg-config ];
-            buildInputs = [ runtime.libibusWeb ];
+            buildInputs = [ runtime.libibusWeb ] ++ buildInputs;
             buildPhase = ''
               runHook preBuild
-              cflags="$($PKG_CONFIG --cflags libibus-web)"
+              cflags="$($PKG_CONFIG --cflags libibus-web ${lib.escapeShellArgs pkgConfigModules})"
               ${lib.concatMapStrings (file: ''
                 ${if isCxx file then "$CXX" else "$CC"} $cflags -c ${
                   lib.escapeShellArgs [
@@ -44,6 +46,13 @@
                 }
               '') sources}
               ${linker} ${toolchain.sideModuleFlags} ${lib.escapeShellArgs (map object sources)} \
+                ${
+                  # The libraries are linked into the module; GLib, which the
+                  # runtime provides, is not.
+                  lib.optionalString (
+                    pkgConfigModules != [ ]
+                  ) "$($PKG_CONFIG --static --libs ${lib.escapeShellArgs pkgConfigModules})"
+                } \
                 -o ${lib.escapeShellArg "${name}.wasm"}
               runHook postBuild
             '';

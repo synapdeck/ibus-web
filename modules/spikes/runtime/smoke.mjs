@@ -7,15 +7,18 @@
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { errno, int32s, startRuntime, utf8 } from "./harness.mjs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { int32s, loadRuntime, readHarnessData, startRuntime, utf8 } from "./harness.ts";
 
 const [runtime, sides, constants] = process.argv.slice(2);
 // The opcodes the side modules register, as the build printed them.
 const { ADD, IDLE_LATER, IDLE_RESULT, SPAWN, SPAWN_RESULT, THROW, FSYNC, FSYNC_RESULT } = JSON.parse(
   await readFile(constants, "utf8"),
 ).ops;
-const rt = await startRuntime(runtime);
+const harness = await readHarnessData(dirname(fileURLToPath(import.meta.url)));
+const { errno } = harness;
+const rt = await startRuntime(await loadRuntime(runtime), harness);
 
 for (const name of ["trivial", "thread", "throw", "fsync"]) {
   const path = `/tmp/${name}.wasm`;
