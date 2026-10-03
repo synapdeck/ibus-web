@@ -137,6 +137,75 @@ static IBusEngine *create_early(IBusFactory *factory, const gchar *name,
   return engine;
 }
 
+typedef struct {
+  IBusFactory parent;
+} TestFactory;
+
+typedef struct {
+  IBusFactoryClass parent;
+} TestFactoryClass;
+
+G_DEFINE_TYPE(TestFactory, test_factory, IBUS_TYPE_FACTORY)
+
+static void emit_creation_output(GDBusConnection *connection) {
+  const char *paths[] = {
+      "/org/example/early/1",
+      "/org/example/unresolved",
+      "/org/example/early/1",
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(paths); i++) {
+    g_dbus_connection_emit_signal(
+        connection, NULL, paths[i], "org.freedesktop.IBus.Engine",
+        "ForwardKeyEvent", g_variant_new("(uuu)", i + 1, 0, 0), NULL);
+  }
+}
+
+static void factory_method(IBusService *service, GDBusConnection *connection,
+                           const gchar *sender, const gchar *path,
+                           const gchar *interface, const gchar *name,
+                           GVariant *parameters,
+                           GDBusMethodInvocation *invocation) {
+  if (g_str_equal(name, "CreateEngine")) {
+    const char *engine_name;
+    g_variant_get(parameters, "(&s)", &engine_name);
+    if (g_str_has_prefix(engine_name, "fail-")) {
+      emit_creation_output(connection);
+      if (g_str_equal(engine_name, "fail-timeout")) {
+        /* Deliberately leave the request unanswered after emitting output. */
+        g_object_unref(invocation);
+      } else if (g_str_equal(engine_name, "fail-invalid")) {
+        /* Bypass GDBus's reply-type validation to exercise an invalid peer. */
+        GDBusMessage *reply = g_dbus_message_new_method_reply(
+            g_dbus_method_invocation_get_message(invocation));
+        g_dbus_message_set_body(reply,
+                                g_variant_new("(s)", "not an object path"));
+        g_dbus_connection_send_message(
+            connection, reply, G_DBUS_SEND_MESSAGE_FLAGS_NONE, NULL, NULL);
+        g_object_unref(reply);
+        g_object_unref(invocation);
+      } else if (g_str_equal(engine_name, "fail-reused")) {
+        g_dbus_method_invocation_return_value(
+            invocation, g_variant_new("(o)", "/org/example/early/1"));
+      } else {
+        g_dbus_method_invocation_return_dbus_error(
+            invocation, "org.example.FactoryFailed",
+            "intentional factory failure");
+      }
+      return;
+    }
+  }
+
+  IBUS_SERVICE_CLASS(test_factory_parent_class)
+      ->service_method_call(service, connection, sender, path, interface, name,
+                            parameters, invocation);
+}
+
+static void test_factory_init(TestFactory *factory) { (void)factory; }
+
+static void test_factory_class_init(TestFactoryClass *klass) {
+  IBUS_SERVICE_CLASS(klass)->service_method_call = factory_method;
+}
+
 int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
@@ -154,7 +223,9 @@ int main(int argc, char **argv) {
       NULL, NULL, &error);
   if (!connection)
     g_error("connect: %s", error->message);
-  IBusFactory *factory = ibus_factory_new(connection);
+  IBusFactory *factory =
+      g_object_new(test_factory_get_type(), "object-path", IBUS_PATH_FACTORY,
+                   "connection", connection, NULL);
   g_object_ref_sink(factory);
   ibus_factory_add_engine(factory, "fixture", test_engine_get_type());
   g_signal_connect(factory, "create-engine", G_CALLBACK(create_early), NULL);

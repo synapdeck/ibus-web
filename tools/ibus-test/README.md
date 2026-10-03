@@ -21,6 +21,12 @@ preceding method replies and signals emitted during factory creation. Values use
 JSON-GLib and GLib's annotated `g_variant_print` text plus the exact signature;
 there is no replacement IBus implementation or custom variant codec involved.
 
+If creation fails, buffered signals for known contexts still appear before the
+terminal creation error. Signals whose paths cannot be resolved appear as error
+diagnostics at their original positions, retaining path, name, signature, and
+payload. Draining continues after such a diagnostic, and the original factory
+failure remains the final error record.
+
 Each event belongs to the step that observes it. A `wait` consumes the earliest
 unconsumed matching context/name event, including an event already observed
 while executing an earlier call. Its original transcript position and step stay

@@ -326,6 +326,39 @@ static void error_case(gconstpointer data) {
   json_array_unref(records);
 }
 
+static void failed_creation_output(gconstpointer data) {
+  const ErrorCase *test = data;
+  JsonArray *records = execute(test->steps, FALSE);
+
+  g_assert_cmpuint(json_array_get_length(records), ==, 6);
+  JsonObject *first_event = record(records, 2, "event", 1);
+  JsonObject *last_event = record(records, 4, "event", 1);
+  g_assert_cmpstr(json_object_get_string_member(first_event, "context"), ==,
+                  "a");
+  g_assert_cmpstr(json_object_get_string_member(last_event, "context"), ==,
+                  "a");
+  JsonObject *first_payload =
+      json_object_get_object_member(first_event, "payload");
+  JsonObject *last_payload =
+      json_object_get_object_member(last_event, "payload");
+  g_assert_cmpstr(json_object_get_string_member(first_payload, "text"), ==,
+                  "(uint32 1, uint32 0, uint32 0)");
+  g_assert_cmpstr(json_object_get_string_member(last_payload, "text"), ==,
+                  "(uint32 3, uint32 0, uint32 0)");
+
+  JsonObject *unresolved = record(records, 3, "error", 1);
+  const char *diagnostic = json_object_get_string_member(unresolved, "message");
+  g_assert_nonnull(strstr(diagnostic, "/org/example/unresolved"));
+  g_assert_nonnull(strstr(diagnostic, "ForwardKeyEvent"));
+  g_assert_nonnull(strstr(diagnostic, "(uuu)"));
+  g_assert_nonnull(strstr(diagnostic, "(uint32 2, uint32 0, uint32 0)"));
+
+  JsonObject *terminal = record(records, 5, "error", 1);
+  g_assert_nonnull(strstr(json_object_get_string_member(terminal, "message"),
+                          test->message));
+  json_array_unref(records);
+}
+
 int main(int argc, char **argv) {
   adapter_path = argv[1];
   engine_path = argv[2];
@@ -364,6 +397,35 @@ int main(int argc, char **argv) {
   const ErrorCase open_context = {TRACE(CREATE("a", "fixture")),
                                   "live contexts"};
 
+  const ErrorCase failed_factory = {
+      TRACE(CREATE("a", "early"), CREATE("b", "fail-error"), DESTROY("a"),
+            DESTROY("b")),
+      "intentional factory failure",
+  };
+  const ErrorCase timed_out_factory = {
+      TRACE(CREATE("a", "early"), CREATE("b", "fail-timeout"), DESTROY("a"),
+            DESTROY("b")),
+      "checkpoint deadline exceeded",
+  };
+  const ErrorCase invalid_factory_path = {
+      TRACE(CREATE("a", "early"), CREATE("b", "fail-invalid"), DESTROY("a"),
+            DESTROY("b")),
+      "CreateEngine returned an invalid path",
+  };
+  const ErrorCase reused_factory_path = {
+      TRACE(CREATE("a", "early"), CREATE("b", "fail-reused"), DESTROY("a"),
+            DESTROY("b")),
+      "CreateEngine reused a live object path",
+  };
+
+  g_test_add_data_func("/driver/failed-factory-output", &failed_factory,
+                       failed_creation_output);
+  g_test_add_data_func("/driver/timed-out-factory-output", &timed_out_factory,
+                       failed_creation_output);
+  g_test_add_data_func("/driver/invalid-factory-path-output",
+                       &invalid_factory_path, failed_creation_output);
+  g_test_add_data_func("/driver/reused-factory-path-output",
+                       &reused_factory_path, failed_creation_output);
   g_test_add_func("/driver/lifecycle", lifecycle);
   g_test_add_func("/driver/creation-signal", creation_signal);
   g_test_add_func("/driver/interleaved-creation", interleaved_creation);

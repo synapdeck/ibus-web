@@ -187,6 +187,45 @@ static gboolean wait_event(Driver *driver, const char *context,
   return TRUE;
 }
 
+static void emit_unresolved_creation_signal(Driver *driver,
+                                            GDBusMessage *message) {
+  GVariant *body = g_dbus_message_get_body(message);
+  GVariant *empty = body ? NULL : g_variant_ref_sink(g_variant_new("()"));
+  GVariant *payload = body ? body : empty;
+  char *text = g_variant_print(payload, TRUE);
+  char *diagnostic = g_strdup_printf(
+      "unresolved engine signal during CreateEngine: path=%s name=%s "
+      "signature=%s payload=%s",
+      g_dbus_message_get_path(message), g_dbus_message_get_member(message),
+      g_variant_get_type_string(payload), text);
+
+  JsonObject *record = json_object_new();
+  json_object_set_string_member(record, "message", diagnostic);
+  emit(driver, record, "error");
+
+  g_free(diagnostic);
+  g_free(text);
+  if (empty)
+    g_variant_unref(empty);
+}
+
+static void drain_creation_signals(Driver *driver, GError **error) {
+  GDBusMessage *message;
+  while ((message = g_queue_pop_head(&driver->early))) {
+    GError *signal_error = NULL;
+    if (!signal_message(driver, message, &signal_error)) {
+      /* A failed factory reply cannot resolve a new path. Keep its output
+       * in place as a diagnostic, then continue with later known contexts. */
+      emit_unresolved_creation_signal(driver, message);
+      if (!*error)
+        g_propagate_error(error, signal_error);
+      else
+        g_error_free(signal_error);
+    }
+    g_object_unref(message);
+  }
+}
+
 static GVariant *create_context(Driver *driver, const char *context,
                                 const char *engine, const char *factory,
                                 GError **error) {
@@ -199,34 +238,25 @@ static GVariant *create_context(Driver *driver, const char *context,
   GVariant *result = call(driver, factory, "org.freedesktop.IBus.Factory",
                           "CreateEngine", g_variant_new("(s)", engine), error);
   driver->creating = FALSE;
-  if (!result)
-    return NULL;
 
-  if (!g_variant_is_of_type(result, G_VARIANT_TYPE("(o)"))) {
-    g_variant_unref(result);
+  if (result && !g_variant_is_of_type(result, G_VARIANT_TYPE("(o)"))) {
     fail(error, "CreateEngine returned an invalid path");
-    return NULL;
-  }
-
-  const char *path;
-  g_variant_get(result, "(&o)", &path);
-  if (g_hash_table_contains(driver->paths, path)) {
-    g_variant_unref(result);
-    fail(error, "CreateEngine reused a live object path");
-    return NULL;
-  }
-  g_hash_table_insert(driver->contexts, g_strdup(context), g_strdup(path));
-  g_hash_table_insert(driver->paths, g_strdup(path), g_strdup(context));
-
-  GDBusMessage *message;
-  while ((message = g_queue_pop_head(&driver->early))) {
-    gboolean ok = signal_message(driver, message, error);
-    g_object_unref(message);
-    if (!ok) {
-      g_variant_unref(result);
-      return NULL;
+  } else if (result) {
+    const char *path;
+    g_variant_get(result, "(&o)", &path);
+    if (g_hash_table_contains(driver->paths, path)) {
+      fail(error, "CreateEngine reused a live object path");
+    } else {
+      g_hash_table_insert(driver->contexts, g_strdup(context), g_strdup(path));
+      g_hash_table_insert(driver->paths, g_strdup(path), g_strdup(context));
     }
   }
+
+  /* Both success and every failure path account for the entire observed
+   * buffer before the caller emits the reply or original creation error. */
+  drain_creation_signals(driver, error);
+  if (*error)
+    g_clear_pointer(&result, g_variant_unref);
   return result;
 }
 
