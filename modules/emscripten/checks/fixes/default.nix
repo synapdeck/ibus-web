@@ -2,15 +2,133 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, pkgs, ... }:
+    { config, lib, ... }:
     let
-      inherit (config.ibusWeb) toolchain typescript;
-      minimumFlags = toolchain.minimumVersionFlags;
+      inherit (config.ibusWeb) testing toolchain;
+      inherit (toolchain) pkgsWasm;
+      sources = ./.;
       # WasmFS's internal headers, for a test of its backend threads.
       wasmfsInclude = "-I${toolchain.emscripten}/share/emscripten/system/lib/wasmfs";
+
+      # The imported memory's sizes, in MiB: the module is linked for the
+      # initial size and declares the maximum, and runs with each of sizes,
+      # the maximum last.
+      initialMiB = 16;
+      maximumMiB = 64;
+      sizes = [
+        initialMiB
+        48
+        maximumMiB
+      ];
+
+      # One program, name.js and name.wasm, from source, compiled with
+      # cflags and linked with linkFlags; a GoogleTest program unless gtest
+      # is false. install adds commands that put more into $out.
+      program =
+        {
+          name,
+          source ? "${name}.cpp",
+          linkFlags,
+          cflags ? "",
+          gtest ? true,
+          extra ? "",
+        }:
+        pkgsWasm.stdenv.mkDerivation {
+          name = "ibus-web-emscripten-fixes-${name}";
+          src = lib.fileset.toSource {
+            root = sources;
+            fileset = lib.fileset.unions [
+              (sources + "/${source}")
+              (lib.fileset.fileFilter (file: file.hasExt "h" || file.name == "dlsync-side.c") sources)
+            ];
+          };
+          dontFixup = true;
+          buildPhase = ''
+            runHook preBuild
+            mkdir -p $out
+            ${extra}
+            ${if lib.hasSuffix ".cpp" source then "$CXX" else "$CC"} \
+              ${lib.optionalString gtest testing.gtestMain.cflags} ${cflags} -c ${source} -o ${name}.o
+            $CXX ${linkFlags} ${name}.o ${lib.optionalString gtest testing.gtestMain.libs} -o ${name}.js
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            install -Dm644 -t $out ${name}.js ${name}.wasm
+            runHook postInstall
+          '';
+          passthru = lib.optionalAttrs gtest {
+            testProgram = {
+              inherit name;
+              format = "gtest-json";
+            };
+          };
+        };
+
+      # A side module beside the program, under each of names, which the
+      # program finds through SIDE_MODULE_DIR.
+      sideModules = names: ''
+        $CC ${toolchain.sideModuleFlags} dlsync-side.c -o dlsync-side.wasm
+        ${lib.concatMapStrings (name: "install -Dm644 dlsync-side.wasm $out/${name}\n") names}
+      '';
+      dlsync =
+        name: names:
+        program {
+          inherit name;
+          # dlopen() takes a main module, whose sync the cases are about.
+          linkFlags = toolchain.testMainFlags;
+          cflags = ''-DSIDE_MODULE_DIR=\"$out\"'';
+          extra = sideModules names;
+        };
+
+      # Without growth, but with a maximum above the initial size; the link
+      # fails where emcc ignores the maximum, which it warns about. The
+      # pre-js sizes the memory from the program's argument, the size it is
+      # named after.
+      importedMemory =
+        mib:
+        let
+          name = "imported-memory-maximum-${toString mib}";
+        in
+        program {
+          inherit name;
+          source = "imported-memory-maximum.cpp";
+          linkFlags = lib.concatStringsSep " " [
+            "-sASSERTIONS=1"
+            "-Werror=unused-command-line-argument"
+            "-sALLOW_MEMORY_GROWTH=0"
+            "-sABORTING_MALLOC=0"
+            "-sIMPORTED_MEMORY=1"
+            "-sINITIAL_MEMORY=${toString initialMiB}MB"
+            "-sMAXIMUM_MEMORY=${toString maximumMiB}MB"
+            # The case's thread, beside GoogleTest's.
+            "-sPTHREAD_POOL_SIZE=2"
+            "-sEXIT_RUNTIME=1"
+            "--pre-js=${./size-pre.js}"
+          ];
+          extra = "echo ${toString mib} > $out/${name}.args";
+        };
+      importedMemoryPrograms = map importedMemory sizes;
+
+      # Its exit status is the evidence, which only the test file sees.
+      dlsyncExit = program {
+        name = "dlsync-exit";
+        source = "dlsync-exit.c";
+        linkFlags = toolchain.testMainFlags;
+        gtest = false;
+        extra = sideModules [ "dlsync-side.wasm" ];
+      };
     in
     {
-      ibusWeb.toolchain.clangdPathFlags."modules/emscripten/checks/fixes/.*\\.cpp" = [ wasmfsInclude ];
+      ibusWeb.toolchain.clangdPathFlags."modules/emscripten/checks/fixes/.*\\.(cpp|h)" = [
+        wasmfsInclude
+      ]
+      ++ testing.gtestCflagList;
+      # The build names the directory of a dlopen() case's side modules; the
+      # editor only needs the name defined.
+      ibusWeb.toolchain.clangdPathFlags."modules/emscripten/checks/fixes/dlsync-.*\\.cpp" = [
+        ''-DSIDE_MODULE_DIR="."''
+      ];
 
       # The behaviour each of the toolchain's Emscripten fixes restores, on
       # the file system test programs run on (WasmFS under Node), for the
@@ -19,76 +137,48 @@
       # that loads a module while they run, for the Worker a destroyed WasmFS
       # backend thread leaves in the pool, and for a memory imported, without
       # growth, at a size between its initial size and its maximum.
-      checks.emscripten-fixes =
-        pkgs.runCommand "ibus-web-emscripten-fixes"
-          {
-            nativeBuildInputs = [
-              toolchain.emscripten
-              typescript.nodejs
-              toolchain.emscriptenCacheHook
-            ];
-          }
-          ''
-            emcc ${toolchain.commonFlags} -O2 -c ${./fixes.c} -o fixes.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} fixes.o -o fixes.js
-            mkdir host
-            # A lock-order regression in the racing renames would hang.
-            timeout 300 node fixes.js $PWD/host
-
-            emcc ${toolchain.commonFlags} -O2 -c ${./fstat-stdio.c} -o fstat-stdio.o
-            emcc ${toolchain.commonFlags} -O2 ${minimumFlags} -sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1 \
-              fstat-stdio.o -o fstat-stdio.js
-            node fstat-stdio.js < /dev/null
-
-            emcc ${toolchain.commonFlags} -O2 -c ${./thread-cleanup.c} -o thread-cleanup.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} thread-cleanup.o -o thread-cleanup.js
-            timeout 120 node thread-cleanup.js
-
-            emcc ${toolchain.commonFlags} ${minimumFlags} ${toolchain.sideModuleFlags} ${./dlsync-side.c} -o dlsync-side.wasm
-            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-reused.c} -o dlsync-reused.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} dlsync-reused.o -o dlsync-reused.js
-            timeout 120 node dlsync-reused.js $PWD/dlsync-side.wasm
-
-            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-freed.c} -o dlsync-freed.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} dlsync-freed.o -o dlsync-freed.js
-            timeout 120 node dlsync-freed.js $PWD/dlsync-side.wasm
-
-            cp dlsync-side.wasm dlsync-side2.wasm
-            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-held.c} -o dlsync-held.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} dlsync-held.o -o dlsync-held.js
-            timeout 120 node dlsync-held.js $PWD/dlsync-side.wasm $PWD/dlsync-side2.wasm
-
-            emcc ${toolchain.commonFlags} -O2 -c ${./dlsync-exit.c} -o dlsync-exit.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} dlsync-exit.o -o dlsync-exit.js
-            status=0
-            timeout 120 node dlsync-exit.js $PWD/dlsync-side.wasm || status=$?
-            if [ $status -ne 42 ]; then
-              echo "dlsync-exit: exit status $status, not the 42 it exit()ed with"
-              exit 1
-            fi
-
-            em++ ${toolchain.commonFlags} -O2 ${wasmfsInclude} \
-              -c ${./proxy-worker-exit.cpp} -o proxy-worker-exit.o
-            em++ ${toolchain.commonFlags} ${minimumFlags} ${toolchain.testMainFlags} proxy-worker-exit.o -o proxy-worker-exit.js
-            timeout 120 node proxy-worker-exit.js
-
-            # Fails to link where MAXIMUM_MEMORY is ignored without growth,
-            # which emcc warns about.
-            emcc ${toolchain.commonFlags} -O2 -c ${./imported-memory-maximum.c} -o imported-memory-maximum.o
-            emcc ${toolchain.commonFlags} -O2 ${minimumFlags} -sASSERTIONS=1 -Werror=unused-command-line-argument \
-              -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 -sIMPORTED_MEMORY=1 \
-              -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=64MB -sPTHREAD_POOL_SIZE=1 -sEXIT_RUNTIME=1 \
-              --pre-js=${./size-pre.js} \
-              imported-memory-maximum.o -o imported-memory-maximum.js
-            for mib in 16 48 64; do
-              node imported-memory-maximum.js $mib
-            done
-            if node imported-memory-maximum.js 80 2> above.err; then
-              echo "imported-memory-maximum: a memory above the maximum was taken"
-              exit 1
-            fi
-            grep -q LinkError above.err || { cat above.err; exit 1; }
-            touch $out
-          '';
+      checks.emscripten-fixes = testing.programs {
+        name = "emscripten-fixes";
+        environments = [ "node" ];
+        programs = [
+          (program {
+            name = "wasmfs-node";
+            linkFlags = testing.nodeLinkFlags;
+          })
+          (program {
+            name = "fstat-stdio";
+            linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
+          })
+          (program {
+            name = "thread-cleanup";
+            linkFlags = testing.nodeLinkFlags;
+          })
+          (dlsync "dlsync-freed" [ "dlsync-side.wasm" ])
+          (dlsync "dlsync-held" [
+            "dlsync-side.wasm"
+            "dlsync-side2.wasm"
+          ])
+          (dlsync "dlsync-reused" [ "dlsync-side.wasm" ])
+          # A Worker for GoogleTest's thread and one for each of the case's
+          # two.
+          (program {
+            name = "proxy-worker";
+            cflags = wasmfsInclude;
+            linkFlags = "${testing.nodeLinkFlags} -sPTHREAD_POOL_SIZE=3";
+          })
+        ]
+        ++ importedMemoryPrograms;
+        nodeTests = [ ./fixes.test.ts ];
+        nodeTestData = {
+          dlsyncExit = "${dlsyncExit}/dlsync-exit.js";
+          dlsyncSide = "${dlsyncExit}/dlsync-side.wasm";
+          importedMemoryWasm =
+            let
+              largest = lib.last importedMemoryPrograms;
+            in
+            "${largest}/${largest.passthru.testProgram.name}.wasm";
+          importedMemoryMaximumMiB = toString maximumMiB;
+        };
+      };
     };
 }

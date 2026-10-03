@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Type-checks the checks' --pre-js, which Emscripten bundles into programs
-// run under Node, as written, as a script.
+// run under Node, as written, as a script, and their Vitest test file.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../../../tsconfig.base.json",
@@ -15,5 +15,5 @@
     "lib": ["es2023"],
     "types": ["node"]
   },
-  "files": ["size-pre.js", "pre-js.d.ts"]
+  "files": ["size-pre.js", "pre-js.d.ts", "fixes.test.ts", "webassembly.d.ts"]
 }
