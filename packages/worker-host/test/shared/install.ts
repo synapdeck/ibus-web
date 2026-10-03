@@ -378,6 +378,7 @@ export const staleFile = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
       "turned paths not directories",
     ).toEqual([]);
     expect(listed, "the upgraded tree").toBe(upgrade.listing);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
 
 // The locks a host of the engine may hold.
@@ -528,7 +529,8 @@ export const waitFailsWithoutProgress = (h: Harness, runtime: RuntimeBuild): Pro
     const waitingAt = h.now();
     await failed;
     // The wait starts with the host's first request, a moment before it says
-    // it is waiting, and the message reaches this thread a poll later still.
+    // it is waiting, so from that message it lasts a little under the limit;
+    // the floor catches a waiter that gives up well before the limit.
     expect(h.now() - waitingAt, "how long the waiter waited").toBeGreaterThanOrEqual(lockLimitMs - 50);
   });
 

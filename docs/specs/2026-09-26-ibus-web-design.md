@@ -1013,7 +1013,7 @@ its own loggers with engine and domain annotations (§7.4).
   `storage: ephemeral` event (§8). A backend that fails to open after the
   probe succeeded is a load failure too, not this fallback: the memory has
   been made by then.
-- **Node.** Node, which the runtime also targets, has no IndexedDB at all,
+- **Node.** Node, where the runtime runs for tests, has no IndexedDB at all,
   and that is not this fallback: there `/engines/<name>/` is WasmFS's Node
   backend (`wasmfs_create_node_backend`) over `<dir>/user/` of a directory
   the Node host is given, and each version's data over `<dir>/data/<version>/`.
