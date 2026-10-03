@@ -198,4 +198,13 @@ IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
  * early. */
 IBUSWEB_API int ibusweb_install_end(IBusWebInstall *install);
 
+/* Whole records in sequence order. The pointer remains valid until the next
+ * runtime call. Peek and consume are restricted to the pumping thread. */
+IBUSWEB_API const uint8_t *ibusweb_output_peek(uint32_t *len);
+/* A length not ending on a record boundary logs a critical and drops nothing.
+ */
+IBUSWEB_API void ibusweb_output_consume(uint32_t len);
+/* Last appended sequence number, zero before any record. Wraps at 2^32. */
+IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
+
 G_END_DECLS

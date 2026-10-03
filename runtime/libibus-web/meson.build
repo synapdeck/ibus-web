@@ -23,6 +23,7 @@ subdir('src/ibus')
 libibus_web = static_library(
   'ibus-web',
   'src/runtime.c',
+  'src/output.c',
   'src/pump.c',
   'src/module.c',
   'src/dispatch.c',
@@ -36,7 +37,7 @@ libibus_web = static_library(
   install: true,
 )
 
-install_headers('include/ibus-web/runtime.h', subdir: 'ibus-web')
+install_headers('include/ibus-web/runtime.h', 'include/ibus-web/protocol.h', subdir: 'ibus-web')
 
 libibus_web_dep = declare_dependency(
   link_with: [libibus_web, libibus_ibus],

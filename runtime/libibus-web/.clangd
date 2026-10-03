@@ -16,6 +16,7 @@ CompileFlags:
   Add:
     - -DIBUS_COMPILATION
     - -I../../include/ibus-1.0
+    - -I../../include
 ---
 If:
   PathMatch: include/ibus-1.0/.*
