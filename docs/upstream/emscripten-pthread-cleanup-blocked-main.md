@@ -1072,7 +1072,7 @@ diff --git a/test/test_core.py b/test/test_core.py
     `-O2` with both commits.
 
   - GLib's test suite (`checks.glib-tests`: 277 must-pass tests, 0 failing,
-    unchanged), and the runtime spike's `thread-exit-blocked` scenario: the
+    unchanged), and the `thread-exit-blocked` scenario (now a Worker host test): the
     heap stays at 0.18 MiB across five rounds where it used to grow 4 MiB a
     round (1 MiB stacks), and no Worker is created once idle ones exist.
   - Emscripten's own test runner on 6.0.9 with and without the patch (and

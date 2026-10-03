@@ -514,8 +514,7 @@ reported in `collect.error` and never fails the start.
 
 ### `install` and `collect`
 
-Two host messages report it (`src/shared/messages.ts`); spec §5.6 and §8
-don't name them yet.
+Two host messages report it (`src/shared/messages.ts`; spec §5.6, §8).
 
 - `install`: `state` (`installed` or `present`), `version`, `files` and
   `bytes` as the marker records them, `lockWaitMs`, `lockedAt` and

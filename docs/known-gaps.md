@@ -247,14 +247,6 @@ An item leaves this page when it is fixed or decided.
 - **Only x86_64-linux is checked**; the flake's checks are defined for Darwin and aarch64 too.
 - **The files writer never deletes** a file it no longer configures; a removed workflow needs `git rm`.
 
-## Spec
-
-- **The host's `install` and `collect` messages** (and `CollectReport.error`) aren't named in spec §5.6 or
-  §8; [worker-host.md](worker-host.md) describes them.
-
-- **Stale testing text**: §10.4 still lists `browser-run` and calls `libibus-web`'s g_test tests "GTest";
-  §11 still describes `browserRun`.
-
 ## Upstream
 
 - **Most reports are filed; some fixes and one proposal aren't.** [upstream/README.md](upstream/README.md)

@@ -223,7 +223,7 @@ position doesn't matter. A similar hook could later let pipes report
 
 ## Notes for the user
 
-- **Scope.** Covers everything the plan's bullet lists: empty regular files,
+- **Scope.** Covers everything the patch set out to fix: empty regular files,
   `/dev/null` and `/dev/random`. Stdin, stdout and stderr fall under the
   default (readable). That's a judgement call the body states openly; it was
   not tested against a terminal. Directories were already readable (their size

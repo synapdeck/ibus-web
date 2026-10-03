@@ -427,7 +427,7 @@ and return the underlying file descriptor") could say so too.
   #26598 (merged: the same sign fix for `insertMove`, open/close untouched),
   #23618 ("WASMFS + NODERAWFS fails a bunch of test", closed) and #24830/#19417
   (WasmFS NODERAWFS design). None reports this.
-- **Why it matters to us.** Every GLib test failure the plan blames on the
+- **Why it matters to us.** Every GLib test failure we traced to the
   `fd_close` assertion reaches it this way, after a `rename`.
 - **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
   `node_backend.cpp`, `node_backend.h` and `libwasmfs_node.js` are unchanged
