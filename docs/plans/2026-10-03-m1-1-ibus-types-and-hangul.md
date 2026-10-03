@@ -10,9 +10,9 @@ Node. M1's first question gets its answer for Hangul: how many cast and callback
 in which layer, and whether the lazy arity lookup is needed.
 
 **Architecture:** libibus-web gets a second static library, the IBus layer. It compiles
-upstream libibus's data types (`IBusObject`, `IBusSerializable`, `IBusText`, `IBusAttribute`,
-`IBusAttrList`, `IBusLookupTable`, `IBusProperty`, `IBusPropList`, the keysym helpers) straight
-from nixpkgs' `ibus` source. Beside them are our own `IBusService`, `IBusEngine`,
+libibus's data types (`IBusObject`, `IBusSerializable`, `IBusText`, `IBusAttribute`,
+`IBusAttrList`, `IBusLookupTable`, `IBusProperty`, `IBusPropList`, the keysym helpers) from
+sources vendored out of upstream IBus 1.5.34 into `runtime/libibus-web/` and edited in place. Beside them are our own `IBusService`, `IBusEngine`,
 `IBusEngineSimple`, `IBusFactory` and `IBusKeymap`, written against upstream's headers. That
 keeps engines' struct layouts and vfunc offsets identical to upstream's.
 
@@ -26,8 +26,8 @@ version and meta, our patch layers, and a build that links `hangul.wasm` plus th
 engine reads at FHS paths.
 
 **Tech Stack:** Nix flake (flake-parts, import-tree), `pkgsWasm` cross set with Emscripten 6.0.9
-and its patches, `pkgsWasm.glib` 2.88.3 with patches 0001–0017, upstream libibus sources from
-nixpkgs' `ibus` (1.5.34 at the current lock), ibus-hangul 1.5.5 and libhangul 0.2.0 from
+and its patches, `pkgsWasm.glib` 2.88.3 with patches 0001–0017, libibus sources vendored from
+upstream IBus 1.5.34, ibus-hangul 1.5.5 and libhangul 0.2.0 from
 nixpkgs, Meson, GLib g_test (TAP) run by the test-program shim under Node, Vitest for the
 TypeScript audit script.
 
@@ -39,7 +39,7 @@ TypeScript audit script.
 - Side modules never link a library the runtime carries (GLib, GObject, GIO, libffi, libibus-web or its IBus layer). They take those symbols from the runtime. Every side module passes `checkSideModuleImports`.
 - **Governing principle (spec §1.3):** minimize engine patches. When a fix can live in GLib, libibus-web or the build, put it there. Engine patches are minimal diffs upstream could accept.
 - Dendritic layout. Every `.nix` under `modules/`, `packages/`, `runtime/` and (from Task 6) `engines/` is a flake-parts module. Modules share values only through `ibusWeb.*` options and flake outputs. A `_`-prefixed `.nix` file is not a module (callPackage files). WASM builds of nixpkgs recipes live in `legacyPackages.<system>.pkgsWasm`, changed only by overlays gated on the platform: `prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false)`.
-- Licensing: libibus-web (both libraries, its patches, its tests) is `LGPL-2.1-or-later`. Code taken from upstream libibus keeps its upstream copyright lines and gets `REUSE.toml` annotations naming them. `engines/hangul/` is `GPL-2.0-or-later` (ibus-hangul's `meta.license`), including the glue we write there. Everything else is `MIT OR Apache-2.0`. Copyright for our code is `2026 Synapdeck, Inc.`, never a person. `reuse lint` (in hk) passes.
+- Licensing: libibus-web (both libraries, the vendored IBus sources, its tests) is `LGPL-2.1-or-later`. Vendored files keep upstream's copyright and licence header; a vendored file we change also gets a `Synapdeck, Inc.` copyright line in that header, as LGPL-2.1 §2(a) asks of modified files, and `src/ibus/README.md` records what changed. `REUSE.toml` annotates the vendored files with upstream's copyright holders where their headers carry no SPDX tags. `engines/hangul/` is `GPL-2.0-or-later` (ibus-hangul's `meta.license`), including the glue we write there. Everything else is `MIT OR Apache-2.0`. Copyright for our code is `2026 Synapdeck, Inc.`, never a person. `reuse lint` (in hk) passes.
 - **Structured tests:** g_test (TAP) for C that links GLib, GoogleTest for C/C++ that doesn't, Vitest for TypeScript. No ad-hoc `main()` with CHECK macros, no print-then-grep. Build-only and consistency checks (exports, imports, audits, patches applying) are not tests and stay plain.
 - **TypeScript first:** new scripts are TypeScript run by Node's type stripping, each directory with a `tsconfig.json` extending the root `tsconfig.base.json`. No `node -e`/`python -c` inlined in Nix. Standard formats are parsed with a maintained library or the platform (`JSON.parse` for SARIF/JSON; `jsonc-parser` for JSONC).
 - Config files we add are `.jsonc` with an SPDX header and a `$schema` where one exists. oxfmt `printWidth` is 120.
@@ -61,20 +61,34 @@ nothing, so its API is every function the installed IBus headers declare.
   - Its archive is `libibus-web-ibus.a`, with `declaredIn = { headers = [ "ibus.h" ]; packages = [ "ibus-1.0" ]; }`.
 - `IBUSWEB_RUNTIME_ABI` becomes `1`.
 
-**Headers are upstream's.** Every IBus type we provide is declared by upstream's own header,
-installed under `include/ibus-1.0/` from nixpkgs' `ibus.src`. Engines compile against exactly
-upstream's structs, class structs and enums.
+**IBus is vendored, not patched.** The IBus files libibus-web uses are copied from the upstream
+IBus 1.5.34 release tarball into the repository: headers under `runtime/libibus-web/include/ibus-1.0/`,
+sources, templates and `ibusmarshalers.list` under `runtime/libibus-web/src/ibus/`. Changes are
+edits to those copies, not a patch series, since much of the code changes and the result reads
+better as files. `src/ibus/README.md` records:
+
+- the release, the tarball's URL and hash;
+- every vendored file, as unchanged or changed, with what changed and why for the changed ones;
+- the command that diffs the tree against the tarball, which is how a later IBus release is merged
+  in.
+
+Nothing builds from nixpkgs' `ibus`.
+
+**Headers are upstream's.** Every IBus type we provide is declared by its vendored upstream
+header. Engines compile against exactly upstream's structs, class structs and enums. Headers are
+edited only where a change can't break that, such as dropping an include of a header we don't
+vendor.
 
 - `ibus.h` is ours. It defines `__IBUS_H_INSIDE__` and includes only the headers of what we provide, so an engine that reaches for anything else fails to compile.
 - An upstream header that declares functions we don't implement stays as it is. A call to one fails at the side module's import check or at link, which is the spec's scope rule (§5.2.1).
-- `ibusversion.h` is generated from upstream's `ibusversion.h.in` with nixpkgs' `ibus.version`. This matters to ibus-hangul: `IBUS_CHECK_VERSION(1,5,28)` gates key-event forwarding, and its `ibus version` fallback reads these macros.
+- `ibusversion.h` is vendored with the release's version filled in, as upstream's build would generate it from `ibusversion.h.in`. This matters to ibus-hangul: `IBUS_CHECK_VERSION(1,5,28)` gates key-event forwarding, and its `ibus version` fallback reads these macros.
 
-**Taken from upstream vs. ours.** Taken unchanged where possible (patched under
-`runtime/libibus-web/patches/` where not), compiled from `final.ibus.src`:
+**Vendored vs. ours.** Vendored from upstream and edited only where needed:
 
 - the data types: `ibusobject.c`, `ibusserializable.c`, `ibustext.c`, `ibusattribute.c`, `ibusattrlist.c`, `ibuslookuptable.c`, `ibusproperty.c`, `ibusproplist.c`;
 - the key helpers: `ibuskeynames.c` with its keyname table, `ibuskeyuni.c` if `ibus_keyval_to_unicode`/`ibus_unicode_to_keyval` are reached, and `ibuskeys.c` for `ibus_key_event_from_string`;
-- the generated enum types and marshallers, made with the build machine's `glib-mkenums`/`glib-genmarshal` from upstream's templates and `ibusmarshalers.list`.
+- the generated enum types and marshallers, made at build time with the build machine's `glib-mkenums`/`glib-genmarshal` from the vendored templates and `ibusmarshalers.list`, so they follow the vendored headers;
+- ibus's GSettings schema file, `data/dconf/org.freedesktop.ibus.gschema.xml`, which holds the panel schema `org.freedesktop.ibus.panel` that engines read. libibus-web installs it under `share/glib-2.0/schemas/` for engine builds to compile into their data.
 
 Ours (`runtime/libibus-web/src/ibus/`):
 
@@ -233,23 +247,23 @@ types differ. Casts to `GCallback` are left out, since signal-handler arity can'
 the cast; the golden tests' traps cover those.
 
 - The report must equal a committed allow-list (`cast-audit.jsonc`), empty after fixes.
-- It runs on libibus-web's upstream sources and on the engine.
+- It runs on libibus-web's vendored IBus sources and on the engine.
 - A connect-time arity audit, for engines with many handlers, is a known gap for M3–M5.
 
 ## File map
 
-| Path                                                                                                                                                                                                  | Change                                | Task |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---- |
-| `modules/engines/cast-audit.{nix,ts,test.ts}`, `modules/engines/tsconfig.json`, `modules/engines/fixtures/`                                                                                           | the cast audit                        | 1    |
-| `runtime/libibus-web/_package.nix` (from `package.nix`), `runtime/libibus-web/overlay.nix`, `runtime/libibus-web/package.nix`                                                                         | libibus-web in `pkgsWasm`             | 2    |
-| `runtime/libibus-web/meson.build`, `meson.options`, `include/ibus-1.0/ibus.h`, `src/ibus/`, `patches/`, `cast-audit.jsonc`, `tests/test-serializable.c`, `tests/meson.build`                          | IBus layer: data types and keys       | 2    |
-| `runtime/ibus-runtime/exports.nix`, `exports.py`, `checks.nix`, `package.nix`                                                                                                                         | the `ibus` export library, ABI 1      | 2    |
-| `runtime/libibus-web/include/ibus-web/protocol.h`, `src/output.c`, `src/ibus/ibusservice.c`, `ibusengine.c`, `ibusenginesimple.c`, `ibusfactory.c`, `ibuskeymap.c`, `tests/test-engine.c`             | engine types, emitters, output buffer | 3    |
-| `runtime/libibus-web/src/dispatch.c` (real), `src/test-dispatch.c` (renamed), `src/log.c`, `include/ibus-web/runtime.h`, `tests/test-dispatch.c`, `packages/worker-host/src/worker/{runtime,loop}.ts` | the dispatcher, Log records           | 4    |
-| `runtime/libibus-web/src/settings.c`, `tests/test-settings.c`, `tests/schemas/`                                                                                                                       | GSettings backend                     | 5    |
-| `flake.nix`, `engines/hangul/{overlay.nix,package.nix,module.c,cast-audit.jsonc,patches/{casts,port}/,patches/README.md}`, `runtime/ibus-runtime/side-module.nix`, `REUSE.toml`                       | the Hangul side module                | 6    |
-| `engines/hangul/checks/golden/{default.nix,golden.c,harness.{c,h}}`                                                                                                                                   | golden tests                          | 7    |
-| `docs/runtime.md`, `docs/engines.md` (new), `docs/glib.md`, `docs/testing.md`, `docs/known-gaps.md`, `docs/README.md`, spec §5.2, §5.4, §5.6, §6.1, §11.3, §12                                        | docs                                  | 8    |
+| Path                                                                                                                                                                                                                        | Change                                | Task |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---- |
+| `modules/engines/cast-audit.{nix,ts,test.ts}`, `modules/engines/tsconfig.json`, `modules/engines/fixtures/`                                                                                                                 | the cast audit                        | 1    |
+| `runtime/libibus-web/_package.nix` (from `package.nix`), `runtime/libibus-web/overlay.nix`, `runtime/libibus-web/package.nix`                                                                                               | libibus-web in `pkgsWasm`             | 2    |
+| `runtime/libibus-web/meson.build`, `meson.options`, `include/ibus-1.0/` (vendored headers, our `ibus.h`), `src/ibus/` (vendored sources, `README.md`), `cast-audit.jsonc`, `tests/test-serializable.c`, `tests/meson.build` | IBus layer: data types and keys       | 2    |
+| `runtime/ibus-runtime/exports.nix`, `exports.py`, `checks.nix`, `package.nix`                                                                                                                                               | the `ibus` export library, ABI 1      | 2    |
+| `runtime/libibus-web/include/ibus-web/protocol.h`, `src/output.c`, `src/ibus/ibusservice.c`, `ibusengine.c`, `ibusenginesimple.c`, `ibusfactory.c`, `ibuskeymap.c`, `tests/test-engine.c`                                   | engine types, emitters, output buffer | 3    |
+| `runtime/libibus-web/src/dispatch.c` (real), `src/test-dispatch.c` (renamed), `src/log.c`, `include/ibus-web/runtime.h`, `tests/test-dispatch.c`, `packages/worker-host/src/worker/{runtime,loop}.ts`                       | the dispatcher, Log records           | 4    |
+| `runtime/libibus-web/src/settings.c`, `tests/test-settings.c`, `tests/schemas/`                                                                                                                                             | GSettings backend                     | 5    |
+| `flake.nix`, `engines/hangul/{overlay.nix,package.nix,module.c,cast-audit.jsonc,patches/{casts,port}/,patches/README.md}`, `runtime/ibus-runtime/side-module.nix`, `REUSE.toml`                                             | the Hangul side module                | 6    |
+| `engines/hangul/checks/golden/{default.nix,golden.c,harness.{c,h}}`                                                                                                                                                         | golden tests                          | 7    |
+| `docs/runtime.md`, `docs/engines.md` (new), `docs/glib.md`, `docs/testing.md`, `docs/known-gaps.md`, `docs/README.md`, spec §5.2, §5.4, §5.6, §6.1, §11.3, §12                                                              | docs                                  | 8    |
 
 ---
 
@@ -297,7 +311,7 @@ the cast; the golden tests' traps cover those.
 
 ### Task 2: libibus-web in pkgsWasm; the IBus layer's data types and keys
 
-**Files:** `runtime/libibus-web/_package.nix` (the derivation, a callPackage file), `runtime/libibus-web/overlay.nix` (`flake.overlays.libibus-web` adding `libibus-web` to pkgsWasm), `runtime/libibus-web/package.nix` (now `ibusWeb.runtime.libibusWeb = pkgsWasm.libibus-web`), `runtime/libibus-web/checks.nix`, `meson.build`, `meson.options`, `include/ibus-1.0/ibus.h`, `src/ibus/` (`config.h` template if needed), `patches/` (+ `README.md`), `cast-audit.jsonc`, `tests/test-serializable.c`, `tests/meson.build`, `runtime/ibus-runtime/{exports.nix,exports.py,checks.nix}`, `include/ibus-web/runtime.h` (ABI 1), `REUSE.toml`, `.clangd` if its include paths need the new directory.
+**Files:** `runtime/libibus-web/_package.nix` (the derivation, a callPackage file), `runtime/libibus-web/overlay.nix` (`flake.overlays.libibus-web` adding `libibus-web` to pkgsWasm), `runtime/libibus-web/package.nix` (now `ibusWeb.runtime.libibusWeb = pkgsWasm.libibus-web`), `runtime/libibus-web/checks.nix`, `meson.build`, `meson.options`, `include/ibus-1.0/` (vendored headers, our `ibus.h`, `ibusversion.h`), `src/ibus/` (vendored sources, templates, `ibusmarshalers.list`, `org.freedesktop.ibus.gschema.xml`, `config.h` template if needed, `README.md`), `cast-audit.jsonc`, `tests/test-serializable.c`, `tests/meson.build`, `runtime/ibus-runtime/{exports.nix,exports.py,checks.nix}`, `include/ibus-web/runtime.h` (ABI 1), `REUSE.toml`, `.clangd` if its include paths need the new directory.
 
 **Interfaces:**
 
@@ -308,12 +322,12 @@ the cast; the golden tests' traps cover those.
 **Requirements:**
 
 - **pkgsWasm restructure.** Move the derivation behind an overlay so recipes in pkgsWasm can take `libibus-web` as an input (Task 6 does). `ibusWeb.runtime.libibusWeb`, `packages.libibus-web` and `devLibraries` point at `pkgsWasm.libibus-web`. The fileset logic stays. The overlay is gated on the platform like every other.
-- **Upstream sources.** Meson option `ibus_source` (a directory). `_package.nix` passes `final.ibus.src` unpacked, with `runtime/libibus-web/patches/*.patch` applied in order, as a derivation of its own (`passthru.ibusSource`) so editors and the audit see the same tree.
-  - Compile the data-type and key sources listed in the decisions, plus whatever they need of `ibusinternal.h`, `ibusshare.c` or `ibusdebug` (take the smallest set that links; list each file with one line on why).
-  - Generate `ibusenumtypes.{c,h}` and `ibusmarshalers.{c,h}` with Meson's `gnome.mkenums`/`gnome.genmarshal` using upstream's templates and list, through the build machine's tools. Their output is plain C; check that the marshallers call through the callback's own type.
+- **Vendoring.** Fetch the IBus 1.5.34 release tarball (the URL and hash nixpkgs' `ibus` uses at the current lock is a fine source; record both in the README). Copy in only the files the build needs. Commit them unchanged first, in a commit of their own, so the changes made in this and later tasks show as ordinary diffs against that commit. Then write `src/ibus/README.md`, a table of every vendored file. Add a lint-style check, `checks.libibus-web-vendored`, that fails if a file under `src/ibus/` or `include/ibus-1.0/` is missing from the README's table or the table names a file that isn't there. Our own files under `src/ibus/` are listed as ours.
+  - Vendor and compile the data-type and key sources listed in the decisions, plus whatever they need of `ibusinternal.h`, `ibusshare.c` or `ibusdebug`. Take the smallest set that links, and give each file a line on why in the README. Code in a vendored file that we don't need, such as D-Bus paths, is deleted from the copy, not stubbed.
+  - Generate `ibusenumtypes.{c,h}` and `ibusmarshalers.{c,h}` with Meson's `gnome.mkenums`/`gnome.genmarshal` from the vendored templates and list, through the build machine's tools. Their output is plain C; check that the marshallers call through the callback's own type.
 - **Headers.**
-  - Install upstream's headers for the provided types under `include/ibus-1.0/`, including headers they include. Never install `ibusbus.h`, `ibusconfig.h`, `ibuscomponent.h` or `ibusenginedesc.h` unless an installed header includes it; if one does, install it but leave its types out of `ibus.h`, and say so in the report.
-  - Generate `ibusversion.h` from `ibusversion.h.in` with the version Nix evaluates.
+  - Vendor and install upstream's headers for the provided types under `include/ibus-1.0/`, with the headers they include. Don't vendor `ibusbus.h`, `ibusconfig.h`, `ibuscomponent.h` or `ibusenginedesc.h`; where a vendored header includes one only for a type it doesn't need in its struct layouts, drop the include in the copy. If a layout really needs one, vendor it, leave its types out of `ibus.h`, and say so in the report.
+  - Vendor `ibusversion.h` with 1.5.34 filled in.
   - `ibus.h` is ours (LGPL, SPDX header): `#define __IBUS_H_INSIDE__`, the includes, `#undef`.
   - Include `ibuskeysyms.h` and `ibuskeysyms-compat.h`: ibus-hangul uses the un-prefixed names.
 - **Libraries and pkg-config** per the decisions. `libibus-web-ibus` is built with default visibility and `-DIBUS_COMPILATION`; its internal helpers are `G_GNUC_INTERNAL`.
@@ -321,7 +335,7 @@ the cast; the golden tests' traps cover those.
   - Add the `ibus` library to `spec.libraries` in `exports.nix` after `libibus-web`, versioned `{ibus}+ibus-web.{abi}`; `{ibus}` comes from a new `versions.ibus` entry evaluating the three macros through `ibus-1.0`.
   - Extend `exports.py`'s `verify` with `--api-subset LIBRARY=HEADER` (every exported symbol is declared by the header, not necessarily the reverse), and use it for `ibus` in `checks.ibus-runtime-exports`.
   - `IBUSWEB_RUNTIME_ABI` becomes `1`.
-- **Cast audit.** `checks.libibus-web-cast-audit` runs `castAudit` over the upstream sources compiled into the IBus layer. Fix every finding with a patch in `runtime/libibus-web/patches/` (README: what, why, upstream status); the allow-list stays empty unless a cast is provably harmless, with its reason.
+- **Cast audit.** `checks.libibus-web-cast-audit` runs `castAudit` over the upstream sources compiled into the IBus layer. Fix every finding by editing the vendored file (README row: what and why); the allow-list stays empty unless a cast is provably harmless, with its reason.
 - **Tests** (`test-serializable`, g_test, TAP, in `checks.libibus-web`):
   - Each data type serializes to exactly upstream's GVariant type string, checked with `g_variant_get_type_string`:
     - `IBusText` `(sa{sv}sv)`
@@ -337,7 +351,7 @@ the cast; the golden tests' traps cover those.
   - A test that the old `runtime.h` API still behaves needs no change.
 - `checks.ibus-runtime-load` and the Worker host's checks still pass (the runtime carries the new library; nothing calls it yet).
 
-- [ ] Steps: overlay restructure, outputs unchanged (compare `libibus-web.a` before and after); upstream tree + patches derivation; Meson targets, headers, pkg-config; serializable tests red → green; export list and `--api-subset`; cast audit + patches; `nix flake check`; commit.
+- [ ] Steps: overlay restructure, outputs unchanged (compare `libibus-web.a` before and after); vendor unchanged (own commit), README and its check; Meson targets, headers, pkg-config; serializable tests red → green; export list and `--api-subset`; cast audit + fixes in the vendored files; `nix flake check`; commit.
 
 ### Task 3: Engine types, emitters and the output buffer
 
@@ -469,7 +483,7 @@ the cast; the golden tests' traps cover those.
 - **Data tree** (`$out/data/usr/share/`):
   - `ibus-hangul/data/symbol.txt`;
   - `libhangul/hanja/hanja.txt` (from `libhangul'`);
-  - `glib-2.0/schemas/`: ibus-hangul's `org.freedesktop.ibus.engine.hangul.gschema.xml` and ibus's `org.freedesktop.ibus.gschema.xml` (from `final.ibus.src`; it holds the panel schema `org.freedesktop.ibus.panel`, which ibus-hangul's init aborts without), compiled together with the build machine's `glib-compile-schemas` into `gschemas.compiled`, with the sources kept beside it (spec §5.2.5).
+  - `glib-2.0/schemas/`: ibus-hangul's `org.freedesktop.ibus.engine.hangul.gschema.xml` and ibus's `org.freedesktop.ibus.gschema.xml` (from libibus-web's `share/glib-2.0/schemas/`; it holds the panel schema `org.freedesktop.ibus.panel`, which ibus-hangul's init aborts without), compiled together with the build machine's `glib-compile-schemas` into `gschemas.compiled`, with the sources kept beside it (spec §5.2.5).
 - **`module.c`** (GPL-2.0-or-later, Synapdeck) defines `ibusweb_module_init` per the decisions; it includes ibus-hangul's `engine.h`. `main.c` is not compiled.
 - **Patches.** Each patch is a `git format-patch` against nixpkgs' src, minimal, with a header saying what and why; the README records provenance and upstream status.
   - **casts 0001:** give `ibus_hangul_engine_class_init` and `ibus_hangul_engine_init` their `GClassInitFunc`/`GInstanceInitFunc` signatures (second parameter unused), keeping their bodies.
@@ -527,7 +541,7 @@ the cast; the golden tests' traps cover those.
 
 - **`docs/runtime.md`:**
   - the two libraries and pkg-config files;
-  - the IBus layer (what is upstream's, what is ours and why: upstream headers for layout compatibility, `IBusEngineSimple` minimal, `IBusKeymap` `NULL`);
+  - the IBus layer: what is vendored, what is ours and why (upstream headers for layout compatibility, `IBusEngineSimple` minimal, `IBusKeymap` `NULL`), and how to merge a later IBus release into the vendored tree;
   - the protocol header;
   - the output buffer and its threading;
   - `ibusweb_dispatch()` and its errors; Init before the module;
@@ -554,7 +568,7 @@ the cast; the golden tests' traps cover those.
   - anything a task reported as left.
 - **The spec:**
   - §5.2.3: `ibusweb_dispatch(request, len)` returns the reply; the host pumps; Init precedes loading the engine module.
-  - §5.2.1: upstream headers, the layer split, `IBusEngineSimple` and `IBusKeymap` as built.
+  - §5.2.1: IBus vendored (headers and the data types), the layer split, `IBusEngineSimple` and `IBusKeymap` as built.
   - §5.4.2: the port layer also carries fixes for engine bugs the runtime's lifecycle exposes.
   - §5.4.3: the factory registration.
   - §5.6: the engine sees data at FHS paths, mapped by the host.
