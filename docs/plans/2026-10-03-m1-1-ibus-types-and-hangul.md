@@ -42,6 +42,7 @@ TypeScript audit script.
 - Licensing: libibus-web (both libraries, the vendored IBus sources, its tests) is `LGPL-2.1-or-later`. Vendored files keep upstream's copyright and licence header; a vendored file we change also gets a `Synapdeck, Inc.` copyright line in that header, as LGPL-2.1 §2(a) asks of modified files, and `src/ibus/README.md` records what changed. `REUSE.toml` annotates the vendored files with upstream's copyright holders where their headers carry no SPDX tags. `engines/hangul/` is `GPL-2.0-or-later` (ibus-hangul's `meta.license`), including the glue we write there. Everything else is `MIT OR Apache-2.0`. Copyright for our code is `2026 Synapdeck, Inc.`, never a person. `reuse lint` (in hk) passes.
 - **Structured tests:** g_test (TAP) for C that links GLib, GoogleTest for C/C++ that doesn't, Vitest for TypeScript. No ad-hoc `main()` with CHECK macros, no print-then-grep. Build-only and consistency checks (exports, imports, audits, patches applying) are not tests and stay plain.
 - **TypeScript first:** new scripts are TypeScript run by Node's type stripping, each directory with a `tsconfig.json` extending the root `tsconfig.base.json`. No `node -e`/`python -c` inlined in Nix. Standard formats are parsed with a maintained library or the platform (`JSON.parse` for SARIF/JSON; `jsonc-parser` for JSONC).
+- **GLib's tools are `pkgsWasm.glib`'s:** the WebAssembly builds run by Node (`<tool>` wrappers), which we patch where upstream behaviour must change. Builds get them as their kind of build does: Meson through the cross file `pkgsWasm.glib`'s setup hook installs; anything else through the `.pc` variables (`$PKG_CONFIG --variable=glib_compile_schemas gio-2.0`, …). Never the build machine's GLib, and never a tool by plain name from `PATH`.
 - Config files we add are `.jsonc` with an SPDX header and a `$schema` where one exists. oxfmt `printWidth` is 120.
 - Comments explain why, not what. They never refer to other files, this plan or its history.
 - `nix flake check` passes at the end of every task. Flakes see only git-tracked files: `git add` new files before `nix` commands.
@@ -87,7 +88,7 @@ vendor.
 
 - the data types: `ibusobject.c`, `ibusserializable.c`, `ibustext.c`, `ibusattribute.c`, `ibusattrlist.c`, `ibuslookuptable.c`, `ibusproperty.c`, `ibusproplist.c`;
 - the key helpers: `ibuskeynames.c` with its keyname table, `ibuskeyuni.c` if `ibus_keyval_to_unicode`/`ibus_unicode_to_keyval` are reached, and `ibuskeys.c` for `ibus_key_event_from_string`;
-- the generated enum types and marshallers, made at build time with the build machine's `glib-mkenums`/`glib-genmarshal` from the vendored templates and `ibusmarshalers.list`, so they follow the vendored headers;
+- the generated enum types and marshallers, made at build time with `pkgsWasm.glib`'s own tools from the vendored templates and `ibusmarshalers.list`, so they follow the vendored headers;
 - ibus's GSettings schema file, `data/dconf/org.freedesktop.ibus.gschema.xml`, which holds the panel schema `org.freedesktop.ibus.panel` that engines read. libibus-web installs it under `share/glib-2.0/schemas/` for engine builds to compile into their data.
 
 Ours (`runtime/libibus-web/src/ibus/`):
@@ -324,7 +325,7 @@ the cast; the golden tests' traps cover those.
 - **pkgsWasm restructure.** Move the derivation behind an overlay so recipes in pkgsWasm can take `libibus-web` as an input (Task 6 does). `ibusWeb.runtime.libibusWeb`, `packages.libibus-web` and `devLibraries` point at `pkgsWasm.libibus-web`. The fileset logic stays. The overlay is gated on the platform like every other.
 - **Vendoring.** Fetch the IBus 1.5.34 release tarball (the URL and hash nixpkgs' `ibus` uses at the current lock is a fine source; record both in the README). Copy in only the files the build needs. Commit them unchanged first, in a commit of their own, so the changes made in this and later tasks show as ordinary diffs against that commit. Then write `src/ibus/README.md`, a table of every vendored file. Add a lint-style check, `checks.libibus-web-vendored`, that fails if a file under `src/ibus/` or `include/ibus-1.0/` is missing from the README's table or the table names a file that isn't there. Our own files under `src/ibus/` are listed as ours.
   - Vendor and compile the data-type and key sources listed in the decisions, plus whatever they need of `ibusinternal.h`, `ibusshare.c` or `ibusdebug`. Take the smallest set that links, and give each file a line on why in the README. Code in a vendored file that we don't need, such as D-Bus paths, is deleted from the copy, not stubbed.
-  - Generate `ibusenumtypes.{c,h}` and `ibusmarshalers.{c,h}` with Meson's `gnome.mkenums`/`gnome.genmarshal` from the vendored templates and list, through the build machine's tools. Their output is plain C; check that the marshallers call through the callback's own type.
+  - Generate `ibusenumtypes.{c,h}` and `ibusmarshalers.{c,h}` with Meson's `gnome.mkenums`/`gnome.genmarshal` from the vendored templates and list. Meson's gnome module runs `pkgsWasm.glib`'s tools through the cross file its setup hook installs, never the build machine's GLib. Their output is plain C; check that the marshallers call through the callback's own type.
 - **Headers.**
   - Vendor and install upstream's headers for the provided types under `include/ibus-1.0/`, with the headers they include. Don't vendor `ibusbus.h`, `ibusconfig.h`, `ibuscomponent.h` or `ibusenginedesc.h`; where a vendored header includes one only for a type it doesn't need in its struct layouts, drop the include in the copy. If a layout really needs one, vendor it, leave its types out of `ibus.h`, and say so in the report.
   - Vendor `ibusversion.h` with 1.5.34 filled in.
@@ -428,7 +429,7 @@ the cast; the golden tests' traps cover those.
 
 ### Task 5: The GSettings backend
 
-**Files:** `runtime/libibus-web/src/settings.c`, `src/settings.h` (internal), `src/dispatch.c`, `meson.build`, `tests/test-settings.c`, `tests/schemas/org.ibus-web.Test.gschema.xml`, `tests/meson.build`, `runtime/libibus-web/checks.nix` (compile the test schema with the build machine's `glib-compile-schemas`; tests get `GSETTINGS_SCHEMA_DIR`).
+**Files:** `runtime/libibus-web/src/settings.c`, `src/settings.h` (internal), `src/dispatch.c`, `meson.build`, `tests/test-settings.c`, `tests/schemas/org.ibus-web.Test.gschema.xml`, `tests/meson.build`, `runtime/libibus-web/checks.nix` (compile the test schema with `pkgsWasm.glib`'s `glib-compile-schemas`, through Meson's `gnome.compile_schemas`; tests get `GSETTINGS_SCHEMA_DIR`).
 
 **Interfaces:**
 
@@ -483,7 +484,7 @@ the cast; the golden tests' traps cover those.
 - **Data tree** (`$out/data/usr/share/`):
   - `ibus-hangul/data/symbol.txt`;
   - `libhangul/hanja/hanja.txt` (from `libhangul'`);
-  - `glib-2.0/schemas/`: ibus-hangul's `org.freedesktop.ibus.engine.hangul.gschema.xml` and ibus's `org.freedesktop.ibus.gschema.xml` (from libibus-web's `share/glib-2.0/schemas/`; it holds the panel schema `org.freedesktop.ibus.panel`, which ibus-hangul's init aborts without), compiled together with the build machine's `glib-compile-schemas` into `gschemas.compiled`, with the sources kept beside it (spec §5.2.5).
+  - `glib-2.0/schemas/`: ibus-hangul's `org.freedesktop.ibus.engine.hangul.gschema.xml` and ibus's `org.freedesktop.ibus.gschema.xml` (from libibus-web's `share/glib-2.0/schemas/`; it holds the panel schema `org.freedesktop.ibus.panel`, which ibus-hangul's init aborts without), compiled together with `pkgsWasm.glib`'s `glib-compile-schemas` into `gschemas.compiled`. The build isn't Meson, so it takes the tool from `$PKG_CONFIG --variable=glib_compile_schemas gio-2.0`, never by name from `PATH`, where the native one shadows it, with the sources kept beside it (spec §5.2.5).
 - **`module.c`** (GPL-2.0-or-later, Synapdeck) defines `ibusweb_module_init` per the decisions; it includes ibus-hangul's `engine.h`. `main.c` is not compiled.
 - **Patches.** Each patch is a `git format-patch` against nixpkgs' src, minimal, with a header saying what and why; the README records provenance and upstream status.
   - **casts 0001:** give `ibus_hangul_engine_class_init` and `ibus_hangul_engine_init` their `GClassInitFunc`/`GInstanceInitFunc` signatures (second parameter unused), keeping their bodies.
@@ -568,6 +569,7 @@ the cast; the golden tests' traps cover those.
   - anything a task reported as left.
 - **The spec:**
   - §5.2.3: `ibusweb_dispatch(request, len)` returns the reply; the host pumps; Init precedes loading the engine module.
+  - §5.2.5: schemas are compiled with `pkgsWasm.glib`'s `glib-compile-schemas`, not the build machine's.
   - §5.2.1: IBus vendored (headers and the data types), the layer split, `IBusEngineSimple` and `IBusKeymap` as built.
   - §5.4.2: the port layer also carries fixes for engine bugs the runtime's lifecycle exposes.
   - §5.4.3: the factory registration.
