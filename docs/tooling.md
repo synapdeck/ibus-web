@@ -206,8 +206,10 @@ TypeScript is version 7 (the native compiler). Configuration:
   package's own base, and overrides only what its files need: the environment's `lib`/`types`,
   `rootDir`/`outDir`, or `allowJs`/`checkJs`. hk's `tsconfig-extends` step enforces the chain.
 - **`tsconfig.node-scripts.json`** extends it for the Nix builds' Node scripts (`noEmit`,
-  `allowImportingTsExtensions`, `lib: ["es2023"]`, Node types); each directory of scripts has a
-  `tsconfig.json` extending that.
+  `allowImportingTsExtensions`, `lib: ["es2023"]`, Node types, and `types/webassembly`, the part
+  of the WebAssembly API Node code here uses, which TypeScript declares only in its web libraries);
+  each directory of scripts has a `tsconfig.json` extending that. A config for Node code that
+  extends a package's base instead names `types/` as a type root itself.
 - **One `tsconfig.json` per environment directory** in a package (`src/shared`, `src/worker`,
   `src/node`, `src/browser`, and the test directories likewise), each with its own `lib` and
   `types`, so code meant for a Worker can't use Node's API by accident. Packages' `build` scripts
@@ -217,7 +219,9 @@ TypeScript is version 7 (the native compiler). Configuration:
 - **JavaScript Emscripten reads** (`--js-library`, `--pre-js`, `--post-js`: the IndexedDB
   backend's library and its test libraries, the GoogleTest harness's report library,
   `host-memory.js`, `size-pre.js`) stays JavaScript, with JSDoc types, checked under a
-  `tsconfig.json` with `allowJs`/`checkJs`, `module: preserve`, and declarations for what it uses
+  `tsconfig.json` extending **`tsconfig.emscripten-js.json`** (`allowJs`/`checkJs`,
+  `module: preserve`, a Worker's `es2023` library at the base's target; `size-pre.js`, which runs
+  under Node, takes Node's instead), with declarations for what it uses
   from Emscripten: generated from a link of the library (`--emit-tsd`) where one exists, local
   `pre-js.d.ts` declarations otherwise. A library's `__deps` are checked against what it uses by
   `runtime/wasmfs-idb/library-deps.ts`, which parses with the same acorn version Emscripten

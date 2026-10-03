@@ -11,6 +11,9 @@
     "allowImportingTsExtensions": true,
     // Explicit, because the default for the target includes DOM.
     "lib": ["es2023"],
-    "types": ["node"]
+    // types/ holds the repository's own declarations of what Node has but
+    // @types/node doesn't declare.
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "types": ["node", "webassembly"]
   }
 }

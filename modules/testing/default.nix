@@ -496,6 +496,7 @@
             inherit root;
             fileset = lib.fileset.unions [
               ../../tsconfig.base.json
+              ../../tsconfig.emscripten-js.json
               ../../runtime/wasmfs-idb/src/emscripten-library.d.ts
               ./gtest-main/tsconfig.json
               ./gtest-main/report.js

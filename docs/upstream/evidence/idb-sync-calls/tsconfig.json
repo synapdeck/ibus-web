@@ -4,7 +4,9 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../../../tsconfig.node-scripts.json",
   "compilerOptions": {
-    // Playwright's types name the DOM's element types.
-    "lib": ["es2023", "dom"]
+    // Playwright's types name the DOM's element types; the DOM's library
+    // declares WebAssembly whole.
+    "lib": ["es2023", "dom"],
+    "types": ["node"]
   }
 }

@@ -7,19 +7,7 @@
 // Emscripten, from a link of the library.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../../tsconfig.base.json",
-  // Emscripten bundles the library into its own output as written, as a
-  // script, so it is checked as one rather than as a Node module.
-  "compilerOptions": {
-    "allowJs": true,
-    "checkJs": true,
-    "noEmit": true,
-    "target": "es2022",
-    "lib": ["es2022", "webworker"],
-    "module": "preserve",
-    "moduleResolution": "bundler",
-    "types": []
-  },
+  "extends": "../../../tsconfig.emscripten-js.json",
   "files": [
     "report.js",
     "report.d.ts",

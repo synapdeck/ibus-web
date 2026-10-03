@@ -63,6 +63,7 @@
           runtime.wasmfsIdbTestLibraries
           ++ [
             ../../tsconfig.base.json
+            ../../tsconfig.emscripten-js.json
             ./src/tsconfig.json
             ./src/libwasmfs_idb.js
             ./src/emscripten-library.d.ts

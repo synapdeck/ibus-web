@@ -206,8 +206,8 @@ An item leaves this page when it is fixed or decided.
 - **`packageNodeModules` may return a path that doesn't exist** for a package with no dependencies; the
   workspace output duplicates the root `node_modules` (disk only).
 - **TypeScript loose ends**: the workspace's `fileFilter` matches by extension anywhere in a package; two
-  `pre-js.d.ts` declare `ENVIRONMENT_IS_PTHREAD` (accepted, one per environment); the `webassembly.d.ts`
-  shims may collide with a future `@types/node`.
+  `pre-js.d.ts` declare `ENVIRONMENT_IS_PTHREAD` (accepted, one per environment); the WebAssembly shim
+  (`types/webassembly`) may collide with a future `@types/node`.
 
 ## Tooling
 

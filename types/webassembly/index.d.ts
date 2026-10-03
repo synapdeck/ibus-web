@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// The part of the WebAssembly API the harness and its tests use. Node has
+// The part of the WebAssembly API the repository's Node code uses. Node has
 // the whole API, but TypeScript declares it only in its web libraries, which
 // would also bring in globals Node lacks.
 declare namespace WebAssembly {
@@ -36,4 +36,5 @@ declare namespace WebAssembly {
   class LinkError extends Error {}
   class RuntimeError extends Error {}
   function compile(bytes: Uint8Array): Promise<Module>;
+  function instantiate(module: Module, imports?: Imports): Promise<Instance>;
 }
