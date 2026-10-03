@@ -40,6 +40,14 @@ const opNames = [
   "glibStressResult",
   "memInfo",
   "memGrow",
+  "fsync",
+  "fsyncResult",
+  "writeFile",
+  "readFile",
+  "readFileRdwr",
+  "benchWrite",
+  "benchRead",
+  "benchAppend",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;
@@ -76,20 +84,20 @@ export const call32 = async (client: Client, opcode: number, payload?: Uint8Arra
 const percentile = (sorted: readonly number[], p: number): number =>
   sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))] ?? Number.NaN;
 
-const round = (value: number, digits = 3): number => Number(value.toFixed(digits));
+export const round = (value: number, digits = 3): number => Number(value.toFixed(digits));
 
-const errno = (h: Harness, name: string): number => {
+export const errno = (h: Harness, name: string): number => {
   const value = h.data.errno[name];
   if (value === undefined) throw new Error(`no ${name} in Emscripten's errno.h`);
   return value;
 };
 
-const opsOf = (h: Harness): Ops => opsFrom(h.data.constants.ops);
+export const opsOf = (h: Harness): Ops => opsFrom(h.data.constants.ops);
 
 // Asks for a result every intervalMs until it is no longer -EAGAIN; fails
 // once the harness's pending limit has passed. value is the reply's first
 // int32.
-const poll = async (
+export const poll = async (
   h: Harness,
   client: Client,
   opcode: number,

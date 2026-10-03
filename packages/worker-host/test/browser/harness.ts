@@ -9,10 +9,12 @@
 import { inject } from "vitest";
 import { commands } from "vitest/browser";
 import { createControl } from "../../src/shared/control.ts";
-import type { HostInit, SideModule } from "../../src/shared/messages.ts";
+import type { EngineManifest, HostInit, SideModule } from "../../src/shared/messages.ts";
+import { engineDatabase } from "../../src/shared/naming.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
-import { hostUrlFor, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
+import { hostUrlFor, startingAsAPage, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
+import { locksFrom, type WebLocks } from "../shared/locks.ts";
 import { printedFrom } from "../shared/printed.ts";
 import type { TestInit } from "../shared/testing.ts";
 import "./commands.ts";
@@ -41,6 +43,24 @@ const waitFree = async (words: Int32Array, index: number, value: number, ms: num
   if (result.async) await result.value;
 };
 
+const opened = (request: IDBOpenDBRequest): Promise<IDBDatabase> =>
+  new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+// Opening a database at a newer version waits until every other connection
+// to it has closed.
+const upgradeDatabase = async (engine: EngineManifest): Promise<number> => {
+  const startedAt = performance.now();
+  const name = engineDatabase(engine);
+  const current = await opened(indexedDB.open(name));
+  const { version } = current;
+  current.close();
+  (await opened(indexedDB.open(name, version + 1))).close();
+  return performance.now() - startedAt;
+};
+
 export const browserHarness = async (): Promise<Harness> => {
   if (!crossOriginIsolated) throw new Error("the page is not cross-origin isolated");
   await commands.consoleBegin();
@@ -58,6 +78,7 @@ export const browserHarness = async (): Promise<Harness> => {
     }
     return module;
   };
+  const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
   const start = async (options: HostOptions): Promise<RunningHost> => {
     const control = createControl();
     const worker = new Worker(hostUrlFor(data, options), {
@@ -79,8 +100,9 @@ export const browserHarness = async (): Promise<Harness> => {
           : await WebAssembly.compile(new Uint8Array(options.wasm)),
       memory: options.memory ?? { initial: minimum, maximum: minimum },
       control,
-      sides,
-      engine: { name: "test", version: "0", data: [] },
+      sides: [...sides, ...(options.moreSides ?? [])],
+      engine: options.engine ?? { name: "test", version: "0", data: [] },
+      storage: options.storage ?? { kind: "none" },
       poolLowWater: data.pool.lowWater,
       constants: data.constants,
       test,
@@ -109,7 +131,13 @@ export const browserHarness = async (): Promise<Harness> => {
   return {
     ...clock,
     data,
-    start,
+    sides,
+    start: startingAsAPage(start, locks),
+    locks,
+    storage: () => ({ kind: "browser" }),
+    storageMount: "indexeddb",
+    withoutIndexedDB: { withoutIndexedDB: true },
+    upgradeDatabase,
     printed: printedFrom(() => commands.consoleTake(), clock),
     record: (name, measurements) => console.log(`${name}: ${JSON.stringify(measurements)}`),
     pendingLimitMs: 10_000,

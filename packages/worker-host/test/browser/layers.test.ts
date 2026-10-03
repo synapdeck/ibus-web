@@ -3,7 +3,7 @@
 
 // The host's configuration and its Worker scope, as layers, without a
 // runtime: what the scope reports when it closes after a failure, and that
-// finalizers calling into the runtime run on a normal close only.
+// finalizers calling into the runtime run only while it is intact.
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Layer, Scope } from "effect";
@@ -58,9 +58,19 @@ describe("runtimeFinalizer", () => {
     }),
   );
 
-  it.effect("leaves the runtime alone after a failure, but not the rest", () =>
+  it.effect("calls into the runtime after a failure that left it intact", () =>
+    Effect.gen(function* () {
+      expect(yield* closing(Exit.fail(new RelayFailed({ message: "gone" })))).toEqual(["JavaScript", "runtime"]);
+      expect(yield* closing(Exit.fail(new StartupFailed({ message: "load: -8" })))).toEqual(["JavaScript", "runtime"]);
+    }),
+  );
+
+  it.effect("leaves the runtime alone once a call into it has thrown, but not the rest", () =>
     Effect.gen(function* () {
       expect(yield* closing(Exit.fail(new RuntimeStopped({ error: "unwind" })))).toEqual(["JavaScript"]);
+      expect(yield* closing(Exit.fail(new StartupFailed({ message: "unreachable", trapped: true })))).toEqual([
+        "JavaScript",
+      ]);
     }),
   );
 });
@@ -72,8 +82,9 @@ describe("the Worker scope", () => {
     control: createControl(),
     sides: [],
     engine: { name: "test", version: "0", data: [] },
+    storage: { kind: "none" },
     poolLowWater: 0,
-    constants: { pumpError: 0, waitTimedOut: 0, memory: { minimum: 0, maximum: 0 } },
+    constants: { pumpError: 0, waitTimedOut: 0, idbReadOnly: 0, memory: { minimum: 0, maximum: 0 } },
   });
 
   // Builds the scope, runs use() in it, then closes it with use()'s exit;

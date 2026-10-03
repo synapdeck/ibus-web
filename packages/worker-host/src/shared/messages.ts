@@ -21,6 +21,11 @@ export interface EngineManifest {
   data: readonly EngineData[];
 }
 
+// The engine's data's size, unpacked: what the host adds to the runtime's
+// memory when the data sits in it.
+export const engineDataBytes = ({ data }: Pick<EngineManifest, "data">): number =>
+  data.reduce((sum, { size }) => sum + size, 0);
+
 export interface SideModule {
   name: string;
   bytes: ArrayBuffer;
@@ -33,10 +38,24 @@ export interface RuntimeConstants {
   pumpError: number;
   // ibusweb_wait()'s -ETIMEDOUT.
   waitTimedOut: number;
+  // WASMFS_IDB_READ_ONLY.
+  idbReadOnly: number;
   // The least and the most memory the runtime's memory import admits, in
   // bytes.
   memory: { minimum: number; maximum: number };
 }
+
+// What the host mounts at the engine's directory, /engines/<name>, for the
+// engine's own files.
+export type EngineStorage =
+  // Nothing: the engine has no directory.
+  | { kind: "none" }
+  // WasmFS's Node backend over user/ in hostPath, a directory on the host
+  // kept for the engine. Only a host under Node can mount it.
+  | { kind: "node"; hostPath: string }
+  // The engine's IndexedDB database or, where IndexedDB can't be opened,
+  // memory.
+  | { kind: "browser" };
 
 // The page's first and only message to the host. Wasm is the runtime's
 // compiled WebAssembly.Module, typed by the environment that has one. Test
@@ -53,12 +72,17 @@ export interface HostInit<Wasm = unknown, Test = never> {
   // The engine's side modules, loaded in this order.
   sides: readonly SideModule[];
   engine: EngineManifest;
+  storage: EngineStorage;
   // The host tops Emscripten's pthread pool up, when no request is pending,
   // to this many idle Workers.
   poolLowWater: number;
   constants: RuntimeConstants;
   test?: Test;
 }
+
+// What the host mounts the engine's own files on: "memory" for want of
+// IndexedDB.
+export type Mount = "none" | "node" | "indexeddb" | "memory";
 
 // The state of the engine's storage, when it isn't what the engine was
 // promised: "ephemeral", mounted in memory for want of IndexedDB, so user

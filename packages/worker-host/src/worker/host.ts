@@ -3,16 +3,21 @@
 
 // The Worker host as a scoped program. Its resources are layers, each a
 // scope inside the last: the Worker (the control buffer, the logger, crash
-// reporting), the runtime (instantiated in a memory made for it), the wake
-// relay, which bumps a word in that memory, and the engine module. The
-// request loop then runs as one synchronous section, leaving it only to top
-// the pthread pool up. Only this Worker, and the relay it starts, touch the
-// runtime's memory.
+// reporting), the storage's plan (the locks, and what to mount, which sizes
+// the runtime's memory), the runtime (instantiated in a memory made for it),
+// the wake relay, which bumps a word in that memory, the storage's mounts,
+// and the engine module. The request loop then runs as one synchronous
+// section, leaving it only to top the pthread pool up. Only this Worker, and
+// the relay it starts, touch the runtime's memory.
 
 import { Cause, Context, Data, Effect, Exit, Layer, Logger, type Scope } from "effect";
+import { engineDir, engineWriterLock } from "../shared/naming.ts";
 import { controlViews, postCrash, postReply, Word, type ControlViews } from "../shared/control.ts";
 import type { HostInit, HostMessage } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
+import { Held, requestLock } from "./storage/locks.ts";
+import { mount, type MountedStorage } from "./storage/mount.ts";
+import { memoryFor, planStorage, type StoragePlan } from "./storage/plan.ts";
 import type { RelayInit } from "./forward.ts";
 import { Instruments, type InstrumentReply } from "./instruments.ts";
 import { serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
@@ -37,7 +42,12 @@ const SpawnWorker: typeof Worker = globalThis.Worker;
 // afterwards, as an uncaught error.
 const UNWIND = "unwind";
 
-export class StartupFailed extends Data.TaggedError("StartupFailed")<{ readonly message: string }> {}
+// trapped: a call into the runtime threw, so the runtime can't be called
+// again.
+export class StartupFailed extends Data.TaggedError("StartupFailed")<{
+  readonly message: string;
+  readonly trapped?: boolean;
+}> {}
 
 // A call into the runtime threw: a trap, an abort, or Emscripten unwinding
 // the host for another thread's crash.
@@ -58,7 +68,13 @@ export const describe = (error: unknown): string => {
 const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
   Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
-const startupFailed = (error: unknown): StartupFailed => new StartupFailed({ message: describe(error) });
+// A trap or an abort throws a RuntimeError out of the runtime, and Emscripten
+// unwinds a thread that calls into a runtime another thread crashed.
+const startupFailed = (error: unknown): StartupFailed =>
+  new StartupFailed({
+    message: describe(error),
+    trapped: error instanceof WebAssembly.RuntimeError || error === UNWIND,
+  });
 
 // What a Worker's error event carries, as far as the host reads it.
 export interface UncaughtError {
@@ -175,6 +191,42 @@ export const workerLayer = (
     }),
   ).pipe(Layer.provideMerge(Logger.layer([hostLogger(env.post)])));
 
+// The storage's plan: what to mount at the engine's directory, decided
+// before the runtime's memory is made, since a mount in memory needs a
+// larger one, and the locks, among them the engine's writer lock, which the
+// host takes before it creates its user backend. Released, it lets go of
+// every lock, but of the writer lock only once the user backend is sealed.
+export interface PlannedStorageShape {
+  readonly plan: StoragePlan;
+  readonly held: Held;
+  // The runtime's memory, in bytes.
+  readonly memory: HostInit["memory"];
+}
+
+export class PlannedStorage extends Context.Service<PlannedStorage, PlannedStorageShape>()(
+  "@ibus-web/worker-host/PlannedStorage",
+) {}
+
+export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWorker> = Layer.effect(
+  PlannedStorage,
+  Effect.gen(function* () {
+    const { init } = yield* HostWorker;
+    const instruments = yield* Instruments;
+    const held = new Held();
+    yield* Effect.addFinalizer(() => Effect.sync(() => held.releaseAll()));
+    for (const name of instruments.moreLocks()) {
+      const lock = yield* Effect.tryPromise({ try: () => requestLock(name, {}), catch: startupFailed });
+      if (lock !== null) held.add(lock);
+    }
+    instruments.beforeProbe();
+    const plan = yield* Effect.tryPromise({
+      try: () => planStorage(init.storage, init.engine, init.constants.idbReadOnly, held),
+      catch: startupFailed,
+    });
+    return { plan, held, memory: memoryFor(init.memory, plan, init.engine) };
+  }),
+);
+
 // The runtime scope: the runtime, started in a memory the host makes at the
 // engine's size, and set up to pump on this thread. Nothing to release: the
 // runtime ends with the Worker.
@@ -190,15 +242,16 @@ export class HostRuntime extends Context.Service<HostRuntime, HostRuntimeShape>(
   "@ibus-web/worker-host/HostRuntime",
 ) {}
 
-export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker> = Layer.effect(
+export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | PlannedStorage> = Layer.effect(
   HostRuntime,
   Effect.gen(function* () {
     const { init, control } = yield* HostWorker;
+    const { memory: bytes } = yield* PlannedStorage;
     const instruments = yield* Instruments;
-    yield* Effect.try({ try: () => checkMemory(init.memory, init.constants.memory), catch: startupFailed });
+    yield* Effect.try({ try: () => checkMemory(bytes, init.constants.memory), catch: startupFailed });
     const memory = new WebAssembly.Memory({
-      initial: init.memory.initial / WASM_PAGE,
-      maximum: init.memory.maximum / WASM_PAGE,
+      initial: bytes.initial / WASM_PAGE,
+      maximum: bytes.maximum / WASM_PAGE,
       shared: true,
     });
     instruments.beforeRuntime();
@@ -308,6 +361,71 @@ export const relayLayer: Layer.Layer<Relay, StartupFailed, HostWorker | HostRunt
   }),
 );
 
+// Whether the runtime may still be called once a scope closes with exit:
+// not once a call into it has thrown, since after a trap its memory can't
+// be trusted.
+export const runtimeIntact = (exit: Exit.Exit<unknown, unknown>): boolean =>
+  Exit.isSuccess(exit) ||
+  !exit.cause.reasons.some(
+    (reason) =>
+      Cause.isFailReason(reason) &&
+      (reason.error instanceof RuntimeStopped ||
+        (reason.error instanceof StartupFailed && reason.error.trapped === true)),
+  );
+
+// Registers a finalizer that calls into the runtime: it runs only while the
+// runtime is intact.
+export const runtimeFinalizer = <R>(
+  release: Effect.Effect<void, never, R>,
+): Effect.Effect<void, never, R | Scope.Scope> =>
+  Effect.addFinalizer((exit) => (runtimeIntact(exit) ? release : Effect.void));
+
+// The storage's mounts: the engine's own files at its directory. The
+// backends' threads and connections end with the Worker, since WasmFS never
+// destroys a backend; released while the runtime can still be called, it
+// seals a read-write user backend, which lets the writer lock go.
+export class Storage extends Context.Service<Storage, MountedStorage>()("@ibus-web/worker-host/Storage") {}
+
+export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | HostRuntime | PlannedStorage> =
+  Layer.effect(
+    Storage,
+    Effect.gen(function* () {
+      const { init, env } = yield* HostWorker;
+      const { handle } = yield* HostRuntime;
+      const { plan, held } = yield* PlannedStorage;
+      const instruments = yield* Instruments;
+      const mounted = yield* Effect.tryPromise({
+        try: () => mount(handle, plan, engineDir(init.engine)),
+        catch: startupFailed,
+      });
+      const { seal } = mounted;
+      if (seal !== undefined) {
+        held.sealWith(() => instruments.seal(seal));
+        yield* runtimeFinalizer(
+          Effect.suspend(() => {
+            try {
+              held.seal();
+              return Effect.void;
+            } catch (error) {
+              return Effect.logError(
+                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(init.engine)} until its Worker ends: ${describe(error)}`,
+              );
+            }
+          }),
+        );
+      }
+      if (plan.mount === "memory") env.post({ type: "storage", state: "ephemeral", message: plan.why });
+      if ((plan.mount === "indexeddb" || plan.mount === "node") && plan.readOnly)
+        env.post({
+          type: "storage",
+          state: "read-only",
+          message: `another instance of engine ${init.engine.name} holds ${engineWriterLock(init.engine)}; this one's user data refuses changes${plan.mount === "node" ? " (in browsers; the Node backend has no read-only mode)" : ""}`,
+        });
+      instruments.storageMounted(mounted);
+      return mounted;
+    }),
+  );
+
 // The engine module scope: the side modules, loaded and registered. Side
 // modules are never unloaded, and the runtime has no module shutdown call,
 // so there is nothing to release.
@@ -329,114 +447,125 @@ export const engineModuleLayer: Layer.Layer<EngineModule, StartupFailed, HostWor
   }),
 );
 
-// Registers a finalizer that calls into the runtime: it runs on a normal
-// close only, since after a trap the runtime's memory can't be trusted.
-export const runtimeFinalizer = <R>(
-  release: Effect.Effect<void, never, R>,
-): Effect.Effect<void, never, R | Scope.Scope> =>
-  Effect.addFinalizer((exit) => (Exit.isSuccess(exit) ? release : Effect.void));
-
 // Serves requests for good, leaving the synchronous section only to top the
 // pool up or for an instrument's reply. Fails once the runtime or the relay
 // stops.
-export const serve: Effect.Effect<never, RuntimeStopped | RelayFailed, HostWorker | HostRuntime | Relay | HostConfig> =
-  Effect.gen(function* () {
-    const worker = yield* HostWorker;
-    const { handle, wakeIndex, buffers } = yield* HostRuntime;
-    const relay = yield* Relay;
-    const config = yield* HostConfig;
-    const instruments = yield* Instruments;
-    const { init, control } = worker;
-    const ctx: LoopContext = {
-      handle,
-      control,
-      constants: init.constants,
-      wakeIndex,
-      buffers,
-      instruments,
-      lowWater: init.poolLowWater,
-      topUpFailed: false,
-      woken: false,
-    };
-    // Runs a runtime call; one that throws marks the host crashed before
-    // anything else can happen.
-    const guarded = <T>(call: () => T): Effect.Effect<T, RuntimeStopped> =>
-      Effect.try({
-        try: call,
-        catch: (error) => {
-          worker.crashed();
-          return new RuntimeStopped({ error });
-        },
-      });
-    const relayFailed = Effect.gen(function* () {
-      const message = yield* Effect.promise(() => within(relay.failed, config.crashWaitMs, "stopped without an error"));
-      return yield* new RelayFailed({ message });
+export const serve: Effect.Effect<
+  never,
+  RuntimeStopped | RelayFailed,
+  HostWorker | HostRuntime | Relay | Storage | HostConfig
+> = Effect.gen(function* () {
+  const worker = yield* HostWorker;
+  const { handle, wakeIndex, buffers } = yield* HostRuntime;
+  const relay = yield* Relay;
+  const storage = yield* Storage;
+  const config = yield* HostConfig;
+  const instruments = yield* Instruments;
+  const { init, control } = worker;
+  // The page hears of it once.
+  let closedReported = false;
+  const watchStorage = (): void => {
+    if (closedReported || !storage.closed()) return;
+    closedReported = true;
+    worker.env.post({
+      type: "storage",
+      state: "closed",
+      message: "the IndexedDB connection closed; the engine's storage fails with EIO",
     });
-    const answer = (reply: Promise<InstrumentReply>) =>
-      Effect.promise(() => reply).pipe(Effect.map(({ ret, bytes }) => postReply(control, ret, bytes)));
-
-    // The only asynchronous excursion: the new Workers load only while this
-    // thread's event loop runs, so the host waits for requests with
-    // Atomics.waitAsync() meanwhile, serving and pumping as it would asleep.
-    const topUpPool = (want: number) =>
-      Effect.gen(function* () {
-        instruments.eventLoopTurn();
-        let outcome: { ms: number; createMs: number } | { error: unknown } | undefined;
-        const loaded = topUp(handle.rt, want, config.topUpLimitMs).then(
-          (done) => {
-            outcome = done;
-          },
-          (error: unknown) => {
-            outcome = { error };
-          },
-        );
-        while (outcome === undefined) {
-          const next = yield* guarded(() => step(ctx));
-          if (next.kind === "served") continue;
-          if (next.kind === "await") {
-            yield* answer(next.reply);
-            continue;
-          }
-          if (next.kind === "relayFailed") return yield* relayFailed;
-          const woke = Atomics.waitAsync(
-            handle.words,
-            wakeIndex,
-            next.seen,
-            next.delay < 0 ? Infinity : next.delay,
-          ).value;
-          const value =
-            typeof woke === "string" ? woke : yield* Effect.promise(() => Promise.race([woke, loaded.then(() => "")]));
-          ctx.woken = value === "ok";
-        }
-        if ("error" in outcome) {
-          ctx.topUpFailed = true;
-          yield* Effect.logError(describe(outcome.error));
-        } else instruments.toppedUp(want, outcome.ms, outcome.createMs);
-      });
-
-    for (;;) {
-      const excursion = yield* guarded(() => serveUntilExcursion(ctx));
-      switch (excursion.kind) {
-        case "topUp":
-          yield* topUpPool(excursion.want);
-          break;
-        case "await":
-          yield* answer(excursion.reply);
-          break;
-        case "relayFailed":
-          return yield* relayFailed;
-      }
-    }
+  };
+  const ctx: LoopContext = {
+    watchStorage,
+    handle,
+    control,
+    constants: init.constants,
+    wakeIndex,
+    buffers,
+    instruments,
+    lowWater: init.poolLowWater,
+    topUpFailed: false,
+    woken: false,
+  };
+  // Runs a runtime call; one that throws marks the host crashed before
+  // anything else can happen.
+  const guarded = <T>(call: () => T): Effect.Effect<T, RuntimeStopped> =>
+    Effect.try({
+      try: call,
+      catch: (error) => {
+        worker.crashed();
+        return new RuntimeStopped({ error });
+      },
+    });
+  const relayFailed = Effect.gen(function* () {
+    const message = yield* Effect.promise(() => within(relay.failed, config.crashWaitMs, "stopped without an error"));
+    return yield* new RelayFailed({ message });
   });
+  const answer = (reply: Promise<InstrumentReply>) =>
+    Effect.promise(() => reply).pipe(Effect.map(({ ret, bytes }) => postReply(control, ret, bytes)));
+
+  // The only asynchronous excursion: the new Workers load only while this
+  // thread's event loop runs, so the host waits for requests with
+  // Atomics.waitAsync() meanwhile, serving and pumping as it would asleep.
+  const topUpPool = (want: number) =>
+    Effect.gen(function* () {
+      instruments.eventLoopTurn();
+      let outcome: { ms: number; createMs: number } | { error: unknown } | undefined;
+      const loaded = topUp(handle.rt, want, config.topUpLimitMs).then(
+        (done) => {
+          outcome = done;
+        },
+        (error: unknown) => {
+          outcome = { error };
+        },
+      );
+      while (outcome === undefined) {
+        const next = yield* guarded(() => step(ctx));
+        if (next.kind === "served") continue;
+        if (next.kind === "await") {
+          yield* answer(next.reply);
+          continue;
+        }
+        if (next.kind === "relayFailed") return yield* relayFailed;
+        const woke = Atomics.waitAsync(
+          handle.words,
+          wakeIndex,
+          next.seen,
+          next.delay < 0 ? Infinity : next.delay,
+        ).value;
+        const value =
+          typeof woke === "string" ? woke : yield* Effect.promise(() => Promise.race([woke, loaded.then(() => "")]));
+        ctx.woken = value === "ok";
+      }
+      if ("error" in outcome) {
+        ctx.topUpFailed = true;
+        yield* Effect.logError(describe(outcome.error));
+      } else instruments.toppedUp(want, outcome.ms, outcome.createMs);
+    });
+
+  for (;;) {
+    const excursion = yield* guarded(() => serveUntilExcursion(ctx));
+    switch (excursion.kind) {
+      case "topUp":
+        yield* topUpPool(excursion.want);
+        break;
+      case "await":
+        yield* answer(excursion.reply);
+        break;
+      case "relayFailed":
+        return yield* relayFailed;
+    }
+  }
+});
 
 // Every scope the host runs in, outermost last.
 export const hostLayer = (
   init: HostInit<WebAssembly.Module, unknown>,
   env: WorkerEnv,
-): Layer.Layer<HostWorker | HostRuntime | Relay | EngineModule, StartupFailed, HostConfig> =>
+): Layer.Layer<HostWorker | PlannedStorage | HostRuntime | Relay | Storage | EngineModule, StartupFailed, HostConfig> =>
   engineModuleLayer.pipe(
+    Layer.provideMerge(storageLayer),
     Layer.provideMerge(relayLayer),
     Layer.provideMerge(runtimeLayer),
+    Layer.provideMerge(storagePlanLayer),
     Layer.provideMerge(workerLayer(init, env)),
   );
 

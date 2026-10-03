@@ -15,6 +15,12 @@ export interface Runtime {
   _write(fd: number, buf: number, count: number): number;
   _close(fd: number): number;
   _mkdir(path: number, mode: number): number;
+  _wasmfs_create_node_backend(root: number): number;
+  _wasmfs_create_memory_backend(): number;
+  _wasmfs_create_idb_backend(database: number, flags: number): number;
+  _wasmfs_idb_backend_closed(backend: number): number;
+  _wasmfs_idb_backend_seal(backend: number): void;
+  _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
   _ibusweb_pump(): number;
   _ibusweb_wait(seen: number, timeoutMs: number): number;

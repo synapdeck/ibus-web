@@ -7,6 +7,7 @@
 
 import { Context } from "effect";
 import type { RuntimeHandle } from "./runtime.ts";
+import type { MountedStorage } from "./storage/mount.ts";
 
 export interface InstrumentReply {
   ret: number;
@@ -14,10 +15,17 @@ export interface InstrumentReply {
 }
 
 export interface Instruments {
+  // More locks for the host to hold beside its own, and let go of with them.
+  readonly moreLocks: () => readonly string[];
+  // Before the host looks for IndexedDB.
+  readonly beforeProbe: () => void;
   // Before the runtime's module is imported, which under Node replaces the
   // global Worker class.
   readonly beforeRuntime: () => void;
   readonly runtimeStarted: (runtime: RuntimeHandle) => void;
+  readonly storageMounted: (storage: MountedStorage) => void;
+  // Runs the user backend's seal.
+  readonly seal: (seal: () => void) => void;
   // Answers a request itself, or undefined to have the runtime dispatch it.
   // A promise has the host leave its request loop until it settles.
   readonly serve: (request: Uint8Array) => InstrumentReply | Promise<InstrumentReply> | undefined;
@@ -31,8 +39,12 @@ export interface Instruments {
 }
 
 const none: Instruments = {
+  moreLocks: () => [],
+  beforeProbe: () => {},
   beforeRuntime: () => {},
   runtimeStarted: () => {},
+  storageMounted: () => {},
+  seal: (seal) => seal(),
   serve: () => undefined,
   requestServed: () => {},
   eventLoopTurn: () => {},

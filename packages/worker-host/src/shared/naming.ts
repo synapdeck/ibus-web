@@ -18,6 +18,9 @@ export interface EngineIdentity {
 export const encodeComponent = (text: string): string =>
   encodeURIComponent(text).replace(/[!'()*.~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
+// Where the engine's own files are, as the runtime sees them.
+export const engineDir = ({ name }: Pick<EngineIdentity, "name">): string => `/engines/${name}`;
+
 // The IndexedDB database the engine's own files live in.
 export const engineDatabase = ({ name }: Pick<EngineIdentity, "name">): string => `ibus-web/${encodeComponent(name)}`;
 

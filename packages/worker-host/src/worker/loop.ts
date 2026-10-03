@@ -11,6 +11,8 @@ import type { InstrumentReply, Instruments } from "./instruments.ts";
 import type { Runtime, RuntimeHandle } from "./runtime.ts";
 
 export interface LoopContext {
+  // Reports storage that has failed since the host last woke.
+  readonly watchStorage: () => void;
   readonly handle: RuntimeHandle;
   readonly control: ControlViews;
   readonly constants: RuntimeConstants;
@@ -77,6 +79,7 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
 // lands after them changes it and the sleep on it returns at once.
 export const step = (ctx: LoopContext): Step => {
   const { control, handle } = ctx;
+  ctx.watchStorage();
   const seen = Atomics.load(handle.words, ctx.wakeIndex);
   const state = Atomics.load(control.words, Word.state);
   if (state === State.crashed) return { kind: "relayFailed" };

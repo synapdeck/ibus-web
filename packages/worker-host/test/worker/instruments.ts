@@ -9,6 +9,7 @@ import { requestOpcode } from "../../src/shared/control.ts";
 import type { InstrumentReply, Instruments } from "../../src/worker/instruments.ts";
 import { topUp } from "../../src/worker/loop.ts";
 import type { RuntimeHandle } from "../../src/worker/runtime.ts";
+import type { MountedStorage } from "../../src/worker/storage/mount.ts";
 import { HostOp, type HostStats, type TestInit } from "../shared/testing.ts";
 
 // Counts the Workers Emscripten creates, through the global Worker class.
@@ -34,6 +35,18 @@ const trackWorkers = (): { created: number; counting: boolean } => {
   return workers;
 };
 
+// As an opaque origin's indexedDB.open() does, in the host's realm only.
+const withholdIndexedDB = (): void => {
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: {
+      open: () => {
+        throw new DOMException("IndexedDB is withheld from this host", "SecurityError");
+      },
+    },
+  });
+};
+
 // Long enough that the loop reaches the messages already queued for it, not
 // only the timer.
 const yieldToEventLoop = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,6 +56,7 @@ const encoder = new TextEncoder();
 export const makeInstruments = (test: TestInit, config: HostConfigValues): Instruments => {
   let workers = { created: 0, counting: false };
   let runtime: RuntimeHandle | undefined;
+  let storage: MountedStorage = { mount: "none", closed: () => false };
   let scratch = 0;
   let held = false;
   const counters = {
@@ -69,10 +83,23 @@ export const makeInstruments = (test: TestInit, config: HostConfigValues): Instr
       idleWorkers: rt.PThread.unusedWorkers.length,
       heapInUse: words[(scratch + test.mallinfo.inUseOffset) / 4]!,
       memoryBytes: memory.buffer.byteLength,
+      mount: storage.mount,
+      storageClosed: storage.closed(),
       ...counters,
     };
   };
   return {
+    moreLocks: () => test.moreLocks ?? [],
+    beforeProbe: () => {
+      if (test.withoutIndexedDB === true) withholdIndexedDB();
+    },
+    storageMounted: (mounted) => {
+      storage = mounted;
+    },
+    seal: (seal) => {
+      if (test.sealThrows === true) throw new Error("the seal fails on purpose");
+      seal();
+    },
     beforeRuntime: () => {
       workers = trackWorkers();
     },

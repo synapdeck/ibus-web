@@ -5,9 +5,17 @@
 // to run them against.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import type { HostMessage, RuntimeConstants } from "../../src/shared/messages.ts";
+import type {
+  EngineManifest,
+  EngineStorage,
+  HostMessage,
+  RuntimeConstants,
+  SideModule,
+} from "../../src/shared/messages.ts";
+import { engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client, Clock } from "./client.ts";
 import type { TestInit } from "./testing.ts";
+import type { Locks } from "./locks.ts";
 import type { Printed } from "./printed.ts";
 
 // Values the test side modules and the runtime's build define, printed by
@@ -51,6 +59,9 @@ export interface TestData {
 
 export interface HostOptions {
   runtime: RuntimeBuild;
+  // The engine the host runs, by default one of no storage's named "test".
+  engine?: EngineManifest;
+  storage?: EngineStorage;
   // The runtime's memory; its least by default.
   memory?: { initial: number; maximum: number };
   config?: Partial<HostConfigValues>;
@@ -64,6 +75,8 @@ export interface HostOptions {
   released?: boolean;
   // Hands the host this module as the runtime's, compiled, instead.
   wasm?: Uint8Array;
+  // Side modules the host loads after the test side modules.
+  moreSides?: SideModule[];
 }
 
 export interface RunningHost {
@@ -77,7 +90,24 @@ export interface RunningHost {
 
 export interface Harness extends Clock {
   data: TestData;
+  // The test side modules, which every host loads.
+  sides: readonly SideModule[];
   start(options: HostOptions): Promise<RunningHost>;
+  // The storage that outlives a host, which every host for the engine in
+  // this environment shares: in a browser, the engine's IndexedDB
+  // database; under Node, a directory of the engine's own. And what the
+  // host mounts it on.
+  storage(engine: EngineManifest): EngineStorage;
+  storageMount: "indexeddb" | "node";
+  // What leaves a host told to mount IndexedDB without it: under Node,
+  // nothing, since Node has none; in a browser, a host that throws as an
+  // opaque origin's indexedDB.open() does.
+  withoutIndexedDB: Partial<TestInit>;
+  // Opens the engine's database at its next version and closes it again, as
+  // an upgrade in another tab would; resolves once it opened, with how long
+  // that took in milliseconds. Browsers only.
+  upgradeDatabase?: (engine: EngineManifest) => Promise<number>;
+  locks: Locks;
   printed: Printed;
   // Records a test's measurements in its output.
   record(name: string, measurements: Record<string, unknown>): void;
@@ -90,6 +120,42 @@ declare module "vitest" {
     workerHost: TestData;
   }
 }
+
+const reportedReadOnly = (messages: readonly HostMessage[]): boolean =>
+  messages.some((message) => message.type === "storage" && message.state === "read-only");
+
+// Starts hosts as a page does. Chromium lets go of the locks of a Worker
+// terminated while it sleeps in Atomics.wait() only some 2 s after
+// terminate(), so a host started at once for the same engine would find the
+// writer lock taken and run read-only for good. So once it has terminated a
+// host with storage that didn't report storage: read-only, it starts that
+// engine's next host only when the writer lock is free, or once the wait's
+// bound has passed, when another host holds it.
+export const startingAsAPage = (
+  start: (options: HostOptions) => Promise<RunningHost>,
+  locks: Locks,
+): ((options: HostOptions) => Promise<RunningHost>) => {
+  const releasing = new Map<string, Promise<unknown>>();
+  return async (options) => {
+    const { engine, storage } = options;
+    if (engine === undefined || storage === undefined || storage.kind === "none") return start(options);
+    await releasing.get(engine.name);
+    const released = (): void => {
+      releasing.set(engine.name, locks.released(engineWriterLock(engine)));
+    };
+    const host = await start(options).catch((error: unknown) => {
+      released();
+      throw error;
+    });
+    return {
+      ...host,
+      terminate: async () => {
+        await host.terminate();
+        if (!reportedReadOnly(host.messages)) released();
+      },
+    };
+  };
+};
 
 // The host's script for options.
 export const hostUrlFor = (data: TestData, options: HostOptions): string => {

@@ -6,6 +6,7 @@
 // HostInit.test tells it.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
+import type { Mount } from "../../src/shared/messages.ts";
 
 export const HostOp = {
   // A UTF-8 JSON HostStats.
@@ -40,6 +41,11 @@ export interface HostStats {
   heapInUse: number;
   // The runtime's memory's size.
   memoryBytes: number;
+  // What backs the engine's directory: "memory" is the in-memory mount of a
+  // host without IndexedDB.
+  mount: Mount;
+  // Whether the IndexedDB backend's connection has closed under it.
+  storageClosed: boolean;
   // Requests the host has served, this one included.
   requests: number;
   // Of those, the ones that arrived while the host slept: it found them
@@ -55,4 +61,11 @@ export interface TestInit {
   config?: Partial<HostConfigValues>;
   // Starts the relay that fails once it has forwarded this many wakes.
   relayFailsAfter?: number;
+  // indexedDB.open() throws in the host, as it does in an opaque origin.
+  withoutIndexedDB?: boolean;
+  // Locks the host holds beside its own, exclusively, and lets go of with
+  // them.
+  moreLocks?: string[];
+  // Sealing the engine's user data throws.
+  sealThrows?: boolean;
 }

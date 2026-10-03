@@ -5,7 +5,7 @@
 // this thread, which blocks for each reply as the page's synchronous path
 // would spin, and everything the hosts' threads print, taken by the tests.
 
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,9 +14,11 @@ import { fileURLToPath } from "node:url";
 import { inject } from "vitest";
 import { createControl } from "../../src/shared/control.ts";
 import type { HostInit, SideModule } from "../../src/shared/messages.ts";
+import { encodeComponent } from "../../src/shared/naming.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
-import { hostUrlFor, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
+import { hostUrlFor, startingAsAPage, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
+import { locksFrom, type WebLocks } from "../shared/locks.ts";
 import { printedFrom } from "../shared/printed.ts";
 import type { TestInit } from "../shared/testing.ts";
 import { BrowserWorker } from "./browser-worker.ts";
@@ -32,8 +34,10 @@ const clock: Clock = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+const scratch = mkdtempSync(join(tmpdir(), "ibus-web-worker-host-"));
+
 // What the hosts' threads print goes to a file of this process's own.
-const output = join(mkdtempSync(join(tmpdir(), "ibus-web-worker-host-")), "output.txt");
+const output = join(scratch, "output.txt");
 process.env["IBUS_WEB_WORKER_HOST_OUTPUT"] = output;
 writeFileSync(output, "");
 let readTo = 0;
@@ -69,6 +73,7 @@ export const nodeHarness = async (): Promise<Harness> => {
     }
     return module;
   };
+  const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
   const start = async (options: HostOptions): Promise<RunningHost> => {
     const control = createControl();
     const worker = new BrowserWorker(hostUrlFor(data, options));
@@ -87,8 +92,9 @@ export const nodeHarness = async (): Promise<Harness> => {
           : await WebAssembly.compile(new Uint8Array(options.wasm)),
       memory: options.memory ?? { initial: minimum, maximum: minimum },
       control,
-      sides,
-      engine: { name: "test", version: "0", data: [] },
+      sides: [...sides, ...(options.moreSides ?? [])],
+      engine: options.engine ?? { name: "test", version: "0", data: [] },
+      storage: options.storage ?? { kind: "none" },
       poolLowWater: data.pool.lowWater,
       constants: data.constants,
       test,
@@ -123,7 +129,16 @@ export const nodeHarness = async (): Promise<Harness> => {
   return {
     ...clock,
     data,
-    start,
+    sides,
+    start: startingAsAPage(start, locks),
+    locks,
+    storage: (engine) => {
+      const hostPath = join(scratch, "engines", encodeComponent(engine.name));
+      mkdirSync(hostPath, { recursive: true });
+      return { kind: "node", hostPath };
+    },
+    storageMount: "node",
+    withoutIndexedDB: {},
     printed: printedFrom(drain, clock),
     record: (name, measurements) => console.log(`${name}: ${JSON.stringify(measurements)}`),
     pendingLimitMs: 10_000,
