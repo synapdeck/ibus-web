@@ -719,16 +719,21 @@ Failures the host must report, beyond traps in its own calls:
 
 #### 5.5.1 Resource scopes
 
-| Scope                                                              | Acquire                                 | Release on normal close                                                                                   | Release after a trap                                     |
-| ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Worker                                                             | SAB views, `Logger` layer, wake relay   | final `Log` records flushed                                                                               | crash record written                                     |
-| Runtime                                                            | instantiate `ibus-runtime.wasm`         | none (freed with the Worker)                                                                              | none                                                     |
-| Storage                                                            | Web Locks, WasmFS mounts, data install  | locks let go; the backends' threads and connections end with the Worker (WasmFS never destroys a backend) | locks let go; the connections close when the Worker ends |
-| Engine module                                                      | load side module, `ibusweb_module_init` | module shutdown call                                                                                      | skipped                                                  |
-| Engine instance (one per input context, child of the module scope) | `CreateEngine`                          | `DestroyEngine` (`g_object_unref`)                                                                        | skipped                                                  |
+Scopes open in this order and close in reverse:
+
+| Scope                                                              | Acquire                                                                                              | Release on normal close                                                                              | Release after a trap                                                               |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Worker                                                             | SAB views, `Logger` layer                                                                            | final `Log` records flushed                                                                          | crash record written                                                               |
+| Planned storage                                                    | IndexedDB probe, Web Locks (the writer lock `ifAvailable`); sizes the memory, which can't grow later | every lock let go                                                                                    | every lock let go but a sealable backend's writer lock, held until the Worker ends |
+| Runtime                                                            | instantiate `ibus-runtime.wasm`                                                                      | none (freed with the Worker)                                                                         | none                                                                               |
+| Wake relay                                                         | start the relay Worker (it bumps a word in the runtime's memory, so it follows the runtime)          | relay terminated                                                                                     | relay terminated                                                                   |
+| Storage                                                            | WasmFS mounts, data install                                                                          | backends sealed; their threads and connections end with the Worker (WasmFS never destroys a backend) | skipped; the connections close when the Worker ends                                |
+| Engine module                                                      | load side module, `ibusweb_module_init`                                                              | module shutdown call                                                                                 | skipped                                                                            |
+| Engine instance (one per input context, child of the module scope) | `CreateEngine`                                                                                       | `DestroyEngine` (`g_object_unref`)                                                                   | skipped                                                                            |
 
 - **Finalizers inspect the `Exit`.** After a trap the WASM heap cannot be
-  trusted, so finalizers that call into the runtime run only on a normal close;
+  trusted, so finalizers that call into the runtime run only when no call into it
+  threw (a trap is recognised by where the error came from, not its type);
   JS-side cleanup and crash reporting always run.
 - **Nothing depends on finalizers for correctness.** A hang ends in
   `worker.terminate()`, which runs no finalizers; the IndexedDB connections
