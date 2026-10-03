@@ -20,6 +20,16 @@ if (mode === "partial-malformed") process.stdout.write("not json\n");
 if (mode === "reply")
   process.stdout.write(`${JSON.stringify({ kind: "reply", step: 0, value: { signature: "s", text: "'안녕'" } })}\n`);
 if (mode === "error") process.stdout.write(`${JSON.stringify({ kind: "error", step: 0, message: "intentional" })}\n`);
+if (mode === "escaped-pipe") {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: true,
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  process.stdout.write(`${JSON.stringify({ kind: "reply", step: 0, value: true })}\n`);
+  process.stderr.write("before interruption\n");
+  writeFileSync(process.argv[3]!, String(child.pid));
+  child.unref();
+}
 if (mode === "child" || mode === "child-exit") {
   const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
     stdio: "ignore",

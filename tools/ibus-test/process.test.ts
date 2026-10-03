@@ -108,3 +108,48 @@ test("abort interrupts and cleans up a running process", async () => {
   setTimeout(() => controller.abort(), 100);
   await expect(promise).rejects.toMatchObject({ reason: "aborted" });
 });
+
+test.each(["timeout", "aborted"])(
+  "settles %s while a separately grouped descendant holds the pipes",
+  async (reason) => {
+    const dir = mkdtempSync(join(tmpdir(), "ibus-test-escaped-"));
+    dirs.push(dir);
+    const pidFile = join(dir, "pid");
+    const controller = new AbortController();
+    const { promise, artifactDir } = run("escaped-pipe", [pidFile], {
+      timeoutMs: reason === "timeout" ? 300 : 2000,
+      signal: controller.signal,
+    });
+    let outcome: unknown;
+    const observed = promise.then(
+      (result) => {
+        outcome = result;
+      },
+      (error: unknown) => {
+        outcome = error;
+      },
+    );
+    try {
+      await expect.poll(() => existsSync(pidFile)).toBe(true);
+      if (reason === "aborted") controller.abort();
+      await expect.poll(() => outcome, { timeout: 1000 }).toBeDefined();
+      expect(outcome).toMatchObject({
+        reason,
+        artifactDir,
+        result: {
+          records: [{ kind: "reply", step: 0, value: true }],
+          stderr: "before interruption\n",
+        },
+      });
+      expect(readFileSync(join(artifactDir, "transcript.jsonl"), "utf8")).toBe(
+        `${JSON.stringify({ kind: "reply", step: 0, value: true })}\n`,
+      );
+      expect(readFileSync(join(artifactDir, "stderr.txt"), "utf8")).toBe("before interruption\n");
+      // Settlement must precede this independently owned process's cleanup.
+      expect(() => process.kill(-Number(readFileSync(pidFile, "utf8")), 0)).not.toThrow();
+    } finally {
+      if (existsSync(pidFile)) process.kill(-Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+      await observed;
+    }
+  },
+);

@@ -30,6 +30,9 @@ export class AdapterRunError extends Error {
 
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+// Owns the adapter's process group, not descendants that create separate groups.
+// Session code must retain and terminate any independently grouped daemon handles.
+// Interruption captures output received so far; exit status may still be unknown.
 export async function runAdapter(command: readonly string[], trace: Trace, options: RunOptions): Promise<RunResult> {
   validateTrace(trace);
   if (command.length === 0 || command.some((part) => !part || typeof part !== "string"))
@@ -63,13 +66,19 @@ export async function runAdapter(command: readonly string[], trace: Trace, optio
       if (finished || failure) return;
       failure = reason;
       killGroup("SIGKILL");
+      // An independently grouped descendant can keep inherited pipes open forever.
+      // Stop our readers and finalize without waiting for Node's close event.
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish();
     };
     const deadline = setTimeout(() => interrupt("timeout"), options.timeoutMs);
     const onAbort = () => interrupt("aborted");
     options.signal?.addEventListener("abort", onAbort, { once: true });
-    if (options.signal?.aborted) onAbort();
 
     const collect = (target: typeof output, chunk: Buffer) => {
+      if (finished) return;
       const remaining = Math.max(0, MAX_OUTPUT_BYTES - target.bytes);
       if (remaining) target.chunks.push(chunk.subarray(0, remaining));
       target.bytes += chunk.length;
@@ -88,7 +97,8 @@ export async function runAdapter(command: readonly string[], trace: Trace, optio
     });
     child.stdin.end(`${JSON.stringify(trace)}\n`);
 
-    child.on("close", (exitCode, signal) => {
+    function finish(exitCode = child.exitCode, signal = child.signalCode) {
+      if (finished) return;
       finished = true;
       clearTimeout(deadline);
       options.signal?.removeEventListener("abort", onAbort);
@@ -143,6 +153,8 @@ export async function runAdapter(command: readonly string[], trace: Trace, optio
           ),
         );
       else resolve(result);
-    });
+    }
+    child.on("close", finish);
+    if (options.signal?.aborted) onAbort();
   });
 }
