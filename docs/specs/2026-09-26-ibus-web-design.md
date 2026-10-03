@@ -1533,8 +1533,10 @@ Entries marked † below don't exist yet.
 ```
 ibus-web/
 ├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, devshell, flake-root, systems, github-actions-nix, files
-├─ package.json, pnpm-*.yaml       the pnpm workspace, its catalog and its lockfile
+├─ package.json, pnpm-*.yaml       the pnpm workspace, its catalog (generated from Nix) and its lockfile
 ├─ tsconfig.base.json              the one TypeScript configuration every tsconfig.json extends
+├─ tsconfig.*.json                 its two shared refinements: Node scripts, and JavaScript Emscripten reads
+├─ types/                          declarations of what Node has but @types/node lacks (WebAssembly)
 ├─ hk.pkl                          every formatter and lint check, for the git hooks, `nix fmt` and `checks.hk`
 ├─ modules/
 │  ├─ flake/                       systems, hk, dev shell, the CI workflow and the files writer
@@ -1796,7 +1798,8 @@ each choice, is in `docs/toolchain.md` and `docs/glib.md`.
 - **TypeScript.** One pnpm workspace at the repository root (`package.json`,
   `pnpm-workspace.yaml` over `packages/*` and the few directories elsewhere
   whose scripts need dependencies), with one `catalog:` for what must be
-  one version across the repository. Its
+  one version across the repository, both declared in Nix, which writes
+  the file. Its
   dependencies are a fixed-output derivation (`fetchPnpmDeps` with pnpm 12,
   installed offline with `pnpmConfigHook`), and `ibusWeb.typescript.workspace`
   builds every package's `dist/` (`tsc`, or tsdown where a package bundles,
