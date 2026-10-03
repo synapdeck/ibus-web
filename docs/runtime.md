@@ -295,9 +295,9 @@ runtime's heap and passes it to `ibusweb_runtime_init()`. Two things bump it:
   module Worker the host starts, sleeps in `Atomics.wait()` on that word and,
   for each change, bumps and notifies the wake word in the runtime's
   memory. It needs no event loop turn after startup. It compares the word
-  with the value it last forwarded, never with a re-read: the first version
-  re-read it after forwarding, lost a wake that landed mid-forward, and hung
-  at request 842 of 1000. The relay holds the runtime's memory, so it is
+  with the value it last forwarded, never with a re-read: a relay that
+  re-reads the word after forwarding loses a wake that lands mid-forward, and
+  one built that way hung at request 842 of 1000. The relay holds the runtime's memory, so it is
   host-side (spec §9.2 holds).
 
 The host sleeps in `ibusweb_wait()` on that word, for the pump's delay.
@@ -445,7 +445,7 @@ memory, loaded after "ready" instead of with the runtime, through a 47–60 ms
 top-up and, in Firefox, a `new Worker()` window while the page may already
 be sending keys. Starting with the spares costs their memory up front (What
 a pool Worker costs, below) and 15–30 ms of startup (released runtime, one
-sandbox run each, at M0.4's pool of 11 against 8: Chromium 160–171 against
+sandbox run each, with a pool of 11 against one of 8: Chromium 160–171 against
 138–164 ms, Firefox 147–156 against 118–131 ms, Node 184 against 163 ms).
 The way to save that memory is fewer spares, not a lazier top-up.
 
@@ -638,8 +638,8 @@ Worker:
 A pool of 11 then cost about 200 MiB in Chromium and up to 170 MiB in
 Firefox, 250 and 200 MiB once each had run a thread, on top of the runtime's
 memory. A page's budget for an engine is its memory, touched or not, plus
-each pool Worker's cost. These figures are from M0.4's runtime and want
-re-measuring once the host's and the runtime's JavaScript settle
+each pool Worker's cost. These figures were taken with a pool of 11 and a
+host without Effect, and want re-measuring once the host's and the runtime's JavaScript settle
 ([known-gaps.md](known-gaps.md#runtime)).
 
 ## Browsers and Node
@@ -679,7 +679,7 @@ Where they differ:
 - **Memory growth** traps only in V8 (above).
 
 The released runtime against Node, one sandbox run each (Node 24.19,
-Chromium 149, Firefox 151; M0.4's host and pool of 11):
+Chromium 149, Firefox 151; a pool of 11 and a host without Effect):
 
 | Scenario                                         | Node             | Chromium         | Firefox          |
 | ------------------------------------------------ | ---------------- | ---------------- | ---------------- |

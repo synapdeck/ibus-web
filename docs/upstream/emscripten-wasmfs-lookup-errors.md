@@ -14,7 +14,7 @@ builds on 0012 and 0017. With Emscripten's runner, emsdk's toolchain for
 `main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b,
 Binaryen 133) and Node 24.21.0, `other.test_wasmfs_node_lookup_errors` fails
 on `main` (`No such file or directory` for both calls) and passes with that
-stack (logs: `task14-upstream-main-{unpatched,stack}.log`).
+stack.
 
 **Draft: new issue, with a PR.** No existing issue covers it. It is the
 lookup half of the reports on `EIO` from failed creates

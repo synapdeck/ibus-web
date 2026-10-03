@@ -14,7 +14,7 @@ top too). `main` moved `emscripten_futex_wait.c` (#27760: a notified wait
 now returns `0`, not `-EINTR`), so the line links below are 6.0.9's. Run with
 Emscripten's runner on `main`, emsdk's toolchain for it
 (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133)
-and Node 24.21.0 (logs: `task14-upstream-main-{unpatched,0014,stack}.log`):
+and Node 24.21.0:
 
 | Tree                                | `cleanup_blocked_main` | `dlsync_freed` | `dlsync_held` |
 | ----------------------------------- | ---------------------- | -------------- | ------------- |

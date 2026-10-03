@@ -1,7 +1,7 @@
 # Known gaps
 
-What M0 leaves open: limits the code knowingly has, work later milestones take on, and the minor findings
-of M0's reviews that weren't fixed. Each item says what is missing and, where it matters, why it was left.
+What is open: limits the code knowingly has, work later milestones take on, and minor review findings not
+yet fixed. Each item says what is missing and, where it matters, why it was left.
 An item leaves this page when it is fixed or decided.
 
 ## Toolchain
@@ -30,9 +30,10 @@ An item leaves this page when it is fixed or decided.
   every other derivation has.
 - **The dev shell's `.emcache` is never refreshed.** It is copied from the frozen cache only when it doesn't
   exist, so it goes stale when the cache changes; delete it to reseed.
-- **Thread fixes not re-proven red.** The fix checks for patches 0014, 0015 and 0018 were ported to
-  GoogleTest keeping the conditions they depend on, but weren't run against a toolchain missing their
-  patch; that needs a toolchain and cache built with one patch left out.
+- **Thread fixes not proven red in our checks.** The fix checks for patches 0014, 0015 and 0018 keep the
+  conditions their bugs need, but nothing runs them against a toolchain missing their patch; that needs a
+  toolchain and cache built with one patch left out. (Emscripten's own suite tests fail without each patch
+  and pass with it; see the drafts.)
 - **0018 off our backend.** The heartbeat fix wasn't run with Emscripten's browser OPFS or fetch backends,
   and a `ProxyWorker` thread that ended other than through its destructor would still leave its timer
   (none can today).
@@ -159,16 +160,13 @@ An item leaves this page when it is fixed or decided.
 ## Worker host
 
 - **Node hosts are for tests only.** Node's Web Locks grant one exclusive lock to two `worker_threads` at
-  once in about 3–4% of races (Node 24.21, `ifAvailable` and queued requests alike), so two Node hosts
+  once in about 3% of races (12 of 300 with `ifAvailable`, 8 of 300 queued; Node 24.21.0), so two Node hosts
   started together can both become writer or both install one version. Node suites start hosts that share
   storage one at a time; a Node store that needs real exclusion would take an `O_EXCL` lock file or an
   `Atomics` lock. [Draft bug report](upstream/node-web-locks-worker-threads.md).
 - **A page has no published source for the host's constants.** `HostInit.constants` (the pump's error
   code, the wait's timeout, the backend's read-only flag, the memory bounds) and `poolLowWater` come from
   derivations only the tests use; `packages.ibus-runtime` ships none of them.
-- **`storage-costs` can fail under load.** Once, in a full `nix flake check` on a busy machine, the Node
-  suite's `storage-costs` on the released runtime saw a reply arrive only after the page let its thread go
-  (held 1000 ms); it passed on rerun.
 - **Collection failures are silent but for `CollectReport.error`**; nothing is logged.
 - **The package's `exports` types point at `src/*.ts`**, not the emitted `.d.ts`.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't

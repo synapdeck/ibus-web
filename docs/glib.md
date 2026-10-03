@@ -331,6 +331,9 @@ machine can't execute host binaries, so the check runs them itself.
   sleeps in `g_main_loop_run()`, so `async-splice-output-stream` hung; WasmFS implements `fsync()`
   in C. The Node backend's own bugs that the suite met are fixed by the toolchain's Emscripten
   patches, so each test keeps its files in a `TMPDIR` of its own on the host.
+  The root itself is WasmFS's, not the host's: its mode isn't copied from the host, so creating a file
+  there fails with the host's own error, while `stat("/")` and `access("/", W_OK)` report WasmFS's fixed
+  `0777` rather than the host root's mode.
 - **With a fixed memory.** The tests link with
   `ibusWeb.toolchain.testMemoryFlags`, a fixed 512 MiB, in place of growth. Under a 32-way load,
   `1bit-emufutex` died with an out-of-bounds access on a pthread in about 1 run in 20 to 25

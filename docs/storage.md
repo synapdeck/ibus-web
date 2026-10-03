@@ -514,8 +514,8 @@ reported in `collect.error` and never fails the start.
 
 ### `install` and `collect`
 
-Two host messages report it (`src/shared/messages.ts`); spec §6 doesn't
-name them yet.
+Two host messages report it (`src/shared/messages.ts`); spec §5.6 and §8
+don't name them yet.
 
 - `install`: `state` (`installed` or `present`), `version`, `files` and
   `bytes` as the marker records them, `lockWaitMs`, `lockedAt` and
@@ -654,8 +654,7 @@ matter to engine data.
   neither a read-only mount nor a seal refuses writes.
 - **Locks.** Web Locks coordinate the threads of one Node process only, and
   not reliably even those: Node 24.21.0 granted one exclusive lock to two
-  `worker_threads` racing for it in about 3% of races (12 and 8 of 300,
-  with `ifAvailable` and queued), 24.20.0 likewise
+  `worker_threads` racing for it in about 3% of races (12 of 300 with `ifAvailable`, 8 of 300 queued; Node 24.21.0)
   ([upstream/node-web-locks-worker-threads.md](upstream/node-web-locks-worker-threads.md)).
   Node hosts sharing a directory must not start concurrently; the Node
   suites start their two `writer-lock` hosts one at a time and run

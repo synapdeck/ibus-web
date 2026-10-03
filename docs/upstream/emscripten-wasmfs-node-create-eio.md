@@ -11,10 +11,9 @@ Checked against `main` 5977ecc (2026-10-02): the `EIO` TODOs in `doOpen()`
 and `doMkdir()` and the Node backend's inserts are unchanged; 0012 applies
 on `main` after 0007 and 0010 with 2-line offsets, and not alone.
 
-**Draft: new issue (low priority).** No existing issue covers it. The source
-already admits the gap with a TODO at each site, so this is more a request to
-track it than a bug report. Consider skipping it, or filing it only together
-with the other Node backend reports.
+**As posted** (what #27832 says, kept for reference). When drafted, no
+existing issue covered it; the source already admits the gap with a TODO at
+each site, so it was filed together with the other Node backend reports.
 
 ## Issue title
 

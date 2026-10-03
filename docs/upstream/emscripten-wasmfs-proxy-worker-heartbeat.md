@@ -14,8 +14,7 @@ and -23 lines). With Emscripten's runner, emsdk's toolchain for `main`
 and Node 24.21.0, `other.test_wasmfs_proxy_worker_exit` fails on `main`
 (`Assertion failed: pthread_self()` in `emscripten_proxy_execute_queue`) and
 passes on `main` with 0018 alone and with the whole stack;
-`other.test_gen_sig_info` passes with 0018 (logs:
-`task14-upstream-main-{unpatched,0018,stack}.log`).
+`other.test_gen_sig_info` passes with 0018.
 
 **Draft: new issue, with a PR.**
 

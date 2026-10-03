@@ -10,7 +10,7 @@ is #27842's `S_IFIFO`), so the report stands. #27815 lets WasmFS's `pipe2()`
 take `O_NONBLOCK`, which makes a non-blocking pipe easier to get but adds no
 capacity.
 
-**Draft: new issue (judgement call).** No existing issue covers it. Unbounded
+**As posted** (what #27831 says, kept for reference). When drafted, no existing issue covered it. Unbounded
 pipes look partly deliberate. `pipe_backend.h` has "TODO: Consider switching to
 a ring buffer … if we don't need unbounded pipes", and Emscripten pipes can't
 block, which is the usual reason to have a capacity. So the report asks only

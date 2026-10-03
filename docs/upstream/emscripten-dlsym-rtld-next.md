@@ -11,7 +11,7 @@ Checked against `main` 5977ecc (2026-10-02): `__dlsym` in `dynlink.c` and
 `_dlsym_js`'s assertion are unchanged since 6.0.9, so the abort stands until
 #27838 lands.
 
-**Draft: new issue, reframed.** The bug we found, "`HAVE_RTLD_NEXT` is detected
+**As posted** (what #27830 says, kept for reference): a new issue, reframed. The bug we found, "`HAVE_RTLD_NEXT` is detected
 but `dlsym(RTLD_NEXT, …)` returns NULL in static links", is **not** filed:
 
 - In a static link `dlsym()` is a stub that returns NULL with "dynamic linking

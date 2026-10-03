@@ -14,7 +14,7 @@ toolchain for `main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git
 d3e9891b, Binaryen 133) and Node 24.21.0,
 `core2.test_pthread_dlsync_reused` fails on `main` ("table index is out of
 bounds") and on `main` with 0014 alone, and passes on `main` with 0015 alone
-and with the whole stack (logs: `task14-upstream-main-*.log`).
+and with the whole stack.
 
 **Draft: new issue, with a PR.** Separate from
 `emscripten-pthread-cleanup-blocked-main.md` on purpose: this bug is in stock

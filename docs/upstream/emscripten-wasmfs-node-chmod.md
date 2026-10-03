@@ -14,7 +14,7 @@ since 6.0.9; `utimensat()`'s timestamp conversion was reworked (#27786,
 applies after 0002–0012 (not 0004) with 5-line offsets and not alone (it
 needs 0009's `libsigs.js` lines).
 
-**Draft: new issue.** No existing issue covers it.
+**As posted** (what #27823 says, kept for reference). When drafted, no existing issue covered it.
 
 ## Issue title
 

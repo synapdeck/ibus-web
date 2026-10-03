@@ -303,9 +303,8 @@ The host runs under Node's `worker_threads` only for tests (`storage:
 { kind: "node" }`, WasmFS's Node backend over a host directory). Under Node:
 
 - **Web Locks don't reliably exclude.** Two `worker_threads` that request
-  the same exclusive lock at the same moment are both granted it in about
-  3–4% of races, with `ifAvailable` (12 of 300) and as queued requests (8 of
-  300), Node 24.21.0; draft
+  the same exclusive lock at the same moment are both granted it in
+  about 3% of races (12 of 300 with `ifAvailable`, 8 of 300 queued; Node 24.21.0); draft
   [`node-web-locks-worker-threads.md`](upstream/node-web-locks-worker-threads.md).
   Two Node hosts started together can then both become writer, or both
   install one version. The Node suites start hosts that share storage one at

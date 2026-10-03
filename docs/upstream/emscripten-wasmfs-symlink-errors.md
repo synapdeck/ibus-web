@@ -9,7 +9,7 @@ since covers it (searches for "wasmfs symlink EPERM", "symlinkat EPERM",
 
 Checked against `main` 5977ecc (2026-10-02): `__syscall_symlinkat` still
 turns any null from `insertSymlink()` into `EPERM`, and 0017 applies on
-`main` after 0002–0016 (not 0004, 0016) with a 2-line offset; alone it
+`main` after 0002–0015 (without 0004) with a 2-line offset; alone it
 doesn't, since it builds on 0012. The draft has no suite-format test, so
 nothing was run for it on `main`.
 

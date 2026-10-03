@@ -184,7 +184,6 @@ const conditions = {
   playwright: (require("playwright/package.json") as { version: string }).version,
   strace: execFileSync(strace, ["-V"], { encoding: "utf8" }).split("\n")[0],
   kernel: release(),
-  profileRoot,
   profileFileSystem: execFileSync("stat", ["-f", "-c", "%T", profileRoot], { encoding: "utf8" }).trim(),
   chromiumSandbox: process.env.IBUS_WEB_CHROMIUM_SANDBOX === "1",
   settleMs,
