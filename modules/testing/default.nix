@@ -61,7 +61,7 @@
 
           - name: the program's name; the derivation holds NAME.js and NAME.wasm.
           - src: the directory its sources are in. The build sees the sources it
-            compiles, every header in src, and extraSources.
+            compiles, the .h files in src, and extraSources.
           - sources (default [ "NAME.cpp" ]): the files to compile, relative to src; .c
             files with $CC, the rest with $CXX.
           - extraSources (default none): more files from src the build reads, such as
@@ -71,10 +71,10 @@
             no passthru.testProgram.
           - gtest (default: format is "gtest-json"): whether it compiles against
             GoogleTest and links gtestMain.
-          - cflags, linkFlags (required) and libs (default none): shell words, as strings
-            or lists, for compiling each source, for the link before the objects, and
-            for the link after them, before gtestMain's libraries. The build's shell
-            expands them, so they may name $out.
+          - linkFlags (required), cflags and libs (default none): shell words, as
+            strings or lists, for the link before the objects, for compiling each
+            source, and for the link after the objects, before gtestMain's libraries.
+            The build's shell expands them, so they may name $out.
           - args (default null): its arguments, as a list, written to NAME.args.
           - preBuild (default none): shell commands run before compiling, with $out
             already made, for whatever else the program needs beside it.
@@ -96,7 +96,7 @@
             GoogleTest program links with gtestMain and reports through it; a TAP program
             takes g_test's -l, -s and --keep-going and prints TAP on its stdout.
             Programs for browsers link with browserLinkFlags, programs for Node with
-            nodeLinkFlags.
+            nodeLinkFlags. It may be empty when nodeTests holds the tests.
           - environments (default chromium and firefox): where they run, any of node,
             chromium and firefox.
           - timeout (default 120): the whole seconds each program has to exit, in each
@@ -391,6 +391,9 @@
         assert lib.assertMsg
           (environments != [ ] && lib.all (environment: lib.elem environment allEnvironments) environments)
           "programs ${name}: environments must be some of ${toString allEnvironments}, not ${toString environments}";
+        assert lib.assertMsg (
+          programs != [ ] || nodeTests != null
+        ) "programs ${name}: no programs and no nodeTests, so nothing to run";
         assert lib.assertMsg (nodeTests == null || lib.elem "node" environments)
           "programs ${name}: nodeTests run in the node environment, which isn't among ${toString environments}";
         runVitest {

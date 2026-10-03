@@ -15,7 +15,8 @@
 // may be left out, names a directory whose *.test.ts files run in the node
 // environment beside the programs, for what a program can't report on
 // itself; they read data, paths to what they test, say, with nodeTestData()
-// from @ibus-web/test-programs/node-tests.
+// from @ibus-web/test-programs/node-tests. With nodeTests, programs may be
+// empty.
 
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -204,7 +205,8 @@ export const testProgramsConfig = (): ViteUserConfig => {
       test: {
         name: "node",
         include: [
-          "dist/node/programs.test.js",
+          // Collected without programs, it would fail as a file with no tests.
+          ...(manifest.programs.length === 0 ? [] : ["dist/node/programs.test.js"]),
           ...(manifest.nodeTests === undefined ? [] : [join(manifest.nodeTests.dir, "**/*.test.ts")]),
         ],
         runner: "./dist/node/runner.js",
