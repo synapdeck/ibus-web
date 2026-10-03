@@ -7,7 +7,7 @@
 import { expect } from "vitest";
 import { CRASH_REPORT_LIMIT_MS, type Harness, type RuntimeBuild } from "./harness.ts";
 import { call32, int32s, opsFrom, stats } from "./scenarios.ts";
-import { HostOp } from "./testing.ts";
+import { HostOp, type HostStats } from "./testing.ts";
 
 // A module that imports a function no runtime provides, so instantiating it
 // with the runtime's imports fails with a LinkError: the magic and version,
@@ -50,7 +50,9 @@ export const released = async (h: Harness, runtime: RuntimeBuild): Promise<void>
 };
 
 // A relay that fails while the host sleeps writes CRASHED and wakes the host,
-// whose crash report is the relay's error.
+// whose crash report is the relay's error. The host as released waits only
+// its default for that error, which a loaded machine can outlast, so only
+// the test build's report must carry it.
 export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released = false): Promise<void> => {
   const host = await h.start({ runtime, relayFailsAfter: 3, released });
   try {
@@ -73,7 +75,8 @@ export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released =
     // returns with nothing new costs it one. Only the failure is certain.
     expect(failure, "a request failed within ten").toBeDefined();
     expect(String(failure), "the request after").toMatch(/crashed/);
-    expect(report, "the crash report").toMatch(/^relay: .*the relay fails on purpose/);
+    expect(report, "the crash report").toMatch(/^relay: /);
+    if (!released) expect(report, "the crash report").toMatch(/the relay fails on purpose/);
   } finally {
     await host.terminate();
   }
@@ -100,9 +103,20 @@ export const topUpLimit = async (h: Harness, runtime: RuntimeBuild): Promise<voi
       { type: "log", level: "Error", message: expect.stringMatching(/1 Workers not all loaded in 1 ms/) },
     ]);
     expect(await call32(client, ops.release), "release").toBeGreaterThanOrEqual(0);
-    // Once the Worker that loaded late has joined the pool, the spares are
-    // taken again, one more than they number: the host tops up no more.
-    await h.sleep(500);
+    // Once the Worker that loaded late has joined the pool, idle like every
+    // Worker not running a thread from before, the spares are taken again,
+    // one more than they number: the host tops up no more.
+    const aliveNow = (at: HostStats): number => h.data.pool.size + at.workersCreated - at.idleWorkers;
+    const joinedBy = h.now() + h.pendingLimitMs;
+    let joined = await stats(client);
+    while (aliveNow(joined) !== alive && h.now() < joinedBy) {
+      await h.sleep(10);
+      joined = await stats(client);
+    }
+    expect(
+      { created: joined.workersCreated - first.workersCreated, alive: aliveNow(joined) },
+      "the late Worker joined the pool, idle",
+    ).toEqual({ created: 1, alive });
     const before = await stats(client);
     const short = before.idleWorkers - h.data.pool.lowWater + 1;
     expect(replyHeld(await client.call(ops.hold, int32s(short)))).toBe(short);

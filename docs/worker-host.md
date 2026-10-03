@@ -378,7 +378,8 @@ Bounds that wait for something to happen (a lock's release, a crash
 report, a printed line) are 10 s or more, reached only when it never
 happens. A test build's host waits 10 s for a crashed thread's own error
 (`crashWaitMs`); the host as released waits its default 1 s, so its crash
-report isn't required to carry the error. Printed output is settled by a
+report isn't required to carry the error, whether a thread's or, in
+`relay-failure`, the relay's, only to say which failed. Printed output is settled by a
 round trip, not a sleep: under Node the threads' writes are synchronous,
 and in a browser a line printed by a Worker started for the purpose
 arrives after every line printed before it.

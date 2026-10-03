@@ -57,10 +57,11 @@
               installNix
               # Ubuntu 24.04's AppArmor forbids unprivileged user namespaces,
               # which Chromium's sandbox needs, and the browser checks keep
-              # that sandbox on.
+              # that sandbox on. A runner image without the setting has no
+              # ban to lift.
               {
                 name = "Allow unprivileged user namespaces";
-                run = "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0";
+                run = "if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi";
               }
               # GitHub's token for a pull request from a fork lacks the
               # claims FlakeHub Cache needs, so those runs build without it.

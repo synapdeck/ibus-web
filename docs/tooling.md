@@ -209,7 +209,8 @@ TypeScript is version 7 (the native compiler). Configuration:
   `allowImportingTsExtensions`, `lib: ["es2023"]`, Node types, and `types/webassembly`, the part
   of the WebAssembly API Node code here uses, which TypeScript declares only in its web libraries);
   each directory of scripts has a `tsconfig.json` extending that. A config for Node code that
-  extends a package's base instead names `types/` as a type root itself.
+  extends a package's base instead names `types/` as a type root itself; `types/tsconfig.json`
+  checks the declarations on their own.
 - **One `tsconfig.json` per environment directory** in a package (`src/shared`, `src/worker`,
   `src/node`, `src/browser`, and the test directories likewise), each with its own `lib` and
   `types`, so code meant for a Worker can't use Node's API by accident. Packages' `build` scripts
@@ -239,7 +240,7 @@ One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (`@ibus-web
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
 (`pnpmWorkspace` in `modules/typescript/default.nix`), which reads them for its own builds, and
 `nix run .#write-files` writes the file; `checks."files:pnpm-workspace.yaml"` fails while the
-tracked copy differs. Never edit the YAML: change the Nix, run `write-files`, then `pnpm install`.
+tracked copy differs. The Nix builds install from the generated file, not the tracked copy. Never edit the YAML: change the Nix, run `write-files`, then `pnpm install`.
 
 - **Versions.** Manifests use ordinary caret ranges; `pnpm-lock.yaml` pins exact versions.
 - **The catalog.** Whatever must be one version across the repository — TypeScript, Vitest and its
@@ -349,8 +350,9 @@ pull request's new push cancels its run in progress (`concurrency`, grouped by p
 every push to `master` keeps its own run.
 
 - **`check`** — check out, install Determinate Nix, allow unprivileged user namespaces
-  (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`: Ubuntu 24.04's AppArmor
-  forbids them, and Chromium's sandbox, which the browser checks keep on, needs them), enable
+  (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where the runner has the
+  setting: Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks
+  keep on, needs them), enable
   FlakeHub Cache, then `nix flake check -L --system x86_64-linux`, within 240 minutes. Checks
   are defined for x86_64-linux, aarch64-linux and aarch64-darwin; the hosted runners are
   x86_64-linux, and the other systems' checks need their own machines.

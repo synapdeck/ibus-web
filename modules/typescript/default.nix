@@ -120,10 +120,19 @@
           (
             map (file: root + "/${file}") [
               "package.json"
-              "pnpm-workspace.yaml"
               "pnpm-lock.yaml"
             ]
           );
+
+      # The sources with pnpm-workspace.yaml as Nix generates it, so the build
+      # follows the Nix even before `write-files` has updated the tree.
+      withWorkspaceFile =
+        name: src:
+        pkgs.runCommand name { } ''
+          cp -R ${src} $out
+          chmod u+w $out
+          cp ${pnpmWorkspaceFile} $out/pnpm-workspace.yaml
+        '';
 
       # Each Playwright release expects specific browser builds, and the
       # browsers come from nixpkgs' playwright-driver, so the installed npm
@@ -164,12 +173,14 @@
 
       # Installing needs only the manifests, so editing a source leaves the
       # dependency fetch's inputs alone.
-      manifests = lib.fileset.toSource {
-        inherit root;
-        fileset = lib.fileset.unions (
-          workspaceFiles ++ map (dir: root + "/${dir}/package.json") packageDirs
-        );
-      };
+      manifests = withWorkspaceFile "ibus-web-manifests" (
+        lib.fileset.toSource {
+          inherit root;
+          fileset = lib.fileset.unions (
+            workspaceFiles ++ map (dir: root + "/${dir}/package.json") packageDirs
+          );
+        }
+      );
       pnpmDeps = pkgs.fetchPnpmDeps {
         pname = "ibus-web";
         src = manifests;
@@ -213,13 +224,15 @@
       # packages and into the root's store are relative, then compiled.
       workspace = pkgs.stdenvNoCC.mkDerivation {
         name = "ibus-web-typescript";
-        src = lib.fileset.toSource {
-          inherit root;
-          # Every package's tsconfig extends the repository's base.
-          fileset = lib.fileset.unions (
-            workspaceFiles ++ [ (root + "/tsconfig.base.json") ] ++ map packageSources packageDirs
-          );
-        };
+        src = withWorkspaceFile "ibus-web-typescript-source" (
+          lib.fileset.toSource {
+            inherit root;
+            # Every package's tsconfig extends the repository's base.
+            fileset = lib.fileset.unions (
+              workspaceFiles ++ [ (root + "/tsconfig.base.json") ] ++ map packageSources packageDirs
+            );
+          }
+        );
         nativeBuildInputs = [
           nodejs
           pnpm

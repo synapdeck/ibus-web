@@ -200,6 +200,11 @@ An item leaves this page when it is fixed or decided.
   whose block sets `isFunction` and whose test reads `snippet`), so an Emscripten that restructures it
   fails the check rather than being followed; and whatever name `addImplicitDeps` needs that the checker's
   context lacks fails with one catch-all message, naming it only through the engine's `ReferenceError`.
+- **The worker-host browser tests' output settle rests on delivery order.** A test takes what the host's
+  Workers printed once a line printed by a Worker started for the purpose has arrived, which assumes
+  Playwright delivers console messages across Worker targets in the order the browser sent them. A line
+  that arrived later anyway would fail the next test as unexpected output, not pass unseen; if that ever
+  happens, the fix is a marker printed by the host's own Workers.
 - **A check's Vitest file shows under its store name** (`../../../<hash>-fixes.test.ts`): it is copied
   into the store alone, so it can't use relative imports.
 - **`nodeTests` copies `.d.ts` files** along with the tests.
