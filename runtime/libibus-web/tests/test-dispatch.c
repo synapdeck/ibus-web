@@ -1,0 +1,329 @@
+/* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+ * SPDX-License-Identifier: LGPL-2.1-or-later */
+#include <errno.h>
+#include <ibus-web/protocol.h>
+#include <ibus-web/runtime.h>
+#include <ibus.h>
+#include <string.h>
+
+typedef struct {
+  IBusEngine parent;
+} DispatchEngine;
+typedef struct {
+  IBusEngineClass parent;
+} DispatchEngineClass;
+G_DEFINE_TYPE(DispatchEngine, dispatch_engine, IBUS_TYPE_ENGINE)
+static IBusEngine *last_created;
+
+extern gboolean test_throwing_key_event(IBusEngine *, guint, guint, guint);
+
+static gboolean process_key(IBusEngine *engine, guint keyval, guint keycode,
+                            guint state) {
+  if (keyval == 999)
+    return test_throwing_key_event(engine, keyval, keycode, state);
+  return keyval == IBUS_a;
+}
+static void dispatch_engine_class_init(DispatchEngineClass *klass) {
+  IBUS_ENGINE_CLASS(klass)->process_key_event = process_key;
+}
+static void dispatch_engine_init(DispatchEngine *engine) {
+  last_created = IBUS_ENGINE(engine);
+  g_object_add_weak_pointer(G_OBJECT(engine), (gpointer *)&last_created);
+}
+
+static GByteArray *request(guint16 kind, guint32 ic, GVariant *payload) {
+  g_variant_ref_sink(payload);
+  GByteArray *bytes = g_byte_array_new();
+  IBusWebRequestHeader header = {GUINT16_TO_LE(kind), 0, GUINT32_TO_LE(ic)};
+  g_byte_array_append(bytes, (const guint8 *)&header, sizeof header);
+  g_byte_array_append(bytes, g_variant_get_data(payload),
+                      g_variant_get_size(payload));
+  g_variant_unref(payload);
+  return bytes;
+}
+
+static gint send(guint16 kind, guint32 ic, GVariant *payload) {
+  GByteArray *bytes = request(kind, ic, payload);
+  gint result = ibusweb_dispatch(bytes->data, bytes->len);
+  g_byte_array_unref(bytes);
+  return result;
+}
+
+static GVariant *snapshot(guint version) {
+  GVariantBuilder builder;
+  g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sa{sv}}"));
+  return g_variant_new("(u@a{sa{sv}})", version,
+                       g_variant_builder_end(&builder));
+}
+
+static void empty_output(void) {
+  guint32 length;
+  g_assert_null(ibusweb_output_peek(&length));
+  g_assert_cmpuint(length, ==, 0);
+}
+
+static void expect_log(GLogLevelFlags expected_level,
+                       const gchar *expected_domain,
+                       const gchar *expected_message) {
+  guint32 length;
+  const guint8 *data = ibusweb_output_peek(&length);
+  g_assert_nonnull(data);
+  g_assert_cmpuint(length, >=, sizeof(IBusWebRecordHeader));
+  IBusWebRecordHeader header;
+  memcpy(&header, data, sizeof header);
+  g_assert_cmpuint(GUINT16_FROM_LE(header.kind), ==, IBUSWEB_REC_LOG);
+  g_assert_cmpuint(GUINT32_FROM_LE(header.ic), ==, 0);
+  guint payload_length = GUINT32_FROM_LE(header.len);
+  GVariant *payload = g_variant_ref_sink(
+      g_variant_new_from_data(G_VARIANT_TYPE("(uss)"), data + sizeof header,
+                              payload_length, FALSE, NULL, NULL));
+  g_assert_true(g_variant_is_normal_form(payload));
+  guint level;
+  const gchar *domain, *message;
+  g_variant_get(payload, "(u&s&s)", &level, &domain, &message);
+  g_assert_cmpuint(level & G_LOG_LEVEL_MASK, ==, expected_level);
+  g_assert_cmpstr(domain, ==, expected_domain);
+  g_assert_nonnull(strstr(message, expected_message));
+  g_variant_unref(payload);
+  ibusweb_output_consume((sizeof header + payload_length + 7) & ~7u);
+  empty_output();
+}
+
+typedef struct {
+  GVariant *expected;
+  guint calls;
+} Observation;
+
+static gboolean observe(GSignalInvocationHint *hint G_GNUC_UNUSED, guint count,
+                        const GValue *values, gpointer data) {
+  Observation *observation = data;
+  ++observation->calls;
+  g_assert_true(G_TYPE_CHECK_INSTANCE_TYPE(g_value_get_object(&values[0]),
+                                           dispatch_engine_get_type()));
+  g_assert_cmpuint(count - 1, ==, g_variant_n_children(observation->expected));
+  for (guint i = 1; i < count; ++i) {
+    GVariant *expected =
+        g_variant_get_child_value(observation->expected, i - 1);
+    GVariant *actual;
+    if (G_VALUE_HOLDS_OBJECT(&values[i]))
+      actual = g_variant_new_variant(
+          ibus_serializable_serialize(g_value_get_object(&values[i])));
+    else
+      actual =
+          g_dbus_gvalue_to_gvariant(&values[i], g_variant_get_type(expected));
+    g_variant_take_ref(actual);
+    g_assert_true(g_variant_equal(actual, expected));
+    g_variant_unref(actual);
+    g_variant_unref(expected);
+  }
+  return TRUE;
+}
+
+static void route(guint16 kind, const gchar *signal, GVariant *payload,
+                  gint reply) {
+  Observation observation = {g_variant_ref_sink(payload), 0};
+  guint id = g_signal_lookup(signal, IBUS_TYPE_ENGINE);
+  g_assert_cmpuint(id, !=, 0);
+  gulong hook = g_signal_add_emission_hook(id, 0, observe, &observation, NULL);
+  g_assert_cmpint(send(kind, 7, payload), ==, reply);
+  g_assert_cmpuint(observation.calls, ==, 1);
+  g_signal_remove_emission_hook(id, hook);
+  g_variant_unref(observation.expected);
+}
+
+static gpointer wrong_thread(gpointer data G_GNUC_UNUSED) {
+  g_assert_cmpint(send(IBUSWEB_REQ_RESET, 7, g_variant_new("()")), ==, -EPERM);
+  return NULL;
+}
+
+static void routing(void) {
+  route(IBUSWEB_REQ_PROCESS_KEY_EVENT, "process-key-event",
+        g_variant_new("(uuu)", IBUS_a, 38u, 4u), 1);
+  route(IBUSWEB_REQ_PROCESS_KEY_EVENT, "process-key-event",
+        g_variant_new("(uuu)", IBUS_b, 56u, 0u), 0);
+  const struct {
+    guint16 kind;
+    const gchar *signal;
+  } zero[] = {
+      {IBUSWEB_REQ_FOCUS_IN, "focus-in"},
+      {IBUSWEB_REQ_FOCUS_OUT, "focus-out"},
+      {IBUSWEB_REQ_RESET, "reset"},
+      {IBUSWEB_REQ_ENABLE, "enable"},
+      {IBUSWEB_REQ_DISABLE, "disable"},
+      {IBUSWEB_REQ_PAGE_UP, "page-up"},
+      {IBUSWEB_REQ_PAGE_DOWN, "page-down"},
+      {IBUSWEB_REQ_CURSOR_UP, "cursor-up"},
+      {IBUSWEB_REQ_CURSOR_DOWN, "cursor-down"},
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(zero); ++i)
+    route(zero[i].kind, zero[i].signal, g_variant_new("()"), 0);
+  route(IBUSWEB_REQ_SET_CURSOR_LOCATION, "set-cursor-location",
+        g_variant_new("(iiii)", -4, 8, 12, 16), 0);
+  route(IBUSWEB_REQ_SET_CAPABILITIES, "set-capabilities",
+        g_variant_new("(u)", 127u), 0);
+  route(IBUSWEB_REQ_CANDIDATE_CLICKED, "candidate-clicked",
+        g_variant_new("(uuu)", 2u, 1u, 4u), 0);
+  route(IBUSWEB_REQ_PROPERTY_ACTIVATE, "property-activate",
+        g_variant_new("(su)", "mode", 1u), 0);
+  route(IBUSWEB_REQ_SET_CONTENT_TYPE, "set-content-type",
+        g_variant_new("(uu)", 3u, 5u), 0);
+  IBusText *text = g_object_ref_sink(ibus_text_new_from_string("한글"));
+  ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE,
+                             IBUS_ATTR_UNDERLINE_SINGLE, 0, 2);
+  ibus_serializable_set_attachment(IBUS_SERIALIZABLE(text), "annotation",
+                                   g_variant_new_string("metadata"));
+  route(IBUSWEB_REQ_SET_SURROUNDING_TEXT, "set-surrounding-text",
+        g_variant_new("(vuu)",
+                      ibus_serializable_serialize(IBUS_SERIALIZABLE(text)), 2u,
+                      1u),
+        0);
+  g_object_unref(text);
+}
+
+static void retained_surrounding(void) {
+  IBusText *text = g_object_ref_sink(ibus_text_new_from_string("cached"));
+  ibus_serializable_set_attachment(IBUS_SERIALIZABLE(text), "annotation",
+                                   g_variant_new_string("retained metadata"));
+  GByteArray *bytes =
+      request(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+              g_variant_new(
+                  "(vuu)", ibus_serializable_serialize(IBUS_SERIALIZABLE(text)),
+                  2u, 1u));
+  g_object_unref(text);
+  g_assert_cmpint(ibusweb_dispatch(bytes->data, bytes->len), ==, 0);
+  memset(bytes->data, 0, bytes->len);
+  guint cursor, anchor;
+  ibus_engine_get_surrounding_text(last_created, &text, &cursor, &anchor);
+  GVariant *attachment =
+      ibus_serializable_get_attachment(IBUS_SERIALIZABLE(text), "annotation");
+  g_assert_nonnull(attachment);
+  g_assert_cmpstr(g_variant_get_string(attachment, NULL), ==,
+                  "retained metadata");
+  g_object_unref(text);
+  g_byte_array_unref(bytes);
+  guint32 length;
+  const guint8 *output = ibusweb_output_peek(&length);
+  IBusWebRecordHeader header;
+  g_assert_cmpuint(length, >=, sizeof header);
+  memcpy(&header, output, sizeof header);
+  g_assert_cmpuint(GUINT16_FROM_LE(header.kind), ==,
+                   IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT);
+  ibusweb_output_consume(length);
+}
+
+static void malformed(void) {
+  g_assert_cmpint(ibusweb_dispatch(NULL, 0), ==, -EBADMSG);
+  g_assert_cmpint(send(65535, 7, g_variant_new("()")), ==, -ENOSYS);
+  GByteArray *bytes = request(IBUSWEB_REQ_PROCESS_KEY_EVENT, 7,
+                              g_variant_new("(uuu)", IBUS_a, 38u, 0u));
+  g_assert_cmpint(ibusweb_dispatch(bytes->data, bytes->len - 1), ==, -EBADMSG);
+  bytes->data[2] = 1;
+  g_assert_cmpint(ibusweb_dispatch(bytes->data, bytes->len), ==, -EBADMSG);
+  bytes->data[2] = 0;
+  guint8 *misaligned = g_malloc(bytes->len + 1);
+  memcpy(misaligned + 1, bytes->data, bytes->len);
+  g_assert_cmpint(ibusweb_dispatch(misaligned + 1, bytes->len), ==, 1);
+  g_free(misaligned);
+  g_byte_array_unref(bytes);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_PROCESS_KEY_EVENT, 7, g_variant_new("(s)", "wrong")), ==,
+      -EBADMSG);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+           g_variant_new("(vuu)", g_variant_new_uint32(42), 0u, 0u)),
+      ==, -EBADMSG);
+  GVariant *incomplete_text = g_variant_new("(s)", "IBusText");
+  g_assert_cmpint(send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+                       g_variant_new("(vuu)", incomplete_text, 0u, 0u)),
+                  ==, -EBADMSG);
+  IBusAttribute *attribute = g_object_ref_sink(ibus_attribute_new(1, 2, 0, 1));
+  g_assert_cmpint(send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+                       g_variant_new("(vuu)",
+                                     ibus_serializable_serialize(
+                                         IBUS_SERIALIZABLE(attribute)),
+                                     0u, 0u)),
+                  ==, -EBADMSG);
+  g_object_unref(attribute);
+  GVariant *invalid_attributes =
+      g_variant_new("(s@a{sv}sv)", "IBusText",
+                    g_variant_new_array(G_VARIANT_TYPE("{sv}"), NULL, 0),
+                    "text", g_variant_new_uint32(42));
+  g_assert_cmpint(send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+                       g_variant_new("(vuu)", invalid_attributes, 0u, 0u)),
+                  ==, -EBADMSG);
+  GThread *thread = g_thread_new("dispatch", wrong_thread, NULL);
+  g_thread_join(thread);
+  empty_output();
+}
+
+static void logging(void) {
+  g_log("review", G_LOG_LEVEL_WARNING, "warning after init");
+  expect_log(G_LOG_LEVEL_WARNING, "review", "warning after init");
+  g_log(NULL, G_LOG_LEVEL_MESSAGE, "message after init");
+  expect_log(G_LOG_LEVEL_MESSAGE, "", "message after init");
+  const GLogField fields[] = {{"GLIB_DOMAIN", "review-extra", 6},
+                              {"MESSAGE", "message-extra", 7}};
+  g_log_structured_array(G_LOG_LEVEL_WARNING, fields, G_N_ELEMENTS(fields));
+  expect_log(G_LOG_LEVEL_WARNING, "review", "message");
+  g_log("review", G_LOG_LEVEL_DEBUG, "debug after init");
+  if (g_strcmp0(g_getenv("G_MESSAGES_DEBUG"), "all") == 0)
+    expect_log(G_LOG_LEVEL_DEBUG, "review", "debug after init");
+  else
+    empty_output();
+}
+
+static void protocol(void) {
+  static gint32 wake_word;
+  g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
+  g_log("review", G_LOG_LEVEL_MESSAGE, "message before init");
+  empty_output();
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==,
+      -ENOTCONN);
+  g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(2)), ==, -EPROTO);
+  g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
+                  ==, 0);
+  g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
+                  ==, -EALREADY);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "missing")), ==,
+      -ESRCH);
+  IBusFactory *factory = g_object_ref_sink(ibus_factory_new(NULL));
+  ibus_factory_add_engine(factory, "test", dispatch_engine_get_type());
+  g_object_unref(factory);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==, 0);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==,
+      -EEXIST);
+  g_assert_cmpint(send(IBUSWEB_REQ_RESET, 8, g_variant_new("()")), ==, -ENOENT);
+  routing();
+  retained_surrounding();
+  malformed();
+  g_assert_cmpint(send(IBUSWEB_REQ_SETTING_CHANGED, 0,
+                       g_variant_new("(ssv)", "review", "value",
+                                     g_variant_new_boolean(TRUE))),
+                  ==, 0);
+  logging();
+  g_assert_cmpint(send(IBUSWEB_REQ_DESTROY_ENGINE, 7, g_variant_new("()")), ==,
+                  0);
+  g_assert_null(last_created);
+  g_assert_cmpint(send(IBUSWEB_REQ_DESTROY_ENGINE, 7, g_variant_new("()")), ==,
+                  -ENOENT);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==, 0);
+  g_assert_cmpint(send(IBUSWEB_REQ_PROCESS_KEY_EVENT, 7,
+                       g_variant_new("(uuu)", 999u, 0u, 0u)),
+                  ==, -ECANCELED);
+  expect_log(G_LOG_LEVEL_WARNING, "ibus-web", "thrown by an engine");
+}
+
+int main(int argc, char **argv) {
+  g_test_init(&argc, &argv, NULL);
+  /* TAP's handler consumes legacy logs before they reach a structured writer.
+   */
+  g_log_set_default_handler(g_log_default_handler, NULL);
+  g_log_set_always_fatal(G_LOG_LEVEL_ERROR);
+  g_test_add_func("/dispatch/protocol", protocol);
+  return g_test_run();
+}

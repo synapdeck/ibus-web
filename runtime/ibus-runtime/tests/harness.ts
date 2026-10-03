@@ -43,7 +43,7 @@ export interface RuntimeModule {
   _close(fd: number): number;
   _ibusweb_runtime_init(wake: number): number;
   _ibusweb_load_module(path: number, flags: number): number;
-  _ibusweb_dispatch(request: number, length: number, reply: number, capacity: number): number;
+  _ibusweb_test_dispatch(request: number, length: number, reply: number, capacity: number): number;
   _ibusweb_pump(): number;
   _emscripten_get_heap_max(): number;
   _g_try_malloc(bytes: number): number;
@@ -76,7 +76,7 @@ const check: (condition: boolean, message: string) => asserts condition = (condi
 export interface Runtime {
   module: RuntimeModule;
   wasmMemory: WebAssembly.Memory;
-  // The reply's bytes, or the negative errno ibusweb_dispatch() returned.
+  // The reply's bytes, or the negative errno ibusweb_test_dispatch() returned.
   dispatch(opcode: number, payload?: Uint8Array): Uint8Array | number;
   // An operation whose reply is one int32, or the negative errno.
   call(opcode: number, payload?: Uint8Array): number;
@@ -130,7 +130,7 @@ export const startRuntime = async (
     const request = new Uint8Array(4 + payload.length);
     new DataView(request.buffer).setUint32(0, opcode, true);
     request.set(payload, 4);
-    const ret = withBytes(request, (ptr) => rt._ibusweb_dispatch(ptr, request.length, reply, REPLY_CAP));
+    const ret = withBytes(request, (ptr) => rt._ibusweb_test_dispatch(ptr, request.length, reply, REPLY_CAP));
     return ret < 0 ? ret : memory.slice(reply, reply + ret);
   };
 

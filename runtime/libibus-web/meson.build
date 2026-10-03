@@ -26,14 +26,16 @@ libibus_web = static_library(
   'src/output.c',
   'src/pump.c',
   'src/module.c',
+  'src/test-dispatch.c',
   'src/dispatch.c',
+  'src/log.c',
   'src/call-op.cpp',
   'src/install.c',
-  include_directories: include_directories('include'),
+  include_directories: [include_directories('include'), ibus_includes],
   c_args: '-DG_LOG_DOMAIN="ibus-web"',
   cpp_args: '-DG_LOG_DOMAIN="ibus-web"',
   gnu_symbol_visibility: 'hidden',
-  dependencies: [glib, gmodule],
+  dependencies: [glib, gmodule, gobject, gio],
   install: true,
 )
 

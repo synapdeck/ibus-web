@@ -31,7 +31,7 @@ export interface Runtime {
   _ibusweb_pump(): number;
   _ibusweb_wait(seen: number, timeoutMs: number): number;
   _ibusweb_load_module(path: number, moduleOut: number): number;
-  _ibusweb_dispatch(request: number, requestLen: number, reply: number, replyCap: number): number;
+  _ibusweb_test_dispatch(request: number, requestLen: number, reply: number, replyCap: number): number;
   _ibusweb_install_begin(dir: number, installOut: number): number;
   _ibusweb_install_feed(install: number, data: number, len: number): number;
   _ibusweb_install_count(install: number, files: number, bytes: number): void;

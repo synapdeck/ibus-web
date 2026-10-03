@@ -67,3 +67,13 @@ test_engine = executable(
   link_args: get_option('test_main_link_args'),
 )
 test('engine', test_engine, protocol: 'tap')
+
+test_dispatch = executable(
+  'test-dispatch',
+  'test-dispatch.c',
+  'throwing-engine.cpp',
+  dependencies: libibus_web_dep,
+  link_args: get_option('test_main_link_args'),
+)
+test('dispatch', test_dispatch, protocol: 'tap', env: ['G_MESSAGES_DEBUG='])
+test('dispatch-debug', test_dispatch, protocol: 'tap', env: ['G_MESSAGES_DEBUG=all'])

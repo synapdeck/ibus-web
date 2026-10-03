@@ -98,7 +98,7 @@ IBUSWEB_API int ibusweb_wait(int32_t seen, int32_t timeout_ms);
 typedef struct _IBusWebModule IBusWebModule;
 
 /* A test operation, which side modules register for tests to call through
- * ibusweb_dispatch(): reads the request's payload and appends its reply.
+ * ibusweb_test_dispatch(): reads the request's payload and appends its reply.
  *
  * A C++ exception it throws fails the dispatch, which isolates the failure
  * only if the exception unwound through C++ frames alone. One that crossed C
@@ -109,7 +109,7 @@ typedef struct _IBusWebModule IBusWebModule;
  * caught at all. */
 typedef void (*IBusWebOp)(const uint8_t *payload, uint32_t len, GString *reply);
 
-/* Registers op under opcode for module, for ibusweb_dispatch(). Returns 0,
+/* Registers op under opcode for module, for ibusweb_test_dispatch(). Returns 0,
  * -EINVAL, or -EEXIST if the opcode is taken; a failure also fails the
  * registration in progress. */
 IBUSWEB_API int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
@@ -148,9 +148,9 @@ IBUSWEB_API int ibusweb_load_module(const char *path,
  * the exception unwound through (see IBusWebOp). Any other exception an
  * operation raises propagates to the caller and leaks the reply being
  * built. */
-IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request,
-                                     uint32_t request_len, uint8_t *reply,
-                                     uint32_t reply_cap);
+IBUSWEB_API int32_t ibusweb_test_dispatch(const uint8_t *request,
+                                          uint32_t request_len, uint8_t *reply,
+                                          uint32_t reply_cap);
 
 /* A streaming extractor of an engine's data: a POSIX ustar archive,
  * uncompressed, fed in pieces of any size as they arrive and written
@@ -206,5 +206,14 @@ IBUSWEB_API const uint8_t *ibusweb_output_peek(uint32_t *len);
 IBUSWEB_API void ibusweb_output_consume(uint32_t len);
 /* Last appended sequence number, zero before any record. Wraps at 2^32. */
 IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
+
+/* Dispatch one protocol.h request on the pumping thread, without pumping.
+ * Returns a key event's boolean reply, zero for other requests, or a negative
+ * errno: EBADMSG for invalid framing/payload, ENOSYS for unknown kinds,
+ * ENOTCONN before Init, EALREADY for a repeated Init, EPROTO for a version
+ * mismatch, ENOENT for a missing context, EEXIST for a duplicate context,
+ * ESRCH for an unregistered engine, EPERM off-thread, or ECANCELED when an
+ * engine throws a C++ exception. */
+IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request, uint32_t len);
 
 G_END_DECLS

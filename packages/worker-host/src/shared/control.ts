@@ -17,7 +17,7 @@ export const Word = {
   reqSeq: 1,
   // The request's length in the slot.
   reqLen: 2,
-  // ibusweb_dispatch()'s return value: the reply's length in the slot, or a
+  // ibusweb_test_dispatch()'s return value: the reply's length in the slot, or a
   // negative errno.
   replyRet: 3,
   // The word the page increments and notifies after posting a request; the

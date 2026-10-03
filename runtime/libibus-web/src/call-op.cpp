@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "dispatch.h"
 #include "ops.h"
 
 #include <cerrno>
@@ -25,6 +26,18 @@ int ibusweb_ops_call(uint32_t opcode, IBusWebOp op, const uint8_t *payload,
     g_warning("Operation %" G_GUINT32_FORMAT " threw: %s", opcode, e.what());
   } catch (...) {
     g_warning("Operation %" G_GUINT32_FORMAT " threw", opcode);
+  }
+  return -ECANCELED;
+}
+
+int32_t ibusweb_dispatch_call(uint16_t kind, IBusWebDispatchCall call,
+                              gpointer data) {
+  try {
+    return call(data);
+  } catch (const std::exception &e) {
+    g_warning("Request %u threw: %s", kind, e.what());
+  } catch (...) {
+    g_warning("Request %u threw", kind);
   }
   return -ECANCELED;
 }

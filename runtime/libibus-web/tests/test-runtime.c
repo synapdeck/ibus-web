@@ -106,7 +106,8 @@ static int32_t call(uint32_t opcode, const char *payload, uint8_t *reply,
   g_assert_cmpuint(sizeof opcode_le + len, <=, sizeof request);
   memcpy(request, &opcode_le, sizeof opcode_le);
   memcpy(request + sizeof opcode_le, payload, len);
-  return ibusweb_dispatch(request, sizeof opcode_le + len, reply, reply_cap);
+  return ibusweb_test_dispatch(request, sizeof opcode_le + len, reply,
+                               reply_cap);
 }
 
 static void test_init(void) {
@@ -327,7 +328,7 @@ static void test_dispatch_errors(void) {
   g_assert_cmpint(call(2, "", reply, sizeof reply), ==, -ENOSYS);
   g_assert_cmpint(call(99, "", reply, sizeof reply), ==, -ENOSYS);
   g_assert_cmpint(
-      ibusweb_dispatch((const uint8_t *)"abc", 3, reply, sizeof reply), ==,
+      ibusweb_test_dispatch((const uint8_t *)"abc", 3, reply, sizeof reply), ==,
       -EINVAL);
 }
 

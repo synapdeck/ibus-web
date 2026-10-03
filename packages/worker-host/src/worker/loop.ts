@@ -69,7 +69,7 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
     return undefined;
   }
   handle.bytes.set(request, buffers.request);
-  const ret = handle.rt._ibusweb_dispatch(buffers.request, request.length, buffers.reply, buffers.cap);
+  const ret = handle.rt._ibusweb_test_dispatch(buffers.request, request.length, buffers.reply, buffers.cap);
   pump(handle.rt, ctx.constants);
   postReply(control, ret, ret > 0 ? handle.bytes.subarray(buffers.reply, buffers.reply + ret) : undefined);
   return undefined;
