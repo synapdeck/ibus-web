@@ -5,7 +5,8 @@
 // the page spinning for each reply. heap-full runs under Node only.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
-import type { RunningHost } from "../shared/harness.ts";
+import type { EngineManifest } from "../../src/shared/messages.ts";
+import type { HostOptions, RunningHost } from "../shared/harness.ts";
 import { failedInstantiate, refusedMemory, relayFailure, released, topUpLimit } from "../shared/lifecycle.ts";
 import {
   coldWake,
@@ -25,6 +26,21 @@ import {
   threadCreateBlocked,
   threadExitBlocked,
 } from "../shared/scenarios.ts";
+import { engineDir } from "../../src/shared/naming.ts";
+import {
+  crashReleasesLocks,
+  engineFor,
+  failedStartReleasesLocks,
+  promiseProxiedFsync,
+  sealThrows,
+  storageClosed,
+  storageCosts,
+  storageFallback,
+  storageRoundtrip,
+  storedHost,
+  trapKeepsWriter,
+  writerLock,
+} from "../shared/storage.ts";
 import { browserHarness } from "./harness.ts";
 
 const h = await browserHarness();
@@ -83,6 +99,61 @@ describe.each(h.data.runtimes)("the host on the $name runtime", (runtime) => {
   test("refuses a memory the runtime can't take", () => refusedMemory(h, runtime));
   test("reports a relay that fails as a crash", () => relayFailure(h, runtime));
   test("logs a top-up that doesn't finish in time, and tops up no more", () => topUpLimit(h, runtime));
+});
+
+describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
+  // The engine's directory on the storage that outlives the host.
+  describe("one host", () => {
+    const engine = engineFor("storage", runtime);
+    let host: RunningHost;
+    beforeAll(async () => {
+      host = await storedHost(h, runtime, engine);
+    });
+    afterAll(() => host?.terminate());
+    afterEach(() => noLateReplies(host.client));
+
+    test("storage-roundtrip", () => storageRoundtrip(h, host, engine));
+    test("promise-proxied-fsync", () =>
+      promiseProxiedFsync(h, host, ["/tmp/fsync-memory.txt", `${engineDir(engine)}/fsync-${h.storageMount}.txt`]));
+    test("storage-costs", () => storageCosts(h, host, engine));
+  });
+
+  // Each of these needs a host of its own.
+  const ownHost = async (
+    engine: EngineManifest,
+    use: (host: RunningHost, engine: EngineManifest) => Promise<void>,
+    options: Partial<HostOptions> = {},
+  ): Promise<void> => {
+    const host = await storedHost(h, runtime, engine, options);
+    try {
+      await use(host, engine);
+      noLateReplies(host.client);
+    } finally {
+      await host.terminate();
+    }
+  };
+
+  test("storage-fallback", () =>
+    ownHost(
+      engineFor("storage-fallback", runtime),
+      async (host, engine) => {
+        await storageFallback(h, host, engine, h.data.constants.memory.minimum);
+        await promiseProxiedFsync(h, host, [`${engineDir(engine)}/fsync-memory-mount.txt`]);
+      },
+      { storage: { kind: "browser" }, test: h.withoutIndexedDB },
+    ));
+  test("storage-closed", () =>
+    ownHost(engineFor("storage-closed", runtime), async (host, engine) => {
+      await storageClosed(h, host, engine);
+    }));
+  test("writer-lock", () => writerLock(h, runtime, engineFor("writer-lock", runtime)));
+  test("a crash with the runtime intact seals the user data and lets go of every lock", () =>
+    crashReleasesLocks(h, runtime));
+  test("a seal that throws on the crash path keeps the writer lock until the Worker ends, and lets go of the rest", () =>
+    sealThrows(h, runtime));
+  test("a trap lets go of every lock but a sealable backend's writer lock, until the Worker ends", () =>
+    trapKeepsWriter(h, runtime));
+  test("a failed start seals the user data and lets go of every lock", () => failedStartReleasesLocks(h, runtime));
 });
 
 // The Worker scripts exactly as the package ships them, loaded as they are

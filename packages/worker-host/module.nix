@@ -35,6 +35,8 @@
             "proxy.c"
             "timer.c"
             "memstress.c"
+            "fsync.c"
+            "bench.c"
           ];
 
       sidesDir = pkgs.runCommand "ibus-web-worker-host-test-sides" { } ''
