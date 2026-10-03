@@ -1,6 +1,6 @@
 # Native IBus Differential Testing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Inline execution and a commit per task are the user's preserved choices.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. The user chose fresh implementers and task reviews, with a commit per task.
 
 **Goal:** Compare a real native engine with its WASM port through reusable event traces, starting with Hangul.
 
@@ -112,4 +112,4 @@
 - [ ] Run `checks.hangul-differential` GREEN, verify independent fixture-engine coverage demonstrates reusable configuration, and document adding another engine.
 - [ ] Run full flake checks and commit `test(hangul): compare native and WASM engine traces`.
 
-After all tasks, perform the executing-plans whole-branch review, fix important findings with RED/GREEN evidence, and report limitations accurately.
+After all tasks, perform the subagent-driven-development whole-branch review, fix important findings with RED/GREEN evidence, and report limitations accurately.
