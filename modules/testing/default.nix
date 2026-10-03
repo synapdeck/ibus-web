@@ -94,10 +94,6 @@
           without running the program.
         '';
       };
-      browserRun = lib.mkOption {
-        type = lib.types.functionTo lib.types.package;
-        description = "Runs plain programs linked with browserLinkFlags as programs does, from directories of them as `{ name, programs, timeout ? 120 }`, each passing if it exits 0. For programs not yet reporting cases of their own.";
-      };
     };
   };
 
@@ -192,24 +188,23 @@
           name,
           manifest,
           limit,
-          browserRun,
+          inBrowsers,
           expectedResults,
           vitestArgs ? [ ],
-          extraInputs ? [ ],
         }:
         pkgs.runCommand "ibus-web-test-programs-${name}"
           (
             {
-              nativeBuildInputs = [ typescript.nodejs ] ++ extraInputs;
+              nativeBuildInputs = [ typescript.nodejs ];
               IBUS_WEB_TEST_PROGRAMS = manifest;
               # Nix gives a build a terminal, on which Vitest would redraw its
               # progress into the log, over and over.
               CI = "1";
             }
-            // lib.optionalAttrs browserRun playwright.env
+            // lib.optionalAttrs inBrowsers playwright.env
           )
           ''
-            ${if browserRun then playwright.setup else "export HOME=$(mktemp -d)"}
+            ${if inBrowsers then playwright.setup else "export HOME=$(mktemp -d)"}
             export IBUS_WEB_TEST_CACHE_DIR=$TMPDIR/vite
             mkdir $out
             status=0
@@ -276,47 +271,12 @@
             expectedResults
             vitestArgs
             ;
-          browserRun = environments != [ "node" ];
+          inBrowsers = environments != [ "node" ];
           # Vitest holds each program to its own limit; this one, past every
           # program's in every environment, catches a browser or Vitest that
           # hangs outright.
           limit = toString ((timeout + 60) * builtins.length environments * builtins.length programs + 300);
         };
-
-      # Each program in each directory passes when it exits 0. The
-      # directories' listings are only known once they are built, so the
-      # manifest is written then.
-      browserRun =
-        {
-          name,
-          programs,
-          timeout ? 120,
-        }:
-        let
-          environments = [
-            "chromium"
-            "firefox"
-          ];
-          manifest =
-            pkgs.runCommand "ibus-web-browser-run-${name}.json" { nativeBuildInputs = [ pkgs.jq ]; }
-              ''
-                for dir in ${lib.escapeShellArgs programs}; do
-                  for wasm in "$dir"/*.wasm; do
-                    jq -n --arg name "$(basename "$wasm" .wasm)" --arg dir "$dir" \
-                      '{ name: $name, format: "exit-status", dir: $dir }'
-                  done
-                done | jq -s --argjson timeout ${toString timeout} --argjson environments ${lib.escapeShellArg (builtins.toJSON environments)} \
-                  '{ timeout: $timeout, environments: $environments, programs: . }' > $out
-              '';
-        in
-        runVitest {
-          inherit name manifest;
-          browserRun = true;
-          expectedResults = null;
-          limit = "$(( (${toString timeout} + 60) * ${toString (builtins.length environments)} * $(jq '.programs | length' ${manifest}) + 300 ))";
-          extraInputs = [ pkgs.jq ];
-        };
-
     in
     {
       ibusWeb.testing = {
@@ -352,7 +312,7 @@
           jsLibrary = "${reportLibrary}";
         };
 
-        inherit programs browserRun;
+        inherit programs;
       };
 
       # The harness and every GoogleTest program here include GoogleTest.

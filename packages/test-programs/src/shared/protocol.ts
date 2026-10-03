@@ -5,9 +5,8 @@
 // file and a program's Worker pass each other.
 
 // How a program reports its cases: GoogleTest's JSON report, which it hands
-// over itself, or TAP on its stdout; or, for a program that doesn't report
-// cases, its exit status alone.
-export type Format = "gtest-json" | "tap" | "exit-status";
+// over itself, or TAP on its stdout.
+export type Format = "gtest-json" | "tap";
 
 export interface Program {
   name: string;

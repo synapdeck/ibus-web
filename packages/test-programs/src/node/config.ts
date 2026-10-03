@@ -6,7 +6,7 @@
 //
 //   { "timeout": SECONDS, "environments": ["node", "chromium", "firefox"],
 //     "programs": [{ "name": NAME, "dir": DIR,
-//                    "format": "gtest-json" | "tap" | "exit-status" }, ...] }
+//                    "format": "gtest-json" | "tap" }, ...] }
 //
 // DIR holds NAME.js and NAME.wasm and, optionally, NAME.args, the program's
 // arguments one per line. Programs named PREFIX.1, PREFIX.2 and so on form a
@@ -41,8 +41,7 @@ const readManifest = (): Manifest => {
   for (const environment of manifest.environments)
     if (!environments.includes(environment)) throw new Error(`${path}: no environment ${environment}`);
   for (const { name, format } of manifest.programs)
-    if (!["gtest-json", "tap", "exit-status"].includes(format))
-      throw new Error(`${path}: ${name}'s format is ${format}`);
+    if (!["gtest-json", "tap"].includes(format)) throw new Error(`${path}: ${name}'s format is ${format}`);
   return manifest;
 };
 

@@ -47,24 +47,12 @@ const parse = async (
       return environment.parseTap(tapText(run));
     case "gtest-json":
       return run.report === undefined ? undefined : parseGtestJson(run.report.text);
-    case "exit-status":
-      if (run.exitCode === null) return undefined;
-      return {
-        cases: [
-          {
-            path: ["exit status"],
-            status: run.exitCode === 0 ? "passed" : "failed",
-            message: `exited with ${run.exitCode}`,
-          },
-        ],
-      };
   }
 };
 
 type Listing = { paths: string[][] } | { problem: string; output: readonly OutputLine[] };
 
 const list = async (program: Program, environment: Environment, timeoutMs: number): Promise<Listing> => {
-  if (program.format === "exit-status") return { paths: [["exit status"]] };
   const args = program.format === "gtest-json" ? ["--gtest_list_tests"] : ["-l"];
   let run: ProgramRun;
   try {
@@ -105,8 +93,6 @@ const selectionArgs = (program: Program, selected: readonly string[][], unselect
       return [`--gtest_filter=${selected.map((path) => path.join(".")).join(":")}`];
     case "tap":
       return ["--keep-going", ...unselected.flatMap((path) => ["-s", `/${path.join("/")}`])];
-    case "exit-status":
-      return [];
   }
 };
 
