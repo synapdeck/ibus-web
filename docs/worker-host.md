@@ -177,7 +177,7 @@ timeout. The section is a single `Effect.try`, so a throw becomes
    sleep on it returns at once.
 2. `CRASHED` means the relay failed (only the relay writes it while the host
    runs).
-3. `REQUEST`: copy the request into the runtime's heap, `ibusweb_dispatch()`,
+3. `REQUEST`: copy the request into the runtime's heap, `ibusweb_test_dispatch()`,
    pump, copy the reply into the slot, write `replyRet`, `REPLY`, notify.
 4. Otherwise pump; if no request arrived meanwhile, the host is idle with
    the pump's delay.

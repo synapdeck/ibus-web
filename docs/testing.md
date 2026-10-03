@@ -290,6 +290,29 @@ Editor flags: add the GoogleTest flags for the new sources to clangd with
 `ibusWeb.toolchain.clangdPathFlags."<path regex>" = testing.gtestCflagList;`, or `checks.clangd`
 fails on `gtest/gtest.h` ([tooling.md](tooling.md#editor-tooling)).
 
+## Engine golden tests and audits
+
+An engine owns its golden traces under `engines/<name>/checks/`. Hangul's
+`checks.hangul-golden` uses a g_test main module with assertions and the actual
+engine side module. It mounts the package's data at FHS paths, sends framed
+runtime requests and decodes records with GVariant/IBus. Its 14 cases cover
+composition, candidates, focus, settings, lifetime, surrounding text and event
+ordering. The shim reports those cases and a run-completion check under Node.
+See [engines.md](engines.md#golden-tests) for the harness and the port bugs it
+reproduced. These are WASM behavior tests; native differential comparison is a
+separate follow-up.
+
+`checks.hangul-cast-audit` and `checks.libibus-web-cast-audit` compile real
+sources with Clang's strict function-cast warning and compare the structured
+report with committed JSONC allow-lists. The parser and comparison have Vitest
+tests in `tools/cast-audit`; a compiled C fixture also proves that an empty
+allow-list rejects incompatible casts. The audit does not cover signal
+connection arity. `checks.hangul-imports` checks runtime symbol compatibility.
+
+`checks.glib-settings-listeners` owns the regression for GLib patch 0018: ten
+g_test cases exercise five listener signatures, in direct and queued delivery,
+using GLib's memory backend. This does not depend on the IBus settings backend.
+
 ## Browsers
 
 The browsers are nixpkgs' `playwright-driver` builds — Chromium's headless shell and Firefox, with

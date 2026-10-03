@@ -13,17 +13,101 @@ modules and their import check) and `runtime/wasmfs-idb/` (the storage
 backend). Runtime-wide options are `ibusWeb.runtime.*`
 (`runtime/options.nix`).
 
-What M1 adds (the IBus types, emitters, the real dispatcher and the
-GSettings backend) is in spec §5.2; this page describes the runtime as it is.
+M1.1 adds the IBus types, emitters, framed dispatcher and GSettings backend.
+The Worker host still uses its test transport; protocol transport and page
+integration follow in M1.2–M1.4.
 
 ## `libibus-web`
 
 A static library built with `pkgsWasm.stdenv` and Meson
 (`ibusWeb.runtime.libibusWeb`, `packages.libibus-web`), LGPL-2.1-or-later.
-Its public API is marked `IBUSWEB_API` (default visibility) and everything
-else is built hidden, so only that API reaches the runtime's exports. It
+Its runtime API is marked `IBUSWEB_API` (default visibility); runtime internals
+are hidden. The separately built IBus library contributes the public engine API. It
 links `gmodule-no-export-2.0`: `gmodule-2.0` adds `--export-dynamic`, which
 would export every symbol of the runtime past its export list.
+
+### IBus layer
+
+`libibus-web.a` contains the runtime API and private implementation, built with
+hidden visibility. `libibus-web-ibus.a` contains the IBus implementation with
+default visibility. `libibus-web.pc` links both; `ibus-1.0.pc` supplies engine
+compile flags but no library flags, so a side module imports IBus from the main
+module instead of linking another copy.
+
+The public layouts, serializable data types, key helpers and schemas come from
+IBus 1.5.34. Explicit callback signatures are adapted to the declared GLib types;
+layouts and serialization stay compatible. `IBusService`, `IBusEngine`,
+`IBusFactory`, `IBusEngineSimple` and `IBusKeymap` are local implementations
+against those headers. There is no bus API. The opaque `IBusBus` declaration
+only permits engine init signatures that accept an unused bus pointer.
+`IBusEngineSimple` is a minimal base: compose, Ctrl+Shift+U and emoji input are
+not implemented. `ibus_keymap_get()` returns `NULL`; keymap lookup returns the
+input keyval because the page supplies translated keysyms.
+
+The [source inventory](../runtime/libibus-web/src/ibus/README.md) records each
+file's origin and adaptations. To update IBus, compare the new release with the
+unchanged vendor-import commits, merge upstream changes into the adapted files,
+and preserve public layouts and the callback fixes. Regenerate enums and
+marshallers with the cross GLib tools, update the inventory and version, then
+run the serialization, export, cast-audit and engine checks. Files marked ours
+need an API comparison, not replacement with upstream's D-Bus implementation.
+
+### Protocol, dispatch and output
+
+[`ibus-web/protocol.h`](../runtime/libibus-web/include/ibus-web/protocol.h)
+defines the request/record numbers, signatures and protocol version. A request
+starts with an eight-byte little-endian header (`u16 kind`, `u16 flags`,
+`u32 ic`), followed by one normal-form serialized GVariant tuple. Records have
+a sixteen-byte header (`u32 len`, `u16 kind`, `u16 flags`, `u32 ic`, `u32 seq`),
+followed by the payload and padding to an eight-byte boundary; `len` counts
+only the payload. Flags are currently zero. The sequence starts at one and
+wraps at 2^32.
+
+Call `ibusweb_runtime_init`, map the schemas/data, and send `Init` with the
+settings snapshot **before loading the engine module**: engine initialization
+reads settings. Then create contexts and dispatch their requests. The dispatcher
+copies request bytes, validates their framing and payload, and calls the engine
+signal. It returns 0/1 for `ProcessKeyEvent`, zero for other successful requests,
+or a negative errno. It does not pump; the host pumps and drains output after
+each request and on wakes.
+
+Errors include `-EBADMSG` for malformed input, `-ENOSYS` for unknown request
+kinds, `-ENOTCONN` before Init, `-EALREADY` for repeated Init, `-EPROTO` for a
+version mismatch, `-ENOENT` for an absent context, `-EEXIST` for a duplicate
+context, `-ESRCH` for an unregistered engine and `-EPERM` off the pumping thread.
+A C++ exception becomes a warning and `-ECANCELED`; this does not undo effects
+or cleanup skipped while unwinding through C. JavaScript errors and WASM traps
+remain host failures.
+
+Emitters serialize owned snapshots immediately. Calls from other threads queue
+those snapshots on the default main context; the pumping thread assigns their
+sequence numbers and appends them to a mutex-protected `GByteArray`.
+`ibusweb_output_peek` returns complete records, valid until the next runtime
+call. `ibusweb_output_consume` accepts only complete-record boundaries and
+otherwise logs a critical without dropping data. Peek/consume run on the
+pumping thread; `ibusweb_output_last_seq` reports the last appended sequence.
+
+The installed GLib log writer emits `Log` records with level, domain and UTF-8
+message, respecting GLib's message/debug filtering. Fatal messages also reach
+the default writer and terminate normally for GLib; recording them does not
+make them recoverable.
+
+### GSettings
+
+Runtime init registers the `ibus-web` backend at priority 1000. With no explicit
+`GSETTINGS_BACKEND` override it is the default. Its per-instance store is keyed
+by settings path and key, protected by a mutex, and falls back to schema
+defaults. Init snapshots are applied silently. `SettingChanged` validates the
+schema, key, type and range; a different value notifies listeners, an equal
+value does nothing, and neither echoes a `SettingWritten` record.
+
+Engine writes, resets and delayed write-tree transactions notify listeners and
+emit `SettingWritten (ssv)` for the page to persist. A transaction validates all
+entries and installs the complete batch before notifying. Unknown schemas/keys
+return `-ENOENT`, invalid values `-EINVAL`, and relocatable schemas or a
+different selected backend `-ENOTSUP`. The page persister and cross-tab bridge
+are M1.4 work. Schemas must exist before GLib first obtains its default schema
+source; the Hangul data tree includes both the engine and IBus/panel schemas.
 
 ### API
 
@@ -37,7 +121,7 @@ values, as Emscripten's libc numbers them.
 | `ibusweb_wait(seen, timeout_ms)`                                       | Sleeps while the wake word holds `seen`, running proxied calls meanwhile (below). `0`, `-ETIMEDOUT`, `-EINVAL` before init, `-EPERM` off the pumping thread.                                                   |
 | `ibusweb_load_module(path, out)`                                       | Loads a side module and registers it (Side modules, below). `-ENOENT`, `-ENOEXEC`, or the registration's error.                                                                                                |
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                |
-| `ibusweb_dispatch(request, len, reply, cap)`                           | The test dispatcher (below).                                                                                                                                                                                   |
+| `ibusweb_test_dispatch(request, len, reply, cap)`                      | The test dispatcher (below).                                                                                                                                                                                   |
 | `ibusweb_install_begin/feed/count/end`                                 | A streaming ustar extractor that installs an engine's data through the file system; see [storage.md](storage.md#installing).                                                                                   |
 
 `ibusweb_module_init(IBusWebModule *)` is the entry point every side module
@@ -46,7 +130,7 @@ not by the runtime.
 
 ### The test dispatcher
 
-Until M1's protocol, `ibusweb_dispatch()` is a test dispatcher. A request is
+`ibusweb_test_dispatch()` retains the Worker host test protocol. A request is
 a little-endian `uint32` opcode followed by a payload; the operation
 registered for the opcode appends its reply to a `GString`, which is copied
 into the caller's buffer. It returns the reply's length, `-EINVAL` for a
@@ -77,9 +161,8 @@ holding pool Workers (`hold`/`release`), exceptions and crashes (`throw`,
 
 ### `IBUSWEB_RUNTIME_ABI`
 
-`IBUSWEB_RUNTIME_ABI` (now `0`) versions `libibus-web`'s API and the
-IndexedDB backend's in the export list. It moves with the API; M1's IBus
-types will change it.
+`IBUSWEB_RUNTIME_ABI` is **1**, covering the IBus layer and the runtime/output
+API. It also versions the IndexedDB backend API in the export list.
 
 ### The pump hook
 
@@ -141,9 +224,12 @@ Node through Meson's exe wrapper, failing unless tests ran and none was
 skipped. `test-runtime` (g_test, TAP) covers init, the pump (empty, always
 ready, off-thread, wake from another thread, deadlines, fd sources), the
 wait (timeout, a stale `seen`, wake, proxied calls, off-thread), module
-registration, dispatch errors and exceptions, and loading side modules
+registration, test-dispatch errors and exceptions, and loading side modules
 (present, missing, not a module, no entry point). `test-install` covers the
-extractor. See [testing.md](testing.md).
+extractor. The suite also covers serialization, key helpers, emitters, engine
+signals and caches, protocol validation, logs and settings (69 C cases in
+total). The real Hangul side module has its own [golden tests](engines.md#golden-tests).
+See [testing.md](testing.md).
 
 ## `ibus-runtime.wasm`
 
@@ -196,6 +282,7 @@ ABI. A symbol two libraries define belongs to the first.
 | Library                                        | Version it is identified by   | What it contributes                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `libibus-web`                                  | `IBUSWEB_RUNTIME_ABI`         | its `IBUSWEB_API`                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ibus`                                         | IBus 1.5.34                   | the default-visible symbols declared by the headers reachable from `ibus.h`, including generated enums                                                                                                                                                                                                                                                                                                               |
 | GLib, GObject, GModule, GIO (the subset built) | GLib's version                | their default-visible symbols (GLib is built hidden too)                                                                                                                                                                                                                                                                                                                                                             |
 | libffi                                         | its version                   | what `ffi.h` declares                                                                                                                                                                                                                                                                                                                                                                                                |
 | `wasmfs-idb`                                   | `IBUSWEB_RUNTIME_ABI`         | what `ibus-web/wasmfs-idb.h` declares, not its C++ internals                                                                                                                                                                                                                                                                                                                                                         |
@@ -368,13 +455,13 @@ Each Worker has one dedicated `SharedArrayBuffer`, separate from its
 64-byte header of `Int32` words, then one slot (64 KiB by default) that
 carries the request and then its reply.
 
-| Word       | Index | Written by | Meaning                                                                |
-| ---------- | ----- | ---------- | ---------------------------------------------------------------------- |
-| `state`    | 0     | both       | `IDLE` 0, `REQUEST` 1, `REPLY` 2, `CRASHED` 3                          |
-| `reqSeq`   | 1     | page       | incremented per request                                                |
-| `reqLen`   | 2     | page       | the request's length in the slot                                       |
-| `replyRet` | 3     | host       | `ibusweb_dispatch()`'s result: the reply's length, or a negative errno |
-| `wake`     | 4     | page       | bumped and notified after each request; the relay forwards it          |
+| Word       | Index | Written by | Meaning                                                                     |
+| ---------- | ----- | ---------- | --------------------------------------------------------------------------- |
+| `state`    | 0     | both       | `IDLE` 0, `REQUEST` 1, `REPLY` 2, `CRASHED` 3                               |
+| `reqSeq`   | 1     | page       | incremented per request                                                     |
+| `reqLen`   | 2     | page       | the request's length in the slot                                            |
+| `replyRet` | 3     | host       | `ibusweb_test_dispatch()`'s result: the reply's length, or a negative errno |
+| `wake`     | 4     | page       | bumped and notified after each request; the relay forwards it               |
 
 The page writes the request, `reqLen`, `reqSeq`, sets `state = REQUEST`, then
 bumps and notifies `wake`. The host dispatches, pumps, copies the reply into

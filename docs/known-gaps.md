@@ -82,8 +82,12 @@ An item leaves this page when it is fixed or decided.
 
 ## Runtime
 
-- **`libibus-web`'s IBus types** (`IBusEngine`, `IBusFactory`, the emitters and the real dispatcher, spec
-  §5.2) replace the test dispatcher in M1; `IBUSWEB_RUNTIME_ABI` moves with them.
+- **IBus API scope.** M1.1 supplies engine/data types, emitters, the framed dispatcher
+  and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji;
+  unused bus/config/component APIs remain absent. Keymap lookup uses page-provided keysyms.
+- **Native parity.** The golden suite runs the real WASM engine, but has no native
+  differential reference yet. The reusable tester is designed in
+  [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
 - **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell and the GVariant
   protocol are M1's. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
   reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in
@@ -97,8 +101,8 @@ An item leaves this page when it is fixed or decided.
 - **The manifest's sizes from build data.** Computing `memory`, `threads` and data sizes from the side
   module's `dylink.0`, files in the memory backend, the checks' measured peak heap, the engine's thread
   burst and each data archive's unpacked size is M1's.
-- **No module shutdown call.** The engine module scope releases nothing yet; the ABI has no shutdown entry
-  point.
+- **No module shutdown call.** The ABI has no shutdown entry point; Hangul's
+  `ibus_hangul_exit` never runs and its module globals live for the Worker lifetime.
 - **GLib's pool share under concurrent `GTask`s.** The share of 3 covers one `GTask` in flight; each
   concurrent one can take another worker, up to `G_TASK_POOL_SIZE` (10) and beyond. Engines that run
   `GTask`s concurrently need a rule.
@@ -114,6 +118,33 @@ An item leaves this page when it is fixed or decided.
 - **Expected stderr noise isn't marked as such** in check output: `dlopen` errors from refusal cases, and
   Emscripten's `received "7" command from terminated worker` at an `ASSERTIONS` + `PROXY_TO_PTHREAD` exit.
 - **WebKit** wasn't run (spec R5, R13).
+
+## Engines and page integration
+
+- **Connection-time callback audit.** The current cast audit sees explicit casts;
+  it cannot establish every connected handler's arity. Hangul needs no lazy arity
+  bridge; m17n, libpinyin and Rime still need their own audits.
+- **Hangul setup.** The `setup` property does not launch an application.
+- **Hangul settings globals.** Startup reads settings into globals, and changes
+  reach them only through live engines' handlers. A change while no engine is
+  alive is missed until module initialization runs again. `preedit-mode` takes
+  effect in an existing engine on refocus or a capabilities update.
+- **Surrounding selection anchor.** The IBus-compatible delete operation updates
+  cached text/cursor but leaves the selection anchor unchanged until the host's
+  next `SetSurroundingText`; callers can observe that stale anchor.
+- **Host startup (M1.3).** Map the installed engine data into its FHS view and
+  apply the Init snapshot before loading the module. The existing host's data
+  installation does not yet wire this engine startup sequence.
+- **Client preedit policy (M1.4).** Commit the last COMMIT-mode preedit on blur
+  and reset; Hangul clears its own composition and relies on the client. A Hanja
+  list instead uses CLEAR mode. The router should omit
+  `IBUS_CAP_SYNC_PROCESS_KEY_V2`: the reply already orders output, and an
+  unconsumed key can be applied by the browser. Advertising it makes Hangul
+  consume and forward that key explicitly.
+- **Settings persistence (M1.4).** The page's replaceable persister must read
+  Init snapshots from the `gsettings` IndexedDB database, persist SettingWritten,
+  and deliver SettingChanged to other Workers and tabs over BroadcastChannel
+  (spec §7.1.4). The C backend is in-memory only.
 
 ## Storage
 

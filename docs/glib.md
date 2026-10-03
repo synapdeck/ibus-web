@@ -10,7 +10,7 @@ built, and the test run that gates it. The toolchain it is built with is describ
 
 ## The patch series
 
-The series lives in `modules/glib/patches/`, seventeen patches, with a README,
+The series lives in `modules/glib/patches/`, eighteen patches, with a README,
 [`modules/glib/patches/README.md`](../modules/glib/patches/README.md), that records each patch's
 author and source commit, how the series was rebased, what was taken from each source and what
 was left out, and the details of each of our patches. This page summarizes; the README is the
@@ -27,6 +27,7 @@ reference.
 | 0015      | ours                                                                                                                                    | characters `iconv()` replaces, reported as GLib reports them elsewhere                                                                                                                                           |
 | 0016      | ours                                                                                                                                    | GLib's tests on WebAssembly; test sources and test build files only                                                                                                                                              |
 | 0017      | ours                                                                                                                                    | the wake hook the runtime's pump relies on                                                                                                                                                                       |
+| 0018      | ours                                                                                                                                    | GSettings backend listener dispatch through each callback's declared type, for direct and queued delivery                                                                                                        |
 
 Every patch keeps its original author. Wolthuizen's commits are rebased from 2.88.1 onto 2.88.3
 unchanged, without his GRegex removal (the runtime keeps GRegex, built against `pkgsWasm.pcre2`)
@@ -117,6 +118,20 @@ caller, `pkgsWasm.glib` is meant to absorb them so the engine needs no patch (sp
 - **Not covered by either.** Callees declaring _more_ parameters than passed; mismatches in engine
   code GLib never calls; the one-argument `iface_init`/`class_init` functions users pass through
   `G_IMPLEMENT_INTERFACE` or hand-written `GTypeInfo`. These need engine patches (spec §5.4.2).
+
+**Hangul's M1.1 result:** one cast patch fixes three strict-audit findings:
+two hand-written GType init functions lack their second argument, and the
+destroy callback uses a different pointer parameter type. The latter is not
+a WASM arity mismatch, but matching its declaration keeps the allow-list empty.
+No connected Hangul handler needs fewer parameters, so Hangul does not require
+the lazy arity lookup. The decision remains open for m17n, libpinyin and Rime.
+
+The settings tests did expose a GLib call-site bug: its backend listener closure
+called all callbacks through a five-argument type, although the vtable declares
+three, four or five arguments. Patch 0018 copies the typed vtable into the
+closure and selects the declared member for direct and queued delivery. Its
+regression belongs to `modules/glib/checks/settings-listeners`, independent of
+the IBus backend, and tests all five notifications in both delivery modes.
 
 libffi's `ffi_call` on Emscripten calls the function from JavaScript, which pads or drops
 arguments rather than trapping. That is libffi's behaviour, not a guarantee of the series, and
@@ -306,14 +321,15 @@ resource through `PKG_CHECK_VAR` and reads them back.
 
 ### Checks
 
-| Check                  | What it checks                                                                                                                                                              |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `glib-patches`         | nixpkgs' patches, then the series with no fuzz, apply to nixpkgs' GLib source                                                                                               |
-| `glib`                 | a program linked with `testMainFlags` exercising GLib, GObject, GIO and GRegex, the wakeup and wake hook, class handlers, casts, time zones, a compiled resource and schema |
-| `glib-meson-tools`     | a Meson consumer runs this GLib's tools                                                                                                                                     |
-| `glib-autotools-tools` | an Autotools consumer runs this GLib's tools                                                                                                                                |
-| `glib-tests`           | GLib's own tests under Node, gated by the baseline                                                                                                                          |
-| `glib-tests-gate`      | the gate's test selection and report, against Meson on a small project                                                                                                      |
+| Check                     | What it checks                                                                                                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `glib-patches`            | nixpkgs' patches, then the series with no fuzz, apply to nixpkgs' GLib source                                                                                               |
+| `glib`                    | a program linked with `testMainFlags` exercising GLib, GObject, GIO and GRegex, the wakeup and wake hook, class handlers, casts, time zones, a compiled resource and schema |
+| `glib-meson-tools`        | a Meson consumer runs this GLib's tools                                                                                                                                     |
+| `glib-autotools-tools`    | an Autotools consumer runs this GLib's tools                                                                                                                                |
+| `glib-settings-listeners` | all five GSettings listener callbacks, directly and queued from a worker thread (10 cases)                                                                                  |
+| `glib-tests`              | GLib's own tests under Node, gated by the baseline                                                                                                                          |
+| `glib-tests-gate`         | the gate's test selection and report, against Meson on a small project                                                                                                      |
 
 ## GLib's tests
 

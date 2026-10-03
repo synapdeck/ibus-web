@@ -149,7 +149,7 @@ of in engine code, fix it there.
 4. The Worker host wakes, calls `ibusweb_dispatch`, which calls the engine's
    `process_key_event` vfunc. Engine output (`CommitText`,
    `UpdatePreeditText`, …) is appended to the runtime's output buffer.
-5. The dispatcher pumps due GLib sources, flushes the output buffer into the
+5. The host pumps due GLib sources, flushes the output buffer into the
    output ring and writes the reply: the return value and the last output
    sequence number.
 6. The main thread, spinning, drains the ring as records arrive and sees the
@@ -369,20 +369,25 @@ Where code is taken from upstream `libibus`, it keeps its LGPL-2.1+ license.
 
 #### 5.2.1 API surface
 
-- **Real GObject types:** `IBusObject`, `IBusService` (enough for
-  `IBusEngine` to derive from it), `IBusEngine`, `IBusFactory`,
-  `IBusComponent`, `IBusEngineDesc`, `IBusSerializable` and its data types
-  (`IBusText`, `IBusAttribute`, `IBusAttrList`, `IBusLookupTable`,
-  `IBusProperty`, `IBusPropList`).
-- **Utility API:** keysym and Unicode helpers (`ibus_keyval_*`,
-  `ibus_unicode_to_keyval`), `ibus_init`, `ibus_main` (a no-op that returns
-  immediately, see §5.4.3), logging helpers.
-- **Stubs:** `IBusBus` reports connected and treats component and name
-  requests as successful no-ops. `IBusConfig`, if an engine uses it, is backed
-  by the settings bridge in an `ibus-config` namespace.
-- **Scope rule:** implement what the target engines call, found by building
-  them. Unused API is left out, not stubbed, so a new engine fails at link
-  time instead of misbehaving at run time.
+M1.1 vendors IBus 1.5.34's public layouts, serializable data types, key
+helpers and schemas, keeping their LGPL-2.1-or-later license and recording
+adaptations in `runtime/libibus-web/src/ibus/README.md`. Exact callback types
+preserve WebAssembly call compatibility without changing object layouts.
+
+- `libibus-web.a` contains the runtime API with hidden internals;
+  `libibus-web-ibus.a` contains default-visible IBus symbols. `libibus-web.pc`
+  links both; `ibus-1.0.pc` supplies engine compile flags without link libraries.
+- Real GObject types include `IBusObject`, `IBusSerializable`, `IBusText`,
+  attributes, lookup tables and properties. Local `IBusService`, `IBusEngine`
+  and `IBusFactory` replace the bus-facing implementation against upstream
+  headers, with the signals/vfuncs engines use.
+- `IBusEngineSimple` is a minimal base; compose, Ctrl+Shift+U and emoji are
+  deferred. `ibus_keymap_get()` returns `NULL`, and lookup returns the input
+  keyval because the page translates keys.
+- Keysym/Unicode helpers and `ibus_init` are provided. No bus/config/component
+  implementation is present: an opaque `IBusBus` declaration permits unused
+  init parameters but supplies no bus functions. Unused APIs remain absent so
+  later engines reveal their requirements at compile/link time.
 
 #### 5.2.2 Emitters
 
@@ -396,17 +401,21 @@ runtime's output buffer, tagged with the instance's input-context ID. They
 never block.
 
 `ibus_engine_get_surrounding_text` returns the last `SetSurroundingText` the
-router sent, and emits `RequireSurroundingText` if none has arrived yet.
+router sent, and emits `RequireSurroundingText` on every call, including a call with all
+output arguments NULL.
 
 #### 5.2.3 Dispatcher
 
-`ibusweb_dispatch(request) → reply` decodes one request, finds the engine
-instance for its input context and calls the matching vfunc
-(`process_key_event`, `focus_in`, `set_surrounding_text`, …). It also handles
-lifecycle requests (§6.1.3): `Init` registers the engine module and settings,
-`CreateEngine` asks the module's `IBusFactory` for an instance, and
-`DestroyEngine` disposes it. After the vfunc returns it pumps (§5.2.4) and
-flushes the output buffer.
+`ibusweb_dispatch(request, len)` validates and owns one framed request, finds
+its input context and invokes the corresponding engine signal. It returns a
+key event's 0/1 reply, zero for other successful requests, or a negative errno;
+it does not pump or flush. The host pumps (§5.2.4), drains output and publishes
+the reply in order (§6.2).
+
+Init validates the protocol version and applies the settings snapshot. It must
+precede loading the engine module, whose initialization reads settings.
+`CreateEngine` uses the registered `IBusFactory`; `DestroyEngine` disposes the
+context. The former test opcode protocol remains as `ibusweb_test_dispatch`.
 
 #### 5.2.4 Pump
 
@@ -469,14 +478,15 @@ doorbell `postMessage` (§6.2.3).
 #### 5.2.5 GSettings backend
 
 - **Backend.** `IBusWebSettingsBackend`, a `GSettingsBackend` subclass
-  registered on `G_SETTINGS_BACKEND_EXTENSION_POINT_NAME` and selected with
-  `GSETTINGS_BACKEND`.
+  registered at priority 1000 during runtime init on
+  `G_SETTINGS_BACKEND_EXTENSION_POINT_NAME`. It is the default unless
+  `GSETTINGS_BACKEND` explicitly selects another backend.
 - **Values.** Seeded from the snapshot in `Init`. `SettingChanged` requests
   update the backend and call `g_settings_backend_changed`, so engines' own
   `changed::` handlers fire. Engine writes emit `SettingWritten` records for
   the page to persist (§7.1.4).
-- **Schemas.** Compiled at build time with the build machine's
-  `glib-compile-schemas` and shipped in the engine's data files under
+- **Schemas.** Compiled at build time with `pkgsWasm.glib`'s
+  `glib-compile-schemas`, run under Node through the cross `.pc` tool path, and shipped in the engine's data files under
   `/usr/share/glib-2.0/schemas`. The `.gschema.xml` sources are also shipped
   so the page can describe keys to host UIs.
 
@@ -615,7 +625,8 @@ Engine builds are overrides of nixpkgs recipes (§10.3); our patches go after
 nixpkgs' own. Each engine keeps two ordered series:
 
 - `patches/port/`: build system, startup (§5.4.3), removal of D-Bus-only
-  code paths. Expected to stay small.
+  code paths, and fixes for engine bugs exposed by the runtime lifecycle
+  (such as stale settings callbacks after destruction). Expected to stay small.
 - `patches/casts/`: function-pointer fixes that `pkgsWasm.glib` cannot absorb.
   Removable as a unit if a toolchain-level fix ships.
 
@@ -628,7 +639,9 @@ Engine `main()` functions connect to the bus, create an `IBusFactory`, add
 engine types and call `ibus_main()`. The port layer replaces `main()` with an
 exported `ibusweb_module_init(IBusWebModule *)` that runs the same
 registration, usually by calling the engine's existing init functions (for
-example `ibus_hangul_init`).
+example `ibus_hangul_init(NULL)`). Hangul then creates an `IBusFactory`,
+adds its engine GType under `hangul` and releases its own factory reference;
+the runtime registry retains it. Module shutdown is not implemented.
 
 #### 5.4.4 Manifest
 
@@ -769,7 +782,9 @@ its own loggers with engine and domain annotations (§7.4).
 - **Filesystem.** WasmFS with our own IndexedDB backend. An engine's own
   files (user dictionaries for libpinyin and Rime, Rime's deployed data and
   user YAML) are mounted at `/engines/<name>/`, and its installed data at
-  `/engines/<name>/data`. GSettings values are not stored here; the
+  `/engines/<name>/data`. The host maps the installed data tree into the
+  engine's FHS view before module load, including `/usr/share` for Hangul
+  dictionaries and schemas. M1.3 supplies that mapping. GSettings values are not stored here; the
   settings bridge hands them to the page, which persists them (§5.2.5,
   §7.1.4).
 - **The backend.** Files are stored as chunks whose IndexedDB values are
@@ -1053,7 +1068,12 @@ its own loggers with engine and domain annotations (§7.4).
 Messages are the methods and signals of IBus's `org.freedesktop.IBus.Engine`
 D-Bus interface, with payloads in GVariant serialization, which is how IBus
 already puts `IBusText`, `IBusLookupTable` and `IBusProperty` on the wire. All
-per-instance messages carry an input-context ID (`u`).
+per-instance messages carry an input-context ID (`u`). The authoritative
+numbers, signatures and framing are in `ibus-web/protocol.h`: an eight-byte
+little-endian request header (kind/flags as u16, context as u32), and a
+sixteen-byte record header (payload length u32, kind/flags u16, context and
+sequence u32) with records padded to eight bytes. Flags are zero. Requests
+have `FocusIn`/`FocusOut` only, without `*Id` forms. Protocol version is 1.
 
 #### 6.1.2 Requests (page → Worker)
 
@@ -1065,6 +1085,7 @@ per-instance messages carry an input-context ID (`u`).
 | `SetCapabilities`                                   | `(u)`                          | none  |
 | `PageUp`, `PageDown`, `CursorUp`, `CursorDown`      | `()`                           | none  |
 | `CandidateClicked`                                  | `(uuu)` index, button, state   | none  |
+| `PropertyShow`, `PropertyHide`                      | `(s)` name                     | none  |
 | `PropertyActivate`                                  | `(su)` name, state             | none  |
 | `SetSurroundingText`                                | `(vuu)` text, cursor, anchor   | none  |
 | `SetContentType`                                    | `(uu)` purpose, hints          | none  |
@@ -1085,7 +1106,8 @@ per-instance messages carry an input-context ID (`u`).
 `ShowAuxiliaryText`, `HideAuxiliaryText`, `ShowLookupTable`,
 `HideLookupTable`, `RegisterProperties`, `UpdateProperty`, `ForwardKeyEvent`,
 `DeleteSurroundingText`, `RequireSurroundingText`, with IBus's signatures;
-plus `SettingWritten`, `Log` (level, domain, message) and `Crashed`.
+plus `SettingWritten (ssv)` and `Log (uss)` (level, domain, message).
+`Crashed` is reserved for host failure reporting.
 
 ### 6.2 Transport
 
@@ -1996,8 +2018,8 @@ rules for sequences of programs, and how to add and run a test are in
    (`checks.glib-tests-gate`). `docs/glib.md` has the results and the
    reasons. `libibus-web`'s tests are g_test programs under `meson test`
    (`checks.libibus-web`: init, the pump, the wait, dispatch, side-module
-   loading, the archive extractor), and later the emitters and the
-   settings backend, and, if the lazy arity lookup is built (§5.1.2),
+   loading, the archive extractor, serialization, emitters, protocol validation,
+   logs and the settings backend), and, if the lazy arity lookup is built (§5.1.2),
    tests for it. `ibus-runtime`'s load contract is Vitest under Node
    (`checks.ibus-runtime-load`).
    **The IndexedDB backend** is tested where IndexedDB is, in the browsers:
@@ -2044,11 +2066,16 @@ rules for sequences of programs, and how to add and run a test are in
    environment; Chromium keeps its own sandbox unless a builder that forbids
    unprivileged user namespaces turns it off (`chromiumSandbox`), and
    Firefox needs a writable `HOME`.
-3. **Engine conformance.** A headless harness in Node with `worker_threads`
-   and SAB (Node allows `Atomics.wait` on the main thread). Each engine has
-   golden key-sequence tests, for example Hangul 2-set `g k s` → preedit `ㅎ`,
-   `하`, `한`. The callback audit report must be empty or match the engine's
-   committed allow-list.
+3. **Engine conformance.** M1.1 runs 14 Hangul golden cases as a g_test
+   main module under Node, loading the real side module and its FHS data.
+   They cover composition, candidates, settings, lifecycle, surrounding text
+   and output ordering. M1.3 adds the headless TypeScript harness over
+   `worker_threads` and SAB. The strict Clang/SARIF cast audit is the callback
+   report until a connection-time arity audit exists; it must match the
+   committed allow-list. Hangul's report is empty after one cast patch.
+   A reusable native differential tester is specified separately in
+   `docs/specs/2026-10-03-native-ibus-differential-testing.md`; it compares at
+   the native engine D-Bus boundary, independently of the replacement IBus layer.
 4. **Keystroke path.** Vitest tests against an in-process fake Worker that speaks
    the ring protocol: timeouts, the replay queue, crashes, hangs, fragmented
    records, ordering with doorbell output.
@@ -2070,7 +2097,11 @@ rules for sequences of programs, and how to add and run a test are in
 | ↳ M0.4 | **Done.** (`docs/runtime.md`) The `runtime/` component; GLib's wake hook; `libibus-web` skeleton (pump, `ibusweb_wait`, side-module loader, spike dispatcher; g_test under `meson test`); `ibus-runtime.wasm` with `-sMAIN_MODULE=2`, WasmFS, a fixed imported memory and a strict thread pool, and a per-library export manifest; Emscripten patches for blocked main threads' thread cleanup, reused `pthread_t`s and an imported memory's maximum; pnpm workspace built offline in Nix; spike Worker host and wake relay under Node, Chromium and Firefox; Emscripten's minimum versions from Baseline Widely available                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | R2 settled: the host sleeps in the runtime, woken by GLib's hook and a host-side relay; threads come from a pool sized from shares plus spares, strict, topped up while idle. R3 settled for `-sMAIN_MODULE=2`/WasmFS in Node, Chromium and Firefox. Memory is fixed per Worker, since V8 traps atomics on grown shared memory. OPFS is out: engine and user data go to IndexedDB (M0.5)                                                                                                                                                                                                                                    |
 | ↳ M0.5 | **Done.** (`docs/storage.md`) WasmFS IndexedDB backend (full lazy) in `runtime/wasmfs-idb/`: files as `ArrayBuffer` chunks of 16 KiB, read and written lazily on the backend's own thread, writes write-through, `fsync()` a strict commit that writes, versionchange closing, a seal and a closed flag in its API (§5.6); its JavaScript library type-checked; a reusable browser test runner; the runtime mounts it in browsers, WasmFS's Node backend under Node and the memory backend without IndexedDB; engine data in a database per version, installed from ustar archives under per-version Web Locks, sealed and marked, old versions collected; one writer per engine's user data; Emscripten patches for symlink errors and a backend thread's heartbeat; a Firefox floor of 126; upstream draft `docs/upstream/wasmfs-idb-backend.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | R2 for the IndexedDB backend: `fsync()` from a pthread completes while the host sleeps, in 4.3 ms in both browsers, within a poll step of the memory backend. A lazy 4 KiB read costs a keystroke 0.2–0.32 ms at 16 KiB chunks, and no read or write waits for the page's spin; 16 KiB is the cheapest of 16, 64 and 256 KiB for it, and chunks stay under 64 KiB, which Chromium stores as Blobs. An empty strict commit syncs nothing in either browser; a synced append costs about 0.5 ms. Chromium lets go of a terminated Worker's locks some 2 s late, so the page waits for the writer lock before a restart (§5.6) |
 | ↳ M0.6 | **Done.** (`docs/worker-host.md`, `docs/testing.md`, `docs/tooling.md`) `@ibus-web/worker-host` on Effect 4, carrying the spike host's behaviour with its scenarios as Vitest suites under Node, Chromium and Firefox; nixpkgs and flake-parts from FlakeHub; every test structured: GoogleTest for C and C++ without GLib (linked with `-sPROXY_TO_PTHREAD`, `main()` from a shared harness), GLib's g_test for C that links it, Vitest for TypeScript (`@effect/vitest` for Effect code), with the browser test runner replaced by the test-program shim, which runs each WASM program under Node or in Chromium and Firefox and reports each of its cases as a Vitest result; JavaScript that Emscripten doesn't read itself rewritten in TypeScript, the JavaScript it does read typed with JSDoc, and one TypeScript configuration and check across the repository; hk (`hk.pkl`) holding every formatter and lint step, run by the git hooks, `nix fmt` and `checks.hk`, in place of treefmt; oxfmt and oxlint in place of prettier; Claude Code's language-server plugins (clangd, TypeScript, Nix, Pkl) on the dev shell's servers; clangd's configuration following the flake; CI on GitHub Actions, written in Nix, with FlakeHub Cache and a private rolling FlakeHub publish (§10.5); the upstream drafts refreshed against Emscripten's `main`, with an order to post them in; the milestone plans and spike reports replaced by topic pages under `docs/` and `docs/known-gaps.md`, and the spike checks' coverage moved into the runtime's and the host's tests | What of M0's plans and spikes is still needed, and where it belongs: the topic pages under `docs/`, the tests that replaced the spike checks, and `docs/known-gaps.md` for what stays open                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| M1     | Hangul end to end: libhangul and ibus-hangul side module; SAB channel, protocol package, minimal router, `<textarea>` adapter, basic panel for Hanja candidates. The Worker host exists (`@ibus-web/worker-host`: its scopes, the request loop asleep in the runtime, the wake relay, the pool top-up, storage and engine data, `docs/worker-host.md`); M1 adds to it the output ring, `replyOutSeq` and the doorbell (§6.2), the protocol's records in place of the test dispatcher, engine-instance scopes (§5.5.1), the GLib log handler feeding `Log` records (§5.5.3), the engine's pool share from its manifest (§5.3), and the manifest's sizes from build data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Cast and callback fix count and layer, and whether the lazy arity lookup is needed; GSettings bridge; decode speed with a synthetic large table                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| M1     | Hangul end to end, delivered in the four steps below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Engine correctness first, then codec, transport and page integration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ↳ M1.1 | **Done.** IBus types and engine API, framed dispatcher/output, settings backend, strict cast audit, Hangul side module/data and 14 Node golden cases; runtime ABI 1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Hangul needs one cast patch (two init arity fixes and one destroy pointer type), two port fixes, and GLib listener patch 0018. No lazy arity lookup needed for Hangul; GSettings bridge works.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ↳ M1.2 | TypeScript protocol/GVariant codec and C/TS parity                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Decode correctness and speed, including large lookup tables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ↳ M1.3 | Host output ring, replyOutSeq/doorbell, engine scopes, FHS data/startup ordering, manifest-derived pool/memory shares and SAB conformance harness                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Real engine transport, data mapping, resource limits and ordered replies                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ↳ M1.4 | Minimal router, textarea adapter, Hanja panel and replaceable settings persister with IndexedDB/BroadcastChannel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Browser key/preedit policy, page UX and settings synchronization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M4     | libpinyin: C++ side module against the runtime's libc++, database backend, user dictionaries in IndexedDB                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | C++ across modules; persistence; large lookup tables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
