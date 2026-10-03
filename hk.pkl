@@ -35,6 +35,7 @@ local linters = new Mapping<String, Step> {
         "runtime/libibus-web/src/ibus/ibusattrlistprivate.h",
         "runtime/libibus-web/src/ibus/keynamesprivate.h",
         "runtime/libibus-web/include/ibus-1.0/ibus-visibility.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusshare.h",
         "runtime/libibus-web/include/ibus-1.0/ibusobject.h",
         "runtime/libibus-web/include/ibus-1.0/ibusserializable.h",
         "runtime/libibus-web/include/ibus-1.0/ibustext.h",
