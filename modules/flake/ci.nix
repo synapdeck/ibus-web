@@ -15,13 +15,17 @@
         id-token = "write";
       };
 
+      # The Nix and cache actions release together; mismatched versions are
+      # untested against each other.
+      determinateVersion = "v3.23.0";
+
       checkout = {
         name = "Check out";
-        uses = "actions/checkout@v5";
+        uses = "actions/checkout@v7.0.1";
       };
       installNix = {
         name = "Install Determinate Nix";
-        uses = "DeterminateSystems/determinate-nix-action@v3";
+        uses = "DeterminateSystems/determinate-nix-action@${determinateVersion}";
       };
     in
     {
@@ -45,7 +49,7 @@
               # claims FlakeHub Cache needs, so those runs build without it.
               {
                 name = "Use FlakeHub Cache";
-                uses = "DeterminateSystems/flakehub-cache-action@v3.23.0";
+                uses = "DeterminateSystems/flakehub-cache-action@${determinateVersion}";
               }
               # Runners are x86_64-linux; the other systems' checks need
               # their own machines.
@@ -55,16 +59,14 @@
               }
             ];
           };
-        };
 
-        # FlakeHub Cache grants access per published flake, so the cache
-        # needs this one published, privately.
-        workflows.publish = {
-          name = "Publish to FlakeHub";
-          on.push.branches = [ "master" ];
-          inherit permissions;
+          # FlakeHub Cache grants access per published flake, so the cache
+          # needs this one published, privately; only a master that passed
+          # its checks is published.
           jobs.publish = {
             name = "Publish to FlakeHub";
+            needs = [ "check" ];
+            if_ = "github.event_name == 'push' && github.ref == 'refs/heads/master'";
             runsOn = "ubuntu-latest";
             steps = [
               checkout
