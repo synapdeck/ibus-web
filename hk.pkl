@@ -15,7 +15,47 @@ local nixInputs =
 
 local linters = new Mapping<String, Step> {
   ["nixfmt"] = Builtins.nix_fmt
-  ["clang-format"] = Builtins.clang_format
+  ["clang-format"] = (Builtins.clang_format) {
+    // Preserve upstream formatting so imports and later updates stay reviewable.
+    exclude =
+      List(
+        "runtime/libibus-web/src/ibus/ibusobject.c",
+        "runtime/libibus-web/src/ibus/ibusserializable.c",
+        "runtime/libibus-web/src/ibus/ibustext.c",
+        "runtime/libibus-web/src/ibus/ibusattribute.c",
+        "runtime/libibus-web/src/ibus/ibusattrlist.c",
+        "runtime/libibus-web/src/ibus/ibuslookuptable.c",
+        "runtime/libibus-web/src/ibus/ibusproperty.c",
+        "runtime/libibus-web/src/ibus/ibusproplist.c",
+        "runtime/libibus-web/src/ibus/ibuskeys.c",
+        "runtime/libibus-web/src/ibus/ibuskeyuni.c",
+        "runtime/libibus-web/src/ibus/ibusutil.c",
+        "runtime/libibus-web/src/ibus/ibuserror.c",
+        "runtime/libibus-web/src/ibus/ibusinternal.h",
+        "runtime/libibus-web/src/ibus/ibusattrlistprivate.h",
+        "runtime/libibus-web/src/ibus/keynamesprivate.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusobject.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusserializable.h",
+        "runtime/libibus-web/include/ibus-1.0/ibustext.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusattribute.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusattrlist.h",
+        "runtime/libibus-web/include/ibus-1.0/ibuslookuptable.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusproperty.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusproplist.h",
+        "runtime/libibus-web/include/ibus-1.0/ibuskeys.h",
+        "runtime/libibus-web/include/ibus-1.0/ibuskeysyms.h",
+        "runtime/libibus-web/include/ibus-1.0/ibuskeysyms-compat.h",
+        "runtime/libibus-web/include/ibus-1.0/ibustypes.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusdebug.h",
+        "runtime/libibus-web/include/ibus-1.0/ibuserror.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusservice.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusengine.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusenginesimple.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusfactory.h",
+        "runtime/libibus-web/include/ibus-1.0/ibuskeymap.h",
+        "runtime/libibus-web/include/ibus-1.0/ibusmessage.h",
+      )
+  }
   ["shfmt"] = Builtins.shfmt
   ["oxfmt"] = (Builtins.oxfmt) {
     exclude =

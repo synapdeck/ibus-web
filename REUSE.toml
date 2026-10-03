@@ -65,3 +65,14 @@ path = [
 ]
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# Upstream IBus and its GDK-derived key helpers retain their original headers.
+[[annotations]]
+path = ["runtime/libibus-web/include/ibus-1.0/**", "runtime/libibus-web/src/ibus/**"]
+SPDX-FileCopyrightText = [
+  "2008-2015 Peng Huang <shawn.p.huang@gmail.com>",
+  "2008-2015 Red Hat, Inc.",
+  "1995-1997 Peter Mattis, Spencer Kimball and Josh MacDonald",
+  "The IBus authors",
+]
+SPDX-License-Identifier = "LGPL-2.1-or-later"
