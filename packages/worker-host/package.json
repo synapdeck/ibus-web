@@ -14,7 +14,9 @@
     "dist/shared",
     "dist/worker",
     "types/worker.d.ts",
-    "types/relay.d.ts"
+    "types/relay.d.ts",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ],
   "type": "module",
   "exports": {
@@ -36,6 +38,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsdown && tsc -p types/tsconfig.check.json",
+    "prepack": "cp ../../LICENSES/MIT.txt LICENSE-MIT && cp ../../LICENSES/Apache-2.0.txt LICENSE-APACHE",
+    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
     "test": "vitest run --configLoader native"
   },
   "devDependencies": {
