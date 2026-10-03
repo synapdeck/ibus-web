@@ -250,17 +250,18 @@ export const coldWake = async (h: Harness, { client }: RunningHost): Promise<voi
 // than the bound. The bound is generous: a host on a loaded machine is
 // descheduled now and then. The host it runs on has had no idle-later before,
 // so idle-result has nothing to report yet; and a second idle-later while the
-// first is pending is refused, since there is one source to time.
+// first is pending is refused, since there is one source to time. The first
+// one's delay is far longer than a round trip, so it is still pending however
+// late the second arrives.
 export const crossThreadWake = async (h: Harness, { client }: RunningHost, boundMs = 200): Promise<void> => {
   const ops = opsOf(h);
   expect(await call32(client, ops.idleResult), "idle-result before any idle-later").toBe(-errno(h, "ENOENT"));
+  expect(await call32(client, ops.idleLater, int32s(2000)), "idle-later").toBe(0);
+  expect(await call32(client, ops.idleLater, int32s(50)), "idle-later while one is pending").toBe(-errno(h, "EBUSY"));
+  await poll(h, client, ops.idleResult, 20);
   const epsilons: number[] = [];
   for (let i = 0; i < 20; i++) {
     expect(await call32(client, ops.idleLater, int32s(50)), "idle-later").toBe(0);
-    if (i === 0)
-      expect(await call32(client, ops.idleLater, int32s(50)), "idle-later while one is pending").toBe(
-        -errno(h, "EBUSY"),
-      );
     await h.sleep(50 + boundMs + 150);
     epsilons.push((await poll(h, client, ops.idleResult)).value / 1000);
   }
