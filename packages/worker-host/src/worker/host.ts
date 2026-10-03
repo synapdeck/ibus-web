@@ -181,6 +181,9 @@ export const workerLayer = (
 export interface HostRuntimeShape {
   readonly handle: RuntimeHandle;
   readonly wakeIndex: number;
+  // Where requests and replies sit in the runtime's memory, each the
+  // control slot's size.
+  readonly buffers: LoopContext["buffers"];
 }
 
 export class HostRuntime extends Context.Service<HostRuntime, HostRuntimeShape>()(
@@ -190,7 +193,7 @@ export class HostRuntime extends Context.Service<HostRuntime, HostRuntimeShape>(
 export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker> = Layer.effect(
   HostRuntime,
   Effect.gen(function* () {
-    const { init } = yield* HostWorker;
+    const { init, control } = yield* HostWorker;
     const instruments = yield* Instruments;
     yield* Effect.try({ try: () => checkMemory(init.memory, init.constants.memory), catch: startupFailed });
     const memory = new WebAssembly.Memory({
@@ -242,7 +245,12 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker> =
         const wake = alloc(handle, 4);
         Atomics.store(handle.words, wake / 4, 0);
         check("ibusweb_runtime_init", rt._ibusweb_runtime_init(wake));
-        return { handle, wakeIndex: wake / 4 };
+        const cap = control.slot.length;
+        return {
+          handle,
+          wakeIndex: wake / 4,
+          buffers: { request: alloc(handle, cap), reply: alloc(handle, cap), cap },
+        };
       },
       catch: startupFailed,
     });
@@ -328,31 +336,23 @@ export const runtimeFinalizer = <R>(
 ): Effect.Effect<void, never, R | Scope.Scope> =>
   Effect.addFinalizer((exit) => (Exit.isSuccess(exit) ? release : Effect.void));
 
-// ES2024's Atomics.waitAsync(), which the WebWorker library this targets
-// declares only with es2024.sharedmemory.
-const waitAsync = (words: Int32Array, index: number, value: number, timeout: number): Promise<string> | string => {
-  const result = Atomics.waitAsync(words, index, value, timeout);
-  return result.async ? result.value : result.value;
-};
-
 // Serves requests for good, leaving the synchronous section only to top the
 // pool up or for an instrument's reply. Fails once the runtime or the relay
 // stops.
 export const serve: Effect.Effect<never, RuntimeStopped | RelayFailed, HostWorker | HostRuntime | Relay | HostConfig> =
   Effect.gen(function* () {
     const worker = yield* HostWorker;
-    const { handle, wakeIndex } = yield* HostRuntime;
+    const { handle, wakeIndex, buffers } = yield* HostRuntime;
     const relay = yield* Relay;
     const config = yield* HostConfig;
     const instruments = yield* Instruments;
     const { init, control } = worker;
-    const cap = control.slot.length;
     const ctx: LoopContext = {
       handle,
       control,
       constants: init.constants,
       wakeIndex,
-      buffers: { request: alloc(handle, cap), reply: alloc(handle, cap), cap },
+      buffers,
       instruments,
       lowWater: init.poolLowWater,
       topUpFailed: false,
@@ -398,7 +398,12 @@ export const serve: Effect.Effect<never, RuntimeStopped | RelayFailed, HostWorke
             continue;
           }
           if (next.kind === "relayFailed") return yield* relayFailed;
-          const woke = waitAsync(handle.words, wakeIndex, next.seen, next.delay < 0 ? Infinity : next.delay);
+          const woke = Atomics.waitAsync(
+            handle.words,
+            wakeIndex,
+            next.seen,
+            next.delay < 0 ? Infinity : next.delay,
+          ).value;
           const value =
             typeof woke === "string" ? woke : yield* Effect.promise(() => Promise.race([woke, loaded.then(() => "")]));
           ctx.woken = value === "ok";

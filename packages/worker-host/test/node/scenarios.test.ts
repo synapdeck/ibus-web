@@ -85,7 +85,27 @@ describe.each(h.data.runtimes)("the $name runtime", (runtime) => {
 describe.each(h.data.runtimes)("the host on the $name runtime", (runtime) => {
   test("fails to start when the runtime fails to instantiate", () => failedInstantiate(h, runtime));
   test("refuses a memory the runtime can't take", () => refusedMemory(h, runtime));
-  test("as released, ignores what HostInit.test asks", () => released(h, runtime));
   test("reports a relay that fails as a crash", () => relayFailure(h, runtime));
   test("logs a top-up that doesn't finish in time, and tops up no more", () => topUpLimit(h, runtime));
+});
+
+// The Worker scripts exactly as the package ships them, loaded as they are
+// on disk: the host and, beside it, its relay.
+describe.each(h.data.runtimes)("the host as released on the $name runtime", (runtime) => {
+  const releasedHost = async (use: (host: RunningHost) => Promise<void>): Promise<void> => {
+    const host = await h.start({ runtime, released: true });
+    try {
+      await use(host);
+    } finally {
+      await host.terminate();
+    }
+  };
+  test("dispatch", () => releasedHost((host) => dispatch(h, host)));
+  test("thread-crash", () =>
+    releasedHost(async (host) => {
+      await threadCrash(h, host);
+      await crashPrinted(h, runtime);
+    }));
+  test("relay-failure", () => relayFailure(h, runtime, true));
+  test("ignores what HostInit.test asks", () => released(h, runtime));
 });

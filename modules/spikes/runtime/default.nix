@@ -10,9 +10,8 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) runtime toolchain typescript;
+      inherit (config.ibusWeb) runtime typescript;
       inherit (config.ibusWeb.testing) playwright;
-      inherit (toolchain) pkgsWasm;
 
       sides =
         map
@@ -64,34 +63,8 @@
           ];
 
       # The values the TypeScript side shares with the C side, as the
-      # WebAssembly target defines them, and the runtime's memory bounds.
-      constants = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-web-runtime-spike-constants";
-        src = ../../../packages/worker-host/test/sides;
-        nativeBuildInputs = [
-          pkgsWasm.pkg-config
-          typescript.nodejs
-          pkgs.jq
-        ];
-        buildInputs = [ runtime.libibusWeb ];
-        dontFixup = true;
-        buildPhase = ''
-          runHook preBuild
-          $CC $($PKG_CONFIG --cflags libibus-web) -I${runtime.wasmfsIdb}/include \
-            -c constants.c -o constants.o
-          $CXX ${toolchain.testMainFlags} constants.o -o constants.js
-          node constants.js |
-            jq -c --argjson minimum ${toString runtime.memory.minimum} \
-              --argjson maximum ${toString runtime.memory.maximum} \
-              '. + { memory: { $minimum, $maximum } }' > constants.json
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          install -Dm644 constants.json -t $out
-          runHook postInstall
-        '';
-      };
+      # WebAssembly target defines them: the Worker host's tests build them.
+      inherit (config.checks.worker-host-node.passthru) constants;
 
       sidesDir = pkgs.runCommand "ibus-web-runtime-spike-sides" { } ''
         mkdir $out

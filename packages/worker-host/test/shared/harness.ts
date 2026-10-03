@@ -7,6 +7,7 @@
 import type { HostConfigValues } from "../../src/shared/config.ts";
 import type { HostMessage, RuntimeConstants } from "../../src/shared/messages.ts";
 import type { Client, Clock } from "./client.ts";
+import type { TestInit } from "./testing.ts";
 import type { Printed } from "./printed.ts";
 
 // Values the test side modules and the runtime's build define, printed by
@@ -30,9 +31,11 @@ export interface RuntimeBuild {
 export interface TestData {
   runtimes: RuntimeBuild[];
   sides: { name: string; url: string }[];
-  // The host's test build and the host as released.
+  // The host's test build and the host as released; and the host as
+  // released beside the relay that fails after three wakes, as its relay.
   testHostUrl: string;
   hostUrl: string;
+  hostWithFailingRelayUrl: string;
   constants: BuildConstants;
   // Emscripten's errno values, by name.
   errno: Readonly<Record<string, number>>;
@@ -51,8 +54,13 @@ export interface HostOptions {
   // The runtime's memory; its least by default.
   memory?: { initial: number; maximum: number };
   config?: Partial<HostConfigValues>;
+  // Starts the relay that fails once it has forwarded this many wakes; the
+  // host as released takes only 3.
   relayFailsAfter?: number;
-  // Starts the host as released rather than its test build.
+  // More for HostInit.test, which only the test build reads.
+  test?: Partial<TestInit>;
+  // Starts the host as released rather than its test build. It has no
+  // instruments: HostOp requests reach the runtime.
   released?: boolean;
   // Hands the host this module as the runtime's, compiled, instead.
   wasm?: Uint8Array;
@@ -60,6 +68,8 @@ export interface HostOptions {
 
 export interface RunningHost {
   client: Client;
+  // Whether the host is the test build, which answers HostOp requests.
+  instrumented: boolean;
   startupMs: number;
   messages: HostMessage[];
   terminate(): Promise<void>;
@@ -80,3 +90,11 @@ declare module "vitest" {
     workerHost: TestData;
   }
 }
+
+// The host's script for options.
+export const hostUrlFor = (data: TestData, options: HostOptions): string => {
+  if (options.released !== true) return data.testHostUrl;
+  if (options.relayFailsAfter === undefined) return data.hostUrl;
+  if (options.relayFailsAfter !== 3) throw new Error("the host as released takes only a relay that fails after 3");
+  return data.hostWithFailingRelayUrl;
+};

@@ -16,7 +16,7 @@ import { createControl } from "../../src/shared/control.ts";
 import type { HostInit, SideModule } from "../../src/shared/messages.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
-import type { Harness, HostOptions, RunningHost } from "../shared/harness.ts";
+import { hostUrlFor, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
 import { printedFrom } from "../shared/printed.ts";
 import type { TestInit } from "../shared/testing.ts";
 import { BrowserWorker } from "./browser-worker.ts";
@@ -71,12 +71,13 @@ export const nodeHarness = async (): Promise<Harness> => {
   };
   const start = async (options: HostOptions): Promise<RunningHost> => {
     const control = createControl();
-    const worker = new BrowserWorker(options.released === true ? data.hostUrl : data.testHostUrl);
+    const worker = new BrowserWorker(hostUrlFor(data, options));
     const minimum = data.constants.memory.minimum;
     const test: TestInit = {
       mallinfo: data.constants.mallinfo,
       ...(options.config === undefined ? {} : { config: options.config }),
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
+      ...options.test,
     };
     const init: HostInit<WebAssembly.Module, TestInit> = {
       runtimeUrl: options.runtime.url,
@@ -109,6 +110,7 @@ export const nodeHarness = async (): Promise<Harness> => {
             ms: LATE_REPLY_MS,
           },
         }),
+        instrumented: options.released !== true,
         startupMs,
         messages,
         terminate: () => worker.terminate(),

@@ -30,6 +30,7 @@ describe("HostConfig", () => {
       expect(shortened).toEqual({ ...defaultHostConfig, topUpLimitMs: 5 });
       expect(defaultHostConfig).toMatchObject({
         topUpLimitMs: 10_000,
+        crashWaitMs: 1000,
         lockRoundMs: 1000,
         lockLimitMs: 120_000,
         progressIntervalMs: 1000,

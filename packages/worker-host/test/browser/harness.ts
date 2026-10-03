@@ -12,7 +12,7 @@ import { createControl } from "../../src/shared/control.ts";
 import type { HostInit, SideModule } from "../../src/shared/messages.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
-import type { Harness, HostOptions, RunningHost } from "../shared/harness.ts";
+import { hostUrlFor, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
 import { printedFrom } from "../shared/printed.ts";
 import type { TestInit } from "../shared/testing.ts";
 import "./commands.ts";
@@ -60,7 +60,7 @@ export const browserHarness = async (): Promise<Harness> => {
   };
   const start = async (options: HostOptions): Promise<RunningHost> => {
     const control = createControl();
-    const worker = new Worker(options.released === true ? data.hostUrl : data.testHostUrl, {
+    const worker = new Worker(hostUrlFor(data, options), {
       type: "module",
       name: "ibus-web-host",
     });
@@ -69,6 +69,7 @@ export const browserHarness = async (): Promise<Harness> => {
       mallinfo: data.constants.mallinfo,
       ...(options.config === undefined ? {} : { config: options.config }),
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
+      ...options.test,
     };
     const init: HostInit<WebAssembly.Module, TestInit> = {
       runtimeUrl: new URL(options.runtime.url, location.href).href,
@@ -93,6 +94,7 @@ export const browserHarness = async (): Promise<Harness> => {
           budgetMs: SPIN_LIMIT_MS,
           lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
         }),
+        instrumented: options.released !== true,
         startupMs,
         messages,
         // A browser's terminate() returns before the Worker has stopped;

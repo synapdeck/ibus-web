@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // The host's scenarios in a browser, the host in a Worker started by URL and
-// the page spinning for each reply. heap-full runs under Node only, and so
-// does the host as released: it imports Effect, its peer dependency, by its
-// bare name, which a browser resolves only once the page's bundler has, and
-// Vitest's own server rewrites every module it serves for its runner.
+// the page spinning for each reply. heap-full runs under Node only.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
 import type { RunningHost } from "../shared/harness.ts";
-import { failedInstantiate, refusedMemory, relayFailure, topUpLimit } from "../shared/lifecycle.ts";
+import { failedInstantiate, refusedMemory, relayFailure, released, topUpLimit } from "../shared/lifecycle.ts";
 import {
   coldWake,
   crashPrinted,
@@ -86,4 +83,25 @@ describe.each(h.data.runtimes)("the host on the $name runtime", (runtime) => {
   test("refuses a memory the runtime can't take", () => refusedMemory(h, runtime));
   test("reports a relay that fails as a crash", () => relayFailure(h, runtime));
   test("logs a top-up that doesn't finish in time, and tops up no more", () => topUpLimit(h, runtime));
+});
+
+// The Worker scripts exactly as the package ships them, loaded as they are
+// on disk: the host and, beside it, its relay.
+describe.each(h.data.runtimes)("the host as released on the $name runtime", (runtime) => {
+  const releasedHost = async (use: (host: RunningHost) => Promise<void>): Promise<void> => {
+    const host = await h.start({ runtime, released: true });
+    try {
+      await use(host);
+    } finally {
+      await host.terminate();
+    }
+  };
+  test("dispatch", () => releasedHost((host) => dispatch(h, host)));
+  test("thread-crash", () =>
+    releasedHost(async (host) => {
+      await threadCrash(h, host);
+      await crashPrinted(h, runtime);
+    }));
+  test("relay-failure", () => relayFailure(h, runtime, true));
+  test("ignores what HostInit.test asks", () => released(h, runtime));
 });

@@ -39,7 +39,7 @@ export const refusedMemory = async (h: Harness, runtime: RuntimeBuild): Promise<
 // once, and leaves the test build's requests to the runtime, which knows
 // none of them.
 export const released = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const host = await h.start({ runtime, released: true, relayFailsAfter: 0 });
+  const host = await h.start({ runtime, released: true, test: { relayFailsAfter: 0 } });
   try {
     const ops = opsFrom(h.data.constants.ops);
     expect(await call32(host.client, ops.add, int32s(2, 3)), "add").toBe(5);
@@ -51,8 +51,8 @@ export const released = async (h: Harness, runtime: RuntimeBuild): Promise<void>
 
 // A relay that fails while the host sleeps writes CRASHED and wakes the host,
 // whose crash report is the relay's error.
-export const relayFailure = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const host = await h.start({ runtime, relayFailsAfter: 3 });
+export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released = false): Promise<void> => {
+  const host = await h.start({ runtime, relayFailsAfter: 3, released });
   try {
     const ops = opsFrom(h.data.constants.ops);
     let answered = 0;

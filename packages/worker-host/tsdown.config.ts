@@ -5,17 +5,19 @@
 //
 //   shared/index.js   what the page imports: the control buffer, the
 //                     messages and the storage names, with its declarations.
+//                     It imports nothing; Effect is a peer dependency of the
+//                     package, for pages that use it.
 //   worker/index.js   the host's Worker script, which the page starts by URL.
 //   worker/relay.js   the wake relay's Worker script, which the host starts
 //                     by URL from beside its own.
-//   test/worker/      the host's test build, with its instruments, and a
-//                     relay that fails on purpose. No export names them and
-//                     they aren't published.
+//   test/worker/      the host's test build, the same host with its
+//                     instruments, and a relay that fails on purpose. No
+//                     export names them and they aren't published.
 //
-// Each Worker script is an entry of its own, never inlined into another.
-// Effect is a peer dependency, so the package's bundles import it. The test
-// build bundles it instead: tests load it by URL as it is on disk, and a
-// browser can't resolve a bare import from a Worker.
+// Each Worker script is one self-contained module, Effect included, with no
+// chunk shared with another: a Worker loads by URL, as it is on disk, so it
+// can't resolve a bare import, and a page's bundler copies a script found by
+// new URL(..., import.meta.url) as it is, without the chunks it imports.
 
 import { defineConfig, type UserConfig } from "tsdown";
 
@@ -29,27 +31,25 @@ const common = {
   outDir: "dist",
 } satisfies UserConfig;
 
+// One Worker script, built alone so that it shares nothing with another.
+const worker = (name: string, source: string, tsconfig: string): UserConfig => ({
+  ...common,
+  entry: { [name]: source },
+  tsconfig,
+  dts: false,
+  deps: { alwaysBundle: ["effect", /^effect\//], onlyBundle: false },
+});
+
 export default defineConfig([
   {
     ...common,
     entry: { "shared/index": "src/shared/index.ts" },
     tsconfig: "src/shared/tsconfig.json",
     dts: { generator: "oxc" },
-  },
-  {
-    ...common,
-    entry: { "worker/index": "src/worker/index.ts", "worker/relay": "src/worker/relay.ts" },
-    tsconfig: "src/worker/tsconfig.json",
-    dts: false,
     deps: { neverBundle: ["effect", /^effect\//] },
-    outputOptions: { chunkFileNames: "worker/[name].js" },
   },
-  {
-    ...common,
-    entry: { "test/worker/host": "test/worker/host.ts", "test/worker/failing-relay": "test/worker/failing-relay.ts" },
-    tsconfig: "test/worker/tsconfig.json",
-    dts: false,
-    deps: { alwaysBundle: ["effect", /^effect\//], onlyBundle: false },
-    outputOptions: { chunkFileNames: "test/worker/[name].js" },
-  },
+  worker("worker/index", "src/worker/index.ts", "src/worker/tsconfig.json"),
+  worker("worker/relay", "src/worker/relay.ts", "src/worker/tsconfig.json"),
+  worker("test/worker/host", "test/worker/host.ts", "test/worker/tsconfig.json"),
+  worker("test/worker/failing-relay", "test/worker/failing-relay.ts", "test/worker/tsconfig.json"),
 ]);

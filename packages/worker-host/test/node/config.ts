@@ -16,10 +16,11 @@
 // load all of it from disk; in a browser, from this server, as it is on
 // disk, as are the host's own scripts from dist/.
 
-import { createReadStream, readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, createReadStream, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, join, resolve as resolvePath, sep } from "node:path";
+import { tmpdir } from "node:os";
 import process from "node:process";
 import { pipeline } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -116,8 +117,22 @@ const serveRaw = (dirs: Readonly<Record<string, string>>): Plugin => {
     configureServer: (server) => {
       server.middlewares.use(handle);
     },
+    // Vite warns that it can't analyze a dynamic import in Vitest's own
+    // module runner, which every browser test file pulls in to reach Vitest.
+    // Vitest drops the same warning from its own server's log, but not from
+    // the browser server's.
+    configResolved: (config) => {
+      const { logger } = config;
+      const warn = logger.warn.bind(logger);
+      logger.warn = (message, options) => {
+        if (message.includes(UNANALYZABLE_IMPORT) && message.includes("vite_module-runner")) return;
+        warn(message, options);
+      };
+    },
   };
 };
+
+const UNANALYZABLE_IMPORT = "The above dynamic import cannot be analyzed by Vite";
 
 // Playwright says so on stderr every time it launches a browser, which it
 // does with host validation off because Nix, not the host's packages,
@@ -140,20 +155,26 @@ export const workerHostConfig = (): ViteUserConfig => {
   const sideFiles = readdirSync(manifest.sides)
     .filter((file) => file.endsWith(".wasm"))
     .sort();
+  // The host as released, with the relay that fails as the relay.js it
+  // starts from beside itself. Copies, not links: Node would load a link's
+  // target, and the host would find the relay beside that.
+  const failing = mkdtempSync(join(tmpdir(), "ibus-web-worker-host-failing-relay-"));
+  copyFileSync(join(dist, "worker/index.js"), join(failing, "index.js"));
+  copyFileSync(join(dist, "test/worker/failing-relay.js"), join(failing, "relay.js"));
   const testData = (
-    url: (dir: "asserting" | "released" | "sides" | "dist", file: string) => string,
-    hostUrl: string,
+    url: (dir: "asserting" | "released" | "sides" | "dist" | "failing", file: string) => string,
   ): TestData => ({
     runtimes: (["asserting", "released"] as const).map((name) => ({ name, url: url(name, "ibus-runtime.js") })),
     sides: sideFiles.map((file) => ({ name: basename(file, ".wasm"), url: url("sides", file) })),
     testHostUrl: url("dist", "test/worker/host.js"),
-    hostUrl,
+    hostUrl: url("dist", "worker/index.js"),
+    hostWithFailingRelayUrl: url("failing", "index.js"),
     constants: readJson<BuildConstants>(manifest.constants),
     errno: readJson<Record<string, number>>(manifest.errno),
     pool: manifest.pool,
     stress: manifest.stress,
   });
-  const dirs = { ...manifest.runtimes, sides: manifest.sides, dist };
+  const dirs = { ...manifest.runtimes, sides: manifest.sides, dist, failing };
   const browsers = manifest.environments.filter((environment) => environment !== "node");
   if (browsers.length > 0) dropSkippingValidation();
   const projects: TestProjectInlineConfiguration[] = [];
@@ -163,12 +184,7 @@ export const workerHostConfig = (): ViteUserConfig => {
       test: {
         name: "node",
         include: ["test/node/**/*.test.ts"],
-        provide: {
-          workerHost: testData(
-            (dir, file) => pathToFileURL(join(dirs[dir], file)).href,
-            pathToFileURL(join(dist, "worker/index.js")).href,
-          ),
-        },
+        provide: { workerHost: testData((dir, file) => pathToFileURL(join(dirs[dir], file)).href) },
       },
     });
   if (browsers.length > 0)
@@ -177,7 +193,7 @@ export const workerHostConfig = (): ViteUserConfig => {
       test: {
         name: "browser",
         include: ["test/browser/**/*.test.ts"],
-        provide: { workerHost: testData((dir, file) => `${prefix}${dir}/${file}`, `${prefix}dist/worker/index.js`) },
+        provide: { workerHost: testData((dir, file) => `${prefix}${dir}/${file}`) },
         browser: {
           enabled: true,
           headless: true,
@@ -196,9 +212,10 @@ export const workerHostConfig = (): ViteUserConfig => {
   return {
     ...(cacheDir === undefined ? {} : { cacheDir }),
     plugins: [serveRaw(dirs)],
-    // Found only as a browser test imports them, they would be optimized
-    // then, and the page reloaded under the running tests.
-    optimizeDeps: { include: ["effect", "@effect/vitest"] },
+    // Found only as a browser test imports it, Effect would be optimized
+    // then, and the page reloaded under the running tests. @effect/vitest
+    // re-exports Vitest, which Vitest serves the browser itself.
+    optimizeDeps: { include: ["effect"], exclude: ["@effect/vitest"] },
     server: { headers: isolation },
     test: {
       // Hosts time what they do; one file at a time keeps them from

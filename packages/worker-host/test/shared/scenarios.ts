@@ -181,8 +181,8 @@ export const noLateReplies = (client: Client): void => {
 // requests served at once with ones that woke the host. A browser's clock
 // steps in tens of microseconds, about a round trip, so each batch of
 // requests is also timed whole, for a mean finer than the step.
-export const dispatch = async (h: Harness, { client }: RunningHost): Promise<void> => {
-  const before = await stats(client);
+export const dispatch = async (h: Harness, { client, instrumented }: RunningHost): Promise<void> => {
+  const before = instrumented ? await stats(client) : undefined;
   const times: number[] = [];
   const means: number[] = [];
   let wrong = 0;
@@ -193,14 +193,18 @@ export const dispatch = async (h: Harness, { client }: RunningHost): Promise<voi
     times.push(...batch.times);
     wrong += batch.wrong;
   }
-  const after = await stats(client);
+  const after = before === undefined ? undefined : await stats(client);
   times.sort((a, b) => a - b);
   means.sort((a, b) => a - b);
   h.record("dispatch", {
     ...latencies(times),
     batchMeanUs: round(percentile(means, 50), 2),
     batchMeanRangeUs: [round(means[0]!, 2), round(means.at(-1)!, 2)],
-    requestsWhileAsleep: `${after.requestsWhileAsleep - before.requestsWhileAsleep} of ${after.requests - before.requests}`,
+    ...(before === undefined || after === undefined
+      ? {}
+      : {
+          requestsWhileAsleep: `${after.requestsWhileAsleep - before.requestsWhileAsleep} of ${after.requests - before.requests}`,
+        }),
   });
   expect(wrong, "wrong sums").toBe(0);
 };
@@ -584,16 +588,16 @@ export const crashPrinted = async (h: Harness, runtime: RuntimeBuild): Promise<v
 // or the abort's message where the output shows, tells them apart.
 export const outOfMemoryAbort = /\babortOnCannotGrowMemory\b|Aborted\((OOM|Cannot enlarge memory)/;
 
+// Emscripten's out-of-memory abort as the runtime prints it, with the
+// asserting runtime's advice.
+export const abortPrinted = /^Aborted\((OOM|Cannot enlarge memory arrays .*\(OOM\))/;
+
 // An allocation the heap can't hold aborts the runtime, which never grows
 // its memory: the request fails as crashed, and the host reports
 // Emscripten's out-of-memory abort, not another trap. An allocation of all
 // but a MiB of the most memory the runtime takes never fits, the runtime's
 // own data taking more than that. Takes the host down, so it runs on a host
 // of its own.
-// Emscripten's out-of-memory abort as the runtime prints it, with the
-// asserting runtime's advice.
-export const abortPrinted = /^Aborted\((OOM|Cannot enlarge memory arrays .*\(OOM\))/;
-
 export const heapFull = async (h: Harness, { client }: RunningHost): Promise<string> => {
   const mib = h.data.constants.memory.maximum / MiB - 1;
   let crashed = false;

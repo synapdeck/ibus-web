@@ -119,8 +119,11 @@
               # Nix gives a build a terminal, on which Vitest would redraw its
               # progress into the log, over and over.
               CI = "1";
-              # For running the tests from a checkout.
-              passthru.manifest = manifest environments;
+              passthru = {
+                # For running the tests from a checkout.
+                manifest = manifest environments;
+                inherit constants;
+              };
             }
             // lib.optionalAttrs inBrowsers playwright.env
           )
