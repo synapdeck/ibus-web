@@ -317,6 +317,40 @@ static void surrounding_text(void) {
   g_object_unref(engine);
 }
 
+static void surrounding_bounds(void) {
+  const struct {
+    guint cursor;
+    gint offset;
+    guint count;
+    const gchar *text;
+    guint resulting_cursor;
+  } cases[] = {
+      {3, -2, 2, "az", 1},      {4, 0, 0, "a한글z", 4},
+      {2, 3, 1, "", 0},         {0, -1, 1, "", 0},
+      {2, 0, G_MAXUINT, "", 0}, {2, G_MAXINT, 1, "", 0},
+      {2, G_MININT, 1, "", 0},  {G_MAXUINT, 2, 1, "", 0},
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(cases); ++i) {
+    g_test_message("deletion boundary %u", i);
+    IBusEngine *engine = new_engine();
+    IBusText *text = g_object_ref_sink(ibus_text_new_from_string("a한글z"));
+    g_signal_emit_by_name(engine, "set-surrounding-text", text, cases[i].cursor,
+                          cases[i].cursor);
+    g_object_unref(text);
+    ibus_engine_delete_surrounding_text(engine, cases[i].offset,
+                                        cases[i].count);
+    expect_record(IBUSWEB_REC_DELETE_SURROUNDING_TEXT,
+                  g_variant_new("(iu)", cases[i].offset, cases[i].count));
+    guint cursor, anchor;
+    ibus_engine_get_surrounding_text(engine, &text, &cursor, &anchor);
+    g_assert_cmpstr(text->text, ==, cases[i].text);
+    g_assert_cmpuint(cursor, ==, cases[i].resulting_cursor);
+    g_object_unref(text);
+    expect_record(IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, g_variant_new("()"));
+    g_object_unref(engine);
+  }
+}
+
 typedef struct {
   IBusEngine parent;
 } TestEngine;
@@ -570,6 +604,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/engine/ownership", emitter_ownership);
   g_test_add_func("/engine/fast-lookup", fast_lookup);
   g_test_add_func("/engine/surrounding", surrounding_text);
+  g_test_add_func("/engine/surrounding-bounds", surrounding_bounds);
   g_test_add_func("/engine/signals", signal_dispatch);
   g_test_add_func("/engine/factory", factory);
   g_test_add_func("/engine/simple-keymap", simple_and_keymap);

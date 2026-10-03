@@ -348,6 +348,12 @@ void ibus_engine_update_lookup_table(IBusEngine *engine, IBusLookupTable *table,
   _g_object_unref_if_floating(table);
 }
 
+static inline guint lookup_window_end(guint first, guint page_size,
+                                      guint candidate_count) {
+  guint64 end = (guint64)first + 3 * (guint64)page_size;
+  return MIN(end, candidate_count);
+}
+
 void ibus_engine_update_lookup_table_fast(IBusEngine *engine,
                                           IBusLookupTable *table,
                                           gboolean visible) {
@@ -360,11 +366,11 @@ void ibus_engine_update_lookup_table_fast(IBusEngine *engine,
 
   IBusLookupTable *new_table;
   IBusText *text;
-  gint page_begin;
-  gint cursor_pos;
-  gint i;
+  guint page_begin;
+  guint cursor_pos;
+  guint i;
 
-  if (table->candidates->len < table->page_size << 2) {
+  if ((guint64)table->candidates->len < 4 * (guint64)table->page_size) {
     ibus_engine_update_lookup_table(engine, table, visible);
     return;
   }
@@ -382,9 +388,9 @@ void ibus_engine_update_lookup_table_fast(IBusEngine *engine,
                                     table->round);
 
   /* '3' means the previous page, current page and next page. */
-  for (i = page_begin;
-       i < page_begin + 3 * table->page_size && i < table->candidates->len;
-       i++) {
+  guint end =
+      lookup_window_end(page_begin, table->page_size, table->candidates->len);
+  for (i = page_begin; i < end; i++) {
     ibus_lookup_table_append_candidate(
         new_table, ibus_lookup_table_get_candidate(table, i));
   }
@@ -410,6 +416,12 @@ void ibus_engine_forward_key_event(IBusEngine *engine, guint keyval,
                         g_variant_new("(uuu)", keyval, keycode, state));
 }
 
+static inline gboolean surrounding_range_valid(guint length, gint64 start,
+                                               guint count) {
+  return start >= 0 && start <= (gint64)length &&
+         (gint64)count <= (gint64)length - start;
+}
+
 void ibus_engine_delete_surrounding_text(IBusEngine *engine,
                                          gint offset_from_cursor,
                                          guint nchars) {
@@ -424,11 +436,12 @@ void ibus_engine_delete_surrounding_text(IBusEngine *engine,
      after ibus_engine_delete_surrounding_text(). */
   if (priv->surrounding_text) {
     IBusText *text;
-    glong cursor_pos, len;
+    gint64 cursor_pos;
+    guint len;
 
-    cursor_pos = priv->surrounding_cursor_pos + offset_from_cursor;
+    cursor_pos = (gint64)priv->surrounding_cursor_pos + offset_from_cursor;
     len = ibus_text_get_length(priv->surrounding_text);
-    if (cursor_pos >= 0 && len - cursor_pos >= nchars) {
+    if (surrounding_range_valid(len, cursor_pos, nchars)) {
       gunichar *ucs;
 
       ucs = g_utf8_to_ucs4_fast(priv->surrounding_text->text, -1, NULL);
