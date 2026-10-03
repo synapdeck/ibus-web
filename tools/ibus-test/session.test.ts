@@ -336,6 +336,91 @@ describe.skipIf(!configPath || !fixtureCommand)("private native sessions", () =>
     expectCleaned(artifactDir);
   });
 
+  test("retains services and resources through cooperative asynchronous callback cleanup", async () => {
+    const artifactDir = artifacts();
+    const controller = new AbortController();
+    let markCallbackReady!: (session: NativeSession) => void;
+    const callbackReady = new Promise<NativeSession>((resolve) => {
+      markCallbackReady = resolve;
+    });
+    let markCleanupEntered!: () => void;
+    const cleanupEntered = new Promise<void>((resolve) => {
+      markCleanupEntered = resolve;
+    });
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    let callbackCompleted = false;
+    let wrapperSettled = false;
+    const pending = withNativeSession(
+      fixtureConfig(),
+      [],
+      async (session) => {
+        const aborted = new Promise<void>((resolve) => {
+          session.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        markCallbackReady(session);
+        try {
+          await aborted;
+          session.signal.throwIfAborted();
+        } finally {
+          markCleanupEntered();
+          await cleanupGate;
+          callbackCompleted = true;
+          await Promise.reject(new Error("secondary callback cleanup failure"));
+        }
+      },
+      { artifactDir, signal: controller.signal },
+    );
+    const observed = pending.then(
+      () => {
+        wrapperSettled = true;
+        return undefined;
+      },
+      (error: unknown) => {
+        wrapperSettled = true;
+        return error;
+      },
+    );
+    try {
+      const session = await callbackReady;
+      controller.abort();
+      await cleanupEntered;
+      expect(session.signal.aborted).toBe(true);
+      expect(callbackCompleted).toBe(false);
+
+      // A native round trip checks that the owned service remains usable while
+      // finally is gated. No idle period stands in for callback completion.
+      const probe = nativeConfig().gdbus;
+      await execute(
+        probe[0]!,
+        [
+          ...probe.slice(1),
+          "call",
+          "--address",
+          session.env["DBUS_SESSION_BUS_ADDRESS"]!,
+          "--dest",
+          "org.freedesktop.DBus",
+          "--object-path",
+          "/org/freedesktop/DBus",
+          "--method",
+          "org.freedesktop.DBus.ListNames",
+        ],
+        { env: session.env, timeout: 2000 },
+      );
+      expect(existsSync(session.resourceDir)).toBe(true);
+      expect(await setting(session, "hangul-keyboard")).toBe("'2'");
+      expect(wrapperSettled).toBe(false);
+    } finally {
+      releaseCleanup();
+      await observed;
+    }
+    expect(callbackCompleted).toBe(true);
+    expect(await observed).toMatchObject({ message: "native session aborted" });
+    expectCleaned(artifactDir);
+  });
+
   test("aborts use when an owned engine dies", async () => {
     const artifactDir = artifacts();
     await expect(

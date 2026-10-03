@@ -108,6 +108,7 @@ export async function withNativeSession<T>(
   const adapters = new Set<Promise<RunResult>>();
   const controller = new AbortController();
   let closing = false;
+  let callback: Promise<T> | undefined;
   let commandNumber = 0;
   let runNumber = 0;
   const onAbort = () => controller.abort(new Error("native session aborted", { cause: options.signal?.reason }));
@@ -300,12 +301,17 @@ export async function withNativeSession<T>(
         return result;
       },
     };
-    return await Promise.race([use(session), interrupted]);
+    callback = use(session);
+    return await Promise.race([callback, interrupted]);
   } finally {
-    closing = true;
     clearTimeout(startupDeadline);
     options.signal?.removeEventListener("abort", onAbort);
     controller.abort(new Error("native session closed"));
+    // Cancellation is immediate, but cooperative callback cleanup still owns
+    // the services and files. Preserve the race's primary result or error if
+    // that cleanup rejects while we wait for its lifetime to finish.
+    await callback?.catch(() => {});
+    closing = true;
     for (const owned of [...processes].reverse()) {
       if (!owned.groupClosed) signalGroup(owned.child, "SIGTERM");
     }

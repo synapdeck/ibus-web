@@ -74,9 +74,15 @@ and `run(trace)`. Use `run` for automatic adapter cancellation and per-run
 artifacts; lower-level `runAdapter` also accepts an explicit `env`. The startup
 sequence and each adapter run have `timeoutMs` deadlines. An optional parent
 `signal`, service death, callback failure, or timeout triggers cleanup. Callbacks
-that do additional asynchronous work should honor `session.signal`. Each owned
-process group receives TERM, then KILL after a bounded grace period if needed;
-all direct children are reaped before private resources are removed.
+that do additional asynchronous work must honor `session.signal`. Cancellation
+signals immediately, but the runner waits for the callback to settle, including
+asynchronous `finally` work, before stopping remaining services or removing
+private resources. If interruption wins the race, a later callback cleanup error
+does not replace that interruption error. A callback that ignores cancellation
+can therefore delay session settlement indefinitely; its lifetime has no forced
+timeout. After callback settlement, each owned process group receives TERM,
+then KILL after a bounded grace period if needed; all direct children are reaped
+before private resources are removed.
 
 `options.artifactDir` chooses the retained diagnostics directory; otherwise the
 runner creates one in the temporary directory. It contains the explicit config,
