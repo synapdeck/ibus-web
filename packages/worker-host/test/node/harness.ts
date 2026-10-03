@@ -6,21 +6,29 @@
 // would spin, and everything the hosts' threads print, taken by the tests.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { inject } from "vitest";
 import { createControl } from "../../src/shared/control.ts";
-import type { HostInit, SideModule } from "../../src/shared/messages.ts";
+import type { EngineManifest, HostInit, SideModule } from "../../src/shared/messages.ts";
 import { encodeComponent } from "../../src/shared/naming.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
-import { hostUrlFor, startingAsAPage, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
+import {
+  hostUrlFor,
+  launchingAsAPage,
+  startFrom,
+  type Harness,
+  type Launch,
+  type LaunchedHost,
+  type RunningHost,
+} from "../shared/harness.ts";
 import { locksFrom, type WebLocks } from "../shared/locks.ts";
 import { printedFrom } from "../shared/printed.ts";
-import type { TestInit } from "../shared/testing.ts";
+import type { Message, TestInit } from "../shared/testing.ts";
 import { BrowserWorker } from "./browser-worker.ts";
 
 // A call holds this thread for at most this long, then waits up to the
@@ -74,7 +82,7 @@ export const nodeHarness = async (): Promise<Harness> => {
     return module;
   };
   const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
-  const start = async (options: HostOptions): Promise<RunningHost> => {
+  const launch: Launch = (options, messages: Message[]): LaunchedHost => {
     const control = createControl();
     const worker = new BrowserWorker(hostUrlFor(data, options));
     const minimum = data.constants.memory.minimum;
@@ -84,23 +92,24 @@ export const nodeHarness = async (): Promise<Harness> => {
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
       ...options.test,
     };
-    const init: HostInit<WebAssembly.Module, TestInit> = {
-      runtimeUrl: options.runtime.url,
-      wasm:
-        options.wasm === undefined
-          ? await runtimeModule(options.runtime.url)
-          : await WebAssembly.compile(new Uint8Array(options.wasm)),
-      memory: options.memory ?? { initial: minimum, maximum: minimum },
-      control,
-      sides: [...sides, ...(options.moreSides ?? [])],
-      engine: options.engine ?? { name: "test", version: "0", data: [] },
-      storage: options.storage ?? { kind: "none" },
-      poolLowWater: data.pool.lowWater,
-      constants: data.constants,
-      test,
-    };
-    try {
-      const { startupMs, messages } = await startHost(worker, init);
+    const terminate = () => worker.terminate();
+    const ready = (async (): Promise<RunningHost> => {
+      const init: HostInit<WebAssembly.Module, TestInit> = {
+        runtimeUrl: options.runtime.url,
+        wasm:
+          options.wasm === undefined
+            ? await runtimeModule(options.runtime.url)
+            : await WebAssembly.compile(new Uint8Array(options.wasm)),
+        memory: options.memory ?? { initial: minimum, maximum: minimum },
+        control,
+        sides: [...sides, ...(options.moreSides ?? [])],
+        engine: options.engine ?? { name: "test", version: "0", data: [] },
+        storage: options.storage ?? { kind: "none" },
+        poolLowWater: data.pool.lowWater,
+        constants: data.constants,
+        test,
+      };
+      const startupMs = await startHost(worker, init, messages);
       return {
         client: blockingClient(control, messages, {
           ...clock,
@@ -119,23 +128,40 @@ export const nodeHarness = async (): Promise<Harness> => {
         instrumented: options.released !== true,
         startupMs,
         messages,
-        terminate: () => worker.terminate(),
+        terminate,
       };
-    } catch (error) {
-      await worker.terminate();
-      throw error;
-    }
+    })();
+    return { messages, ready, terminate };
   };
+  const enginePath = (engine: Pick<EngineManifest, "name">): string =>
+    join(scratch, "engines", encodeComponent(engine.name));
+  const dataPath = (engine: Pick<EngineManifest, "name">): string => join(enginePath(engine), "data");
+  const launchAsAPage = launchingAsAPage(launch, locks);
   return {
     ...clock,
     data,
     sides,
-    start: startingAsAPage(start, locks),
+    launch: launchAsAPage,
+    start: startFrom(launchAsAPage),
     locks,
     storage: (engine) => {
-      const hostPath = join(scratch, "engines", encodeComponent(engine.name));
+      const hostPath = enginePath(engine);
       mkdirSync(hostPath, { recursive: true });
       return { kind: "node", hostPath };
+    },
+    // A version's directory, its marker, or both.
+    versions: async (engine) => [
+      ...new Set(
+        (await readdir(dataPath(engine)).catch(() => [] as string[])).map((name) =>
+          name.replace(/\.(installed|marking)$/, ""),
+        ),
+      ),
+    ],
+    tearMarker: (engine) => writeFile(join(dataPath(engine), `${encodeComponent(engine.version)}.installed`), '{"vers'),
+    dataEntries: async (engine) => (await readdir(dataPath(engine))).sort(),
+    strayMarking: async (engine, version) => {
+      mkdirSync(dataPath(engine), { recursive: true });
+      await writeFile(join(dataPath(engine), `${version}.marking`), JSON.stringify({ version, files: 0, bytes: 0 }));
     },
     storageMount: "node",
     cleanUp: async () => {

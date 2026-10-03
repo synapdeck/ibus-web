@@ -28,7 +28,7 @@ const nodeFs = (): Promise<NodeFs> => import("node:fs/promises" as string) as Pr
 const nodeUserDir = (hostPath: string): string => `${hostPath}/user`;
 
 // mkdir -p; a directory that exists already fails harmlessly.
-const makeDirs = (handle: RuntimeHandle, path: string): void => {
+export const makeDirs = (handle: RuntimeHandle, path: string): void => {
   const parts = path.split("/").filter((part) => part !== "");
   for (let i = 1; i <= parts.length; i++)
     withString(handle, `/${parts.slice(0, i).join("/")}`, (ptr) => handle.rt._mkdir(ptr, 0o755));

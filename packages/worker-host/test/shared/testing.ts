@@ -6,7 +6,7 @@
 // HostInit.test tells it.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import type { Mount } from "../../src/shared/messages.ts";
+import type { HostMessage, Mount } from "../../src/shared/messages.ts";
 
 export const HostOp = {
   // A UTF-8 JSON HostStats.
@@ -63,9 +63,20 @@ export interface TestInit {
   relayFailsAfter?: number;
   // indexedDB.open() throws in the host, as it does in an opaque origin.
   withoutIndexedDB?: boolean;
-  // Locks the host holds beside its own, exclusively, and lets go of with
-  // them.
-  moreLocks?: string[];
+  // The install stops for good once it has fed the extractor at least this
+  // many bytes, and the host posts "stalled".
+  stallAt?: number;
+  // The install waits this long before feeding each piece of an archive.
+  pieceDelayMs?: number;
   // Sealing the engine's user data throws.
   sealThrows?: boolean;
 }
+
+// What the test build posts beside the host's own messages.
+export type TestMessage =
+  // A request for the lock wasn't granted at once, so the host waits.
+  | { type: "waiting"; lock: string }
+  // The install stopped where TestInit.stallAt said, after fed bytes.
+  | { type: "stalled"; bytes: number };
+
+export type Message = HostMessage | TestMessage;

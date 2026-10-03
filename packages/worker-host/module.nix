@@ -37,6 +37,7 @@
             "memstress.c"
             "fsync.c"
             "bench.c"
+            "tree.c"
           ];
 
       sidesDir = pkgs.runCommand "ibus-web-worker-host-test-sides" { } ''
@@ -92,6 +93,7 @@
             sides = "${sidesDir}";
             constants = "${constants}/constants.json";
             errno = "${runtime.nodeHarness}/errno.json";
+            archives = "${runtime.installArchives}";
             pool = {
               inherit (runtime.threadPool) size planned lowWater;
               inherit (runtime.threadPool.shares) engine glib;

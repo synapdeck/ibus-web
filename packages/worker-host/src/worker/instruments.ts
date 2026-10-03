@@ -15,8 +15,6 @@ export interface InstrumentReply {
 }
 
 export interface Instruments {
-  // More locks for the host to hold beside its own, and let go of with them.
-  readonly moreLocks: () => readonly string[];
   // Before the host looks for IndexedDB.
   readonly beforeProbe: () => void;
   // Before the runtime's module is imported, which under Node replaces the
@@ -26,6 +24,11 @@ export interface Instruments {
   readonly storageMounted: (storage: MountedStorage) => void;
   // Runs the user backend's seal.
   readonly seal: (seal: () => void) => void;
+  // A request for the lock wasn't granted at once, so the host waits.
+  readonly waiting: (lock: string) => void;
+  // Before the next piece of the engine's data, fed bytes into the install,
+  // reaches the extractor; the install waits for a promise.
+  readonly beforePiece: (fed: number) => Promise<void> | undefined;
   // Answers a request itself, or undefined to have the runtime dispatch it.
   // A promise has the host leave its request loop until it settles.
   readonly serve: (request: Uint8Array) => InstrumentReply | Promise<InstrumentReply> | undefined;
@@ -39,12 +42,13 @@ export interface Instruments {
 }
 
 const none: Instruments = {
-  moreLocks: () => [],
   beforeProbe: () => {},
   beforeRuntime: () => {},
   runtimeStarted: () => {},
   storageMounted: () => {},
   seal: (seal) => seal(),
+  waiting: () => {},
+  beforePiece: () => undefined,
   serve: () => undefined,
   requestServed: () => {},
   eventLoopTurn: () => {},

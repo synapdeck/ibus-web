@@ -10,13 +10,22 @@
 // section, leaving it only to top the pthread pool up. Only this Worker, and
 // the relay it starts, touch the runtime's memory.
 
-import { Cause, Context, Data, Effect, Exit, Layer, Logger, type Scope } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { engineDir, engineWriterLock } from "../shared/naming.ts";
 import { controlViews, postCrash, postReply, Word, type ControlViews } from "../shared/control.ts";
 import { WASM_PAGE, type HostInit, type HostMessage } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
+import {
+  describe,
+  RelayFailed,
+  runtimeCallFailed,
+  runtimeFinalizer,
+  RuntimeStopped,
+  StartupFailed,
+  startupFailed,
+} from "./failure.ts";
+import { provideData } from "./install/provide.ts";
 import { Held } from "./storage/held.ts";
-import { requestLock } from "./storage/locks.ts";
 import { mount, type MountedStorage } from "./storage/mount.ts";
 import { memoryFor, planStorage, type StoragePlan } from "./storage/plan.ts";
 import type { RelayInit } from "./forward.ts";
@@ -28,7 +37,6 @@ import {
   checkMemory,
   loadSides,
   requireRuntime,
-  RuntimeRefused,
   type CreateRuntime,
   type Runtime,
   type RuntimeHandle,
@@ -43,43 +51,9 @@ const SpawnWorker: typeof Worker = globalThis.Worker;
 // afterwards, as an uncaught error.
 const UNWIND = "unwind";
 
-// trapped: a call into the runtime threw, so the runtime can't be called
-// again.
-export class StartupFailed extends Data.TaggedError("StartupFailed")<{
-  readonly message: string;
-  readonly trapped?: boolean;
-}> {}
-
-// A call into the runtime threw: a trap, an abort, or Emscripten unwinding
-// the host for another thread's crash.
-export class RuntimeStopped extends Data.TaggedError("RuntimeStopped")<{ readonly error: unknown }> {}
-
-export class RelayFailed extends Data.TaggedError("RelayFailed")<{ readonly message: string }> {}
-
-// In a browser, a thread's uncaught error reaches this thread as the
-// ErrorEvent its Worker fired, which Emscripten rethrows.
-export const describe = (error: unknown): string => {
-  if (error instanceof Error) return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
-  if (typeof ErrorEvent === "function" && error instanceof ErrorEvent)
-    return `${error.message} (${error.filename}:${error.lineno})`;
-  return String(error);
-};
-
 // The promise's value, or fallback if it takes longer than ms.
 const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
   Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
-
-// A failure outside the runtime: importing or instantiating it, the locks,
-// the probe.
-const startupFailed = (error: unknown): StartupFailed => new StartupFailed({ message: describe(error) });
-
-// A failure in a block that calls into the runtime. Only a failure the host
-// raised itself, an error the runtime returned or a refusal before a call,
-// leaves the runtime fit to call; whatever else was thrown, a trap, an
-// abort, a WebAssembly exception, a stack overflow, an error in Emscripten's
-// glue, an exit or an unwind, may have come from inside it.
-export const runtimeCallFailed = (error: unknown): StartupFailed =>
-  new StartupFailed({ message: describe(error), trapped: !(error instanceof RuntimeRefused) });
 
 // What a Worker's error event carries, as far as the host reads it.
 export interface UncaughtError {
@@ -219,10 +193,6 @@ export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWo
     const instruments = yield* Instruments;
     const held = new Held();
     yield* Effect.addFinalizer(() => Effect.sync(() => held.releaseAll()));
-    for (const name of instruments.moreLocks()) {
-      const lock = yield* Effect.tryPromise({ try: () => requestLock(name, {}), catch: startupFailed });
-      if (lock !== null) held.add(lock);
-    }
     instruments.beforeProbe();
     const plan = yield* Effect.tryPromise({
       try: () => planStorage(init.storage, init.engine, init.constants.idbReadOnly, held),
@@ -366,38 +336,21 @@ export const relayLayer: Layer.Layer<Relay, StartupFailed, HostWorker | HostRunt
   }),
 );
 
-// Whether the runtime may still be called once a scope closes with exit:
-// not once a call into it has thrown, since after a trap its memory can't
-// be trusted.
-export const runtimeIntact = (exit: Exit.Exit<unknown, unknown>): boolean =>
-  Exit.isSuccess(exit) ||
-  !exit.cause.reasons.some(
-    (reason) =>
-      Cause.isFailReason(reason) &&
-      (reason.error instanceof RuntimeStopped ||
-        (reason.error instanceof StartupFailed && reason.error.trapped === true)),
-  );
-
-// Registers a finalizer that calls into the runtime: it runs only while the
-// runtime is intact.
-export const runtimeFinalizer = <R>(
-  release: Effect.Effect<void, never, R>,
-): Effect.Effect<void, never, R | Scope.Scope> =>
-  Effect.addFinalizer((exit) => (runtimeIntact(exit) ? release : Effect.void));
-
-// The storage's mounts: the engine's own files at its directory. The
+// The storage's mounts: the engine's own files at its directory, and its
+// data, installed first if need be, at the data directory inside it. The
 // backends' threads and connections end with the Worker, since WasmFS never
 // destroys a backend; released while the runtime can still be called, it
-// seals a read-write user backend, which lets the writer lock go.
+// seals the read-write backends, which lets the writer lock go.
 export class Storage extends Context.Service<Storage, MountedStorage>()("@ibus-web/worker-host/Storage") {}
 
-export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | HostRuntime | PlannedStorage> =
+export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | HostRuntime | PlannedStorage | HostConfig> =
   Layer.effect(
     Storage,
     Effect.gen(function* () {
       const { init, env } = yield* HostWorker;
       const { handle } = yield* HostRuntime;
       const { plan, held } = yield* PlannedStorage;
+      const config = yield* HostConfig;
       const instruments = yield* Instruments;
       const mounted = yield* Effect.tryPromise({
         try: () => mount(handle, plan, engineDir(init.engine)),
@@ -426,8 +379,19 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
           state: "read-only",
           message: `another instance of engine ${init.engine.name} holds ${engineWriterLock(init.engine)}; this one's user data refuses changes${plan.mount === "node" ? " (in browsers; the Node backend has no read-only mode)" : ""}`,
         });
-      instruments.storageMounted(mounted);
-      return mounted;
+      const data = yield* provideData({
+        handle,
+        engine: init.engine,
+        plan,
+        idbReadOnly: init.constants.idbReadOnly,
+        held,
+        config,
+        instruments,
+        post: env.post,
+      });
+      const storage: MountedStorage = { ...mounted, closed: () => mounted.closed() || data.closed() };
+      instruments.storageMounted(storage);
+      return storage;
     }),
   );
 

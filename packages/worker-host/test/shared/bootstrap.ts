@@ -4,7 +4,8 @@
 // Starting a Worker host: its one message, then its "ready" or why it
 // didn't start.
 
-import type { HostInit, HostMessage } from "../../src/shared/messages.ts";
+import type { HostInit } from "../../src/shared/messages.ts";
+import type { Message } from "./testing.ts";
 
 // A Worker's message or error event, as far as the bootstrap reads it.
 export interface HostEvent {
@@ -20,23 +21,21 @@ export interface HostWorker {
   postMessage(message: unknown): void;
 }
 
-export interface StartedHost {
-  startupMs: number;
-  // The host's messages after "ready", such as a crash report or a log
-  // record, as the caller's event loop receives them.
-  messages: HostMessage[];
-}
-
-// Rejects if the host reports an error or its Worker fails before "ready".
-export const startHost = <Wasm, Test>(worker: HostWorker, init: HostInit<Wasm, Test>): Promise<StartedHost> => {
-  const messages: HostMessage[] = [];
+// Resolves with the host's startup time once it is ready; rejects if the
+// host reports an error or its Worker fails before then. Every other message
+// is added to messages as the caller's event loop receives it.
+export const startHost = <Wasm, Test>(
+  worker: HostWorker,
+  init: HostInit<Wasm, Test>,
+  messages: Message[],
+): Promise<number> => {
   let started = false;
-  const ready = new Promise<StartedHost>((resolve, reject) => {
+  const ready = new Promise<number>((resolve, reject) => {
     worker.addEventListener("message", ({ data }) => {
-      const message = data as HostMessage;
+      const message = data as Message;
       if (message.type === "ready") {
         started = true;
-        resolve({ startupMs: message.startupMs, messages });
+        resolve(message.startupMs);
       } else if (message.type === "error" && !started) reject(new Error(`host: ${message.message}`));
       else messages.push(message);
     });

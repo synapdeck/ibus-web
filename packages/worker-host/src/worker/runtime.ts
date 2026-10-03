@@ -32,6 +32,10 @@ export interface Runtime {
   _ibusweb_wait(seen: number, timeoutMs: number): number;
   _ibusweb_load_module(path: number, moduleOut: number): number;
   _ibusweb_dispatch(request: number, requestLen: number, reply: number, replyCap: number): number;
+  _ibusweb_install_begin(dir: number, installOut: number): number;
+  _ibusweb_install_feed(install: number, data: number, len: number): number;
+  _ibusweb_install_count(install: number, files: number, bytes: number): void;
+  _ibusweb_install_end(install: number): number;
   // Emscripten's own pthread pool, which the runtime exports for the host to
   // top it up.
   PThread: EmscriptenPool;

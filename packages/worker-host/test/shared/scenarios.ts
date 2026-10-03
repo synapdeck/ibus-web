@@ -48,6 +48,7 @@ const opNames = [
   "benchWrite",
   "benchRead",
   "benchAppend",
+  "listTree",
 ] as const;
 
 export type Ops = Readonly<Record<(typeof opNames)[number], number>>;

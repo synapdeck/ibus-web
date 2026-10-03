@@ -104,6 +104,35 @@ export type Mount = "none" | "node" | "indexeddb" | "memory";
 // under it, so every later call that reaches the database fails with EIO.
 export type StorageState = "ephemeral" | "read-only" | "closed";
 
+// How the host found the engine's data at start: "installed", it installed
+// it; "present", the version's data was installed already. files and bytes
+// are the regular files and the bytes of file data the install wrote, as
+// its marker records them. lockWaitMs is how long the host waited for the
+// version's install lock; lockedAt and releasedAt, when it took and let go
+// of it, in Date.now() milliseconds, which hosts share; installMs, from
+// the first lock request to the report. A mount in memory installs at
+// every start, with no lock.
+export interface InstallReport {
+  state: "installed" | "present";
+  version: string;
+  files: number;
+  bytes: number;
+  lockWaitMs: number;
+  lockedAt: number;
+  releasedAt: number;
+  installMs: number;
+}
+
+// What the host did with other versions' data once its own was mounted:
+// the encoded versions it deleted, those another host still uses, and why
+// it couldn't look or delete, if it couldn't. Collecting never fails a
+// start.
+export interface CollectReport {
+  removed: string[];
+  inUse: string[];
+  error?: string;
+}
+
 // Effect's log levels, by name.
 export type LogLevel = "All" | "Fatal" | "Error" | "Warn" | "Info" | "Debug" | "Trace" | "None";
 
@@ -111,6 +140,8 @@ export type HostMessage =
   // The host serves requests from here on.
   | { type: "ready"; startupMs: number }
   | { type: "storage"; state: StorageState; message: string }
+  | ({ type: "install" } & InstallReport)
+  | ({ type: "collect" } & CollectReport)
   | { type: "log"; level: LogLevel; message: string }
   // The host failed to start; it serves nothing.
   | { type: "error"; message: string }

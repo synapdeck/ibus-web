@@ -10,14 +10,22 @@ import { inject } from "vitest";
 import { commands } from "vitest/browser";
 import { createControl } from "../../src/shared/control.ts";
 import type { EngineManifest, HostInit, SideModule } from "../../src/shared/messages.ts";
-import { engineDatabase } from "../../src/shared/naming.ts";
+import { engineDatabase, engineDataDatabase, engineDataDatabasePrefix } from "../../src/shared/naming.ts";
 import { LOCK_RELEASE_LIMIT_MS } from "../shared/locks.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
-import { hostUrlFor, startingAsAPage, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
+import {
+  hostUrlFor,
+  launchingAsAPage,
+  startFrom,
+  type Harness,
+  type Launch,
+  type LaunchedHost,
+  type RunningHost,
+} from "../shared/harness.ts";
 import { locksFrom, type WebLocks } from "../shared/locks.ts";
 import { printedFrom } from "../shared/printed.ts";
-import type { TestInit } from "../shared/testing.ts";
+import type { Message, TestInit } from "../shared/testing.ts";
 import "./commands.ts";
 
 // A spinning page gives up on a reply after this long, twenty times the
@@ -62,6 +70,23 @@ const upgradeDatabase = async (engine: EngineManifest): Promise<number> => {
   return performance.now() - startedAt;
 };
 
+// Writes what isn't a marker where the version's marker is, as a write cut
+// short would leave it.
+const tearMarker = async (engine: EngineManifest): Promise<void> => {
+  const db = await opened(indexedDB.open(engineDataDatabase(engine)));
+  try {
+    const tx = db.transaction("meta", "readwrite");
+    const done = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error);
+    });
+    tx.objectStore("meta").put('{"vers', "installed");
+    await done;
+  } finally {
+    db.close();
+  }
+};
+
 // Deletes the database, once every connection to it has closed: a
 // terminated host's close as its Worker ends.
 const deleteDatabase = (name: string): Promise<void> =>
@@ -101,9 +126,11 @@ export const browserHarness = async (): Promise<Harness> => {
   const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
   // The databases hosts were given, which outlive them.
   const databases = new Set<string>();
-  const start = async (options: HostOptions): Promise<RunningHost> => {
-    if (options.storage?.kind === "browser" && options.engine !== undefined)
+  const launch: Launch = (options, messages: Message[]): LaunchedHost => {
+    if (options.storage?.kind === "browser" && options.engine !== undefined) {
       databases.add(engineDatabase(options.engine));
+      if (options.engine.version !== "") databases.add(engineDataDatabase(options.engine));
+    }
     const control = createControl();
     const worker = new Worker(hostUrlFor(data, options), {
       type: "module",
@@ -116,23 +143,26 @@ export const browserHarness = async (): Promise<Harness> => {
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
       ...options.test,
     };
-    const init: HostInit<WebAssembly.Module, TestInit> = {
-      runtimeUrl: new URL(options.runtime.url, location.href).href,
-      wasm:
-        options.wasm === undefined
-          ? await runtimeModule(options.runtime.url)
-          : await WebAssembly.compile(new Uint8Array(options.wasm)),
-      memory: options.memory ?? { initial: minimum, maximum: minimum },
-      control,
-      sides: [...sides, ...(options.moreSides ?? [])],
-      engine: options.engine ?? { name: "test", version: "0", data: [] },
-      storage: options.storage ?? { kind: "none" },
-      poolLowWater: data.pool.lowWater,
-      constants: data.constants,
-      test,
-    };
-    try {
-      const { startupMs, messages } = await startHost(worker, init);
+    // A browser's terminate() returns before the Worker has stopped;
+    // nothing here waits for that.
+    const terminate = async () => worker.terminate();
+    const ready = (async (): Promise<RunningHost> => {
+      const init: HostInit<WebAssembly.Module, TestInit> = {
+        runtimeUrl: new URL(options.runtime.url, location.href).href,
+        wasm:
+          options.wasm === undefined
+            ? await runtimeModule(options.runtime.url)
+            : await WebAssembly.compile(new Uint8Array(options.wasm)),
+        memory: options.memory ?? { initial: minimum, maximum: minimum },
+        control,
+        sides: [...sides, ...(options.moreSides ?? [])],
+        engine: options.engine ?? { name: "test", version: "0", data: [] },
+        storage: options.storage ?? { kind: "none" },
+        poolLowWater: data.pool.lowWater,
+        constants: data.constants,
+        test,
+      };
+      const startupMs = await startHost(worker, init, messages);
       return {
         client: blockingClient(control, messages, {
           ...clock,
@@ -143,22 +173,33 @@ export const browserHarness = async (): Promise<Harness> => {
         instrumented: options.released !== true,
         startupMs,
         messages,
-        // A browser's terminate() returns before the Worker has stopped;
-        // nothing here waits for that.
-        terminate: async () => worker.terminate(),
+        terminate,
       };
-    } catch (error) {
-      worker.terminate();
-      throw error;
-    }
+    })();
+    return { messages, ready, terminate };
   };
+  const launchAsAPage = launchingAsAPage(launch, locks);
   return {
     ...clock,
     data,
     sides,
-    start: startingAsAPage(start, locks),
+    launch: launchAsAPage,
+    start: startFrom(launchAsAPage),
     locks,
     storage: () => ({ kind: "browser" }),
+    versions: async (engine) => {
+      const prefix = engineDataDatabasePrefix(engine);
+      return (await indexedDB.databases()).flatMap(({ name }) =>
+        name?.startsWith(prefix) === true ? [name.slice(prefix.length)] : [],
+      );
+    },
+    tearMarker,
+    // A connection without a versionchange handler stays open when another
+    // asks it to close.
+    holdDataDatabase: async (engine) => {
+      const db = await opened(indexedDB.open(engineDataDatabase(engine)));
+      return () => db.close();
+    },
     storageMount: "indexeddb",
     withoutIndexedDB: { withoutIndexedDB: true },
     upgradeDatabase,

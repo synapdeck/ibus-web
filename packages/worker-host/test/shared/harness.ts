@@ -5,16 +5,10 @@
 // to run them against.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import type {
-  EngineManifest,
-  EngineStorage,
-  HostMessage,
-  RuntimeConstants,
-  SideModule,
-} from "../../src/shared/messages.ts";
+import type { EngineManifest, EngineStorage, RuntimeConstants, SideModule } from "../../src/shared/messages.ts";
 import { engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client, Clock } from "./client.ts";
-import type { TestInit } from "./testing.ts";
+import type { Message, TestInit } from "./testing.ts";
 import type { Locks } from "./locks.ts";
 import type { Printed } from "./printed.ts";
 
@@ -31,6 +25,17 @@ export interface RuntimeBuild {
   name: "asserting" | "released";
   // ibus-runtime.js, as this environment loads it; ibus-runtime.wasm is
   // beside it.
+  url: string;
+}
+
+// A test archive of engine data as its build describes it, and where hosts
+// fetch it: its file name, a version derived from its bytes, its size
+// unpacked, and the listing of the tree it installs, as list-tree prints it.
+export interface TestArchive {
+  archive: string;
+  version: string;
+  size: number;
+  listing: string;
   url: string;
 }
 
@@ -55,6 +60,9 @@ export interface TestData {
   // The memory workloads: threads alive at once, mem-stress's rounds per
   // thread and glib-stress's lock takes per thread.
   stress: { threads: number; rounds: number; iterations: number };
+  // The engine's data, the next version's, which drops a file and turns
+  // another into a directory, and a URL where no archive is.
+  archives: { tree: TestArchive; upgrade: TestArchive; missing: string };
 }
 
 export interface HostOptions {
@@ -84,14 +92,29 @@ export interface RunningHost {
   // Whether the host is the test build, which answers HostOp requests.
   instrumented: boolean;
   startupMs: number;
-  messages: HostMessage[];
+  // Every message but "ready", as this thread's event loop receives it.
+  messages: Message[];
   terminate(): Promise<void>;
 }
+
+// A host started without waiting for it to be ready.
+export interface LaunchedHost {
+  messages: readonly Message[];
+  // Rejects with why the host didn't start, leaving its Worker alive, as a
+  // failed host stays to say why.
+  ready: Promise<RunningHost>;
+  terminate(): Promise<void>;
+}
+
+// Launches a host whose messages go to messages.
+export type Launch = (options: HostOptions, messages: Message[]) => LaunchedHost;
 
 export interface Harness extends Clock {
   data: TestData;
   // The test side modules, which every host loads.
   sides: readonly SideModule[];
+  launch(options: HostOptions): LaunchedHost;
+  // A host once ready; one that fails to start is terminated.
   start(options: HostOptions): Promise<RunningHost>;
   // The storage that outlives a host, which every host for the engine in
   // this environment shares: in a browser, the engine's IndexedDB
@@ -108,6 +131,21 @@ export interface Harness extends Clock {
   // that took in milliseconds. Browsers only.
   upgradeDatabase?: (engine: EngineManifest) => Promise<number>;
   locks: Locks;
+  // The versions, encoded, whose data the engine's storage keeps.
+  versions(engine: EngineManifest): Promise<string[]>;
+  // Leaves the marker of the engine's version as a write cut short would: a
+  // file holding part of it under Node, a value that isn't one in
+  // IndexedDB.
+  tearMarker(engine: EngineManifest): Promise<void>;
+  // Leaves <version>.marking beside the engine's data, as a host that
+  // stopped while writing a marker would. Node only.
+  strayMarking?: (engine: EngineManifest, version: string) => Promise<void>;
+  // The names under the engine's data directory on the host, sorted. Node
+  // only.
+  dataEntries?: (engine: EngineManifest) => Promise<string[]>;
+  // Opens the database of the engine's version's data on a connection that
+  // ignores requests to close; resolves with what closes it. Browsers only.
+  holdDataDatabase?: (engine: EngineManifest) => Promise<() => void>;
   // Removes the storage the hosts left behind, once none runs.
   cleanUp(): Promise<void>;
   printed: Printed;
@@ -123,41 +161,59 @@ declare module "vitest" {
   }
 }
 
-const reportedReadOnly = (messages: readonly HostMessage[]): boolean =>
+const reportedReadOnly = (messages: readonly Message[]): boolean =>
   messages.some((message) => message.type === "storage" && message.state === "read-only");
 
-// Starts hosts as a page does. Chromium lets go of the locks of a Worker
+// Launches hosts as a page does. Chromium lets go of the locks of a Worker
 // terminated while it sleeps in Atomics.wait() only some 2 s after
 // terminate(), so a host started at once for the same engine would find the
 // writer lock taken and run read-only for good. So once it has terminated a
-// host with storage that didn't report storage: read-only, it starts that
-// engine's next host only when the writer lock is free, or once the wait's
-// bound has passed, when another host holds it.
-export const startingAsAPage = (
-  start: (options: HostOptions) => Promise<RunningHost>,
-  locks: Locks,
-): ((options: HostOptions) => Promise<RunningHost>) => {
+// host with storage that didn't report storage: read-only, or seen one fail
+// to start, it starts that engine's next host only when the writer lock is
+// free, or once the wait's bound has passed, when another host holds it.
+export const launchingAsAPage = (launch: Launch, locks: Locks): ((options: HostOptions) => LaunchedHost) => {
   const releasing = new Map<string, Promise<unknown>>();
-  return async (options) => {
+  return (options) => {
+    const messages: Message[] = [];
     const { engine, storage } = options;
-    if (engine === undefined || storage === undefined || storage.kind === "none") return start(options);
-    await releasing.get(engine.name);
+    if (engine === undefined || storage === undefined || storage.kind === "none") return launch(options, messages);
     const released = (): void => {
       releasing.set(engine.name, locks.released(engineWriterLock(engine)));
     };
-    const host = await start(options).catch((error: unknown) => {
-      released();
-      throw error;
-    });
-    return {
-      ...host,
-      terminate: async () => {
-        await host.terminate();
-        if (!reportedReadOnly(host.messages)) released();
-      },
+    let launched: LaunchedHost | undefined;
+    let terminated = false;
+    const terminate = async (): Promise<void> => {
+      terminated = true;
+      if (launched === undefined) return;
+      await launched.terminate();
+      if (!reportedReadOnly(messages)) released();
     };
+    const ready = (async () => {
+      await releasing.get(engine.name);
+      if (terminated) throw new Error("terminated before it started");
+      launched = launch(options, messages);
+      const host = await launched.ready.catch((error: unknown) => {
+        released();
+        throw error;
+      });
+      return { ...host, terminate };
+    })();
+    return { messages, ready, terminate };
   };
 };
+
+// Starts the host and waits for it to be ready; terminates one that fails.
+export const startFrom =
+  (launch: (options: HostOptions) => LaunchedHost) =>
+  async (options: HostOptions): Promise<RunningHost> => {
+    const launched = launch(options);
+    try {
+      return await launched.ready;
+    } catch (error) {
+      await launched.terminate();
+      throw error;
+    }
+  };
 
 // The host's script for options.
 export const hostUrlFor = (data: TestData, options: HostOptions): string => {

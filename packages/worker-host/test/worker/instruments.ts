@@ -10,7 +10,7 @@ import type { InstrumentReply, Instruments } from "../../src/worker/instruments.
 import { topUp } from "../../src/worker/loop.ts";
 import type { RuntimeHandle } from "../../src/worker/runtime.ts";
 import type { MountedStorage } from "../../src/worker/storage/mount.ts";
-import { HostOp, type HostStats, type TestInit } from "../shared/testing.ts";
+import { HostOp, type HostStats, type TestInit, type TestMessage } from "../shared/testing.ts";
 
 // Counts the Workers Emscripten creates, through the global Worker class.
 // Under Node, Emscripten first assigns worker_threads' Worker to the global,
@@ -53,7 +53,13 @@ const yieldToEventLoop = (ms: number): Promise<void> => new Promise((resolve) =>
 
 const encoder = new TextEncoder();
 
-export const makeInstruments = (test: TestInit, config: HostConfigValues): Instruments => {
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const makeInstruments = (
+  test: TestInit,
+  config: HostConfigValues,
+  post: (message: TestMessage) => void,
+): Instruments => {
   let workers = { created: 0, counting: false };
   let runtime: RuntimeHandle | undefined;
   let storage: MountedStorage = { mount: "none", closed: () => false };
@@ -89,7 +95,6 @@ export const makeInstruments = (test: TestInit, config: HostConfigValues): Instr
     };
   };
   return {
-    moreLocks: () => test.moreLocks ?? [],
     beforeProbe: () => {
       if (test.withoutIndexedDB === true) withholdIndexedDB();
     },
@@ -99,6 +104,14 @@ export const makeInstruments = (test: TestInit, config: HostConfigValues): Instr
     seal: (seal) => {
       if (test.sealThrows === true) throw new Error("the seal fails on purpose");
       seal();
+    },
+    waiting: (lock) => post({ type: "waiting", lock }),
+    beforePiece: (fed) => {
+      if (test.stallAt !== undefined && fed >= test.stallAt) {
+        post({ type: "stalled", bytes: fed });
+        return new Promise<void>(() => {});
+      }
+      return test.pieceDelayMs === undefined ? undefined : sleep(test.pieceDelayMs);
     },
     beforeRuntime: () => {
       workers = trackWorkers();

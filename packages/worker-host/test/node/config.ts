@@ -6,19 +6,22 @@
 //
 //   { "environments": ["node", "chromium", "firefox"],
 //     "runtimes": { "asserting": DIR, "released": DIR },
-//     "sides": DIR, "constants": FILE, "errno": FILE,
+//     "sides": DIR, "constants": FILE, "errno": FILE, "archives": DIR,
 //     "pool": { "size": N, "planned": N, "engine": N, "glib": N, "lowWater": N },
 //     "stress": { "threads": N, "rounds": N, "iterations": N } }
 //
 // Each runtime DIR holds ibus-runtime.js and ibus-runtime.wasm; sides holds
 // the test side modules' .wasm files; constants is the build's JSON of the
-// test side modules' opcodes and the runtime's values. Under Node the hosts
-// load all of it from disk; in a browser, from this server, as it is on
-// disk, as are the host's own scripts from dist/.
+// test side modules' opcodes and the runtime's values; archives holds the
+// test archives of engine data and tree.json, which describes them. Under
+// Node the hosts load all of it from disk but the archives, which they
+// fetch from a server of this process's own; in a browser, from this
+// server, as it is on disk, as are the host's own scripts from dist/.
 
 import { copyFileSync, createReadStream, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { basename, extname, join, resolve as resolvePath, sep } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
@@ -26,7 +29,7 @@ import { pipeline } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { playwright } from "@vitest/browser-playwright";
 import type { Plugin, TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
-import type { BuildConstants, TestData } from "../shared/harness.ts";
+import type { BuildConstants, TestArchive, TestData } from "../shared/harness.ts";
 import { commands } from "./commands.ts";
 
 const environments = ["node", "chromium", "firefox"] as const;
@@ -38,6 +41,7 @@ interface Manifest {
   sides: string;
   constants: string;
   errno: string;
+  archives: string;
   pool: TestData["pool"];
   stress: TestData["stress"];
 }
@@ -67,11 +71,13 @@ const types: Readonly<Record<string, string>> = {
   ".js": "text/javascript; charset=utf-8",
   ".wasm": "application/wasm",
   ".map": "application/json",
+  ".tar": "application/x-tar",
 };
 
-// Serves the directories by name under the prefix, as they are on disk:
-// Vite would rewrite their module scripts.
-const serveRaw = (dirs: Readonly<Record<string, string>>): Plugin => {
+type Handler = (request: IncomingMessage, response: ServerResponse, next: () => void) => void;
+
+// Serves the directories by name under the prefix, as they are on disk.
+const rawHandler = (dirs: Readonly<Record<string, string>>): Handler => {
   const resolve = (pathname: string): string | undefined => {
     const [name, ...rest] = pathname.slice(prefix.length).split("/");
     const dir = dirs[name ?? ""];
@@ -112,6 +118,13 @@ const serveRaw = (dirs: Readonly<Record<string, string>>): Plugin => {
       () => fail(response, 404),
     );
   };
+  return handle;
+};
+
+// Serves the directories through Vite's server, which would rewrite their
+// module scripts.
+const serveRaw = (dirs: Readonly<Record<string, string>>): Plugin => {
+  const handle = rawHandler(dirs);
   return {
     name: "ibus-web-worker-host",
     configureServer: (server) => {
@@ -150,8 +163,28 @@ const dropSkippingValidation = (): void => {
 // as a browser would, unless IBUS_WEB_CHROMIUM_SANDBOX=0.
 const chromiumSandbox = process.env["IBUS_WEB_CHROMIUM_SANDBOX"] !== "0";
 
-export const workerHostConfig = (): ViteUserConfig => {
+// The archives' description, as their build writes it.
+type ArchiveDescription = Omit<TestArchive, "url"> & { upgrade: Omit<TestArchive, "url"> };
+
+// Serves the directories by name under the prefix to the hosts under Node,
+// which can't fetch a file: URL, from a server that stays up for as long as
+// the tests run; resolves with its origin.
+const serveToNode = async (dirs: Readonly<Record<string, string>>): Promise<string> => {
+  const handle = rawHandler(dirs);
+  const server = createServer((request, response) =>
+    handle(request, response, () => {
+      response.writeHead(404);
+      response.end();
+    }),
+  );
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  server.unref();
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+};
+
+export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const manifest = readManifest();
+  const { upgrade, ...tree } = readJson<ArchiveDescription>(join(manifest.archives, "tree.json"));
   const sideFiles = readdirSync(manifest.sides)
     .filter((file) => file.endsWith(".wasm"))
     .sort();
@@ -162,7 +195,7 @@ export const workerHostConfig = (): ViteUserConfig => {
   copyFileSync(join(dist, "worker/index.js"), join(failing, "index.js"));
   copyFileSync(join(dist, "test/worker/failing-relay.js"), join(failing, "relay.js"));
   const testData = (
-    url: (dir: "asserting" | "released" | "sides" | "dist" | "failing", file: string) => string,
+    url: (dir: "asserting" | "released" | "sides" | "dist" | "failing" | "archives", file: string) => string,
   ): TestData => ({
     runtimes: (["asserting", "released"] as const).map((name) => ({ name, url: url(name, "ibus-runtime.js") })),
     sides: sideFiles.map((file) => ({ name: basename(file, ".wasm"), url: url("sides", file) })),
@@ -173,18 +206,30 @@ export const workerHostConfig = (): ViteUserConfig => {
     errno: readJson<Record<string, number>>(manifest.errno),
     pool: manifest.pool,
     stress: manifest.stress,
+    archives: {
+      tree: { ...tree, url: url("archives", tree.archive) },
+      upgrade: { ...upgrade, url: url("archives", upgrade.archive) },
+      missing: url("archives", "missing.tar"),
+    },
   });
-  const dirs = { ...manifest.runtimes, sides: manifest.sides, dist, failing };
+  const dirs = { ...manifest.runtimes, sides: manifest.sides, dist, failing, archives: manifest.archives };
   const browsers = manifest.environments.filter((environment) => environment !== "node");
   if (browsers.length > 0) dropSkippingValidation();
   const projects: TestProjectInlineConfiguration[] = [];
-  if (manifest.environments.includes("node"))
+  const nodeOrigin = manifest.environments.includes("node")
+    ? await serveToNode({ archives: manifest.archives })
+    : undefined;
+  if (nodeOrigin !== undefined)
     projects.push({
       extends: true,
       test: {
         name: "node",
         include: ["test/node/**/*.test.ts"],
-        provide: { workerHost: testData((dir, file) => pathToFileURL(join(dirs[dir], file)).href) },
+        provide: {
+          workerHost: testData((dir, file) =>
+            dir === "archives" ? `${nodeOrigin}${prefix}${dir}/${file}` : pathToFileURL(join(dirs[dir], file)).href,
+          ),
+        },
       },
     });
   if (browsers.length > 0)

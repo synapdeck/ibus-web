@@ -8,16 +8,11 @@
 
 import { expect } from "vitest";
 import type { Reply } from "../../src/shared/control.ts";
-import {
-  memoryWithData,
-  WASM_PAGE,
-  type EngineManifest,
-  type HostMessage,
-  type StorageState,
-} from "../../src/shared/messages.ts";
-import { engineDir, engineWriterLock } from "../../src/shared/naming.ts";
+import { memoryWithData, type EngineManifest, type StorageState } from "../../src/shared/messages.ts";
+import { encodeComponent, engineDataLock, engineDir, engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";
-import type { Harness, HostOptions, RunningHost, RuntimeBuild } from "./harness.ts";
+import type { Harness, HostOptions, RunningHost, RuntimeBuild, TestArchive } from "./harness.ts";
+import type { Message } from "./testing.ts";
 import { LOCK_RELEASE_LIMIT_MS } from "./locks.ts";
 import {
   call32,
@@ -38,15 +33,24 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const utf8 = (text: string): Uint8Array => encoder.encode(text);
 
-// An engine of its own for a scenario on a runtime, named apart from those
-// of any earlier run in the same browser. Its data is never fetched here:
-// only its size, which a mount in memory adds to the runtime's memory, is
-// read, and it ends partway into a page.
-export const engineFor = (scenario: string, runtime: RuntimeBuild): EngineManifest => ({
-  name: `${scenario}-${runtime.name}-${Math.random().toString(36).slice(2, 8)}`,
-  version: "1",
-  data: [{ url: "https://data.invalid/data.tar", path: "/data", size: 3 * WASM_PAGE + 1 }],
+// Where the test engines expect their data.
+export const DATA_PATH = "/usr/share/test";
+
+// The engine with the archive as its data, and the archive's version as its
+// own.
+export const withData = (engine: EngineManifest, { version, url, size }: TestArchive): EngineManifest => ({
+  ...engine,
+  version,
+  data: [{ url, path: DATA_PATH, size }],
 });
+
+// An engine of its own for a scenario on a runtime, named apart from those
+// of any earlier run in the same browser, with the test archive as its data.
+export const engineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): EngineManifest =>
+  withData(
+    { name: `${scenario}-${runtime.name}-${Math.random().toString(36).slice(2, 8)}`, version: "", data: [] },
+    h.data.archives.tree,
+  );
 
 // A host for the engine on the storage that outlives it.
 export const storedHost = (
@@ -56,13 +60,13 @@ export const storedHost = (
   more: Partial<HostOptions> = {},
 ) => h.start({ runtime, engine, storage: h.storage(engine), ...more });
 
-const storageEvents = (messages: readonly HostMessage[]): { state: StorageState; message: string }[] =>
+const storageEvents = (messages: readonly Message[]): { state: StorageState; message: string }[] =>
   messages.flatMap((message) =>
     message.type === "storage" ? [{ state: message.state, message: message.message }] : [],
   );
 
 // A read-file reply: the file's size, then its contents.
-const replyFile = ({ ret, bytes }: Reply): { status: number; text?: string } => {
+export const replyFile = ({ ret, bytes }: Reply): { status: number; text?: string } => {
   if (ret < 0) return { status: ret };
   const status = new DataView(bytes.buffer, bytes.byteOffset, 4).getInt32(0, true);
   return status < 0 ? { status } : { status, text: decoder.decode(bytes.subarray(4)) };
@@ -264,8 +268,8 @@ export const storageCosts = async (h: Harness, { client }: RunningHost, engine: 
   ]);
 };
 
-// Locks a host takes beside its own, as an engine's data locks would be.
-const otherLock = (engine: EngineManifest): string => `ibus-web-test:other:${engine.name}`;
+// The lock a host holds beside the writer lock for as long as it runs.
+const dataLock = (engine: EngineManifest): string => engineDataLock(engine, encodeComponent(engine.version));
 
 // Polls until the lock is free, for at most a second: a lock a host lets go
 // of reaches the lock manager a moment later.
@@ -282,7 +286,7 @@ const freeSoon = async (h: Harness, name: string): Promise<boolean> => {
 // whether the writer lock is. A page's own wait for the writer lock, once it
 // has seen a host fail, may hold it a moment.
 const locksAfter = async (h: Harness, engine: EngineManifest): Promise<{ writerFree: boolean }> => {
-  expect(await freeSoon(h, otherLock(engine)), "the other lock let go of").toBe(true);
+  expect(await freeSoon(h, dataLock(engine)), "the data lock let go of").toBe(true);
   return { writerFree: await freeSoon(h, engineWriterLock(engine)) };
 };
 
@@ -292,10 +296,10 @@ const crashedLogs = (host: RunningHost): string[] =>
 // A host whose relay fails crashes with its runtime intact: it seals its
 // user data, then lets go of every lock, the writer lock included.
 export const crashReleasesLocks = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const engine = engineFor("crash-releases-locks", runtime);
-  const host = await storedHost(h, runtime, engine, { relayFailsAfter: 3, test: { moreLocks: [otherLock(engine)] } });
+  const engine = engineFor(h, "crash-releases-locks", runtime);
+  const host = await storedHost(h, runtime, engine, { relayFailsAfter: 3 });
   try {
-    expect(await h.locks.free(otherLock(engine)), "the other lock while the host runs").toBe(false);
+    expect(await h.locks.free(dataLock(engine)), "the data lock while the host runs").toBe(false);
     expect(await h.locks.free(engineWriterLock(engine)), "the writer lock while the host runs").toBe(false);
     await crashByRelay(h, host);
     expect(await locksAfter(h, engine), "after the crash").toEqual({ writerFree: true });
@@ -329,10 +333,10 @@ const writerFreedByTerminate = async (h: Harness, host: RunningHost, engine: Eng
 // the host keeps the writer lock until its Worker ends, and says so; it lets
 // go of every other lock. Only an IndexedDB backend is sealed.
 export const sealThrows = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const engine = engineFor("seal-throws", runtime);
+  const engine = engineFor(h, "seal-throws", runtime);
   const host = await storedHost(h, runtime, engine, {
     relayFailsAfter: 3,
-    test: { moreLocks: [otherLock(engine)], sealThrows: true },
+    test: { sealThrows: true },
   });
   try {
     await crashByRelay(h, host);
@@ -353,8 +357,8 @@ export const sealThrows = async (h: Harness, runtime: RuntimeBuild): Promise<voi
 // user data: the host keeps the writer lock until its Worker ends, and lets
 // go of every other lock. A Node backend, which has no seal, keeps nothing.
 export const trapKeepsWriter = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const engine = engineFor("trap-keeps-writer", runtime);
-  const host = await storedHost(h, runtime, engine, { test: { moreLocks: [otherLock(engine)] } });
+  const engine = engineFor(h, "trap-keeps-writer", runtime);
+  const host = await storedHost(h, runtime, engine);
   try {
     await threadCrash(h, host);
     await crashPrinted(h, runtime);
@@ -368,12 +372,11 @@ export const trapKeepsWriter = async (h: Harness, runtime: RuntimeBuild): Promis
 // registers an opcode another holds, seals the user data and lets go of
 // every lock, the writer lock included.
 export const failedStartReleasesLocks = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const engine = engineFor("failed-start-releases-locks", runtime);
+  const engine = engineFor(h, "failed-start-releases-locks", runtime);
   const trivial = h.sides.find(({ name }) => name === "trivial");
   if (trivial === undefined) throw new Error("no trivial side module");
   await expect(
     storedHost(h, runtime, engine, {
-      test: { moreLocks: [otherLock(engine)] },
       moreSides: [{ name: "trivial-again", bytes: trivial.bytes }],
     }),
   ).rejects.toThrow(`host: Error: load trivial-again: -${errno(h, "EEXIST")}`);

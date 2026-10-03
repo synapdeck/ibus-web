@@ -15,7 +15,7 @@ import {
   Word,
   type Reply,
 } from "../../src/shared/control.ts";
-import type { HostMessage } from "../../src/shared/messages.ts";
+import type { Message } from "./testing.ts";
 
 export interface Clock {
   // Milliseconds, from a monotonic clock.
@@ -61,7 +61,7 @@ export interface Client {
 // as the caller's event loop receives them.
 export const blockingClient = (
   control: SharedArrayBuffer,
-  messages: readonly HostMessage[],
+  messages: readonly Message[],
   env: BlockingClientEnv,
 ): Client => {
   const views = controlViews(control);

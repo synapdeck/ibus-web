@@ -41,6 +41,24 @@ import {
   trapKeepsWriter,
   writerLock,
 } from "../shared/storage.ts";
+import {
+  blockedDeletion,
+  dataReadOnly,
+  failedInstallReleasesLocks,
+  installConcurrent,
+  installedInMemory,
+  installFresh,
+  installInterrupted,
+  installInterruptedQueued,
+  installInterruptedStray,
+  installSkip,
+  installTornMarker,
+  interruptedUpgradeThenOld,
+  staleFile,
+  upgradeWhileRunning,
+  waitFailsWithoutProgress,
+  waitOutlivesLimit,
+} from "../shared/install.ts";
 import { browserHarness } from "./harness.ts";
 
 const h = await browserHarness();
@@ -105,7 +123,7 @@ describe.each(h.data.runtimes)("the host on the $name runtime", (runtime) => {
 describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
   // The engine's directory on the storage that outlives the host.
   describe("one host", () => {
-    const engine = engineFor("storage", runtime);
+    const engine = engineFor(h, "storage", runtime);
     let host: RunningHost;
     beforeAll(async () => {
       host = await storedHost(h, runtime, engine);
@@ -136,18 +154,19 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
 
   test("storage-fallback", () =>
     ownHost(
-      engineFor("storage-fallback", runtime),
+      engineFor(h, "storage-fallback", runtime),
       async (host, engine) => {
         await storageFallback(h, host, engine, h.data.constants.memory.minimum);
+        await installedInMemory(h, host, engine);
         await promiseProxiedFsync(h, host, [`${engineDir(engine)}/fsync-memory-mount.txt`]);
       },
       { storage: { kind: "browser" }, test: h.withoutIndexedDB },
     ));
   test("storage-closed", () =>
-    ownHost(engineFor("storage-closed", runtime), async (host, engine) => {
+    ownHost(engineFor(h, "storage-closed", runtime), async (host, engine) => {
       await storageClosed(h, host, engine);
     }));
-  test("writer-lock", () => writerLock(h, runtime, engineFor("writer-lock", runtime)));
+  test("writer-lock", () => writerLock(h, runtime, engineFor(h, "writer-lock", runtime)));
   test("a crash with the runtime intact seals the user data and lets go of every lock", () =>
     crashReleasesLocks(h, runtime));
   test("a seal that throws on the crash path keeps the writer lock until the Worker ends, and lets go of the rest", () =>
@@ -155,6 +174,26 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
   test("a trap lets go of every lock but a sealable backend's writer lock, until the Worker ends", () =>
     trapKeepsWriter(h, runtime));
   test("a failed start seals the user data and lets go of every lock", () => failedStartReleasesLocks(h, runtime));
+});
+
+describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => {
+  test("install-fresh", () => installFresh(h, runtime));
+  test("install-skip", () => installSkip(h, runtime));
+  test("install-concurrent", () => installConcurrent(h, runtime));
+  test("install-interrupted", () => installInterrupted(h, runtime));
+  test("install-interrupted-queued", () => installInterruptedQueued(h, runtime));
+  test("install-interrupted-stray", () => installInterruptedStray(h, runtime));
+  test("install-torn-marker", () => installTornMarker(h, runtime));
+  test("upgrade-while-running", () => upgradeWhileRunning(h, runtime));
+  test("interrupted-upgrade-then-old", () => interruptedUpgradeThenOld(h, runtime));
+  test("stale-file", () => staleFile(h, runtime));
+  test("failed-start-releases-locks", () => failedInstallReleasesLocks(h, runtime));
+  test("data-read-only", () => dataReadOnly(h, runtime));
+  test("a deletion blocked past the delete limit fails the start and lets go of every lock", () =>
+    blockedDeletion(h, runtime));
+  test("a wait for the install lock outlives the lock limit while the installer's word keeps arriving", () =>
+    waitOutlivesLimit(h, runtime));
+  test("a wait for the install lock fails once the installer's word stops", () => waitFailsWithoutProgress(h, runtime));
 });
 
 // The Worker scripts exactly as the package ships them, loaded as they are

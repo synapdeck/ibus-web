@@ -12,12 +12,14 @@ import type { HostInit, HostMessage } from "../../src/shared/messages.ts";
 import { defaultHostConfig, HostConfig } from "../../src/worker/config.ts";
 import { RuntimeRefused } from "../../src/worker/runtime.ts";
 import {
-  HostWorker,
   RelayFailed,
   RuntimeStopped,
   runtimeCallFailed,
   runtimeFinalizer,
   StartupFailed,
+} from "../../src/worker/failure.ts";
+import {
+  HostWorker,
   workerLayer,
   type HostWorkerShape,
   type UncaughtError,
