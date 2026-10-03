@@ -5,7 +5,7 @@
 // this thread, which blocks for each reply as the page's synchronous path
 // would spin, and everything the hosts' threads print, taken by the tests.
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -138,6 +138,9 @@ export const nodeHarness = async (): Promise<Harness> => {
       return { kind: "node", hostPath };
     },
     storageMount: "node",
+    cleanUp: async () => {
+      rmSync(join(scratch, "engines"), { recursive: true, force: true });
+    },
     withoutIndexedDB: {},
     printed: printedFrom(drain, clock),
     record: (name, measurements) => console.log(`${name}: ${JSON.stringify(measurements)}`),

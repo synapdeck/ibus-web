@@ -46,6 +46,7 @@ import { nodeHarness } from "./harness.ts";
 const h = await nodeHarness();
 
 beforeEach(() => h.printed.nothingElse());
+afterAll(() => h.cleanUp());
 afterEach(() => h.printed.nothingElse());
 
 describe.each(h.data.runtimes)("the $name runtime", (runtime) => {

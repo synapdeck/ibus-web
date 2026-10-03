@@ -13,9 +13,10 @@
 import { Cause, Context, Data, Effect, Exit, Layer, Logger, type Scope } from "effect";
 import { engineDir, engineWriterLock } from "../shared/naming.ts";
 import { controlViews, postCrash, postReply, Word, type ControlViews } from "../shared/control.ts";
-import type { HostInit, HostMessage } from "../shared/messages.ts";
+import { WASM_PAGE, type HostInit, type HostMessage } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
-import { Held, requestLock } from "./storage/locks.ts";
+import { Held } from "./storage/held.ts";
+import { requestLock } from "./storage/locks.ts";
 import { mount, type MountedStorage } from "./storage/mount.ts";
 import { memoryFor, planStorage, type StoragePlan } from "./storage/plan.ts";
 import type { RelayInit } from "./forward.ts";
@@ -27,7 +28,7 @@ import {
   checkMemory,
   loadSides,
   requireRuntime,
-  WASM_PAGE,
+  RuntimeRefused,
   type CreateRuntime,
   type Runtime,
   type RuntimeHandle,
@@ -68,13 +69,17 @@ export const describe = (error: unknown): string => {
 const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
   Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
-// A trap or an abort throws a RuntimeError out of the runtime, and Emscripten
-// unwinds a thread that calls into a runtime another thread crashed.
-const startupFailed = (error: unknown): StartupFailed =>
-  new StartupFailed({
-    message: describe(error),
-    trapped: error instanceof WebAssembly.RuntimeError || error === UNWIND,
-  });
+// A failure outside the runtime: importing or instantiating it, the locks,
+// the probe.
+const startupFailed = (error: unknown): StartupFailed => new StartupFailed({ message: describe(error) });
+
+// A failure in a block that calls into the runtime. Only a failure the host
+// raised itself, an error the runtime returned or a refusal before a call,
+// leaves the runtime fit to call; whatever else was thrown, a trap, an
+// abort, a WebAssembly exception, a stack overflow, an error in Emscripten's
+// glue, an exit or an unwind, may have come from inside it.
+export const runtimeCallFailed = (error: unknown): StartupFailed =>
+  new StartupFailed({ message: describe(error), trapped: !(error instanceof RuntimeRefused) });
 
 // What a Worker's error event carries, as far as the host reads it.
 export interface UncaughtError {
@@ -305,7 +310,7 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
           buffers: { request: alloc(handle, cap), reply: alloc(handle, cap), cap },
         };
       },
-      catch: startupFailed,
+      catch: runtimeCallFailed,
     });
   }),
 );
@@ -396,7 +401,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
       const instruments = yield* Instruments;
       const mounted = yield* Effect.tryPromise({
         try: () => mount(handle, plan, engineDir(init.engine)),
-        catch: startupFailed,
+        catch: runtimeCallFailed,
       });
       const { seal } = mounted;
       if (seal !== undefined) {
@@ -442,7 +447,7 @@ export const engineModuleLayer: Layer.Layer<EngineModule, StartupFailed, HostWor
   Effect.gen(function* () {
     const { init } = yield* HostWorker;
     const { handle } = yield* HostRuntime;
-    yield* Effect.try({ try: () => loadSides(handle, init.sides), catch: startupFailed });
+    yield* Effect.try({ try: () => loadSides(handle, init.sides), catch: runtimeCallFailed });
     return { names: init.sides.map(({ name }) => name) };
   }),
 );

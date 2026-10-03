@@ -4,10 +4,10 @@
 // What the host mounts at the engine's directory, decided before the
 // runtime's memory is made, since a mount in memory needs a larger one.
 
-import { engineDataBytes, type EngineManifest, type EngineStorage, type HostInit } from "../../shared/messages.ts";
+import { memoryWithData, type EngineManifest, type EngineStorage, type HostInit } from "../../shared/messages.ts";
 import { engineDatabase, engineWriterLock } from "../../shared/naming.ts";
-import { WASM_PAGE } from "../runtime.ts";
-import { requestLock, type Held } from "./locks.ts";
+import type { Held } from "./held.ts";
+import { requestLock } from "./locks.ts";
 
 // readOnly: another host holds the engine's writer lock.
 export type StoragePlan =
@@ -106,14 +106,7 @@ export const planStorage = async (
   }
 };
 
-// The memory the runtime needs: mounted in memory, the engine's data takes
-// its size more, in whole pages.
-export const memoryFor = (
-  memory: HostInit["memory"],
-  plan: StoragePlan,
-  engine: EngineManifest,
-): HostInit["memory"] => {
-  if (plan.mount !== "memory") return memory;
-  const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
-  return { initial: memory.initial + data, maximum: memory.maximum + data };
-};
+// The memory the runtime needs: mounted in memory, the engine's data sits
+// in it.
+export const memoryFor = (memory: HostInit["memory"], plan: StoragePlan, engine: EngineManifest): HostInit["memory"] =>
+  plan.mount === "memory" ? memoryWithData(memory, engine) : memory;

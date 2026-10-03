@@ -11,6 +11,7 @@ import { commands } from "vitest/browser";
 import { createControl } from "../../src/shared/control.ts";
 import type { EngineManifest, HostInit, SideModule } from "../../src/shared/messages.ts";
 import { engineDatabase } from "../../src/shared/naming.ts";
+import { LOCK_RELEASE_LIMIT_MS } from "../shared/locks.ts";
 import { startHost } from "../shared/bootstrap.ts";
 import { blockingClient, type Clock } from "../shared/client.ts";
 import { hostUrlFor, startingAsAPage, type Harness, type HostOptions, type RunningHost } from "../shared/harness.ts";
@@ -61,6 +62,25 @@ const upgradeDatabase = async (engine: EngineManifest): Promise<number> => {
   return performance.now() - startedAt;
 };
 
+// Deletes the database, once every connection to it has closed: a
+// terminated host's close as its Worker ends.
+const deleteDatabase = (name: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    const timer = setTimeout(
+      () => reject(new Error(`deleting ${name}: still blocked after ${LOCK_RELEASE_LIMIT_MS} ms`)),
+      LOCK_RELEASE_LIMIT_MS,
+    );
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    request.onerror = () => {
+      clearTimeout(timer);
+      reject(request.error);
+    };
+  });
+
 export const browserHarness = async (): Promise<Harness> => {
   if (!crossOriginIsolated) throw new Error("the page is not cross-origin isolated");
   await commands.consoleBegin();
@@ -79,7 +99,11 @@ export const browserHarness = async (): Promise<Harness> => {
     return module;
   };
   const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
+  // The databases hosts were given, which outlive them.
+  const databases = new Set<string>();
   const start = async (options: HostOptions): Promise<RunningHost> => {
+    if (options.storage?.kind === "browser" && options.engine !== undefined)
+      databases.add(engineDatabase(options.engine));
     const control = createControl();
     const worker = new Worker(hostUrlFor(data, options), {
       type: "module",
@@ -138,6 +162,10 @@ export const browserHarness = async (): Promise<Harness> => {
     storageMount: "indexeddb",
     withoutIndexedDB: { withoutIndexedDB: true },
     upgradeDatabase,
+    cleanUp: async () => {
+      await Promise.all([...databases].map(deleteDatabase));
+      databases.clear();
+    },
     printed: printedFrom(() => commands.consoleTake(), clock),
     record: (name, measurements) => console.log(`${name}: ${JSON.stringify(measurements)}`),
     pendingLimitMs: 10_000,

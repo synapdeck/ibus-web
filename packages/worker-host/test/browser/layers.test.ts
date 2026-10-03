@@ -10,10 +10,12 @@ import { Effect, Exit, Layer, Scope } from "effect";
 import { createControl, State, Word } from "../../src/shared/control.ts";
 import type { HostInit, HostMessage } from "../../src/shared/messages.ts";
 import { defaultHostConfig, HostConfig } from "../../src/worker/config.ts";
+import { RuntimeRefused } from "../../src/worker/runtime.ts";
 import {
   HostWorker,
   RelayFailed,
   RuntimeStopped,
+  runtimeCallFailed,
   runtimeFinalizer,
   StartupFailed,
   workerLayer,
@@ -61,16 +63,30 @@ describe("runtimeFinalizer", () => {
   it.effect("calls into the runtime after a failure that left it intact", () =>
     Effect.gen(function* () {
       expect(yield* closing(Exit.fail(new RelayFailed({ message: "gone" })))).toEqual(["JavaScript", "runtime"]);
-      expect(yield* closing(Exit.fail(new StartupFailed({ message: "load: -8" })))).toEqual(["JavaScript", "runtime"]);
+      expect(yield* closing(Exit.fail(new StartupFailed({ message: "import: 404" })))).toEqual([
+        "JavaScript",
+        "runtime",
+      ]);
+      expect(yield* closing(Exit.fail(runtimeCallFailed(new RuntimeRefused("load: -8"))))).toEqual([
+        "JavaScript",
+        "runtime",
+      ]);
     }),
   );
 
   it.effect("leaves the runtime alone once a call into it has thrown, but not the rest", () =>
     Effect.gen(function* () {
       expect(yield* closing(Exit.fail(new RuntimeStopped({ error: "unwind" })))).toEqual(["JavaScript"]);
-      expect(yield* closing(Exit.fail(new StartupFailed({ message: "unreachable", trapped: true })))).toEqual([
-        "JavaScript",
-      ]);
+      // Whatever a runtime call throws but the host's own refusals: a trap,
+      // and equally an error from Emscripten's glue or an exit.
+      for (const error of [
+        new WebAssembly.RuntimeError("unreachable"),
+        new TypeError("glue"),
+        new RangeError("Maximum call stack size exceeded"),
+        { name: "ExitStatus", status: 1 },
+        "unwind",
+      ])
+        expect(yield* closing(Exit.fail(runtimeCallFailed(error))), String(error)).toEqual(["JavaScript"]);
     }),
   );
 });

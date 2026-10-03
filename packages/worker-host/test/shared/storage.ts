@@ -9,7 +9,8 @@
 import { expect } from "vitest";
 import type { Reply } from "../../src/shared/control.ts";
 import {
-  engineDataBytes,
+  memoryWithData,
+  WASM_PAGE,
   type EngineManifest,
   type HostMessage,
   type StorageState,
@@ -31,7 +32,6 @@ import {
   threadCrash,
 } from "./scenarios.ts";
 
-const WASM_PAGE = 65536;
 const KiB = 1024;
 
 const encoder = new TextEncoder();
@@ -131,7 +131,7 @@ export const storageFallback = async (
   h.record("storage-fallback", { mount: at.mount, memoryBytes: at.memoryBytes, events });
   expect(at.mount, "mount").toBe("memory");
   expect(at.memoryBytes, "the runtime's memory").toBe(
-    memoryBytes + Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE,
+    memoryWithData({ initial: memoryBytes, maximum: memoryBytes }, engine).initial,
   );
   expect(at.idleWorkers, "idle Workers").toBe(h.data.pool.size);
   expect(events, "storage events").toEqual([{ state: "ephemeral", message: expect.any(String) }]);
@@ -315,8 +315,8 @@ const crashByRelay = async (h: Harness, { client }: RunningHost): Promise<void> 
   expect(await client.crashReport(2000), "the crash report").toMatch(/^relay: /);
 };
 
-// The writer lock outlives the Worker's start no longer than the Worker:
-// once it is terminated, a page's bounded wait for the lock ends with it.
+// Terminates the host, whose Worker ends with it, and with the Worker any
+// writer lock it kept: the page's bounded wait for the lock then gets it.
 const writerFreedByTerminate = async (h: Harness, host: RunningHost, engine: EngineManifest): Promise<void> => {
   const terminatedAt = h.now();
   await host.terminate();
@@ -365,8 +365,8 @@ export const trapKeepsWriter = async (h: Harness, runtime: RuntimeBuild): Promis
 };
 
 // A start that fails once storage is mounted, here at a side module that
-// registers an opcode another holds, seals the user data and lets go of every lock, the
-// writer lock included.
+// registers an opcode another holds, seals the user data and lets go of
+// every lock, the writer lock included.
 export const failedStartReleasesLocks = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
   const engine = engineFor("failed-start-releases-locks", runtime);
   const trivial = h.sides.find(({ name }) => name === "trivial");

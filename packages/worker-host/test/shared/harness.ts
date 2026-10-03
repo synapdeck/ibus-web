@@ -108,6 +108,8 @@ export interface Harness extends Clock {
   // that took in milliseconds. Browsers only.
   upgradeDatabase?: (engine: EngineManifest) => Promise<number>;
   locks: Locks;
+  // Removes the storage the hosts left behind, once none runs.
+  cleanUp(): Promise<void>;
   printed: Printed;
   // Records a test's measurements in its output.
   record(name: string, measurements: Record<string, unknown>): void;

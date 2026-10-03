@@ -3,7 +3,7 @@
 
 // Mounting the engine's own files on the backend the plan chose.
 
-import { check, withString, type RuntimeHandle } from "../runtime.ts";
+import { check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
 import type { Mount } from "../../shared/messages.ts";
 import type { StoragePlan } from "./plan.ts";
 
@@ -37,7 +37,7 @@ const makeDirs = (handle: RuntimeHandle, path: string): void => {
 // Mounts the backend, which is 0 if it couldn't be made, at dir.
 export const mountAt = (handle: RuntimeHandle, backend: number, dir: string, what: Mount): void => {
   if (backend === 0)
-    throw new Error(
+    throw new RuntimeRefused(
       what === "indexeddb"
         ? `storage failed to open ${dir} on IndexedDB although IndexedDB was available; the backend logged the cause to the Worker's stderr/console`
         : `no ${what} backend for ${dir}`,
@@ -60,7 +60,10 @@ export const mount = async (handle: RuntimeHandle, plan: StoragePlan, dir: strin
   switch (plan.mount) {
     case "node": {
       const user = nodeUserDir(plan.hostPath);
-      await (await nodeFs()).mkdir(user, { recursive: true });
+      // Fails outside the runtime, which stays fit to call.
+      await (await nodeFs()).mkdir(user, { recursive: true }).catch((error: unknown) => {
+        throw new RuntimeRefused(`mkdir ${user}: ${String(error)}`);
+      });
       backend = withString(handle, user, (ptr) => rt._wasmfs_create_node_backend(ptr));
       break;
     }

@@ -21,10 +21,22 @@ export interface EngineManifest {
   data: readonly EngineData[];
 }
 
-// The engine's data's size, unpacked: what the host adds to the runtime's
-// memory when the data sits in it.
+// The engine's data's size, unpacked.
 export const engineDataBytes = ({ data }: Pick<EngineManifest, "data">): number =>
   data.reduce((sum, { size }) => sum + size, 0);
+
+// The page size of WebAssembly memory, in bytes.
+export const WASM_PAGE = 65536;
+
+// The runtime's memory, initial and maximum, when the engine's data sits in
+// it: the data's size more, in whole pages.
+export const memoryWithData = (
+  { initial, maximum }: { initial: number; maximum: number },
+  engine: Pick<EngineManifest, "data">,
+): { initial: number; maximum: number } => {
+  const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
+  return { initial: initial + data, maximum: maximum + data };
+};
 
 export interface SideModule {
   name: string;
