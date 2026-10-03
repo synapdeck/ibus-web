@@ -88,7 +88,7 @@ of in engine code, fix it there.
 | D7  | Instances            | One engine instance per input context via `IBusFactory`                                                                                                                                                                                    | Shared instance                                                                   |
 | D8  | Linking              | Shared `ibus-runtime.wasm` main module; engines as side modules                                                                                                                                                                            | Static GLib in every engine                                                       |
 | D9  | GLib base            | nixpkgs `glib` plus Wolthuizen's per-release Emscripten patches, rebased onto nixpkgs' GLib, as a patch series; nixpkgs Emscripten with small fixes tracked upstream, no forked compiler or LLVM                                           | `EMULATE_FUNCTION_POINTER_CASTS`; Fluendo GLib + patched Clang                    |
-| D10 | Settings             | GSettings backend bridge and API only                                                                                                                                                                                                      | Generated forms; per-engine UI                                                    |
+| D10 | Settings             | GSettings backend bridge and API only, persisted by the page in a `gsettings` IndexedDB database by default                                                                                                                                | Generated forms; per-engine UI                                                    |
 | D11 | UI                   | Headless core plus separate default panel package                                                                                                                                                                                          | Headless only; built-in themed panel                                              |
 | D12 | Surfaces             | Adapter contract; `<input>`/`<textarea>` and `contenteditable` built in                                                                                                                                                                    | Textarea only; CodeMirror adapter in v1                                           |
 | D13 | Storage              | WasmFS per Worker on IndexedDB, through our own lazy backend that stores files as ArrayBuffer chunks; one directory per engine                                                                                                             | Host-managed storage only; WasmFS's OPFS backend; ZenFS; IDBFS                    |
@@ -474,7 +474,7 @@ doorbell `postMessage` (§6.2.3).
 - **Values.** Seeded from the snapshot in `Init`. `SettingChanged` requests
   update the backend and call `g_settings_backend_changed`, so engines' own
   `changed::` handlers fire. Engine writes emit `SettingWritten` records for
-  the host to persist.
+  the page to persist (§7.1.4).
 - **Schemas.** Compiled at build time with the build machine's
   `glib-compile-schemas` and shipped in the engine's data files under
   `/usr/share/glib-2.0/schemas`. The `.gschema.xml` sources are also shipped
@@ -770,7 +770,8 @@ its own loggers with engine and domain annotations (§7.4).
   files (user dictionaries for libpinyin and Rime, Rime's deployed data and
   user YAML) are mounted at `/engines/<name>/`, and its installed data at
   `/engines/<name>/data`. GSettings values are not stored here; the
-  settings bridge hands them to the host (§5.2.5).
+  settings bridge hands them to the page, which persists them (§5.2.5,
+  §7.1.4).
 - **The backend.** Files are stored as chunks whose IndexedDB values are
   `ArrayBuffer`s copied out of WASM memory, never views of it and never
   `Blob`s, and read and written lazily, a chunk at a time. IndexedDB is
@@ -1285,9 +1286,26 @@ the rest on request from the panel.
 
 Per engine: list schemas and keys (with types, ranges, enum values and
 descriptions parsed from the shipped `.gschema.xml`), get and set values, and
-a stream of changes, including those written by the engine itself. The host
-supplies the initial snapshot and persists changes; the library stores
-nothing.
+a stream of changes, including those written by the engine itself.
+
+- **Default persister.** The page keeps settings in an IndexedDB database of
+  its own, `gsettings`, shared by every engine (engines share schemas such as
+  `org.freedesktop.ibus.panel`). A record is keyed by its schema's path and
+  its key, as dconf keys values. Its value is the GVariant type string and
+  the value's serialized bytes, as an `ArrayBuffer` (never a `Blob`, §5.6).
+- **Not the Worker's.** The Worker host never opens this database: IndexedDB
+  completes requests through an event loop, which a host serving requests
+  never returns to, and the settings UI needs values while no engine runs.
+- **Starting a Worker.** Before it starts a Worker, the page reads the keys of
+  the engine's schemas and sends them as `Init`'s snapshot.
+- **Changes.** On a `SettingWritten` record, or a change through this API, the
+  page writes the value, sends `SettingChanged` to its other live Workers, and
+  announces the change on a `BroadcastChannel`. Other tabs forward it to their
+  own Workers as `SettingChanged`.
+- **Replaceable.** The persister is a service. A host that keeps settings
+  elsewhere, in its own user profile or on a server, replaces it with a layer
+  (§7.4) or a facade option, and supplies the snapshot and stores changes
+  itself.
 
 ### 7.2 Surface adapters
 

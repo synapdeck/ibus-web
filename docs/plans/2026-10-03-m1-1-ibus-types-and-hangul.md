@@ -570,6 +570,7 @@ the cast; the golden tests' traps cover those.
   - the host's FHS data mapping and Init-before-load ordering (M1.3);
   - the runtime has no module shutdown, so `ibus_hangul_exit` never runs;
   - for M1.4: the page commits a preedit whose last mode was `IBUS_ENGINE_PREEDIT_COMMIT` on blur and on reset (ibus-hangul relies on it), and the router doesn't advertise `IBUS_CAP_SYNC_PROCESS_KEY_V2`;
+  - for M1.4: the settings persister of spec §7.1.4 (the page's `gsettings` IndexedDB database, `Init` snapshots read from it, `SettingWritten` written back, `SettingChanged` to other Workers and other tabs through a `BroadcastChannel`, replaceable by the host);
   - anything a task reported as left.
 - **The spec:**
   - §5.2.3: `ibusweb_dispatch(request, len)` returns the reply; the host pumps; Init precedes loading the engine module.
