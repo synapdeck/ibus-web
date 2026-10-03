@@ -462,7 +462,7 @@ the cast; the golden tests' traps cover those.
 
 ### Task 6: The Hangul side module
 
-**Files:** `flake.nix` (`./engines` in import-tree), `engines/hangul/overlay.nix` (`flake.overlays.hangul`), `engines/hangul/package.nix` (`ibusWeb.engines.hangul`, `packages.hangul`, the checks), `engines/hangul/module.c`, `engines/hangul/cast-audit.jsonc`, `engines/hangul/patches/casts/0001-*.patch`, `engines/hangul/patches/port/0001-*.patch`, `engines/hangul/patches/port/0002-*.patch`, `engines/hangul/patches/README.md`, `modules/engines/options.nix` (`ibusWeb.engines.<name>` option, an attrset of packages), `REUSE.toml`.
+**Files:** `flake.nix` (`./engines` in import-tree), `engines/hangul/overlay.nix` (`flake.overlays.hangul`), `engines/hangul/package.nix` (`ibusWeb.engines.hangul`, `packages.ibus-web-hangul`, the checks), `engines/hangul/module.c`, `engines/hangul/cast-audit.jsonc`, `engines/hangul/patches/casts/0001-*.patch`, `engines/hangul/patches/port/0001-*.patch`, `engines/hangul/patches/port/0002-*.patch`, `engines/hangul/patches/README.md`, `modules/engines/options.nix` (`ibusWeb.engines.<name>` option, an attrset of packages), `REUSE.toml`.
 
 **Interfaces:**
 

@@ -3,6 +3,10 @@
 { lib, flake-parts-lib, ... }:
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
+    options.ibusWeb.engines.hangul = lib.mkOption {
+      type = lib.types.package;
+      description = "The Hangul side module and its data/usr/share tree.";
+    };
     options.ibusWeb.engines.castAudit = lib.mkOption {
       type = lib.types.functionTo lib.types.package;
       description = ''

@@ -1,5 +1,17 @@
 version = 1
 
+# Matches the upstream ibus-engines.hangul recipe's meta.license.
+[[annotations]]
+path = "engines/hangul/**"
+SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
+SPDX-License-Identifier = "GPL-2.0-or-later"
+precedence = "override"
+
+[[annotations]]
+path = "engines/hangul/patches/**/*.patch"
+SPDX-FileCopyrightText = ["The ibus-hangul authors", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
 [[annotations]]
 path = "tools/cast-audit/fixtures/*.sarif"
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
@@ -8,7 +20,11 @@ SPDX-License-Identifier = "MIT OR Apache-2.0"
 [[annotations]]
 path = [
   "docs/**",
-  "**/README.md",
+  "README.md",
+  "modules/**/README.md",
+  "packages/**/README.md",
+  "runtime/**/README.md",
+  "tools/**/README.md",
   ".clang-format",
   ".gitignore",
   "modules/testing/fixtures/*.args",

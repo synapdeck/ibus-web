@@ -2,6 +2,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 #ifndef IBUS_WEB_IBUS_H
 #define IBUS_WEB_IBUS_H
+/* Engine entry points may accept a bus pointer even when no bus API is used. */
+typedef struct _IBusBus IBusBus;
 #define __IBUS_H_INSIDE__
 #include <ibusattribute.h>
 #include <ibusattrlist.h>

@@ -16,6 +16,7 @@
       ];
     in
     {
+      ibusWeb.runtime.sideModuleLibraryGuard = ./side-module-libs.sh;
       ibusWeb.runtime.mkSideModule =
         {
           name,
@@ -50,18 +51,8 @@
                   pkgConfigModules != [ ]
                 ) "$($PKG_CONFIG --static --libs ${lib.escapeShellArgs pkgConfigModules})"
               }"
-              # The libraries are linked into the module, but none that the
-              # runtime carries, such as GLib: a second copy would have state
-              # of its own.
-              for flag in $libs; do
-                case "$flag" in -l*) ;; *) continue ;; esac
-                for provided in $($PKG_CONFIG --static --libs libibus-web); do
-                  if [ "$flag" = "$provided" ]; then
-                    echo "mkSideModule ${name}: $flag is the runtime's, which side modules take from it" >&2
-                    exit 1
-                  fi
-                done
-              done
+              source ${runtime.sideModuleLibraryGuard}
+              checkSideModuleLibraries $libs
               ${linker} ${toolchain.sideModuleFlags} ${lib.escapeShellArgs (map object sources)} $libs \
                 -o ${lib.escapeShellArg "${name}.wasm"}
               runHook postBuild

@@ -36,6 +36,7 @@
         ./modules
         ./packages
         ./runtime
+        ./engines
       ]
     );
 }

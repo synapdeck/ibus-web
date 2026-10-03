@@ -81,6 +81,10 @@
           checkSideModuleImports check.
         '';
       };
+      sideModuleLibraryGuard = lib.mkOption {
+        type = lib.types.path;
+        description = "Shell functions checking that a side module's link flags do not link a second copy of the runtime's libraries.";
+      };
       nodeHarness = lib.mkOption {
         type = lib.types.package;
         description = "ibus-runtime's load tests' harness, harness.ts, which drives the runtime at the C level from Node, and what it reads: memory.json (the least and the most memory the runtime takes), constants.json (the header's pumpError) and errno.json (Emscripten's errno values, which the Worker host's tests read too).";

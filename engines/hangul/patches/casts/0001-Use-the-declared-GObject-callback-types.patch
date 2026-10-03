@@ -1,0 +1,102 @@
+From 447b2085ff6248cb238cf8eae690d3b271cfa83d Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sat, 3 Oct 2026 12:55:58 -0700
+Subject: [PATCH] Use the declared GObject callback types
+
+Class and instance initialization are called with two arguments. Their one-argument definitions trap on WebAssembly. Match the destroy callback type as well, so no incompatible callback casts remain.
+---
+ src/engine.c | 25 ++++++++++++++++---------
+ 1 file changed, 16 insertions(+), 9 deletions(-)
+
+diff --git a/src/engine.c b/src/engine.c
+index faa3fb1..f72a5d5 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -2,6 +2,7 @@
+ /* ibus-hangul - The Hangul Engine For IBus
+  * Copyright (C) 2008-2009 Peng Huang <shawn.p.huang@gmail.com>
+  * Copyright (C) 2009-2011 Choe Hwanjin <choe.hwanjin@gmail.com>
++ * Copyright (C) 2026 Synapdeck, Inc.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License as published by
+@@ -119,14 +120,16 @@ enum {
+ 
+ /* functions prototype */
+ static void     ibus_hangul_engine_class_init
+-                                            (IBusHangulEngineClass  *klass);
+-static void     ibus_hangul_engine_init     (IBusHangulEngine       *hangul);
++                                            (gpointer                klass,
++                                             gpointer                class_data);
++static void     ibus_hangul_engine_init     (GTypeInstance          *instance,
++                                             gpointer                klass);
+ static GObject*
+                 ibus_hangul_engine_constructor
+                                             (GType                   type,
+                                              guint                   n_construct_params,
+                                              GObjectConstructParam  *construct_params);
+-static void     ibus_hangul_engine_destroy  (IBusHangulEngine       *hangul);
++static void     ibus_hangul_engine_destroy  (IBusObject             *object);
+ static gboolean
+                 ibus_hangul_engine_process_key_event
+                                             (IBusEngine             *engine,
+@@ -367,12 +370,12 @@ ibus_hangul_engine_get_type (void)
+         sizeof (IBusHangulEngineClass),
+         (GBaseInitFunc)     NULL,
+         (GBaseFinalizeFunc) NULL,
+-        (GClassInitFunc)    ibus_hangul_engine_class_init,
++        ibus_hangul_engine_class_init,
+         NULL,
+         NULL,
+         sizeof (IBusHangulEngine),
+         0,
+-        (GInstanceInitFunc) ibus_hangul_engine_init,
++        ibus_hangul_engine_init,
+     };
+ 
+     if (type == 0) {
+@@ -551,7 +554,8 @@ ibus_hangul_engine_set_surrounding_text (IBusEngine     *engine,
+ */
+ 
+ static void
+-ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
++ibus_hangul_engine_class_init (gpointer klass,
++                               gpointer class_data G_GNUC_UNUSED)
+ {
+     GObjectClass *object_class = G_OBJECT_CLASS (klass);
+     IBusObjectClass *ibus_object_class = IBUS_OBJECT_CLASS (klass);
+@@ -560,7 +564,7 @@ ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
+     parent_class = (IBusEngineSimpleClass *) g_type_class_peek_parent (klass);
+ 
+     object_class->constructor = ibus_hangul_engine_constructor;
+-    ibus_object_class->destroy = (IBusObjectDestroyFunc) ibus_hangul_engine_destroy;
++    ibus_object_class->destroy = ibus_hangul_engine_destroy;
+ 
+     engine_class->process_key_event = ibus_hangul_engine_process_key_event;
+ 
+@@ -586,8 +590,10 @@ ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
+ }
+ 
+ static void
+-ibus_hangul_engine_init (IBusHangulEngine *hangul)
++ibus_hangul_engine_init (GTypeInstance *instance,
++                         gpointer klass G_GNUC_UNUSED)
+ {
++    IBusHangulEngine *hangul = (IBusHangulEngine *) instance;
+     IBusProperty* prop;
+     IBusText* label;
+     IBusText* tooltip;
+@@ -680,8 +686,9 @@ ibus_hangul_engine_constructor (GType                   type,
+ 
+ 
+ static void
+-ibus_hangul_engine_destroy (IBusHangulEngine *hangul)
++ibus_hangul_engine_destroy (IBusObject *object)
+ {
++    IBusHangulEngine *hangul = (IBusHangulEngine *) object;
+     int i;
+     IBusText **symbols;
+ 
+-- 
+2.55.0
+
