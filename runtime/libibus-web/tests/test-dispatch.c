@@ -303,7 +303,9 @@ static void protocol(void) {
   g_assert_cmpint(send(IBUSWEB_REQ_SETTING_CHANGED, 0,
                        g_variant_new("(ssv)", "review", "value",
                                      g_variant_new_boolean(TRUE))),
-                  ==, 0);
+                  ==, -ENOENT);
+  expect_log(G_LOG_LEVEL_WARNING, "ibus-web",
+             "Unknown settings schema: review");
   logging();
   g_assert_cmpint(send(IBUSWEB_REQ_DESTROY_ENGINE, 7, g_variant_new("()")), ==,
                   0);

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+     SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<schemalist>
+  <schema id="org.ibus-web.ListenerTest" path="/org/ibus-web/listener-test/">
+    <key name="value" type="s">
+      <default>'default'</default>
+    </key>
+  </schema>
+</schemalist>

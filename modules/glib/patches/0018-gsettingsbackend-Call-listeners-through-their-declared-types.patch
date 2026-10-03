@@ -1,0 +1,85 @@
+From f8335c3b879f2a9f06356ef1acf60723368d2226 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sat, 3 Oct 2026 12:16:48 -0700
+Subject: [PATCH] gsettingsbackend: Call listeners through their declared types
+
+The listener table contains callbacks with three, four and five arguments. Calling them all through a five-argument function pointer is undefined behavior and traps on WebAssembly when a backend emits a change notification. Keep a typed copy of the listener table in each queued closure and select the declared callback by its existing table offset.
+---
+ gio/gsettingsbackend.c | 40 +++++++++++++++++++++++++++++++---------
+ 1 file changed, 31 insertions(+), 9 deletions(-)
+
+diff --git a/gio/gsettingsbackend.c b/gio/gsettingsbackend.c
+index 988facc..197de7d 100644
+--- a/gio/gsettingsbackend.c
++++ b/gio/gsettingsbackend.c
+@@ -1,6 +1,7 @@
+ /*
+  * Copyright © 2009, 2010 Codethink Limited
+  * Copyright © 2010 Red Hat, Inc.
++ * Copyright © 2026 Synapdeck, Inc.
+  *
+  * SPDX-License-Identifier: LGPL-2.1-or-later
+  *
+@@ -133,11 +134,8 @@ struct _GSettingsBackendWatch
+ 
+ struct _GSettingsBackendClosure
+ {
+-  void (*function) (GObject           *target,
+-                    GSettingsBackend  *backend,
+-                    const gchar       *name,
+-                    gpointer           origin_tag,
+-                    gchar            **names);
++  GSettingsListenerVTable vtable;
++  gsize                   function_offset;
+ 
+   GMainContext      *context;
+   GObject           *target;
+@@ -267,8 +265,32 @@ g_settings_backend_invoke_closure (gpointer user_data)
+ {
+   GSettingsBackendClosure *closure = user_data;
+ 
+-  closure->function (closure->target, closure->backend, closure->name,
+-                     closure->origin_tag, closure->names);
++  switch (closure->function_offset)
++    {
++    case G_STRUCT_OFFSET (GSettingsListenerVTable, changed):
++      closure->vtable.changed (closure->target, closure->backend, closure->name,
++                               closure->origin_tag);
++      break;
++    case G_STRUCT_OFFSET (GSettingsListenerVTable, path_changed):
++      closure->vtable.path_changed (closure->target, closure->backend, closure->name,
++                                    closure->origin_tag);
++      break;
++    case G_STRUCT_OFFSET (GSettingsListenerVTable, keys_changed):
++      closure->vtable.keys_changed (closure->target, closure->backend, closure->name,
++                                    closure->origin_tag,
++                                    (const gchar * const *) closure->names);
++      break;
++    case G_STRUCT_OFFSET (GSettingsListenerVTable, writable_changed):
++      closure->vtable.writable_changed (closure->target, closure->backend,
++                                        closure->name);
++      break;
++    case G_STRUCT_OFFSET (GSettingsListenerVTable, path_writable_changed):
++      closure->vtable.path_writable_changed (closure->target, closure->backend,
++                                             closure->name);
++      break;
++    default:
++      g_assert_not_reached ();
++    }
+ 
+   if (closure->context)
+     g_main_context_unref (closure->context);
+@@ -316,8 +338,8 @@ g_settings_backend_dispatch_signal (GSettingsBackend    *backend,
+         g_main_context_ref (closure->context);
+       closure->backend = g_object_ref (backend);
+       closure->target = g_steal_pointer (&target);
+-      closure->function = G_STRUCT_MEMBER (void *, watch->vtable,
+-                                           function_offset);
++      closure->vtable = *watch->vtable;
++      closure->function_offset = function_offset;
+       closure->name = g_strdup (name);
+       closure->origin_tag = origin_tag;
+       closure->names = g_strdupv ((gchar **) names);
+-- 
+2.55.0
+

@@ -77,3 +77,14 @@ test_dispatch = executable(
 )
 test('dispatch', test_dispatch, protocol: 'tap', env: ['G_MESSAGES_DEBUG='])
 test('dispatch-debug', test_dispatch, protocol: 'tap', env: ['G_MESSAGES_DEBUG=all'])
+
+subdir('schemas')
+test_settings = executable(
+  'test-settings',
+  'test-settings.c',
+  dependencies: libibus_web_dep,
+  link_args: get_option('test_main_link_args'),
+)
+settings_env = environment()
+settings_env.set('GSETTINGS_SCHEMA_DIR', meson.current_build_dir() / 'schemas')
+test('settings', test_settings, protocol: 'tap', env: settings_env, depends: test_schemas)

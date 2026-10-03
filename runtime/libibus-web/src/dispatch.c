@@ -2,13 +2,13 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 #include "dispatch.h"
 #include "ibus/ibusweb-private.h"
+#include "settings.h"
 #include <errno.h>
 #include <ibus-web/protocol.h>
 #include <ibus-web/runtime.h>
 #include <string.h>
 
 static gboolean initialized;
-static GVariant *settings_snapshot;
 static GHashTable *engines;
 
 typedef struct {
@@ -99,7 +99,8 @@ static int32_t route(gpointer data) {
     g_variant_get_child(payload, 0, "u", &version);
     if (version != IBUSWEB_PROTOCOL_VERSION)
       return -EPROTO;
-    settings_snapshot = g_variant_get_child_value(payload, 1);
+    g_autoptr(GVariant) snapshot = g_variant_get_child_value(payload, 1);
+    ibusweb_settings_init(snapshot);
     engines = g_hash_table_new(g_direct_hash, g_direct_equal);
     ibusweb_log_init();
     initialized = TRUE;
@@ -107,8 +108,12 @@ static int32_t route(gpointer data) {
   }
   if (!initialized)
     return -ENOTCONN;
-  if (kind == IBUSWEB_REQ_SETTING_CHANGED)
-    return 0;
+  if (kind == IBUSWEB_REQ_SETTING_CHANGED) {
+    const gchar *schema, *key;
+    g_autoptr(GVariant) value = NULL;
+    g_variant_get(payload, "(&s&sv)", &schema, &key, &value);
+    return ibusweb_settings_changed(schema, key, value);
+  }
   IBusEngine *engine = g_hash_table_lookup(engines, GUINT_TO_POINTER(ic));
   if (kind == IBUSWEB_REQ_CREATE_ENGINE) {
     if (engine != NULL)

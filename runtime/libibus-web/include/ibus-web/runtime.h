@@ -213,7 +213,9 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * ENOTCONN before Init, EALREADY for a repeated Init, EPROTO for a version
  * mismatch, ENOENT for a missing context, EEXIST for a duplicate context,
  * ESRCH for an unregistered engine, EPERM off-thread, or ECANCELED when an
- * engine throws a C++ exception. */
+ * engine throws a C++ exception. SettingChanged returns ENOENT for an unknown
+ * schema/key, EINVAL for a value outside its type/range, or ENOTSUP for a
+ * relocatable schema or a different default settings backend. */
 IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request, uint32_t len);
 
 G_END_DECLS

@@ -42,8 +42,9 @@ the source hash.
 | 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces               | Alexis Williams        | —              |
 | 0016 tests: Build and run GLib's tests on WebAssembly                                | Alexis Williams        | —              |
 | 0017 gmain, gwakeup: Call a hook when a context's wakeup is signalled on WebAssembly | Alexis Williams        | —              |
+| 0018 gsettingsbackend: Call listeners through their declared types                   | Alexis Williams        | —              |
 
-Each of 0011–0017 covers one topic, described in its message and below.
+Each of 0011–0018 covers one topic, described in its message and below.
 0016 holds every change to GLib's tests, and nothing else.
 
 ### Dropped from Wolthuizen's branch
@@ -788,3 +789,17 @@ void g_main_context_wasm_set_wake_hook (GMainContext  *context,
   private (`gwakeup.h`).
 
 Waiting, acknowledging and every other platform are unchanged.
+
+## 0018: settings listener function types
+
+The settings backend queued every listener as a five-argument function, although
+`GSettingsListenerVTable` also has three- and four-argument callbacks. A custom
+backend calling `g_settings_backend_changed()` therefore trapped on WebAssembly.
+Each queued closure now retains a typed copy of the listener table and calls the
+selected member with its declared arguments. The public backend API is unchanged.
+
+`checks.glib-settings-listeners` exercises all five notification paths through
+GLib's memory backend, both directly and queued from another thread. Its sources
+and schema live in `modules/glib/checks/settings-listeners`. The libibus-web
+settings tests separately cover its backend's notifications and delayed writes
+through `g_settings_apply()`.

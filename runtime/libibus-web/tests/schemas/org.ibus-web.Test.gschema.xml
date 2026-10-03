@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+     SPDX-License-Identifier: LGPL-2.1-or-later -->
+<schemalist>
+  <schema id="org.ibus-web.Test" path="/org/ibus-web/test/">
+    <key name="layout" type="s"><default>'2'</default></key>
+    <key name="enabled" type="b"><default>true</default></key>
+    <key name="page-size" type="i"><default>9</default></key>
+    <key name="mode" type="s">
+      <choices><choice value="latin"/><choice value="hangul"/></choices>
+      <default>'latin'</default>
+    </key>
+  </schema>
+  <schema id="org.ibus-web.Test.Child" path="/org/ibus-web/test/nested/">
+    <key name="layout" type="s"><default>'child'</default></key>
+  </schema>
+  <schema id="org.ibus-web.Test.Relocatable">
+    <key name="layout" type="s"><default>'relocatable'</default></key>
+  </schema>
+</schemalist>

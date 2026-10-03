@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include "ibus-web/runtime.h"
+#include "settings.h"
 
 #include <emscripten/emscripten.h>
 #include <emscripten/threading_primitives.h>
@@ -30,6 +31,7 @@ int ibusweb_runtime_init(int32_t *wake_word) {
    * past here. */
   if (!g_main_context_acquire(NULL))
     return -EBUSY;
+  ibusweb_settings_register();
   g_main_context_wasm_set_wake_hook(NULL, wake, wake_word);
   g_atomic_pointer_set(&runtime_wake_word, wake_word);
   return 0;

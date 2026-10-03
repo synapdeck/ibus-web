@@ -23,6 +23,7 @@ subdir('src/ibus')
 libibus_web = static_library(
   'ibus-web',
   'src/runtime.c',
+  'src/settings.c',
   'src/output.c',
   'src/pump.c',
   'src/module.c',
