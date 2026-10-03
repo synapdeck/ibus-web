@@ -11,7 +11,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) runtime typescript;
+      inherit (config.ibusWeb) runtime testing typescript;
       inherit (config.ibusWeb.toolchain) pkgsWasm emscripten;
       inherit (runtime) wasmfsIdb;
 
@@ -135,6 +135,19 @@
             done
             touch $out
           '';
+
+      # The checker itself, over small libraries and over Emscripten's tree
+      # with its rules changed.
+      checks.wasmfs-idb-library-deps = testing.programs {
+        name = "wasmfs-idb-library-deps";
+        environments = [ "node" ];
+        programs = [ ];
+        nodeTests = ./.;
+        nodeTestData = {
+          inherit libraryDeps;
+          emscripten = "${emscripten}/share/emscripten";
+        };
+      };
 
       packages.wasmfs-idb-types = types;
 

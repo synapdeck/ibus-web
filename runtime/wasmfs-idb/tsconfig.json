@@ -3,5 +3,5 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.node-scripts.json",
-  "files": ["library-deps.ts"]
+  "files": ["library-deps.ts", "library-deps.test.ts"]
 }
