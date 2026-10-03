@@ -40,3 +40,7 @@ if (mode === "child" || mode === "child-exit") {
 if (mode === "exit") process.exitCode = 7;
 if (mode === "exit" || mode === "error") process.stderr.write("diagnostic\n");
 if (mode === "hang" || mode === "child" || mode === "partial-timeout") setInterval(() => {}, 1000);
+
+if (mode === "environment") {
+  process.stdout.write(`${JSON.stringify({ kind: "reply", step: 0, value: process.env["IBUS_TEST_ENV"] })}\n`);
+}

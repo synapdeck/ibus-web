@@ -17,7 +17,7 @@ export type TranscriptRecord =
   | { kind: "error"; step: number; message: string };
 export type Difference = { step: number; field: string; native: unknown; wasm: unknown };
 
-export type RunOptions = { artifactDir: string; timeoutMs: number; signal?: AbortSignal };
+export type RunOptions = { artifactDir: string; timeoutMs: number; signal?: AbortSignal; env?: NodeJS.ProcessEnv };
 export type RunResult = {
   records: TranscriptRecord[];
   exitCode: number | null;

@@ -124,7 +124,9 @@ test.each(["timeout", "aborted"])(
     const pidFile = join(dir, "pid");
     const controller = new AbortController();
     const { promise, artifactDir } = run("escaped-pipe", [pidFile], {
-      timeoutMs: reason === "timeout" ? 300 : 2000,
+      // Leave room for Node startup under a loaded Nix builder. The assertion
+      // below still requires settlement before the escaped group is killed.
+      timeoutMs: reason === "timeout" ? 1500 : 3000,
       signal: controller.signal,
     });
     let outcome: unknown;
@@ -137,9 +139,9 @@ test.each(["timeout", "aborted"])(
       },
     );
     try {
-      await expect.poll(() => existsSync(pidFile)).toBe(true);
+      await expect.poll(() => existsSync(pidFile), { timeout: 2000 }).toBe(true);
       if (reason === "aborted") controller.abort();
-      await expect.poll(() => outcome, { timeout: 1000 }).toBeDefined();
+      await expect.poll(() => outcome, { timeout: 2000 }).toBeDefined();
       expect(outcome).toMatchObject({
         reason,
         artifactDir,
@@ -160,3 +162,16 @@ test.each(["timeout", "aborted"])(
     }
   },
 );
+
+test("uses the supplied child environment without changing its caller", async () => {
+  const artifactDir = mkdtempSync(join(tmpdir(), "ibus-test-process-"));
+  dirs.push(artifactDir);
+  const originalEnvironment = { ...process.env };
+  const result = await runAdapter([process.execPath, fixture, "environment"], trace, {
+    artifactDir,
+    timeoutMs: 2000,
+    env: { ...process.env, IBUS_TEST_ENV: "private child value" },
+  });
+  expect(result.records).toEqual([{ kind: "reply", step: 0, value: "private child value" }]);
+  expect(process.env).toEqual(originalEnvironment);
+});

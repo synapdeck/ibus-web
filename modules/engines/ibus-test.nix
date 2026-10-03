@@ -70,7 +70,10 @@
         clangdFragments = [ nativeClangd ];
         clangdQueryDrivers = [ "${pkgs.stdenv.cc}/bin/cc" ];
       };
-      packages = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux { ibus-test-native = native; };
+      packages = {
+        ibus-test-tools = testTools;
+      }
+      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux { ibus-test-native = native; };
       checks = {
         engines-ibus-test-script = testing.vitestCheck {
           name = "engines-ibus-test-script";

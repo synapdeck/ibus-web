@@ -52,6 +52,7 @@ export async function runAdapter(command: readonly string[], trace: Trace, optio
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
       detached: true,
+      env: options.env,
     });
 
     const killGroup = (signal: NodeJS.Signals) => {

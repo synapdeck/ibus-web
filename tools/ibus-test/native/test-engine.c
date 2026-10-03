@@ -19,6 +19,8 @@ typedef struct {
 
 G_DEFINE_TYPE(TestEngine, test_engine, IBUS_TYPE_ENGINE)
 
+static gchar *startup_setting;
+
 static void commit(IBusEngine *engine) {
   IBusText *text = ibus_text_new_from_string("한글 🐈");
   ibus_serializable_set_attachment(IBUS_SERIALIZABLE(text), "typed",
@@ -45,6 +47,9 @@ static gboolean key(IBusEngine *engine, guint keyval, guint keycode,
     exit(23);
   if (keyval == 6)
     ((TestEngine *)engine)->trailing_on_destroy = TRUE;
+  if (keyval == 8 && startup_setting) {
+    ibus_engine_commit_text(engine, ibus_text_new_from_string(startup_setting));
+  }
   if (keyval == 7) {
     ibus_engine_update_preedit_text_with_mode(engine,
                                               ibus_text_new_from_string(""), 0,
@@ -207,7 +212,8 @@ static void test_factory_class_init(TestFactoryClass *klass) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 2)
+  const char *address = argc == 2 ? argv[1] : g_getenv("IBUS_ADDRESS");
+  if (!address)
     return 2;
   /* Kill the owned fixture if a failed assertion terminates its test parent. */
   pid_t parent_pid = getppid();
@@ -215,9 +221,16 @@ int main(int argc, char **argv) {
     return 2;
 
   ibus_init();
+  const char *setting_schema = g_getenv("IBUS_TEST_SETTING_SCHEMA");
+  const char *setting_key = g_getenv("IBUS_TEST_SETTING_KEY");
+  if (setting_schema && setting_key) {
+    GSettings *settings = g_settings_new(setting_schema);
+    startup_setting = g_settings_get_string(settings, setting_key);
+    g_object_unref(settings);
+  }
   GError *error = NULL;
   GDBusConnection *connection = g_dbus_connection_new_for_address_sync(
-      argv[1],
+      address,
       G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
           G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
       NULL, NULL, &error);
@@ -244,5 +257,6 @@ int main(int argc, char **argv) {
   g_main_loop_unref(loop);
   g_object_unref(factory);
   g_object_unref(connection);
+  g_free(startup_setting);
   return 0;
 }

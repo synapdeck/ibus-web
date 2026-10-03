@@ -18,7 +18,13 @@ adapter = executable(
   dependencies: common,
   install: true,
 )
-fixture = executable('test-engine', 'test-engine.c', dependencies: ibus)
+fixture = executable(
+  'test-engine',
+  'test-engine.c',
+  dependencies: ibus,
+  install: true,
+  install_dir: get_option('libexecdir'),
+)
 
 values_test = executable('test-values', 'test-values.c', dependencies: common)
 driver_test = executable('test-driver', 'test-driver.c', dependencies: common)
