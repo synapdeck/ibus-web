@@ -10,47 +10,19 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { type ParseError, parse, printParseErrorCode } from "jsonc-parser";
 
 const base = path.resolve("tsconfig.base.json");
 
-// tsconfig files are JSON with comments and trailing commas. Both are
-// dropped outside strings; a comma is trailing when the next character that
-// isn't whitespace or a comment closes an object or array.
+// tsconfig files are JSON with comments and trailing commas.
 const parseJsonc = (text: string): unknown => {
-  let out = "";
-  let pendingComma = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === "/" && text[i + 1] === "/") {
-      while (i < text.length && text[i] !== "\n") i++;
-      out += "\n";
-      continue;
-    }
-    if (c === "/" && text[i + 1] === "*") {
-      const close = text.indexOf("*/", i + 2);
-      if (close === -1) throw new Error("unterminated comment");
-      i = close + 1;
-      continue;
-    }
-    if (/\s/.test(c)) {
-      out += c;
-      continue;
-    }
-    if (pendingComma && c !== "}" && c !== "]") out += ",";
-    pendingComma = false;
-    if (c === ",") {
-      pendingComma = true;
-    } else if (c === '"') {
-      const start = i;
-      for (i++; i < text.length && text[i] !== '"'; i++) {
-        if (text[i] === "\\") i++;
-      }
-      out += text.slice(start, i + 1);
-    } else {
-      out += c;
-    }
+  const errors: ParseError[] = [];
+  const value: unknown = parse(text, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    const [{ error, offset }] = errors as [ParseError];
+    throw new Error(`${printParseErrorCode(error)} at offset ${offset}`);
   }
-  return JSON.parse(out);
+  return value;
 };
 
 // Where a relative `extends` leads, as tsc resolves it: the path as written

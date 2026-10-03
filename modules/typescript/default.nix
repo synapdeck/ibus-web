@@ -186,7 +186,7 @@
         };
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-CleAI0YE/hj48JYKK7e2dQ6dQLhD7rOuF/sR18AzSQI=";
+        hash = "sha256-MV5rNSdtFK9lvcXsjnjwYb+7veKKEUe3AlU0VgZwffQ=";
       };
 
       mkWorkspace =
