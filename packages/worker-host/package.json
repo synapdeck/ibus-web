@@ -1,0 +1,36 @@
+{
+  "name": "@ibus-web/worker-host",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "dist/shared",
+    "dist/worker",
+    "src/shared"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/shared/index.ts",
+      "default": "./dist/shared/index.js"
+    },
+    "./worker": "./dist/worker/index.js",
+    "./relay": "./dist/worker/relay.js"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsdown",
+    "test": "vitest run --configLoader native"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/browser": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "effect": "catalog:",
+    "playwright": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

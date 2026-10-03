@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": [],
+    // tsdown writes the declarations from each file alone.
+    "declaration": true,
+    "isolatedDeclarations": true
+  },
+  "include": ["."]
+}

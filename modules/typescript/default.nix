@@ -187,7 +187,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-5g9FGePWwjfsBCfTugEZToxZEjWRTbEHXGSQw4vRThE=";
+        hash = "sha256-JAs0FiRYC/BhvuUqBo/Aiqzq3ptb5E4G9vl8cB0qAW0=";
       };
 
       # Each package's node_modules, and the root's, installed offline
@@ -251,7 +251,9 @@
         installPhase = ''
           runHook preInstall
           mkdir -p $out
-          cp -R package.json pnpm-workspace.yaml node_modules $out/
+          # Tests that run from source are compiled through their configs,
+          # which extend the repository's base.
+          cp -R package.json pnpm-workspace.yaml tsconfig.base.json node_modules $out/
           ${lib.concatMapStrings (dir: ''
             mkdir -p $out/${dirOf dir}
             cp -R ${dir} $out/${dir}
