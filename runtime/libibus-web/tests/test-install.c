@@ -533,6 +533,11 @@ static void test_large_file(void) {
   gsize budget =
       (LARGE_FILE + WASM_PAGE - 1) / WASM_PAGE * WASM_PAGE + HEADROOM;
   size_t heap = emscripten_get_heap_size();
+  /* A heap that can grow would make room for whatever the install needs,
+   * and the test would pass whatever that is. Asking it to grow would abort
+   * rather than fail, with malloc aborting on a fixed memory as it does
+   * here; the most it can reach is the same evidence. */
+  g_assert_cmpuint(emscripten_get_heap_max(), ==, heap);
   g_assert_cmpuint(heap - *emscripten_get_sbrk_ptr(), >, budget);
   g_autoptr(GPtrArray) rest = g_ptr_array_new_with_free_func(free);
   while (heap - *emscripten_get_sbrk_ptr() > budget) {
