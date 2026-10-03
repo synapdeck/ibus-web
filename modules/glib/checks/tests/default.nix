@@ -2,11 +2,26 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
-      inherit (config.ibusWeb) toolchain;
+      inherit (config.ibusWeb) testing toolchain typescript;
       inherit (toolchain) pkgsWasm;
       inherit (pkgsWasm) pkgsBuildBuild;
+
+      # The gate, beside the dependencies its package installs. Those come
+      # without the workspace's sources, so editing them doesn't rerun GLib's
+      # tests.
+      gate = pkgs.runCommand "ibus-web-glib-tests-gate-script" { } ''
+        mkdir $out
+        cp ${./gate.ts} $out/gate.ts
+        ln -s ${typescript.nodeModules}/${lib.path.removePrefix ../../../.. ./.}/node_modules $out/node_modules
+      '';
+      setupExcludes = ./setup-excludes.py;
 
       # Node makes its stdout non-blocking once a program starts its thread
       # pool, and a write that meets a full pipe fails with EAGAIN instead of
@@ -92,15 +107,17 @@
           # path; the unwrapped pkg-config honours it.
           export PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH
           gate() {
-            python3 ${./gate.py} "$1" meson-info/intro-tests.json default-tests \
+            node ${gate}/gate.ts "$1" meson-info/intro-tests.json default-tests \
               excluded-suites ${./baseline.toml} "''${@:2}"
           }
           # Invocations come on fd 3, since tests inherit stdin and may read
           # it; Meson's report goes to stderr, stdout carries the joined log.
+          # Quiet, and with no terminal to redraw its progress on, Meson
+          # prints the tests that fail, with their logs, and its summary.
           runTests() {
             local base=$1 jobs=$2 n=0 selection
             while read -r -a selection <&3; do
-              meson test --no-rebuild --print-errorlogs --timeout-multiplier 4 \
+              TERM=dumb meson test --no-rebuild --quiet --print-errorlogs --timeout-multiplier 4 \
                 --num-processes "$jobs" --logbase "$base-$n" "''${selection[@]}" >&2 || true
               n=$((n + 1))
             done 3< "$3"
@@ -108,7 +125,7 @@
           }
           mkdir -p $out
           meson test --no-rebuild --list > default-tests
-          meson runpython ${./setup-excludes.py} > excluded-suites
+          meson runpython ${setupExcludes} > excluded-suites
           gate runnable > runnable
           runTests run $NIX_BUILD_CORES runnable > $out/testlog.json
           gate failing $out/testlog.json > failing
@@ -126,18 +143,22 @@
       });
 
       # The gate's test selection, run against Meson on a small project
-      # whose tests collide in the ways GLib's could.
-      checks.glib-tests-gate =
-        pkgsWasm.buildPackages.runCommand "ibus-web-glib-tests-gate"
-          {
-            nativeBuildInputs = [
-              pkgsWasm.meson
-              pkgsWasm.ninja
-              pkgsWasm.python3
-            ];
-          }
-          ''
-            python3 ${./gate-test.py} ${./gate.py} ${./setup-excludes.py} | tee $out
-          '';
+      # whose tests collide in the ways GLib's could, and its report.
+      checks.glib-tests-gate = testing.programs {
+        name = "glib-tests-gate";
+        environments = [ "node" ];
+        programs = [ ];
+        nodeTests = ./.;
+        nodeTestData = {
+          gate = "${gate}/gate.ts";
+          inherit setupExcludes;
+          baseline = "${./baseline.toml}";
+          path = lib.makeBinPath [
+            pkgsBuildBuild.meson
+            pkgsBuildBuild.ninja
+            pkgsBuildBuild.coreutils
+          ];
+        };
+      };
     };
 }

@@ -17,6 +17,15 @@
         type = lib.types.path;
         description = "A Node script, run as `node <it> [--locked] <package> <version> <why> <package directory>...`, that fails unless each directory resolves the package at exactly that version; for dependencies whose version something outside the lockfile fixes. --locked says the manifests name a range, which the lockfile holds at that version.";
       };
+      nodeModules = lib.mkOption {
+        type = lib.types.package;
+        description = ''
+          The workspace's dependencies alone, installed offline from its manifests: the
+          root's node_modules and each package's, at their paths in the repository. For
+          a script that runs from the repository with its package's dependencies, in a
+          build that shouldn't follow every change to the workspace's sources.
+        '';
+      };
       workspace = lib.mkOption {
         type = lib.types.package;
         description = ''

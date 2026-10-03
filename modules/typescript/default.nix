@@ -176,17 +176,18 @@
 
       # Installing needs only the manifests, so editing a source leaves the
       # dependency fetch's inputs alone.
+      manifests = lib.fileset.toSource {
+        inherit root;
+        fileset = lib.fileset.unions (
+          workspaceFiles ++ map (dir: root + "/${dir}/package.json") packageDirs
+        );
+      };
       pnpmDeps = pkgs.fetchPnpmDeps {
         pname = "ibus-web";
-        src = lib.fileset.toSource {
-          inherit root;
-          fileset = lib.fileset.unions (
-            workspaceFiles ++ map (dir: root + "/${dir}/package.json") packageDirs
-          );
-        };
+        src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-MV5rNSdtFK9lvcXsjnjwYb+7veKKEUe3AlU0VgZwffQ=";
+        hash = "sha256-5g9FGePWwjfsBCfTugEZToxZEjWRTbEHXGSQw4vRThE=";
       };
 
       mkWorkspace =
@@ -229,6 +230,29 @@
         '';
       };
 
+      # Each package's node_modules, and the root's, without the sources.
+      nodeModules = pkgs.stdenvNoCC.mkDerivation {
+        name = "ibus-web-node-modules";
+        inherit pnpmDeps;
+        src = manifests;
+        nativeBuildInputs = [
+          nodejs
+          pnpm
+          pkgs.pnpmConfigHook
+        ];
+        dontBuild = true;
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out
+          cp -R node_modules $out/
+          ${lib.concatMapStrings (dir: ''
+            mkdir -p $out/${dir}
+            cp -R ${dir}/node_modules $out/${dir}/
+          '') packageDirs}
+          runHook postInstall
+        '';
+      };
+
       # The lockfile resolves typescript to one version, whichever packages
       # depend on it.
       tsc = pkgs.runCommand "ibus-web-tsc" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
@@ -243,7 +267,7 @@
     {
       ibusWeb.typescript = {
         nodejs = pkgs.nodejs_24;
-        inherit workspace tsc;
+        inherit workspace nodeModules tsc;
         assertDependency = ./assert-dependency.ts;
       };
 

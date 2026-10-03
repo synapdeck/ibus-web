@@ -3,6 +3,7 @@
 
 packages:
   - "runtime/wasmfs-idb"
+  - "modules/glib/checks/tests"
   - "tests/spikes/*"
   - "packages/*"
 
@@ -17,3 +18,4 @@ catalog:
   "@vitest/browser": ^5.0.3
   "@vitest/browser-playwright": ^5.0.3
   jsonc-parser: ^3.3.1
+  smol-toml: ^1.9.0

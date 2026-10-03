@@ -1,0 +1,8 @@
+{
+  "name": "@ibus-web/glib-tests-gate",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "smol-toml": "catalog:"
+  }
+}
