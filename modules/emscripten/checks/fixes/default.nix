@@ -2,17 +2,19 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb) testing toolchain;
-      inherit (toolchain) pkgsWasm;
-      sources = ./.;
       # WasmFS's internal headers, for a test of its backend threads.
       wasmfsInclude = "-I${toolchain.emscripten}/share/emscripten/system/lib/wasmfs";
 
       # The imported memory's sizes, in MiB: the module is linked for the
-      # initial size and declares the maximum, and runs with each of sizes,
-      # the maximum last.
+      # initial size and declares the maximum, and runs with each of sizes.
       initialMiB = 16;
       maximumMiB = 64;
       sizes = [
@@ -21,49 +23,18 @@
         maximumMiB
       ];
 
-      # One program, name.js and name.wasm, from source, compiled with
-      # cflags and linked with linkFlags; a GoogleTest program unless gtest
-      # is false. install adds commands that put more into $out.
+      # The dlopen() cases' threads' stacks, which the cases size room for.
+      threadStackSize = 64 * 1024;
+
       program =
-        {
-          name,
-          source ? "${name}.cpp",
-          linkFlags,
-          cflags ? "",
-          gtest ? true,
-          extra ? "",
-        }:
-        pkgsWasm.stdenv.mkDerivation {
-          name = "ibus-web-emscripten-fixes-${name}";
-          src = lib.fileset.toSource {
-            root = sources;
-            fileset = lib.fileset.unions [
-              (sources + "/${source}")
-              (lib.fileset.fileFilter (file: file.hasExt "h" || file.name == "dlsync-side.c") sources)
-            ];
-          };
-          dontFixup = true;
-          buildPhase = ''
-            runHook preBuild
-            mkdir -p $out
-            ${extra}
-            ${if lib.hasSuffix ".cpp" source then "$CXX" else "$CC"} \
-              ${lib.optionalString gtest testing.gtestMain.cflags} ${cflags} -c ${source} -o ${name}.o
-            $CXX ${linkFlags} ${name}.o ${lib.optionalString gtest testing.gtestMain.libs} -o ${name}.js
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            install -Dm644 -t $out ${name}.js ${name}.wasm
-            runHook postInstall
-          '';
-          passthru = lib.optionalAttrs gtest {
-            testProgram = {
-              inherit name;
-              format = "gtest-json";
-            };
-          };
-        };
+        args:
+        testing.program (
+          {
+            src = ./.;
+            derivationName = "ibus-web-emscripten-fixes-${args.name}";
+          }
+          // args
+        );
 
       # A side module beside the program, under each of names, which the
       # program finds through SIDE_MODULE_DIR.
@@ -75,48 +46,67 @@
         name: names:
         program {
           inherit name;
+          extraSources = [ "dlsync-side.c" ];
           # dlopen() takes a main module, whose sync the cases are about.
-          linkFlags = toolchain.testMainFlags;
-          cflags = ''-DSIDE_MODULE_DIR=\"$out\"'';
-          extra = sideModules names;
+          linkFlags = "${toolchain.testMainFlags} -sDEFAULT_PTHREAD_STACK_SIZE=${toString threadStackSize}";
+          cflags = ''-DSIDE_MODULE_DIR=\"$out\" -DTHREAD_STACK_SIZE=${toString threadStackSize}'';
+          preBuild = sideModules names;
         };
 
       # Without growth, but with a maximum above the initial size; the link
       # fails where emcc ignores the maximum, which it warns about. The
-      # pre-js sizes the memory from the program's argument, the size it is
-      # named after.
+      # pre-js sizes the memory from the program's argument.
+      importedMemoryModule = program {
+        name = "imported-memory-maximum";
+        format = null;
+        gtest = true;
+        linkFlags = [
+          "-sASSERTIONS=1"
+          "-Werror=unused-command-line-argument"
+          "-sALLOW_MEMORY_GROWTH=0"
+          "-sABORTING_MALLOC=0"
+          "-sIMPORTED_MEMORY=1"
+          "-sINITIAL_MEMORY=${toString initialMiB}MB"
+          "-sMAXIMUM_MEMORY=${toString maximumMiB}MB"
+          # The case's thread, beside GoogleTest's.
+          "-sPTHREAD_POOL_SIZE=2"
+          "-sEXIT_RUNTIME=1"
+          "--pre-js=${./size-pre.js}"
+        ];
+      };
+
+      # The module under a program name of its own for each size, which it
+      # takes as its argument. The JavaScript loads the module by its link's
+      # name.
       importedMemory =
         mib:
         let
           name = "imported-memory-maximum-${toString mib}";
+          module = importedMemoryModule;
         in
-        program {
-          inherit name;
-          source = "imported-memory-maximum.cpp";
-          linkFlags = lib.concatStringsSep " " [
-            "-sASSERTIONS=1"
-            "-Werror=unused-command-line-argument"
-            "-sALLOW_MEMORY_GROWTH=0"
-            "-sABORTING_MALLOC=0"
-            "-sIMPORTED_MEMORY=1"
-            "-sINITIAL_MEMORY=${toString initialMiB}MB"
-            "-sMAXIMUM_MEMORY=${toString maximumMiB}MB"
-            # The case's thread, beside GoogleTest's.
-            "-sPTHREAD_POOL_SIZE=2"
-            "-sEXIT_RUNTIME=1"
-            "--pre-js=${./size-pre.js}"
-          ];
-          extra = "echo ${toString mib} > $out/${name}.args";
-        };
-      importedMemoryPrograms = map importedMemory sizes;
+        pkgs.runCommand name
+          {
+            passthru.testProgram = {
+              inherit name;
+              format = "gtest-json";
+            };
+          }
+          ''
+            mkdir $out
+            cp ${module}/imported-memory-maximum.js $out/${name}.js
+            ln -s ${module}/imported-memory-maximum.wasm $out/imported-memory-maximum.wasm
+            ln -s ${module}/imported-memory-maximum.wasm $out/${name}.wasm
+            echo ${toString mib} > $out/${name}.args
+          '';
 
       # Its exit status is the evidence, which only the test file sees.
       dlsyncExit = program {
         name = "dlsync-exit";
-        source = "dlsync-exit.c";
+        sources = [ "dlsync-exit.c" ];
+        extraSources = [ "dlsync-side.c" ];
+        format = null;
         linkFlags = toolchain.testMainFlags;
-        gtest = false;
-        extra = sideModules [ "dlsync-side.wasm" ];
+        preBuild = sideModules [ "dlsync-side.wasm" ];
       };
     in
     {
@@ -124,10 +114,11 @@
         wasmfsInclude
       ]
       ++ testing.gtestCflagList;
-      # The build names the directory of a dlopen() case's side modules; the
-      # editor only needs the name defined.
+      # The build names the directory of a dlopen() case's side modules and
+      # its threads' stack size; the editor only needs the names defined.
       ibusWeb.toolchain.clangdPathFlags."modules/emscripten/checks/fixes/dlsync-.*\\.cpp" = [
         ''-DSIDE_MODULE_DIR="."''
+        "-DTHREAD_STACK_SIZE=${toString threadStackSize}"
       ];
 
       # The behaviour each of the toolchain's Emscripten fixes restores, on
@@ -167,16 +158,12 @@
             linkFlags = "${testing.nodeLinkFlags} -sPTHREAD_POOL_SIZE=3";
           })
         ]
-        ++ importedMemoryPrograms;
-        nodeTests = [ ./fixes.test.ts ];
+        ++ map importedMemory sizes;
+        nodeTests = ./.;
         nodeTestData = {
           dlsyncExit = "${dlsyncExit}/dlsync-exit.js";
           dlsyncSide = "${dlsyncExit}/dlsync-side.wasm";
-          importedMemoryWasm =
-            let
-              largest = lib.last importedMemoryPrograms;
-            in
-            "${largest}/${largest.passthru.testProgram.name}.wasm";
+          importedMemoryWasm = "${importedMemoryModule}/imported-memory-maximum.wasm";
           importedMemoryMaximumMiB = toString maximumMiB;
         };
       };

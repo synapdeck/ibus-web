@@ -7,23 +7,16 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
-import { describe, expect, inject, test } from "vitest";
+import { nodeTestData as data } from "@ibus-web/test-programs/node-tests";
+import { describe, expect, test } from "vitest";
 
-declare module "vitest" {
-  export interface ProvidedContext {
-    nodeTestData: Record<string, string>;
-  }
-}
+const exitTimeoutMs = 110_000;
 
-const data = (key: string): string => {
-  const value = inject("nodeTestData")[key];
-  if (value === undefined) throw new Error(`no ${key} among the data the check provides`);
-  return value;
-};
-
+// The status the program exits with, or null if it is killed: after
+// exitTimeoutMs, for one that hangs.
 const exitStatus = (args: readonly string[]): Promise<number | null> =>
   new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, args, { stdio: "inherit" });
+    const child = spawn(process.execPath, args, { stdio: "inherit", timeout: exitTimeoutMs, killSignal: "SIGKILL" });
     child.once("error", reject);
     child.once("exit", (code) => resolve(code));
   });
@@ -32,7 +25,7 @@ describe("Patch0014", () => {
   // An exit() that reaches the main thread while dlopen() syncs threads
   // ends the program with its own status, even with a thread's cleanup
   // pending.
-  test("ExitDuringSyncKeepsStatus", { timeout: 120_000 }, async () => {
+  test("ExitDuringSyncKeepsStatus", { timeout: exitTimeoutMs + 10_000 }, async () => {
     expect(await exitStatus([data("dlsyncExit"), data("dlsyncSide")])).toBe(42);
   });
 });

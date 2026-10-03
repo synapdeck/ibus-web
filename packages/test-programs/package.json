@@ -2,6 +2,12 @@
   "name": "@ibus-web/test-programs",
   "private": true,
   "type": "module",
+  "exports": {
+    "./node-tests": {
+      "types": "./src/node/node-tests.ts",
+      "default": "./dist/node/node-tests.js"
+    }
+  },
   "scripts": {
     "build": "status=0; for env in shared node browser worker; do tsc -p src/$env || status=1; done; exit $status",
     "test": "vitest run --configLoader native"

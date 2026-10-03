@@ -23,7 +23,8 @@ constexpr size_t kMiB = 1024 * 1024;
 // them, or assume they succeed.
 void *volatile sink;
 
-// The first argument, which only the main thread's Node process has.
+// The first argument: the runner puts the program's own arguments before
+// GoogleTest's flags. Only the main thread has Node's argv.
 size_t given() {
   return (size_t)MAIN_THREAD_EM_ASM_INT({ return Number(process.argv[2]); }) *
          kMiB;

@@ -130,6 +130,9 @@ importers:
 
   .:
     devDependencies:
+      '@ibus-web/test-programs':
+        specifier: workspace:*
+        version: link:packages/test-programs
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0

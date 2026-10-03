@@ -6,7 +6,6 @@
     { config, lib, ... }:
     let
       inherit (config.ibusWeb) runtime testing;
-      inherit (config.ibusWeb.toolchain) pkgsWasm;
       inherit (runtime) wasmfsIdb;
       tests = ./tests;
 
@@ -23,36 +22,22 @@
           backends,
           postJs ? [ ],
         }:
-        pkgsWasm.stdenv.mkDerivation {
-          name = "ibus-web-wasmfs-idb-test-${name}";
-          src = lib.fileset.toSource {
-            root = tests;
-            fileset = lib.fileset.unions [
-              (tests + "/${name}.cpp")
-              (lib.fileset.fileFilter (file: file.hasExt "h") tests)
-            ];
-          };
+        testing.program {
+          inherit name;
+          derivationName = "ibus-web-wasmfs-idb-test-${name}";
+          src = tests;
           buildInputs = [ wasmfsIdb ];
-          dontFixup = true;
-          buildPhase = ''
-            runHook preBuild
-            $CXX -std=c++17 ${testing.gtestMain.cflags} ${wasmfsIdb.cflags} -c ${name}.cpp -o ${name}.o
-            $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=${toString (backends + 1)} -sPTHREAD_POOL_SIZE_STRICT=2 \
-              --js-library=${wasmfsIdb.jsLibrary} \
-              ${lib.concatMapStringsSep " " (library: "--js-library=${library}") testLibraries} \
-              ${lib.concatMapStringsSep " " (file: "--post-js=${file}") postJs} \
-              ${name}.o -lwasmfs-idb ${testing.gtestMain.libs} -o ${name}.js
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            install -Dm644 -t $out ${name}.js ${name}.wasm
-            runHook postInstall
-          '';
-          passthru.testProgram = {
-            inherit name;
-            format = "gtest-json";
-          };
+          cflags = "-std=c++17 ${wasmfsIdb.cflags}";
+          linkFlags = [
+            testing.browserLinkFlags
+            "-sWASMFS=1"
+            "-sPTHREAD_POOL_SIZE=${toString (backends + 1)}"
+            "-sPTHREAD_POOL_SIZE_STRICT=2"
+            "--js-library=${wasmfsIdb.jsLibrary}"
+          ]
+          ++ map (library: "--js-library=${library}") testLibraries
+          ++ map (file: "--post-js=${file}") postJs;
+          libs = "-lwasmfs-idb";
         };
 
       testLibraries = runtime.wasmfsIdbTestLibraries;

@@ -20,8 +20,8 @@
         "firefox"
       ];
 
-      # One fixture program, built for Node or for browsers: name.js,
-      # name.wasm and, if the fixture has one, name.args.
+      # One fixture program, built for Node or for browsers, with the
+      # arguments in name.args if the fixture has one.
       fixture =
         {
           name,
@@ -32,41 +32,25 @@
         }:
         node:
         let
-          source = "${name}.${if gtest then "cpp" else "c"}";
-          args = fixtures + "/${name}.args";
-          hasArgs = builtins.pathExists args;
+          argsFile = fixtures + "/${name}.args";
           glibFlags = what: lib.optionalString glib "$(${pkgConfig} --${what} glib-2.0)";
         in
-        pkgsWasm.stdenv.mkDerivation {
-          name = "ibus-web-test-programs-fixture-${name}-${if node then "node" else "browser"}";
-          src = lib.fileset.toSource {
-            root = fixtures;
-            fileset = lib.fileset.unions (
-              [
-                (fixtures + "/${source}")
-                (lib.fileset.fileFilter (file: file.hasExt "h") fixtures)
-              ]
-              ++ lib.optional hasArgs args
-            );
-          };
+        testing.program {
+          inherit name format gtest;
+          derivationName = "ibus-web-test-programs-fixture-${name}-${if node then "node" else "browser"}";
+          src = fixtures;
+          sources = [ "${name}.${if gtest then "cpp" else "c"}" ];
+          cflags = glibFlags "cflags";
+          linkFlags =
+            if node then testing.nodeLinkFlags else "${testing.browserLinkFlags} ${browserLinkFlags}";
+          libs = glibFlags "libs";
+          args =
+            if builtins.pathExists argsFile then
+              lib.splitString "\n" (lib.removeSuffix "\n" (builtins.readFile argsFile))
+            else
+              null;
           nativeBuildInputs = lib.optional glib pkgsWasm.pkg-config;
           buildInputs = lib.optional glib pkgsWasm.glib;
-          dontFixup = true;
-          buildPhase = ''
-            runHook preBuild
-            ${
-              if gtest then "$CXX ${testing.gtestMain.cflags}" else "$CC ${glibFlags "cflags"}"
-            } -c ${source} -o ${name}.o
-            $CXX ${if node then testing.nodeLinkFlags else "${testing.browserLinkFlags} ${browserLinkFlags}"} \
-              ${name}.o ${lib.optionalString gtest testing.gtestMain.libs} ${glibFlags "libs"} -o ${name}.js
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            install -Dm644 -t $out ${name}.js ${name}.wasm ${lib.optionalString hasArgs "${name}.args"}
-            runHook postInstall
-          '';
-          passthru.testProgram = { inherit name format; };
         };
 
       fixturePrograms = [

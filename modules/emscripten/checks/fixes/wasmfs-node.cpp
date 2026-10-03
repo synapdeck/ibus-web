@@ -109,11 +109,10 @@ protected:
   // A path under this case's directory.
   std::string at(const std::string &rel) const { return dir_ + "/" + rel; }
 
-  // Checks the host makes for this process can't fail where it is
-  // privileged.
-  void skip_if_host_ignores_permissions() {
-    if (host_ignores_permissions(at("permission-probe").c_str()))
-      GTEST_SKIP() << "the host ignores file permissions here";
+  // Whether the host lets this process past file permissions, so that
+  // checks it would make can't fail.
+  bool host_ignores_permissions_here() const {
+    return host_ignores_permissions(at("permission-probe").c_str());
   }
 
   static void put(const std::string &path, const char *text) {
@@ -348,7 +347,8 @@ TEST_F(Patch0011, MountPointRenameIsBusy) {
 
 // Only the host refuses, so the error comes from the host's open().
 TEST_F(Patch0010, OpenReportsHostError) {
-  skip_if_host_ignores_permissions();
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
   const std::string path = at("locked");
   put(path, "locked");
   struct stat st;
@@ -411,7 +411,8 @@ TEST_F(Patch0008, FutimensSetsTimes) {
 
 // Rather than EIO: WasmFS still takes the directory for writable.
 TEST_F(Patch0012, CreateReportsHostError) {
-  skip_if_host_ignores_permissions();
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
   const std::string shut = at("shut");
   ASSERT_EQ(mkdir(shut.c_str(), 0755), 0) << strerror(errno);
   struct stat st;
@@ -426,7 +427,8 @@ TEST_F(Patch0012, CreateReportsHostError) {
 
 // Rather than EPERM: WasmFS still takes the directory for writable.
 TEST_F(Patch0017, SymlinkReportsHostError) {
-  skip_if_host_ignores_permissions();
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
   const std::string shut = at("shut");
   ASSERT_EQ(mkdir(shut.c_str(), 0755), 0) << strerror(errno);
   struct stat st;
@@ -442,7 +444,8 @@ TEST_F(Patch0017, SymlinkReportsHostError) {
 
 // Rather than ENOENT: WasmFS still takes the directory for searchable.
 TEST_F(Patch0019, StatReportsHostError) {
-  skip_if_host_ignores_permissions();
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
   const std::string closed = at("unsearchable");
   ASSERT_EQ(mkdir(closed.c_str(), 0755), 0) << strerror(errno);
   struct stat st;
@@ -457,7 +460,8 @@ TEST_F(Patch0019, StatReportsHostError) {
 }
 
 TEST_F(Patch0019, OpenReportsHostError) {
-  skip_if_host_ignores_permissions();
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
   const std::string closed = at("unsearchable");
   ASSERT_EQ(mkdir(closed.c_str(), 0755), 0) << strerror(errno);
   struct stat st;
@@ -472,7 +476,8 @@ TEST_F(Patch0019, OpenReportsHostError) {
 }
 
 TEST_F(Patch0010, CreateIsNotBoundByItsMode) {
-  skip_if_host_ignores_permissions();
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
   const int fd = open(at("no-access").c_str(), O_CREAT | O_EXCL | O_RDWR, 0);
   ASSERT_GE(fd, 0) << strerror(errno);
   EXPECT_EQ(write(fd, "x", 1), 1) << strerror(errno);

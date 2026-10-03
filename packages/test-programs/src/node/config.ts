@@ -7,14 +7,15 @@
 //   { "timeout": SECONDS, "environments": ["node", "chromium", "firefox"],
 //     "programs": [{ "name": NAME, "dir": DIR,
 //                    "format": "gtest-json" | "tap" }, ...],
-//     "nodeTests": { "files": [PATH, ...], "data": { KEY: VALUE, ... } } }
+//     "nodeTests": { "dir": DIR, "data": { KEY: VALUE, ... } } }
 //
 // DIR holds NAME.js and NAME.wasm and, optionally, NAME.args, the program's
 // arguments one per line. Programs named PREFIX.1, PREFIX.2 and so on form a
 // sequence that runs in that order and shares its storage. nodeTests, which
-// may be left out, are Vitest test files run in the node environment beside
-// the programs, for what a program can't report on itself; they read data,
-// paths to what they test, say, with inject("nodeTestData").
+// may be left out, names a directory whose *.test.ts files run in the node
+// environment beside the programs, for what a program can't report on
+// itself; they read data, paths to what they test, say, with nodeTestData()
+// from @ibus-web/test-programs/node-tests.
 
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -35,7 +36,7 @@ interface Manifest {
   timeout: number;
   environments: Environment[];
   programs: { name: string; format: Format; dir: string }[];
-  nodeTests?: { files: string[]; data: Record<string, string> };
+  nodeTests?: { dir: string; data: Record<string, string> };
 }
 
 const readManifest = (): Manifest => {
@@ -202,7 +203,10 @@ export const testProgramsConfig = (): ViteUserConfig => {
       extends: true,
       test: {
         name: "node",
-        include: ["dist/node/programs.test.js", ...(manifest.nodeTests?.files ?? [])],
+        include: [
+          "dist/node/programs.test.js",
+          ...(manifest.nodeTests === undefined ? [] : [join(manifest.nodeTests.dir, "**/*.test.ts")]),
+        ],
         runner: "./dist/node/runner.js",
       },
     });
@@ -232,6 +236,13 @@ export const testProgramsConfig = (): ViteUserConfig => {
   return {
     ...(cacheDir === undefined ? {} : { cacheDir }),
     plugins: [servePrograms(manifest.programs.map(({ dir }) => dir))],
+    // Test files outside the package, which have no node_modules of their
+    // own to find it in.
+    resolve: {
+      alias: {
+        "@ibus-web/test-programs/node-tests": fileURLToPath(new URL("../../dist/node/node-tests.js", import.meta.url)),
+      },
+    },
     server: { headers: isolation },
     test: {
       provide: { testPrograms: plan, nodeTestData: manifest.nodeTests?.data ?? {} },

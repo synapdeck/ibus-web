@@ -21,7 +21,10 @@ namespace {
 // threads in ascending order of their pthread_t, and the victim's sync must
 // be the one that waits, so the victim has to come before every other
 // thread; GoogleTest's starts before main() and so would otherwise be first.
-constexpr size_t kReserve = 1024 * 1024;
+// Each thread's block is its stack, THREAD_STACK_SIZE as the build links it,
+// and a little more for its struct and TLS; this holds both threads' blocks
+// with as much again to spare.
+constexpr size_t kReserve = 4 * THREAD_STACK_SIZE;
 void *reserve = [] { return malloc(kReserve); }();
 
 pthread_t victim, holder;
