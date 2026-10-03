@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run cast-audit"
+    "test": "vitest run cast-audit ibus-test"
   },
   "dependencies": {
     "@microsoft/sarif": "^5.7.0",
