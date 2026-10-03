@@ -1,0 +1,64 @@
+From 9bbb9356ad4747a1eb4e3b2cdfa03e3a2432231c Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sat, 3 Oct 2026 14:29:15 -0700
+Subject: [PATCH] Keep global settings current without live engine instances
+
+---
+ src/engine.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/src/engine.c b/src/engine.c
+index 08bb0d4..278c3df 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -503,6 +503,12 @@ ibus_hangul_init (IBusBus *bus)
+         g_clear_pointer (&value, g_variant_unref);
+     }
+ 
++    /* Keep module settings current even when no input context is alive. */
++    g_signal_connect (settings_hangul, "changed",
++                      G_CALLBACK (settings_changed), NULL);
++    g_signal_connect (settings_panel, "changed",
++                      G_CALLBACK (settings_changed), NULL);
++
+     keymap = ibus_keymap_get("us");
+     use_client_commit = check_client_commit ();
+ 
+@@ -1932,6 +1938,16 @@ settings_changed (GSettings    *settings,
+ 
+     g_return_if_fail (G_IS_SETTINGS (settings));
+ 
++    /* Instance handlers only apply changes to their own input context.
++     * The module handler was connected first and already updated globals. */
++    if (hangul != NULL) {
++        if (settings == settings_hangul &&
++            strcmp (key, "hangul-keyboard") == 0) {
++            hangul_ic_select_keyboard (hangul->context, hangul_keyboard->str);
++        }
++        return;
++    }
++
+     g_value_init (&schema_value, G_TYPE_STRING);
+     g_object_get_property (G_OBJECT (settings), "schema-id", &schema_value);
+     schema_id = g_value_get_string (&schema_value);
+@@ -1940,7 +1956,6 @@ settings_changed (GSettings    *settings,
+         if (strcmp(key, "hangul-keyboard") == 0) {
+             const gchar *str = g_variant_get_string(value, NULL);
+             g_string_assign (hangul_keyboard, str);
+-            hangul_ic_select_keyboard (hangul->context, hangul_keyboard->str);
+             print_changed_settings (schema_id, key, value);
+         } else if (strcmp (key, "hanja-keys") == 0) {
+             const gchar* str = g_variant_get_string(value, NULL);
+@@ -1949,6 +1964,9 @@ settings_changed (GSettings    *settings,
+         } else if (strcmp (key, "word-commit") == 0) {
+             word_commit = g_variant_get_boolean (value);
+             print_changed_settings (schema_id, key, value);
++        } else if (strcmp (key, "disable-latin-mode") == 0) {
++            disable_latin_mode = g_variant_get_boolean (value);
++            print_changed_settings (schema_id, key, value);
+         } else if (strcmp (key, "auto-reorder") == 0) {
+             auto_reorder = g_variant_get_boolean (value);
+             print_changed_settings (schema_id, key, value);
+-- 
+2.55.0
+

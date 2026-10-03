@@ -152,12 +152,17 @@ static int32_t route(gpointer data) {
   case IBUSWEB_REQ_SET_CURSOR_LOCATION: {
     gint x, y, width, height;
     g_variant_get(payload, "(iiii)", &x, &y, &width, &height);
+    engine->cursor_area.x = x;
+    engine->cursor_area.y = y;
+    engine->cursor_area.width = width;
+    engine->cursor_area.height = height;
     g_signal_emit_by_name(engine, "set-cursor-location", x, y, width, height);
     return 0;
   }
   case IBUSWEB_REQ_SET_CAPABILITIES: {
     guint capabilities;
     g_variant_get(payload, "(u)", &capabilities);
+    engine->client_capabilities = capabilities;
     g_signal_emit_by_name(engine, "set-capabilities", capabilities);
     return 0;
   }
@@ -190,6 +195,7 @@ static int32_t route(gpointer data) {
   case IBUSWEB_REQ_SET_CONTENT_TYPE: {
     guint purpose, hints;
     g_variant_get(payload, "(uu)", &purpose, &hints);
+    ibusweb_engine_set_content_type(engine, purpose, hints);
     g_signal_emit_by_name(engine, "set-content-type", purpose, hints);
     return 0;
   }

@@ -23,7 +23,63 @@ static gboolean process_key(IBusEngine *engine, guint keyval, guint keycode,
     return test_throwing_key_event(engine, keyval, keycode, state);
   return keyval == IBUS_a;
 }
+static guint cache_callbacks;
+
+static void check_cursor(IBusEngine *engine, gint x, gint y, gint width,
+                         gint height) {
+  g_assert_cmpint(engine->cursor_area.x, ==, x);
+  g_assert_cmpint(engine->cursor_area.y, ==, y);
+  g_assert_cmpint(engine->cursor_area.width, ==, width);
+  g_assert_cmpint(engine->cursor_area.height, ==, height);
+}
+
+static void check_capabilities(IBusEngine *engine, guint caps) {
+  g_assert_cmpuint(engine->client_capabilities, ==, caps);
+}
+
+static void check_content(IBusEngine *engine, guint purpose, guint hints) {
+  guint actual_purpose, actual_hints;
+  ibus_engine_get_content_type(engine, &actual_purpose, &actual_hints);
+  g_assert_cmpuint(actual_purpose, ==, purpose);
+  g_assert_cmpuint(actual_hints, ==, hints);
+}
+
+/* These class overrides deliberately do not chain to the parent. */
+static void cursor_callback(IBusEngine *engine, gint x, gint y, gint width,
+                            gint height) {
+  check_cursor(engine, x, y, width, height);
+  ++cache_callbacks;
+}
+
+static void capabilities_callback(IBusEngine *engine, guint caps) {
+  check_capabilities(engine, caps);
+  ++cache_callbacks;
+}
+
+static void content_callback(IBusEngine *engine, guint purpose, guint hints) {
+  check_content(engine, purpose, hints);
+  ++cache_callbacks;
+}
+
+static void connected_cursor(IBusEngine *engine, gint x, gint y, gint width,
+                             gint height, gpointer data G_GNUC_UNUSED) {
+  cursor_callback(engine, x, y, width, height);
+}
+
+static void connected_capabilities(IBusEngine *engine, guint caps,
+                                   gpointer data G_GNUC_UNUSED) {
+  capabilities_callback(engine, caps);
+}
+
+static void connected_content(IBusEngine *engine, guint purpose, guint hints,
+                              gpointer data G_GNUC_UNUSED) {
+  content_callback(engine, purpose, hints);
+}
+
 static void dispatch_engine_class_init(DispatchEngineClass *klass) {
+  IBUS_ENGINE_CLASS(klass)->set_cursor_location = cursor_callback;
+  IBUS_ENGINE_CLASS(klass)->set_capabilities = capabilities_callback;
+  IBUS_ENGINE_CLASS(klass)->set_content_type = content_callback;
   IBUS_ENGINE_CLASS(klass)->process_key_event = process_key;
 }
 static void dispatch_engine_init(DispatchEngine *engine) {
@@ -297,7 +353,21 @@ static void protocol(void) {
       send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==,
       -EEXIST);
   g_assert_cmpint(send(IBUSWEB_REQ_RESET, 8, g_variant_new("()")), ==, -ENOENT);
+  gulong cursor_handler = g_signal_connect(last_created, "set-cursor-location",
+                                           G_CALLBACK(connected_cursor), NULL);
+  gulong caps_handler =
+      g_signal_connect(last_created, "set-capabilities",
+                       G_CALLBACK(connected_capabilities), NULL);
+  gulong content_handler = g_signal_connect(
+      last_created, "set-content-type", G_CALLBACK(connected_content), NULL);
   routing();
+  g_assert_cmpuint(cache_callbacks, ==, 6);
+  check_cursor(last_created, -4, 8, 12, 16);
+  check_capabilities(last_created, 127);
+  check_content(last_created, 3, 5);
+  g_signal_handler_disconnect(last_created, cursor_handler);
+  g_signal_handler_disconnect(last_created, caps_handler);
+  g_signal_handler_disconnect(last_created, content_handler);
   retained_surrounding();
   malformed();
   g_assert_cmpint(send(IBUSWEB_REQ_SETTING_CHANGED, 0,

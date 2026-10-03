@@ -96,8 +96,7 @@ static void ibus_engine_set_surrounding_text(IBusEngine *engine, IBusText *text,
 
 static void ibus_engine_set_content_type(IBusEngine *engine, guint purpose,
                                          guint hints) {
-  engine->priv->content_purpose = purpose;
-  engine->priv->content_hints = hints;
+  ibusweb_engine_set_content_type(engine, purpose, hints);
 }
 
 static void set_property(GObject *object, guint id, const GValue *value,
@@ -574,4 +573,11 @@ void ibusweb_engine_set_ic(IBusEngine *engine, uint32_t ic) {
 uint32_t ibusweb_engine_get_ic(IBusEngine *engine) {
   g_return_val_if_fail(IBUS_IS_ENGINE(engine), 0);
   return engine->priv->ic;
+}
+
+void ibusweb_engine_set_content_type(IBusEngine *engine, guint purpose,
+                                     guint hints) {
+  g_return_if_fail(IBUS_IS_ENGINE(engine));
+  engine->priv->content_purpose = purpose;
+  engine->priv->content_hints = hints;
 }

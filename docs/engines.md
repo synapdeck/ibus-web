@@ -53,16 +53,18 @@ future toolchain makes it unnecessary. Keep patches as `git format-patch`
 commits against the pinned source. Their [inventory](../engines/hangul/patches/README.md)
 records reasons and upstream status.
 
-Hangul has **two port patches and one cast patch**. The port patches disconnect
-settings handlers on destruction and reject candidate digits beyond the last
-page. The cast patch repairs two hand-written GType init callbacks' arity and
+Hangul has **three port patches and one cast patch**. The port patches disconnect
+instance settings handlers on destruction, reject candidate digits beyond the last
+page, and keep global settings current with no live engine. The cast patch repairs
+two hand-written GType init callbacks' arity and
 the destroy callback's pointer type. Its connected settings handlers already
 have their full declared signature.
 
 The `setup` property is inert because spawning a desktop settings application
 has no meaning here. There is no module shutdown ABI, so `ibus_hangul_exit`
-does not run. Global settings change only through live engines' callbacks;
-a change with no engine alive does not refresh those globals. `preedit-mode`
+does not run. Module-lifetime listeners refresh global settings even while no
+engine is alive; instance listeners only select the context's updated keyboard.
+`preedit-mode`
 is copied into a live engine on focus/capability updates, so changing it takes
 effect after refocus.
 
@@ -77,8 +79,9 @@ and writes a structured `report.json`.
 Each engine commits a JSONC allow-list with the editor schema
 `tools/cast-audit/cast-audit.schema.json`. Entries identify a diagnostic and
 explain why its source/target types are safe; stale or unmatched allowances
-fail. Intentional `GCallback` and generic `void (*)(void)` target casts are
-excluded. This checks explicit casts; it does not yet audit callback arity at
+fail. Intentional `GCallback` target casts are excluded; generic `void (*)(void)`
+casts remain subject to the exact allow-list. This checks explicit casts; it does
+not yet audit callback arity at
 signal connection time. Hangul's unpatched report contains three findings;
 its patched report and allow-list are empty. A separate import check verifies
 the side module against the runtime's export manifest.
@@ -93,12 +96,13 @@ and creates a fresh input context per case. It sends framed protocol requests,
 pumps, and decodes owned output records with GVariant and IBus serialization.
 Keys use US keysyms, evdev keycodes, modifiers and releases.
 
-Fourteen cases cover Latin mode, Hangul composition and CapsLock, BackSpace,
+Fifteen cases cover Latin mode, Hangul composition and CapsLock, BackSpace,
 focus/reset, Hanja keyboard and click selection, paging and invalid digits,
 settings, destruction, password fields, surrounding text, enable, and
-commit/forward ordering. Warnings and errors fail the harness. Both port bugs
-were reproduced before their fixes; the lifecycle test observes destruction
-and a subsequent unwanted callback rather than relying on freed memory to trap.
+commit/forward ordering. The idle-settings case destroys the last engine, changes
+the keyboard and Hanja hotkey, then uses both after recreation without a resend.
+Warnings and errors fail the harness. All three port bugs were reproduced before
+their fixes; lifecycle checks retain weak-reference and listener-count assertions.
 
 Preedit attributes are compared after IBus normalizes their endpoints: `-1`
 means the actual text length, and an empty underline range is omitted. Cached

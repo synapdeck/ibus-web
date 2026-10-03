@@ -10,5 +10,12 @@
       "to": "GFunc",
       "reason": "Intentional one-parameter callback cast to a two-parameter type for the audit fixture.",
     },
+    {
+      "file": "casts.c",
+      "function": "takes_int",
+      "from": "void (*)(int)",
+      "to": "void (*)(void)",
+      "reason": "Direct call with incompatible arity must be reported, not treated as GCallback.",
+    },
   ],
 }

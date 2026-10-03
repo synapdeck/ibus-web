@@ -7,11 +7,12 @@ import { compare, report } from "./cast-audit.ts";
 
 const root = fileURLToPath(new URL("fixtures/", import.meta.url));
 const sarif = readFileSync(new URL("fixtures/casts.sarif", import.meta.url), "utf8");
+const direct = { file: "casts.c", function: "takes_int", from: "void (*)(int)", to: "void (*)(void)", line: 23 };
 const expected = { file: "casts.c", function: "one", from: "void (*)(gpointer)", to: "GFunc" };
 
 describe("cast audit", () => {
   test("reports an incompatible init cast, excluding G_CALLBACK and matching casts", () => {
-    expect(report(sarif, root)).toEqual([{ ...expected, line: 12 }]);
+    expect(report(sarif, root)).toEqual([{ ...expected, line: 12 }, direct]);
   });
   test("accepts compiler stderr around the SARIF document", () => {
     expect(
@@ -19,12 +20,17 @@ describe("cast audit", () => {
         `emcc: warning: linker setting ignored\n${JSON.stringify(JSON.parse(sarif))}\n2 warnings generated.`,
         root,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
   test("ignores an explicitly unrelated warning rule", () => {
     const input = JSON.parse(sarif);
     input.runs[0].results[0].ruleId = "-Wother";
-    expect(report(JSON.stringify(input), root)).toEqual([]);
+    expect(report(JSON.stringify(input), root)).toEqual([direct]);
+  });
+  test("rejects the compiled direct zero-argument call with an empty allowance", () => {
+    const findings = report(sarif, root).filter((cast) => cast.function === "takes_int");
+    expect(findings).toEqual([direct]);
+    expect(compare(findings, [])).toEqual({ missing: [], unexpected: [direct] });
   });
   test("compares equal lists independently of order, lines, and reasons", () => {
     expect(compare([{ ...expected, line: 12 }], [{ ...expected, reason: "fixture", line: 90 }])).toEqual({
@@ -50,8 +56,11 @@ test("rejects malformed SARIF instead of producing a clean audit", () => {
 test("resolves SARIF URI bases", () => {
   const input = JSON.parse(sarif);
   input.runs[0].originalUriBaseIds = { SOURCE: { uri: new URL("fixtures/", import.meta.url).href } };
-  input.runs[0].results[0].locations[0].physicalLocation.artifactLocation = { uri: "casts.c", uriBaseId: "SOURCE" };
+  for (const result of input.runs[0].results) {
+    result.locations[0].physicalLocation.artifactLocation = { uri: "casts.c", uriBaseId: "SOURCE" };
+  }
   expect(report(JSON.stringify(input), "/unrelated")).toEqual([
     { ...expected, file: expect.stringContaining("casts.c"), line: 12 },
+    { ...direct, file: expect.stringContaining("casts.c") },
   ]);
 });

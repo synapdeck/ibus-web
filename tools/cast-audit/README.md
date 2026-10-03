@@ -12,12 +12,13 @@ are reported with `null`. The compiler remains responsible for deciding whether 
 
 Clang currently gives SARIF diagnostics numeric rule IDs and empty names. The audit recognizes
 its incompatible-function-type message, which also supplies the displayed types. Casts to
-`GCallback` or `void (*)(void)` are excluded because that cast alone cannot establish handler
-arity. Malformed compiler output fails the audit.
+`GCallback` are excluded because that cast alone cannot establish handler arity.
+Generic `void (*)(void)` casts are audited, including directly invoked mismatches. Malformed compiler output fails the audit.
 
 Run the unit tests with `pnpm --dir tools test`. The Nix checks are `engines-cast-audit-script`
 and `engines-cast-audit-fixture`; the latter compiles the fixture with the project's WASM
-compiler and checks both its explicit allowance and rejection by an empty allow-list.
+compiler and checks its explicit allowances and rejection by an empty allow-list, including the direct
+zero-argument call in isolation.
 
 ## Refreshing the compiler fixture
 

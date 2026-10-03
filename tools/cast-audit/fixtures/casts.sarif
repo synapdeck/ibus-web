@@ -4,7 +4,7 @@
     {
       "artifacts": [
         {
-          "length": 435,
+          "length": 580,
           "location": {
             "index": 0,
             "uri": "casts.c"
@@ -88,6 +88,43 @@
           },
           "ruleId": "6749",
           "ruleIndex": 1
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "index": 0,
+                  "uri": "casts.c"
+                },
+                "region": {
+                  "endColumn": 49,
+                  "endLine": 23,
+                  "startColumn": 24,
+                  "startLine": 23
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "index": 0,
+                  "uri": "casts.c"
+                },
+                "region": {
+                  "endColumn": 24,
+                  "startColumn": 24,
+                  "startLine": 23
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "cast from 'void (*)(int)' to 'void (*)(void)' converts to incompatible function type"
+          },
+          "ruleId": "6749",
+          "ruleIndex": 2
         }
       ],
       "tool": {
@@ -97,6 +134,18 @@
           "language": "en-US",
           "name": "clang",
           "rules": [
+            {
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "warning",
+                "rank": -1
+              },
+              "fullDescription": {
+                "text": ""
+              },
+              "id": "6749",
+              "name": ""
+            },
             {
               "defaultConfiguration": {
                 "enabled": true,

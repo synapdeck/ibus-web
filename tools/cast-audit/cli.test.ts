@@ -12,7 +12,10 @@ afterAll(() => rmSync(directory, { recursive: true, force: true }));
 const findings = join(directory, "report.json");
 writeFileSync(
   findings,
-  JSON.stringify([{ file: "casts.c", function: "one", from: "void (*)(gpointer)", to: "GFunc" }]),
+  JSON.stringify([
+    { file: "casts.c", function: "one", from: "void (*)(gpointer)", to: "GFunc" },
+    { file: "casts.c", function: "takes_int", from: "void (*)(int)", to: "void (*)(void)" },
+  ]),
 );
 
 function compareFixture(name: string) {

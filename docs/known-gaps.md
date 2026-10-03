@@ -125,10 +125,9 @@ An item leaves this page when it is fixed or decided.
   it cannot establish every connected handler's arity. Hangul needs no lazy arity
   bridge; m17n, libpinyin and Rime still need their own audits.
 - **Hangul setup.** The `setup` property does not launch an application.
-- **Hangul settings globals.** Startup reads settings into globals, and changes
-  reach them only through live engines' handlers. A change while no engine is
-  alive is missed until module initialization runs again. `preedit-mode` takes
-  effect in an existing engine on refocus or a capabilities update.
+- **Hangul preedit-mode updates.** Module settings stay current even with no
+  live engines. `preedit-mode` takes effect in an existing engine on refocus
+  or a capabilities update.
 - **Surrounding selection anchor.** The IBus-compatible delete operation updates
   cached text/cursor but leaves the selection anchor unchanged until the host's
   next `SetSurroundingText`; callers can observe that stale anchor.

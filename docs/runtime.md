@@ -227,8 +227,9 @@ wait (timeout, a stale `seen`, wake, proxied calls, off-thread), module
 registration, test-dispatch errors and exceptions, and loading side modules
 (present, missing, not a module, no entry point). `test-install` covers the
 extractor. The suite also covers serialization, key helpers, emitters, engine
-signals and caches, protocol validation, logs and settings (69 C cases in
-total). The real Hangul side module has its own [golden tests](engines.md#golden-tests).
+signals and caches (including fresh cursor/capabilities/content values inside
+non-chaining subclass callbacks and ordinary connected handlers), protocol
+validation, logs and settings (69 C cases in total). The real Hangul side module has its own [golden tests](engines.md#golden-tests).
 See [testing.md](testing.md).
 
 ## `ibus-runtime.wasm`

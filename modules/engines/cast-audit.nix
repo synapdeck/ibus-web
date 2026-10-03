@@ -101,6 +101,20 @@
             exit 1
           fi
           cat $out/rejected.txt
+          # Prove the directly called zero-argument mismatch fails by itself.
+          node --input-type=module - "$out/report.json" "$out/direct.json" <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const direct = JSON.parse(readFileSync(process.argv[2], 'utf8'))
+            .filter(cast => cast.function === 'takes_int');
+          if (direct.length !== 1) throw new Error('direct-call mismatch was not reported');
+          writeFileSync(process.argv[3], JSON.stringify(direct));
+          JS
+          if node ${script} compare $out/direct.json ${../../tools/cast-audit/fixtures/empty.jsonc} \
+            > $out/direct-rejected.txt 2>&1; then
+            echo "an empty allow-list incorrectly accepted the direct-call mismatch" >&2
+            exit 1
+          fi
+          cat $out/direct-rejected.txt
         '';
       };
     };

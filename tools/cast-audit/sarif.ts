@@ -38,7 +38,7 @@ export function castTypes(run: Run, result: Result): { from: string; to: string 
   }
 
   const [, from, to] = match;
-  if (to === "GCallback" || to === "void (*)(void)") return null;
+  if (to === "GCallback") return null;
   return { from, to };
 }
 

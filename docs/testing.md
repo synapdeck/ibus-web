@@ -295,9 +295,9 @@ fails on `gtest/gtest.h` ([tooling.md](tooling.md#editor-tooling)).
 An engine owns its golden traces under `engines/<name>/checks/`. Hangul's
 `checks.hangul-golden` uses a g_test main module with assertions and the actual
 engine side module. It mounts the package's data at FHS paths, sends framed
-runtime requests and decodes records with GVariant/IBus. Its 14 cases cover
-composition, candidates, focus, settings, lifetime, surrounding text and event
-ordering. The shim reports those cases and a run-completion check under Node.
+runtime requests and decodes records with GVariant/IBus. Its 15 cases cover
+composition, candidates, focus, settings (including changes with zero instances),
+lifetime, surrounding text and event ordering. The shim reports those cases and a run-completion check under Node.
 See [engines.md](engines.md#golden-tests) for the harness and the port bugs it
 reproduced. These are WASM behavior tests; native differential comparison is a
 separate follow-up.

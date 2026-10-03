@@ -85,14 +85,17 @@ static void lifecycle(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
                  g_variant_new_string("Hangul_Hanja,F9,F8,F7"));
   golden_setting(fixture, "org.freedesktop.ibus.panel",
                  "lookup-table-orientation", g_variant_new_int32(0));
+  guint settings_notifications = 0;
   for (guint i = 0; i < fixture->records->len; ++i) {
     Record *record = g_ptr_array_index(fixture->records, i);
     if (record->kind == IBUSWEB_REC_LOG) {
       const gchar *message;
       g_variant_get_child(record->payload, 2, "&s", &message);
-      g_assert_false(g_str_has_prefix(message, "settings_changed:"));
+      settings_notifications += g_str_has_prefix(message, "settings_changed:");
     }
   }
+  /* Only the module listener remains after the weak engine reference clears. */
+  g_assert_cmpuint(settings_notifications, ==, 2);
   golden_create(fixture);
   golden_setting(fixture, "org.freedesktop.ibus.panel",
                  "lookup-table-orientation", g_variant_new_int32(1));
@@ -111,6 +114,40 @@ static IBusLookupTable *lookup(Fixture *fixture) {
       IBUS_LOOKUP_TABLE(golden_object(record, IBUS_TYPE_LOOKUP_TABLE));
   g_assert_cmpuint(ibus_lookup_table_get_page_size(table), ==, 9);
   return table;
+}
+
+static void idle_settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_destroy(fixture);
+  golden_clear(fixture);
+  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+                 g_variant_new_string("39"));
+  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
+                 g_variant_new_string("F7"));
+  golden_create(fixture);
+  toggle(fixture);
+  g_assert_cmpint(golden_key(fixture, IBUS_m, 50, 0), ==, 1);
+  preedit(fixture, "ㅎ", IBUS_ENGINE_PREEDIT_COMMIT);
+  g_assert_cmpint(golden_key(fixture, IBUS_f, 33, 0), ==, 1);
+  preedit(fixture, "하", IBUS_ENGINE_PREEDIT_COMMIT);
+  g_assert_cmpint(golden_key(fixture, IBUS_s, 31, 0), ==, 1);
+  preedit(fixture, "한", IBUS_ENGINE_PREEDIT_COMMIT);
+  g_assert_cmpint(golden_key(fixture, IBUS_F7, 65, 0), ==, 1);
+  IBusLookupTable *table = lookup(fixture);
+  g_assert_cmpuint(ibus_lookup_table_get_number_of_candidates(table), >, 0);
+  g_object_unref(table);
+  golden_empty_request(fixture, IBUSWEB_REQ_RESET);
+  /* Equal-value resends are suppressed; neither assertion above relies on one.
+   */
+  golden_clear(fixture);
+  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+                 g_variant_new_string("39"));
+  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
+                 g_variant_new_string("F7"));
+  g_assert_cmpuint(fixture->records->len, ==, 0);
+  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+                 g_variant_new_string("2"));
+  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
+                 g_variant_new_string("Hangul_Hanja,F9,F8"));
 }
 
 static guint korean_candidate(IBusLookupTable *table) {
@@ -370,6 +407,8 @@ int main(int argc, char **argv) {
              golden_teardown);
   g_test_add("/hangul/composition", Fixture, NULL, golden_setup, composition,
              golden_teardown);
+  g_test_add("/hangul/idle-settings", Fixture, NULL, golden_setup,
+             idle_settings, golden_teardown);
   g_test_add("/hangul/lifecycle", Fixture, NULL, golden_setup, lifecycle,
              golden_teardown);
   g_test_add("/hangul/caps-lock", Fixture, NULL, golden_setup, caps_lock,

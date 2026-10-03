@@ -297,7 +297,7 @@ the cast; the golden tests' traps cover those.
 - `report`:
   - Parse SARIF with `JSON.parse`.
   - Keep results whose rule is `-Wcast-function-type-strict`.
-  - Drop casts whose target type is `GCallback` or `void (*)(void)`.
+  - Drop casts whose target type is `GCallback`; audit generic `void (*)(void)` casts (corrected after final review).
   - Normalise each kept result to `{ file (relative to src), function (the cast operand's name when it is a plain identifier, else null), from, to }`, taking the types from the message. Line numbers are kept for display but not compared.
 - `compare`: equality as multisets of `{file, function, from, to}`. Print missing and unexpected entries and fail on either. The output (`$out/report.json`, `$out/report.txt`) is the engine's audit report.
 - Parse JSONC with `jsonc-parser` (added to the workspace as a dependency of whatever package the script's Nix builds from; follow how `modules/glib/checks/tests/gate.ts` gets its dependencies).
@@ -373,7 +373,7 @@ the cast; the golden tests' traps cover those.
 
 - **`IBusEngine`.**
   - Signals with upstream's names, class offsets, accumulators and flags: `process-key-event`, `focus-in`, `focus-out`, `reset`, `enable`, `disable`, `set-cursor-location`, `set-capabilities`, `page-up`, `page-down`, `cursor-up`, `cursor-down`, `candidate-clicked`, `property-activate`, `property-show`, `property-hide`, `set-surrounding-text`, `set-content-type`. `focus-in-id`/`focus-out-id` are present only if upstream's class struct demands them; keep them inert.
-  - Default class handlers as upstream's: `process-key-event` returns `FALSE`; the rest are no-ops, except that `set-surrounding-text` stores the text, and `set-capabilities` and `set-content-type` store their values in the public fields upstream's struct has.
+  - Default class handlers as upstream's: `process-key-event` returns `FALSE`; the rest are no-ops, except that `set-surrounding-text` stores the text, and direct `set-capabilities` and `set-content-type` signals retain their cache updates. Protocol dispatch must also update cursor, capabilities and private content caches before emitting signals, independently of class overrides (corrected after final review).
 - **Emitters.** Each emitter appends one record with the payload signature from `protocol.h`:
   - `commit_text`, `update_preedit_text` and `update_preedit_text_with_mode` (mode `IBUS_ENGINE_PREEDIT_CLEAR` for the plain form);
   - `update_auxiliary_text`, `update_lookup_table` and `update_lookup_table_fast` (the fast form sends the visible page only, as upstream builds it);

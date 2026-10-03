@@ -16,3 +16,10 @@ void audit_fixture(void) {
   (void)callback;
   (void)matching;
 }
+
+static void takes_int(int value) { (void)value; }
+
+void audit_direct_call(void) {
+  void (*call)(void) = (void (*)(void))takes_int;
+  call();
+}
