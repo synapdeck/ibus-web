@@ -15,6 +15,8 @@
 #include <gtest/gtest.h>
 #include <ibus-web/wasmfs-idb.h>
 
+#include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -28,10 +30,54 @@
 #include <unistd.h>
 #include <vector>
 
-// The main thread's JavaScript ends a call proxied to it through this.
+namespace idb_test {
+
+// A call into the main thread's JavaScript that the test waits on: the
+// JavaScript writes its answer to `out` and ends the call with
+// _idb_test_finish(call). One that gets no answer in time is abandoned and
+// never freed, so an answer that comes later lands in memory nothing else
+// uses.
+struct MainThreadCall {
+  em_proxying_ctx *ctx = nullptr;
+  // The timer that abandons the call.
+  int backstop = 0;
+  bool finished = false;
+  bool timed_out = false;
+  uint32_t out[6] = {};
+};
+
+// How long the main thread has to answer.
+inline constexpr int kAnswerMs = 30000;
+
+} // namespace idb_test
+
+// clang-format reads an EM_JS body as C and splits JavaScript's =>.
+// clang-format off
+EM_JS(int, idb_test_start_backstop, (void *call, int ms), {
+  return setTimeout(() => _idb_test_time_out(call), ms);
+});
+
+EM_JS(void, idb_test_stop_backstop, (int timer), { clearTimeout(timer); });
+// clang-format on
+
+// Both run on the main thread, so a call ends once, whichever comes first.
 extern "C" EMSCRIPTEN_KEEPALIVE inline void
-idb_test_finish(em_proxying_ctx *ctx) {
-  emscripten_proxy_finish(ctx);
+idb_test_finish(idb_test::MainThreadCall *call) {
+  if (call->finished) {
+    return;
+  }
+  call->finished = true;
+  idb_test_stop_backstop(call->backstop);
+  emscripten_proxy_finish(call->ctx);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE inline void
+idb_test_time_out(idb_test::MainThreadCall *call) {
+  if (call->finished) {
+    return;
+  }
+  call->timed_out = true;
+  idb_test_finish(call);
 }
 
 EM_JS_DEPS(idb_test, "$UTF8ToString");
@@ -42,10 +88,10 @@ EM_JS_DEPS(idb_test, "$UTF8ToString");
 // size the database was created with, counts its records and hashes them
 // all (FNV-1a over each store's keys and values, and the bytes of each
 // chunk). `out` gets whether that worked, then those five numbers.
-EM_JS(void, idb_test_read_layout, (em_proxying_ctx *ctx, const char *database, uint32_t *out), {
+EM_JS(void, idb_test_read_layout, (void *call, uint32_t *out, const char *database), {
   const done = (...values) => {
     values.forEach((value, i) => (HEAPU32[(out >> 2) + i] = value));
-    _idb_test_finish(ctx);
+    _idb_test_finish(call);
   };
   const failed = () => done(0);
   const request = indexedDB.open(UTF8ToString(database), 1);
@@ -83,13 +129,13 @@ EM_JS(void, idb_test_read_layout, (em_proxying_ctx *ctx, const char *database, u
 
 // `out` gets 1 once the database is gone, 2 if a connection that stays
 // open blocks deleting it, and 0 if deleting it fails.
-EM_JS(void, idb_test_delete_database, (em_proxying_ctx *ctx, const char *database, int *out), {
+EM_JS(void, idb_test_delete_database, (void *call, uint32_t *out, const char *database), {
   let settled = false;
   const settle = (outcome) => {
     if (settled) return;
     settled = true;
-    HEAP32[out >> 2] = outcome;
-    _idb_test_finish(ctx);
+    HEAPU32[out >> 2] = outcome;
+    _idb_test_finish(call);
   };
   const request = indexedDB.deleteDatabase(UTF8ToString(database));
   request.onsuccess = () => settle(1);
@@ -100,19 +146,43 @@ EM_JS(void, idb_test_delete_database, (em_proxying_ctx *ctx, const char *databas
 
 namespace idb_test {
 
-// Runs `start` on the program's main thread, then waits until the
-// JavaScript it started calls _idb_test_finish with the context it was
-// given.
-inline void on_main_thread(std::function<void(em_proxying_ctx *)> start) {
-  const int proxied = emscripten_proxy_sync_with_ctx(
+using Answer = std::array<uint32_t, 6>;
+
+// Runs `start` on the program's main thread with a call to answer, and
+// waits for its answer, or fails the test, saying `what` went unanswered.
+inline std::optional<Answer>
+on_main_thread(std::string_view what,
+               const std::function<void(MainThreadCall *)> &start) {
+  struct Proxied {
+    MainThreadCall *call;
+    const std::function<void(MainThreadCall *)> *start;
+  };
+  Proxied proxied{new MainThreadCall, &start};
+  const int reached = emscripten_proxy_sync_with_ctx(
       emscripten_proxy_get_system_queue(), emscripten_main_runtime_thread_id(),
       [](em_proxying_ctx *ctx, void *arg) {
-        (*static_cast<std::function<void(em_proxying_ctx *)> *>(arg))(ctx);
+        auto *proxied = static_cast<Proxied *>(arg);
+        proxied->call->ctx = ctx;
+        proxied->call->backstop =
+            idb_test_start_backstop(proxied->call, kAnswerMs);
+        (*proxied->start)(proxied->call);
       },
-      &start);
-  if (!proxied) {
-    ADD_FAILURE() << "could not reach the main thread";
+      &proxied);
+  if (!reached) {
+    delete proxied.call;
+    ADD_FAILURE() << what << ": could not reach the main thread";
+    return std::nullopt;
   }
+  if (proxied.call->timed_out) {
+    ADD_FAILURE() << what << ": no answer from the main thread in "
+                  << kAnswerMs / 1000 << " s";
+    return std::nullopt;
+  }
+  Answer answer;
+  std::copy(std::begin(proxied.call->out), std::end(proxied.call->out),
+            answer.begin());
+  delete proxied.call;
+  return answer;
 }
 
 // What a database holds, as the backend's own records show it.
@@ -138,14 +208,13 @@ struct Layout {
 
 // What `database` holds, or nothing if it can't be read.
 inline std::optional<Layout> read_layout(const std::string &database) {
-  uint32_t out[6] = {};
-  on_main_thread([&](em_proxying_ctx *ctx) {
-    idb_test_read_layout(ctx, database.c_str(), out);
+  auto out = on_main_thread("reading " + database, [&](MainThreadCall *call) {
+    idb_test_read_layout(call, call->out, database.c_str());
   });
-  if (!out[0]) {
+  if (!out || !(*out)[0]) {
     return std::nullopt;
   }
-  return Layout{out[1], out[2], out[3], out[4], out[5]};
+  return Layout{(*out)[1], (*out)[2], (*out)[3], (*out)[4], (*out)[5]};
 }
 
 // The inode, entry and chunk records a database holds.
@@ -187,11 +256,10 @@ inline std::ostream &operator<<(std::ostream &os, Deleted deleted) {
 }
 
 inline Deleted delete_database(const std::string &database) {
-  int out = 0;
-  on_main_thread([&](em_proxying_ctx *ctx) {
-    idb_test_delete_database(ctx, database.c_str(), &out);
+  auto out = on_main_thread("deleting " + database, [&](MainThreadCall *call) {
+    idb_test_delete_database(call, call->out, database.c_str());
   });
-  return static_cast<Deleted>(out);
+  return out ? static_cast<Deleted>((*out)[0]) : Deleted::kFailed;
 }
 
 inline std::string errno_text() { return std::strerror(errno); }

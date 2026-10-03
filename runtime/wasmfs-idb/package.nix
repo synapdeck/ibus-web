@@ -53,11 +53,6 @@
           "-std=c++17"
           cflags
         ];
-        # Some tests reach into WasmFS's internals.
-        "runtime/wasmfs-idb/tests/.*\\.(cpp|h)" = [
-          "-std=c++17"
-          cflags
-        ];
       };
       packages.wasmfs-idb = wasmfsIdb;
     };

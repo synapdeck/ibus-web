@@ -29,6 +29,8 @@ std::vector<uint8_t> read_whole(const char *path, size_t size) {
   return back;
 }
 
+using Basic = BasicDatabase;
+
 } // namespace
 
 TEST_F(Basic, KeepsEveryInode) {
@@ -37,7 +39,7 @@ TEST_F(Basic, KeepsEveryInode) {
 
 TEST_F(Basic, SpanningFileReadsBack) {
   struct stat st;
-  const char *spanning = BASIC_MOUNT "/dir/renamed";
+  const char *spanning = BASIC_MOUNT "/spanning";
   const size_t size = basic_file_size(chunk_size);
   ASSERT_EQ(stat(spanning, &st), 0) << errno_text();
   EXPECT_TRUE(S_ISREG(st.st_mode));
@@ -50,19 +52,29 @@ TEST_F(Basic, SpanningFileReadsBack) {
   EXPECT_EQ(read_whole(spanning, size), basic_expected(chunk_size));
 }
 
+TEST_F(Basic, RenamedSpanningFileReadsBack) {
+  const size_t size = basic_file_size(chunk_size);
+  struct stat st;
+  ASSERT_EQ(stat(BASIC_MOUNT "/files/renamed", &st), 0) << errno_text();
+  EXPECT_EQ(st.st_mode & 07777, kBasicFileMode);
+  EXPECT_EQ(read_whole(BASIC_MOUNT "/files/renamed", size),
+            basic_expected(chunk_size));
+}
+
 TEST_F(Basic, DirectoriesKeepTheirModes) {
   struct stat st;
   ASSERT_EQ(stat(BASIC_MOUNT "/dir", &st), 0) << errno_text();
   EXPECT_TRUE(S_ISDIR(st.st_mode));
   EXPECT_EQ(st.st_mode & 07777, 0755u);
-  ASSERT_EQ(stat(BASIC_MOUNT "/dir/sub", &st), 0) << errno_text();
+  ASSERT_EQ(stat(BASIC_MOUNT "/parent/sub", &st), 0) << errno_text();
   EXPECT_TRUE(S_ISDIR(st.st_mode));
   EXPECT_EQ(st.st_mode & 07777, 0700u);
 }
 
 TEST_F(Basic, RenamedFilesKeepTheirContents) {
-  EXPECT_EQ(read_file(BASIC_MOUNT "/dir/sub/inner"), kBasicInnerContents);
+  EXPECT_EQ(read_file(BASIC_MOUNT "/parent/sub/inner"), kBasicInnerContents);
   EXPECT_EQ(read_file(BASIC_MOUNT "/replaced"), kBasicReplacedContents);
+  EXPECT_EQ(read_file(BASIC_MOUNT "/full/kept"), kBasicKeptContents);
 }
 
 TEST_F(Basic, ModeAndTimesPersist) {
@@ -103,12 +115,12 @@ TEST_F(Basic, SymlinkPersists) {
   ASSERT_EQ(lstat(BASIC_MOUNT "/link", &st), 0) << errno_text();
   EXPECT_TRUE(S_ISLNK(st.st_mode));
   ASSERT_EQ(stat(BASIC_MOUNT "/link", &st), 0) << errno_text();
-  EXPECT_EQ(st.st_size, (off_t)basic_file_size(chunk_size));
+  EXPECT_EQ(st.st_size, (off_t)strlen(kBasicLinkedContents));
 }
 
 TEST_F(Basic, RemovedNamesStayGone) {
   static const char *const gone[] = {
-      BASIC_MOUNT "/dir/file",    BASIC_MOUNT "/moving",
+      BASIC_MOUNT "/files/file",  BASIC_MOUNT "/moving",
       BASIC_MOUNT "/replacement", BASIC_MOUNT "/temporary",
       BASIC_MOUNT "/empty",       BASIC_MOUNT "/held",
       BASIC_MOUNT "/usurper"};

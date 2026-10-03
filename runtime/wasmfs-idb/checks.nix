@@ -11,12 +11,12 @@
       tests = ./tests;
 
       # A directory holding one GoogleTest program, name.js and name.wasm,
-      # from name.cpp; some reach into WasmFS's internals. The pool starts
-      # with a thread for the tests and one for each backend their cases
-      # create, since WasmFS keeps every backend, and its thread, for good;
-      # past that, a thread starts only once the program's main thread is
-      # back in its event loop. The test libraries add nothing to a program
-      # that doesn't ask for them.
+      # from name.cpp; some reach into WasmFS's internals. The pool holds a
+      # thread for the tests and one for each backend their cases create,
+      # since WasmFS keeps every backend, and its thread, for good; creating
+      # a thread past it fails, so a count that falls short fails the case
+      # that needed one rather than slowing the program down. The test
+      # libraries add nothing to a program that doesn't ask for them.
       program =
         {
           name,
@@ -37,7 +37,7 @@
           buildPhase = ''
             runHook preBuild
             $CXX -std=c++17 ${testing.gtestMain.cflags} ${wasmfsIdb.cflags} -c ${name}.cpp -o ${name}.o
-            $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=${toString (backends + 1)} \
+            $CXX ${testing.browserLinkFlags} -sWASMFS=1 -sPTHREAD_POOL_SIZE=${toString (backends + 1)} -sPTHREAD_POOL_SIZE_STRICT=2 \
               --js-library=${wasmfsIdb.jsLibrary} \
               ${lib.concatMapStringsSep " " (library: "--js-library=${library}") testLibraries} \
               ${lib.concatMapStringsSep " " (file: "--post-js=${file}") postJs} \
@@ -64,9 +64,13 @@
         ./tests/strict-commits.js
       ];
 
-      # The tests' headers are C++ against GoogleTest.
-      ibusWeb.toolchain.clangdPathFlags."runtime/wasmfs-idb/tests/.*\\.(cpp|h)" =
-        lib.splitString " " testing.gtestMain.cflags;
+      # The tests and their headers are C++ against GoogleTest; some reach
+      # into WasmFS's internals.
+      ibusWeb.toolchain.clangdPathFlags."runtime/wasmfs-idb/tests/.*\\.(cpp|h)" = [
+        "-std=c++17"
+        wasmfsIdb.cflags
+      ]
+      ++ testing.gtestCflagList;
 
       checks.wasmfs-idb = testing.programs {
         name = "wasmfs-idb";
@@ -77,7 +81,7 @@
         programs = map program [
           {
             name = "basic.1";
-            backends = 1;
+            backends = 2;
           }
           {
             name = "basic.2";
@@ -120,11 +124,12 @@
             name = "sweep.1";
             backends = 1;
           }
-          # The first writer, a read-only backend, the writer whose sweep
-          # fails and the last writer.
+          # One for the database sweep.1 left, one for each fresh case's,
+          # and the read-only backend, the writers whose sweeps fail and the
+          # writer after one.
           {
             name = "sweep.2";
-            backends = 4;
+            backends = 9;
             postJs = [ ./tests/stderr-post.js ];
           }
         ];

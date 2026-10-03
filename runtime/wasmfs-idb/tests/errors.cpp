@@ -28,11 +28,36 @@ EM_JS_DEPS(errors, "$PThread");
 // `out` gets 1 once the database has been opened at version 2 and closed
 // again, 2 as soon as a connection that stays open blocks that, and 0 if it
 // fails.
-EM_JS(void, upgrade_database, (em_proxying_ctx *ctx, const char *database, int *out), {
+EM_JS(void, upgrade_database, (void *call, uint32_t *out, const char *database), {
   wasmfsIdbTestUpgrade(UTF8ToString(database), (outcome) => {
-    HEAP32[out >> 2] = outcome;
-    _idb_test_finish(ctx);
+    HEAPU32[out >> 2] = outcome;
+    _idb_test_finish(call);
   });
+});
+
+// `out` gets the count of the program's threads, the backends' among them,
+// that are running, once it is `expected`, or after 5 seconds if it never
+// gets there. A thread that ended leaves the count once the main thread
+// takes its Worker back for the pool.
+EM_JS(void, await_threads, (void *call, uint32_t *out, int expected), {
+  const count = () => Object.keys(PThread.pthreads).length;
+  const { returnWorkerToPool } = PThread;
+  let backstop;
+  const done = () => {
+    PThread.returnWorkerToPool = returnWorkerToPool;
+    clearTimeout(backstop);
+    HEAPU32[out >> 2] = count();
+    _idb_test_finish(call);
+  };
+  if (count() === expected) {
+    done();
+    return;
+  }
+  PThread.returnWorkerToPool = (worker) => {
+    returnWorkerToPool(worker);
+    if (count() === expected) done();
+  };
+  backstop = setTimeout(done, 5000);
 });
 // clang-format on
 
@@ -47,15 +72,13 @@ int running_threads() {
 }
 
 // The threads running, once they are `expected`, or as many as are left
-// after a while. A thread that ended leaves the count only once the main
-// thread has heard so.
+// if they never are.
 int threads_settled_at(int expected) {
-  int count = running_threads();
-  for (int i = 0; i < 100 && count != expected; i++) {
-    usleep(10000);
-    count = running_threads();
-  }
-  return count;
+  auto out = idb_test::on_main_thread(
+      "waiting for the threads", [&](idb_test::MainThreadCall *call) {
+        await_threads(call, call->out, expected);
+      });
+  return out ? (int)(*out)[0] : -1;
 }
 
 // Whether `a` and `b` describe a file alike. WasmFS numbers files by its
@@ -147,12 +170,14 @@ protected:
   // Opens the database at version 2, as a later version of the backend
   // would, which every backend on it must let happen.
   void upgrade() {
-    int outcome = 0;
-    idb_test::on_main_thread([&](em_proxying_ctx *ctx) {
-      upgrade_database(ctx, database.c_str(), &outcome);
-    });
-    ASSERT_EQ(outcome, 1) << "opening the database at version 2 "
-                          << (outcome == 2 ? "was blocked" : "failed");
+    auto out = idb_test::on_main_thread(
+        "upgrading " + database, [&](idb_test::MainThreadCall *call) {
+          upgrade_database(call, call->out, database.c_str());
+        });
+    ASSERT_TRUE(out);
+    const uint32_t outcome = (*out)[0];
+    ASSERT_EQ(outcome, 1u) << "opening the database at version 2 "
+                           << (outcome == 2 ? "was blocked" : "failed");
   }
 
   // A fresh database still opens after failures, on a thread of its own:
@@ -162,7 +187,7 @@ protected:
     const std::string fresh_mount = mount_path + "-fresh";
     backend_t opened = wasmfs_create_idb_backend(fresh.c_str(), 0);
     ASSERT_NE(opened, nullptr);
-    EXPECT_EQ(running_threads(), threads + 1);
+    EXPECT_EQ(threads_settled_at(threads + 1), threads + 1);
     ASSERT_EQ(wasmfs_create_directory(fresh_mount.c_str(), 0777, opened), 0);
     write_file(fresh_mount + "/file", 0644, "fresh");
     EXPECT_EQ(read_file(fresh_mount + "/file"), "fresh");

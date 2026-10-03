@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // What basic.1 leaves in the database and basic.2 expects to find, and the
-// fixture both mount it with: once, for every case, which run in order on
-// the one database.
+// fixture both mount it with: once, for every case of the program.
 
 #pragma once
 
@@ -82,20 +81,26 @@ inline constexpr const char *kBasicUsurperContents = "usurper";
 
 inline constexpr const char *kBasicInnerContents = "inner";
 inline constexpr const char *kBasicReplacedContents = "replacement";
-inline constexpr const char *kBasicLinkTarget = "dir/renamed";
+inline constexpr const char *kBasicKeptContents = "kept";
+inline constexpr const char *kBasicLinkTarget = "link-target";
+inline constexpr const char *kBasicLinkedContents = "linked";
 
-// The root, dir, dir/renamed, dir/sub, dir/sub/inner, replaced, stamped,
-// link, sized, truncated and usurped: every unlinked or replaced inode is
-// gone once its last descriptor closed.
-inline constexpr unsigned kBasicInodes = 11;
+// The root, dir, spanning, files, files/renamed, parent, parent/sub,
+// parent/sub/inner, replaced, full, full/kept, usurped, sized, truncated,
+// link-target, link and stamped.
+inline constexpr unsigned kBasicInodes = 17;
 
 // The names basic.1 leaves in the mount.
-inline constexpr unsigned kBasicRootEntries = 7;
+inline constexpr unsigned kBasicRootEntries = 12;
 
-class Basic : public testing::Test {
+class BasicDatabase : public testing::Test {
 protected:
+  // Once for the program, however many suites share the database.
   static void SetUpTestSuite() {
-    mounted = idb_test::mount(kBasicDatabase, BASIC_MOUNT);
+    if (!mount_tried) {
+      mount_tried = true;
+      mounted = idb_test::mount(kBasicDatabase, BASIC_MOUNT);
+    }
   }
 
   void SetUp() override {
@@ -105,6 +110,7 @@ protected:
     ASSERT_GT(chunk_size, kBasicOverwriteLen);
   }
 
+  static inline bool mount_tried = false;
   static inline idb_test::Mounted mounted;
   unsigned chunk_size = 0;
 };

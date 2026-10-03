@@ -114,6 +114,7 @@ TEST_F(Fsync, EveryFsyncCommitsStrictlyOnce) {
     fsync_min = std::min(cost, fsync_min);
     fsync_max = std::max(cost, fsync_max);
   }
+  EXPECT_EQ(strict_commits.load(), (unsigned)kRounds);
   EXPECT_EQ(strict_file_commits.load(), (unsigned)kRounds);
   EXPECT_EQ(strict_file_writes.load(), (unsigned)kRounds);
 

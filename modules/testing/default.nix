@@ -50,6 +50,10 @@
             report, which libs already links.
         '';
       };
+      gtestCflagList = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        description = "gtestMain.cflags as a list, one flag an element, for the editor's flags.";
+      };
       programs = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
@@ -312,7 +316,7 @@
           jsLibrary = "${reportLibrary}";
         };
 
-        inherit programs;
+        inherit gtestCflagList programs;
       };
 
       # The harness and every GoogleTest program here include GoogleTest.
