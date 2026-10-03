@@ -5,7 +5,7 @@
 Meson introspection doesn't describe test setups, so this reads Meson's
 own build data: run it with `meson runpython` in a build directory. The
 data is a pickle of Meson's own Python objects, which only Meson's Python
-can load, so this stays Python.
+can load, so this is Python.
 """
 
 from mesonbuild import build

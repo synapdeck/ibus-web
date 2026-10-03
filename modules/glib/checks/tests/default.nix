@@ -19,7 +19,7 @@
       gate = pkgs.runCommand "ibus-web-glib-tests-gate-script" { } ''
         mkdir $out
         cp ${./gate.ts} $out/gate.ts
-        ln -s ${typescript.nodeModules}/${lib.path.removePrefix ../../../.. ./.}/node_modules $out/node_modules
+        ln -s ${typescript.packageNodeModules ./.} $out/node_modules
       '';
       setupExcludes = ./setup-excludes.py;
 
@@ -107,7 +107,7 @@
           # path; the unwrapped pkg-config honours it.
           export PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH
           gate() {
-            node ${gate}/gate.ts "$1" meson-info/intro-tests.json default-tests \
+            ${lib.getExe typescript.nodejs} ${gate}/gate.ts "$1" meson-info/intro-tests.json default-tests \
               excluded-suites ${./baseline.toml} "''${@:2}"
           }
           # Invocations come on fd 3, since tests inherit stdin and may read

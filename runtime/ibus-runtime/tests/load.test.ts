@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { nodeTestData as data } from "@ibus-web/test-programs/node-tests";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -41,13 +42,14 @@ const takePrinted = (pattern: RegExp, count = 1): string[] => {
   return taken;
 };
 
-beforeEach(() => {
-  printed.length = 0;
-});
-
-afterEach(() => {
-  expect(printed, "printed nothing else").toEqual([]);
-});
+// Takes every printed line, which must be none: for what the hooks and
+// anything between tests printed, as well as each test.
+const nothingElse = (): void => {
+  expect(printed.splice(0), "printed nothing else").toEqual([]);
+};
+beforeEach(nothingElse);
+afterEach(nothingElse);
+afterAll(nothingElse);
 
 let harness: HarnessData;
 
@@ -72,17 +74,15 @@ describe.each([
 ])("the $build runtime", ({ runtime, asserting }) => {
   let createRuntime: CreateRuntime;
   let rt: Runtime;
-  // Each side module instance the runtime's loader made, with the imports
-  // it was given.
-  const instances: { module: WebAssembly.Module; imports: WebAssembly.Imports }[] = [];
-  const Instance = WebAssembly.Instance;
-
-  // Loads a side module from the build into the runtime's file system.
-  const load = async (key: string): Promise<number> => {
-    const path = `/tmp/${key}.wasm`;
-    rt.writeFile(path, await readFile(data(key)));
-    return rt.loadModule(path);
-  };
+  // Each side module the runtime loaded, by its key in the test data: what
+  // ibusweb_load_module() returned, and the instances the runtime's loader
+  // made, with the imports it gave each.
+  const sides = ["side", "cxxSide", "throwSide", "hangulSide"] as const;
+  const loaded = new Map<
+    (typeof sides)[number],
+    { result: number; instances: { module: WebAssembly.Module; imports: WebAssembly.Imports }[] }
+  >();
+  const loadedSide = (key: (typeof sides)[number]) => loaded.get(key)!;
 
   beforeAll(async () => {
     createRuntime = await loadRuntime(runtime);
@@ -92,16 +92,24 @@ describe.each([
     // the name up on the first call and fails then if nothing provides it.
     // Recording what the module was given tells them apart without calling
     // anything.
+    const Instance = WebAssembly.Instance;
+    let instances: { module: WebAssembly.Module; imports: WebAssembly.Imports }[] = [];
     WebAssembly.Instance = class extends Instance {
       constructor(module: WebAssembly.Module, imports: WebAssembly.Imports) {
         super(module, imports);
         instances.push({ module, imports });
       }
     };
-  });
-
-  afterAll(() => {
-    WebAssembly.Instance = Instance;
+    try {
+      for (const key of sides) {
+        instances = [];
+        const path = `/tmp/${key}.wasm`;
+        rt.writeFile(path, await readFile(data(key)));
+        loaded.set(key, { result: rt.loadModule(path), instances });
+      }
+    } finally {
+      WebAssembly.Instance = Instance;
+    }
   });
 
   // Without one, the runtime would make a memory of its least size.
@@ -109,9 +117,9 @@ describe.each([
     await expect(createRuntime()).rejects.toThrow(/must pass wasmMemory/);
   });
 
-  test("loads a side module", async () => {
-    expect(await load("side")).toBe(0);
-    expect(instances).toHaveLength(1);
+  test("loads a side module", () => {
+    expect(loadedSide("side").result).toBe(0);
+    expect(loadedSide("side").instances).toHaveLength(1);
     // Nothing is due.
     expect(rt.pump()).toBe(-1);
   });
@@ -128,13 +136,13 @@ describe.each([
   // which it provides to side modules because its export list names them;
   // so are the other names on the list that its wasm doesn't export.
   test("provides side modules the JavaScript functions its export list names", async () => {
-    const [{ module, imports }] = instances as [(typeof instances)[number]];
+    const [{ module, imports }] = loadedSide("side").instances as [ReturnType<typeof loadedSide>["instances"][number]];
     const env = imports["env"]!;
     for (const name of ["__assert_fail", "emscripten_asm_const_int", "emscripten_get_now"]) {
       expect(WebAssembly.Module.imports(module)).toContainEqual({ module: "env", name, kind: "function" });
       expect(env[name], name).toBe(rt.module[`_${name}`]);
     }
-    const runtimeUrl = new URL(`file://${runtime}`);
+    const runtimeUrl = pathToFileURL(runtime);
     const wasm = await WebAssembly.compile(await readFile(new URL("ibus-runtime.wasm", runtimeUrl)));
     const exported = new Set(WebAssembly.Module.exports(wasm).map((e) => e.name));
     const { libraries } = JSON.parse(await readFile(new URL("exports.json", runtimeUrl), "utf8")) as {
@@ -154,21 +162,21 @@ describe.each([
     expect(view.getFloat64(4, true)).toBeGreaterThan(0);
   });
 
-  test("loads a C++ side module on its own libc++", async () => {
-    expect(await load("cxxSide")).toBe(0);
+  test("loads a C++ side module on the runtime's libc++", () => {
+    expect(loadedSide("cxxSide").result).toBe(0);
     expect(text(rt.dispatch(10, utf8("side")))).toBe("hello, side");
   });
 
-  test("catches a C++ exception a side module's operation throws", async () => {
-    expect(await load("throwSide")).toBe(0);
+  test("catches a C++ exception a side module's operation throws", () => {
+    expect(loadedSide("throwSide").result).toBe(0);
     expect(rt.dispatch(11)).toBe(-errno("ECANCELED"));
     takePrinted(/ibus-web-WARNING.*Operation 11 threw: thrown in a side module/);
     // The runtime keeps serving.
     expect(text(rt.dispatch(1, utf8("ok")))).toBe("ko");
   });
 
-  test("loads a side module with a static library linked in", async () => {
-    expect(await load("hangulSide")).toBe(0);
+  test("loads a side module with a static library linked in", () => {
+    expect(loadedSide("hangulSide").result).toBe(0);
     const reply = rt.dispatch(12, utf8("gks"));
     if (typeof reply === "number") throw new Error(`errno ${reply}`);
     // 한, from ㅎ, ㅏ and ㄴ.
@@ -212,18 +220,22 @@ describe.each([
     takePrinted(/^Aborted\(LinkError/);
   });
 
-  // A memory with room above its size.
-  let roomy: Runtime;
+  describe("on a memory with room above its size", () => {
+    let roomy: Runtime;
+    beforeAll(async () => {
+      roomy = await startRuntime(createRuntime, harness, { maximum: harness.memory.maximum });
+    });
 
-  test("never grows its memory", async () => {
-    roomy = await startRuntime(createRuntime, harness, { maximum: harness.memory.maximum });
-    expect(roomy.module._emscripten_get_heap_max()).toBe(harness.memory.minimum);
-  });
+    test("never grows its memory", () => {
+      expect(roomy.module._emscripten_get_heap_max()).toBe(harness.memory.minimum);
+    });
 
-  // Even for an allocation that is allowed to fail.
-  test("aborts when its heap is full", () => {
-    expect(() => roomy.module._g_try_malloc(harness.memory.minimum)).toThrow(WebAssembly.RuntimeError);
-    takePrinted(/^Aborted\(.*OOM/);
-    expect(roomy.wasmMemory.buffer.byteLength).toBe(harness.memory.minimum);
+    // Even for an allocation that is allowed to fail. The runtime is no use
+    // after, so this comes last.
+    test("aborts when its heap is full", () => {
+      expect(() => roomy.module._g_try_malloc(harness.memory.minimum)).toThrow(WebAssembly.RuntimeError);
+      takePrinted(/^Aborted\(.*OOM/);
+      expect(roomy.wasmMemory.buffer.byteLength).toBe(harness.memory.minimum);
+    });
   });
 });

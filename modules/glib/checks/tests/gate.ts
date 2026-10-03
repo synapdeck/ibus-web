@@ -30,7 +30,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { parse } from "smol-toml";
+import { parse, stringify } from "smol-toml";
 
 const PASSING: readonly (string | undefined)[] = ["OK", "EXPECTEDFAIL"];
 
@@ -39,8 +39,8 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-// A file's lines, as Python's splitlines() gives them: no empty last line
-// for the final newline.
+// A file's lines, split at \n or \r\n; a final newline ends the last line
+// rather than starting an empty one, and an empty file has none.
 const lines = (text: string): string[] => (text === "" ? [] : text.replace(/\r?\n$/, "").split(/\r?\n/));
 
 const readLog = (path: string): Map<string, string> => {
@@ -250,11 +250,8 @@ for (const name of Object.keys(excluded)) {
 }
 writeFileSync(join(outDir, "summary.txt"), `${summary.join("\n")}\n`);
 
-const proposed = ["# name = result, from this run", "[results]"];
-for (const [name, result] of [...results].sort(([a], [b]) => compare(a, b))) {
-  proposed.push(`${JSON.stringify(name)} = ${JSON.stringify(result)}`);
-}
-writeFileSync(join(outDir, "proposed-baseline.toml"), `${proposed.join("\n")}\n`);
+const proposed = stringify({ results: Object.fromEntries([...results].sort(([a], [b]) => compare(a, b))) });
+writeFileSync(join(outDir, "proposed-baseline.toml"), `# name = result, from this run\n${proposed}`);
 
 console.log(summary.join("\n"));
 process.exit(failures.length > 0 ? 1 : 0);
