@@ -1,0 +1,91 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// The host's scenarios under Node, the host in a worker_thread and this
+// thread playing the page. Under Node, Emscripten creates a Worker beyond the
+// pool rather than fail a thread's creation, so pool-exhausted runs in
+// browsers only.
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
+import type { RunningHost } from "../shared/harness.ts";
+import {
+  abortPrinted,
+  coldWake,
+  crashPrinted,
+  crossThreadWake,
+  deadline,
+  dispatch,
+  exceptions,
+  glibStress,
+  heapFull,
+  memStress,
+  noLateReplies,
+  poolTopUp,
+  syncProxied,
+  threadCrash,
+  threadCreateBlocked,
+  threadExitBlocked,
+} from "../shared/scenarios.ts";
+import { failedInstantiate, refusedMemory, relayFailure, released, topUpLimit } from "../shared/lifecycle.ts";
+import { nodeHarness } from "./harness.ts";
+
+const h = await nodeHarness();
+
+beforeEach(() => h.printed.nothingElse());
+afterEach(() => h.printed.nothingElse());
+
+describe.each(h.data.runtimes)("the $name runtime", (runtime) => {
+  // In order: thread-create-blocked and pool-top-up need the pool as it
+  // started, before any other scenario leaves a thread alive or grows it.
+  describe("one host", () => {
+    let host: RunningHost;
+    beforeAll(async () => {
+      host = await h.start({ runtime });
+    });
+    afterAll(() => host?.terminate());
+    afterEach(() => noLateReplies(host.client));
+
+    test("dispatch", () => dispatch(h, host));
+    test("cold-wake", () => coldWake(h, host));
+    test("thread-create-blocked", () => threadCreateBlocked(h, host));
+    test("pool-top-up", () => poolTopUp(h, host));
+    test("thread-exit-blocked", () => threadExitBlocked(h, host));
+    test("cross-thread-wake", () => crossThreadWake(h, host));
+    test("deadline", () => deadline(h, host));
+    test("sync-proxied", () => syncProxied(h, host));
+    test("exceptions", () => exceptions(h, host));
+  });
+
+  // Each of these takes its host down, or needs one of its own.
+  const ownHost = async (use: (host: RunningHost) => Promise<void>): Promise<void> => {
+    const host = await h.start({ runtime });
+    try {
+      await use(host);
+    } finally {
+      await host.terminate();
+    }
+  };
+
+  test("thread-crash", () =>
+    ownHost(async (host) => {
+      await threadCrash(h, host);
+      await crashPrinted(h, runtime);
+    }));
+
+  test("heap-full", () =>
+    ownHost(async (host) => {
+      await heapFull(h, host);
+      await h.printed.take(abortPrinted, { count: 1 });
+    }));
+
+  test("mem-stress", () => ownHost((host) => memStress(h, host)));
+  test("glib-stress", () => ownHost((host) => glibStress(h, host)));
+});
+
+describe.each(h.data.runtimes)("the host on the $name runtime", (runtime) => {
+  test("fails to start when the runtime fails to instantiate", () => failedInstantiate(h, runtime));
+  test("refuses a memory the runtime can't take", () => refusedMemory(h, runtime));
+  test("as released, ignores what HostInit.test asks", () => released(h, runtime));
+  test("reports a relay that fails as a crash", () => relayFailure(h, runtime));
+  test("logs a top-up that doesn't finish in time, and tops up no more", () => topUpLimit(h, runtime));
+});
