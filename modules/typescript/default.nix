@@ -14,58 +14,46 @@
       inherit (pkgs) pnpm;
       root = ../..;
 
-      # pnpm-workspace.yaml's `packages:` block list. Nix has no YAML reader, so
-      # this reads that one key line by line, and inside it any line it doesn't
-      # recognise throws: a form it can't read must not be skipped silently.
-      workspaceGlobs =
-        let
-          file = "pnpm-workspace.yaml";
-          # A quoted or plain scalar; the first matching group of the three
-          # inner ones is its value.
-          scalar = plain: ''("([^"]*)"|'([^']*)'|(${plain}))'';
-          valueOf = groups: lib.findFirst (group: group != null) null groups;
-          comment = "([[:space:]]+#.*)?[[:space:]]*";
-          matchItem = builtins.match "[[:space:]]*-[[:space:]]+${scalar "[^\"'#[:space:]][^#[:space:]]*"}${comment}";
-          matchKey = builtins.match "([^[:space:]#][^:]*):(.*)";
-          isBlank = line: builtins.match "[[:space:]]*(#.*)?" line != null;
-          isIndented = line: builtins.match "[[:space:]].*" line != null;
+      # pnpm-workspace.yaml's content, which `files` writes into the tree and
+      # checks there: the workspace's package globs, and its catalog.
+      pnpmWorkspace = {
+        packages = [
+          "runtime/wasmfs-idb"
+          "modules/glib/checks/tests"
+          "packages/*"
+        ];
+        # What must be one version across the repository, and the tools
+        # packages share. Packages name these as `catalog:`, never with a
+        # version of their own.
+        catalog = {
+          "@effect/vitest" = "^4.0.0";
+          "@types/node" = "^24.19.0";
+          effect = "^4.0.0";
+          # Exactly the driver whose browsers nixpkgs provides.
+          playwright = pkgs.playwright-driver.version;
+          typescript = "^7.0.2";
+          vitest = "^5.0.3";
+          "@vitest/browser" = "^5.0.3";
+          "@vitest/browser-playwright" = "^5.0.3";
+          jsonc-parser = "^3.3.1";
+          smol-toml = "^1.9.0";
+          tsdown = "^0.23.0";
+        };
+      };
 
-          step =
-            state: line:
-            let
-              item = matchItem line;
-              key = matchKey line;
-              keyName = builtins.elemAt key 0;
-            in
-            if isBlank line then
-              state
-            else if state.inPackages && item != null then
-              let
-                glob = valueOf (lib.sublist 1 3 item);
-              in
-              if lib.hasPrefix "!" glob then
-                throw "${file}: negated package globs are not supported: ${glob}"
-              else
-                state // { globs = state.globs ++ [ glob ]; }
-            else if !isIndented line && key != null then
-              if keyName != "packages" then
-                state // { inPackages = false; }
-              else if isBlank (builtins.elemAt key 1) then
-                state // { inPackages = true; }
-              else
-                throw "${file}: `packages:` must be in block style, not ${line}"
-            else if state.inPackages then
-              throw "${file}: can't read this line under `packages:`: ${line}"
-            else
-              state;
-
-          globs =
-            (lib.foldl' step {
-              inPackages = false;
-              globs = [ ];
-            } (lib.splitString "\n" (builtins.readFile (root + "/${file}")))).globs;
-        in
-        if globs == [ ] then throw "${file}: no `packages:` list found" else globs;
+      # The generator writes no comments, so the one saying where the file
+      # comes from goes first.
+      pnpmWorkspaceFile =
+        pkgs.runCommand "pnpm-workspace.yaml"
+          {
+            yaml = (pkgs.formats.yaml { }).generate "pnpm-workspace.yaml" pnpmWorkspace;
+          }
+          ''
+            {
+              echo "# Generated from modules/typescript/default.nix by \`nix run .#write-files\`."
+              cat "$yaml"
+            } > $out
+          '';
 
       # Repository-relative directories of the workspace's packages.
       packageDirs = lib.concatMap (
@@ -80,14 +68,14 @@
           if builtins.pathExists (root + "/${glob}/package.json") then
             [ glob ]
           else
-            throw "pnpm-workspace.yaml: ${glob} has no package.json"
+            throw "pnpm workspace: ${glob} has no package.json"
         else if !lib.hasSuffix "/*" glob || lib.hasInfix "*" parent then
-          throw "pnpm-workspace.yaml: only `<dir>` and `<dir>/*` package globs are supported, not ${glob}"
+          throw "pnpm workspace: only `<dir>` and `<dir>/*` package globs are supported, not ${glob}"
         else if !builtins.pathExists (root + "/${parent}") then
           [ ]
         else
           map (name: "${parent}/${name}") (lib.attrNames (lib.filterAttrs isPackage entries))
-      ) workspaceGlobs;
+      ) pnpmWorkspace.packages;
 
       # What tsc reads from a package, selected by extension anywhere in its
       # directory (.ts, .mts, .cts, .json), plus the files it lists in
@@ -287,6 +275,8 @@
             "${nodeModules}/${relative}/node_modules";
         assertDependency = ./assert-dependency.ts;
       };
+
+      files.file."pnpm-workspace.yaml".source = pnpmWorkspaceFile;
 
       devshells.default.packages = [
         nodejs

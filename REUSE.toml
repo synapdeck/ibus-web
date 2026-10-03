@@ -43,9 +43,10 @@ path = "modules/emscripten/patches/*.patch"
 SPDX-FileCopyrightText = ["Emscripten authors", "2026 Synapdeck, Inc."]
 SPDX-License-Identifier = "MIT OR NCSA"
 
-# Generated from Nix, whose generator writes a header of its own.
+# Generated from Nix: the workflow's generator writes a header of its own,
+# and the YAML generator writes no comments.
 [[annotations]]
-path = ".github/workflows/*.yml"
+path = [".github/workflows/*.yml", "pnpm-workspace.yaml"]
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 

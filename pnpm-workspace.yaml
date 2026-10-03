@@ -1,23 +1,19 @@
-# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
-# SPDX-License-Identifier: MIT OR Apache-2.0
-
-packages:
-  - "runtime/wasmfs-idb"
-  - "modules/glib/checks/tests"
-  - "packages/*"
-
-# What must be one version across the repository. Packages name these as
-# `catalog:`, never with a version of their own.
+# Generated from modules/typescript/default.nix by `nix run .#write-files`.
+%YAML 1.1
+---
 catalog:
-  "@effect/vitest": ^4.0.0
-  "@types/node": ^24.19.0
+  '@effect/vitest': ^4.0.0
+  '@types/node': ^24.19.0
+  '@vitest/browser': ^5.0.3
+  '@vitest/browser-playwright': ^5.0.3
   effect: ^4.0.0
-  # Exactly nixpkgs' playwright-driver, whose browsers it drives.
-  playwright: 1.63.0
-  typescript: ^7.0.2
-  vitest: ^5.0.3
-  "@vitest/browser": ^5.0.3
-  "@vitest/browser-playwright": ^5.0.3
   jsonc-parser: ^3.3.1
+  playwright: 1.63.0
   smol-toml: ^1.9.0
   tsdown: ^0.23.0
+  typescript: ^7.0.2
+  vitest: ^5.0.3
+packages:
+- runtime/wasmfs-idb
+- modules/glib/checks/tests
+- packages/*

@@ -23,7 +23,8 @@ What it provides:
   (from Emscripten's LLVM, so it agrees with clangd), `shfmt`, `reuse`, `actionlint`.
 - **Language servers:** `clangd`, `typescript-language-server`, `nixd`, `pkl-lsp`
   ([editor tooling](#editor-tooling)).
-- **`write-files`**, which writes the generated CI workflow ([CI](#ci)).
+- **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)) and
+  `pnpm-workspace.yaml` ([the pnpm workspace](#the-pnpm-workspace)).
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against
 garbage collection:
@@ -159,8 +160,8 @@ Then run `hk check --all` in the shell, and `nix build .#checks.x86_64-linux.hk 
 
 - **oxfmt** formats TypeScript, JavaScript, JSON and JSONC, YAML, Markdown, HTML and TOML at 120
   columns, two-space indent (`.oxfmtrc.jsonc`). It leaves `pnpm-lock.yaml` alone, since pnpm
-  rewrites it in its own style on every install, and the generated workflow, which actionlint
-  checks.
+  rewrites it in its own style on every install, nor the files Nix generates (the workflow, which
+  actionlint checks, and `pnpm-workspace.yaml`).
 - **oxlint** (`.oxlintrc.jsonc`) runs the `typescript`, `unicorn` and `oxc` plugins with the
   `correctness` category as errors, plus `no-var`, `prefer-const` and `eqeqeq`. Nothing is turned
   off for a file or the repository; the few findings that are deliberate are allowed in place with
@@ -186,7 +187,8 @@ header on every file that can hold a comment, and `REUSE.toml` annotations by pa
 - `REUSE.toml` annotates what can't hold a comment: `docs/**` and READMEs (with
   `precedence = "override"`, since the docs quote SPDX tags in prose), `package.json` files
   (strict JSON), the lockfiles (`CC0-1.0`), the GLib and Emscripten patch series (their upstreams'
-  licences and authors), the generated workflow, and Claude Code's JSON manifests.
+  licences and authors), the generated workflow and `pnpm-workspace.yaml`, and Claude Code's JSON
+  manifests.
 - There is no catch-all annotation: an unannotated new file must fail the lint.
 
 ## TypeScript
@@ -230,18 +232,25 @@ One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (`@ibus-web
 `@ibus-web/worker-host`), `runtime/wasmfs-idb` (the library checker's acorn), and
 `modules/glib/checks/tests` (the GLib gate's TOML reader).
 
+`pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
+(`pnpmWorkspace` in `modules/typescript/default.nix`), which reads them for its own builds, and
+`nix run .#write-files` writes the file; `checks."files:pnpm-workspace.yaml"` fails while the
+tracked copy differs. Never edit the YAML: change the Nix, run `write-files`, then `pnpm install`.
+
 - **Versions.** Manifests use ordinary caret ranges; `pnpm-lock.yaml` pins exact versions.
 - **The catalog.** Whatever must be one version across the repository — TypeScript, Vitest and its
   browser packages, Playwright, Effect, `@effect/vitest`, `@types/node`, and the shared tools
-  (`tsdown`, `jsonc-parser`, `smol-toml`) — is declared once under `catalog:` in
-  `pnpm-workspace.yaml`. Packages name these as `catalog:`, never with a version.
+  (`tsdown`, `jsonc-parser`, `smol-toml`) — is declared once in the workspace's catalog. Packages
+  name these as `catalog:`, never with a version.
   Repository-wide tools are `devDependencies` of the root `package.json`; a package that needs
   one in its own manifest (a peer dependency, a package-level script) names it `catalog:` too.
 - **Versions pnpm can't know** are asserted against nixpkgs when Nix installs the workspace:
-  - `playwright` is exactly nixpkgs' `playwright-driver` version (the catalog pins it without a
-    caret), since each Playwright release drives specific browser builds and the browsers come
-    from nixpkgs. Every package depending on `playwright` or `@vitest/browser-playwright` is
-    checked (`modules/typescript/assert-dependency.ts`).
+  - `playwright` is exactly nixpkgs' `playwright-driver` version (the catalog takes it from
+    `playwright-driver` itself, without a caret), since each Playwright release drives specific
+    browser builds and the browsers come from nixpkgs. Every package depending on `playwright` or
+    `@vitest/browser-playwright` is checked (`modules/typescript/assert-dependency.ts`); a
+    nixpkgs update that moves the driver fails the generated file's check until `write-files` and
+    `pnpm install` follow it.
   - `packageManager` in the root `package.json` names nixpkgs' pnpm: pnpm compares itself with it
     and, offline, can't fetch another.
   - acorn in `runtime/wasmfs-idb` is the version Emscripten ships.

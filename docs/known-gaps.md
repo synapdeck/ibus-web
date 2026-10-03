@@ -220,8 +220,6 @@ An item leaves this page when it is fixed or decided.
   from the builtin's.
 - **Claude Code plugins**: `marketplace.json` and the plugins' `plugin.json` both list `lspServers`; the
   marketplace's relative `directory` path is untested; the dev shell's greeting hard-codes its name.
-- **The pnpm catalog's comment** says it holds what must be one version across the repository, but it also
-  holds shared tools (`jsonc-parser`, `smol-toml`, `tsdown`).
 - **hk's own problems have no upstream reports**: pklr leaves interpolation in multi-line strings
   unexpanded, its HTTP client wants a CA bundle even offline, and nixpkgs' hk embeds no pkl package (hence
   the Nix-built `.hk` link).
