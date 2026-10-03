@@ -84,6 +84,30 @@
           It builds with pkgsWasm's stdenv, whose compilers add the common flags.
         '';
       };
+      vitestCheck = lib.mkOption {
+        type = lib.types.functionTo lib.types.package;
+        description = ''
+          A function making a check that runs a workspace package's Vitest suites, from
+          the built workspace, with the configuration the package's vitest.config.ts
+          makes, taking:
+
+          - name: the derivation's name, after "ibus-web-".
+          - packageDir: the package's directory in the built workspace.
+          - env: the build's attributes, such as the manifest the configuration reads.
+          - inBrowsers: whether any suite runs in a browser, which then gets
+            playwright's environment and setup.
+          - limit: whole seconds before the run is killed, a bound on a browser or Vitest
+            that hangs outright, past every test's own limit.
+          - vitestArgs (default none): more arguments for Vitest.
+          - expectedResults (default null): when given, a set as programs takes it, and
+            the check passes if Vitest's report matches it rather than when every test
+            passes.
+          - passthru (default none): as for mkDerivation.
+
+          Its output holds Vitest's console output as output.txt and its JSON report as
+          results.json.
+        '';
+      };
       programs = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
@@ -134,8 +158,9 @@
           working directory), and stop at the first that fails; every other program
           starts with that storage empty. When Vitest selects cases of a later program of
           a sequence, the earlier ones still run first for the storage they leave: in full
-          when none of their cases is selected, otherwise filtered to those. A program's "run" test selected without any of its cases passes
-          without running the program.
+          when none of their cases is selected, otherwise filtered to those. A program's
+          "run" test selected without any of its cases passes without running the
+          program.
         '';
       };
     };
@@ -289,26 +314,30 @@
 
       packageDir = "${typescript.workspace}/packages/test-programs";
 
-      # Vitest exits non-zero when a test fails, which the shim's own check
-      # expects, so its verdict comes from the JSON report instead.
-      runVitest =
+      # A failing test fails the check, unless expectedResults says which tests
+      # fail on purpose: Vitest exits non-zero then, so the verdict comes from
+      # its JSON report instead.
+      vitestCheck =
         {
           name,
-          manifest,
-          limit,
+          packageDir,
+          env,
           inBrowsers,
-          expectedResults,
+          limit,
           vitestArgs ? [ ],
+          expectedResults ? null,
+          passthru ? { },
         }:
-        pkgs.runCommand "ibus-web-test-programs-${name}"
+        pkgs.runCommand "ibus-web-${name}"
           (
             {
               nativeBuildInputs = [ typescript.nodejs ];
-              IBUS_WEB_TEST_PROGRAMS = manifest;
               # Nix gives a build a terminal, on which Vitest would redraw its
               # progress into the log, over and over.
               CI = "1";
+              inherit passthru;
             }
+            // env
             // lib.optionalAttrs inBrowsers playwright.env
           )
           ''
@@ -317,11 +346,12 @@
             mkdir $out
             status=0
             (
+              set -o pipefail
               cd ${packageDir}
-              timeout --kill-after=10 ${limit} \
+              timeout --kill-after=10 ${toString limit} \
                 node node_modules/vitest/vitest.mjs run --configLoader native \
                   --reporter=default --reporter=json --outputFile.json=$out/results.json \
-                  ${lib.escapeShellArgs vitestArgs}
+                  ${lib.escapeShellArgs vitestArgs} 2>&1 | tee $out/output.txt
             ) || status=$?
             ${
               if expectedResults == null then
@@ -396,18 +426,15 @@
         ) "programs ${name}: no programs and no nodeTests, so nothing to run";
         assert lib.assertMsg (nodeTests == null || lib.elem "node" environments)
           "programs ${name}: nodeTests run in the node environment, which isn't among ${toString environments}";
-        runVitest {
-          inherit
-            name
-            manifest
-            expectedResults
-            vitestArgs
-            ;
+        vitestCheck {
+          name = "test-programs-${name}";
+          inherit packageDir expectedResults vitestArgs;
+          env.IBUS_WEB_TEST_PROGRAMS = manifest;
           inBrowsers = environments != [ "node" ];
           # Vitest holds each program to its own limit; this one, past every
           # program's in every environment, and as long again for each test
           # file, catches a browser or Vitest that hangs outright.
-          limit = toString (
+          limit = (
             (timeout + 60)
             * (builtins.length environments * builtins.length programs + builtins.length nodeTestFiles)
             + 300
@@ -448,7 +475,12 @@
           jsLibrary = "${reportLibrary}";
         };
 
-        inherit gtestCflagList program programs;
+        inherit
+          gtestCflagList
+          program
+          programs
+          vitestCheck
+          ;
       };
 
       # The harness and every GoogleTest program here include GoogleTest.

@@ -7,7 +7,7 @@
 import type { OutputLine, Program, ProgramRun, Report, StartMessage, WorkerMessage } from "../shared/protocol.ts";
 
 // Served as written, beside the programs, rather than through Vite.
-export const workerUrl = "/@ibus-web-test-programs/worker.js";
+export const workerUrl = "/@ibus-web-test-programs/worker/program.js";
 
 export const runProgram = (program: Program, args: readonly string[], timeoutMs: number): Promise<ProgramRun> =>
   new Promise((resolve) => {

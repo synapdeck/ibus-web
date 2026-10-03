@@ -6,6 +6,10 @@
     "./node-tests": {
       "types": "./src/node/node-tests.ts",
       "default": "./dist/node/node-tests.js"
+    },
+    "./vitest": {
+      "types": "./src/node/vitest.ts",
+      "default": "./dist/node/vitest.js"
     }
   },
   "scripts": {

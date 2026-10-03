@@ -311,6 +311,15 @@ Every response the test server sends, errors included, carries
 `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`: without
 cross-origin isolation there is no `SharedArrayBuffer`, so no program with threads.
 
+The shim's and the Worker host's Vitest configurations share what a browser run needs, from
+`@ibus-web/test-programs/vitest`: `crossOriginIsolation` (those headers), `serveDirs` and
+`servePlugin` (directories served under a URL prefix as they are on disk, which Vite would
+rewrite, with Vite's warning about Vitest's own module runner dropped), and `browserMode`
+(Playwright's headless browsers, Chromium with `chromiumSandbox`, Playwright's notice that it
+skips host validation dropped). `ibusWeb.testing.vitestCheck` runs a package's suites from the
+built workspace as a check, for `ibusWeb.testing.programs` and the Worker host alike; its output
+keeps Vitest's console output (`output.txt`) and JSON report (`results.json`).
+
 ## Running tests locally
 
 - **One check:** `nix build .#checks.x86_64-linux.<name> -L`. A check that passed is cached; add

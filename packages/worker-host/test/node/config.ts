@@ -18,17 +18,15 @@
 // fetch from a server of this process's own; in a browser, from this
 // server, as it is on disk, as are the host's own scripts from dist/.
 
-import { copyFileSync, createReadStream, mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { stat } from "node:fs/promises";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { basename, extname, join, resolve as resolvePath, sep } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
-import { pipeline } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { playwright } from "@vitest/browser-playwright";
-import type { Plugin, TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
+import { browserMode, crossOriginIsolation, servePlugin, serveDirs } from "@ibus-web/test-programs/vitest";
+import type { TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
 import type { BuildConstants, TestArchive, TestData } from "../shared/harness.ts";
 import { commands } from "./commands.ts";
 
@@ -60,109 +58,6 @@ const readManifest = (): Manifest => {
 const prefix = "/@ibus-web-worker-host/";
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
 
-// Every response, errors included, carries the headers that make a page
-// cross-origin isolated, which SharedArrayBuffer needs.
-const isolation = {
-  "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp",
-} as const;
-
-const types: Readonly<Record<string, string>> = {
-  ".js": "text/javascript; charset=utf-8",
-  ".wasm": "application/wasm",
-  ".map": "application/json",
-  ".tar": "application/x-tar",
-};
-
-type Handler = (request: IncomingMessage, response: ServerResponse, next: () => void) => void;
-
-// Serves the directories by name under the prefix, as they are on disk.
-const rawHandler = (dirs: Readonly<Record<string, string>>): Handler => {
-  const resolve = (pathname: string): string | undefined => {
-    const [name, ...rest] = pathname.slice(prefix.length).split("/");
-    const dir = dirs[name ?? ""];
-    if (dir === undefined) return undefined;
-    const root = resolvePath(dir);
-    const file = join(root, rest.join("/"));
-    return file.startsWith(root + sep) ? file : undefined;
-  };
-  const fail = (response: ServerResponse, status: number): void => {
-    response.writeHead(status, { ...isolation, "Content-Type": "text/plain; charset=utf-8" });
-    response.end(`${status}\n`);
-  };
-  const handle = (request: IncomingMessage, response: ServerResponse, next: () => void): void => {
-    let pathname: string;
-    try {
-      pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
-    } catch {
-      return next();
-    }
-    if (!pathname.startsWith(prefix)) return next();
-    const file = resolve(pathname);
-    const type = file === undefined ? undefined : types[extname(file)];
-    if (file === undefined || type === undefined) return fail(response, 404);
-    stat(file).then(
-      (info) => {
-        if (!info.isFile()) return fail(response, 404);
-        response.writeHead(200, {
-          ...isolation,
-          "Content-Type": type,
-          "Content-Length": info.size,
-          "Cache-Control": "no-store",
-        });
-        if (request.method === "HEAD") response.end();
-        // The status is out by now, so a read that fails can only cut the
-        // response short, which pipeline() does by destroying it.
-        else pipeline(createReadStream(file), response, () => {});
-      },
-      () => fail(response, 404),
-    );
-  };
-  return handle;
-};
-
-// Serves the directories through Vite's server, which would rewrite their
-// module scripts.
-const serveRaw = (dirs: Readonly<Record<string, string>>): Plugin => {
-  const handle = rawHandler(dirs);
-  return {
-    name: "ibus-web-worker-host",
-    configureServer: (server) => {
-      server.middlewares.use(handle);
-    },
-    // Vite warns that it can't analyze a dynamic import in Vitest's own
-    // module runner, which every browser test file pulls in to reach Vitest.
-    // Vitest drops the same warning from its own server's log, but not from
-    // the browser server's.
-    configResolved: (config) => {
-      const { logger } = config;
-      const warn = logger.warn.bind(logger);
-      logger.warn = (message, options) => {
-        if (message.includes(UNANALYZABLE_IMPORT) && message.includes("vite_module-runner")) return;
-        warn(message, options);
-      };
-    },
-  };
-};
-
-const UNANALYZABLE_IMPORT = "The above dynamic import cannot be analyzed by Vite";
-
-// Playwright says so on stderr every time it launches a browser, which it
-// does with host validation off because Nix, not the host's packages,
-// provides the browsers' libraries.
-const SKIPPING_VALIDATION = "Skipping host requirements validation";
-const dropSkippingValidation = (): void => {
-  const write = process.stderr.write.bind(process.stderr) as (...args: unknown[]) => boolean;
-  process.stderr.write = ((chunk: unknown, ...rest: unknown[]) =>
-    typeof chunk === "string" && chunk.startsWith(SKIPPING_VALIDATION)
-      ? true
-      : write(chunk, ...rest)) as typeof process.stderr.write;
-};
-
-// Playwright turns Chromium's own sandbox off unless asked; runs keep it on,
-// as a browser would, unless IBUS_WEB_CHROMIUM_SANDBOX=0.
-const chromiumSandbox = process.env["IBUS_WEB_CHROMIUM_SANDBOX"] !== "0";
-
 // The archives' description, as their build writes it.
 type ArchiveDescription = Omit<TestArchive, "url"> & { upgrade: Omit<TestArchive, "url"> };
 
@@ -172,7 +67,7 @@ type ArchiveDescription = Omit<TestArchive, "url"> & { upgrade: Omit<TestArchive
 // teardown of its own, and every test file's hosts fetch from the server,
 // so it is unref'd rather than closed: it goes when Vitest's process ends.
 const serveToNode = async (dirs: Readonly<Record<string, string>>): Promise<string> => {
-  const handle = rawHandler(dirs);
+  const handle = serveDirs(prefix, dirs);
   const server = createServer((request, response) =>
     handle(request, response, () => {
       response.writeHead(404);
@@ -216,7 +111,6 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   });
   const dirs = { ...manifest.runtimes, sides: manifest.sides, dist, failing, archives: manifest.archives };
   const browsers = manifest.environments.filter((environment) => environment !== "node");
-  if (browsers.length > 0) dropSkippingValidation();
   const projects: TestProjectInlineConfiguration[] = [];
   const nodeOrigin = manifest.environments.includes("node")
     ? await serveToNode({ archives: manifest.archives })
@@ -241,34 +135,23 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
         name: "browser",
         include: ["test/browser/**/*.test.ts"],
         provide: { workerHost: testData((dir, file) => `${prefix}${dir}/${file}`) },
-        browser: {
-          enabled: true,
-          headless: true,
-          // A page shows nothing a test asserts on.
-          screenshotFailures: false,
-          commands,
-          instances: browsers.map((browser) => ({
-            browser,
-            name: browser,
-            provider: playwright({ launchOptions: browser === "chromium" ? { chromiumSandbox } : {} }),
-          })),
-        },
+        browser: browserMode(browsers, commands),
       },
     });
   const cacheDir = process.env["IBUS_WEB_TEST_CACHE_DIR"];
   return {
     ...(cacheDir === undefined ? {} : { cacheDir }),
-    plugins: [serveRaw(dirs)],
+    plugins: [servePlugin("ibus-web-worker-host", serveDirs(prefix, dirs))],
     // Found only as a browser test imports it, Effect would be optimized
     // then, and the page reloaded under the running tests. @effect/vitest
     // re-exports Vitest, which Vitest serves the browser itself.
     optimizeDeps: { include: ["effect"], exclude: ["@effect/vitest"] },
-    server: { headers: isolation },
+    server: { headers: crossOriginIsolation },
     test: {
-      // Hosts time what they do; one file at a time keeps them from
-      // competing for the machine.
       // Tests print what they measured.
       silent: false,
+      // Hosts time what they do; one file at a time keeps them from
+      // competing for the machine.
       fileParallelism: false,
       // Hosts start Workers of their own, which a test process in a
       // worker_thread would nest.

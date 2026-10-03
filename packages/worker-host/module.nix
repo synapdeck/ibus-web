@@ -10,8 +10,12 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) runtime toolchain typescript;
-      inherit (config.ibusWeb.testing) playwright;
+      inherit (config.ibusWeb)
+        runtime
+        testing
+        toolchain
+        typescript
+        ;
       inherit (toolchain) pkgsWasm;
 
       sidesSrc = ./test/sides;
@@ -106,42 +110,23 @@
           }
         );
 
-      packageDir = "${typescript.workspace}/packages/worker-host";
-
       # Each runs the host's tests on the asserting runtime and the released
       # one, from the built package.
       check =
         name: environments:
-        let
+        testing.vitestCheck {
+          inherit name;
+          packageDir = "${typescript.workspace}/packages/worker-host";
+          env.IBUS_WEB_WORKER_HOST_TESTS = manifest environments;
           inBrowsers = environments != [ "node" ];
-        in
-        pkgs.runCommand "ibus-web-${name}"
-          (
-            {
-              nativeBuildInputs = [ typescript.nodejs ];
-              IBUS_WEB_WORKER_HOST_TESTS = manifest environments;
-              # Nix gives a build a terminal, on which Vitest would redraw its
-              # progress into the log, over and over.
-              CI = "1";
-              passthru = {
-                # For running the tests from a checkout.
-                manifest = manifest environments;
-                inherit constants;
-              };
-            }
-            // lib.optionalAttrs inBrowsers playwright.env
-          )
-          ''
-            ${if inBrowsers then playwright.setup else "export HOME=$(mktemp -d)"}
-            export IBUS_WEB_TEST_CACHE_DIR=$TMPDIR/vite
-            mkdir $out
-            cd ${packageDir}
-            set -o pipefail
-            # Vitest holds each test to its own limit; this catches a browser
-            # or Vitest that hangs outright.
-            timeout --kill-after=10 1800 node node_modules/vitest/vitest.mjs run --configLoader native \
-              2>&1 | tee $out/output.txt
-          '';
+          # Vitest holds each test to its own limit.
+          limit = 1800;
+          passthru = {
+            # For running the tests from a checkout.
+            manifest = manifest environments;
+            inherit constants;
+          };
+        };
     in
     {
       # The IndexedDB backend's header comes with no pkg-config module.
