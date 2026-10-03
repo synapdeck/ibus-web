@@ -37,12 +37,19 @@ const worker = (name: string, source: string, tsconfig: string): UserConfig => (
   entry: { [name]: source },
   tsconfig,
   dts: false,
-  deps: { alwaysBundle: ["effect", /^effect\//], onlyBundle: false },
+  // The Node store and mount import node:fs/promises only when running under
+  // Node; a browser never reaches that import.
+  deps: {
+    alwaysBundle: ["effect", /^effect\//],
+    neverBundle: [/^node:/],
+    onlyBundle: false,
+  },
 });
 
 export default defineConfig([
   {
     ...common,
+    clean: true,
     entry: { "shared/index": "src/shared/index.ts" },
     tsconfig: "src/shared/tsconfig.json",
     dts: { generator: "oxc" },

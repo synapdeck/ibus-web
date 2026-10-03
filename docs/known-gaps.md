@@ -166,7 +166,9 @@ An item leaves this page when it is fixed or decided.
   code, the wait's timeout, the backend's read-only flag, the memory bounds) and `poolLowWater` come from
   derivations only the tests use; `packages.ibus-runtime` ships none of them.
 - **Collection failures are silent but for `CollectReport.error`**; nothing is logged.
-- **The package's `exports` types point at `src/*.ts`**, not the emitted `.d.ts`.
+- **`@ibus-web/worker-host` is publishable but not released.** Its version stays `0.0.0` and nothing
+  publishes it. Releases are to be versioned with Changesets, with a CI workflow that bumps versions and
+  publishes to npm; neither is set up yet.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't
   removed; the Node archive server in the Vitest config process is `unref`'d, not closed; Vite's
   unanalyzable-import warning is filtered by its text.

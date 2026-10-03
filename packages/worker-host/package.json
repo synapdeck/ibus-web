@@ -1,22 +1,41 @@
 {
   "name": "@ibus-web/worker-host",
+  "version": "0.0.0",
+  "description": "The Worker host for ibus-web: runs the WebAssembly IBus runtime and its engines in a dedicated Worker, with storage and engine-data install.",
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/worker-host.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
   "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/worker-host"
+  },
   "files": [
     "dist/shared",
     "dist/worker",
-    "src/shared"
+    "types/worker.d.ts",
+    "types/relay.d.ts"
   ],
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/shared/index.ts",
+      "types": "./dist/shared/index.d.ts",
       "default": "./dist/shared/index.js"
     },
-    "./worker": "./dist/worker/index.js",
-    "./relay": "./dist/worker/relay.js"
+    "./worker": {
+      "types": "./types/worker.d.ts",
+      "default": "./dist/worker/index.js"
+    },
+    "./relay": {
+      "types": "./types/relay.d.ts",
+      "default": "./dist/worker/relay.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && tsdown",
+    "build": "rm -rf dist && tsdown && tsc -p types/tsconfig.check.json",
     "test": "vitest run --configLoader native"
   },
   "devDependencies": {

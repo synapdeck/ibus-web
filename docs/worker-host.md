@@ -13,11 +13,11 @@ it are M1's (spec §5.5, §6); this page describes the host as it is.
 
 ## Package and bundles
 
-| Export                         | File                   | What it is                                                                                                                                    |
-| ------------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer (`Word`, `State`, helpers), the messages, the storage names, `HostConfigValues`; with declarations. |
-| `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script.                                                                                                                     |
-| `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own.                                                                    |
+| Export                         | File                   | What it is                                                                                                                                                           |
+| ------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer (`Word`, `State`, helpers), the messages, the storage names, `HostConfigValues`; with declarations.                        |
+| `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s. |
+| `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                  |
 
 `tsdown` builds them (`tsdown.config.ts`), ESM, platform-neutral, with
 source maps. **Each Worker script is one self-contained module, Effect
@@ -31,7 +31,9 @@ isolated-declarations generator, since TypeScript 7 has no compiler API.
 `effect` is a peer dependency, `^4.0.0` from the workspace catalog. The test
 build (`dist/test/worker/`) is the same host with its instruments and a relay
 that fails on purpose; no export names it and the package's `files` leave it
-out.
+out. The Worker entries' declarations import the bundled `dist/shared/` ones, so
+the build checks them afterwards (`types/tsconfig.check.json`, with a page's
+use of `HostWorker` in `types/usage.ts`).
 
 ## Starting a host
 
