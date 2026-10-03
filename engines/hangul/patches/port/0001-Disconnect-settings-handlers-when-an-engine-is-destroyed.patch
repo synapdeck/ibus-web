@@ -1,0 +1,26 @@
+From beee83b959f86ffaec7aa51485f7071b6c2d521b Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sat, 3 Oct 2026 13:22:46 -0700
+Subject: [PATCH] Disconnect settings handlers when an engine is destroyed
+
+---
+ src/engine.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/engine.c b/src/engine.c
+index faa3fb1..1cdcb27 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -685,6 +685,9 @@ ibus_hangul_engine_destroy (IBusHangulEngine *hangul)
+     int i;
+     IBusText **symbols;
+ 
++    g_signal_handlers_disconnect_by_func (settings_hangul, settings_changed, hangul);
++    g_signal_handlers_disconnect_by_func (settings_panel, settings_changed, hangul);
++
+     g_debug ("context delete:%u", hangul->id);
+ 
+     if (hangul->prop_hangul_mode) {
+-- 
+2.55.0
+

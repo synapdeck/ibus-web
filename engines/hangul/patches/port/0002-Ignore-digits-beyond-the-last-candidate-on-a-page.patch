@@ -1,0 +1,26 @@
+From d13711950db210f07a63370e09fed46ff8404c50 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sat, 3 Oct 2026 13:27:59 -0700
+Subject: [PATCH] Ignore digits beyond the last candidate on a page
+
+---
+ src/engine.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/engine.c b/src/engine.c
+index 1cdcb27..08bb0d4 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -1268,6 +1268,9 @@ ibus_hangul_engine_process_candidate_key_event (IBusHangulEngine    *hangul,
+         page_no = cursor_pos / page_size;
+ 
+         cursor_pos = page_no * page_size + (keyval - IBUS_1);
++        if (cursor_pos >= ibus_lookup_table_get_number_of_candidates (hangul->table)) {
++            return TRUE;
++        }
+         ibus_lookup_table_set_cursor_pos (hangul->table, cursor_pos);
+ 
+         ibus_hangul_engine_commit_current_candidate (hangul);
+-- 
+2.55.0
+

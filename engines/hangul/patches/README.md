@@ -10,8 +10,16 @@ layer gives callbacks their declared function types for WebAssembly calls.
 
 | Layer | Patch | Reason                                                                                                                                                                                   |
 | ----- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| port  | 0001  | Disconnect both GSettings handlers before freeing an engine, preventing changes from calling a destroyed engine.                                                                         |
+| port  | 0002  | Consume a digit outside the last Hanja page without setting an invalid candidate cursor.                                                                                                 |
 | casts | 0001  | Match `GClassInitFunc`, `GInstanceInitFunc`, and `IBusObjectDestroyFunc`; the first two lacked their second argument, while the destroy callback had a different pointer parameter type. |
 
 The strict cast audit reports these three findings without the patch and none
 with it. Signal connections to `settings_changed` already have the full signal
 signature; the audit excludes the intentional `GCallback` casts.
+
+The golden lifecycle test observes a cleared weak engine reference and then
+checks that neither settings object calls its old handler. The candidate test
+presses 9 on an incomplete last page. Both failed before their port patches;
+the complete suite also covers composition, settings, surrounding text and
+forwarded-key ordering.
