@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import { isSignature, parseType, ProtocolError, type GVariantType } from "./type.ts";
-import { isWellFormedString, type GVariantValue } from "./value.ts";
+import { type GVariantValue } from "./value.ts";
 
 export const align = (size: number, alignment: number): number => Math.ceil(size / alignment) * alignment;
 
@@ -26,10 +26,61 @@ interface EncodingPlan {
   readonly children: { position: number; plan: EncodingPlan }[];
   readonly offsets: number[];
   offsetWidth: number;
-  text?: Uint8Array;
+  text?: string;
+  textLength: number;
 }
 
 const encoder = new TextEncoder();
+
+/** The UTF-8 length of `text`, or -1 if it has an interior NUL or an unpaired surrogate. */
+function utf8Length(text: string): number {
+  let length = 0;
+  for (let index = 0; index < text.length; index++) {
+    const unit = text.charCodeAt(index);
+    if (unit === 0) return -1;
+    if (unit < 0x80) length += 1;
+    else if (unit < 0x800) length += 2;
+    else if (unit < 0xd800 || unit > 0xdfff) length += 3;
+    else if (unit > 0xdbff) return -1;
+    else {
+      const next = text.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return -1;
+      length += 4;
+      index++;
+    }
+  }
+  return length;
+}
+
+// Writing a short string by hand avoids TextEncoder's per-call cost, which dominates encoding
+// records made of many short strings.
+function writeUtf8(bytes: Uint8Array, start: number, text: string, length: number): void {
+  if (length > 64) {
+    encoder.encodeInto(text, bytes.subarray(start, start + length));
+    return;
+  }
+  let position = start;
+  for (let index = 0; index < text.length; index++) {
+    let codePoint = text.charCodeAt(index);
+    if (codePoint < 0x80) {
+      bytes[position++] = codePoint;
+      continue;
+    }
+    if (codePoint >= 0xd800 && codePoint <= 0xdbff)
+      codePoint = 0x10000 + ((codePoint - 0xd800) << 10) + (text.charCodeAt(++index) - 0xdc00);
+    if (codePoint < 0x800) {
+      bytes[position++] = 0xc0 | (codePoint >> 6);
+    } else if (codePoint < 0x10000) {
+      bytes[position++] = 0xe0 | (codePoint >> 12);
+      bytes[position++] = 0x80 | ((codePoint >> 6) & 0x3f);
+    } else {
+      bytes[position++] = 0xf0 | (codePoint >> 18);
+      bytes[position++] = 0x80 | ((codePoint >> 12) & 0x3f);
+      bytes[position++] = 0x80 | ((codePoint >> 6) & 0x3f);
+    }
+    bytes[position++] = 0x80 | (codePoint & 0x3f);
+  }
+}
 
 function invalidValue(message: string): never {
   throw new ProtocolError({ message });
@@ -80,32 +131,20 @@ function checkBasic(value: GVariantValue): void {
   }
 }
 
-function containerMembers(
-  type: GVariantType,
-  value: GVariantValue,
-): readonly [readonly GVariantType[], readonly GVariantValue[]] {
-  if (type._tag === "a" && value._tag === "a") return [value.items.map(() => type.element), value.items];
-  if (type._tag === "()" && value._tag === "()") return [type.members, value.items];
-  if (type._tag === "{}" && value._tag === "{}")
-    return [
-      [type.key, type.value],
-      [value.key, value.value],
-    ];
-  return invalidValue("Expected a GVariant container");
-}
-
 function measure(type: GVariantType, value: GVariantValue, depth: number): EncodingPlan {
   if (depth >= 128) invalidValue("GVariant nesting exceeds 128");
   const expectedTag = type._tag === "basic" ? type.char : type._tag;
   if (value._tag !== expectedTag) invalidValue(`GVariant value does not match ${type.signature}`);
 
-  const plan: EncodingPlan = { type, value, size: 0, children: [], offsets: [], offsetWidth: 0 };
+  const plan: EncodingPlan = { type, value, size: 0, children: [], offsets: [], offsetWidth: 0, textLength: 0 };
   if (type._tag === "basic") {
     checkBasic(value);
     if (value._tag === "s" || value._tag === "o" || value._tag === "g") {
-      if (value.value.includes("\0") || !isWellFormedString(value.value)) invalidValue("Invalid GVariant string");
-      plan.text = encoder.encode(value.value);
-      plan.size = plan.text.length + 1;
+      const length = utf8Length(value.value);
+      if (length < 0) invalidValue("Invalid GVariant string");
+      plan.text = value.value;
+      plan.textLength = length;
+      plan.size = length + 1;
     } else {
       plan.size = type.fixedSize!;
     }
@@ -117,8 +156,9 @@ function measure(type: GVariantType, value: GVariantValue, depth: number): Encod
     if (depth + childType.depth >= 128) invalidValue("GVariant variant type nests too deeply");
     const child = measure(childType, value.value, depth + 1);
     plan.children.push({ position: 0, plan: child });
-    plan.text = encoder.encode(value.type);
-    plan.size = child.size + 1 + plan.text.length;
+    plan.text = value.type;
+    plan.textLength = value.type.length;
+    plan.size = child.size + 1 + plan.textLength;
     return plan;
   }
 
@@ -131,15 +171,30 @@ function measure(type: GVariantType, value: GVariantValue, depth: number): Encod
     return plan;
   }
 
-  const [memberTypes, memberValues] = containerMembers(type, value);
-  if (memberTypes.length !== memberValues.length) invalidValue("GVariant member count mismatch");
-  for (const [index, memberType] of memberTypes.entries()) {
+  let memberValues: readonly GVariantValue[];
+  let memberTypes: readonly GVariantType[] | undefined;
+  let element: GVariantType | undefined;
+  if (type._tag === "a" && value._tag === "a") {
+    memberValues = value.items;
+    element = type.element;
+  } else if (type._tag === "()" && value._tag === "()") {
+    memberValues = value.items;
+    memberTypes = type.members;
+    if (memberTypes.length !== memberValues.length) invalidValue("GVariant member count mismatch");
+  } else if (type._tag === "{}" && value._tag === "{}") {
+    memberValues = [value.key, value.value];
+    memberTypes = [type.key, type.value];
+  } else {
+    return invalidValue("Expected a GVariant container");
+  }
+  const last = memberValues.length - 1;
+  for (let index = 0; index <= last; index++) {
+    const memberType = element ?? memberTypes![index]!;
     const position = align(plan.size, memberType.alignment);
     const child = measure(memberType, memberValues[index]!, depth + 1);
     plan.children.push({ position, plan: child });
     plan.size = position + child.size;
-    const needsOffset = memberType.fixedSize === undefined && (type._tag === "a" || index < memberTypes.length - 1);
-    if (needsOffset) plan.offsets.push(plan.size);
+    if (memberType.fixedSize === undefined && (element !== undefined || index < last)) plan.offsets.push(plan.size);
   }
 
   if (type.fixedSize !== undefined) plan.size = type.fixedSize;
@@ -173,7 +228,7 @@ function writeBasic(plan: EncodingPlan, bytes: Uint8Array, view: DataView, start
     case "s":
     case "o":
     case "g":
-      bytes.set(plan.text!, start);
+      writeUtf8(bytes, start, plan.text!, plan.textLength);
       break;
     case "b":
       view.setUint8(start, value.value ? 1 : 0);
@@ -211,12 +266,14 @@ function write(plan: EncodingPlan, bytes: Uint8Array, view: DataView, start: num
     writeBasic(plan, bytes, view, start);
     return;
   }
-  for (const child of plan.children) write(child.plan, bytes, view, start + child.position);
-  if (plan.type._tag === "v") bytes.set(plan.text!, start + plan.size - plan.text!.length);
-  for (const [index, offset] of plan.offsets.entries()) {
-    const position = start + plan.size - (plan.offsets.length - index) * plan.offsetWidth;
-    writeOffset(view, position, plan.offsetWidth, offset);
+  for (let index = 0; index < plan.children.length; index++) {
+    const child = plan.children[index]!;
+    write(child.plan, bytes, view, start + child.position);
   }
+  if (plan.type._tag === "v") writeUtf8(bytes, start + plan.size - plan.textLength, plan.text!, plan.textLength);
+  const tableStart = start + plan.size - plan.offsets.length * plan.offsetWidth;
+  for (let index = 0; index < plan.offsets.length; index++)
+    writeOffset(view, tableStart + index * plan.offsetWidth, plan.offsetWidth, plan.offsets[index]!);
 }
 
 export function encodeValue(signature: string, value: GVariantValue): Uint8Array {

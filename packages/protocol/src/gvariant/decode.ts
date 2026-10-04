@@ -44,6 +44,52 @@ function tupleLayout(type: TupleType): TupleLayout {
   return layout;
 }
 
+// Calling TextDecoder costs more than decoding a short string by hand, and most strings on the
+// wire (candidates, labels, property keys) are short.
+const shortText = 64;
+
+/** Strict UTF-8, or `undefined` for anything malformed so the caller can locate the fault. */
+function decodeShortUtf8(bytes: Uint8Array, start: number, end: number): string | undefined {
+  let text = "";
+  let position = start;
+  while (position < end) {
+    const lead = bytes[position]!;
+    if (lead < 0x80) {
+      text += String.fromCharCode(lead);
+      position++;
+      continue;
+    }
+    let length: number;
+    let codePoint: number;
+    let minimum: number;
+    if (lead >= 0xc2 && lead <= 0xdf) {
+      length = 2;
+      codePoint = lead & 0x1f;
+      minimum = 0x80;
+    } else if (lead >= 0xe0 && lead <= 0xef) {
+      length = 3;
+      codePoint = lead & 0x0f;
+      minimum = 0x800;
+    } else if (lead >= 0xf0 && lead <= 0xf4) {
+      length = 4;
+      codePoint = lead & 0x07;
+      minimum = 0x10000;
+    } else {
+      return undefined;
+    }
+    if (position + length > end) return undefined;
+    for (let index = 1; index < length; index++) {
+      const continuation = bytes[position + index]!;
+      if ((continuation & 0xc0) !== 0x80) return undefined;
+      codePoint = (codePoint << 6) | (continuation & 0x3f);
+    }
+    if (codePoint < minimum || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return undefined;
+    text += String.fromCodePoint(codePoint);
+    position += length;
+  }
+  return text;
+}
+
 class Decoder {
   private readonly view: DataView;
 
@@ -61,6 +107,10 @@ class Decoder {
   }
 
   private text(start: number, end: number): string {
+    if (end - start <= shortText) {
+      const text = decodeShortUtf8(this.bytes, start, end);
+      if (text !== undefined) return text;
+    }
     try {
       return decoder.decode(this.bytes.subarray(start, end));
     } catch {
