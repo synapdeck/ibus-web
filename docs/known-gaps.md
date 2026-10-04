@@ -109,7 +109,7 @@ An item leaves this page when it is fixed or decided.
   its cost. Building GLib with `-fexceptions` wouldn't help: unwinding runs only
   cleanup-attributed locals, and GLib's emission push and pop aren't, so it
   would mean rewriting GLib's internals.
-- **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell are M1.3's; M1.2 supplies the GVariant codec and framed messages. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
+- **The ring and the protocol** (spec §6): the output ring, `replyOutSeq` and the doorbell are M1.3's; `@ibus-web/protocol` supplies the GVariant codec and the framed messages. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
   reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in
   `ibusweb_wait(seen, -1)` without pumping; the page, after advancing `ringRead`, clears `ringWaiting` and
   bumps `wake`.
@@ -308,16 +308,20 @@ An item leaves this page when it is fixed or decided.
 
 ## Protocol
 
-- **NaN payload bits.** JavaScript does not promise to preserve a double's NaN payload.
-  Accepted normal-form GVariant bytes round-trip exactly except for those bits.
+- **Inputs that don't re-encode byte for byte.** JavaScript does not promise to
+  preserve a double's NaN payload, so those bits may change. A zero-byte tuple whose
+  members are all variable-size and accept zero bytes is normal form to GLib, which
+  reads its missing framing offsets as 0; it decodes, and re-encodes with explicit
+  zero offsets (the empty `(ayay)` as `00`). Every other accepted input re-encodes
+  exactly.
 - **Integer-like dictionary keys.** The tree layer preserves entry order; schema
   records follow JavaScript's ordering of integer-like keys. IBus attachment names
   and GSettings schema IDs and keys do not use these keys.
 - **Fragment reassembly (M1.3).** The ring reader must reassemble `CONTINUATION`
   fragments before decoding; `decodeRecord` rejects flagged fragments.
 - **Lazy lookup decoding (M1.4).** A framed 500-candidate record (64,832 bytes) takes
-  2.6625 ms median / 4.4335 ms p99 under Node v24.21.0 on Ryzen 9 9950X3D,
-  exceeding the 0.5 ms target. AOT measured 2.7174 ms versus a comparable interpreted
-  2.6921 ms and was not adopted. The panel must decode the visible page eagerly and
-  defer the rest; today's decoder constructs the whole table. The strict byte layer
-  alone took 1.2556 ms. See [protocol.md](protocol.md#lookup-decode-measurement).
+  1.01 ms median / 4.40 ms p99 under Node v24.21.0 on a Ryzen 9 9950X3D
+  (`nix run .#protocol-bench`), twice the 0.5 ms target. Bytes to tree (0.43 ms) and
+  tree to schemas (0.46 ms) each take most of the target alone. The panel must decode
+  the visible page eagerly and defer the rest; the decoder constructs the whole
+  table. See [protocol.md](protocol.md#lookup-decode-measurement).

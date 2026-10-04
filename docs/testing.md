@@ -425,28 +425,27 @@ aren't tests and don't use a test framework. The main ones:
 
 `checks.protocol` runs the package's Vitest suites under Node: GVariant vectors,
 strict rejection cases, schema and framing tests, generated-header/document tests,
-and fixed-seed Effect `Arbitrary` round trips. Its lookup benchmark warms a framed
-500-candidate record 50 times and measures 500 individual decodes, retaining median,
-p99, raw samples and machine details in `output.txt`. Only median < 5 ms gates the
-builder; the design target is < 0.5 ms. If exceeded, it also times bytes to tree and
-tree to classes separately.
+and fixed-seed Effect `Arbitrary` round trips, including encodings mutated by one to
+three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. The
+default Vitest configuration leaves out the parity suite and the decode benchmark.
 
 `checks.protocol-parity` supplies a Nix-built corpus and a WASM C fixture producer
-using real IBus and json-glib. Vitest asserts both directions of object serialization,
-every request's observed runtime arguments and result, every emitted record's fields
-and sequence, and GLib normal-form agreement on 500 fuzz inputs over twenty types.
-These tests skip without `IBUS_WEB_PROTOCOL_PARITY`; a standalone protocol check
-therefore does not establish C parity.
+using real IBus and json-glib, and runs the parity suite (`vitest.parity.config.ts`).
+Vitest asserts both directions of object serialization, every request's observed
+runtime arguments and result, every emitted record's fields and sequence, and that
+the strict decoder accepts exactly the inputs GLib's `g_variant_is_normal_form` does,
+with no exceptions, on 1000 fixed-seed byte strings: mutated normal-form encodings,
+unmutated ones and large containers. The test also requires the corpus to stay
+non-trivial (at least 40% normal form, at least 30% not, at least 100 signatures,
+offsets of widths 1, 2 and 4 among the accepted inputs). The suite throws without
+`IBUS_WEB_PROTOCOL_PARITY`, so the check fails rather than skips if it loses its
+manifest.
 
 The `files:runtime/libibus-web/include/ibus-web/protocol.h` and
 `files:packages/protocol/PROTOCOL.md` checks compare generated artifacts to their
-committed copies. Regenerate with `nix run .#write-files`. See
-[protocol.md](protocol.md) for the pipeline and benchmark evidence.
+committed copies. Regenerate with `nix run .#write-files`.
 
-CI runs `nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol`
-before `nix flake check -L --system x86_64-linux`. This completes the timing gate
-before other checks start; the full check then reuses its successful result.
-Protocol test files run sequentially through `--no-file-parallelism`. Use this same
-command sequence locally when evaluating the timing bound. An unrestricted fresh
-full check can exceed the 5 ms bound due to competing builds; lowering a measured
-latency by rerunning after caching is not evidence of reliability under that load.
+The decode benchmark is not a check, since wall-clock timing on a loaded builder
+means nothing: `nix run .#protocol-bench` runs it and prints the median and p99 of
+each layer. See [protocol.md](protocol.md) for the pipeline, the method and the
+figures.

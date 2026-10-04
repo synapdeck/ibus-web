@@ -23,8 +23,10 @@ What it provides:
   (from Emscripten's LLVM, so it agrees with clangd), `shfmt`, `reuse`, `actionlint`.
 - **Language servers:** `clangd`, `typescript-language-server`, `nixd`, `pkl-lsp`
   ([editor tooling](#editor-tooling)).
-- **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)) and
-  `pnpm-workspace.yaml` ([the pnpm workspace](#the-pnpm-workspace)).
+- **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)),
+  `pnpm-workspace.yaml` ([the pnpm workspace](#the-pnpm-workspace)), and libibus-web's
+  `protocol.h` and `packages/protocol/PROTOCOL.md`, generated from the protocol's schemas
+  ([protocol.md](protocol.md#generated-artifacts)).
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against
 garbage collection:
@@ -234,7 +236,7 @@ also runs on the oldest supported Node.
 ## The pnpm workspace
 
 One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (`@ibus-web/test-programs`,
-`@ibus-web/worker-host`), `runtime/wasmfs-idb` (the library checker's acorn), and
+`@ibus-web/worker-host`, `@ibus-web/protocol`), `runtime/wasmfs-idb` (the library checker's acorn), and
 `modules/glib/checks/tests` (the GLib gate's TOML reader).
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
@@ -294,6 +296,10 @@ script found by `new URL(…, import.meta.url)` without the chunks it imports. `
 (`isolatedDeclarations`), since TypeScript 7 has no compiler API. `tsc --noEmit` remains the type
 check. Details in [worker-host.md](worker-host.md).
 
+`@ibus-web/protocol` bundles one entry, `dist/index.js`, with `effect` external. Its declarations
+come from tsdown's `tsgo` generator instead: oxc's isolated declarations can't express a class
+that extends an expression, as every `Schema.TaggedClass` message does (TS9021).
+
 ## Editor tooling
 
 - **clangd** is the LLVM Emscripten drives, so its builtin headers match, wrapped with
@@ -327,6 +333,14 @@ otherwise from `github:`. Some projects stopped publishing to FlakeHub, so check
 switching. nixpkgs, flake-parts and github-actions-nix come from FlakeHub; import-tree, devshell,
 flake-root, systems and files, which have no current FlakeHub entries, from GitHub.
 
+## Flake apps
+
+- **`nix run .#write-files`** writes every generated file ([the dev shell](#the-dev-shell) lists
+  them).
+- **`nix run .#protocol-bench`** times decoding a framed 500-candidate lookup table from the built
+  workspace. It is an app rather than a check, since wall-clock timing on a loaded builder means
+  nothing ([protocol.md](protocol.md#lookup-decode-measurement)).
+
 ## CI
 
 ### Written in Nix
@@ -353,10 +367,7 @@ every push to `master` keeps its own run.
   (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where the runner has the
   setting: Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks
   keep on, needs them), enable
-  FlakeHub Cache, then `nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol`
-  before `nix flake check -L --system x86_64-linux`, within 240 minutes. The first
-  command isolates the protocol timing gate from the other checks; the second
-  reuses that successful result. Checks
+  FlakeHub Cache, then `nix flake check -L --system x86_64-linux`, within 240 minutes. Checks
   are defined for x86_64-linux, aarch64-linux and aarch64-darwin; the hosted runners are
   x86_64-linux, and the other systems' checks need their own machines.
 - **`publish`** — `needs: [check]`, and runs only on a push to `master`
