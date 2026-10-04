@@ -71,8 +71,29 @@ class Decoder {
     try {
       return decoder.decode(this.bytes.subarray(start, end));
     } catch {
-      return fail(start, "invalid UTF-8");
+      return fail(this.invalidUtf8Offset(start, end), "invalid UTF-8");
     }
+  }
+
+  private invalidUtf8Offset(start: number, end: number): number {
+    let sequenceStart = start;
+    try {
+      for (let position = start; position < end; position++) {
+        const character = decoder.decode(this.bytes.subarray(position, position + 1), { stream: true });
+        if (character.length > 0) sequenceStart = position + 1;
+      }
+      decoder.decode();
+    } catch {
+      return sequenceStart;
+    } finally {
+      // Finish the stream so a failed partial sequence cannot affect the next value.
+      try {
+        decoder.decode();
+      } catch {
+        // Flushing an incomplete sequence resets the stream even when it throws.
+      }
+    }
+    return start;
   }
 
   private string(tag: "s" | "o" | "g", start: number, end: number): GVariantValue {

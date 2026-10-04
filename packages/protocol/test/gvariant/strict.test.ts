@@ -7,6 +7,10 @@ it.each<[string, string, number]>([
   ["s", "61", 0],
   ["s", "61006200", 1],
   ["s", "ff00", 0],
+  ["s", "6162ff00", 2],
+  ["(ys)", "016162ff00", 3],
+  ["s", "eab080ff00", 3],
+  ["s", "61e28200", 1],
   ["(yu)", "0101000005000000", 1],
   ["u", "000000", 0],
   ["as", "61000200", 0],
@@ -48,4 +52,9 @@ it("validates signature sequences with GLib's signature grammar", () => {
   for (const value of ["mi", "m", "a".repeat(129) + "y"]) {
     expect(() => decodeValue("g", bytes(value))).toThrow(GVariantDecodeError);
   }
+});
+
+it("resets UTF-8 decoding after locating a malformed sequence", () => {
+  expect(() => decodeValue("s", Uint8Array.of(97, 226, 130, 0))).toThrow(GVariantDecodeError);
+  expect(decodeValue("s", Uint8Array.of(98, 0))).toEqual({ _tag: "s", value: "b" });
 });
