@@ -23,34 +23,55 @@ export const decompressed = (
       /* The separately loaded decoder supports these environments. */
     }
   }
-  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let stopped = false;
+  const cancel = async (reason: unknown) => {
+    if (stopped) return;
+    stopped = true;
+    const ownedReader = reader;
+    reader = undefined;
+    try {
+      // Before the import completes, this wrapper still owns the source.
+      await (ownedReader ? ownedReader.cancel(reason) : body.cancel(reason));
+    } finally {
+      ownedReader?.releaseLock();
+    }
+  };
   return new ReadableStream({
     async start() {
       try {
-        const decoded = native
-          ? body.pipeThrough(native as ReadableWritablePair<Uint8Array, Uint8Array>)
-          : ((await import(/* @vite-ignore */ new URL("./brotli-fallback.js", import.meta.url).href)).decompress(
-              body,
-            ) as ReadableStream<Uint8Array>);
-        reader = decoded.getReader();
+        if (native) {
+          reader = body.pipeThrough(native as ReadableWritablePair<Uint8Array, Uint8Array>).getReader();
+        } else {
+          const fallback = await import(/* @vite-ignore */ new URL("./brotli-fallback.js", import.meta.url).href);
+          if (stopped) return;
+          reader = (fallback.decompress(body) as ReadableStream<Uint8Array>).getReader();
+        }
       } catch (error) {
-        throw brotliError(error);
+        if (stopped) return;
+        const failure = brotliError(error);
+        await cancel(failure).catch(() => {});
+        throw failure;
       }
     },
     async pull(controller) {
+      const ownedReader = reader;
+      if (stopped || !ownedReader) return;
       try {
-        const next = await reader.read();
+        const next = await ownedReader.read();
+        if (stopped) return;
         if (next.done) {
-          reader.releaseLock();
+          stopped = true;
+          reader = undefined;
+          ownedReader.releaseLock();
           controller.close();
         } else controller.enqueue(next.value);
       } catch (error) {
+        if (stopped) return;
+        await cancel(error).catch(() => {});
         controller.error(brotliError(error));
       }
     },
-    async cancel(reason) {
-      await reader.cancel(reason);
-      reader.releaseLock();
-    },
+    cancel,
   });
 };

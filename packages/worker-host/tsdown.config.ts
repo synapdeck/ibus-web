@@ -19,7 +19,6 @@
 // can't resolve a bare import, and a page's bundler copies a script found by
 // new URL(..., import.meta.url) as it is, without the chunks it imports.
 
-import { copyFile, mkdir } from "node:fs/promises";
 import { defineConfig, type UserConfig } from "tsdown";
 
 const common = {
@@ -58,15 +57,9 @@ export default defineConfig([
   },
   ...["worker", "test/worker"].map((directory): UserConfig => ({
     ...worker(`${directory}/brotli-fallback`, "src/worker/brotli-fallback.ts", "src/worker/tsconfig.json"),
-    hooks: {
-      "build:done": async () => {
-        await mkdir(`dist/${directory}`, { recursive: true });
-        await copyFile(
-          new URL(import.meta.resolve("brotli-dec-wasm/web/bg.wasm")),
-          `dist/${directory}/brotli_dec_wasm_bg.wasm`,
-        );
-      },
-    },
+    // The web bindings accept bytes directly; embedding them keeps each
+    // lazily loaded fallback self-contained in both Node and browsers.
+    loader: { ".wasm": "binary" },
   })),
   worker("worker/index", "src/worker/index.ts", "src/worker/tsconfig.json"),
   worker("worker/relay", "src/worker/relay.ts", "src/worker/tsconfig.json"),

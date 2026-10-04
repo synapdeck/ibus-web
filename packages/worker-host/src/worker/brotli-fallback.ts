@@ -2,43 +2,57 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import initialize, { DecompressStream, BrotliStreamResultCode as Result } from "brotli-dec-wasm/web";
 
-const wasm = new URL("./brotli_dec_wasm_bg.wasm", import.meta.url);
-const initialized = initialize({
-  module_or_path:
-    wasm.protocol === "file:"
-      ? (
-          import("node:fs/promises" as string) as Promise<{ readFile(url: URL): Promise<Uint8Array<ArrayBuffer>> }>
-        ).then(({ readFile }) => readFile(wasm))
-      : wasm,
-});
+import wasm from "brotli-dec-wasm/web/bg.wasm";
+
+let initialized: ReturnType<typeof initialize> | undefined;
 
 // One output buffer per pull keeps both the decoder and fetch under the
 // installer's backpressure, even when one compressed chunk expands greatly.
 export const decompress = (body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> => {
   const reader = body.getReader();
-  let decoder: DecompressStream;
+  let decoder: DecompressStream | undefined;
   let input: Uint8Array = new Uint8Array();
   let offset = 0;
   let result = Result.NeedsMoreInput;
-  let freed = false;
+  let stopped = false;
   const free = () => {
-    if (!freed) {
-      freed = true;
-      decoder.free();
+    const ownedDecoder = decoder;
+    decoder = undefined;
+    ownedDecoder?.free();
+  };
+  const cancel = async (reason: unknown) => {
+    if (stopped) return;
+    stopped = true;
+    free();
+    try {
+      await reader.cancel(reason);
+    } finally {
+      reader.releaseLock();
     }
   };
   return new ReadableStream({
     async start() {
-      await initialized;
-      decoder = new DecompressStream();
+      try {
+        await (initialized ??= initialize({ module_or_path: wasm }));
+        // Cancellation can finish while WASM initialization is still pending.
+        if (!stopped) decoder = new DecompressStream();
+      } catch (error) {
+        if (stopped) return;
+        await cancel(error).catch(() => {});
+        throw error;
+      }
     },
     async pull(controller) {
+      const ownedDecoder = decoder;
+      if (stopped || !ownedDecoder) return;
       try {
         for (;;) {
           if (result !== Result.NeedsMoreOutput && offset === input.length) {
             const next = await reader.read();
+            if (stopped) return;
             if (next.done) {
               if (result !== Result.ResultSuccess) throw new Error("truncated Brotli stream");
+              stopped = true;
               free();
               reader.releaseLock();
               controller.close();
@@ -48,7 +62,7 @@ export const decompress = (body: ReadableStream<Uint8Array>): ReadableStream<Uin
             offset = 0;
           }
           if (result === Result.ResultSuccess) throw new Error("trailing bytes after Brotli stream");
-          const decoded = decoder.decompress(input.subarray(offset), 65536);
+          const decoded = ownedDecoder.decompress(input.subarray(offset), 65536);
           let output: Uint8Array;
           try {
             offset += decoded.input_offset;
@@ -63,16 +77,11 @@ export const decompress = (body: ReadableStream<Uint8Array>): ReadableStream<Uin
           }
         }
       } catch (error) {
-        free();
-        await reader.cancel(error).catch(() => {});
-        reader.releaseLock();
+        if (stopped) return;
+        await cancel(error).catch(() => {});
         controller.error(error);
       }
     },
-    async cancel(reason) {
-      free();
-      await reader.cancel(reason);
-      reader.releaseLock();
-    },
+    cancel,
   });
 };
