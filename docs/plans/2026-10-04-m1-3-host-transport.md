@@ -132,7 +132,7 @@ else):
 ```ts
 { name: string; version: string; license: string; runtimeAbi: number; protocol: number;
   module: { url: string; size: number }; memory: number; threads: number;
-  data: { url: string; path: string; size: number }[]; engines: string[]; settingsSchemas: string[] }
+  data: { url: string; path: string; size: number; encoding: "br" | "identity" }[]; engines: string[]; settingsSchemas: string[] }
 ```
 
 `memory` is whole 64 KiB pages within the runtime's bounds; `threads` a nonnegative integer;
@@ -140,6 +140,18 @@ else):
 `PROTOCOL_VERSION`, else the start fails (`RuntimeAbiMismatch`, `ProtocolMismatch`). `HostInit`
 carries the manifest instead of today's `engine`, `memory` and `sides` fields; tests pass test
 manifests.
+
+**Data archives are Brotli-compressed ustar.** Nix writes each engine's data as `<name>-<version>.tar.br`,
+compressed with `brotli --quality=11` at the standard window (no `--large_window`, which streaming
+decoders in browsers needn't support), and the manifest entry says `encoding: "br"`; `size` stays the
+unpacked size the installer checks. `identity` (a plain `.tar`) remains for the host's own test
+archives. The host decompresses on the way into the installer: the fetched body is piped through
+`new DecompressionStream("brotli")` where the environment supports it (feature-detected by
+constructing one; Node 24 and most browsers do) and otherwise through brotli-dec-wasm's streaming
+`DecompressStream` (`brotli-dec-wasm` on npm, `MIT OR Apache-2.0`), then re-cut into the installer's
+64 KiB pieces. The fallback is a separate script and `.wasm` beside the host's Worker scripts, imported
+by URL only when needed, so hosts with native Brotli never load it. Archives must be served as opaque
+bytes (no `Content-Encoding: br`, or `fetch` would decode them first); a Brotli error's message says so.
 
 **Thread pool.** `ibus-runtime` links `-sPTHREAD_POOL_SIZE=<base>+Module["ibuswebEngineThreads"]`
 with base = GLib share + storage share + `lowWater` (8 today); the host sets
@@ -234,20 +246,24 @@ export const CrashReason = { trap: 1, fault: 2, relay: 3, load: 4, host: 5 } as 
 
 **Files:** `packages/protocol/src/manifest.ts`, `test/manifest.test.ts`; `runtime/ibus-runtime/package.nix`,
 `runtime/options.nix`; `modules/engines/manifest.nix` (new), `modules/engines/options.nix`;
-`tools/engine-manifest/{dylink.ts,dylink.test.ts,tsconfig.json}`; `engines/hangul/package.nix`.
+`tools/engine-manifest/{dylink.ts,dylink.test.ts,tsconfig.json}`; `engines/hangul/package.nix`;
+`packages/worker-host/src/worker/install/{archive,decompress}.ts`, `src/worker/brotli-fallback.ts`, `tsdown.config.ts`, `package.json`
+(`brotli-dec-wasm`, through the pnpm catalog), `test/shared/install.ts`, `module.nix` (Brotli test archives).
 
 **Interfaces:**
 
-- Produces: `EngineManifest` (Schema, the Decisions' shape) and `decodeEngineManifest(json: unknown): EngineManifest` (throws `SchemaError`); `ibusWeb.engines.mkEngineManifest { name, package, threads, heapBytes, engines, settingsSchemas }` returning a derivation with `manifest.json`, `<name>.wasm` and `data/<name>-<version>.tar`; `packages.ibus-web-hangul-dist` (or an `ibusWeb.engines.hangulDist` option) with Hangul's.
+- Produces: `EngineManifest` (Schema, the Decisions' shape) and `decodeEngineManifest(json: unknown): EngineManifest` (throws `SchemaError`); `ibusWeb.engines.mkEngineManifest { name, package, threads, heapBytes, engines, settingsSchemas }` returning a derivation with `manifest.json`, `<name>.wasm` and `data/<name>-<version>.tar.br`; `decompressed(body: ReadableStream<Uint8Array>, encoding): ReadableStream<Uint8Array>` in `install/decompress.ts`; `packages.ibus-web-hangul-dist` (or an `ibusWeb.engines.hangulDist` option) with Hangul's.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `manifest.test.ts`: a valid manifest decodes; rejected: missing `version`, `memory` not a multiple of 65536, `memory` above 2 GiB or below the runtime minimum (bounds passed as data, not literals: `decodeEngineManifest(json, { minimum, maximum })`), negative or fractional `threads`, a data `path` outside `/usr/share/`, duplicate data paths.
+  - `manifest.test.ts`: a valid manifest decodes; rejected: missing `version`, a data entry without `encoding` or with one other than `br`/`identity`, `memory` not a multiple of 65536, `memory` above 2 GiB or below the runtime minimum (bounds passed as data, not literals: `decodeEngineManifest(json, { minimum, maximum })`), negative or fractional `threads`, a data `path` outside `/usr/share/`, duplicate data paths.
+  - install scenarios (worker-host suites): a `.tar.br` archive installs byte for byte like its `.tar`, natively and with the fallback forced (a `HostInit.test` switch), in Node and both browsers; a corrupt or truncated `.tar.br` fails the install with a Brotli error naming the `Content-Encoding` pitfall and leaves no installed marker; an `identity` archive still installs.
   - `dylink.test.ts`: on a fixture produced in the check (`runtime.mkSideModule` of a trivial C file with a known static array), the script prints the `dylink.0` memory size `wasm-objdump -x --section=dylink.0` reports (parse only its documented `mem_size:` line), and fails on a module without the section.
 - [ ] **Step 2: Run them; they fail.**
 - [ ] **Step 3: Implement the pool link.** In `runtime/ibus-runtime/package.nix`, link `-sPTHREAD_POOL_SIZE='<base>+Module["ibuswebEngineThreads"]'` (base from the GLib and storage shares and `lowWater`), add `ibuswebEngineThreads` to `-sINCOMING_MODULE_JS_API`, and remove the engine share from `threadPool.shares` and `planned`; prove the quoting survives the cc-wrapper and the export-list link by grepping the generated `ibus-runtime.js` for `Module["ibuswebEngineThreads"]` in a build-only check line (`checks.ibus-runtime-exports` already greps the output; extend it). Update the host minimally so the existing suites still pass: `HostInit` gains `engineThreads`, set from the test manifest's `pool.engine`, passed to `createRuntime` as `ibuswebEngineThreads`; the host refuses to start without it.
-- [ ] **Step 4: Implement `mkEngineManifest`** in `modules/engines/manifest.nix`: tar `package/data/usr/share` as ustar with paths under `usr/share` (the installer's format; see `runtime.installArchives`), record its unpacked size, run `tools/engine-manifest/dylink.ts` on the module, compute `memory` per the Decisions, and write `manifest.json` (URLs relative to the manifest: `./<name>.wasm`, `./data/<file>`). `runtimeAbi` and `protocol` come from the runtime's header and the protocol package (evaluate, don't hard-code). Hangul: `threads = 0` and a provisional `heapBytes = 16 MiB`, both replaced by Task 6's measurements, `engines = [ "hangul" ]`, `settingsSchemas = [ "org.freedesktop.ibus.engine.hangul" "org.freedesktop.ibus.panel" ]`.
-- [ ] **Step 5:** `nix build -L .#checks.x86_64-linux.{protocol,ibus-runtime-exports,ibus-runtime-load,worker-host-node,hk}` and the Hangul dist; read its `manifest.json`.
-- [ ] **Step 6: Commit** `feat: build engine manifests and size the pool from them`.
+- [ ] **Step 4: Implement decompression** in the installer: `decompressed` pipes the fetched body through the native `DecompressionStream("brotli")` when constructing one succeeds, else through the fallback script (built by tsdown as `dist/worker/brotli-fallback.js` with the package's `.wasm` copied beside it, loaded with `import(new URL("./brotli-fallback.js", import.meta.url))`), and feeds the installer's 64 KiB pieces from its output. Add Brotli versions of the test archives in `module.nix` (`pkgs.brotli`).
+- [ ] **Step 5: Implement `mkEngineManifest`** in `modules/engines/manifest.nix`: tar `package/data/usr/share` as ustar with paths under `usr/share` (the installer's format; see `runtime.installArchives`), record its unpacked size, compress it with `brotli --quality=11`, run `tools/engine-manifest/dylink.ts` on the module, compute `memory` per the Decisions, and write `manifest.json` (URLs relative to the manifest: `./<name>.wasm`, `./data/<file>`). `runtimeAbi` and `protocol` come from the runtime's header and the protocol package (evaluate, don't hard-code). Hangul: `threads = 0` and a provisional `heapBytes = 16 MiB`, both replaced by Task 6's measurements, `engines = [ "hangul" ]`, `settingsSchemas = [ "org.freedesktop.ibus.engine.hangul" "org.freedesktop.ibus.panel" ]`.
+- [ ] **Step 6:** `nix build -L .#checks.x86_64-linux.{protocol,ibus-runtime-exports,ibus-runtime-load,worker-host-node,worker-host-browser,hk}` and the Hangul dist; read its `manifest.json` and note the archive's compressed and unpacked sizes.
+- [ ] **Step 7: Commit** `feat: build Brotli-compressed engine data and manifests, and size the pool from them`.
 
 ### Task 3: The protocol request loop and the output ring
 
@@ -358,7 +374,7 @@ first piece (clear, mount, fetch) and after the last (marker, seal) carry no wor
 
 ### Task 8: Docs and spec
 
-- [ ] **Step 1:** `docs/worker-host.md`: the transport (pointer to `PROTOCOL.md`'s Transport section for the layout), the loop, doorbells and `reqMode`, the full-ring wait, fragments, startup order with `Init`-then-load, the FHS view, engine scopes, faults and `Crashed`, test kinds, the conformance harness. `docs/engines.md`: manifests, `mkEngineManifest`, `heapBytes` and its guard, `threads`. `docs/runtime.md`: pool size from `ibuswebEngineThreads`; seq skips 0. `docs/testing.md`: the new checks. `docs/known-gaps.md`: remove what M1.3 did (ring, `replyOutSeq`, doorbell, engine share, host startup, fragment reassembly); keep the persister, router and lazy decoding for M1.4.
-- [ ] **Step 2: Spec:** §5.3 (pool from the manifest; `memory` from build data with `heapBytes`), §5.4.4 (the manifest's final fields), §5.5 (bootstrap order; engine module on `Init`), §5.5.1 (engine-module scope without a release action; instance scopes), §6.1.4 (`Crashed (us)`, padding kind 0, host-written records' `seq` 0), §6.2.1 (eleven words with `reqMode`), §6.2.2 (record placement, padding, fragments), §6.2.3 (doorbell coalescing and the `reqMode` rule), §8 (faults and reasons), §11.3 (the harness), §12 (M1.3 row done, with the answers).
+- [ ] **Step 1:** `docs/worker-host.md`: the transport (pointer to `PROTOCOL.md`'s Transport section for the layout), the loop, doorbells and `reqMode`, the full-ring wait, fragments, startup order with `Init`-then-load, the FHS view, engine scopes, faults and `Crashed`, test kinds, the conformance harness. `docs/engines.md`: manifests, `mkEngineManifest`, Brotli data archives and how to serve them, `heapBytes` and its guard, `threads`. `docs/storage.md`: decompression on install (native or fallback). `docs/runtime.md`: pool size from `ibuswebEngineThreads`; seq skips 0. `docs/testing.md`: the new checks. `docs/known-gaps.md`: remove what M1.3 did (ring, `replyOutSeq`, doorbell, engine share, host startup, fragment reassembly); keep the persister, router and lazy decoding for M1.4.
+- [ ] **Step 2: Spec:** §5.3 (pool from the manifest; `memory` from build data with `heapBytes`), §5.4.4 (the manifest's final fields, including `encoding`), §5.6 (Brotli archives, native or fallback decompression), §5.5 (bootstrap order; engine module on `Init`), §5.5.1 (engine-module scope without a release action; instance scopes), §6.1.4 (`Crashed (us)`, padding kind 0, host-written records' `seq` 0), §6.2.1 (eleven words with `reqMode`), §6.2.2 (record placement, padding, fragments), §6.2.3 (doorbell coalescing and the `reqMode` rule), §8 (faults and reasons), §11.3 (the harness), §12 (M1.3 row done, with the answers).
 - [ ] **Step 3:** `nix flake check`; republish nothing (the reviewer does).
 - [ ] **Step 4: Commit** `docs: describe the Worker host's transport and engine startup`.
