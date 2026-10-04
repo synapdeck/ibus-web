@@ -25,6 +25,11 @@ typedef struct {
   char *name;
 } Event;
 
+typedef struct {
+  GAsyncQueue *incoming;
+  char *request_name;
+} BusErrorCapture;
+
 static void event_free(gpointer data) {
   Event *event = data;
   g_free(event->context);
@@ -55,6 +60,30 @@ static GDBusMessage *receive(GDBusConnection *connection, GDBusMessage *message,
   if (incoming)
     g_async_queue_push(data, g_object_ref(message));
   return message;
+}
+
+/* Policy errors are delivered to the request connection even when the bus
+ * does not copy them to the observing connection. Keep them in the same queue
+ * as the observer's ordered engine traffic. */
+static GDBusMessage *receive_bus_error(GDBusConnection *connection,
+                                       GDBusMessage *message, gboolean incoming,
+                                       gpointer data) {
+  (void)connection;
+  BusErrorCapture *capture = data;
+  if (incoming &&
+      g_dbus_message_get_message_type(message) == G_DBUS_MESSAGE_TYPE_ERROR &&
+      g_strcmp0(g_dbus_message_get_sender(message), BUS) == 0 &&
+      g_strcmp0(g_dbus_message_get_destination(message),
+                capture->request_name) == 0)
+    g_async_queue_push(capture->incoming, g_object_ref(message));
+  return message;
+}
+
+static void bus_error_capture_free(gpointer data) {
+  BusErrorCapture *capture = data;
+  g_async_queue_unref(capture->incoming);
+  g_free(capture->request_name);
+  g_free(capture);
 }
 
 static gboolean signal_message(Driver *driver, GDBusMessage *message,
@@ -141,7 +170,9 @@ static GVariant *call(Driver *driver, const char *path, const char *interface,
         g_dbus_message_get_reply_serial(message) == serial &&
         g_strcmp0(g_dbus_message_get_destination(message),
                   driver->request_name) == 0 &&
-        g_strcmp0(g_dbus_message_get_sender(message), driver->owner) == 0) {
+        (g_strcmp0(g_dbus_message_get_sender(message), driver->owner) == 0 ||
+         (type == G_DBUS_MESSAGE_TYPE_ERROR &&
+          g_strcmp0(g_dbus_message_get_sender(message), BUS) == 0))) {
       GVariant *result = NULL;
       if (!g_dbus_message_to_gerror(message, error)) {
         GVariant *body = g_dbus_message_get_body(message);
@@ -434,6 +465,7 @@ gboolean ibus_test_run(JsonArray *steps, const char *address,
   Driver driver = {.timeout_ms = timeout_ms};
   GError *error = NULL;
   guint filter = 0;
+  guint request_filter = 0;
   GVariant *owner_result = NULL;
   driver.contexts =
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
@@ -494,6 +526,11 @@ gboolean ibus_test_run(JsonArray *steps, const char *address,
   filter = g_dbus_connection_add_filter(driver.observer, receive,
                                         g_async_queue_ref(driver.incoming),
                                         (GDestroyNotify)g_async_queue_unref);
+  BusErrorCapture *capture = g_new0(BusErrorCapture, 1);
+  capture->incoming = g_async_queue_ref(driver.incoming);
+  capture->request_name = g_strdup(driver.request_name);
+  request_filter = g_dbus_connection_add_filter(
+      driver.connection, receive_bus_error, capture, bus_error_capture_free);
   for (driver.step = 0; driver.step < json_array_get_length(steps);
        driver.step++) {
     if (!step_run(&driver, json_array_get_object_element(steps, driver.step),
@@ -526,6 +563,8 @@ cleanup:
   g_clear_error(&error);
   if (filter)
     g_dbus_connection_remove_filter(driver.observer, filter);
+  if (request_filter)
+    g_dbus_connection_remove_filter(driver.connection, request_filter);
   if (driver.observer) {
     g_dbus_connection_close_sync(driver.observer, NULL, NULL);
     g_object_unref(driver.observer);

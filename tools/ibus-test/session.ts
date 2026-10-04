@@ -213,17 +213,29 @@ export async function withNativeSession<T>(
   async function waitForName(address: string, destination: string) {
     // gdbus handles ownership and D-Bus types. Retry only while the socket is
     // starting; successful name ownership, never elapsed time, is readiness.
+    let firstFailure: Error | undefined;
     for (;;) {
       controller.signal.throwIfAborted();
       try {
         await execute("readiness", [...config.gdbus, "wait", "--address", address, destination]);
         return;
       } catch (error) {
-        controller.signal.throwIfAborted();
         if (!(error instanceof Error)) throw error;
-        await delay(20, undefined, { signal: controller.signal });
+        firstFailure ??= error;
+        if ((error.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT") throw error;
+        if (controller.signal.aborted) break;
+        try {
+          await delay(20, undefined, { signal: controller.signal });
+        } catch {
+          break;
+        }
       }
     }
+    const reason = controller.signal.reason;
+    if (reason instanceof Error && reason.message === "native session startup timeout" && firstFailure) {
+      throw new Error(`${reason.message}; first readiness failure: ${firstFailure.message}`, { cause: firstFailure });
+    }
+    controller.signal.throwIfAborted();
   }
 
   try {

@@ -53,12 +53,18 @@ function nativeEngineStderr(directory: string): string {
   return readFileSync(join(nativeDirectory, files[0]!), "utf8");
 }
 
-async function runBoth(input: Trace) {
-  const configuration = manifest();
+type PairContext = {
+  configuration: CorpusManifest;
+  directory: string;
+  metadata: Record<string, unknown>;
+};
+
+async function runBoth(input: Trace, pair?: PairContext) {
+  const configuration = pair?.configuration ?? manifest();
   const nativeConfig: NativeEngineConfig = JSON.parse(readFileSync(configuration.nativeConfig, "utf8"));
-  const directory = artifacts();
+  const directory = pair?.directory ?? artifacts();
   writeFileSync(join(directory, "trace.json"), `${JSON.stringify(input, null, 2)}\n`);
-  const metadata: Record<string, unknown> = { versions: configuration.versions ?? {} };
+  const metadata: Record<string, unknown> = pair?.metadata ?? { versions: configuration.versions ?? {} };
   try {
     const result = await withNativeSession(
       nativeConfig,
@@ -267,52 +273,127 @@ describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("native and 
   });
 });
 
+async function replayScenario(path: string, configuration: CorpusManifest, directory = artifacts()) {
+  const scenario = configuration.traceNames[configuration.traces.indexOf(path)];
+  const metadata: Record<string, unknown> = {
+    versions: configuration.versions ?? {},
+    scenario: scenario ?? null,
+    expectedDifference: null,
+    assertion: { matched: false },
+  };
+  try {
+    if (!scenario) throw new Error(`manifest has no scenario name for ${path}`);
+    const declarationDocument = configuration.expectedDifferences
+      ? JSON.parse(readFileSync(configuration.expectedDifferences, "utf8"))
+      : null;
+    const declared = declarationDocument?.differences?.find(
+      (item: { scenario?: string }) => item?.scenario === scenario,
+    );
+    metadata["intendedDifference"] = declared ?? null;
+    if (declared) {
+      metadata["expectedDifference"] = { scenario, triggerStep: declared.triggerStep ?? null, matched: false };
+    }
+    const declarations = declarationDocument
+      ? validateExpectedDifferences(declarationDocument, configuration.traceNames)
+      : new Map();
+    const coverage = configuration.coverage
+      ? validateCoverage(JSON.parse(readFileSync(configuration.coverage, "utf8")), configuration.traceNames)
+      : undefined;
+    const input = validateTrace(JSON.parse(readFileSync(path, "utf8")));
+    const { native, wasm } = await runBoth(input, { configuration, directory, metadata });
+    expect(native.exitCode, native.stderr).toBe(0);
+    expect(native.signal).toBeNull();
+    expect(wasm.exitCode, wasm.stderr).toBe(0);
+    expect(wasm.signal).toBeNull();
+    expect(native.stderr).toBe("");
+    expect(wasm.stderr).not.toMatch(/\b(?:WARNING|CRITICAL|ERROR)\b/);
+    const engineStderr = nativeEngineStderr(directory);
+    const declaration = declarations.get(scenario);
+    if (declaration) {
+      expect(input.steps[declaration.triggerStep]?.op).toBe("call");
+      checkExpectedDifference(native.records, wasm.records, declaration, engineStderr);
+      metadata["expectedDifference"] = { scenario, triggerStep: declaration.triggerStep, matched: true };
+    } else {
+      expect(engineStderr).toBe("");
+      expect(compareTranscripts(native.records, wasm.records)).toEqual([]);
+    }
+    const requiredCoverage = coverage?.get(scenario);
+    if (requiredCoverage) {
+      checkCoverage(native.records, requiredCoverage);
+      checkCoverage(wasm.records, requiredCoverage);
+    }
+    metadata["assertion"] = { matched: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    metadata["assertion"] = { matched: false, error: message };
+    metadata["error"] ??= message;
+    throw error;
+  } finally {
+    writeFileSync(join(directory, "result.json"), `${JSON.stringify(metadata, null, 2)}\n`);
+  }
+}
+
 describe.skipIf(!manifestPath)("configured engine traces", () => {
   test.each(manifestPath ? manifest().traces : ["unconfigured"])(
     "replays %s",
-    async (path) => {
-      const configuration = manifest();
-      const declarations = configuration.expectedDifferences
-        ? validateExpectedDifferences(
-            JSON.parse(readFileSync(configuration.expectedDifferences, "utf8")),
-            configuration.traceNames,
-          )
-        : new Map();
-      const coverage = configuration.coverage
-        ? validateCoverage(JSON.parse(readFileSync(configuration.coverage, "utf8")), configuration.traceNames)
-        : undefined;
-      const scenario = configuration.traceNames[configuration.traces.indexOf(path)];
-      if (!scenario) throw new Error(`manifest has no scenario name for ${path}`);
-      const input = validateTrace(JSON.parse(readFileSync(path, "utf8")));
-      const { native, wasm, directory } = await runBoth(input);
-      expect(native.exitCode, native.stderr).toBe(0);
-      expect(native.signal).toBeNull();
-      expect(wasm.exitCode, wasm.stderr).toBe(0);
-      expect(wasm.signal).toBeNull();
-      expect(native.stderr).toBe("");
-      expect(wasm.stderr).not.toMatch(/\b(?:WARNING|CRITICAL|ERROR)\b/);
-      const engineStderr = nativeEngineStderr(directory);
-      const declaration = declarations.get(scenario);
-      if (declaration) {
-        expect(input.steps[declaration.triggerStep]?.op).toBe("call");
-        checkExpectedDifference(native.records, wasm.records, declaration, engineStderr);
-      } else {
-        expect(engineStderr).toBe("");
-        expect(compareTranscripts(native.records, wasm.records)).toEqual([]);
-      }
-      const requiredCoverage = coverage?.get(scenario);
-      if (requiredCoverage) {
-        checkCoverage(native.records, requiredCoverage);
-        checkCoverage(wasm.records, requiredCoverage);
-      }
-      const resultPath = join(directory, "result.json");
-      const result = JSON.parse(readFileSync(resultPath, "utf8"));
-      result.scenario = scenario;
-      result.expectedDifference = declaration
-        ? { scenario, triggerStep: declaration.triggerStep, matched: true }
-        : null;
-      writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
-    },
+    async (path) => replayScenario(path, manifest()),
     15000,
   );
+});
+
+describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("failed pair artifacts", () => {
+  test("retains identity on declaration validation and coverage failures", async () => {
+    const directory = artifacts();
+    const tracePath = join(directory, "diagnostic-trace.json");
+    const declarationPath = join(directory, "invalid-declaration.json");
+    const coveragePath = join(directory, "missing-coverage.json");
+    const scenario = "diagnostic-scenario";
+    writeFileSync(tracePath, `${JSON.stringify(trace(create(), key(1), destroy()))}\n`);
+    writeFileSync(
+      declarationPath,
+      `${JSON.stringify({ version: 1, differences: [{ scenario, triggerStep: "invalid" }] })}\n`,
+    );
+    writeFileSync(
+      coveragePath,
+      `${JSON.stringify({
+        version: 1,
+        scenarios: [{ scenario, required: [{ kind: "event", step: 1, name: "NeverEmitted" }], forbidden: [] }],
+      })}\n`,
+    );
+    const configuration: CorpusManifest = {
+      ...manifest(),
+      traces: [tracePath],
+      traceNames: [scenario],
+      expectedDifferences: declarationPath,
+      coverage: null,
+      versions: { fixture: "diagnostic" },
+    };
+
+    await expect(replayScenario(tracePath, configuration, directory)).rejects.toThrow(
+      /expected difference has unexpected fields/,
+    );
+    let result = JSON.parse(readFileSync(join(directory, "result.json"), "utf8"));
+    expect(result).toMatchObject({
+      scenario,
+      versions: { fixture: "diagnostic" },
+      intendedDifference: { scenario, triggerStep: "invalid" },
+      expectedDifference: { scenario, triggerStep: "invalid", matched: false },
+      assertion: { matched: false, error: expect.stringContaining("expected difference") },
+    });
+
+    configuration.expectedDifferences = null;
+    configuration.coverage = coveragePath;
+    await expect(replayScenario(tracePath, configuration, directory)).rejects.toThrow(/missing ordered/);
+    result = JSON.parse(readFileSync(join(directory, "result.json"), "utf8"));
+    expect(result).toMatchObject({
+      scenario,
+      versions: { fixture: "diagnostic" },
+      native: { exitCode: 0 },
+      wasm: { exitCode: 0 },
+      differences: [],
+      firstDivergence: null,
+      expectedDifference: null,
+      assertion: { matched: false, error: expect.stringContaining("missing ordered") },
+    });
+  });
 });

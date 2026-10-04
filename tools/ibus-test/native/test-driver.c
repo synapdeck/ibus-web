@@ -1,9 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #include "values.h"
+#include <unistd.h>
 
 static const char *adapter_path, *engine_path;
 static GTestDBus *bus;
+static const char *policy_bus_address;
+
+static const char *bus_address(void) {
+  return policy_bus_address ? policy_bus_address
+                            : g_test_dbus_get_bus_address(bus);
+}
 
 typedef struct {
   GMainLoop *loop;
@@ -36,9 +43,8 @@ static void ready(GObject *object, GAsyncResult *result, gpointer data) {
 
 static GSubprocess *start_engine(void) {
   GError *error = NULL;
-  GSubprocess *engine =
-      g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE, &error, engine_path,
-                       g_test_dbus_get_bus_address(bus), NULL);
+  GSubprocess *engine = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE, &error,
+                                         engine_path, bus_address(), NULL);
   g_assert_no_error(error);
   Run startup = {.loop = g_main_loop_new(NULL, FALSE), .process = engine};
   GDataInputStream *stream =
@@ -64,9 +70,9 @@ static JsonArray *execute(const char **steps, gboolean success) {
   GSubprocess *adapter = g_subprocess_new(
       G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE |
           G_SUBPROCESS_FLAGS_STDERR_PIPE,
-      &error, adapter_path, "--address", g_test_dbus_get_bus_address(bus),
-      "--destination", "org.example.IBusTest", "--factory",
-      "/org/freedesktop/IBus/Factory", "--timeout-ms", "200", NULL);
+      &error, adapter_path, "--address", bus_address(), "--destination",
+      "org.example.IBusTest", "--factory", "/org/freedesktop/IBus/Factory",
+      "--timeout-ms", "200", NULL);
   g_assert_no_error(error);
   char *steps_json = g_strjoinv(",", (char **)steps);
   char *trace = g_strdup_printf(
@@ -326,6 +332,92 @@ static void error_case(gconstpointer data) {
   json_array_unref(records);
 }
 
+static void dead_engine_case(gconstpointer data) {
+  const ErrorCase *test = data;
+  JsonArray *records = execute(test->steps, FALSE);
+  JsonObject *last = json_array_get_object_element(
+      records, json_array_get_length(records) - 1);
+  g_assert_cmpstr(json_object_get_string_member(last, "kind"), ==, "error");
+  const char *message = json_object_get_string_member(last, "message");
+  const char *bus_disconnection =
+      "org.freedesktop.DBus.Error.NoReply: Message recipient disconnected "
+      "from message bus without replying";
+  g_assert_true(strstr(message, "engine connection disappeared") ||
+                strstr(message, bus_disconnection));
+  json_array_unref(records);
+}
+
+static void bus_policy_denial(void) {
+  static const char *config =
+      "<busconfig>"
+      "<type>session</type>"
+      "<listen>unix:tmpdir=/tmp</listen>"
+      "<auth>EXTERNAL</auth>"
+      "<policy context=\"default\">"
+      "<allow own=\"*\"/>"
+      "<allow send_destination=\"*\" eavesdrop=\"true\"/>"
+      "<allow receive_sender=\"*\"/>"
+      "<allow eavesdrop=\"true\"/>"
+      "<deny send_destination=\"org.example.IBusTest\" "
+      "send_interface=\"org.freedesktop.IBus.Engine\" "
+      "send_member=\"ProcessKeyEvent\"/>"
+      "</policy>"
+      "</busconfig>";
+  GError *error = NULL;
+  char *config_path = NULL;
+  int config_fd =
+      g_file_open_tmp("ibus-test-bus-policy-XXXXXX", &config_path, &error);
+  g_assert_no_error(error);
+  g_assert_cmpint(config_fd, >=, 0);
+  close(config_fd);
+  g_assert_true(g_file_set_contents(config_path, config, -1, &error));
+  g_assert_no_error(error);
+
+  GSubprocess *policy_bus = g_subprocess_new(
+      G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE, &error,
+      "dbus-daemon", "--config-file", config_path, "--nofork",
+      "--print-address=1", NULL);
+  g_assert_no_error(error);
+  GDataInputStream *address_stream =
+      g_data_input_stream_new(g_subprocess_get_stdout_pipe(policy_bus));
+  Run startup = {.loop = g_main_loop_new(NULL, FALSE), .process = policy_bus};
+  guint timer = g_timeout_add(3000, kill_timeout, &startup);
+  g_data_input_stream_read_line_async(address_stream, G_PRIORITY_DEFAULT, NULL,
+                                      ready, &startup);
+  g_main_loop_run(startup.loop);
+  if (!startup.timed_out)
+    g_source_remove(timer);
+  g_main_loop_unref(startup.loop);
+  g_assert_false(startup.timed_out);
+  g_assert_no_error(startup.error);
+  char *address = startup.out;
+  g_assert_nonnull(address);
+  policy_bus_address = address;
+  const char *steps[] = {
+      CREATE("a", "fixture"),
+      CALL("a", "ProcessKeyEvent", "(uint32 0, uint32 0, uint32 0)"),
+      DESTROY("a"),
+      NULL,
+  };
+  JsonArray *records = execute(steps, FALSE);
+  policy_bus_address = NULL;
+  g_subprocess_force_exit(policy_bus);
+  g_subprocess_wait(policy_bus, NULL, NULL);
+  g_object_unref(address_stream);
+  g_object_unref(policy_bus);
+  g_free(address);
+  unlink(config_path);
+  g_free(config_path);
+
+  g_assert_cmpuint(json_array_get_length(records), ==, 2);
+  record(records, 0, "reply", 0);
+  JsonObject *last =
+      record(records, json_array_get_length(records) - 1, "error", 1);
+  g_assert_nonnull(
+      strstr(json_object_get_string_member(last, "message"), "AccessDenied"));
+  json_array_unref(records);
+}
+
 static void failed_creation_output(gconstpointer data) {
   const ErrorCase *test = data;
   JsonArray *records = execute(test->steps, FALSE);
@@ -439,7 +531,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/driver/delayed-output", delayed_output);
   g_test_add_func("/driver/trailing-output", trailing);
   g_test_add_data_func("/driver/unknown-method", &unknown_method, error_case);
-  g_test_add_data_func("/driver/dead-engine", &dead_engine, error_case);
+  g_test_add_func("/driver/bus-policy-denial", bus_policy_denial);
+  g_test_add_data_func("/driver/dead-engine", &dead_engine, dead_engine_case);
   g_test_add_data_func("/driver/unanswered-call", &unanswered_call, error_case);
   g_test_add_data_func("/driver/wait-timeout", &wait_timeout, error_case);
   g_test_add_data_func("/driver/open-context-rejected", &open_context,

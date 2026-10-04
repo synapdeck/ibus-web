@@ -242,6 +242,22 @@ describe.skipIf(!configPath || !fixtureCommand)("private native sessions", () =>
       (config: NativeEngineConfig) => ({ ...config, destination: "org.example.Missing", timeoutMs: 1500 }),
       [],
     ],
+    [
+      "missing readiness helper",
+      /readiness.*spawn failure.*ENOENT/,
+      (config: NativeEngineConfig) => ({ ...config, gdbus: ["/does/not/exist"], timeoutMs: 1500 }),
+      [],
+    ],
+    [
+      "invalid readiness helper",
+      /startup timeout.*first readiness failure.*readiness exited \(23\)/,
+      (config: NativeEngineConfig) => ({
+        ...config,
+        gdbus: [process.execPath, "-e", "process.exit(23)"],
+        timeoutMs: 1500,
+      }),
+      [],
+    ],
   ] as const)("cleans every owned process after %s", async (_name, expectedError, configure, settings) => {
     const artifactDir = artifacts();
     let used = false;
