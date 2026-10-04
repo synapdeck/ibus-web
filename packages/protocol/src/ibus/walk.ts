@@ -86,6 +86,32 @@ function compile(ast: SchemaAST.AST, member = false, field = "value"): Plan {
   return plan;
 }
 
+function attachmentPlan(plan: Plan): Plan {
+  return {
+    signature: plan.signature,
+    toTree(encoded) {
+      const dictionary = expectNode(plan.toTree(encoded), "a");
+      return {
+        _tag: "a",
+        items: dictionary.items.map((item) => {
+          const entry = expectNode(item, "{}");
+          return { ...entry, value: { _tag: "v", type: "v", value: entry.value } };
+        }),
+      };
+    },
+    fromTree(tree) {
+      const dictionary = expectNode(tree, "a");
+      const items = dictionary.items.map((item) => {
+        const entry = expectNode(item, "{}");
+        const wrapper = expectNode(entry.value, "v");
+        if (wrapper.type !== "v") fail("IBus attachments require an inner variant");
+        return { ...entry, value: expectNode(wrapper.value, "v") };
+      });
+      return plan.fromTree({ _tag: "a", items });
+    },
+  };
+}
+
 function objectPlan(ast: SchemaAST.Objects, ibusType?: string): Plan {
   if (ast.indexSignatures.length === 1 && ast.propertySignatures.length === 0) {
     const index = ast.indexSignatures[0]!;
@@ -114,10 +140,14 @@ function objectPlan(ast: SchemaAST.Objects, ibusType?: string): Plan {
   const tag = ast.propertySignatures.find((property) => property.name === "_tag");
   const fields = ast.propertySignatures
     .filter((property) => property.name !== "_tag")
-    .map((property) => ({
-      name: property.name,
-      plan: compile(property.type, true, String(property.name)),
-    }));
+    .map((property) => {
+      const plan = compile(property.type, true, String(property.name));
+      return {
+        name: property.name,
+        // IBus wraps an attachment once more inside the dictionary's variant slot.
+        plan: ibusType && property.name === "attachments" ? attachmentPlan(plan) : plan,
+      };
+    });
   const prefix = ibusType ? "s" : "";
   return {
     signature: `(${prefix}${fields.map((field) => field.plan.signature).join("")})`,

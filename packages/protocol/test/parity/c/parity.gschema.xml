@@ -1,0 +1,7 @@
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<schemalist>
+  <schema id="org.example.Parity" path="/org/example/parity/">
+    <key name="sample" type="s"><default>'default'</default></key>
+  </schema>
+</schemalist>

@@ -274,6 +274,7 @@
         clangdQueryDrivers = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ "${pkgs.stdenv.cc}/bin/cc" ];
       };
       ibusWeb.engines.ibusTest = ibusTest;
+      ibusWeb.engines.wasmJson = wasmJson;
       packages = {
         ibus-test-wasm = wasm;
         ibus-test-tools = testTools;
