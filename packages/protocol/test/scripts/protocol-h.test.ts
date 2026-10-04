@@ -47,6 +47,11 @@ const records: readonly MessageFixture[] = [
   ["LOG", 33, "(uss)"],
 ];
 
+// Comment text with the line breaks and leading asterisks of C block comments removed.
+function commentText(header: string): string {
+  return header.replace(/\n\s*\*(?!\/) +/g, " ");
+}
+
 describe("generated C wire header", () => {
   it("keeps the installed header's license and generation notice", () => {
     expect(renderProtocolH()).toMatch(
@@ -85,18 +90,37 @@ describe("generated C wire header", () => {
   });
 
   it("documents schema fields, descriptions and the key event reply", () => {
-    const header = renderProtocolH();
+    const header = commentText(renderProtocolH());
     expect(header).toContain("(uuu) keyval, keycode, state → reply 0 or 1");
     expect(header).toContain("Process a key event and reply whether the engine handled it.");
     expect(header).toContain("Reserved request flags; must be zero.");
     expect(header).toContain("GSettings schema id containing the changed key.");
   });
-  it("documents wire encoding, padding and page-relative candidate clicks", () => {
-    const output = renderProtocolH();
-    expect(output).toContain("Header fields and GVariant payloads use little-endian encoding.");
-    expect(output).toContain("Payloads must be in GVariant normal form.");
-    expect(output).toContain("Records are zero-padded to a total size that is a multiple of eight bytes.");
-    expect(output).toContain("An empty tuple payload () is one zero byte.");
+
+  it("documents wire encoding, malformed requests, padding, ic 0 and page-relative candidate clicks", () => {
+    const output = commentText(renderProtocolH());
+    expect(output).toContain("Header fields and GVariant payloads are little-endian.");
+    expect(output).toContain("A request is 8 bytes of header (kind, flags, ic)");
+    expect(output).toContain("a request of the header alone is malformed and ibusweb_dispatch returns -EBADMSG");
+    expect(output).toContain("zero-padded to a multiple of 8 bytes.");
+    expect(output).toContain("the empty tuple () is one zero byte");
+    expect(output).toContain("Log and SettingWritten records belong to no input context: their ic is 0.");
+    expect(output).toContain("CONTINUATION (0x0001) is the only flag");
     expect(output).toContain("Page-relative position of the clicked candidate on the visible lookup table page.");
+  });
+
+  // clang-format reflows a comment line past its column limit into the line after it, merging
+  // separate field descriptions, so the generator wraps every line itself.
+  it("keeps every line within clang-format's 80 columns", () => {
+    const long = renderProtocolH()
+      .split("\n")
+      .filter((line) => line.length > 80);
+    expect(long).toEqual([]);
+  });
+
+  it("puts each field description on its own comment line", () => {
+    const header = renderProtocolH();
+    expect(header).toMatch(/\n {3}\* index: Page-relative position .*\n {3}\* {3}\S/);
+    expect(header).toMatch(/\n {3}\* button: Mouse button used to select the candidate\.\n/);
   });
 });

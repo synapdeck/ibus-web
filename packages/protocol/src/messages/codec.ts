@@ -4,7 +4,7 @@ import { Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { GVariantBytes } from "../gvariant/schema.ts";
 import { ProtocolError } from "../gvariant/type.ts";
 import { fromTree, signatureOf, toTree } from "../ibus/walk.ts";
-import { RECORD_CONTINUATION } from "./framing.ts";
+import { RECORD_ALIGNMENT, RECORD_CONTINUATION } from "./framing.ts";
 import { Request, requestKinds } from "./requests.ts";
 import { OutputRecord } from "./records.ts";
 
@@ -92,7 +92,7 @@ export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
   if (decode === undefined) {
     throw new ProtocolError({ message: `Unknown record payload kind: ${kind}` });
   }
-  const size = Math.ceil((16 + length) / 8) * 8;
+  const size = Math.ceil((16 + length) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
   if (size > bytes.length - offset) {
     throw new ProtocolError({ message: "Record payload or padding extends beyond the buffer" });
   }

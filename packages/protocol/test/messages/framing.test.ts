@@ -6,14 +6,25 @@ import {
   CommitText,
   FocusIn,
   ProcessKeyEvent,
+  GVariantDecodeError,
   ProtocolError,
+  Request,
   decodeRecord,
+  decodeValue,
   encodeRequest,
   encodeValue,
   framing,
   RECORD_CONTINUATION,
+  signatureOf,
   type GVariantValue,
 } from "../../src/index.ts";
+
+// The runtime treats a request of the header alone as malformed, which holds only while no
+// request's payload can be empty.
+it.each(Object.keys(Request.cases))("%s has no empty payload", (name) => {
+  const signature = signatureOf(Request.cases[name as keyof typeof Request.cases]);
+  expect(() => decodeValue(signature, new Uint8Array())).toThrow(GVariantDecodeError);
+});
 
 function commitTextRecord(
   name = "IBusText",

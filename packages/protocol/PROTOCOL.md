@@ -7,9 +7,15 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 Protocol version: **1**.
 
-Header fields and GVariant payloads use little-endian encoding. Payloads must be in GVariant normal form.
+Header fields and GVariant payloads are little-endian.
 
-Records are zero-padded to a total size that is a multiple of eight bytes. An empty tuple payload `()` is one zero byte.
+A request is 8 bytes of header (`kind`, `flags`, `ic`) followed by its payload, the GVariant normal form of a value of its kind's signature. No payload is empty (the empty tuple `()` is one zero byte), so a request of the header alone is malformed and `ibusweb_dispatch` returns -EBADMSG, as it does for a payload that isn't normal form.
+
+A record is 16 bytes of header (`seq`, `ic`, `kind`, `flags`, `len`) followed by `len` bytes of payload in GVariant normal form, zero-padded to a multiple of 8 bytes.
+
+`Log` and `SettingWritten` records belong to no input context: their `ic` is 0.
+
+The runtime writes record flags as zero. `CONTINUATION` (`0x0001`) is the only flag; only the host sets it, when it fragments a record.
 
 ## Request header
 
@@ -28,8 +34,6 @@ Records are zero-padded to a total size that is a multiple of eight bytes. An em
 | `kind`  | 2             | Record kind identifying the payload schema.                     |
 | `flags` | 2             | Record flags; only the host sets CONTINUATION when fragmenting. |
 | `len`   | 4             | Payload length in bytes, excluding the header and padding.      |
-
-Record flag `CONTINUATION`: `0x0001`. Only the host sets this flag when fragmenting records.
 
 ## Requests
 
@@ -81,7 +85,7 @@ Kind: **16**. Signature: `(uuu)`.
 
 Process a key event and reply whether the engine handled it.
 
-Reply: `b` (0 or 1).
+Reply: `ibusweb_dispatch` returns 1 if the engine handled the key and 0 if not; the reply is that return value, not a GVariant payload.
 
 | Name      | GVariant type | Description                    |
 | --------- | ------------- | ------------------------------ |

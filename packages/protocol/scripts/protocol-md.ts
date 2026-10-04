@@ -13,12 +13,12 @@ import {
   IBusPropList,
   OutputRecord,
   PROTOCOL_VERSION,
-  RECORD_CONTINUATION,
   recordKinds,
   Request,
   requestKinds,
   signatureOf,
 } from "../src/index.ts";
+import { framingNotes } from "./framing-notes.ts";
 
 function cell(text: string): string {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ");
@@ -84,7 +84,9 @@ function renderMessages(
       `### ${name}`,
       `Kind: **${kind}**. Signature: \`${signatureOf(schema)}\`.`,
       description,
-      reply ? `Reply: \`${reply}\` (0 or 1).` : undefined,
+      reply === "b"
+        ? "Reply: `ibusweb_dispatch` returns 1 if the engine handled the key and 0 if not; the reply is that return value, not a GVariant payload."
+        : undefined,
       renderFields(schema),
     ]
       .filter((section) => section !== undefined)
@@ -100,11 +102,9 @@ export function renderProtocolMd(): string {
     "<!-- Generated from @ibus-web/protocol's schemas by `nix run .#write-files`; edit those, not this file. -->",
     "# ibus-web protocol",
     `Protocol version: **${PROTOCOL_VERSION}**.`,
-    "Header fields and GVariant payloads use little-endian encoding. Payloads must be in GVariant normal form.",
-    "Records are zero-padded to a total size that is a multiple of eight bytes. An empty tuple payload `()` is one zero byte.",
+    ...framingNotes((text) => `\`${text}\``),
     renderHeader("Request", framing.request),
     renderHeader("Record", framing.record),
-    `Record flag \`CONTINUATION\`: \`0x${RECORD_CONTINUATION.toString(16).padStart(4, "0")}\`. Only the host sets this flag when fragmenting records.`,
     renderMessages("Requests", requestKinds, Request.cases),
     renderMessages("Records", recordKinds, OutputRecord.cases),
     "## IBus types",

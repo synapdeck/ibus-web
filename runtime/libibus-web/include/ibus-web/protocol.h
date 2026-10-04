@@ -8,24 +8,43 @@
 
 #define IBUSWEB_PROTOCOL_VERSION 1
 
-/* Header fields and GVariant payloads use little-endian encoding.
- * Payloads must be in GVariant normal form.
- * Records are zero-padded to a total size that is a multiple of eight bytes.
- * An empty tuple payload () is one zero byte. */
+/* Header fields and GVariant payloads are little-endian.
+ *
+ * A request is 8 bytes of header (kind, flags, ic) followed by its payload, the
+ * GVariant normal form of a value of its kind's signature. No payload is empty
+ * (the empty tuple () is one zero byte), so a request of the header alone is
+ * malformed and ibusweb_dispatch returns -EBADMSG, as it does for a payload
+ * that isn't normal form.
+ *
+ * A record is 16 bytes of header (seq, ic, kind, flags, len) followed by len
+ * bytes of payload in GVariant normal form, zero-padded to a multiple of 8
+ * bytes.
+ *
+ * Log and SettingWritten records belong to no input context: their ic is 0.
+ *
+ * The runtime writes record flags as zero. CONTINUATION (0x0001) is the only
+ * flag; only the host sets it, when it fragments a record. */
 
 typedef struct {
-  uint16_t kind;  /* Request kind identifying the payload schema. */
-  uint16_t flags; /* Reserved request flags; must be zero. */
-  uint32_t ic;    /* Input context identifier. */
+  /* Request kind identifying the payload schema. */
+  uint16_t kind;
+  /* Reserved request flags; must be zero. */
+  uint16_t flags;
+  /* Input context identifier. */
+  uint32_t ic;
 } IBusWebRequestHeader;
 
 typedef struct {
-  uint32_t seq;   /* Output record sequence number. */
-  uint32_t ic;    /* Input context identifier. */
-  uint16_t kind;  /* Record kind identifying the payload schema. */
-  uint16_t flags; /* Record flags; only the host sets CONTINUATION when
-                     fragmenting. */
-  uint32_t len; /* Payload length in bytes, excluding the header and padding. */
+  /* Output record sequence number. */
+  uint32_t seq;
+  /* Input context identifier. */
+  uint32_t ic;
+  /* Record kind identifying the payload schema. */
+  uint16_t kind;
+  /* Record flags; only the host sets CONTINUATION when fragmenting. */
+  uint16_t flags;
+  /* Payload length in bytes, excluding the header and padding. */
+  uint32_t len;
 } IBusWebRecordHeader;
 #define IBUSWEB_RECORD_CONTINUATION 0x0001
 
@@ -79,7 +98,7 @@ enum IBusWebRequestKind {
   /* (u) capabilities
    * Tell the engine which input method features the client supports.
    * capabilities: IBusCapabilite flags describing the client's supported
-   * features. */
+   *   features. */
   IBUSWEB_REQ_SET_CAPABILITIES = 23,
   /* ()
    * Move to the previous candidate page. */
@@ -96,7 +115,8 @@ enum IBusWebRequestKind {
   /* (uuu) index, button, state
    * Notify the engine that the user clicked a candidate.
    * index: Page-relative position of the clicked candidate on the visible
-   * lookup table page. button: Mouse button used to select the candidate.
+   *   lookup table page.
+   * button: Mouse button used to select the candidate.
    * state: Modifier state at the time of the click. */
   IBUSWEB_REQ_CANDIDATE_CLICKED = 28,
   /* (su) name, state
@@ -128,7 +148,7 @@ enum IBusWebRecordKind {
    * cursor: Cursor position in characters within the preedit text.
    * visible: Whether to display the preedit text.
    * mode: IBusPreeditFocusMode: what the client does with the preedit on focus
-   * out and reset. */
+   *   out and reset. */
   IBUSWEB_REC_UPDATE_PREEDIT_TEXT = 2,
   /* (vb) text, visible
    * Update the auxiliary text shown with the input method UI.
@@ -175,7 +195,8 @@ enum IBusWebRecordKind {
   /* (iu) offset, count
    * Delete a range of the client's surrounding text.
    * offset: Signed character offset from the cursor to the start of the
-   * deletion. count: Number of surrounding characters to delete. */
+   *   deletion.
+   * count: Number of surrounding characters to delete. */
   IBUSWEB_REC_DELETE_SURROUNDING_TEXT = 14,
   /* ()
    * Ask the client to supply its current surrounding text. */

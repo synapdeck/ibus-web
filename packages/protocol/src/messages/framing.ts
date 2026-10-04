@@ -22,3 +22,6 @@ export const framing: { request: HeaderField[]; record: HeaderField[] } = {
 };
 
 export const RECORD_CONTINUATION = 0x0001;
+
+/** Records are zero-padded so that each starts at a multiple of this many bytes. */
+export const RECORD_ALIGNMENT = 8;
