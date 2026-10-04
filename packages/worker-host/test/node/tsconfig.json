@@ -8,5 +8,5 @@
     "typeRoots": ["../../../../node_modules/@types", "../../../../types"],
     "types": ["node", "webassembly"]
   },
-  "include": [".", "../shared", "../../src/shared"]
+  "include": [".", "../engines", "../shared", "../../src/shared"]
 }

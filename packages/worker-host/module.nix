@@ -36,6 +36,7 @@
           )
           [
             "trivial.c"
+            "settings.c"
             "thread.c"
             "throw.cpp"
             "proxy.c"

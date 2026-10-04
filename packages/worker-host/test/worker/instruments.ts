@@ -22,13 +22,24 @@ import {
 // Counts the Workers Emscripten creates, through the global Worker class.
 // Under Node, Emscripten first assigns worker_threads' Worker to the global,
 // so the global becomes an accessor that wraps whichever class it is given.
-const trackWorkers = (): { created: number; counting: boolean } => {
-  const workers = { created: 0, counting: false };
+const workerCounts = () => ({ created: 0, counting: false, live: 0, peak: 0 });
+const trackWorkers = (): ReturnType<typeof workerCounts> => {
+  const workers = workerCounts();
   const wrap = (Base: typeof Worker): typeof Worker =>
     class extends Base {
+      private terminated = false;
       constructor(...args: ConstructorParameters<typeof Worker>) {
         super(...args);
         if (workers.counting) workers.created++;
+        workers.live++;
+        workers.peak = Math.max(workers.peak, workers.live);
+      }
+      override terminate(): void {
+        if (!this.terminated) {
+          this.terminated = true;
+          workers.live--;
+        }
+        super.terminate();
       }
     };
   let current = wrap(globalThis.Worker);
@@ -67,7 +78,7 @@ export const makeInstruments = (
   config: HostConfigValues,
   post: (message: TestMessage) => void,
 ): Instruments => {
-  let workers = { created: 0, counting: false };
+  let workers = workerCounts();
   let runtime: RuntimeHandle | undefined;
   let storage: MountedStorage = { mount: "none", closed: () => false };
   let scratch = 0;
@@ -77,6 +88,8 @@ export const makeInstruments = (
   let held = false;
   const loadedModules: string[] = [];
   const counters = {
+    activeThreadsAtRuntimeStart: 0,
+    activeThreadsPeak: 0,
     requests: 0,
     requestsWhileAsleep: 0,
     topUps: 0,
@@ -97,6 +110,10 @@ export const makeInstruments = (
     (rt as unknown as { _mallinfo(out: number): void })._mallinfo(scratch);
     return {
       workersCreated: workers.created,
+      poolWorkersPeak: workers.peak,
+      // Emscripten dlmalloc defines MORECORE_CANNOT_TRIM: frees never lower
+      // the break, so sbrk(0) retains the peak across startup and requests.
+      heapPeak: (rt as unknown as { _sbrk(increment: number): number })._sbrk(0),
       idleWorkers: rt.PThread.unusedWorkers.length,
       heapInUse: words[(scratch + test.mallinfo.inUseOffset) / 4]!,
       memoryBytes: memory.buffer.byteLength,
@@ -131,6 +148,28 @@ export const makeInstruments = (
     },
     runtimeStarted: (handle) => {
       runtime = handle;
+      const pool = handle.rt.PThread as typeof handle.rt.PThread & {
+        pthreads: Record<string, Worker>;
+        getNewWorker(): Worker | undefined;
+        returnWorkerToPool(worker: Worker): void;
+      };
+      const active = new Set(Object.values(pool.pthreads));
+      counters.activeThreadsAtRuntimeStart = active.size;
+      counters.activeThreadsPeak = active.size;
+      const getWorker = pool.getNewWorker.bind(pool);
+      const returnWorker = pool.returnWorkerToPool.bind(pool);
+      pool.getNewWorker = () => {
+        const worker = getWorker();
+        if (worker !== undefined) {
+          active.add(worker);
+          counters.activeThreadsPeak = Math.max(counters.activeThreadsPeak, active.size);
+        }
+        return worker;
+      };
+      pool.returnWorkerToPool = (worker) => {
+        active.delete(worker);
+        returnWorker(worker);
+      };
       const counts = test.runtimeCalls === undefined ? undefined : new Int32Array(test.runtimeCalls);
       const trap = test.waitTrap === undefined ? undefined : new Int32Array(test.waitTrap);
       const defer = test.deferPump === undefined ? undefined : new Int32Array(test.deferPump);

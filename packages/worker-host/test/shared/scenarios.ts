@@ -365,12 +365,18 @@ export const poolTopUp = async (h: Harness, { client }: RunningHost): Promise<vo
   // they wait for the page's thread.
   await h.sleep(50);
   const peak = await stats(client);
+  expect(peak.poolWorkersPeak).toBe(h.data.pool.size);
   await release(h, client);
 
   const before = await stats(client);
   await hold(h, client, toPeak + 1);
   const over = await awaitTopUp(h, client, before);
+  expect(over.poolWorkersPeak).toBe(h.data.pool.size + 1);
+  expect(over).toMatchObject({ activeThreadsPeak: planned + 1 });
   await release(h, client);
+  const released = await stats(client);
+  expect(released.poolWorkersPeak).toBe(over.poolWorkersPeak);
+  expect(released.heapPeak).toBeGreaterThanOrEqual(over.heapPeak);
   h.record("pool-top-up", {
     plannedPeak: describeStats(h, peak, first),
     overshoot:

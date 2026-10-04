@@ -67,8 +67,10 @@
       packages.ibus-web-hangul-dist = engines.mkEngineManifest {
         name = "hangul";
         package = hangul;
+        # Host conformance peaks at 3,461,120 bytes and uses no engine threads.
+        # The manifest builder adds headroom after this whole-MiB declaration.
         threads = 0;
-        heapBytes = 16 * 1024 * 1024;
+        heapBytes = 4 * 1024 * 1024;
         inherit (hangul) settingsSchemaDir;
         engines = [ "hangul" ];
         settingsSchemas = [

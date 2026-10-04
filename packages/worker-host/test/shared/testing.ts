@@ -25,6 +25,14 @@ export const HostOp = {
 } as const;
 
 export interface HostStats {
+  // Maximum live pthread Workers, including the initial pool.
+  poolWorkersPeak: number;
+  // Checked-out pthreads when instrumentation attaches, before runtime init,
+  // storage mount, Init and engine module load, and their subsequent peak.
+  activeThreadsAtRuntimeStart: number;
+  activeThreadsPeak: number;
+  // Program-break high-water, retained by the non-trimming allocator.
+  heapPeak: number;
   // Workers Emscripten created after the runtime started, beyond its pool.
   workersCreated: number;
   // Workers in Emscripten's pool that host no thread and can take one.

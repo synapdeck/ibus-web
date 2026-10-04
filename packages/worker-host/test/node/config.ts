@@ -85,6 +85,10 @@ const serveToNode = async (dirs: Readonly<Record<string, string>>): Promise<stri
 
 export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const manifest = readManifest();
+  const hangulPath = process.env["IBUS_WEB_HANGUL_MANIFEST"];
+  const hangul = hangulPath === undefined ? undefined : readJson<EngineManifest>(hangulPath);
+  const hangulDir = hangulPath === undefined ? undefined : fileURLToPath(new URL(".", pathToFileURL(hangulPath)));
+
   const { upgrade, ...tree } = readJson<ArchiveDescription>(join(manifest.archives, "tree.json"));
   const sideFiles = readdirSync(manifest.sides)
     .filter((file) => file.endsWith(".wasm"))
@@ -146,15 +150,32 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const browsers = manifest.environments.filter((environment) => environment !== "node");
   const projects: TestProjectInlineConfiguration[] = [];
   const nodeOrigin = manifest.environments.includes("node")
-    ? await serveToNode({ ...manifest.engines, archives: manifest.archives })
+    ? await serveToNode({
+        ...manifest.engines,
+        archives: manifest.archives,
+        ...(hangulDir === undefined ? {} : { hangul: hangulDir }),
+      })
     : undefined;
   if (nodeOrigin !== undefined)
     projects.push({
       extends: true,
       test: {
         name: "node",
-        include: ["test/node/**/*.test.ts"],
+        include: [hangul === undefined ? "test/node/**/*.test.ts" : "test/engines/**/*.test.ts"],
         provide: {
+          ...(hangul === undefined
+            ? {}
+            : {
+                hangul: {
+                  manifest: {
+                    ...hangul,
+                    module: { ...hangul.module, url: `${nodeOrigin}${prefix}hangul/${hangul.module.url}` },
+                    data: hangul.data.map((entry) => ({ ...entry, url: `${nodeOrigin}${prefix}hangul/${entry.url}` })),
+                  },
+                  heapBytes: Number(process.env["IBUS_WEB_HANGUL_HEAP_BYTES"]),
+                  poolBase: Number(process.env["IBUS_WEB_HANGUL_POOL_BASE"]),
+                },
+              }),
           workerHost: testData((dir, file) =>
             dir === "archives" || dir === "echo" || dir === "thrower" || dir === "empty"
               ? `${nodeOrigin}${prefix}${dir}/${file}`
