@@ -1,8 +1,12 @@
-From beee83b959f86ffaec7aa51485f7071b6c2d521b Mon Sep 17 00:00:00 2001
+From 22c1e990644fbdc9f65b5792bb59cf51db42e1d2 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Sat, 3 Oct 2026 13:22:46 -0700
 Subject: [PATCH] Disconnect settings handlers when an engine is destroyed
 
+Each engine connects settings_changed to the module's two GSettings
+objects with itself as user data, but destroy never disconnects them.
+The settings objects outlive every engine, so a later change runs the
+handler with the freed engine and dereferences its Hangul context.
 ---
  src/engine.c | 3 +++
  1 file changed, 3 insertions(+)

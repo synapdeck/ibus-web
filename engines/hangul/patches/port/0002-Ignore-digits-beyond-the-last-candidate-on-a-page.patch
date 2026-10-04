@@ -1,8 +1,13 @@
-From d13711950db210f07a63370e09fed46ff8404c50 Mon Sep 17 00:00:00 2001
+From 72be86bd62c54e69933dad057d8f6009c368a79e Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Sat, 3 Oct 2026 13:27:59 -0700
 Subject: [PATCH] Ignore digits beyond the last candidate on a page
 
+Digit selection computes the candidate index from the current page
+without checking that it exists. On a partial last page, a digit past
+the final candidate sets an out-of-range cursor, and committing it logs
+GLib criticals and emits invalid text. Consume the key without
+selecting anything instead.
 ---
  src/engine.c | 3 +++
  1 file changed, 3 insertions(+)
