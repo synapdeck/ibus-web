@@ -27,6 +27,7 @@
     "access": "public"
   },
   "scripts": {
+    "bench": "vitest run --configLoader native --config vitest.bench.config.ts",
     "build": "rm -rf dist && tsdown",
     "generate:protocol-h": "node scripts/protocol-h.ts",
     "generate:protocol-md": "node scripts/protocol-md.ts",

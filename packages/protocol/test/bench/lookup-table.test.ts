@@ -40,10 +40,9 @@ function measure(label: string, decode: () => unknown) {
   const medianMs = (sorted[249]! + sorted[250]!) / 2;
   const p99Ms = sorted[494]!;
   console.log(JSON.stringify({ label, medianMs, p99Ms, samplesMs: samples }));
-  return medianMs;
 }
 
-it("decodes a framed 500-candidate lookup table within the builder budget", () => {
+it("times decoding a framed 500-candidate lookup table", () => {
   const words = ["한글", "한국어", "대한민국"];
   const record = new UpdateLookupTable({
     table: IBusLookupTable.make({
@@ -79,13 +78,10 @@ it("decodes a framed 500-candidate lookup table within the builder budget", () =
       cpu: cpus()[0]?.model,
     }),
   );
-  const medianMs = measure("framed decode", () => decodeRecord(framed));
-  if (medianMs > 0.5) {
-    measure("bytes to tree", () => decodeValue(signature, payload));
-    const tree = decodeValue(signature, payload);
-    const fieldsFromTree = fromTree(UpdateLookupTable);
-    const decodeFields = Schema.decodeUnknownSync(UpdateLookupTable);
-    measure("tree to classes", () => decodeFields(fieldsFromTree(tree)));
-  }
-  expect(medianMs).toBeLessThan(5);
+  measure("framed decode", () => decodeRecord(framed));
+  measure("bytes to tree", () => decodeValue(signature, payload));
+  const tree = decodeValue(signature, payload);
+  const fieldsFromTree = fromTree(UpdateLookupTable);
+  const decodeFields = Schema.decodeUnknownSync(UpdateLookupTable);
+  measure("tree to schemas", () => decodeFields(fieldsFromTree(tree)));
 });
