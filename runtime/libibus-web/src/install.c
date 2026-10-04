@@ -4,25 +4,51 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ibus-web/runtime.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <tar.h>
 #include <unistd.h>
 
-#define BLOCK 512
+/* tar.h defines the field values, but not the POSIX ustar block layout. */
+enum { USTAR_BLOCK_SIZE = 512 };
 
-/* The ustar header's fields: offset and length. */
-#define NAME_OFFSET 0
-#define NAME NAME_OFFSET, 100
-#define MODE 100, 8
-#define SIZE 124, 12
-#define CHKSUM_OFFSET 148
-#define CHKSUM_LEN 8
-#define CHKSUM CHKSUM_OFFSET, CHKSUM_LEN
-#define TYPEFLAG 156
-#define MAGIC 257, 6
-#define VERSION 263, 2
-#define PREFIX_OFFSET 345
-#define PREFIX PREFIX_OFFSET, 155
+typedef struct {
+  char name[100];
+  char mode[8];
+  char uid[8];
+  char gid[8];
+  char size[12];
+  char mtime[12];
+  char checksum[8];
+  char typeflag[1];
+  char linkname[100];
+  char magic[TMAGLEN];
+  char version[TVERSLEN];
+  char uname[32];
+  char gname[32];
+  char devmajor[8];
+  char devminor[8];
+  char prefix[155];
+  char padding[12];
+} UstarHeader;
+
+/* Parse the byte buffer directly; no struct alignment or aliasing is assumed.
+ */
+#define USTAR_OFFSET(field) offsetof(UstarHeader, field)
+#define USTAR_LENGTH(field) sizeof(((UstarHeader *)0)->field)
+#define USTAR_FIELD(field) USTAR_OFFSET(field), USTAR_LENGTH(field)
+
+_Static_assert(sizeof(UstarHeader) == USTAR_BLOCK_SIZE,
+               "ustar header must occupy one block");
+_Static_assert(USTAR_OFFSET(name) == 0, "ustar name offset");
+_Static_assert(USTAR_OFFSET(mode) == 100, "ustar mode offset");
+_Static_assert(USTAR_OFFSET(size) == 124, "ustar size offset");
+_Static_assert(USTAR_OFFSET(checksum) == 148, "ustar checksum offset");
+_Static_assert(USTAR_OFFSET(typeflag) == 156, "ustar type offset");
+_Static_assert(USTAR_OFFSET(magic) == 257, "ustar magic offset");
+_Static_assert(USTAR_OFFSET(version) == 263, "ustar version offset");
+_Static_assert(USTAR_OFFSET(prefix) == 345, "ustar prefix offset");
 
 typedef enum {
   /* Collecting the next header. */
@@ -39,7 +65,7 @@ struct _IBusWebInstall {
   char *dir;
   State state;
   int error;
-  uint8_t header[BLOCK];
+  uint8_t header[USTAR_BLOCK_SIZE];
   uint32_t header_fill;
   /* All-zero blocks in a row: two end the archive. */
   int zero_blocks;
@@ -88,12 +114,13 @@ static gboolean octal(const uint8_t *header, size_t offset, size_t len,
  * as unsigned bytes or, by some old writers, as signed ones. */
 static gboolean checksum_matches(const uint8_t *header) {
   uint64_t stored;
-  if (!octal(header, CHKSUM, &stored))
+  if (!octal(header, USTAR_FIELD(checksum), &stored))
     return FALSE;
   uint64_t sum_unsigned = 0;
   int64_t sum_signed = 0;
-  for (size_t i = 0; i < BLOCK; i++) {
-    gboolean in_field = i >= CHKSUM_OFFSET && i < CHKSUM_OFFSET + CHKSUM_LEN;
+  for (size_t i = 0; i < USTAR_BLOCK_SIZE; i++) {
+    gboolean in_field = i >= USTAR_OFFSET(checksum) &&
+                        i < USTAR_OFFSET(checksum) + USTAR_LENGTH(checksum);
     uint8_t byte = in_field ? ' ' : header[i];
     sum_unsigned += byte;
     sum_signed += (int8_t)byte;
@@ -107,7 +134,7 @@ static gboolean field_is(const uint8_t *header, size_t offset, size_t len,
 }
 
 static gboolean all_zero(const uint8_t *block) {
-  for (size_t i = 0; i < BLOCK; i++)
+  for (size_t i = 0; i < USTAR_BLOCK_SIZE; i++)
     if (block[i] != 0)
       return FALSE;
   return TRUE;
@@ -127,11 +154,11 @@ static GString *append_field(GString *out, const uint8_t *header, size_t offset,
  * result names the directory itself. */
 static char *relative_name(const uint8_t *header) {
   g_autoptr(GString) full = g_string_new(NULL);
-  if (header[PREFIX_OFFSET] != '\0') {
-    append_field(full, header, PREFIX);
+  if (header[USTAR_OFFSET(prefix)] != '\0') {
+    append_field(full, header, USTAR_FIELD(prefix));
     g_string_append_c(full, '/');
   }
-  append_field(full, header, NAME);
+  append_field(full, header, USTAR_FIELD(name));
   if (full->len == 0 || full->str[0] == '/')
     return NULL;
   g_auto(GStrv) parts = g_strsplit(full->str, "/", -1);
@@ -200,19 +227,23 @@ static int take_header(IBusWebInstall *install) {
   if (install->zero_blocks > 0)
     return -EINVAL;
   /* POSIX's magic and version; GNU's older format has neither. */
-  if (!field_is(header, MAGIC, "ustar") || !field_is(header, VERSION, "00") ||
+  if (!field_is(header, USTAR_FIELD(magic), TMAGIC) ||
+      !field_is(header, USTAR_FIELD(version), TVERSION) ||
       !checksum_matches(header))
     return -EINVAL;
 
   uint64_t mode, size;
-  if (!octal(header, MODE, &mode) || !octal(header, SIZE, &size))
+  if (!octal(header, USTAR_FIELD(mode), &mode) ||
+      !octal(header, USTAR_FIELD(size), &size))
     return -EINVAL;
   /* The owner can always rewrite what an install wrote, so that an install
    * again over it works even when the archive's data is read-only. */
-  mode = (mode & 0777) | 0600;
-  char type = (char)header[TYPEFLAG];
-  gboolean regular = type == '0' || type == '\0';
-  if (!regular && type != '5')
+  mode = (mode & (TUREAD | TUWRITE | TUEXEC | TGREAD | TGWRITE | TGEXEC |
+                  TOREAD | TOWRITE | TOEXEC)) |
+         TUREAD | TUWRITE;
+  char type = (char)header[USTAR_OFFSET(typeflag)];
+  gboolean regular = type == REGTYPE || type == AREGTYPE;
+  if (!regular && type != DIRTYPE)
     return -EINVAL;
   g_autofree char *rel = relative_name(header);
   if (rel == NULL)
@@ -228,7 +259,7 @@ static int take_header(IBusWebInstall *install) {
     if (ret != 0)
       return ret;
     g_autofree char *path = g_build_filename(install->dir, rel, NULL);
-    mode |= 0700;
+    mode |= TUREAD | TUWRITE | TUEXEC;
     ret = ensure_dir(path, (mode_t)mode);
     /* mkdir() applies the umask, and leaves a directory already there as it
      * was. */
@@ -251,7 +282,9 @@ static int take_header(IBusWebInstall *install) {
   if (fchmod(fd, (mode_t)mode) != 0)
     return -errno;
   install->data_left = size;
-  install->padding_left = (uint32_t)((BLOCK - size % BLOCK) % BLOCK);
+  install->padding_left =
+      (uint32_t)((USTAR_BLOCK_SIZE - size % USTAR_BLOCK_SIZE) %
+                 USTAR_BLOCK_SIZE);
   if (size == 0)
     return finish_file(install);
   /* Sized before its data arrives, a file in memory takes its size once,
@@ -299,12 +332,12 @@ int ibusweb_install_feed(IBusWebInstall *install, const uint8_t *data,
     case STATE_END:
       return 0;
     case STATE_HEADER: {
-      uint32_t take = MIN(len, BLOCK - install->header_fill);
+      uint32_t take = MIN(len, USTAR_BLOCK_SIZE - install->header_fill);
       memcpy(install->header + install->header_fill, data, take);
       install->header_fill += take;
       data += take;
       len -= take;
-      if (install->header_fill == BLOCK) {
+      if (install->header_fill == USTAR_BLOCK_SIZE) {
         install->header_fill = 0;
         int ret = take_header(install);
         if (ret != 0)
