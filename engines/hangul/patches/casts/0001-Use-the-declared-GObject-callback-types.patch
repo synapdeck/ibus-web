@@ -1,4 +1,4 @@
-From b4e9833dc09361a7766b9e8176ca8ccf7114e58e Mon Sep 17 00:00:00 2001
+From 65c6b67178abadd4b947b919418f4971466e2ac9 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Sat, 3 Oct 2026 12:55:58 -0700
 Subject: [PATCH] Use the declared GObject callback types
@@ -17,7 +17,7 @@ The copyright notice covers these changes.
  1 file changed, 16 insertions(+), 9 deletions(-)
 
 diff --git a/src/engine.c b/src/engine.c
-index 1f80208..5499ce5 100644
+index 936e131..40d4413 100644
 --- a/src/engine.c
 +++ b/src/engine.c
 @@ -2,6 +2,7 @@

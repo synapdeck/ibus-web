@@ -1,4 +1,4 @@
-From cc5ed980fcd84c84c95e267a926b8897b8e36909 Mon Sep 17 00:00:00 2001
+From cac95e4747912189764d758ef38700bb898f98e7 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Sat, 3 Oct 2026 20:02:37 -0700
 Subject: [PATCH] Select clicked candidates on the visible page
@@ -8,20 +8,26 @@ within the current page, but the handler used it as an absolute
 candidate index. After paging forward, a click selected the candidate
 at the same position on the first page instead. Offset the index by
 the start of the page holding the cursor.
+
+Ignore an index that no visible label has: one at or beyond the page
+size, or past the last candidate on a short final page. Setting such a
+cursor fails the lookup table's assertion, and an index beyond the
+page would select a candidate the panel never showed.
 ---
- src/engine.c | 8 +++++++-
- 1 file changed, 7 insertions(+), 1 deletion(-)
+ src/engine.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/src/engine.c b/src/engine.c
-index e5121b3..1f80208 100644
+index e5121b3..936e131 100644
 --- a/src/engine.c
 +++ b/src/engine.c
-@@ -2063,13 +2063,19 @@ ibus_hangul_engine_candidate_clicked (IBusEngine     *engine,
+@@ -2063,13 +2063,25 @@ ibus_hangul_engine_candidate_clicked (IBusEngine     *engine,
                                        guint           state)
  {
      IBusHangulEngine *hangul = (IBusHangulEngine *) engine;
 +    guint page_size;
 +    guint page_no;
++    guint cursor_pos;
 +
      if (hangul == NULL)
  	return;
@@ -33,7 +39,12 @@ index e5121b3..1f80208 100644
 +    /* The panel reports the clicked label's position on the visible page. */
 +    page_size = ibus_lookup_table_get_page_size (hangul->table);
 +    page_no = ibus_lookup_table_get_cursor_pos (hangul->table) / page_size;
-+    ibus_lookup_table_set_cursor_pos (hangul->table, page_no * page_size + index);
++    cursor_pos = page_no * page_size + index;
++    if (index >= page_size ||
++        cursor_pos >= ibus_lookup_table_get_number_of_candidates (hangul->table)) {
++        return;
++    }
++    ibus_lookup_table_set_cursor_pos (hangul->table, cursor_pos);
      ibus_hangul_engine_commit_current_candidate (hangul);
  
      if (hangul->hanja_mode) {

@@ -292,6 +292,30 @@ static void invalid_digit(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_cmpuint(golden_count(fixture, IBUSWEB_REC_HIDE_LOOKUP_TABLE), ==, 0);
 }
 
+static void click_ignored(Fixture *fixture, guint index) {
+  golden_clear(fixture);
+  g_assert_cmpint(golden_request(fixture, IBUSWEB_REQ_CANDIDATE_CLICKED,
+                                 g_variant_new("(uuu)", index, 1u, 0u)),
+                  ==, 0);
+  g_assert_cmpuint(golden_count(fixture, IBUSWEB_REC_COMMIT_TEXT), ==, 0);
+  g_assert_cmpuint(golden_count(fixture, IBUSWEB_REC_HIDE_LOOKUP_TABLE), ==, 0);
+}
+
+static void invalid_click(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  toggle(fixture);
+  compose_han(fixture);
+  g_assert_cmpint(golden_key(fixture, IBUS_F9, 67, 0), ==, 1);
+  IBusLookupTable *table = lookup(fixture);
+  guint count = ibus_lookup_table_get_number_of_candidates(table);
+  g_assert_cmpuint(count % 9, !=, 0);
+  g_object_unref(table);
+  /* Within the candidates overall, but past the labels a page shows. */
+  click_ignored(fixture, 9);
+  for (guint page = 0; page < (count - 1) / 9; ++page)
+    g_assert_cmpint(golden_key(fixture, IBUS_Page_Down, 109, 0), ==, 1);
+  click_ignored(fixture, count % 9);
+}
+
 static void settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   toggle(fixture);
   golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
@@ -463,5 +487,7 @@ int main(int argc, char **argv) {
              golden_teardown);
   g_test_add("/hangul/invalid-digit", Fixture, NULL, golden_setup,
              invalid_digit, golden_teardown);
+  g_test_add("/hangul/invalid-click", Fixture, NULL, golden_setup,
+             invalid_click, golden_teardown);
   return g_test_run();
 }

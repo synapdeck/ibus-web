@@ -17,7 +17,7 @@ releases those objects, but the current module ABI has no shutdown entry point.
 | port  | 0001  | Disconnect both GSettings handlers before freeing an engine, preventing changes from calling a destroyed engine.                                                                                                                                                                    |
 | port  | 0002  | Consume a digit outside the last Hanja page without setting an invalid candidate cursor.                                                                                                                                                                                            |
 | port  | 0003  | Keep module-global settings synchronized independently of engine lifetimes; instance handlers only update their keyboard context. Settings upstream reads only at initialization, such as `disable-latin-mode`, still take effect only there.                                       |
-| port  | 0004  | Treat a `CandidateClicked` index as a position on the visible page, as the IBus panel sends it, instead of as an absolute candidate index.                                                                                                                                          |
+| port  | 0004  | Treat a `CandidateClicked` index as a position on the visible page, as the IBus panel sends it, instead of as an absolute candidate index, and ignore an index no visible label has.                                                                                                |
 | casts | 0001  | Define the class initializer, instance initializer and destroy callback with their declared `GClassInitFunc`, `GInstanceInitFunc` and `IBusObjectDestroyFunc` types; the first two lacked their second argument, while the destroy callback had a different pointer parameter type. |
 
 The strict cast audit reports these three findings without the patch and none
@@ -37,8 +37,9 @@ changes `hangul-keyboard`, which a stale handler would apply to the freed
 context, and composes with the new layout in a fresh engine. Without port 0001
 the handler assertion fails deterministically; when earlier cases leave stale
 handlers too, the full suite traps on a later keyboard change. The candidate
-test presses 9 on an incomplete last page, and the click test pages forward
-before clicking the second label. The idle-settings test recreates an
+test presses 9 on an incomplete last page, the click test pages forward
+before clicking the second label, and the invalid-click test clicks at the page
+size and past the end of the short last page without committing anything. The idle-settings test recreates an
 engine after changing keyboard and Hanja hotkey with no live instance, then uses
 both without resending settings. All four bugs failed before their port patches;
 the complete suite also covers composition, settings, surrounding text and
