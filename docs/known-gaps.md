@@ -105,10 +105,10 @@ An item leaves this page when it is fixed or decided.
   faulted. Engine-internal C frames between the catch and the throw would still
   skip their cleanup, and engine modules keep state in globals, so the module
   would still be torn down; the gain is a clean report instead of later
-  corruption. Snapshotting and restoring the heap was rejected for its cost;
-  building GLib with `-fexceptions` for its cost too, and because GLib's
-  emission push and pop aren't cleanup-attributed, so unwinding wouldn't undo
-  them.
+  corruption. Snapshotting and restoring the heap per request was rejected for
+  its cost. Building GLib with `-fexceptions` wouldn't help: unwinding runs only
+  cleanup-attributed locals, and GLib's emission push and pop aren't, so it
+  would mean rewriting GLib's internals.
 - **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell and the GVariant
   protocol are M1's. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
   reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in
