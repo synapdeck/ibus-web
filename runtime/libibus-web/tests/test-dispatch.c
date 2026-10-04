@@ -212,6 +212,23 @@ static void route(guint16 kind, const gchar *signal, GVariant *payload,
   g_variant_unref(observation.expected);
 }
 
+static gboolean count(GSignalInvocationHint *hint G_GNUC_UNUSED,
+                      guint n_values G_GNUC_UNUSED,
+                      const GValue *values G_GNUC_UNUSED, gpointer data) {
+  ++*(guint *)data;
+  return TRUE;
+}
+
+static void route_unchanged(guint16 kind, const gchar *signal,
+                            GVariant *payload) {
+  guint id = g_signal_lookup(signal, IBUS_TYPE_ENGINE);
+  guint emissions = 0;
+  gulong hook = g_signal_add_emission_hook(id, 0, count, &emissions, NULL);
+  g_assert_cmpint(send(kind, 7, payload), ==, 0);
+  g_assert_cmpuint(emissions, ==, 0);
+  g_signal_remove_emission_hook(id, hook);
+}
+
 static gpointer wrong_thread(gpointer data G_GNUC_UNUSED) {
   g_assert_cmpint(send(IBUSWEB_REQ_RESET, 7, g_variant_new("()")), ==, -EPERM);
   return NULL;
@@ -248,6 +265,8 @@ static void routing(void) {
         g_variant_new("(su)", "mode", 1u), 0);
   route(IBUSWEB_REQ_SET_CONTENT_TYPE, "set-content-type",
         g_variant_new("(uu)", 3u, 5u), 0);
+  route_unchanged(IBUSWEB_REQ_SET_CONTENT_TYPE, "set-content-type",
+                  g_variant_new("(uu)", 3u, 5u));
   IBusText *text = g_object_ref_sink(ibus_text_new_from_string("한글"));
   ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE,
                              IBUS_ATTR_UNDERLINE_SINGLE, 0, 2);

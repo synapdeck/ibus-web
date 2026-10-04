@@ -196,6 +196,10 @@ static int32_t route(gpointer data) {
   case IBUSWEB_REQ_SET_CONTENT_TYPE: {
     guint purpose, hints;
     g_variant_get(payload, "(uu)", &purpose, &hints);
+    guint old_purpose, old_hints;
+    ibus_engine_get_content_type(engine, &old_purpose, &old_hints);
+    if (purpose == old_purpose && hints == old_hints)
+      return 0;
     ibusweb_engine_set_content_type(engine, purpose, hints);
     g_signal_emit_by_name(engine, "set-content-type", purpose, hints);
     return 0;
