@@ -4,6 +4,8 @@
 It writes normalized JSON to stdout and a readable report to stderr.
 `cast-audit.ts compare <report.json> <allow.jsonc>` requires multiset equality, ignoring line numbers
 and allowance explanations. Both new casts and stale allowances fail the check.
+The allow-list is validated against `cast-audit.schema.json` with Ajv before comparing, so a
+misspelled or extra field, or an entry without a `reason`, fails with a message naming the entry.
 
 The SARIF object model, URI reconstruction, and line indexing come from `@microsoft/sarif`.
 The native `tree-sitter` binding parses source with the official C and C++ grammars. Only an
@@ -18,7 +20,7 @@ Generic `void (*)(void)` casts are audited, including directly invoked mismatche
 Run the unit tests with `pnpm --dir tools test`. The Nix checks are `engines-cast-audit-script`
 and `engines-cast-audit-fixture`; the latter compiles the fixture with the project's WASM
 compiler and checks its explicit allowances and rejection by an empty allow-list, including the direct
-zero-argument call in isolation.
+zero-argument call in isolation, which `select.ts <report.json> <function>` extracts from the report.
 
 ## Refreshing the compiler fixture
 
