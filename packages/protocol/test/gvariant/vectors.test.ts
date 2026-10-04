@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, it } from "vitest";
-import { encodeValue, decodeValue, type GVariantValue } from "../../src/index.ts";
+import { encodeValue, decodeValue, GVariantDecodeError, type GVariantValue } from "../../src/index.ts";
 const s = (value: string): GVariantValue => ({ _tag: "s", value });
 const vectors: [string, GVariantValue, string][] = [
   ["s", s("hello world"), "68656c6c6f20776f726c6400"],
@@ -42,4 +42,38 @@ it("uses two-byte offsets when the array exceeds 255 bytes", () => {
   expect(bytes.length).toBe(700);
   expect(Array.from(bytes.slice(-2))).toEqual([244, 1]);
   expect(decodeValue("as", bytes)).toEqual(value);
+});
+
+// One long string followed by empty ones: `body` bytes of data framed by `count` offsets.
+const strings = (body: number, count: number): GVariantValue => ({
+  _tag: "a",
+  items: [s("a".repeat(body - count)), ...Array.from({ length: count - 1 }, () => s(""))],
+});
+it.each<[number, number, number, number]>([
+  [253, 2, 1, 255],
+  [254, 2, 2, 258],
+  [256, 1, 2, 258],
+  [65533, 1, 2, 65535],
+  [65534, 1, 4, 65538],
+  [65520, 9, 4, 65556],
+])("frames a %i-byte body with %i offsets at width %i", (body, count, width, total) => {
+  const value = strings(body, count);
+  const bytes = encodeValue("as", value);
+  expect(bytes.length).toBe(total);
+  const view = new DataView(bytes.buffer);
+  const last =
+    width === 1
+      ? view.getUint8(total - 1)
+      : width === 2
+        ? view.getUint16(total - 2, true)
+        : view.getUint32(total - 4, true);
+  expect(last).toBe(body);
+  expect(decodeValue("as", bytes)).toEqual(value);
+});
+it("rejects offsets wider than the container needs", () => {
+  // 253 bytes of data and two offsets fit in 255 bytes, so two-byte offsets are not normal.
+  const bytes = new Uint8Array(257);
+  bytes.fill(97, 0, 252);
+  bytes.set([0, 0, 252, 0, 253, 0], 251);
+  expect(() => decodeValue("as", bytes)).toThrow(GVariantDecodeError);
 });
