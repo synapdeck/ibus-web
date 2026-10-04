@@ -12,6 +12,8 @@ interface Layout {
   readonly alignment: Alignment;
   readonly fixedSize: number | undefined;
   readonly signature: string;
+  /** GLib's type depth: 1 for a basic type or `v`, one more than the deepest member for a container, 0 for `()`. */
+  readonly depth: number;
 }
 export type GVariantType = Layout &
   (
@@ -39,46 +41,44 @@ const basics: Readonly<Record<BasicChar, readonly [Alignment, number | undefined
 };
 const cache = new Map<string, GVariantType>();
 const align = (size: number, alignment: Alignment): number => Math.ceil(size / alignment) * alignment;
-const layout = (members: readonly GVariantType[]): Pick<Layout, "alignment" | "fixedSize"> => {
-  const alignment = members.reduce<Alignment>((maximum, member) => Math.max(maximum, member.alignment) as Alignment, 1);
-  let size = 0;
+const layout = (members: readonly GVariantType[]): Pick<Layout, "alignment" | "fixedSize" | "depth"> => {
+  let alignment: Alignment = 1;
+  let depth = 0;
+  let size: number | undefined = 0;
   for (const member of members) {
-    if (member.fixedSize === undefined) return { alignment, fixedSize: undefined };
-    size = align(size, member.alignment) + member.fixedSize;
+    alignment = Math.max(alignment, member.alignment) as Alignment;
+    depth = Math.max(depth, member.depth + 1);
+    if (size !== undefined)
+      size = member.fixedSize === undefined ? undefined : align(size, member.alignment) + member.fixedSize;
   }
-  return { alignment, fixedSize: members.length === 0 ? 1 : align(size, alignment) };
+  const fixedSize = size === undefined ? undefined : members.length === 0 ? 1 : align(size, alignment);
+  return { alignment, fixedSize, depth };
 };
 
-export const parseType = (signature: string): GVariantType => {
-  const cached = cache.get(signature);
-  if (cached !== undefined) return cached;
-  let index = 0;
+const maximumDepth = 128;
+
+// Parses one complete type starting at `start`. The nesting rule is GLib's: a container may not
+// open below 128 enclosing containers, but an empty tuple there is allowed because it has no
+// member to recurse into.
+const scan = (signature: string, start: number): GVariantType => {
+  let index = start;
   const fail = (reason: string): never => {
     throw new ProtocolError({ message: `Invalid GVariant type at ${index}: ${reason}` });
   };
   const parse = (depth: number): GVariantType => {
-    const start = index;
+    const first = index;
     const char = signature[index++];
     if (char !== undefined && Object.hasOwn(basics, char)) {
       const [alignment, fixedSize] = basics[char as BasicChar];
-      return Object.freeze({ _tag: "basic", char: char as BasicChar, alignment, fixedSize, signature: char });
+      return Object.freeze({ _tag: "basic", char: char as BasicChar, alignment, fixedSize, signature: char, depth: 1 });
     }
-    if (char === "v") return Object.freeze({ _tag: "v", alignment: 8, fixedSize: undefined, signature: char });
-    if (depth >= 128) fail("nesting exceeds 128");
-    if (char === "a" || char === "m") {
-      const element = parse(depth + 1);
-      return Object.freeze({
-        _tag: char,
-        element,
-        alignment: element.alignment,
-        fixedSize: undefined,
-        signature: signature.slice(start, index),
-      });
-    }
+    if (char === "v")
+      return Object.freeze({ _tag: "v", alignment: 8, fixedSize: undefined, signature: char, depth: 1 });
     if (char === "(") {
       const members: GVariantType[] = [];
       while (signature[index] !== ")") {
         if (index >= signature.length) fail("unterminated tuple");
+        if (depth >= maximumDepth) fail("nesting exceeds 128");
         members.push(parse(depth + 1));
       }
       index++;
@@ -86,7 +86,19 @@ export const parseType = (signature: string): GVariantType => {
         _tag: "()",
         members: Object.freeze(members),
         ...layout(members),
-        signature: signature.slice(start, index),
+        signature: signature.slice(first, index),
+      });
+    }
+    if (depth >= maximumDepth) fail("nesting exceeds 128");
+    if (char === "a" || char === "m") {
+      const element = parse(depth + 1);
+      return Object.freeze({
+        _tag: char,
+        element,
+        alignment: element.alignment,
+        fixedSize: undefined,
+        signature: signature.slice(first, index),
+        depth: element.depth + 1,
       });
     }
     if (char === "{") {
@@ -99,13 +111,34 @@ export const parseType = (signature: string): GVariantType => {
         key,
         value,
         ...layout([key, value]),
-        signature: signature.slice(start, index),
+        signature: signature.slice(first, index),
       });
     }
     return fail("expected a complete definite type");
   };
-  const type = parse(0);
-  if (index !== signature.length) fail("trailing characters");
+  return parse(0);
+};
+
+export const parseType = (signature: string): GVariantType => {
+  const cached = cache.get(signature);
+  if (cached !== undefined) return cached;
+  const type = scan(signature, 0);
+  if (type.signature.length !== signature.length)
+    throw new ProtocolError({ message: `Invalid GVariant type at ${type.signature.length}: trailing characters` });
   cache.set(signature, type);
   return type;
+};
+
+/**
+ * Whether `value` is valid as a `g` value: a D-Bus signature, which is a sequence of complete
+ * types without maybe types.
+ */
+export const isSignature = (value: string): boolean => {
+  if (!/^[ybnqiuxthdvasog(){}]*$/.test(value)) return false;
+  try {
+    for (let index = 0; index < value.length;) index += scan(value, index).signature.length;
+  } catch {
+    return false;
+  }
+  return true;
 };

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import { Data } from "effect";
-import { parseType, type GVariantType } from "./type.ts";
+import { isSignature, parseType, type GVariantType } from "./type.ts";
 import { align, framingWidth, offsetWidth } from "./encode.ts";
 import { type GVariantValue } from "./value.ts";
 
@@ -26,29 +26,22 @@ function readType(signature: string, offset: number): GVariantType {
   }
 }
 
-function validateSignature(signature: string, offset: number): void {
-  let cursor = 0;
-  function scan(depth: number): void {
-    const character = signature[cursor++];
-    if (character !== undefined && "bynqiuhxtdsogv".includes(character)) return;
-    if (depth >= 128) fail(offset, "signature nesting exceeds 128");
-    if (character === "a") {
-      scan(depth + 1);
-      return;
-    }
-    if (character === "(" || character === "{") {
-      const closing = character === "(" ? ")" : "}";
-      while (cursor < signature.length && signature[cursor] !== closing) scan(depth + 1);
-      if (signature[cursor++] !== closing) fail(offset, "unterminated signature");
-      return;
-    }
-    fail(offset, "invalid signature");
+interface TupleLayout {
+  readonly members: readonly GVariantType[];
+  /** Members with an entry in the framing table: every variable-size member but the last. */
+  readonly offsetCount: number;
+}
+const tupleLayouts = new WeakMap<TupleType, TupleLayout>();
+function tupleLayout(type: TupleType): TupleLayout {
+  let layout = tupleLayouts.get(type);
+  if (layout === undefined) {
+    const members = type._tag === "()" ? type.members : [type.key, type.value];
+    let offsetCount = 0;
+    for (let index = 0; index < members.length - 1; index++) if (members[index]!.fixedSize === undefined) offsetCount++;
+    layout = { members, offsetCount };
+    tupleLayouts.set(type, layout);
   }
-  while (cursor < signature.length) {
-    const start = cursor;
-    scan(0);
-    readType(signature.slice(start, cursor), offset);
-  }
+  return layout;
 }
 
 class Decoder {
@@ -103,7 +96,7 @@ class Decoder {
     }
     const value = this.text(start, end - 1);
     if (tag === "o" && !/^\/(?:[A-Za-z0-9_]+(?:\/[A-Za-z0-9_]+)*)?$/.test(value)) fail(start, "invalid object path");
-    if (tag === "g") validateSignature(value, start);
+    if (tag === "g" && !isSignature(value)) fail(start, "invalid signature");
     return { _tag: tag, value };
   }
 
@@ -189,25 +182,31 @@ class Decoder {
   }
 
   private tuple(type: TupleType, start: number, end: number, depth: number): GVariantValue {
-    const members = type._tag === "()" ? type.members : [type.key, type.value];
-    const offsetCount = members.slice(0, -1).filter((member) => member.fixedSize === undefined).length;
-    const width = offsetWidth(end - start);
-    const dataEnd = end - start - offsetCount * width;
+    const { members, offsetCount } = tupleLayout(type);
+    const size = end - start;
+    // A zero-byte tuple has no room for offsets; GLib then reads every offset as 0, so members
+    // that accept zero bytes (arrays, maybes, such tuples) still decode.
+    const width = size === 0 ? 0 : offsetWidth(size);
+    const dataEnd = size - offsetCount * width;
     if (dataEnd < 0) fail(start, "missing framing table");
-    if (offsetCount > 0 && framingWidth(dataEnd, offsetCount) !== width)
+    if (offsetCount > 0 && size > 0 && framingWidth(dataEnd, offsetCount) !== width)
       fail(start + dataEnd, "nonminimal offset width");
 
     const items: GVariantValue[] = [];
     let cursor = 0;
     let tablePosition = end;
-    for (const [index, member] of members.entries()) {
+    const last = members.length - 1;
+    for (let index = 0; index <= last; index++) {
+      const member = members[index]!;
       const position = align(cursor, member.alignment);
       let limit: number;
       let fault = start + cursor;
       if (member.fixedSize !== undefined) {
         limit = position + member.fixedSize;
-      } else if (index === members.length - 1) {
+      } else if (index === last) {
         limit = dataEnd;
+      } else if (width === 0) {
+        limit = 0;
       } else {
         tablePosition -= width;
         fault = tablePosition;
@@ -226,7 +225,7 @@ class Decoder {
   }
 
   read(type: GVariantType, start: number, end: number, depth: number): GVariantValue {
-    if (depth > 128) fail(start, "nesting exceeds 128");
+    if (depth >= 128) fail(start, "nesting exceeds 128");
     const size = end - start;
     if (size < 0 || end > this.bytes.length) fail(start, "invalid value bounds");
     if (type.fixedSize !== undefined && size !== type.fixedSize) fail(start, "wrong fixed size");
@@ -245,6 +244,7 @@ class Decoder {
         if (separator < start) fail(start, "missing variant separator");
         const signature = this.text(separator + 1, end);
         const child = readType(signature, separator + 1);
+        if (depth + child.depth >= 128) fail(separator + 1, "variant type nests too deeply");
         return { _tag: "v", type: signature, value: this.read(child, start, separator, depth + 1) };
       }
       case "m": {

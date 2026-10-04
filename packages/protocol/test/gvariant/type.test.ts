@@ -65,7 +65,30 @@ describe("GVariant types", () => {
     for (const signature of ["a".repeat(128) + "u", "(".repeat(128) + "u" + ")".repeat(128)]) {
       expect(parseType(signature).signature).toBe(signature);
     }
-    expect(() => parseType("a".repeat(128) + "()")).toThrow(ProtocolError);
+    expect(() => parseType("a".repeat(128) + "(u)")).toThrow(ProtocolError);
+    expect(() => parseType("a".repeat(128) + "{sv}")).toThrow(ProtocolError);
+  });
+  it("allows an empty tuple below 128 containers, as GLib's type scanner does", () => {
+    for (const signature of [
+      "a".repeat(128) + "()",
+      "m".repeat(128) + "()",
+      "(".repeat(128) + "()" + ")".repeat(128),
+    ]) {
+      expect(parseType(signature).signature).toBe(signature);
+    }
+    expect(() => parseType("a".repeat(129) + "()")).toThrow(ProtocolError);
+  });
+  it.each<[string, number]>([
+    ["y", 1],
+    ["v", 1],
+    ["()", 0],
+    ["(())", 1],
+    ["ay", 2],
+    ["a{sv}", 3],
+    ["(yay)", 3],
+    ["a".repeat(128) + "()", 128],
+  ])("measures the depth of %s as GLib does", (signature, depth) => {
+    expect(parseType(signature).depth).toBe(depth);
   });
   it("memoizes immutable types", () => {
     const type = parseType("(yu)");
