@@ -10,6 +10,9 @@
 
 static gboolean initialized;
 static GHashTable *engines;
+/* Set once an engine's exception has unwound through GLib, whose state it
+ * left inconsistent. */
+static gint faulted; /* (atomic) */
 
 typedef struct {
   IBusWebRequestHeader header;
@@ -214,7 +217,11 @@ static int32_t route(gpointer data) {
   }
 }
 
+gboolean ibusweb_runtime_faulted(void) { return g_atomic_int_get(&faulted); }
+
 int32_t ibusweb_dispatch(const uint8_t *bytes, uint32_t len) {
+  if (ibusweb_runtime_faulted())
+    return -ENOTRECOVERABLE;
   if (!g_main_context_is_owner(g_main_context_default()))
     return -EPERM;
   if (bytes == NULL || len < sizeof(IBusWebRequestHeader))
@@ -238,6 +245,8 @@ int32_t ibusweb_dispatch(const uint8_t *bytes, uint32_t len) {
   gint32 result = -EBADMSG;
   if (g_variant_is_normal_form(request.payload))
     result = ibusweb_dispatch_call(request.header.kind, route, &request);
+  if (result == -ECANCELED)
+    g_atomic_int_set(&faulted, TRUE);
   g_variant_unref(request.payload);
   return result;
 }

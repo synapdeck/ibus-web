@@ -389,6 +389,8 @@ static void logging(void) {
     empty_output();
 }
 
+static void set_flag(gpointer data) { *(gboolean *)data = TRUE; }
+
 /* An engine a reference outlives DestroyEngine for must not emit under the
  * context a new engine has taken. */
 static void stale_engine(void) {
@@ -469,6 +471,13 @@ static void protocol(void) {
                        g_variant_new("(uuu)", 999u, 0u, 0u)),
                   ==, -ECANCELED);
   expect_log(G_LOG_LEVEL_WARNING, "ibus-web", "thrown by an engine");
+  g_assert_cmpint(send(IBUSWEB_REQ_RESET, 7, g_variant_new("()")), ==,
+                  -ENOTRECOVERABLE);
+  gboolean ran = FALSE;
+  g_idle_add_once(set_flag, &ran);
+  g_assert_cmpint(ibusweb_pump(), ==, -1);
+  g_assert_false(ran);
+  empty_output();
 }
 
 int main(int argc, char **argv) {

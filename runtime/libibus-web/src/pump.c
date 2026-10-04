@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
+#include "dispatch.h"
 #include "ibus-web/runtime.h"
 
 /* Sources that stay ready would keep the pump from ever returning to the
@@ -25,6 +26,9 @@ int32_t ibusweb_pump(void) {
                "main context");
     return IBUSWEB_PUMP_ERROR;
   }
+  /* Sources would run engine code over the state the exception left. */
+  if (ibusweb_runtime_faulted())
+    return -1;
 
   /* An iteration taken apart, as g_main_context_iteration() would run it
    * without blocking, to keep the timeout its query computes. */

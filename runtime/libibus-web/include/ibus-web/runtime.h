@@ -67,7 +67,10 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  *
  * Nothing catches an exception a source's callback throws: it unwinds
  * through GLib's dispatch out of ibusweb_pump() to the host, leaving the
- * context mid-dispatch. */
+ * context mid-dispatch.
+ *
+ * Once ibusweb_dispatch() has returned -ECANCELED, this dispatches nothing
+ * and returns -1. */
 IBUSWEB_API int32_t ibusweb_pump(void);
 
 /* Sleeps on the thread that called ibusweb_runtime_init() while *wake_word
@@ -199,7 +202,10 @@ IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
 IBUSWEB_API int ibusweb_install_end(IBusWebInstall *install);
 
 /* Whole records in sequence order. The pointer remains valid until the next
- * runtime call. Peek and consume are restricted to the pumping thread. */
+ * runtime call. Peek and consume are restricted to the pumping thread. They
+ * keep working after ibusweb_dispatch() has returned -ECANCELED, so the host
+ * can drain the records written before the fault; a record still waiting to
+ * be appended from another thread when the fault happened is lost. */
 IBUSWEB_API const uint8_t *ibusweb_output_peek(uint32_t *len);
 /* A length not ending on a record boundary logs a critical and drops nothing.
  */
@@ -212,10 +218,22 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * errno: EBADMSG for invalid framing/payload, ENOSYS for unknown kinds,
  * ENOTCONN before Init, EALREADY for a repeated Init, EPROTO for a version
  * mismatch, ENOENT for a missing context, EEXIST for a duplicate context,
- * ESRCH for an unregistered engine, EPERM off-thread, or ECANCELED when an
- * engine throws a C++ exception. SettingChanged returns ENOENT for an unknown
- * schema/key, EINVAL for a value outside its type/range, or ENOTSUP for a
- * relocatable schema or a different default settings backend. */
+ * ESRCH for an unregistered engine, EINVAL for a SetSurroundingText cursor or
+ * anchor past the text's length in characters, EPERM off-thread, or ECANCELED
+ * when an engine throws a C++ exception. Requests failing on their framing,
+ * payload or context reach no engine.
+ *
+ * SettingChanged ignores the header's ic, so its ENOENT means an unknown
+ * schema or key, never a missing context; it returns EINVAL for a value
+ * outside the key's type or range, or ENOTSUP for a relocatable schema or a
+ * default settings backend other than the runtime's. Each of these also
+ * writes a Log record.
+ *
+ * ECANCELED means the runtime is unusable: the exception unwound through
+ * GLib's signal emission, skipping its cleanup and leaking the engine's
+ * reference, so the host must treat it as a crash of the runtime. Every
+ * later ibusweb_dispatch() returns ENOTRECOVERABLE without touching GLib or
+ * any engine. */
 IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request, uint32_t len);
 
 G_END_DECLS

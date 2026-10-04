@@ -10,4 +10,6 @@ G_GNUC_INTERNAL int32_t ibusweb_dispatch_call(uint16_t kind,
                                               IBusWebDispatchCall call,
                                               gpointer data);
 G_GNUC_INTERNAL void ibusweb_log_init(void);
+/* Whether a request's exception has left the runtime unusable. */
+G_GNUC_INTERNAL gboolean ibusweb_runtime_faulted(void);
 G_END_DECLS
