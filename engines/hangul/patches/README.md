@@ -12,12 +12,12 @@ Global settings listeners are installed once during module initialization and
 owned by the module GSettings objects for the Worker lifetime; upstream exit
 releases those objects, but the current module ABI has no shutdown entry point.
 
-| Layer | Patch | Reason                                                                                                                                                                                   |
-| ----- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| port  | 0001  | Disconnect both GSettings handlers before freeing an engine, preventing changes from calling a destroyed engine.                                                                         |
-| port  | 0002  | Consume a digit outside the last Hanja page without setting an invalid candidate cursor.                                                                                                 |
-| port  | 0003  | Keep module-global settings synchronized independently of engine lifetimes; instance handlers only update their keyboard context.                                                        |
-| casts | 0001  | Match `GClassInitFunc`, `GInstanceInitFunc`, and `IBusObjectDestroyFunc`; the first two lacked their second argument, while the destroy callback had a different pointer parameter type. |
+| Layer | Patch | Reason                                                                                                                                                                                                                                        |
+| ----- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| port  | 0001  | Disconnect both GSettings handlers before freeing an engine, preventing changes from calling a destroyed engine.                                                                                                                              |
+| port  | 0002  | Consume a digit outside the last Hanja page without setting an invalid candidate cursor.                                                                                                                                                      |
+| port  | 0003  | Keep module-global settings synchronized independently of engine lifetimes; instance handlers only update their keyboard context. Settings upstream reads only at initialization, such as `disable-latin-mode`, still take effect only there. |
+| casts | 0001  | Match `GClassInitFunc`, `GInstanceInitFunc`, and `IBusObjectDestroyFunc`; the first two lacked their second argument, while the destroy callback had a different pointer parameter type.                                                      |
 
 The strict cast audit reports these three findings without the patch and none
 with it. Signal connections to `settings_changed` already have the full signal

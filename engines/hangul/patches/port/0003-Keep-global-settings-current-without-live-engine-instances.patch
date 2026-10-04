@@ -1,14 +1,20 @@
-From 9bbb9356ad4747a1eb4e3b2cdfa03e3a2432231c Mon Sep 17 00:00:00 2001
+From 2d8f31e4f87f751da12a6bf785ecbc22c278fe15 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Sat, 3 Oct 2026 14:29:15 -0700
 Subject: [PATCH] Keep global settings current without live engine instances
 
+Module settings are updated only by handlers each engine connects for
+itself, so a change made while no engine exists is lost and the next
+engine starts with stale values. Connect one module handler in
+ibus_hangul_init, before any engine handler, to update the globals;
+engine handlers then only reselect their own keyboard. Settings that
+were read only at initialization still are.
 ---
- src/engine.c | 20 +++++++++++++++++++-
- 1 file changed, 19 insertions(+), 1 deletion(-)
+ src/engine.c | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
 
 diff --git a/src/engine.c b/src/engine.c
-index 08bb0d4..278c3df 100644
+index 08bb0d4..e5121b3 100644
 --- a/src/engine.c
 +++ b/src/engine.c
 @@ -503,6 +503,12 @@ ibus_hangul_init (IBusBus *bus)
@@ -49,16 +55,6 @@ index 08bb0d4..278c3df 100644
              print_changed_settings (schema_id, key, value);
          } else if (strcmp (key, "hanja-keys") == 0) {
              const gchar* str = g_variant_get_string(value, NULL);
-@@ -1949,6 +1964,9 @@ settings_changed (GSettings    *settings,
-         } else if (strcmp (key, "word-commit") == 0) {
-             word_commit = g_variant_get_boolean (value);
-             print_changed_settings (schema_id, key, value);
-+        } else if (strcmp (key, "disable-latin-mode") == 0) {
-+            disable_latin_mode = g_variant_get_boolean (value);
-+            print_changed_settings (schema_id, key, value);
-         } else if (strcmp (key, "auto-reorder") == 0) {
-             auto_reorder = g_variant_get_boolean (value);
-             print_changed_settings (schema_id, key, value);
 -- 
 2.55.0
 
