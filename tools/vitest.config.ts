@@ -6,5 +6,12 @@ const cacheDir = process.env["IBUS_WEB_TEST_CACHE_DIR"];
 
 export default defineConfig({
   ...(cacheDir === undefined ? {} : { cacheDir }),
-  test: { include: ["cast-audit/**/*.test.ts", "ibus-test/**/*.test.ts", "vendor-inventory/**/*.test.ts"] },
+  test: {
+    include: [
+      "cast-audit/**/*.test.ts",
+      "engine-manifest/**/*.test.ts",
+      "ibus-test/**/*.test.ts",
+      "vendor-inventory/**/*.test.ts",
+    ],
+  },
 });

@@ -107,6 +107,7 @@ export const nodeHarness = async (): Promise<Harness> => {
         engine: options.engine ?? { name: "test", version: "0", data: [] },
         storage: options.storage ?? { kind: "none" },
         poolLowWater: data.pool.lowWater,
+        engineThreads: data.pool.engine,
         constants: data.constants,
         test,
       };

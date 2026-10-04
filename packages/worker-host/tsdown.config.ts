@@ -19,6 +19,7 @@
 // can't resolve a bare import, and a page's bundler copies a script found by
 // new URL(..., import.meta.url) as it is, without the chunks it imports.
 
+import { copyFile, mkdir } from "node:fs/promises";
 import { defineConfig, type UserConfig } from "tsdown";
 
 const common = {
@@ -40,7 +41,7 @@ const worker = (name: string, source: string, tsconfig: string): UserConfig => (
   // The Node store and mount import node:fs/promises only when running under
   // Node; a browser never reaches that import.
   deps: {
-    alwaysBundle: ["effect", /^effect\//],
+    alwaysBundle: ["effect", /^effect\//, /^brotli-dec-wasm/],
     neverBundle: [/^node:/],
     onlyBundle: false,
   },
@@ -55,6 +56,18 @@ export default defineConfig([
     dts: { generator: "oxc" },
     deps: { neverBundle: ["effect", /^effect\//] },
   },
+  ...["worker", "test/worker"].map((directory): UserConfig => ({
+    ...worker(`${directory}/brotli-fallback`, "src/worker/brotli-fallback.ts", "src/worker/tsconfig.json"),
+    hooks: {
+      "build:done": async () => {
+        await mkdir(`dist/${directory}`, { recursive: true });
+        await copyFile(
+          new URL(import.meta.resolve("brotli-dec-wasm/web/bg.wasm")),
+          `dist/${directory}/brotli_dec_wasm_bg.wasm`,
+        );
+      },
+    },
+  })),
   worker("worker/index", "src/worker/index.ts", "src/worker/tsconfig.json"),
   worker("worker/relay", "src/worker/relay.ts", "src/worker/tsconfig.json"),
   worker("test/worker/host", "test/worker/host.ts", "test/worker/tsconfig.json"),

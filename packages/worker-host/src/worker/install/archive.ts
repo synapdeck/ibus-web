@@ -4,6 +4,7 @@
 // Streaming the engine's data archives into the runtime's extractor, which
 // unpacks each through the mounted file system.
 
+import { decompressed } from "./decompress.ts";
 import { engineDataDir } from "../../shared/naming.ts";
 import type { EngineManifest } from "../../shared/messages.ts";
 import { alloc, check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
@@ -24,6 +25,7 @@ export interface Tally {
 export interface ArchiveHooks {
   // An archive that sends nothing for this long fails the install.
   readonly idleMs: number;
+  readonly forceBrotliFallback: boolean;
   // Called as each piece of an archive reaches the extractor.
   readonly progressed: () => void;
   // Called before each piece is fed; the install waits for it.
@@ -48,6 +50,7 @@ const installArchive = async (
   handle: RuntimeHandle,
   url: string,
   dir: string,
+  encoding: "br" | "identity",
   tally: Tally,
   hooks: ArchiveHooks,
 ): Promise<void> => {
@@ -77,7 +80,7 @@ const installArchive = async (
   try {
     const response = await outside(`fetch ${url}`, fetch(url, { signal: idle.signal }));
     if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
-    reader = response.body.getReader();
+    reader = decompressed(response.body, encoding, hooks.forceBrotliFallback).getReader();
     makeDirs(handle, dir);
     check(
       `ibusweb_install_begin ${dir}`,
@@ -136,6 +139,7 @@ export const installArchives = async (
   hooks: ArchiveHooks,
 ): Promise<Tally> => {
   const tally: Tally = { fed: 0, files: 0, bytes: 0 };
-  for (const data of engine.data) await installArchive(handle, data.url, engineDataDir(engine, data), tally, hooks);
+  for (const data of engine.data)
+    await installArchive(handle, data.url, engineDataDir(engine, data), data.encoding, tally, hooks);
   return tally;
 };

@@ -46,6 +46,8 @@ import {
   failedInstallReleasesLocks,
   installedInMemory,
   installFresh,
+  installBrotli,
+  installBrokenBrotli,
   installInterrupted,
   installInterruptedQueued,
   installInterruptedStray,
@@ -175,6 +177,11 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
 // Node's Web Locks can grant an exclusive lock twice, so install-concurrent runs only in browsers.
 describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => {
   test("install-fresh", () => installFresh(h, runtime));
+  for (const fallback of [false, true]) {
+    test(`install-brotli-${fallback}`, () => installBrotli(h, runtime, fallback));
+    for (const kind of ["corrupt", "truncated"] as const)
+      test(`install-${kind}-brotli-${fallback}`, () => installBrokenBrotli(h, runtime, kind, fallback));
+  }
   test("install-skip", () => installSkip(h, runtime));
   test("install-interrupted", () => installInterrupted(h, runtime));
   test("install-interrupted-queued", () => installInterruptedQueued(h, runtime));

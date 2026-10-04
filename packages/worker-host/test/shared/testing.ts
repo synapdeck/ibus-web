@@ -70,6 +70,7 @@ export interface TestInit {
   pieceDelayMs?: number;
   // Sealing the engine's user data throws.
   sealThrows?: boolean;
+  forceBrotliFallback?: boolean;
 }
 
 // What the test build posts beside the host's own messages.

@@ -42,6 +42,9 @@
     "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
     "test": "vitest run --configLoader native"
   },
+  "dependencies": {
+    "brotli-dec-wasm": "catalog:"
+  },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@ibus-web/test-programs": "workspace:*",

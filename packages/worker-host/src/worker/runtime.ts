@@ -60,6 +60,7 @@ type InstantiateWasm = (
 export type CreateRuntime = (settings: {
   instantiateWasm?: InstantiateWasm;
   wasmMemory?: WebAssembly.Memory;
+  ibuswebEngineThreads: number;
 }) => Promise<Runtime>;
 
 // The runtime started in the memory the host made for it, with its views of

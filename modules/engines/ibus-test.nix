@@ -146,7 +146,7 @@
           name,
           nativeConfig,
           module,
-          data,
+          settingsSchemaDir,
           traces,
           expectedDifferences ? null,
           coverage ? null,
@@ -169,8 +169,8 @@
               wasmCommand = [
                 "${typescript.nodejs}/bin/node"
                 "${wasm}/ibus-test-wasm.js"
-                "--data"
-                data
+                "--schemas"
+                settingsSchemaDir
                 "--module"
                 module
               ];
@@ -278,7 +278,7 @@
             name = "ibus-test-conformance";
             nativeConfig = fixtureConfig;
             module = "${fixtureModule}/conformance.wasm";
-            data = "${fixtureData}";
+            settingsSchemaDir = "${fixtureData}/glib-2.0/schemas";
             traces = [ ../../tools/ibus-test/fixtures/lifecycle.json ];
             testEnvironment.IBUS_TEST_FIXTURE = "1";
           }

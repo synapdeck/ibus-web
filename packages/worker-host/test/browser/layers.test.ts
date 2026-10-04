@@ -102,6 +102,7 @@ describe("the Worker scope", () => {
     engine: { name: "test", version: "0", data: [] },
     storage: { kind: "none" },
     poolLowWater: 0,
+    engineThreads: 0,
     constants: { pumpError: 0, waitTimedOut: 0, idbReadOnly: 0, memory: { minimum: 0, maximum: 0 } },
   });
 

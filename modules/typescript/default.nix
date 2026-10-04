@@ -43,6 +43,7 @@
           "@vitest/browser" = "^5.0.3";
           "@vitest/browser-playwright" = "^5.0.3";
           ajv = "^8.20.0";
+          brotli-dec-wasm = "^2.3.2";
           jsonc-parser = "^3.3.1";
           smol-toml = "^1.9.0";
           tsdown = "^0.23.0";
@@ -197,7 +198,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-kZA8XBnpHY+kV0FsfM4/Lph4o477X+pLUdV8Pj1pl5E=";
+        hash = "sha256-7CfoySnqrReRjFHxEu9pFs3Z0D9wL3IRacKzTzTNJsE=";
       };
 
       # Each package's node_modules, and the root's, installed offline
@@ -240,7 +241,12 @@
             inherit root;
             # Every package's tsconfig extends the repository's base.
             fileset = lib.fileset.unions (
-              workspaceFiles ++ [ (root + "/tsconfig.base.json") ] ++ map packageSources packageDirs
+              workspaceFiles
+              ++ [
+                (root + "/tsconfig.base.json")
+                (root + "/tsconfig.node-scripts.json")
+              ]
+              ++ map packageSources packageDirs
             );
           }
         );
@@ -265,7 +271,7 @@
           mkdir -p $out
           # Tests that run from source are compiled through their configs,
           # which extend the repository's base.
-          cp -R package.json pnpm-workspace.yaml tsconfig.base.json node_modules $out/
+          cp -R package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node-scripts.json node_modules $out/
           ${lib.concatMapStrings (dir: ''
             mkdir -p $out/${dirOf dir}
             cp -R ${dir} $out/${dir}

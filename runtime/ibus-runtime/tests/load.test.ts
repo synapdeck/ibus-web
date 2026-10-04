@@ -214,7 +214,9 @@ describe.each([
       make: ({ minimum, maximum }: HarnessData["memory"]) => sharedMemory(minimum, 2 * maximum),
     },
   ])("refuses a memory $memory", async ({ make }) => {
-    await expect(createRuntime({ wasmMemory: make(harness.memory) })).rejects.toThrow(/LinkError/);
+    await expect(createRuntime({ wasmMemory: make(harness.memory), ibuswebEngineThreads: 0 })).rejects.toThrow(
+      /LinkError/,
+    );
     takePrinted(/^failed to asynchronously prepare wasm: LinkError/);
     takePrinted(/^warning: Loading from a file URI/, asserting ? 1 : 0);
     takePrinted(/^Aborted\(LinkError/);

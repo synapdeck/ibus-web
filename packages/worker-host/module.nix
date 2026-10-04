@@ -19,6 +19,7 @@
       inherit (toolchain) pkgsWasm;
 
       sidesSrc = ./test/sides;
+      engineThreads = 4;
 
       # The test side modules the host's tests load together; their opcodes
       # are unique across them.
@@ -97,18 +98,31 @@
             sides = "${sidesDir}";
             constants = "${constants}/constants.json";
             errno = "${runtime.nodeHarness}/errno.json";
-            archives = "${runtime.installArchives}";
+            archives = "${archives}";
             pool = {
-              inherit (runtime.threadPool) size planned lowWater;
-              inherit (runtime.threadPool.shares) engine glib;
+              inherit (runtime.threadPool) lowWater;
+              inherit (runtime.threadPool.shares) glib;
+              engine = engineThreads;
+              size = runtime.threadPool.size + engineThreads;
+              planned = runtime.threadPool.planned + engineThreads;
             };
             stress = {
-              threads = runtime.threadPool.planned;
+              threads = runtime.threadPool.planned + engineThreads;
               rounds = 24;
               iterations = 10000;
             };
           }
         );
+
+      archives =
+        pkgs.runCommand "ibus-web-worker-host-archives" { nativeBuildInputs = [ pkgs.brotli ]; }
+          ''
+            mkdir $out
+            cp ${runtime.installArchives}/* $out/
+            brotli --quality=11 --output=$out/tree.tar.br $out/tree.tar
+            head -c -1 $out/tree.tar.br > $out/truncated.tar.br
+            printf '\377\377\377\377' > $out/corrupt.tar.br
+          '';
 
       # Each runs the host's tests on the asserting runtime and the released
       # one, from the built package.

@@ -95,6 +95,7 @@ export const makeInstruments = (
     };
   };
   return {
+    forceBrotliFallback: test.forceBrotliFallback === true,
     beforeProbe: () => {
       if (test.withoutIndexedDB === true) withholdIndexedDB();
     },

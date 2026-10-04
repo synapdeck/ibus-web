@@ -28,6 +28,7 @@ const types: Readonly<Record<string, string>> = {
   ".wasm": "application/wasm",
   ".map": "application/json",
   ".tar": "application/x-tar",
+  ".br": "application/octet-stream",
 };
 
 export type Handler = (request: IncomingMessage, response: ServerResponse, next: () => void) => void;

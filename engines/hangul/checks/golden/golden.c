@@ -440,8 +440,8 @@ static void forwarding(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
 
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
-  gchar *data = NULL, *module = NULL;
-  GOptionEntry options[] = {{"data", 0, 0, G_OPTION_ARG_STRING, &data,
+  gchar *schemas_dir = NULL, *module = NULL;
+  GOptionEntry options[] = {{"schemas", 0, 0, G_OPTION_ARG_STRING, &schemas_dir,
                              "Engine share directory", "DIR"},
                             {"module", 0, 0, G_OPTION_ARG_FILENAME, &module,
                              "Engine side module", "FILE"},
@@ -451,10 +451,10 @@ int main(int argc, char **argv) {
   GError *error = NULL;
   g_assert_true(g_option_context_parse(context, &argc, &argv, &error));
   g_assert_no_error(error);
-  g_assert_nonnull(data);
+  g_assert_nonnull(schemas_dir);
   g_assert_nonnull(module);
-  golden_init(data, module);
-  g_free(data);
+  golden_init(schemas_dir, module);
+  g_free(schemas_dir);
   g_free(module);
   g_option_context_free(context);
   g_test_add("/hangul/latin", Fixture, NULL, golden_setup, latin,

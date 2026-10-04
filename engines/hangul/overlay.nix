@@ -13,11 +13,19 @@
             let
               inherit (config.ibusWeb) runtime toolchain;
               libhangul = final.libhangul.overrideAttrs (old: {
-                postPatch = (old.postPatch or "") + ''
-                  substituteInPlace hangul/Makefile.am --replace-fail \
-                    '$(pkgdatadir)/hanja/hanja.txt' '/usr/share/libhangul/hanja/hanja.txt'
-                '';
+                outputs = (old.outputs or [ "out" ]) ++ [ "data" ];
+                configureFlags = (old.configureFlags or [ ]) ++ [
+                  "--datadir=${placeholder "data"}/share"
+                  "--localedir=${placeholder "data"}/share/locale"
+                ];
               });
+              schemas = prev.runCommand "hangul-gsettings-schemas" { } ''
+                mkdir -p $out/share/glib-2.0/schemas
+                cp ${prev.ibus-engines.hangul.src}/data/org.freedesktop.ibus.engine.hangul.gschema.xml $out/share/glib-2.0/schemas/
+                cp ${final.libibus-web}/share/gsettings-schemas/${final.libibus-web.name}/glib-2.0/schemas/org.freedesktop.ibus.gschema.xml \
+                  $out/share/glib-2.0/schemas/
+                ${final.glib.dev}/bin/glib-compile-schemas --strict $out/share/glib-2.0/schemas
+              '';
               layer =
                 name:
                 lib.filter (p: lib.hasSuffix ".patch" (toString p)) (
@@ -35,16 +43,21 @@
               ];
               prepare = ''
                 cp ${./module.c} module.c
-                cat > config.h <<'EOF'
+                cat > config.h <<EOF
                 #define GETTEXT_PACKAGE "ibus-hangul"
-                #define IBUSHANGUL_DATADIR "/usr/share/ibus-hangul"
-                #define PKGDATADIR "/usr/share/ibus-hangul"
-                #define LOCALEDIR "/usr/share/locale"
+                #define IBUSHANGUL_DATADIR "$data/share/ibus-hangul"
+                #define PKGDATADIR "$data/share/ibus-hangul"
+                #define LOCALEDIR "$data/share/locale"
                 #define LIBEXECDIR "/usr/libexec"
+                #define IBUSWEB_SETTINGS_SCHEMA_DIR "${schemas}/share/glib-2.0/schemas"
                 EOF
               '';
             in
             prev.ibus-engines.hangul.overrideAttrs (old: {
+              outputs = [
+                "out"
+                "data"
+              ];
               patches = (old.patches or [ ]) ++ layer "port" ++ layer "casts";
               nativeBuildInputs = [ final.buildPackages.pkg-config ];
               buildInputs = [
@@ -67,23 +80,18 @@
                 libs="$($PKG_CONFIG --static --libs libhangul)"
                 source ${runtime.sideModuleLibraryGuard}
                 checkSideModuleLibraries $libs
-                $CC ${toolchain.sideModuleFlags} "''${objects[@]}" $libs -o hangul.wasm
+                $CC ${toolchain.sideModuleFlags} -g0 "''${objects[@]}" $libs -o hangul.wasm
                 runHook postBuild
               '';
               installPhase = ''
                 runHook preInstall
                 install -Dm644 hangul.wasm -t $out
-                share=$out/data/usr/share
-                install -Dm644 data/symbol.txt -t $share/ibus-hangul/data
-                install -Dm644 ${libhangul}/share/libhangul/hanja/hanja.txt -t $share/libhangul/hanja
-                schemas=$share/glib-2.0/schemas
-                install -Dm644 data/org.freedesktop.ibus.engine.hangul.gschema.xml -t $schemas
-                cp ${final.libibus-web}/share/gsettings-schemas/${final.libibus-web.name}/glib-2.0/schemas/*.xml $schemas/
-                "$($PKG_CONFIG --variable=glib_compile_schemas gio-2.0)" --strict $schemas
+                install -Dm644 data/symbol.txt -t $data/share/ibus-hangul/data
                 runHook postInstall
               '';
               passthru = (old.passthru or { }) // {
-                inherit libhangul;
+                inherit libhangul schemas;
+                settingsSchemaDir = "${schemas}/share/glib-2.0/schemas";
                 auditCflags = cflags;
                 auditSources = sources;
                 auditPkgConfigModules = pkgConfigModules;

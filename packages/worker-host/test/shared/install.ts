@@ -553,3 +553,50 @@ export const installedInMemory = async (h: Harness, host: RunningHost, engine: E
   expect(collectOf(host.messages), "a collect report").toBeUndefined();
   await expectTree(h, host.client, engine, h.data.archives.tree);
 };
+
+export const installBrotli = (h: Harness, runtime: RuntimeBuild, forceBrotliFallback: boolean): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const globals = globalThis as unknown as { DecompressionStream: new (format: string) => unknown };
+    let nativeAvailable = false;
+    try {
+      new globals.DecompressionStream("brotli");
+      nativeAvailable = true;
+    } catch {
+      /* Availability is determined by the pinned runtime. */
+    }
+    h.record("brotli-decoder", { nativeAvailable, forceBrotliFallback });
+    const engine = engineFor(h, `install-brotli-${forceBrotliFallback}`, runtime);
+    const compressed = {
+      ...engine,
+      data: engine.data.map((data) => ({ ...data, url: `${data.url}.br`, encoding: "br" as const })),
+    };
+    const host = await launch(compressed, { test: { forceBrotliFallback } }).ready;
+    expectInstall(host.messages, "installed", h.data.archives.tree);
+    await expectTree(h, host.client, engine, h.data.archives.tree);
+  });
+
+export const installBrokenBrotli = (
+  h: Harness,
+  runtime: RuntimeBuild,
+  kind: "corrupt" | "truncated",
+  forceBrotliFallback: boolean,
+): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = engineFor(h, `install-${kind}-brotli-${forceBrotliFallback}`, runtime);
+    const broken = {
+      ...engine,
+      data: engine.data.map((data) => ({
+        ...data,
+        url: data.url.replace(/[^/]+$/, `${kind}.tar.br`),
+        encoding: "br" as const,
+      })),
+    };
+    const failing = launch(broken, { test: { forceBrotliFallback } });
+    await expect(failing.ready).rejects.toThrow(/Brotli.*Content-Encoding/);
+    expect(installOf(failing.messages)).toBeUndefined();
+    await failing.terminate();
+    const next = await launch(engine).ready;
+    expectInstall(next.messages, "installed", h.data.archives.tree);
+    await expectTree(h, next.client, engine, h.data.archives.tree);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
+  });

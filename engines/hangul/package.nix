@@ -38,19 +38,19 @@
           # The library's own compile definitions; their values do not affect casts.
           cflags = lib.concatStringsSep " " [
             "-DHAVE_CONFIG_H -I. -Ihangul"
-            "'-DLOCALEDIR=\"/usr/share/locale\"'"
-            "'-DLIBHANGUL_DEFAULT_HANJA_DIC=\"/usr/share/libhangul/hanja/hanja.txt\"'"
-            "'-DLIBHANGUL_DATA_DIR=\"/usr/share/libhangul\"'"
+            "'-DLOCALEDIR=\"${libhangul.data}/share/locale\"'"
+            "'-DLIBHANGUL_DEFAULT_HANJA_DIC=\"${libhangul.data}/share/libhangul/hanja/hanja.txt\"'"
+            "'-DLIBHANGUL_DATA_DIR=\"${libhangul.data}/share/libhangul\"'"
           ];
           allowList = ./libhangul-cast-audit.jsonc;
         }).overrideAttrs
           (old: {
             inherit (libhangul)
               patches
-              postPatch
               preAutoreconf
               configureFlags
               ;
+            postPatch = libhangul.postPatch or "";
             nativeBuildInputs = old.nativeBuildInputs ++ libhangul.nativeBuildInputs;
             # config.h, including which optional features exist, comes from the
             # library's own configure run.
@@ -61,8 +61,34 @@
       ibusWeb.engines.hangul = hangul;
       ibusWeb.toolchain.clangdPathFlags."engines/hangul/module\\.c" = [
         "-I${hangul.src}/src"
+        ''-DIBUSWEB_SETTINGS_SCHEMA_DIR="${hangul.settingsSchemaDir}"''
       ];
       packages.ibus-web-hangul = hangul;
+      packages.ibus-web-hangul-dist = engines.mkEngineManifest {
+        name = "hangul";
+        package = hangul;
+        threads = 0;
+        heapBytes = 16 * 1024 * 1024;
+        inherit (hangul) settingsSchemaDir;
+        engines = [ "hangul" ];
+        settingsSchemas = [
+          "org.freedesktop.ibus.engine.hangul"
+          "org.freedesktop.ibus.panel"
+        ];
+      };
+      checks.hangul-data-closure = pkgs.runCommand "hangul-data-closure" { } ''
+        closure=${pkgs.closureInfo { rootPaths = [ hangul ]; }}/store-paths
+        grep -Fx ${hangul.schemas} "$closure"
+        test -f ${hangul.settingsSchemaDir}/gschemas.compiled
+        while IFS= read -r path; do
+          if [ "$path" = ${hangul} ]; then continue; fi
+          case "$path" in *-gcc-*|*-clang-*|*-llvm-*|*-emscripten-*) echo "compiler in data closure: $path" >&2; exit 1;; esac
+          forbidden=$(find "$path" \( -name lib -o -name include -o -name '*.a' -o -name '*.wasm' -o -name '*.pc' \) -print)
+          if [ -n "$forbidden" ]; then echo "non-data closure entries: $forbidden" >&2; exit 1; fi
+        done < "$closure"
+        cp "$closure" $out
+      '';
+
       checks.hangul-imports = runtime.checkSideModuleImports {
         name = "hangul";
         modules = [ "${hangul}/hangul.wasm" ];

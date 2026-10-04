@@ -199,16 +199,17 @@ void golden_teardown(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_ptr_array_unref(fixture->records);
 }
 
-void golden_init(const gchar *data, const gchar *module) {
-  g_assert_cmpint(mkdir("/usr", 0777), ==, 0);
-  g_assert_cmpint(wasmfs_create_directory("/usr/share", 0777,
-                                          wasmfs_create_node_backend(data)),
-                  ==, 0);
+void golden_init(const gchar *schemas_dir, const gchar *module) {
+  g_assert_cmpint(mkdir("/nix", 0777), ==, 0);
+  g_assert_cmpint(
+      wasmfs_create_directory("/nix/store", 0777,
+                              wasmfs_create_node_backend("/nix/store")),
+      ==, 0);
   g_autofree gchar *directory = g_path_get_dirname(module);
   g_assert_cmpint(wasmfs_create_directory(
                       "/sides", 0777, wasmfs_create_node_backend(directory)),
                   ==, 0);
-  g_setenv("GSETTINGS_SCHEMA_DIR", "/usr/share/glib-2.0/schemas", TRUE);
+  g_setenv("GSETTINGS_SCHEMA_DIR", schemas_dir, TRUE);
   g_unsetenv("GSETTINGS_BACKEND");
   g_setenv("G_MESSAGES_DEBUG", "all", TRUE);
   static gint32 wake_word;

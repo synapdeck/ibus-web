@@ -73,3 +73,4 @@ export {
   type TransportViews,
 } from "./transport/layout.ts";
 export { RingWriter, RingReader, type WriteResult } from "./transport/ring.ts";
+export { EngineManifest, decodeEngineManifest } from "./manifest.ts";

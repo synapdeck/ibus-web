@@ -16,8 +16,9 @@ if (pages === undefined || program === undefined) {
 }
 const size = Number(pages);
 const { default: instantiate } = (await import(pathToFileURL(path.resolve(program)).href)) as {
-  default: (module: { wasmMemory: WebAssembly.Memory }) => Promise<unknown>;
+  default: (module: { wasmMemory: WebAssembly.Memory; ibuswebEngineThreads: number }) => Promise<unknown>;
 };
 await instantiate({
+  ibuswebEngineThreads: 0,
   wasmMemory: new WebAssembly.Memory({ initial: size, maximum: size, shared: true }),
 });

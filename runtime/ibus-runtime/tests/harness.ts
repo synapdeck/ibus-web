@@ -50,7 +50,10 @@ export interface RuntimeModule {
   [name: `_${string}`]: unknown;
 }
 
-export type CreateRuntime = (options?: { wasmMemory?: WebAssembly.Memory }) => Promise<RuntimeModule>;
+export type CreateRuntime = (options?: {
+  wasmMemory?: WebAssembly.Memory;
+  ibuswebEngineThreads?: number;
+}) => Promise<RuntimeModule>;
 
 // The runtime's module factory.
 export const loadRuntime = async (path: string): Promise<CreateRuntime> =>
@@ -98,7 +101,7 @@ export const startRuntime = async (
 ): Promise<Runtime> => {
   const { errno, pumpError } = data;
   const wasmMemory = sharedMemory(bytes, maximum);
-  const rt = await createRuntime({ wasmMemory });
+  const rt = await createRuntime({ wasmMemory, ibuswebEngineThreads: 0 });
   // The runtime never grows its memory, so views over it stay valid.
   const memory = rt.HEAPU8;
   const words = new Int32Array(memory.buffer);

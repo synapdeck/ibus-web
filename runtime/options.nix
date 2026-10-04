@@ -36,7 +36,7 @@
         };
         size = lib.mkOption {
           type = lib.types.ints.positive;
-          description = "The pthread pool's size at start: the sum of its shares plus lowWater spare Workers. Creating a thread when no Worker is idle fails with EAGAIN in a browser.";
+          description = "The pthread pool's base size: GLib and storage shares plus lowWater spare Workers; the host adds the engine's manifest share at start. Creating a thread when no Worker is idle fails with EAGAIN in a browser.";
         };
         planned = lib.mkOption {
           type = lib.types.ints.positive;

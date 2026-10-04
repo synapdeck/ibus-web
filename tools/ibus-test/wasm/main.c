@@ -9,10 +9,10 @@ backend_t wasmfs_create_root_dir(void) {
   return wasmfs_create_memory_backend();
 }
 
-static gchar *mount_engine(const gchar *data, const gchar *module) {
-  if (mkdir("/usr", 0777) != 0 ||
-      wasmfs_create_directory("/usr/share", 0777,
-                              wasmfs_create_node_backend(data)) != 0)
+static gchar *mount_engine(const gchar *schemas_dir, const gchar *module) {
+  if (mkdir("/nix", 0777) != 0 ||
+      wasmfs_create_directory("/nix/store", 0777,
+                              wasmfs_create_node_backend("/nix/store")) != 0)
     return NULL;
   gchar *directory = g_path_get_dirname(module);
   gint mounted = wasmfs_create_directory("/sides", 0777,
@@ -23,7 +23,7 @@ static gchar *mount_engine(const gchar *data, const gchar *module) {
   gchar *basename = g_path_get_basename(module);
   gchar *path = g_build_filename("/sides", basename, NULL);
   g_free(basename);
-  g_setenv("GSETTINGS_SCHEMA_DIR", "/usr/share/glib-2.0/schemas", TRUE);
+  g_setenv("GSETTINGS_SCHEMA_DIR", schemas_dir, TRUE);
   g_unsetenv("GSETTINGS_BACKEND");
   g_setenv("G_MESSAGES_DEBUG", "all", TRUE);
   return path;
@@ -36,10 +36,10 @@ int main(int argc, char **argv) {
   GLogLevelFlags runtime_fatal_mask = g_log_get_always_fatal();
   g_log_set_always_fatal(runtime_fatal_mask | G_LOG_LEVEL_WARNING |
                          G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_ERROR);
-  gchar *data = NULL, *module = NULL;
+  gchar *schemas_dir = NULL, *module = NULL;
   GOptionEntry options[] = {
-      {"data", 0, 0, G_OPTION_ARG_STRING, &data, "Engine usr/share tree",
-       "DIR"},
+      {"schemas", 0, 0, G_OPTION_ARG_STRING, &schemas_dir,
+       "Compiled settings schemas", "DIR"},
       {"module", 0, 0, G_OPTION_ARG_STRING, &module, "Engine side module",
        "FILE"},
       {NULL, 0, 0, 0, NULL, NULL, NULL},
@@ -48,13 +48,13 @@ int main(int argc, char **argv) {
   g_option_context_add_main_entries(context, options, NULL);
   GError *error = NULL;
   gboolean valid = g_option_context_parse(context, &argc, &argv, &error) &&
-                   argc == 1 && data && module;
+                   argc == 1 && schemas_dir && module;
   g_option_context_free(context);
   if (!valid) {
-    g_printerr("Expected --data DIR --module FILE%s%s\n", error ? ": " : "",
+    g_printerr("Expected --schemas DIR --module FILE%s%s\n", error ? ": " : "",
                error ? error->message : "");
     g_clear_error(&error);
-    g_free(data);
+    g_free(schemas_dir);
     g_free(module);
     return 2;
   }
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
                error ? error->message : "");
     ok = FALSE;
   } else {
-    gchar *mounted_module = mount_engine(data, module);
+    gchar *mounted_module = mount_engine(schemas_dir, module);
     if (!mounted_module) {
       g_printerr("Cannot mount engine data or module\n");
       ok = FALSE;
@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
   g_clear_error(&error);
   g_object_unref(parser);
   g_string_free(input, TRUE);
-  g_free(data);
+  g_free(schemas_dir);
   g_free(module);
   return ok ? 0 : 1;
 }

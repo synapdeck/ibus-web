@@ -100,6 +100,7 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
+          grep -F 'Module["ibuswebEngineThreads"]' ${runtime.ibusRuntime}/ibus-runtime.js > /dev/null
           manifest=${runtime.exportList}
           for file in exports.txt exports.json; do
             cmp $manifest/$file ${runtime.ibusRuntime}/$file

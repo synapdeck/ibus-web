@@ -5,11 +5,11 @@
 // host's one message in, and every message out.
 
 // An archive of the engine's data: where the host fetches it (an absolute
-// URL), the directory it unpacks to as the engine sees it, and its size
-// once unpacked, in bytes.
+// URL), its store identity, compression, and unpacked file bytes.
 export interface EngineData {
   url: string;
-  path: string;
+  storePath: string;
+  encoding: "br" | "identity";
   size: number;
 }
 
@@ -88,6 +88,7 @@ export interface HostInit<Wasm = unknown, Test = never> {
   // The host tops Emscripten's pthread pool up, when no request is pending,
   // to this many idle Workers.
   poolLowWater: number;
+  engineThreads: number;
   constants: RuntimeConstants;
   test?: Test;
 }

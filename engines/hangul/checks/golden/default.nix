@@ -23,14 +23,14 @@
         buildInputs = [ runtime.libibusWeb ];
         cflags = "$($PKG_CONFIG --cflags libibus-web ibus-1.0)";
         libs = "$($PKG_CONFIG --static --libs libibus-web)";
-        # The test supplies a memory root and mounts only its engine data.
+        # The memory root keeps writes isolated; store paths stay readable.
         linkFlags = [
           toolchain.commonFlags
         ]
         ++ lib.filter (flag: !(lib.hasSuffix "/node-host-fs.o" flag)) toolchain.testMainFlagList;
         args = [
-          "--data"
-          "${engines.hangul}/data/usr/share"
+          "--schemas"
+          engines.hangul.settingsSchemaDir
           "--module"
           "${engines.hangul}/hangul.wasm"
         ];

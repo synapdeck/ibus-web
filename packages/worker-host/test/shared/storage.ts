@@ -41,14 +41,14 @@ const decoder = new TextDecoder();
 const utf8 = (text: string): Uint8Array => encoder.encode(text);
 
 // Where the test engines expect their data.
-export const DATA_PATH = "/usr/share/test";
+export const DATA_PATH = "/nix/store/00000000000000000000000000000000-test-data";
 
 // The engine with the archive as its data, and the archive's version as its
 // own.
 export const withData = (engine: EngineManifest, { version, url, size }: TestArchive): EngineManifest => ({
   ...engine,
   version,
-  data: [{ url, path: DATA_PATH, size }],
+  data: [{ url, storePath: DATA_PATH, size, encoding: "identity" }],
 });
 
 // An engine of its own for a scenario on a runtime, named apart from those

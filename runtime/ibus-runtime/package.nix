@@ -33,8 +33,6 @@
         # backend and the memory backend, mounted where there is no
         # IndexedDB, run on the calling thread and take none.
         storage = 2;
-        # The most threads a side module bursts to under test.
-        engine = 4;
       };
       plannedThreads = lib.foldl' builtins.add 0 (lib.attrValues threadShares);
       # Spare Workers beyond the shares, which the pool starts with, so that
@@ -65,7 +63,7 @@
         # The Worker host reads and writes requests in the runtime's memory,
         # and tops Emscripten's pthread pool up while it is idle.
         "-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread"
-        "-sPTHREAD_POOL_SIZE=${toString poolSize}"
+        "-sPTHREAD_POOL_SIZE='${toString poolSize}+Module[\"ibuswebEngineThreads\"]'"
         "-sPTHREAD_POOL_SIZE_STRICT=2"
         # GRegex outgrows Emscripten's 64 KiB default stack, on any thread.
         "-sSTACK_SIZE=1MB"
@@ -92,7 +90,7 @@
         # Listing the settings the module takes drops noExitRuntime unless it
         # is named; without it, the runtime's thread exits after a callback
         # and retires its pthreads' Workers.
-        "-sINCOMING_MODULE_JS_API=instantiateWasm,wasmMemory,noExitRuntime"
+        "-sINCOMING_MODULE_JS_API=instantiateWasm,wasmMemory,noExitRuntime,ibuswebEngineThreads"
         "--pre-js=${./host-memory.js}"
         "-sMODULARIZE=1"
         "-sEXPORT_ES6=1"

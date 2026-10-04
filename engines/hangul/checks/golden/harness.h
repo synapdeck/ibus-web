@@ -23,7 +23,7 @@ typedef struct {
       *engine; /* Weak, to check destruction and the surrounding cache. */
 } Fixture;
 
-void golden_init(const gchar *data, const gchar *module);
+void golden_init(const gchar *schemas_dir, const gchar *module);
 void golden_setup(Fixture *fixture, gconstpointer data);
 void golden_teardown(Fixture *fixture, gconstpointer data);
 void golden_create(Fixture *fixture);

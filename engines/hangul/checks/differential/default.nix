@@ -66,7 +66,7 @@
           name = "hangul-differential";
           inherit nativeConfig;
           module = "${engines.hangul}/hangul.wasm";
-          data = "${engines.hangul}/data/usr/share";
+          settingsSchemaDir = engines.hangul.settingsSchemaDir;
           expectedDifferences = ./expected-differences.json;
           coverage = ./coverage.json;
           versions = {

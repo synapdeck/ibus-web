@@ -26,8 +26,8 @@ export const engineDataRoot = (engine: Pick<EngineIdentity, "name">): string => 
 
 // Where an archive of the engine's data lands: under the data's mount, at
 // the path the engine expects it.
-export const engineDataDir = (engine: Pick<EngineIdentity, "name">, { path }: { path: string }): string =>
-  `${engineDataRoot(engine)}${path}`;
+export const engineDataDir = (engine: Pick<EngineIdentity, "name">, { storePath }: { storePath: string }): string =>
+  `${engineDataRoot(engine)}/${storePath.slice("/nix/store/".length)}`;
 
 // The IndexedDB database the engine's own files live in.
 export const engineDatabase = ({ name }: Pick<EngineIdentity, "name">): string => `ibus-web/${encodeComponent(name)}`;

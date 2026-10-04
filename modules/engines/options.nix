@@ -3,13 +3,17 @@
 { lib, flake-parts-lib, ... }:
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
+    options.ibusWeb.engines.mkEngineManifest = lib.mkOption {
+      type = lib.types.functionTo lib.types.package;
+      description = "Build an engine distribution from its side module, data closure, thread share and heap budget.";
+    };
     options.ibusWeb.engines.hangul = lib.mkOption {
       type = lib.types.package;
-      description = "The Hangul side module and its data/usr/share tree.";
+      description = "The Hangul side module with data-only store references.";
     };
     options.ibusWeb.engines.ibusTest = lib.mkOption {
       type = lib.types.functionTo lib.types.package;
-      description = "Build a Linux native/WASM trace check from name, nativeConfig, module, data, and traces.";
+      description = "Build a Linux native/WASM trace check from name, nativeConfig, module, settingsSchemaDir, and traces.";
     };
     options.ibusWeb.engines.castAudit = lib.mkOption {
       type = lib.types.functionTo lib.types.package;

@@ -221,6 +221,8 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
   HostRuntime,
   Effect.gen(function* () {
     const { init, control } = yield* HostWorker;
+    if (!Number.isInteger(init.engineThreads) || init.engineThreads < 0)
+      return yield* new StartupFailed({ message: "engineThreads must be a nonnegative integer" });
     const { memory: bytes } = yield* PlannedStorage;
     const instruments = yield* Instruments;
     yield* Effect.try({ try: () => checkMemory(bytes, init.constants.memory), catch: startupFailed });
@@ -246,6 +248,7 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
         return Promise.race([
           createRuntime({
             wasmMemory: memory,
+            ibuswebEngineThreads: init.engineThreads,
             ...(wasm === undefined
               ? {}
               : {
