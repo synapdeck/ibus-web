@@ -4,6 +4,9 @@ import { Schema } from "effect";
 import * as P from "../../src/index.ts";
 
 export const schemaId = "org.example.Parity";
+// Byte strings checked against g_variant_is_normal_form: normal-form encodings with a few bytes
+// mutated, the encodings themselves, and containers large enough for 2- and 4-byte offsets.
+export const fuzzCounts = { mutated: 600, valid: 340, large: 60 } as const;
 export function text(value: string, attributes: P.IBusAttribute[] = []): P.IBusText {
   return P.IBusText.make({ attachments: {}, text: value, attrs: P.IBusAttrList.make({ attachments: {}, attributes }) });
 }

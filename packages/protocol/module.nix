@@ -69,7 +69,11 @@
         limit = 600;
         env.IBUS_WEB_PROTOCOL_PARITY = parityManifest;
         inBrowsers = false;
-        vitestArgs = [ "test/parity" ];
+        # Its suite throws without the manifest, so the check can't pass by skipping it.
+        vitestArgs = [
+          "--config"
+          "vitest.parity.config.ts"
+        ];
       };
       checks.protocol = testing.vitestCheck {
         name = "protocol";
