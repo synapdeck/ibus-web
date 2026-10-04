@@ -77,6 +77,8 @@
         limit = 600;
         env = { };
         inBrowsers = false;
+        # Other suites must not compete with the wall-clock decode benchmark.
+        vitestArgs = [ "--no-file-parallelism" ];
       };
     };
 }

@@ -107,5 +107,22 @@ the bytes-to-tree layer alone exceeds the target on this fixture.
 
 A concurrent full-flake run measured 5.3899 ms median / 79.1824 ms p99 and failed
 the same 5 ms assertion. The bound is sensitive to builder load; it is not a
-machine-independent latency guarantee. Run the protocol check alone when diagnosing
-a timing failure, retaining both results rather than relaxing the threshold.
+machine-independent latency guarantee. CI now builds `checks.protocol` alone with
+`--max-jobs 1` before starting the other flake checks, which reuse that successful
+result. Within the protocol check, Vitest runs files sequentially so property suites
+do not compete with the benchmark. Use the same sequence locally:
+
+```sh
+nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol
+nix flake check -L --system x86_64-linux
+```
+
+A fresh execution of the isolated, sequential protocol check measured **2.6752 ms
+median / 4.1674 ms p99** on the machine above, with 170 tests passing and the 15
+manifest-dependent parity tests skipped. This validates the configured execution
+sequence on this machine; the earlier cached full-flake success did not validate a
+fresh benchmark under concurrent load.
+
+A fresh unrestricted `nix flake check` still permits competing builds; it does not
+provide the timing conditions used in CI. Isolation from unrelated host processes
+is not guaranteed. Retain timing failures and their load conditions for diagnosis.

@@ -353,7 +353,10 @@ every push to `master` keeps its own run.
   (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where the runner has the
   setting: Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks
   keep on, needs them), enable
-  FlakeHub Cache, then `nix flake check -L --system x86_64-linux`, within 240 minutes. Checks
+  FlakeHub Cache, then `nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol`
+  before `nix flake check -L --system x86_64-linux`, within 240 minutes. The first
+  command isolates the protocol timing gate from the other checks; the second
+  reuses that successful result. Checks
   are defined for x86_64-linux, aarch64-linux and aarch64-darwin; the hosted runners are
   x86_64-linux, and the other systems' checks need their own machines.
 - **`publish`** — `needs: [check]`, and runs only on a push to `master`

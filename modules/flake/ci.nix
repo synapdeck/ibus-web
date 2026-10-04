@@ -69,6 +69,11 @@
                 name = "Use FlakeHub Cache";
                 uses = "DeterminateSystems/flakehub-cache-action@${determinateVersion}";
               }
+              # The wall-clock benchmark must finish before competing checks start.
+              {
+                name = "Check protocol and decode budget";
+                run = "nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol";
+              }
               # Runners are x86_64-linux; the other systems' checks need
               # their own machines.
               {

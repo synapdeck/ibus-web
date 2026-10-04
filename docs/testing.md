@@ -442,3 +442,11 @@ The `files:runtime/libibus-web/include/ibus-web/protocol.h` and
 `files:packages/protocol/PROTOCOL.md` checks compare generated artifacts to their
 committed copies. Regenerate with `nix run .#write-files`. See
 [protocol.md](protocol.md) for the pipeline and benchmark evidence.
+
+CI runs `nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol`
+before `nix flake check -L --system x86_64-linux`. This completes the timing gate
+before other checks start; the full check then reuses its successful result.
+Protocol test files run sequentially through `--no-file-parallelism`. Use this same
+command sequence locally when evaluating the timing bound. An unrestricted fresh
+full check can exceed the 5 ms bound due to competing builds; lowering a measured
+latency by rerunning after caching is not evidence of reliability under that load.
