@@ -18,6 +18,7 @@ struct _IBusEnginePrivate {
   guint content_hints;
   gboolean has_focus_id;
   gboolean has_active_surrounding_text;
+  gboolean destroyed;
   uint32_t ic;
 };
 static IBusText *text_empty;
@@ -136,6 +137,7 @@ static void get_property(GObject *object, guint id, GValue *value,
 }
 static void destroy(IBusObject *object) {
   IBusEnginePrivate *priv = IBUS_ENGINE(object)->priv;
+  priv->destroyed = TRUE;
   g_clear_pointer(&priv->engine_name, g_free);
   g_clear_object(&priv->surrounding_text);
   IBUS_OBJECT_CLASS(ibus_engine_parent_class)->destroy(object);
@@ -266,6 +268,17 @@ static void ibus_engine_class_init(IBusEngineClass *klass) {
   text_empty = g_object_ref_sink(ibus_text_new_from_static_string(""));
 }
 
+/* The host may already have given a destroyed engine's context to a new
+ * engine, so whatever a reference kept alive past destruction emits is
+ * dropped. */
+static void emit(IBusEngine *engine, uint16_t kind, GVariant *payload) {
+  if (engine->priv->destroyed) {
+    g_variant_unref(g_variant_ref_sink(payload));
+    return;
+  }
+  ibusweb_output_append(engine->priv->ic, kind, payload);
+}
+
 static void _g_object_unref_if_floating(gpointer instance) {
   if (g_object_is_floating(instance))
     g_object_unref(instance);
@@ -296,8 +309,7 @@ void ibus_engine_commit_text(IBusEngine *engine, IBusText *text) {
   g_return_if_fail(IBUS_IS_TEXT(text));
 
   GVariant *variant = ibus_serializable_serialize((IBusSerializable *)text);
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_COMMIT_TEXT,
-                        g_variant_new("(v)", variant));
+  emit(engine, IBUSWEB_REC_COMMIT_TEXT, g_variant_new("(v)", variant));
 
   _g_object_unref_if_floating(text);
 }
@@ -316,9 +328,8 @@ void ibus_engine_update_preedit_text_with_mode(IBusEngine *engine,
   g_return_if_fail(IBUS_IS_TEXT(text));
 
   GVariant *variant = ibus_serializable_serialize((IBusSerializable *)text);
-  ibusweb_output_append(
-      engine->priv->ic, IBUSWEB_REC_UPDATE_PREEDIT_TEXT,
-      g_variant_new("(vubu)", variant, cursor_pos, visible, mode));
+  emit(engine, IBUSWEB_REC_UPDATE_PREEDIT_TEXT,
+       g_variant_new("(vubu)", variant, cursor_pos, visible, mode));
 
   _g_object_unref_if_floating(text);
 }
@@ -329,8 +340,8 @@ void ibus_engine_update_auxiliary_text(IBusEngine *engine, IBusText *text,
   g_return_if_fail(IBUS_IS_TEXT(text));
 
   GVariant *variant = ibus_serializable_serialize((IBusSerializable *)text);
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_UPDATE_AUXILIARY_TEXT,
-                        g_variant_new("(vb)", variant, visible));
+  emit(engine, IBUSWEB_REC_UPDATE_AUXILIARY_TEXT,
+       g_variant_new("(vb)", variant, visible));
 
   _g_object_unref_if_floating(text);
 }
@@ -341,8 +352,8 @@ void ibus_engine_update_lookup_table(IBusEngine *engine, IBusLookupTable *table,
   g_return_if_fail(IBUS_IS_LOOKUP_TABLE(table));
 
   GVariant *variant = ibus_serializable_serialize((IBusSerializable *)table);
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_UPDATE_LOOKUP_TABLE,
-                        g_variant_new("(vb)", variant, visible));
+  emit(engine, IBUSWEB_REC_UPDATE_LOOKUP_TABLE,
+       g_variant_new("(vb)", variant, visible));
 
   _g_object_unref_if_floating(table);
 }
@@ -411,8 +422,8 @@ void ibus_engine_forward_key_event(IBusEngine *engine, guint keyval,
                                    guint keycode, guint state) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
 
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_FORWARD_KEY_EVENT,
-                        g_variant_new("(uuu)", keyval, keycode, state));
+  emit(engine, IBUSWEB_REC_FORWARD_KEY_EVENT,
+       g_variant_new("(uuu)", keyval, keycode, state));
 }
 
 static inline gboolean surrounding_range_valid(guint length, gint64 start,
@@ -459,8 +470,8 @@ void ibus_engine_delete_surrounding_text(IBusEngine *engine,
     priv->surrounding_text = g_object_ref_sink(text);
   }
 
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_DELETE_SURROUNDING_TEXT,
-                        g_variant_new("(iu)", offset_from_cursor, nchars));
+  emit(engine, IBUSWEB_REC_DELETE_SURROUNDING_TEXT,
+       g_variant_new("(iu)", offset_from_cursor, nchars));
 }
 
 void ibus_engine_get_surrounding_text(IBusEngine *engine, IBusText **text,
@@ -489,8 +500,7 @@ void ibus_engine_get_surrounding_text(IBusEngine *engine, IBusText **text,
    * should request the initial surrounding-text when the engine is
    * enabled (see ibus_im_context_focus_in() and
    * _ibus_context_enabled_cb() in client/gtk2/ibusimcontext.c). */
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, g_variant_new("()"));
 }
 
 void ibus_engine_get_content_type(IBusEngine *engine, guint *purpose,
@@ -508,8 +518,7 @@ void ibus_engine_register_properties(IBusEngine *engine,
 
   GVariant *variant =
       ibus_serializable_serialize((IBusSerializable *)prop_list);
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_REGISTER_PROPERTIES,
-                        g_variant_new("(v)", variant));
+  emit(engine, IBUSWEB_REC_REGISTER_PROPERTIES, g_variant_new("(v)", variant));
 
   _g_object_unref_if_floating(prop_list);
 }
@@ -519,8 +528,7 @@ void ibus_engine_update_property(IBusEngine *engine, IBusProperty *prop) {
   g_return_if_fail(IBUS_IS_PROPERTY(prop));
 
   GVariant *variant = ibus_serializable_serialize((IBusSerializable *)prop);
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_UPDATE_PROPERTY,
-                        g_variant_new("(v)", variant));
+  emit(engine, IBUSWEB_REC_UPDATE_PROPERTY, g_variant_new("(v)", variant));
 
   _g_object_unref_if_floating(prop);
 }
@@ -532,38 +540,32 @@ const gchar *ibus_engine_get_name(IBusEngine *engine) {
 
 void ibus_engine_show_preedit_text(IBusEngine *engine) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_SHOW_PREEDIT_TEXT,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_SHOW_PREEDIT_TEXT, g_variant_new("()"));
 }
 
 void ibus_engine_hide_preedit_text(IBusEngine *engine) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_HIDE_PREEDIT_TEXT,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_HIDE_PREEDIT_TEXT, g_variant_new("()"));
 }
 
 void ibus_engine_show_auxiliary_text(IBusEngine *engine) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_SHOW_AUXILIARY_TEXT,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_SHOW_AUXILIARY_TEXT, g_variant_new("()"));
 }
 
 void ibus_engine_hide_auxiliary_text(IBusEngine *engine) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_HIDE_AUXILIARY_TEXT,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_HIDE_AUXILIARY_TEXT, g_variant_new("()"));
 }
 
 void ibus_engine_show_lookup_table(IBusEngine *engine) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_SHOW_LOOKUP_TABLE,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_SHOW_LOOKUP_TABLE, g_variant_new("()"));
 }
 
 void ibus_engine_hide_lookup_table(IBusEngine *engine) {
   g_return_if_fail(IBUS_IS_ENGINE(engine));
-  ibusweb_output_append(engine->priv->ic, IBUSWEB_REC_HIDE_LOOKUP_TABLE,
-                        g_variant_new("()"));
+  emit(engine, IBUSWEB_REC_HIDE_LOOKUP_TABLE, g_variant_new("()"));
 }
 
 void ibusweb_engine_set_ic(IBusEngine *engine, uint32_t ic) {

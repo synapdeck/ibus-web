@@ -389,6 +389,22 @@ static void logging(void) {
     empty_output();
 }
 
+/* An engine a reference outlives DestroyEngine for must not emit under the
+ * context a new engine has taken. */
+static void stale_engine(void) {
+  IBusEngine *old = g_object_ref(last_created);
+  g_assert_cmpint(send(IBUSWEB_REQ_DESTROY_ENGINE, 7, g_variant_new("()")), ==,
+                  0);
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==, 0);
+  g_assert_true(last_created != old);
+  ibus_engine_commit_text(old, ibus_text_new_from_string("stale"));
+  ibus_engine_show_preedit_text(old);
+  ibus_engine_forward_key_event(old, IBUS_a, 38, 0);
+  empty_output();
+  g_object_unref(old);
+}
+
 static void protocol(void) {
   static gint32 wake_word;
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
@@ -448,6 +464,7 @@ static void protocol(void) {
                   -ENOENT);
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==, 0);
+  stale_engine();
   g_assert_cmpint(send(IBUSWEB_REQ_PROCESS_KEY_EVENT, 7,
                        g_variant_new("(uuu)", 999u, 0u, 0u)),
                   ==, -ECANCELED);
