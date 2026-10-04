@@ -120,7 +120,9 @@ export class CursorDown extends Schema.TaggedClass<CursorDown>()(
 export class CandidateClicked extends Schema.TaggedClass<CandidateClicked>()(
   "CandidateClicked",
   {
-    index: Uint32.annotate({ description: "Index of the clicked candidate in the lookup table." }),
+    index: Uint32.annotate({
+      description: "Page-relative position of the clicked candidate on the visible lookup table page.",
+    }),
     button: Uint32.annotate({ description: "Mouse button used to select the candidate." }),
     state: Uint32.annotate({ description: "Modifier state at the time of the click." }),
   },

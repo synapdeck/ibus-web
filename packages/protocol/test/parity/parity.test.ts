@@ -42,8 +42,22 @@ describe.skipIf(!manifest)("real IBus parity", () => {
     });
   }
   it("TypeScript reads every C object and preserves its bytes", () => {
-    const files = readdirSync(join(paths.output, "c-objects")).filter((name) => name.endsWith(".json"));
-    expect(files.length).toBeGreaterThanOrEqual(11);
+    const files = readdirSync(join(paths.output, "c-objects"))
+      .filter((name) => name.endsWith(".json"))
+      .sort();
+    expect(files).toEqual([
+      "ascii.json",
+      "astral.json",
+      "attribute.json",
+      "decorated.json",
+      "empty-attrs.json",
+      "empty-properties.json",
+      "empty-text.json",
+      "hangul.json",
+      "lookup.json",
+      "properties.json",
+      "property.json",
+    ]);
     for (const file of files) {
       const fixture = json<ObjectFixture>(join(paths.output, "c-objects", file));
       const schema = objectSchemas[fixture.type];

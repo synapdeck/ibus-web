@@ -7,6 +7,10 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 Protocol version: **1**.
 
+Header fields and GVariant payloads use little-endian encoding. Payloads must be in GVariant normal form.
+
+Records are zero-padded to a total size that is a multiple of eight bytes. An empty tuple payload `()` is one zero byte.
+
 ## Request header
 
 | Field   | Width (bytes) | Description                                  |
@@ -195,11 +199,11 @@ Kind: **28**. Signature: `(uuu)`.
 
 Notify the engine that the user clicked a candidate.
 
-| Name     | GVariant type | Description                                         |
-| -------- | ------------- | --------------------------------------------------- |
-| `index`  | `u`           | Index of the clicked candidate in the lookup table. |
-| `button` | `u`           | Mouse button used to select the candidate.          |
-| `state`  | `u`           | Modifier state at the time of the click.            |
+| Name     | GVariant type | Description                                                                       |
+| -------- | ------------- | --------------------------------------------------------------------------------- |
+| `index`  | `u`           | Page-relative position of the clicked candidate on the visible lookup table page. |
+| `button` | `u`           | Mouse button used to select the candidate.                                        |
+| `state`  | `u`           | Modifier state at the time of the click.                                          |
 
 ### PropertyActivate
 

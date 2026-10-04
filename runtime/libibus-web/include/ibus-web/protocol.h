@@ -8,6 +8,11 @@
 
 #define IBUSWEB_PROTOCOL_VERSION 1
 
+/* Header fields and GVariant payloads use little-endian encoding.
+ * Payloads must be in GVariant normal form.
+ * Records are zero-padded to a total size that is a multiple of eight bytes.
+ * An empty tuple payload () is one zero byte. */
+
 typedef struct {
   uint16_t kind;  /* Request kind identifying the payload schema. */
   uint16_t flags; /* Reserved request flags; must be zero. */
@@ -90,8 +95,8 @@ enum IBusWebRequestKind {
   IBUSWEB_REQ_CURSOR_DOWN = 27,
   /* (uuu) index, button, state
    * Notify the engine that the user clicked a candidate.
-   * index: Index of the clicked candidate in the lookup table.
-   * button: Mouse button used to select the candidate.
+   * index: Page-relative position of the clicked candidate on the visible
+   * lookup table page. button: Mouse button used to select the candidate.
    * state: Modifier state at the time of the click. */
   IBUSWEB_REQ_CANDIDATE_CLICKED = 28,
   /* (su) name, state

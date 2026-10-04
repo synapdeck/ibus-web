@@ -92,6 +92,11 @@ export function renderProtocolH(): string {
 
 #define IBUSWEB_PROTOCOL_VERSION ${PROTOCOL_VERSION}
 
+/* Header fields and GVariant payloads use little-endian encoding.
+ * Payloads must be in GVariant normal form.
+ * Records are zero-padded to a total size that is a multiple of eight bytes.
+ * An empty tuple payload () is one zero byte. */
+
 ${renderHeader("IBusWebRequestHeader", framing.request)}
 
 ${renderHeader("IBusWebRecordHeader", framing.record)}

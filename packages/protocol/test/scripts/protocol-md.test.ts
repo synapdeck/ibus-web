@@ -46,4 +46,12 @@ describe("protocol document", () => {
     expect(document).toContain("| `candidates` | `av` ([IBusText](#ibustext)[]) |");
     expect(document).toContain("| `name` | `s` | Serializable type name: `IBusText`. |");
   });
+  it("documents wire encoding, padding and page-relative candidate clicks", () => {
+    const output = renderProtocolMd();
+    expect(output).toContain("Header fields and GVariant payloads use little-endian encoding.");
+    expect(output).toContain("Payloads must be in GVariant normal form.");
+    expect(output).toContain("Records are zero-padded to a total size that is a multiple of eight bytes.");
+    expect(output).toContain("An empty tuple payload `()` is one zero byte.");
+    expect(output).toContain("Page-relative position of the clicked candidate on the visible lookup table page.");
+  });
 });

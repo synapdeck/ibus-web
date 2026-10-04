@@ -99,6 +99,8 @@ export function renderProtocolMd(): string {
     "<!-- Generated from @ibus-web/protocol's schemas by `nix run .#write-files`; edit those, not this file. -->",
     "# ibus-web protocol",
     `Protocol version: **${PROTOCOL_VERSION}**.`,
+    "Header fields and GVariant payloads use little-endian encoding. Payloads must be in GVariant normal form.",
+    "Records are zero-padded to a total size that is a multiple of eight bytes. An empty tuple payload `()` is one zero byte.",
     renderHeader("Request", framing.request),
     renderHeader("Record", framing.record),
     `Record flag \`CONTINUATION\`: \`0x${RECORD_CONTINUATION.toString(16).padStart(4, "0")}\`. Only the host sets this flag when fragmenting records.`,

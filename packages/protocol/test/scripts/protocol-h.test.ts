@@ -91,4 +91,12 @@ describe("generated C wire header", () => {
     expect(header).toContain("Reserved request flags; must be zero.");
     expect(header).toContain("GSettings schema id containing the changed key.");
   });
+  it("documents wire encoding, padding and page-relative candidate clicks", () => {
+    const output = renderProtocolH();
+    expect(output).toContain("Header fields and GVariant payloads use little-endian encoding.");
+    expect(output).toContain("Payloads must be in GVariant normal form.");
+    expect(output).toContain("Records are zero-padded to a total size that is a multiple of eight bytes.");
+    expect(output).toContain("An empty tuple payload () is one zero byte.");
+    expect(output).toContain("Page-relative position of the clicked candidate on the visible lookup table page.");
+  });
 });
