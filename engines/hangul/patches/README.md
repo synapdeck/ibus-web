@@ -17,6 +17,7 @@ releases those objects, but the current module ABI has no shutdown entry point.
 | port  | 0001  | Disconnect both GSettings handlers before freeing an engine, preventing changes from calling a destroyed engine.                                                                                                                              |
 | port  | 0002  | Consume a digit outside the last Hanja page without setting an invalid candidate cursor.                                                                                                                                                      |
 | port  | 0003  | Keep module-global settings synchronized independently of engine lifetimes; instance handlers only update their keyboard context. Settings upstream reads only at initialization, such as `disable-latin-mode`, still take effect only there. |
+| port  | 0004  | Treat a `CandidateClicked` index as a position on the visible page, as the IBus panel sends it, instead of as an absolute candidate index.                                                                                                    |
 | casts | 0001  | Match `GClassInitFunc`, `GInstanceInitFunc`, and `IBusObjectDestroyFunc`; the first two lacked their second argument, while the destroy callback had a different pointer parameter type.                                                      |
 
 The strict cast audit reports these three findings without the patch and none
@@ -30,8 +31,13 @@ changes `hangul-keyboard`, which a stale handler would apply to the freed
 context, and composes with the new layout in a fresh engine. Without port 0001
 the handler assertion fails deterministically; when earlier cases leave stale
 handlers too, the full suite traps on a later keyboard change. The candidate
-test presses 9 on an incomplete last page. The idle-settings test recreates an
+test presses 9 on an incomplete last page, and the click test pages forward
+before clicking the second label. The idle-settings test recreates an
 engine after changing keyboard and Hanja hotkey with no live instance, then uses
-both without resending settings. All three bugs failed before their port patches;
+both without resending settings. All four bugs failed before their port patches;
 the complete suite also covers composition, settings, surrounding text and
 forwarded-key ordering.
+
+Stock ibus-hangul still treats a clicked index as absolute, so the differential
+click trace pages back to the first page, where both readings agree, before it
+clicks.

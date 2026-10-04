@@ -138,6 +138,13 @@
         {
           "kind": "event",
           "step": 15,
+          "name": "UpdateLookupTable",
+          "signature": "(vb)",
+          "payloadContains": "uint32 9, uint32 0"
+        },
+        {
+          "kind": "event",
+          "step": 17,
           "name": "CommitText",
           "signature": "(v)",
           "payloadContains": "'韓'"

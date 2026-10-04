@@ -1,0 +1,42 @@
+From cc5ed980fcd84c84c95e267a926b8897b8e36909 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sat, 3 Oct 2026 20:02:37 -0700
+Subject: [PATCH] Select clicked candidates on the visible page
+
+The IBus panel sends CandidateClicked with the clicked label's index
+within the current page, but the handler used it as an absolute
+candidate index. After paging forward, a click selected the candidate
+at the same position on the first page instead. Offset the index by
+the start of the page holding the cursor.
+---
+ src/engine.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/engine.c b/src/engine.c
+index e5121b3..1f80208 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -2063,13 +2063,19 @@ ibus_hangul_engine_candidate_clicked (IBusEngine     *engine,
+                                       guint           state)
+ {
+     IBusHangulEngine *hangul = (IBusHangulEngine *) engine;
++    guint page_size;
++    guint page_no;
++
+     if (hangul == NULL)
+ 	return;
+ 
+     if (hangul->table == NULL)
+ 	return;
+ 
+-    ibus_lookup_table_set_cursor_pos (hangul->table, index);
++    /* The panel reports the clicked label's position on the visible page. */
++    page_size = ibus_lookup_table_get_page_size (hangul->table);
++    page_no = ibus_lookup_table_get_cursor_pos (hangul->table) / page_size;
++    ibus_lookup_table_set_cursor_pos (hangul->table, page_no * page_size + index);
+     ibus_hangul_engine_commit_current_candidate (hangul);
+ 
+     if (hangul->hanja_mode) {
+-- 
+2.55.0
+

@@ -255,18 +255,20 @@ static void hanja_click(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   compose_han(fixture);
   g_assert_cmpint(golden_key(fixture, IBUS_F8, 66, 0), ==, 1);
   IBusLookupTable *table = lookup(fixture);
-  guint index = korean_candidate(table);
-  g_assert_cmpuint(ibus_lookup_table_get_number_of_candidates(table), >, 9);
+  g_assert_cmpuint(ibus_lookup_table_get_number_of_candidates(table), >, 10);
   g_object_unref(table);
   g_assert_cmpint(golden_key(fixture, IBUS_Page_Down, 109, 0), ==, 1);
   table = lookup(fixture);
   g_assert_cmpuint(ibus_lookup_table_get_cursor_pos(table), ==, 9);
+  g_autofree gchar *expected =
+      g_strdup(ibus_lookup_table_get_candidate(table, 10)->text);
   g_object_unref(table);
   golden_clear(fixture);
+  /* Panels report the clicked label's position within the visible page. */
   g_assert_cmpint(golden_request(fixture, IBUSWEB_REQ_CANDIDATE_CLICKED,
-                                 g_variant_new("(uuu)", index, 1u, 0u)),
+                                 g_variant_new("(uuu)", 1u, 1u, 0u)),
                   ==, 0);
-  commit(fixture, "韓");
+  commit(fixture, expected);
   g_assert_cmpuint(golden_count(fixture, IBUSWEB_REC_HIDE_LOOKUP_TABLE), >, 0);
 }
 
@@ -349,6 +351,7 @@ static void surrounding(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_cmpint(golden_key(fixture, IBUS_F9, 67, 0), ==, 1);
   IBusLookupTable *table = lookup(fixture);
   guint index = korean_candidate(table);
+  g_assert_cmpuint(index, <, ibus_lookup_table_get_page_size(table));
   g_object_unref(table);
   golden_clear(fixture);
   g_assert_cmpint(golden_request(fixture, IBUSWEB_REQ_CANDIDATE_CLICKED,

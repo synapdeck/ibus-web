@@ -100,6 +100,18 @@
     {
       "op": "call",
       "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65365, uint32 104, uint32 0)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65365, uint32 104, uint32 1073741824)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
       "method": "CandidateClicked",
       "args": "(uint32 0, uint32 1, uint32 0)"
     },
