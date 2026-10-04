@@ -85,9 +85,12 @@ An item leaves this page when it is fixed or decided.
 - **IBus API scope.** M1.1 supplies engine/data types, emitters, the framed dispatcher
   and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji;
   unused bus/config/component APIs remain absent. Keymap lookup uses page-provided keysyms.
-- **Native parity.** The golden suite runs the real WASM engine, but has no native
-  differential reference yet. The reusable tester is designed in
-  [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
+- **Native parity scope.** `checks.hangul-differential` compares ten traces at
+  the engine boundary against the pinned stock native engine. It does not test
+  browser host/router behavior or live settings. The stock engine's invalid
+  final-page digit emits five extra signals and two GLib criticals while both
+  adapters exit successfully; the corpus declares that exact upstream outcome.
+  See [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
 - **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell and the GVariant
   protocol are M1's. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
   reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in

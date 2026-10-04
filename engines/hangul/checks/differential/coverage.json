@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "scenario": "latin-toggle-composition",
+      "required": [
+        {
+          "kind": "reply",
+          "step": 3,
+          "value": false
+        },
+        {
+          "kind": "event",
+          "step": 5,
+          "name": "UpdateProperty",
+          "payloadContains": "'한'"
+        },
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "UpdatePreeditText",
+          "signature": "(vubu)",
+          "payloadContains": "'한'"
+        },
+        {
+          "kind": "event",
+          "step": 13,
+          "name": "CommitText",
+          "signature": "(v)",
+          "payloadContains": "'한'"
+        },
+        {
+          "kind": "reply",
+          "step": 13,
+          "value": false
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "caps-backspace",
+      "required": [
+        {
+          "kind": "event",
+          "step": 9,
+          "name": "UpdatePreeditText",
+          "signature": "(vubu)",
+          "payloadContains": "'한'"
+        },
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "UpdatePreeditText",
+          "signature": "(vubu)",
+          "payloadContains": "'하'"
+        },
+        {
+          "kind": "reply",
+          "step": 11,
+          "value": true
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "focus-reset",
+      "required": [
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "HidePreeditText",
+          "signature": "()"
+        },
+        {
+          "kind": "event",
+          "step": 19,
+          "name": "HidePreeditText",
+          "signature": "()"
+        },
+        {
+          "kind": "event",
+          "step": 24,
+          "name": "UpdatePreeditText",
+          "signature": "(vubu)",
+          "payloadContains": "'한'"
+        }
+      ],
+      "forbidden": [
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "CommitText"
+        },
+        {
+          "kind": "event",
+          "step": 19,
+          "name": "CommitText"
+        }
+      ]
+    },
+    {
+      "scenario": "hanja-keyboard",
+      "required": [
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "UpdateLookupTable",
+          "signature": "(vb)",
+          "payloadContains": "uint32 9, uint32 0"
+        },
+        {
+          "kind": "event",
+          "step": 13,
+          "name": "UpdateLookupTable",
+          "signature": "(vb)",
+          "payloadContains": "uint32 9, uint32 1"
+        },
+        {
+          "kind": "event",
+          "step": 15,
+          "name": "CommitText",
+          "signature": "(v)",
+          "payloadContains": "'漢'"
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "hanja-click-page",
+      "required": [
+        {
+          "kind": "event",
+          "step": 13,
+          "name": "UpdateLookupTable",
+          "signature": "(vb)",
+          "payloadContains": "uint32 9, uint32 9"
+        },
+        {
+          "kind": "event",
+          "step": 15,
+          "name": "CommitText",
+          "signature": "(v)",
+          "payloadContains": "'韓'"
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "password",
+      "required": [
+        {
+          "kind": "reply",
+          "step": 6,
+          "value": false
+        }
+      ],
+      "forbidden": [
+        {
+          "kind": "event",
+          "step": 6,
+          "name": "UpdatePreeditText"
+        },
+        {
+          "kind": "event",
+          "step": 6,
+          "name": "CommitText"
+        }
+      ]
+    },
+    {
+      "scenario": "surrounding-delete",
+      "required": [
+        {
+          "kind": "event",
+          "step": 8,
+          "name": "DeleteSurroundingText",
+          "signature": "(iu)",
+          "payloadContains": "(-1, uint32 1)"
+        },
+        {
+          "kind": "event",
+          "step": 8,
+          "name": "CommitText",
+          "signature": "(v)",
+          "payloadContains": "'韓'"
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "forwarding",
+      "required": [
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "CommitText",
+          "signature": "(v)",
+          "payloadContains": "'한'"
+        },
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "ForwardKeyEvent",
+          "signature": "(uuu)",
+          "payloadContains": "(uint32 32, uint32 57, uint32 0)"
+        },
+        {
+          "kind": "reply",
+          "step": 11,
+          "value": true
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "initial-settings-39-f8",
+      "required": [
+        {
+          "kind": "event",
+          "step": 9,
+          "name": "UpdatePreeditText",
+          "signature": "(vubu)",
+          "payloadContains": "'한'"
+        },
+        {
+          "kind": "event",
+          "step": 11,
+          "name": "UpdateLookupTable",
+          "signature": "(vb)",
+          "payloadContains": "uint32 9, uint32 0"
+        }
+      ],
+      "forbidden": []
+    },
+    {
+      "scenario": "invalid-final-page-digit",
+      "required": [
+        {
+          "kind": "event",
+          "step": 33,
+          "name": "UpdateLookupTable",
+          "signature": "(vb)",
+          "payloadContains": "uint32 9, uint32 99"
+        },
+        {
+          "kind": "reply",
+          "step": 35,
+          "value": true
+        },
+        {
+          "kind": "reply",
+          "step": 36,
+          "value": null
+        }
+      ],
+      "forbidden": []
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "differences": [
+    {
+      "scenario": "invalid-final-page-digit",
+      "triggerStep": 35,
+      "reason": "Stock ibus-hangul 1.5.5 selects beyond the 100-candidate final page, logs two nonfatal GLib criticals, and commits invalid text. The WASM port guards this lookup.",
+      "nativeExtraRecords": [
+        {
+          "context": "hangul",
+          "name": "UpdatePreeditText",
+          "payload": {
+            "signature": "(vubu)",
+            "text": "(<('IBusText', @a{sv} {}, '', <('IBusAttrList', @a{sv} {}, @av [])>)>, uint32 0, false, uint32 0)"
+          },
+          "kind": "event",
+          "step": 35
+        },
+        {
+          "context": "hangul",
+          "name": "CommitText",
+          "payload": {
+            "signature": "(v)",
+            "text": "(<('IBusText', @a{sv} {}, '[Invalid UTF-8]', <('IBusAttrList', @a{sv} {}, @av [])>)>,)"
+          },
+          "kind": "event",
+          "step": 35
+        },
+        {
+          "context": "hangul",
+          "name": "UpdatePreeditText",
+          "payload": {
+            "signature": "(vubu)",
+            "text": "(<('IBusText', @a{sv} {}, '', <('IBusAttrList', @a{sv} {}, @av [])>)>, uint32 0, false, uint32 0)"
+          },
+          "kind": "event",
+          "step": 35
+        },
+        {
+          "context": "hangul",
+          "name": "HideLookupTable",
+          "payload": {
+            "signature": "()",
+            "text": "()"
+          },
+          "kind": "event",
+          "step": 35
+        },
+        {
+          "context": "hangul",
+          "name": "HideAuxiliaryText",
+          "payload": {
+            "signature": "()",
+            "text": "()"
+          },
+          "kind": "event",
+          "step": 35
+        }
+      ],
+      "nativeEngineStderrPattern": "^\\n\\(ibus-engine-hangul:\\d+\\): GLib-CRITICAL \\*\\*: \\d{2}:\\d{2}:\\d{2}\\.\\d+: g_utf8_strlen: assertion 'p != NULL \\|\\| max == 0' failed\\n\\n\\(ibus-engine-hangul:\\d+\\): GLib-CRITICAL \\*\\*: \\d{2}:\\d{2}:\\d{2}\\.\\d+: g_variant_new_string: assertion 'string != NULL' failed\\n$"
+    }
+  ]
+}

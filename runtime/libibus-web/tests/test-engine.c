@@ -590,6 +590,22 @@ static void simple_and_keymap(void) {
   g_object_unref(engine);
 }
 
+static void simple_hides_preedit_on_focus_out_and_reset(void) {
+  IBusEngine *engine =
+      g_object_ref_sink(g_object_new(IBUS_TYPE_ENGINE_SIMPLE, NULL));
+  ibusweb_engine_set_ic(engine, 42);
+  clear_output();
+  expected_seq = ibusweb_output_last_seq();
+
+  g_signal_emit_by_name(engine, "focus-out");
+  expect_record(IBUSWEB_REC_HIDE_PREEDIT_TEXT, g_variant_new("()"));
+
+  g_signal_emit_by_name(engine, "reset");
+  expect_record(IBUSWEB_REC_HIDE_PREEDIT_TEXT, g_variant_new("()"));
+
+  g_object_unref(engine);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
@@ -608,5 +624,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/engine/signals", signal_dispatch);
   g_test_add_func("/engine/factory", factory);
   g_test_add_func("/engine/simple-keymap", simple_and_keymap);
+  g_test_add_func("/engine/simple-preedit-lifecycle",
+                  simple_hides_preedit_on_focus_out_and_reset);
   return g_test_run();
 }

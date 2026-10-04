@@ -109,10 +109,18 @@ means the actual text length, and an empty underline range is omitted. Cached
 surrounding text and cursor change on deletion; upstream leaves the selection
 anchor until the next host update. The tests preserve that behavior.
 
-These tests exercise the actual WASM engine, but do not compare it with a native
-IBus reference. M1.3 supplies the TypeScript/SAB conformance harness; a native
-differential adapter can reuse the event traces and compare at the engine
-D-Bus boundary. The page must eventually commit COMMIT-mode preedit on blur and
+`checks.hangul-differential` runs ten engine-owned traces against the stock
+native Hangul engine and the WASM side module. It compares typed replies and
+engine signals in order, then checks scenario-specific coverage on both sides.
+The corpus covers composition, reset/focus, Hanja selection and paging,
+surrounding deletion, password fields, forwarding, and initial F8/layout 39
+settings. The stock engine emits five extra signals after an invalid digit on
+the final candidate page and prints two GLib criticals. That narrow, versioned
+outcome is declared in the engine directory; all preceding and subsequent
+records still have to match. See [the test adapter](../tools/ibus-test/README.md)
+for the retained artifacts and expected-difference contract.
+
+The page must eventually commit COMMIT-mode preedit on blur and
 reset. Without `IBUS_CAP_SYNC_PROCESS_KEY_V2`, space passes through after the
 engine commits; with it, the engine consumes space and emits `ForwardKeyEvent`
 after `CommitText`. M1.4's router must choose capabilities accordingly.

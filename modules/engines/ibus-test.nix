@@ -166,6 +166,9 @@
           module,
           data,
           traces,
+          expectedDifferences ? null,
+          coverage ? null,
+          versions ? { },
           testEnvironment ? { },
         }:
         assert pkgs.stdenv.hostPlatform.isLinux;
@@ -173,7 +176,14 @@
         let
           manifest = pkgs.writeText "${name}-manifest.json" (
             builtins.toJSON {
-              inherit nativeConfig traces;
+              inherit
+                nativeConfig
+                traces
+                expectedDifferences
+                coverage
+                versions
+                ;
+              traceNames = map (trace: lib.removeSuffix ".json" (builtins.baseNameOf trace)) traces;
               wasmCommand = [
                 "${typescript.nodejs}/bin/node"
                 "${wasm}/ibus-test-wasm.js"

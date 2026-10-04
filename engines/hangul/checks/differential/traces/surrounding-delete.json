@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "settings": [
+    {
+      "schema": "org.freedesktop.ibus.engine.hangul",
+      "key": "hanja-keys",
+      "value": "'Hangul_Hanja,F9,F8'"
+    }
+  ],
+  "steps": [
+    {
+      "op": "create",
+      "context": "hangul",
+      "engine": "hangul"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "SetCapabilities",
+      "args": "(uint32 47,)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "FocusIn",
+      "args": "()"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65329, uint32 122, uint32 0)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65329, uint32 122, uint32 1073741824)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "SetSurroundingText",
+      "args": "( <('IBusText', @a{sv} {}, '한', <('IBusAttrList', @a{sv} {}, @av [])>)>, uint32 1, uint32 1)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65478, uint32 67, uint32 0)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65478, uint32 67, uint32 1073741824)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "CandidateClicked",
+      "args": "(uint32 0, uint32 1, uint32 0)"
+    },
+    {
+      "op": "destroy",
+      "context": "hangul"
+    }
+  ]
+}

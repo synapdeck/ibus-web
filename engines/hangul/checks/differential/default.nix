@@ -9,6 +9,7 @@
       ...
     }:
     let
+      inherit (config.ibusWeb) engines;
       hangul = pkgs.ibus-engines.hangul;
       native = config.packages.ibus-test-native;
       busConfig = pkgs.writeText "ibus-test-session-bus.conf" ''
@@ -61,6 +62,31 @@
         ibus-test-hangul-config = nativeConfig;
       };
       checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        hangul-differential = engines.ibusTest {
+          name = "hangul-differential";
+          inherit nativeConfig;
+          module = "${engines.hangul}/hangul.wasm";
+          data = "${engines.hangul}/data/usr/share";
+          expectedDifferences = ./expected-differences.json;
+          coverage = ./coverage.json;
+          versions = {
+            nativeEngine = hangul.version;
+            wasmEngine = engines.hangul.version;
+            nativeIBus = pkgs.ibus.version;
+          };
+          traces = [
+            ./traces/latin-toggle-composition.json
+            ./traces/caps-backspace.json
+            ./traces/focus-reset.json
+            ./traces/hanja-keyboard.json
+            ./traces/hanja-click-page.json
+            ./traces/password.json
+            ./traces/surrounding-delete.json
+            ./traces/forwarding.json
+            ./traces/initial-settings-39-f8.json
+            ./traces/invalid-final-page-digit.json
+          ];
+        };
         hangul-native-session = config.ibusWeb.testing.vitestCheck {
           name = "hangul-native-session";
           packageDir = "${config.packages.ibus-test-tools}/tools";

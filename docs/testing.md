@@ -299,8 +299,11 @@ runtime requests and decodes records with GVariant/IBus. Its 15 cases cover
 composition, candidates, focus, settings (including changes with zero instances),
 lifetime, surrounding text and event ordering. The shim reports those cases and a run-completion check under Node.
 See [engines.md](engines.md#golden-tests) for the harness and the port bugs it
-reproduced. These are WASM behavior tests; native differential comparison is a
-separate follow-up.
+reproduced. `checks.hangul-differential` separately replays ten engine-owned
+traces through private stock-native IBus sessions and the WASM engine, comparing
+ordered typed output and checking coverage assertions for each scenario. Its
+retained `results` output includes both transcripts and process diagnostics;
+see [the adapter contract](../tools/ibus-test/README.md).
 
 `checks.hangul-cast-audit` and `checks.libibus-web-cast-audit` compile real
 sources with Clang's strict function-cast warning and compare the structured

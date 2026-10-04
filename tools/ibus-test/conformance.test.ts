@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { compareTranscripts } from "./compare.ts";
+import { checkExpectedDifference, compareTranscripts, validateExpectedDifferences } from "./compare.ts";
+import { checkCoverage, validateCoverage } from "./coverage.ts";
 import { AdapterRunError, runAdapter } from "./process.ts";
 import { withNativeSession, type NativeEngineConfig } from "./session.ts";
 import { validateTrace } from "./trace.ts";
@@ -31,8 +32,25 @@ function artifacts() {
   return directory;
 }
 
-function manifest(): { nativeConfig: string; wasmCommand: string[]; traces: string[] } {
+type CorpusManifest = {
+  nativeConfig: string;
+  wasmCommand: string[];
+  traces: string[];
+  traceNames: string[];
+  expectedDifferences?: string | null;
+  coverage?: string | null;
+  versions?: Record<string, string>;
+};
+
+function manifest(): CorpusManifest {
   return JSON.parse(readFileSync(manifestPath!, "utf8"));
+}
+
+function nativeEngineStderr(directory: string): string {
+  const nativeDirectory = join(directory, "native");
+  const files = readdirSync(nativeDirectory).filter((name) => /^\d+-engine\.stderr\.txt$/.test(name));
+  if (files.length !== 1) throw new Error(`expected one owned native engine stderr file, found ${files.length}`);
+  return readFileSync(join(nativeDirectory, files[0]!), "utf8");
 }
 
 async function runBoth(input: Trace) {
@@ -40,9 +58,9 @@ async function runBoth(input: Trace) {
   const nativeConfig: NativeEngineConfig = JSON.parse(readFileSync(configuration.nativeConfig, "utf8"));
   const directory = artifacts();
   writeFileSync(join(directory, "trace.json"), `${JSON.stringify(input, null, 2)}\n`);
-  const metadata: Record<string, unknown> = {};
+  const metadata: Record<string, unknown> = { versions: configuration.versions ?? {} };
   try {
-    return await withNativeSession(
+    const result = await withNativeSession(
       nativeConfig,
       input.settings,
       async (session) => {
@@ -71,6 +89,7 @@ async function runBoth(input: Trace) {
       },
       { artifactDir: join(directory, "native") },
     );
+    return { ...result, directory };
   } catch (error) {
     metadata["error"] = error instanceof Error ? error.message : String(error);
     if (error instanceof AdapterRunError) {
@@ -83,6 +102,7 @@ async function runBoth(input: Trace) {
     }
     throw error;
   } finally {
+    metadata["firstDivergence"] = (metadata["differences"] as unknown[] | undefined)?.[0] ?? null;
     writeFileSync(join(directory, "result.json"), `${JSON.stringify(metadata, null, 2)}\n`);
   }
 }
@@ -251,7 +271,47 @@ describe.skipIf(!manifestPath)("configured engine traces", () => {
   test.each(manifestPath ? manifest().traces : ["unconfigured"])(
     "replays %s",
     async (path) => {
-      await expectEquivalent(validateTrace(JSON.parse(readFileSync(path, "utf8"))));
+      const configuration = manifest();
+      const declarations = configuration.expectedDifferences
+        ? validateExpectedDifferences(
+            JSON.parse(readFileSync(configuration.expectedDifferences, "utf8")),
+            configuration.traceNames,
+          )
+        : new Map();
+      const coverage = configuration.coverage
+        ? validateCoverage(JSON.parse(readFileSync(configuration.coverage, "utf8")), configuration.traceNames)
+        : undefined;
+      const scenario = configuration.traceNames[configuration.traces.indexOf(path)];
+      if (!scenario) throw new Error(`manifest has no scenario name for ${path}`);
+      const input = validateTrace(JSON.parse(readFileSync(path, "utf8")));
+      const { native, wasm, directory } = await runBoth(input);
+      expect(native.exitCode, native.stderr).toBe(0);
+      expect(native.signal).toBeNull();
+      expect(wasm.exitCode, wasm.stderr).toBe(0);
+      expect(wasm.signal).toBeNull();
+      expect(native.stderr).toBe("");
+      expect(wasm.stderr).not.toMatch(/\b(?:WARNING|CRITICAL|ERROR)\b/);
+      const engineStderr = nativeEngineStderr(directory);
+      const declaration = declarations.get(scenario);
+      if (declaration) {
+        expect(input.steps[declaration.triggerStep]?.op).toBe("call");
+        checkExpectedDifference(native.records, wasm.records, declaration, engineStderr);
+      } else {
+        expect(engineStderr).toBe("");
+        expect(compareTranscripts(native.records, wasm.records)).toEqual([]);
+      }
+      const requiredCoverage = coverage?.get(scenario);
+      if (requiredCoverage) {
+        checkCoverage(native.records, requiredCoverage);
+        checkCoverage(wasm.records, requiredCoverage);
+      }
+      const resultPath = join(directory, "result.json");
+      const result = JSON.parse(readFileSync(resultPath, "utf8"));
+      result.scenario = scenario;
+      result.expectedDifference = declaration
+        ? { scenario, triggerStep: declaration.triggerStep, matched: true }
+        : null;
+      writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
     },
     15000,
   );

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
-import { compareTranscripts } from "./compare.ts";
+import { checkExpectedDifference, compareTranscripts, validateExpectedDifferences } from "./compare.ts";
 
 const unicode = {
   kind: "event" as const,
@@ -69,4 +69,98 @@ test("identifies the first divergent context, step, and payload field", () => {
     native: unicode.payload.text,
     wasm: changed.payload.text,
   });
+});
+
+const expectedExtra = { ...unicode, step: 2, name: "CommitText" };
+const expectedDifference = {
+  scenario: "upstream-invalid-candidate",
+  triggerStep: 2,
+  reason: "The native engine emits an invalid candidate before replying.",
+  nativeExtraRecords: [expectedExtra],
+  nativeEngineStderrPattern: "^GLib-CRITICAL: invalid candidate$",
+};
+const reply = { kind: "reply" as const, step: 2, value: true };
+const destroyReply = { kind: "reply" as const, step: 3, value: null };
+const wasm = [unicode, reply, destroyReply];
+const native = [unicode, expectedExtra, reply, destroyReply];
+
+test("accepts only the declared contiguous native insertion and exact remaining transcript", () => {
+  expect(() =>
+    checkExpectedDifference(native, wasm, expectedDifference, "GLib-CRITICAL: invalid candidate"),
+  ).not.toThrow();
+  expect(() => checkExpectedDifference(wasm, wasm, expectedDifference, "GLib-CRITICAL: invalid candidate")).toThrow();
+  expect(() =>
+    checkExpectedDifference(
+      [unicode, reply, destroyReply, expectedExtra],
+      wasm,
+      expectedDifference,
+      "GLib-CRITICAL: invalid candidate",
+    ),
+  ).toThrow();
+  expect(() =>
+    checkExpectedDifference(
+      [{ ...unicode, name: "wrong" }, ...native.slice(1)],
+      wasm,
+      expectedDifference,
+      "GLib-CRITICAL: invalid candidate",
+    ),
+  ).toThrow();
+  expect(() =>
+    checkExpectedDifference(
+      [unicode, { ...expectedExtra, name: "wrong" }, reply, destroyReply],
+      wasm,
+      expectedDifference,
+      "GLib-CRITICAL: invalid candidate",
+    ),
+  ).toThrow();
+  expect(() =>
+    checkExpectedDifference(
+      [unicode, { ...expectedExtra, step: 3 }, reply, destroyReply],
+      wasm,
+      expectedDifference,
+      "GLib-CRITICAL: invalid candidate",
+    ),
+  ).toThrow();
+  expect(() =>
+    checkExpectedDifference(
+      native.slice(0, -1).concat({ ...destroyReply, value: true }),
+      wasm,
+      expectedDifference,
+      "GLib-CRITICAL: invalid candidate",
+    ),
+  ).toThrow();
+});
+
+test("requires the exact diagnostic with no inserted or surrounding warnings", () => {
+  for (const diagnostic of [
+    "WARNING\nGLib-CRITICAL: invalid candidate",
+    "GLib-CRITICAL: invalid candidate\nWARNING",
+    "GLib-CRITICAL: invalid\nWARNING\n candidate",
+  ]) {
+    expect(() => checkExpectedDifference(native, wasm, expectedDifference, diagnostic)).toThrow();
+  }
+});
+
+test("rejects stale, unknown, duplicate, and malformed expected declarations", () => {
+  const valid = { version: 1, differences: [expectedDifference] };
+  expect(validateExpectedDifferences(valid, ["upstream-invalid-candidate"])).toEqual(
+    new Map([[expectedDifference.scenario, expectedDifference]]),
+  );
+  expect(() => validateExpectedDifferences(valid, ["another-scenario"])).toThrow(/unknown/);
+  expect(() =>
+    validateExpectedDifferences({ version: 1, differences: [expectedDifference, expectedDifference] }, [
+      expectedDifference.scenario,
+    ]),
+  ).toThrow(/duplicate/);
+  expect(() =>
+    validateExpectedDifferences({ version: 1, differences: [{ ...expectedDifference, nativeExtraRecords: [] }] }, [
+      expectedDifference.scenario,
+    ]),
+  ).toThrow(/nonempty/);
+  expect(() =>
+    validateExpectedDifferences(
+      { version: 1, differences: [{ ...expectedDifference, nativeExtraRecords: [{ ...expectedExtra, step: 3 }] }] },
+      [expectedDifference.scenario],
+    ),
+  ).toThrow(/outside trace/);
 });

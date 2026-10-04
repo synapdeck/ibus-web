@@ -16,8 +16,11 @@ reply with JSON null; `ProcessKeyEvent` replies with a boolean. Other reply bodi
 retain their typed GVariant representation. `SetContentType` takes `(uu)` and
 maps to `org.freedesktop.DBus.Properties.Set` on the engine's `ContentType`.
 
-The native driver preserves incoming D-Bus message order, including signals
-preceding method replies and signals emitted during factory creation. Values use
+The native driver sends calls on one connection and receives engine signals and
+replies addressed to that connection through a second, eavesdropping observer.
+This gives both kinds of message one bus dispatch queue, preserving their wire
+order through creation and the final Ping barrier. Replies are qualified by
+request serial, destination, and engine owner. Values use
 JSON-GLib and GLib's annotated `g_variant_print` text plus the exact signature;
 there is no replacement IBus implementation or custom variant codec involved.
 
@@ -146,7 +149,7 @@ invalid calls, deadlines, context reuse, output preceding closure and diagnostic
 Native transport-failure fixtures and Hangul goldens remain separate checks.
 This CLI harness does not establish browser host/router conformance.
 
-`ibusWeb.engines.ibusTest { name; nativeConfig; module; data; traces; }` builds a
+`ibusWeb.engines.ibusTest { name; nativeConfig; module; data; traces; expectedDifferences?; coverage?; versions?; }` builds a
 Linux check for supplied trace paths and any configured engine. `nativeConfig`
 is a session-config JSON path; `module` is the WASM side-module path; `data` is
 its `usr/share` tree; `traces` is a nonempty list of trace JSON paths. Each trace
@@ -156,11 +159,31 @@ cases are enabled only in the dedicated fixture check. Transcript differences
 include the reference event context (or WASM event context when the native event
 is absent), step, and first differing field, retaining both values.
 
+Optional `expectedDifferences` is an engine-local version 1 JSON document. Each
+declaration names a scenario and trigger step, gives an explanatory reason, an
+exact contiguous sequence of native-only event records at that step, and a
+regular expression matching the entire native engine stderr. The comparison
+requires successful native and WASM exits, no adapter diagnostics, exact output
+before and after the insertion, and no undeclared differences. Unknown,
+duplicate, missing, or unused declarations fail. This contract supports only
+extra native events at one trigger step; it cannot excuse a changed reply or a
+later divergence. `coverage` is a separate version 1 engine-local document with
+ordered `required` and `forbidden` event/reply observations for every scenario.
+It prevents a pair of equally empty transcripts from passing. `versions` is
+copied into retained results for audit.
+
+Hangul's `checks.hangul-differential` uses all three options. It exercises ten
+traces with physical evdev keycodes and initial settings. The pinned native
+engine's final-page invalid digit emits five extra signals and exactly two
+nonfatal GLib critical diagnostics; the declaration is specific to that
+scenario and trigger step. It is based on native engine 1.5.5 and IBus 1.5.34,
+not on a patched binary.
+
 The builder materializes a `results` derivation even when a test fails. Its
 `status`, `results.json` and `output.txt` retain the runner outcome, and
 `artifacts/` retains each trace, native session/service diagnostics, raw native
 and WASM transcripts/stderr, and `result.json` with exit/signal/error metadata
-and ordered differences. Session-owned sockets, settings and processes are
+ordered differences, first divergence, and supplied versions. Session-owned sockets, settings and processes are
 still cleaned up on failure. A separate verdict derivation rejects failure,
 missing reports and malformed status; it never turns a failed run into a passing
 check. The verdict prints the retained results path when it fails. Inspect or

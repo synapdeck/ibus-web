@@ -7,11 +7,13 @@
 
 typedef struct {
   GDBusConnection *connection;
+  GDBusConnection *observer;
   GAsyncQueue *incoming;
   GHashTable *contexts;
   GHashTable *paths;
   GQueue events;
   const char *owner;
+  const char *request_name;
   guint step;
   gint timeout_ms;
   gboolean creating;
@@ -44,8 +46,9 @@ static void emit(Driver *driver, JsonObject *object, const char *kind) {
   json_node_free(node);
 }
 
-/* Filters run on GDBus's worker thread. Queue the original messages before
- * GDBus schedules separate signal/reply callbacks on the main context. */
+/* Calls use the request connection. The observer receives signals and the
+ * request's replies through one bus dispatch queue, before GDBus can schedule
+ * separate signal/reply callbacks on the main context. */
 static GDBusMessage *receive(GDBusConnection *connection, GDBusMessage *message,
                              gboolean incoming, gpointer data) {
   (void)connection;
@@ -135,7 +138,10 @@ static GVariant *call(Driver *driver, const char *path, const char *interface,
     GDBusMessageType type = g_dbus_message_get_message_type(message);
     if ((type == G_DBUS_MESSAGE_TYPE_METHOD_RETURN ||
          type == G_DBUS_MESSAGE_TYPE_ERROR) &&
-        g_dbus_message_get_reply_serial(message) == serial) {
+        g_dbus_message_get_reply_serial(message) == serial &&
+        g_strcmp0(g_dbus_message_get_destination(message),
+                  driver->request_name) == 0 &&
+        g_strcmp0(g_dbus_message_get_sender(message), driver->owner) == 0) {
       GVariant *result = NULL;
       if (!g_dbus_message_to_gerror(message, error)) {
         GVariant *body = g_dbus_message_get_body(message);
@@ -442,6 +448,12 @@ gboolean ibus_test_run(JsonArray *steps, const char *address,
     goto cleanup;
   }
   g_dbus_connection_set_exit_on_close(driver.connection, FALSE);
+  driver.observer = connect_bus(address, timeout_ms, &error);
+  if (!driver.observer) {
+    ok = FALSE;
+    goto cleanup;
+  }
+  g_dbus_connection_set_exit_on_close(driver.observer, FALSE);
   owner_result = g_dbus_connection_call_sync(
       driver.connection, BUS, "/org/freedesktop/DBus", BUS, "GetNameOwner",
       g_variant_new("(s)", destination), G_VARIANT_TYPE("(s)"),
@@ -451,22 +463,37 @@ gboolean ibus_test_run(JsonArray *steps, const char *address,
     goto cleanup;
   }
   g_variant_get(owner_result, "(&s)", &driver.owner);
-  filter = g_dbus_connection_add_filter(driver.connection, receive,
-                                        g_async_queue_ref(driver.incoming),
-                                        (GDestroyNotify)g_async_queue_unref);
-  char *rule = g_strdup_printf("type='signal',sender='%s',interface='%s'",
-                               driver.owner, ENGINE);
-  ok = match(driver.connection, rule, timeout_ms, &error);
+  char *rule = g_strdup_printf(
+      "eavesdrop='true',type='signal',sender='%s',interface='%s'", driver.owner,
+      ENGINE);
+  ok = match(driver.observer, rule, timeout_ms, &error);
   g_free(rule);
   if (!ok)
     goto cleanup;
   rule = g_strdup_printf("type='signal',sender='%s',interface='%s',member='"
                          "NameOwnerChanged',arg0='%s'",
                          BUS, BUS, driver.owner);
-  ok = match(driver.connection, rule, timeout_ms, &error);
+  ok = match(driver.observer, rule, timeout_ms, &error);
   g_free(rule);
   if (!ok)
     goto cleanup;
+  driver.request_name = g_dbus_connection_get_unique_name(driver.connection);
+  rule =
+      g_strdup_printf("eavesdrop='true',type='method_return',destination='%s'",
+                      driver.request_name);
+  ok = match(driver.observer, rule, timeout_ms, &error);
+  g_free(rule);
+  if (!ok)
+    goto cleanup;
+  rule = g_strdup_printf("eavesdrop='true',type='error',destination='%s'",
+                         driver.request_name);
+  ok = match(driver.observer, rule, timeout_ms, &error);
+  g_free(rule);
+  if (!ok)
+    goto cleanup;
+  filter = g_dbus_connection_add_filter(driver.observer, receive,
+                                        g_async_queue_ref(driver.incoming),
+                                        (GDestroyNotify)g_async_queue_unref);
   for (driver.step = 0; driver.step < json_array_get_length(steps);
        driver.step++) {
     if (!step_run(&driver, json_array_get_object_element(steps, driver.step),
@@ -498,7 +525,11 @@ cleanup:
   }
   g_clear_error(&error);
   if (filter)
-    g_dbus_connection_remove_filter(driver.connection, filter);
+    g_dbus_connection_remove_filter(driver.observer, filter);
+  if (driver.observer) {
+    g_dbus_connection_close_sync(driver.observer, NULL, NULL);
+    g_object_unref(driver.observer);
+  }
   if (driver.connection) {
     g_dbus_connection_close_sync(driver.connection, NULL, NULL);
     g_object_unref(driver.connection);

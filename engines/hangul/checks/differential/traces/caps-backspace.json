@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "settings": [
+    {
+      "schema": "org.freedesktop.ibus.engine.hangul",
+      "key": "hanja-keys",
+      "value": "'Hangul_Hanja,F9,F8'"
+    }
+  ],
+  "steps": [
+    {
+      "op": "create",
+      "context": "hangul",
+      "engine": "hangul"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "SetCapabilities",
+      "args": "(uint32 47,)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "FocusIn",
+      "args": "()"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65329, uint32 122, uint32 0)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65329, uint32 122, uint32 1073741824)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 103, uint32 34, uint32 2)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 103, uint32 34, uint32 1073741826)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 107, uint32 37, uint32 2)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 107, uint32 37, uint32 1073741826)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 115, uint32 31, uint32 2)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 115, uint32 31, uint32 1073741826)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65288, uint32 14, uint32 0)"
+    },
+    {
+      "op": "call",
+      "context": "hangul",
+      "method": "ProcessKeyEvent",
+      "args": "(uint32 65288, uint32 14, uint32 1073741824)"
+    },
+    {
+      "op": "destroy",
+      "context": "hangul"
+    }
+  ]
+}
