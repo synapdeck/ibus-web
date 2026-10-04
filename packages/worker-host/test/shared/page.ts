@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { decodeRecord, RingReader, transportLayout, type DecodedRecord } from "@ibus-web/protocol";
+import {
+  decodeRecord,
+  RingReader,
+  transportLayout,
+  type DecodedRecord,
+  type TransportLayout,
+} from "@ibus-web/protocol";
 import { controlViews, postRequest, takeReply, ReqMode, State, Word, type Reply } from "../../src/shared/control.ts";
 import type { Clock } from "./client.ts";
 
@@ -11,11 +17,24 @@ export class Page {
   private readonly clock: Clock;
   private readonly timeoutMs: number;
   private replyReady: (() => void) | undefined;
-  constructor(control: SharedArrayBuffer, clock: Clock, timeoutMs: number) {
+  private reading = true;
+  pauseReading(): void {
+    this.reading = false;
+  }
+  resumeReading(): void {
+    this.reading = true;
+    this.onDoorbell();
+  }
+  constructor(
+    control: SharedArrayBuffer,
+    clock: Clock,
+    timeoutMs: number,
+    layout: TransportLayout = transportLayout(),
+  ) {
     this.clock = clock;
     this.timeoutMs = timeoutMs;
-    this.views = controlViews(control);
-    this.reader = new RingReader(this.views, transportLayout());
+    this.views = controlViews(control, layout);
+    this.reader = new RingReader(this.views, layout);
   }
   post(bytes: Uint8Array, mode: number): void {
     postRequest(this.views, bytes, mode);
@@ -37,6 +56,7 @@ export class Page {
     return this.received.splice(0);
   }
   onDoorbell(): void {
+    if (!this.reading) return;
     Atomics.store(this.views.words, Word.doorbell, 0);
     this.drain();
     this.replyReady?.();
@@ -45,7 +65,7 @@ export class Page {
     this.replyReady?.();
   }
   takeReply(): Reply {
-    this.drain();
+    if (this.reading) this.drain();
     return takeReply(this.views);
   }
   abandon(): Reply | undefined {

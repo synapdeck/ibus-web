@@ -88,7 +88,7 @@ export const nodeHarness = async (): Promise<Harness> => {
   };
   const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
   const launch: Launch = (options, messages: Message[]): LaunchedHost => {
-    const control = createControl();
+    const control = createControl(options.layout);
     const worker = new BrowserWorker(hostUrlFor(data, options));
     const minimum = data.constants.memory.minimum;
     const test: TestInit = {
@@ -107,6 +107,7 @@ export const nodeHarness = async (): Promise<Harness> => {
             ? await runtimeModule(options.runtime.url)
             : await WebAssembly.compile(new Uint8Array(options.wasm)),
         control,
+        ...(options.layout === undefined ? {} : { layout: options.layout }),
         ...(options.manifestUrl === undefined
           ? {
               manifest: {
@@ -121,20 +122,25 @@ export const nodeHarness = async (): Promise<Harness> => {
         test,
       };
       const startupMs = await startHost(worker, init, messages);
-      const client = blockingClient(control, messages, {
-        ...clock,
-        block: (words, index, value, ms) => {
-          Atomics.wait(words, index, value, ms);
-        },
-        budgetMs: BUDGET_MS,
-        lateReply: {
-          wait: async (words, index, value, ms) => {
-            const result = Atomics.waitAsync(words, index, value, ms);
-            if (result.async) await result.value;
+      const client = blockingClient(
+        control,
+        messages,
+        {
+          ...clock,
+          block: (words, index, value, ms) => {
+            Atomics.wait(words, index, value, ms);
           },
-          ms: LATE_REPLY_MS,
+          budgetMs: BUDGET_MS,
+          lateReply: {
+            wait: async (words, index, value, ms) => {
+              const result = Atomics.waitAsync(words, index, value, ms);
+              if (result.async) await result.value;
+            },
+            ms: LATE_REPLY_MS,
+          },
         },
-      });
+        options.layout,
+      );
       worker.addEventListener("message", ({ data }) => {
         if ((data as Message).type === "doorbell") client.page.onDoorbell();
         if ((data as Message).type === "crashed") client.page.onCrash();

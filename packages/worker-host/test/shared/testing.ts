@@ -55,8 +55,15 @@ export interface HostStats {
   requestsWhileAsleep: number;
 }
 
+export const PumpControl = { run: 0, deferOnce: 1, holdUntilDispatch: 2, armHold: 3 } as const;
+
+export const RuntimeCall = { pump: 0, dispatch: 1, wait: 2, consumed: 3 } as const;
+
 export interface TestInit {
   sides?: readonly SideModule[];
+  runtimeCalls?: SharedArrayBuffer;
+  waitTrap?: SharedArrayBuffer;
+  deferPump?: SharedArrayBuffer;
   callsAfterFault?: SharedArrayBuffer;
   canceled?: number;
   // struct mallinfo's size, and the offset of uordblks (bytes in use), as

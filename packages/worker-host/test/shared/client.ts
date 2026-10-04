@@ -6,6 +6,7 @@
 // at most a budget, then waits for the reply without holding it. A reply
 // that comes only then is a late reply, which fails the test that made it.
 
+import { transportLayout, type TransportLayout } from "@ibus-web/protocol/transport";
 import { ReqMode, State, Word, type Reply as ProtocolReply } from "../../src/shared/control.ts";
 import { encodeTestOp, type Message } from "./testing.ts";
 import { Page } from "./page.ts";
@@ -64,12 +65,14 @@ export interface Client {
 
 // messages are the host's messages after "ready", such as a crash report,
 // as the caller's event loop receives them.
+
 export const blockingClient = (
   control: SharedArrayBuffer,
   messages: readonly Message[],
   env: BlockingClientEnv,
+  layout: TransportLayout = transportLayout(),
 ): Client => {
-  const page = new Page(control, env, env.lateReply.ms);
+  const page = new Page(control, env, env.lateReply.ms, layout);
   const views = page.views;
   const takeTestReply = (reply: ProtocolReply = page.takeReply()): Reply => ({
     ...reply,

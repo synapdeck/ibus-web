@@ -152,8 +152,9 @@ export const workerLayer = (
   init: HostInit<WebAssembly.Module, unknown>,
   env: WorkerEnv,
 ): Layer.Layer<HostWorker, never, HostConfig> => {
-  const control = controlViews(init.control);
-  const writer = new RingWriter(control, transportLayout());
+  const layout = init.layout ?? transportLayout();
+  const control = controlViews(init.control, layout);
+  const writer = new RingWriter(control, layout);
   const notify = (): void => {
     if (Atomics.exchange(control.words, Word.doorbell, 1) === 0) env.post({ type: "doorbell" });
   };
@@ -380,6 +381,7 @@ export const relayLayer: Layer.Layer<Relay, StartupFailed, HostWorker | HostRunt
             from: { buffer: init.control, index: Word.wake },
             to: { buffer: handle.memory.buffer as unknown as SharedArrayBuffer, index: wakeIndex },
             control: init.control,
+            ...(init.layout === undefined ? {} : { layout: init.layout }),
           }),
         catch: startupFailed,
       }),
@@ -531,7 +533,7 @@ export const serve: Effect.Effect<
     guarded(() => {
       const intact = runtimeIntact(exit);
       scopes.closeAll(handle.rt, intact);
-      if (intact) drainOutput(handle.rt, worker.writer, outputLength);
+      if (intact) drainOutput(handle.rt, worker.writer, outputLength, ctx);
     }).pipe(Effect.orDie),
   );
   const relayFailed = Effect.gen(function* () {

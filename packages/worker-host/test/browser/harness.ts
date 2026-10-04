@@ -164,7 +164,7 @@ export const browserHarness = async (): Promise<Harness> => {
       databases.add(engineDatabase(options.engine));
       if (options.engine.version !== "") databases.add(engineDataDatabase(options.engine));
     }
-    const control = createControl();
+    const control = createControl(options.layout);
     const worker = new Worker(hostUrlFor(data, options), {
       type: "module",
       name: "ibus-web-host",
@@ -188,6 +188,7 @@ export const browserHarness = async (): Promise<Harness> => {
             ? await runtimeModule(options.runtime.url)
             : await WebAssembly.compile(new Uint8Array(options.wasm)),
         control,
+        ...(options.layout === undefined ? {} : { layout: options.layout }),
         ...(options.manifestUrl === undefined
           ? {
               manifest: {
@@ -202,12 +203,17 @@ export const browserHarness = async (): Promise<Harness> => {
         test,
       };
       const startupMs = await startHost(worker, init, messages);
-      const client = blockingClient(control, messages, {
-        ...clock,
-        block: () => {},
-        budgetMs: SPIN_LIMIT_MS,
-        lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
-      });
+      const client = blockingClient(
+        control,
+        messages,
+        {
+          ...clock,
+          block: () => {},
+          budgetMs: SPIN_LIMIT_MS,
+          lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
+        },
+        options.layout,
+      );
       worker.addEventListener("message", ({ data }) => {
         if ((data as Message).type === "doorbell") client.page.onDoorbell();
         if ((data as Message).type === "crashed") client.page.onCrash();

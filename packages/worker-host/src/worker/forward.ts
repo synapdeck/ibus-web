@@ -8,6 +8,7 @@
 // land while it forwards are folded into one wake, which is all a waiter
 // needs.
 
+import type { TransportLayout } from "@ibus-web/protocol/transport";
 import { controlViews, postCrash } from "../shared/control.ts";
 
 export interface RelayWord {
@@ -19,6 +20,7 @@ export interface RelayInit {
   from: RelayWord;
   to: RelayWord;
   control: SharedArrayBuffer;
+  layout?: TransportLayout;
 }
 
 export type Wait = (words: Int32Array, index: number, value: number) => unknown;
@@ -50,7 +52,7 @@ export const forward = (init: RelayInit, ready: () => void, wait: Wait = Atomics
     // sleeping host runs no event loop to hear of this error: the control
     // buffer says so first, and the host, which sleeps on one of the two
     // words, wakes to read it.
-    postCrash(controlViews(init.control));
+    postCrash(controlViews(init.control, init.layout));
     bump(from, init.from.index);
     bump(to, init.to.index);
     throw error;

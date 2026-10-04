@@ -10,7 +10,14 @@ import type { InstrumentReply, Instruments } from "../../src/worker/instruments.
 import { topUp } from "../../src/worker/loop.ts";
 import { loadSides, type RuntimeHandle } from "../../src/worker/runtime.ts";
 import type { MountedStorage } from "../../src/worker/storage/mount.ts";
-import { HostOp, type HostStats, type TestInit, type TestMessage } from "../shared/testing.ts";
+import {
+  PumpControl,
+  RuntimeCall,
+  HostOp,
+  type HostStats,
+  type TestInit,
+  type TestMessage,
+} from "../shared/testing.ts";
 
 // Counts the Workers Emscripten creates, through the global Worker class.
 // Under Node, Emscripten first assigns worker_threads' Worker to the global,
@@ -124,6 +131,46 @@ export const makeInstruments = (
     },
     runtimeStarted: (handle) => {
       runtime = handle;
+      const counts = test.runtimeCalls === undefined ? undefined : new Int32Array(test.runtimeCalls);
+      const trap = test.waitTrap === undefined ? undefined : new Int32Array(test.waitTrap);
+      const defer = test.deferPump === undefined ? undefined : new Int32Array(test.deferPump);
+      const pump = handle.rt._ibusweb_pump.bind(handle.rt);
+      handle.rt._ibusweb_pump = () => {
+        if (defer !== undefined) {
+          // Keep the idle source pending until the next request dispatch, so
+          // its output and the dispatch's output reach one synchronous drain.
+          const command = Atomics.load(defer, 0);
+          if (command === PumpControl.armHold) {
+            Atomics.store(defer, 0, PumpControl.holdUntilDispatch);
+            return 0;
+          }
+          if (command === PumpControl.holdUntilDispatch) return 0;
+          if (command === PumpControl.deferOnce) {
+            Atomics.store(defer, 0, PumpControl.run);
+            return 0;
+          }
+        }
+        if (counts !== undefined) Atomics.add(counts, RuntimeCall.pump, 1);
+        return pump();
+      };
+      const dispatch = handle.rt._ibusweb_dispatch.bind(handle.rt);
+      handle.rt._ibusweb_dispatch = (pointer, length) => {
+        if (defer !== undefined) Atomics.compareExchange(defer, 0, PumpControl.holdUntilDispatch, PumpControl.run);
+        if (counts !== undefined) Atomics.add(counts, RuntimeCall.dispatch, 1);
+        return dispatch(pointer, length);
+      };
+      const wait = handle.rt._ibusweb_wait.bind(handle.rt);
+      handle.rt._ibusweb_wait = (seen, delay) => {
+        if (counts !== undefined) Atomics.add(counts, RuntimeCall.wait, 1);
+        if (trap !== undefined && Atomics.exchange(trap, 0, 0) === 1)
+          (handle.rt as typeof handle.rt & { _ibusweb_test_wait_trap(): never })._ibusweb_test_wait_trap();
+        return wait(seen, delay);
+      };
+      const consume = handle.rt._ibusweb_output_consume.bind(handle.rt);
+      handle.rt._ibusweb_output_consume = (length) => {
+        if (counts !== undefined) Atomics.add(counts, RuntimeCall.consumed, length);
+        return consume(length);
+      };
       const load = handle.rt._ibusweb_load_module.bind(handle.rt);
       handle.rt._ibusweb_load_module = (path, out) => {
         const result = load(path, out);

@@ -4,6 +4,7 @@
 // What the page and the Worker host say to each other by postMessage: the
 // host's one message in, and every message out.
 
+import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { EngineManifest } from "@ibus-web/protocol";
 export type { EngineManifest } from "@ibus-web/protocol";
 export type EngineData = EngineManifest["data"][number];
@@ -71,6 +72,7 @@ export type HostInit<Wasm = unknown, Test = never> = {
   runtimeUrl: string;
   wasm?: Wasm;
   control: SharedArrayBuffer;
+  layout?: TransportLayout;
   storage: EngineStorage;
   // The host tops Emscripten's pthread pool up, when no request is pending,
   // to this many idle Workers.

@@ -16,10 +16,24 @@ typedef struct {
   IBusEngineClass parent;
 } EchoEngineClass;
 G_DEFINE_TYPE(EchoEngine, echo_engine, IBUS_TYPE_ENGINE)
+typedef struct {
+  IBusEngine *engine;
+  guint bytes;
+} IdleCommit;
+static void idle_commit_free(gpointer data) {
+  IdleCommit *commit = data;
+  g_object_unref(commit->engine);
+  g_free(commit);
+}
 static gboolean idle_commit(gpointer data) {
-  ibus_engine_commit_text(IBUS_ENGINE(data), ibus_text_new_from_string("idle"));
+  IdleCommit *commit = data;
+  gchar *text =
+      commit->bytes == 0 ? g_strdup("idle") : g_strnfill(commit->bytes, 'c');
+  ibus_engine_commit_text(commit->engine, ibus_text_new_from_string(text));
+  g_free(text);
   return G_SOURCE_REMOVE;
 }
+IBUSWEB_API void ibusweb_test_wait_trap(void) { __builtin_trap(); }
 static gboolean process_key(IBusEngine *engine, guint keyval, guint keycode,
                             guint state) {
   (void)keycode;
@@ -32,10 +46,14 @@ static gboolean process_key(IBusEngine *engine, guint keyval, guint keycode,
     g_free(text);
     return TRUE;
   }
-  case 'c':
-    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, idle_commit, g_object_ref(engine),
-                    g_object_unref);
+  case 'c': {
+    IdleCommit *commit = g_new(IdleCommit, 1);
+    commit->engine = g_object_ref(engine);
+    commit->bytes = state;
+    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, idle_commit, commit,
+                    idle_commit_free);
     return TRUE;
+  }
   case 'd': {
     FILE *file = fopen(ECHO_DATA, "r");
     if (file == NULL)

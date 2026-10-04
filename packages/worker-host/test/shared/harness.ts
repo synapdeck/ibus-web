@@ -4,6 +4,7 @@
 // What a test environment gives the scenarios: the build's values, and hosts
 // to run them against.
 
+import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { HostConfigValues } from "../../src/shared/config.ts";
 import type { EngineManifest, EngineStorage, RuntimeConstants, SideModule } from "../../src/shared/messages.ts";
 import { engineWriterLock } from "../../src/shared/naming.ts";
@@ -69,6 +70,7 @@ export interface TestData {
 }
 
 export interface HostOptions {
+  layout?: TransportLayout;
   runtime: RuntimeBuild;
   // The engine the host runs, by default one of no storage's named "test".
   engine?: EngineManifest;

@@ -78,7 +78,7 @@ export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
   if (reply.stop === true) ctx.stopping = true;
   if (reply.bytes !== undefined) ctx.control.slot.set(reply.bytes);
   pump(ctx.handle.rt, ctx.constants);
-  drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength);
+  drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength, ctx);
   const published = postReply(ctx.control, reply.ret, ctx.handle.rt._ibusweb_output_last_seq());
   if (published && Atomics.load(ctx.control.words, Word.reqMode) !== ReqMode.sync) ringDoorbell(ctx);
 };
@@ -102,7 +102,7 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
     postReply(control, ret, handle.rt._ibusweb_output_last_seq());
     let message = "ibusweb_dispatch returned -ECANCELED";
     try {
-      drainOutput(handle.rt, ctx.writer, ctx.outputLength);
+      drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx);
     } catch (error) {
       message += `; output drain failed: ${describe(error)}`;
     }
@@ -135,7 +135,7 @@ export const step = (ctx: LoopContext): Step => {
   }
   ctx.woken = false;
   const delay = pump(handle.rt, ctx.constants);
-  if (drainOutput(handle.rt, ctx.writer, ctx.outputLength) > 0) ringDoorbell(ctx);
+  if (drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx) > 0) ringDoorbell(ctx);
   const after = Atomics.load(control.words, Word.state);
   if (after === State.request || after === State.crashed) return { kind: "served" };
   return { kind: "idle", seen, delay };
