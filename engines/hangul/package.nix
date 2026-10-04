@@ -21,16 +21,9 @@
         (engines.castAudit {
           name = "hangul";
           inherit (hangul) src buildInputs;
-          sources = [
-            "src/engine.c"
-            "src/ustring.c"
-            "module.c"
-          ];
+          sources = hangul.auditSources;
           cflags = hangul.auditCflags;
-          pkgConfigModules = [
-            "ibus-1.0"
-            "libhangul"
-          ];
+          pkgConfigModules = hangul.auditPkgConfigModules;
           allowList = ./cast-audit.jsonc;
         }).overrideAttrs
           {

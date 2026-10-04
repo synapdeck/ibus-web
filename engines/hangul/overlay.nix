@@ -24,6 +24,15 @@
                   lib.filesystem.listFilesRecursive (./patches + "/${name}")
                 );
               cflags = "-DHAVE_CONFIG_H -I. -Isrc";
+              pkgConfigModules = [
+                "ibus-1.0"
+                "libhangul"
+              ];
+              sources = [
+                "src/engine.c"
+                "src/ustring.c"
+                "module.c"
+              ];
               prepare = ''
                 cp ${./module.c} module.c
                 cat > config.h <<'EOF'
@@ -48,14 +57,17 @@
               postPatch = (old.postPatch or "") + prepare;
               buildPhase = ''
                 runHook preBuild
-                cflags="$($PKG_CONFIG --cflags ibus-1.0 libhangul) ${cflags}"
-                $CC $cflags -c src/engine.c -o engine.o
-                $CC $cflags -c src/ustring.c -o ustring.o
-                $CC $cflags -c module.c -o module.o
+                cflags="$($PKG_CONFIG --cflags ${lib.escapeShellArgs pkgConfigModules}) ${cflags}"
+                objects=()
+                for source in ${lib.escapeShellArgs sources}; do
+                  object="$(basename "$source" .c).o"
+                  $CC $cflags -c "$source" -o "$object"
+                  objects+=("$object")
+                done
                 libs="$($PKG_CONFIG --static --libs libhangul)"
                 source ${runtime.sideModuleLibraryGuard}
                 checkSideModuleLibraries $libs
-                $CC ${toolchain.sideModuleFlags} engine.o ustring.o module.o $libs -o hangul.wasm
+                $CC ${toolchain.sideModuleFlags} "''${objects[@]}" $libs -o hangul.wasm
                 runHook postBuild
               '';
               installPhase = ''
@@ -71,7 +83,10 @@
                 runHook postInstall
               '';
               passthru = (old.passthru or { }) // {
+                inherit libhangul;
                 auditCflags = cflags;
+                auditSources = sources;
+                auditPkgConfigModules = pkgConfigModules;
               };
             })
           );
