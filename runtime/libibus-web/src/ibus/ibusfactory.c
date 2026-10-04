@@ -2,7 +2,6 @@
  * SPDX-FileCopyrightText: 2008-2015 Red Hat, Inc.
  * SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
-#define G_LOG_DOMAIN "ibus-web"
 #include "ibusmarshalers.h"
 #include "ibusweb-private.h"
 #include <errno.h>

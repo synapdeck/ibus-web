@@ -26,7 +26,10 @@ libibus_ibus = static_library(
   ibus_enums, ibus_marshallers,
   include_directories: [ibus_includes, include_directories('../../include')],
   dependencies: [glib, gobject, gio],
-  c_args: '-DIBUS_COMPILATION',
+  # Upstream's flags: engines see this layer's warnings under IBus's own
+  # log domain, as natively.
+  c_args: ['-DIBUS_COMPILATION', '-DG_LOG_DOMAIN="IBUS"',
+    '-DIBUS_DISABLE_DEPRECATION_WARNINGS'],
   gnu_symbol_visibility: 'default',
   install: true,
 )

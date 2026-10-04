@@ -573,7 +573,7 @@ static void factory(void) {
   g_object_unref(engine);
   g_assert_null(ibusweb_factory_create(20, "missing", &error));
   g_assert_cmpint(error, ==, -ESRCH);
-  g_test_expect_message("ibus-web", G_LOG_LEVEL_CRITICAL, "*one factory*");
+  g_test_expect_message("IBUS", G_LOG_LEVEL_CRITICAL, "*one factory*");
   g_assert_null(ibus_factory_new(NULL));
   g_test_assert_expected_messages();
   g_object_unref(factory);
@@ -606,6 +606,15 @@ static void simple_hides_preedit_on_focus_out_and_reset(void) {
   g_object_unref(engine);
 }
 
+/* Engines see the IBus layer's warnings under native IBus's domain. */
+static void log_domain(void) {
+  g_test_expect_message("IBUS", G_LOG_LEVEL_CRITICAL, "*IBUS_IS_SERIALIZABLE*");
+  g_assert_null(ibus_serializable_serialize_object(NULL));
+  g_test_expect_message("IBUS", G_LOG_LEVEL_CRITICAL, "*IBUS_IS_ENGINE*");
+  ibus_engine_show_preedit_text(NULL);
+  g_test_assert_expected_messages();
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
@@ -624,6 +633,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/engine/signals", signal_dispatch);
   g_test_add_func("/engine/factory", factory);
   g_test_add_func("/engine/simple-keymap", simple_and_keymap);
+  g_test_add_func("/engine/log-domain", log_domain);
   g_test_add_func("/engine/simple-preedit-lifecycle",
                   simple_hides_preedit_on_focus_out_and_reset);
   return g_test_run();
