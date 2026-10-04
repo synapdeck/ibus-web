@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<schemalist>
+  <schema id="org.example.IBusConformance" path="/org/example/ibus-conformance/">
+    <key name="initial-text" type="s">
+      <default>'default'</default>
+    </key>
+  </schema>
+</schemalist>

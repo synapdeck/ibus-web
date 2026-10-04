@@ -15,7 +15,7 @@ export type TranscriptRecord =
   | { kind: "event"; step: number; context: string; name: string; payload: TypedValue }
   | { kind: "reply"; step: number; value: ReplyValue }
   | { kind: "error"; step: number; message: string };
-export type Difference = { step: number; field: string; native: unknown; wasm: unknown };
+export type Difference = { context?: string; step: number; field: string; native: unknown; wasm: unknown };
 
 export type RunOptions = { artifactDir: string; timeoutMs: number; signal?: AbortSignal; env?: NodeJS.ProcessEnv };
 export type RunResult = {

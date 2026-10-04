@@ -104,3 +104,63 @@ the setup UI or the repository's replacement IBus library. Run the controlled
 fixture and stock Hangul session integration suite with
 `nix build .#checks.x86_64-linux.hangul-native-session --no-link`.
 Native-specific packages and checks are omitted on unsupported platforms.
+
+## WASM replay and conformance
+
+`packages.ibus-test-wasm` contains `ibus-test-wasm.js` and its WASM main module.
+Run `node PATH/ibus-test-wasm.js --data DIR --module FILE`, providing the same
+validated version 1 trace on stdin. `DIR` is the engine's FHS `usr/share` tree.
+The executable uses a memory filesystem root and mounts only that data tree and
+the side module's directory, as the existing golden harness does. It applies
+settings through the runtime's `Init` request before loading the side module.
+JSON-GLib is built privately for this test executable. The native and WASM
+adapters share only GLib/JSON-GLib value helpers; their dispatch and IBus
+implementations remain independent.
+
+The WASM adapter assigns runtime IDs to symbolic contexts, validates and decodes
+framed output in sequence order, and emits the same typed event payloads and
+replies as the native adapter. It pumps after dispatch and before reporting a
+reply. Explicit waits consume the same per-lifetime checkpoints as native waits,
+and use the runtime wake word and next-source deadline, bounded by `timeoutMs`.
+A timeout is failure, never proof of completion. Destroy output is drained before
+its reply; a final pump after every explicit context destruction detects pending
+output on closed contexts. As with the native barrier, this cannot certify that
+an engine will never violate its lifetime in the future. The outer `runAdapter`
+deadline also bounds synchronous dispatch or a misbehaving engine.
+
+Runtime log records remain diagnostics on stderr, outside behavioral comparison.
+Warning, critical, and error records fail the run. Early GLib initialization logs
+also use stderr. Non-log global records, including `SettingWritten` with context
+ID zero, fail explicitly with their kind, ID, signature and typed payload. The
+native boundary currently observes Engine signals, and live-settings output
+parity is deferred; no invented context or suppressed record hides that limit.
+
+On Linux, `checks.ibus-test-conformance` runs a portable controlled engine against
+stock native libibus and, separately, the WASM replacement. It checks lifecycle,
+two contexts, Unicode/attachments, empty updates, event order, waits, settings,
+invalid calls, deadlines, context reuse, output preceding closure and diagnostics.
+Native transport-failure fixtures and Hangul goldens remain separate checks.
+This CLI harness does not establish browser host/router conformance.
+
+`ibusWeb.engines.ibusTest { name; nativeConfig; module; data; traces; }` builds a
+Linux check for supplied trace paths and any configured engine. `nativeConfig`
+is a session-config JSON path; `module` is the WASM side-module path; `data` is
+its `usr/share` tree; `traces` is a nonempty list of trace JSON paths. Each trace
+runs in a fresh private native session and a fresh WASM process. Engine-specific
+corpus and configuration stay outside this builder. The conformance fixture
+cases are enabled only in the dedicated fixture check. Transcript differences
+include the reference event context (or WASM event context when the native event
+is absent), step, and first differing field, retaining both values.
+
+The builder materializes a `results` derivation even when a test fails. Its
+`status`, `results.json` and `output.txt` retain the runner outcome, and
+`artifacts/` retains each trace, native session/service diagnostics, raw native
+and WASM transcripts/stderr, and `result.json` with exit/signal/error metadata
+and ordered differences. Session-owned sockets, settings and processes are
+still cleaned up on failure. A separate verdict derivation rejects failure,
+missing reports and malformed status; it never turns a failed run into a passing
+check. The verdict prints the retained results path when it fails. Inspect or
+build it directly with `nix build .#checks.x86_64-linux.CHECK.results`; building
+results alone records an experiment and does not assert success. An optional
+`testEnvironment` attribute set configures the test process; the dedicated
+fixture check uses it to enable the fixture cases.

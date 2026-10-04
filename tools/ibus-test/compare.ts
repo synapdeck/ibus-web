@@ -40,12 +40,14 @@ export function compareTranscripts(
     const a = native[i];
     const b = wasm[i];
     const step = a?.step ?? b?.step ?? -1;
+    const event = a?.kind === "event" ? a : b?.kind === "event" ? b : undefined;
+    const location = event ? { step, context: event.context } : { step };
     if (!a || !b) {
-      differences.push({ step, field: "record", native: a, wasm: b });
+      differences.push({ ...location, field: "record", native: a, wasm: b });
       continue;
     }
     const field = firstField(a, b, "");
-    if (field !== undefined) differences.push({ step, field, native: at(a, field), wasm: at(b, field) });
+    if (field !== undefined) differences.push({ ...location, field, native: at(a, field), wasm: at(b, field) });
   }
   return differences;
 }

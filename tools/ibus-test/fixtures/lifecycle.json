@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "settings": [],
+  "steps": [
+    { "op": "create", "context": "corpus", "engine": "conformance" },
+    { "op": "call", "context": "corpus", "method": "ProcessKeyEvent", "args": "(uint32 1, uint32 0, uint32 0)" },
+    { "op": "destroy", "context": "corpus" }
+  ]
+}

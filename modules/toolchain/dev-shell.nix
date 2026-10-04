@@ -176,7 +176,9 @@
         export HOME=$TMPDIR EM_CACHE=${toolchain.emscriptenCache} EM_FROZEN_CACHE=1
         # Native IBus tooling is Linux-only, matching its package/check gate.
         find . \( -name '*.c' -o -name '*.cpp' \) ${
-          lib.optionalString (!pkgs.stdenv.hostPlatform.isLinux) "! -path './tools/ibus-test/native/*'"
+          lib.optionalString (
+            !pkgs.stdenv.hostPlatform.isLinux
+          ) "! -path './tools/ibus-test/native/*' ! -path './tools/ibus-test/fixtures/native.c'"
         } -print0 |
           while IFS= read -r -d "" file; do
             ${clangd}/bin/clangd --check="$file" --check-locations=false > /dev/null 2> "$TMPDIR/log" || {
