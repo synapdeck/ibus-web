@@ -1,6 +1,5 @@
 /* vim:set et sts=4: */
 /* ibus - The Input Bus
- * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2025 Red Hat, Inc.
  *
@@ -38,21 +37,21 @@
  *
  * IBus major version.
  */
-#define IBUS_MAJOR_VERSION (1)
+#define IBUS_MAJOR_VERSION				(1)
 
 /**
  * IBUS_MINOR_VERSION:
  *
  * IBus minor version.
  */
-#define IBUS_MINOR_VERSION (5)
+#define IBUS_MINOR_VERSION				(5)
 
 /**
  * IBUS_MICRO_VERSION:
  *
  * IBus micro version.
  */
-#define IBUS_MICRO_VERSION (34)
+#define IBUS_MICRO_VERSION				(34)
 
 /**
  * IBUS_CHECK_VERSION:
@@ -63,12 +62,13 @@
  * Check whether the current IBus version is equal to or greater than
  * given major.minor.micro.
  */
-#define IBUS_CHECK_VERSION(major, minor, micro)                                \
-  (IBUS_MAJOR_VERSION > (major) ||                                             \
-   (IBUS_MAJOR_VERSION == (major) && IBUS_MINOR_VERSION > (minor)) ||          \
-   (IBUS_MAJOR_VERSION == (major) && IBUS_MINOR_VERSION == (minor) &&          \
-    IBUS_MICRO_VERSION >= (micro)))
+#define	IBUS_CHECK_VERSION(major,minor,micro)	\
+    (IBUS_MAJOR_VERSION > (major) || \
+     (IBUS_MAJOR_VERSION == (major) && IBUS_MINOR_VERSION > (minor)) || \
+     (IBUS_MAJOR_VERSION == (major) && IBUS_MINOR_VERSION == (minor) && \
+      IBUS_MICRO_VERSION >= (micro)))
 
 #include <glib.h>
 #include <ibus-visibility.h>
 #endif
+
