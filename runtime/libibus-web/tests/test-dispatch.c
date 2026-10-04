@@ -4,7 +4,9 @@
 #include <ibus-web/protocol.h>
 #include <ibus-web/runtime.h>
 #include <ibus.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct {
   IBusEngine parent;
@@ -389,6 +391,44 @@ static void logging(void) {
     empty_output();
 }
 
+static gboolean survive_fatal(const gchar *domain G_GNUC_UNUSED,
+                              GLogLevelFlags level G_GNUC_UNUSED,
+                              const gchar *message G_GNUC_UNUSED,
+                              gpointer data) {
+  ++*(guint *)data;
+  return FALSE;
+}
+
+/* A message made fatal by the always-fatal mask reaches the writer without
+ * G_LOG_FLAG_FATAL. The process ends before anyone reads the output, so the
+ * diagnostic has to reach stderr as well. */
+static void fatal_logging(void) {
+  g_autofree gchar *path = NULL;
+  gint capture = g_file_open_tmp("dispatch-stderr-XXXXXX", &path, NULL);
+  g_assert_cmpint(capture, >=, 0);
+  gint saved = dup(STDERR_FILENO);
+  g_assert_cmpint(saved, >=, 0);
+  guint fatal_calls = 0;
+  g_test_log_set_fatal_handler(survive_fatal, &fatal_calls);
+  GLogLevelFlags mask =
+      g_log_set_always_fatal(G_LOG_LEVEL_ERROR | G_LOG_LEVEL_WARNING);
+  fflush(stderr);
+  g_assert_cmpint(dup2(capture, STDERR_FILENO), ==, STDERR_FILENO);
+  g_log("review", G_LOG_LEVEL_WARNING, "fatal warning after init");
+  fflush(stderr);
+  g_assert_cmpint(dup2(saved, STDERR_FILENO), ==, STDERR_FILENO);
+  g_log_set_always_fatal(mask);
+  g_test_log_set_fatal_handler(NULL, NULL);
+  close(saved);
+  close(capture);
+  g_assert_cmpuint(fatal_calls, ==, 1);
+  expect_log(G_LOG_LEVEL_WARNING, "review", "fatal warning after init");
+  g_autofree gchar *written = NULL;
+  g_assert_true(g_file_get_contents(path, &written, NULL, NULL));
+  unlink(path);
+  g_assert_nonnull(strstr(written, "fatal warning after init"));
+}
+
 static void set_flag(gpointer data) { *(gboolean *)data = TRUE; }
 
 /* An engine a reference outlives DestroyEngine for must not emit under the
@@ -459,6 +499,7 @@ static void protocol(void) {
   expect_log(G_LOG_LEVEL_WARNING, "ibus-web",
              "Unknown settings schema: review");
   logging();
+  fatal_logging();
   g_assert_cmpint(send(IBUSWEB_REQ_DESTROY_ENGINE, 7, g_variant_new("()")), ==,
                   0);
   g_assert_null(last_created);

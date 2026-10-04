@@ -16,7 +16,11 @@ static gchar *field_text(const GLogField *fields, gsize count,
 static GLogWriterOutput write_log(GLogLevelFlags level, const GLogField *fields,
                                   gsize count, gpointer data G_GNUC_UNUSED) {
   g_autofree gchar *domain = field_text(fields, count, "GLIB_DOMAIN");
-  gboolean fatal = (level & (G_LOG_FLAG_FATAL | G_LOG_LEVEL_ERROR)) != 0;
+  /* g_log() strips G_LOG_FLAG_FATAL before calling the writer and aborts
+   * afterwards, so a message the always-fatal mask covers arrives without it.
+   */
+  gboolean fatal = (level & (G_LOG_FLAG_FATAL | G_LOG_LEVEL_ERROR)) != 0 ||
+                   (level & g_log_get_always_fatal()) != 0;
   if (!fatal && g_log_writer_default_would_drop(level, domain))
     return G_LOG_WRITER_HANDLED;
   g_autofree gchar *message = field_text(fields, count, "MESSAGE");
