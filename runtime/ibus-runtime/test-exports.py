@@ -16,13 +16,18 @@ spec.loader.exec_module(exports)
 
 
 class ApiSubsetTest(unittest.TestCase):
-    def verify(self, declared, *, subset=True, umbrella=False):
+    def verify(self, declared, *, subset=True, umbrella=False, outside=()):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "exports.txt").write_text(
+            root = Path(directory) / "ibus-1.0"
+            root.mkdir()
+            # A dependency's header, in a directory of its own.
+            (Path(directory) / "glib.h").write_text(
+                "".join(f"void {name}(void);\n" for name in outside)
+            )
+            (Path(directory) / "exports.txt").write_text(
                 "# IBUSWEB_RUNTIME_ABI 1\n# ibus 1: 1 symbols\n_ibus_text_new\n"
             )
-            (root / "exports.json").write_text(json.dumps({
+            (Path(directory) / "exports.json").write_text(json.dumps({
                 "abi": 1,
                 "libraries": [{
                     "name": "ibus", "version": "1", "count": 1,
@@ -32,7 +37,8 @@ class ApiSubsetTest(unittest.TestCase):
             declarations = "\n".join(f"void {name}(void);" for name in declared)
             (root / "types.h").write_text(declarations)
             (root / "ibus.h").write_text(
-                '#include "types.h"\n' if umbrella else declarations
+                "#include <glib.h>\n"
+                + ('#include "types.h"\n' if umbrella else declarations)
             )
             args = SimpleNamespace(
                 dir=directory, expect=[], expect_major=[],
@@ -41,7 +47,7 @@ class ApiSubsetTest(unittest.TestCase):
                 api_hidden=[], api_pkg_config=[], api_side_defined=[],
             )
             with (
-                patch.object(exports, "cflags", return_value=[f"-I{directory}"]),
+                patch.object(exports, "cflags", return_value=[f"-I{root}", f"-I{directory}"]),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 exports.verify(args)
@@ -59,6 +65,10 @@ class ApiSubsetTest(unittest.TestCase):
 
     def test_subset_accepts_umbrella_header(self):
         self.verify(["ibus_text_new", "ibus_bus_new"], umbrella=True)
+
+    def test_subset_rejects_export_declared_outside_the_api_directory(self):
+        with self.assertRaisesRegex(SystemExit, "doesn't declare"):
+            self.verify(["ibus_bus_new"], umbrella=True, outside=["ibus_text_new"])
 
     def test_exact_api_still_excludes_included_headers(self):
         with self.assertRaisesRegex(SystemExit, "doesn't declare"):

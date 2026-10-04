@@ -104,13 +104,15 @@ def name_files(tree):
             pending.append(iter(value))
 
 
-def header_declarations(tree, header, probe, transitive=False):
+def header_declarations(tree, header, probe, transitive=None):
     """Functions and variables declared in header, which probe includes, by
     their linkage names, each with whether it is declared with default
     visibility. A header may be a chain of files of the same name, each
     including the next (#include_next): an overlay that adds declarations to
-    another's. Included headers are left out unless transitive is requested
-    for an umbrella API header."""
+    another's. Included headers are left out, but for an umbrella API header
+    transitive names the directory it is in, and every header under that
+    directory counts: its dependencies' headers, such as GLib's and libc's,
+    live elsewhere."""
     for node in tree.get("inner", []):
         kind = node.get("kind")
         if kind in ("LinkageSpecDecl", "NamespaceDecl"):
@@ -122,7 +124,10 @@ def header_declarations(tree, header, probe, transitive=False):
         loc = node.get("loc", {})
         loc = loc.get("expansionLoc", loc)
         includer = loc.get("includedFrom", {}).get("file", "")
-        if transitive or (
+        if (
+            transitive is not None
+            and os.path.normpath(loc.get("file", "")).startswith(transitive + os.sep)
+        ) or (
             loc.get("file", "").endswith(f"/{header}")
             and (includer == probe or includer.endswith(f"/{header}"))
         ):
@@ -138,8 +143,10 @@ def parse_header(header, flags, probe, transitive=False):
     includes it; "c++" if only C++ can parse it, or None if neither can."""
     with open(probe, "w") as source:
         source.write(f"#include <{header}>\n")
+    # -H lists each header the compiler opens on stderr, the probe's own
+    # includes first, at depth one.
     dump = subprocess.run(
-        [*compiler("c"), *flags, "-fsyntax-only", "-Xclang", "-ast-dump=json"]
+        [*compiler("c"), *flags, "-fsyntax-only", "-H", "-Xclang", "-ast-dump=json"]
         + ["-x", "c", probe],
         capture_output=True,
         text=True,
@@ -152,7 +159,13 @@ def parse_header(header, flags, probe, transitive=False):
         return "c++" if cxx.returncode == 0 else None
     tree = json.loads(dump.stdout)
     name_files(tree)
-    return dict(header_declarations(tree, header, probe, transitive))
+    directory = None
+    if transitive:
+        opened = [line[2:] for line in dump.stderr.splitlines() if line.startswith(". ")]
+        if not opened:
+            sys.exit(f"{header}: the compiler reported opening no header")
+        directory = os.path.dirname(os.path.normpath(opened[0]))
+    return dict(header_declarations(tree, header, probe, directory))
 
 
 def declarations(rule):
