@@ -62,7 +62,7 @@ export class IBusProperty extends Schema.Class<IBusProperty>("IBusProperty")(
   { ibusType: "IBusProperty" },
 ) {}
 
-interface IBusPropListEncoded {
+export interface IBusPropListEncoded {
   readonly attachments: Readonly<Record<string, typeof import("../gvariant/schema.ts").GVariantVariant.Type>>;
   readonly properties: readonly (typeof IBusProperty.Encoded)[];
 }

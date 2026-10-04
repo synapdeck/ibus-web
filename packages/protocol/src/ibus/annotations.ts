@@ -7,6 +7,8 @@ declare module "effect/Schema" {
     interface Annotations {
       readonly gvariant?: string;
       readonly ibusType?: string;
+      readonly kind?: number;
+      readonly reply?: string;
     }
   }
 }
