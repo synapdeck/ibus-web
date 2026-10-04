@@ -6,16 +6,21 @@
 
 #define IBUSWEB_PROTOCOL_VERSION 1
 
-/* A request: 8 bytes of header, then the payload, the GVariant normal form
- * of the kind's signature, little-endian. */
+/* A request: 8 bytes of header (kind, flags, ic), then the payload, the
+ * GVariant normal form of the kind's signature, little-endian. No flags are
+ * defined; they must be zero. The empty tuple () is one zero byte in normal
+ * form, so every request carries at least one byte of payload: a request of
+ * the header alone is malformed (-EBADMSG). */
 typedef struct {
   uint16_t kind;
   uint16_t flags;
   uint32_t ic;
 } IBusWebRequestHeader;
 
-/* An output record: 16 bytes of header, then len bytes of payload (GVariant
- * normal form), padded with zeros to a multiple of 8. */
+/* An output record: 16 bytes of header (seq, ic, kind, flags, len), then len
+ * bytes of payload (GVariant normal form), padded with zeros to a multiple of
+ * 8. The runtime writes flags as zero; IBUSWEB_RECORD_CONTINUATION is the
+ * only flag, and only the host sets it. */
 typedef struct {
   uint32_t seq;
   uint32_t ic;
