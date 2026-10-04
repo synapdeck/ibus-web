@@ -5,14 +5,14 @@ import * as P from "../../src/index.ts";
 
 export const schemaId = "org.example.Parity";
 export function text(value: string, attributes: P.IBusAttribute[] = []): P.IBusText {
-  return new P.IBusText({ attachments: {}, text: value, attrs: new P.IBusAttrList({ attachments: {}, attributes }) });
+  return P.IBusText.make({ attachments: {}, text: value, attrs: P.IBusAttrList.make({ attachments: {}, attributes }) });
 }
 const attributes = [
-  new P.IBusAttribute({ attachments: {}, type: 1, value: 1, startIndex: 0, endIndex: 2 }),
-  new P.IBusAttribute({ attachments: {}, type: 2, value: 0x123456, startIndex: 1, endIndex: 0xffffffff }),
+  P.IBusAttribute.make({ attachments: {}, type: 1, value: 1, startIndex: 0, endIndex: 2 }),
+  P.IBusAttribute.make({ attachments: {}, type: 2, value: 0x123456, startIndex: 1, endIndex: 0xffffffff }),
 ];
 export const decorated = text("한글😀", attributes);
-export const table = new P.IBusLookupTable({
+export const table = P.IBusLookupTable.make({
   attachments: {},
   pageSize: 9,
   cursorPos: 20,
@@ -23,7 +23,7 @@ export const table = new P.IBusLookupTable({
   labels: Array.from({ length: 9 }, (_, index) => text(`${index + 1}`)),
 });
 function property(key: string, children: P.IBusProperty[] = []): P.IBusProperty {
-  return new P.IBusProperty({
+  return P.IBusProperty.make({
     attachments: {},
     key,
     type: children.length ? 3 : 1,
@@ -33,11 +33,11 @@ function property(key: string, children: P.IBusProperty[] = []): P.IBusProperty 
     sensitive: true,
     visible: true,
     state: 1,
-    subProps: new P.IBusPropList({ attachments: {}, properties: children }),
+    subProps: P.IBusPropList.make({ attachments: {}, properties: children }),
     symbol: text("★"),
   });
 }
-export const menu = new P.IBusProperty({
+export const menu = P.IBusProperty.make({
   ...property("menu", [property("child")]),
   attachments: {
     source: { _tag: "v", type: "s", value: { _tag: "s", value: "typescript" } },
@@ -61,8 +61,8 @@ export const objects = [
   { name: "decorated", type: "IBusText", value: decorated },
   { name: "lookup", type: "IBusLookupTable", value: table },
   { name: "property", type: "IBusProperty", value: menu },
-  { name: "properties", type: "IBusPropList", value: new P.IBusPropList({ attachments: {}, properties: [menu] }) },
-  { name: "empty-properties", type: "IBusPropList", value: new P.IBusPropList({ attachments: {}, properties: [] }) },
+  { name: "properties", type: "IBusPropList", value: P.IBusPropList.make({ attachments: {}, properties: [menu] }) },
+  { name: "empty-properties", type: "IBusPropList", value: P.IBusPropList.make({ attachments: {}, properties: [] }) },
 ] as const;
 export const lifecycle = {
   init: new P.Init({

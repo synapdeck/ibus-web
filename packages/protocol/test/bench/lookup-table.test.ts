@@ -18,12 +18,12 @@ import {
 import { fromTree, toTree } from "../../src/ibus/walk.ts";
 
 function textWithAttribute(text: string): IBusText {
-  return new IBusText({
+  return IBusText.make({
     attachments: {},
     text,
-    attrs: new IBusAttrList({
+    attrs: IBusAttrList.make({
       attachments: {},
-      attributes: [new IBusAttribute({ attachments: {}, type: 1, value: 1, startIndex: 0, endIndex: text.length })],
+      attributes: [IBusAttribute.make({ attachments: {}, type: 1, value: 1, startIndex: 0, endIndex: text.length })],
     }),
   });
 }
@@ -46,7 +46,7 @@ function measure(label: string, decode: () => unknown) {
 it("decodes a framed 500-candidate lookup table within the builder budget", () => {
   const words = ["한글", "한국어", "대한민국"];
   const record = new UpdateLookupTable({
-    table: new IBusLookupTable({
+    table: IBusLookupTable.make({
       attachments: {},
       pageSize: 9,
       cursorPos: 0,

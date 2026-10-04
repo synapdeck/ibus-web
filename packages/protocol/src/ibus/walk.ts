@@ -26,6 +26,33 @@ function expectNode<Tag extends GVariantValue["_tag"]>(
   return tree as GVariantValue & { readonly _tag: Tag };
 }
 
+const variantPlan: Plan = {
+  signature: "v",
+  toTree: (encoded) => expectNode(encoded as GVariantValue, "v"),
+  fromTree: (tree) => expectNode(tree, "v"),
+};
+
+function dictionaryPlan(valuePlan: Plan): Plan {
+  return {
+    signature: `a{s${valuePlan.signature}}`,
+    toTree: (encoded) => ({
+      _tag: "a",
+      items: Object.entries(encoded as Record<string, unknown>).map(([key, value]) => ({
+        _tag: "{}",
+        key: { _tag: "s", value: key },
+        value: valuePlan.toTree(value),
+      })),
+    }),
+    fromTree(tree) {
+      const entries = expectNode(tree, "a").items.map((item) => {
+        const entry = expectNode(item, "{}");
+        return [expectNode(entry.key, "s").value, valuePlan.fromTree(entry.value)];
+      });
+      return Object.fromEntries(entries);
+    },
+  };
+}
+
 function compile(ast: SchemaAST.AST, member = false, field = "value"): Plan {
   const cache = member ? memberPlans : rootPlans;
   const cached = cache.get(ast);
@@ -34,22 +61,25 @@ function compile(ast: SchemaAST.AST, member = false, field = "value"): Plan {
 
   let plan: Plan;
   const ibusType = ast.annotations?.ibusType;
-  if (ast._tag === "Declaration" && ibusType && member) {
+  if (ast._tag === "Objects" && ibusType && member) {
+    // Resolved on first use: a recursive serializable reaches its own member plan while its root
+    // plan is still being built.
+    let inner: Plan | undefined;
     plan = {
       signature: "v",
       toTree(encoded) {
-        const inner = compile(ast);
+        inner ??= compile(ast);
         return { _tag: "v", type: inner.signature, value: inner.toTree(encoded) };
       },
       fromTree(tree) {
         const variant = expectNode(tree, "v");
-        const inner = compile(ast);
+        inner ??= compile(ast);
         if (variant.type !== inner.signature) fail(`Expected ${ibusType} variant type ${inner.signature}`);
         return inner.fromTree(variant.value);
       },
     };
   } else if (ast._tag === "Declaration" && ast.typeParameters[0]?._tag === "Objects") {
-    plan = objectPlan(ast.typeParameters[0], ibusType);
+    plan = objectPlan(ast.typeParameters[0]);
   } else if (ast._tag === "Arrays" && ast.elements.length === 0 && ast.rest.length === 1) {
     const element = compile(ast.rest[0]!, true, `${field}[]`);
     plan = {
@@ -58,17 +88,15 @@ function compile(ast: SchemaAST.AST, member = false, field = "value"): Plan {
       fromTree: (tree) => expectNode(tree, "a").items.map(element.fromTree),
     };
   } else if (ast._tag === "Objects") {
-    plan = objectPlan(ast);
+    plan = objectPlan(ast, ibusType);
   } else {
     const signature = gvariantTypeOf(ast);
     if (!signature) fail(`Field ${field} has no GVariant type annotation`);
     parseType(signature);
-    if (signature === "v") {
-      plan = {
-        signature,
-        toTree: (encoded) => expectNode(encoded as GVariantValue, "v"),
-        fromTree: (tree) => expectNode(tree, "v"),
-      };
+    if (signature === "a{sv}") {
+      plan = dictionaryPlan(variantPlan);
+    } else if (signature === "v") {
+      plan = variantPlan;
     } else if (/^[bynqiuhdxtsog]$/.test(signature)) {
       plan = {
         signature,
@@ -116,25 +144,7 @@ function objectPlan(ast: SchemaAST.Objects, ibusType?: string): Plan {
   if (ast.indexSignatures.length === 1 && ast.propertySignatures.length === 0) {
     const index = ast.indexSignatures[0]!;
     if (index.parameter._tag !== "String") fail("GVariant dictionaries require string keys");
-    const valuePlan = compile(index.type, true, "dictionary value");
-    return {
-      signature: `a{s${valuePlan.signature}}`,
-      toTree: (encoded) => ({
-        _tag: "a",
-        items: Object.entries(encoded as Record<string, unknown>).map(([key, value]) => ({
-          _tag: "{}",
-          key: { _tag: "s", value: key },
-          value: valuePlan.toTree(value),
-        })),
-      }),
-      fromTree(tree) {
-        const entries = expectNode(tree, "a").items.map((item) => {
-          const entry = expectNode(item, "{}");
-          return [expectNode(entry.key, "s").value, valuePlan.fromTree(entry.value)];
-        });
-        return Object.fromEntries(entries);
-      },
-    };
+    return dictionaryPlan(compile(index.type, true, "dictionary value"));
   }
   if (ast.indexSignatures.length !== 0) fail("Unsupported GVariant object index signatures");
   const tag = ast.propertySignatures.find((property) => property.name === "_tag");

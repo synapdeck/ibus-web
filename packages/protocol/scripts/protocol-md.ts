@@ -55,13 +55,14 @@ function fieldType(ast: SchemaAST.AST): string {
 
 function renderFields(schema: Schema.Top): string {
   const ast = schema.ast;
-  if (ast._tag !== "Declaration" || ast.typeParameters[0]?._tag !== "Objects") {
-    throw new Error("Expected a class with object fields");
+  const objects = ast._tag === "Declaration" ? ast.typeParameters[0] : ast;
+  if (objects?._tag !== "Objects") {
+    throw new Error("Expected a struct or class with object fields");
   }
   const rows: string[][] = [];
   const name = ast.annotations?.ibusType;
   if (name) rows.push(["`name`", "`s`", `Serializable type name: \`${name}\`.`]);
-  for (const field of ast.typeParameters[0].propertySignatures) {
+  for (const field of objects.propertySignatures) {
     if (field.name === "_tag") continue;
     rows.push([`\`${String(field.name)}\``, fieldType(field.type), SchemaAST.resolveDescription(field.type) ?? ""]);
   }
