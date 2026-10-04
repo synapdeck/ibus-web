@@ -155,8 +155,40 @@ void golden_destroy(Fixture *fixture) {
   fixture->ic = 0;
 }
 
+/* Lets the candidate cases open Hanja with either F9 or F8. */
+static const gchar golden_hanja_keys[] = "Hangul_Hanja,F9,F8";
+
+/* Engine settings are module globals, so each case starts from the same
+ * snapshot whatever an earlier case changed or failed to restore. */
+static const gchar *const reset_schemas[] = {HANGUL_SCHEMA,
+                                             "org.freedesktop.ibus.panel"};
+
+static GVariant *baseline(GSettingsSchemaKey *key, const gchar *schema) {
+  if (g_str_equal(schema, HANGUL_SCHEMA) &&
+      g_str_equal(g_settings_schema_key_get_name(key), "hanja-keys"))
+    return g_variant_ref_sink(g_variant_new_string(golden_hanja_keys));
+  return g_settings_schema_key_get_default_value(key);
+}
+
+static void reset_settings(Fixture *fixture) {
+  GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+  for (guint i = 0; i < G_N_ELEMENTS(reset_schemas); ++i) {
+    g_autoptr(GSettingsSchema) schema =
+        g_settings_schema_source_lookup(source, reset_schemas[i], TRUE);
+    g_assert_nonnull(schema);
+    g_auto(GStrv) names = g_settings_schema_list_keys(schema);
+    for (gchar **name = names; *name != NULL; ++name) {
+      g_autoptr(GSettingsSchemaKey) key =
+          g_settings_schema_get_key(schema, *name);
+      g_autoptr(GVariant) value = baseline(key, reset_schemas[i]);
+      golden_setting(fixture, reset_schemas[i], *name, value);
+    }
+  }
+}
+
 void golden_setup(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   fixture->records = g_ptr_array_new_with_free_func(record_free);
+  reset_settings(fixture);
   golden_create(fixture);
   golden_clear(fixture);
 }
@@ -184,7 +216,7 @@ void golden_init(const gchar *data, const gchar *module) {
   GVariantBuilder keys, schemas;
   g_variant_builder_init(&keys, G_VARIANT_TYPE("a{sv}"));
   g_variant_builder_add(&keys, "{sv}", "hanja-keys",
-                        g_variant_new_string("Hangul_Hanja,F9,F8"));
+                        g_variant_new_string(golden_hanja_keys));
   g_variant_builder_init(&schemas, G_VARIANT_TYPE("a{sa{sv}}"));
   g_variant_builder_add(&schemas, "{s@a{sv}}", HANGUL_SCHEMA,
                         g_variant_builder_end(&keys));

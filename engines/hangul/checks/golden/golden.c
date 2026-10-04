@@ -144,10 +144,6 @@ static void idle_settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
                  g_variant_new_string("F7"));
   g_assert_cmpuint(fixture->records->len, ==, 0);
-  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
-                 g_variant_new_string("2"));
-  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
-                 g_variant_new_string("Hangul_Hanja,F9,F8"));
 }
 
 static guint korean_candidate(IBusLookupTable *table) {
@@ -289,8 +285,6 @@ static void settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_cmpuint(golden_count(fixture, IBUSWEB_REC_COMMIT_TEXT), ==, 0);
   g_assert_cmpint(golden_key(fixture, IBUS_space, 57, 0), ==, 0);
   commit(fixture, "한글");
-  golden_setting(fixture, HANGUL_SCHEMA, "preedit-mode",
-                 g_variant_new_string("syllable"));
 }
 
 static void password(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
