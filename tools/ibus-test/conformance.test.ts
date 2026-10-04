@@ -173,6 +173,30 @@ describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("native and 
   });
 
   test.each([
+    [
+      "invalid initial value",
+      { schema: "org.example.IBusConformance", key: "initial-text", value: "uint32 42" },
+      "Invalid value for settings key: org.example.IBusConformance:initial-text",
+    ],
+    [
+      "unknown initial schema",
+      { schema: "org.example.MissingConformance", key: "initial-text", value: "'text'" },
+      "Unknown settings schema: org.example.MissingConformance",
+    ],
+  ])("fails startup for %s before creating an engine", async (_name, setting, diagnostic) => {
+    const input = trace(create(), destroy());
+    input.settings = [setting];
+    const result = await runAdapter(manifest().wasmCommand, input, {
+      artifactDir: artifacts(),
+      timeoutMs: 5000,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(diagnostic);
+    expect(result.stderr).toContain("WARNING");
+    expect(result.records).toEqual([]);
+  });
+
+  test.each([
     ["unknown method", trace(create(), { op: "call", context: "a", method: "NoSuchMethod", args: "()" }, destroy()), 1],
     [
       "wrong argument signature",

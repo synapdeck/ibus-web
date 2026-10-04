@@ -130,7 +130,11 @@ deadline also bounds synchronous dispatch or a misbehaving engine.
 
 Runtime log records remain diagnostics on stderr, outside behavioral comparison.
 Warning, critical, and error records fail the run. Early GLib initialization logs
-also use stderr. Non-log global records, including `SettingWritten` with context
+also use stderr. Before Init installs the framed writer, the executable uses
+GLib's fatal severity mask for warning-or-worse, covering both legacy and
+structured logging through the default writer. A fatal startup warning therefore
+exits nonzero with its diagnostic on stderr and may have an empty transcript.
+The original mask is restored after Init, before loading the engine module. Non-log global records, including `SettingWritten` with context
 ID zero, fail explicitly with their kind, ID, signature and typed payload. The
 native boundary currently observes Engine signals, and live-settings output
 parity is deferred; no invented context or suppressed record hides that limit.

@@ -32,6 +32,9 @@ static gchar *mount_engine(const gchar *data, const gchar *module) {
 int main(int argc, char **argv) {
   /* Init selects the settings backend before installing the framed writer. */
   g_log_writer_default_set_use_stderr(TRUE);
+  GLogLevelFlags runtime_fatal_mask = g_log_get_always_fatal();
+  g_log_set_always_fatal(runtime_fatal_mask | G_LOG_LEVEL_WARNING |
+                         G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_ERROR);
   gchar *data = NULL, *module = NULL;
   GOptionEntry options[] = {
       {"data", 0, 0, G_OPTION_ARG_STRING, &data, "Engine usr/share tree",
@@ -81,7 +84,7 @@ int main(int argc, char **argv) {
       g_printerr("Cannot mount engine data or module\n");
       ok = FALSE;
     } else {
-      ok = ibus_test_wasm_run(trace, mounted_module);
+      ok = ibus_test_wasm_run(trace, mounted_module, runtime_fatal_mask);
       g_free(mounted_module);
     }
   }

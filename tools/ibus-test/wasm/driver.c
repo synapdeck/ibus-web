@@ -366,7 +366,8 @@ static GVariant *settings_snapshot(JsonArray *settings, GError **error) {
   return g_variant_builder_end(&snapshot);
 }
 
-gboolean ibus_test_wasm_run(JsonObject *trace, const gchar *module) {
+gboolean ibus_test_wasm_run(JsonObject *trace, const gchar *module,
+                            GLogLevelFlags runtime_fatal_mask) {
   static gint32 wake_word;
   Driver driver = {
       .wake_word = &wake_word,
@@ -389,6 +390,8 @@ gboolean ibus_test_wasm_run(JsonObject *trace, const gchar *module) {
              &driver, 0, IBUSWEB_REQ_INIT,
              g_variant_new("(u@a{sa{sv}})", IBUSWEB_PROTOCOL_VERSION, snapshot),
              &error) >= 0;
+  /* Init has installed the framed writer; collection now rejects warnings. */
+  g_log_set_always_fatal(runtime_fatal_mask);
   if (ok) {
     g_log_set_default_handler(g_log_default_handler, NULL);
     gint loaded = ibusweb_load_module(module, NULL);
