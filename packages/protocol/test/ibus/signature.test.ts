@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import { GVariantVariant, ProtocolError } from "../../src/index.ts";
 import { signatureOf } from "../../src/ibus/walk.ts";
+import { Uint32 } from "../../src/ibus/annotations.ts";
 import {
   IBusAttribute,
   IBusAttrList,
@@ -36,4 +37,13 @@ it("names an unannotated field", () => {
   const schema = Schema.Struct({ missingType: Schema.Number });
   expect(() => signatureOf(schema)).toThrow(ProtocolError);
   expect(() => signatureOf(schema)).toThrow(/missingType/);
+});
+it("rejects optional fields, which a GVariant tuple cannot leave out", () => {
+  const schema = Schema.Struct({ maybeCount: Schema.optionalKey(Uint32) });
+  expect(() => signatureOf(schema)).toThrow(ProtocolError);
+  expect(() => signatureOf(schema)).toThrow(/maybeCount/);
+});
+it("keeps a scalar's GVariant type through further checks", () => {
+  expect(signatureOf(Uint32.check(Schema.isGreaterThan(0)))).toBe("u");
+  expect(signatureOf(Schema.Struct({ count: Uint32.check(Schema.isGreaterThan(0)) }))).toBe("(u)");
 });

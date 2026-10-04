@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { type Schema, type SchemaAST } from "effect";
+import { type Schema, SchemaAST } from "effect";
 import { parseType, ProtocolError } from "../gvariant/type.ts";
 import { type GVariantValue } from "../gvariant/value.ts";
 import { gvariantTypeOf } from "./annotations.ts";
@@ -141,6 +141,9 @@ function objectPlan(ast: SchemaAST.Objects, ibusType?: string): Plan {
   const fields = ast.propertySignatures
     .filter((property) => property.name !== "_tag")
     .map((property) => {
+      if (SchemaAST.isOptional(property.type)) {
+        fail(`Field ${String(property.name)} is optional, but GVariant tuples have no optional members`);
+      }
       const plan = compile(property.type, true, String(property.name));
       return {
         name: property.name,
