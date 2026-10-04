@@ -4,6 +4,7 @@
 // How the host starts, fails to start, reports failures after it has, and
 // runs as released: each against hosts of its own.
 
+import { CrashReason } from "@ibus-web/protocol";
 import { expect } from "vitest";
 import { CRASH_REPORT_LIMIT_MS, type Harness, type RuntimeBuild } from "./harness.ts";
 import { call32, int32s, opsFrom, stats } from "./scenarios.ts";
@@ -30,7 +31,7 @@ export const refusedMemory = async (h: Harness, runtime: RuntimeBuild): Promise<
   const { minimum } = h.data.constants.memory;
   for (const bytes of [minimum + 1, minimum - 65536])
     await expect(h.start({ runtime, memory: { initial: bytes, maximum: bytes } }), `memory ${bytes}`).rejects.toThrow(
-      `host: Error: memory ${bytes}: the runtime takes a whole number of 65536-byte pages`,
+      `memory bounds ${minimum}`,
     );
 };
 
@@ -71,6 +72,11 @@ export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released =
       }
     }
     const report = await host.client.crashReport(CRASH_REPORT_LIMIT_MS);
+    expect(host.client.page.records().at(-1)).toMatchObject({
+      seq: 0,
+      ic: 0,
+      record: { _tag: "Crashed", reason: CrashReason.relay },
+    });
     h.record("relay-failure", { answered, report: report ?? "none" });
     // The relay fails on its fourth wait, but waits don't map to requests:
     // changes that land together are forwarded as one wake, a request the
@@ -97,13 +103,22 @@ export const topUpLimit = async (h: Harness, runtime: RuntimeBuild): Promise<voi
     const overshoot = h.data.pool.planned + 1 - alive;
     expect(replyHeld(await client.call(ops.hold, int32s(overshoot)))).toBe(overshoot);
     const deadline = h.now() + h.pendingLimitMs;
-    while (!host.messages.some(({ type }) => type === "log") && h.now() < deadline) {
+    const logs = [];
+    while (logs.length === 0 && h.now() < deadline) {
+      logs.push(...client.page.records().filter(({ record }) => record._tag === "Log"));
       await h.sleep(10);
       await stats(client);
     }
-    const logs = host.messages.filter(({ type }) => type === "log");
     expect(logs, "the host's log").toEqual([
-      { type: "log", level: "Error", message: expect.stringMatching(/1 Workers not all loaded in 1 ms/) },
+      expect.objectContaining({
+        seq: 0,
+        ic: 0,
+        record: expect.objectContaining({
+          _tag: "Log",
+          level: 8,
+          message: expect.stringMatching(/1 Workers not all loaded in 1 ms/),
+        }),
+      }),
     ]);
     expect(await call32(client, ops.release), "release").toBeGreaterThanOrEqual(0);
     // Once the released threads have ended, their Workers are idle again,

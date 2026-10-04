@@ -8,6 +8,7 @@
 // loaded machine; the tight figure is in the record. They talk to the host
 // only through the control buffer, so either test environment runs them.
 
+import { CrashReason } from "@ibus-web/protocol";
 import { expect } from "vitest";
 import type { Reply } from "./client.ts";
 import type { Client } from "./client.ts";
@@ -592,6 +593,11 @@ export const threadCrash = async (h: Harness, { client, instrumented }: RunningH
   expect(await call32(client, opsOf(h).crashThread), "crash-thread").toBe(0);
   const crashed = await callsUntilCrashed(h, client);
   const report = await client.crashReport(CRASH_REPORT_LIMIT_MS);
+  expect(client.page.records().at(-1)).toMatchObject({
+    seq: 0,
+    ic: 0,
+    record: { _tag: "Crashed", reason: CrashReason.trap },
+  });
   h.record("thread-crash", { crashed, report: report ?? "none" });
   expect(crashed, "requests fail as crashed").toBe(true);
   expect(report, "the crash report").toMatch(/^a thread crashed: /);

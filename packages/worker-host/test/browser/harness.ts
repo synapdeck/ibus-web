@@ -172,6 +172,7 @@ export const browserHarness = async (): Promise<Harness> => {
     const minimum = data.constants.memory.minimum;
     const test: TestInit = {
       mallinfo: data.constants.mallinfo,
+      sides: [...sides, ...(options.moreSides ?? [])],
       config: testHostConfig(options),
       ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
       ...options.test,
@@ -186,13 +187,17 @@ export const browserHarness = async (): Promise<Harness> => {
           options.wasm === undefined
             ? await runtimeModule(options.runtime.url)
             : await WebAssembly.compile(new Uint8Array(options.wasm)),
-        memory: options.memory ?? { initial: minimum, maximum: minimum },
         control,
-        sides: [...sides, ...(options.moreSides ?? [])],
-        engine: options.engine ?? { name: "test", version: "0", data: [] },
+        ...(options.manifestUrl === undefined
+          ? {
+              manifest: {
+                ...(options.manifest ?? options.engine ?? data.engines.empty),
+                memory: options.memory?.initial ?? options.manifest?.memory ?? options.engine?.memory ?? minimum,
+              },
+            }
+          : { manifestUrl: new URL(options.manifestUrl, location.href).href }),
         storage: options.storage ?? { kind: "none" },
         poolLowWater: data.pool.lowWater,
-        engineThreads: data.pool.engine,
         constants: data.constants,
         test,
       };

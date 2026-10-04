@@ -4,21 +4,12 @@
 // What the page and the Worker host say to each other by postMessage: the
 // host's one message in, and every message out.
 
-// An archive of the engine's data: where the host fetches it (an absolute
-// URL), its store identity, compression, and unpacked file bytes.
-export interface EngineData {
-  url: string;
-  storePath: string;
-  encoding: "br" | "identity";
-  size: number;
-}
-
-// What the host reads of an engine's manifest: the engine's name, its
-// version, which its installed data is marked with, and its data.
-export interface EngineManifest {
-  name: string;
-  version: string;
-  data: readonly EngineData[];
+import type { EngineManifest } from "@ibus-web/protocol";
+export type { EngineManifest } from "@ibus-web/protocol";
+export type EngineData = EngineManifest["data"][number];
+export interface RuntimeMemory {
+  initial: number;
+  maximum: number;
 }
 
 // The engine's data's size, unpacked.
@@ -46,6 +37,9 @@ export interface SideModule {
 // Values the runtime's build defines, which the host checks its calls
 // against, and the bounds of the memory the runtime takes.
 export interface RuntimeConstants {
+  runtimeAbi: number;
+  protocol: number;
+  canceled: number;
   // IBUSWEB_PUMP_ERROR.
   pumpError: number;
   // ibusweb_wait()'s -ETIMEDOUT.
@@ -72,26 +66,18 @@ export type EngineStorage =
 // The page's first and only message to the host. Wasm is the runtime's
 // compiled WebAssembly.Module, typed by the environment that has one. Test
 // is read only by the host's test build; the host as released ignores it.
-export interface HostInit<Wasm = unknown, Test = never> {
+export type HostInit<Wasm = unknown, Test = never> = {
   // The runtime's ibus-runtime.js, which the host imports.
   runtimeUrl: string;
   wasm?: Wasm;
-  // The runtime's memory, in bytes, which the host makes and passes to it:
-  // initial is the engine manifest's memory. The runtime as released never
-  // grows it, whatever the maximum.
-  memory: { initial: number; maximum: number };
   control: SharedArrayBuffer;
-  // The engine's side modules, loaded in this order.
-  sides: readonly SideModule[];
-  engine: EngineManifest;
   storage: EngineStorage;
   // The host tops Emscripten's pthread pool up, when no request is pending,
   // to this many idle Workers.
   poolLowWater: number;
-  engineThreads: number;
   constants: RuntimeConstants;
   test?: Test;
-}
+} & ({ manifest: EngineManifest; manifestUrl?: never } | { manifest?: never; manifestUrl: string });
 
 // What the host mounts the engine's own files on: "memory" for want of
 // IndexedDB.
@@ -134,9 +120,6 @@ export interface CollectReport {
   error?: string;
 }
 
-// Effect's log levels, by name.
-export type LogLevel = "All" | "Fatal" | "Error" | "Warn" | "Info" | "Debug" | "Trace" | "None";
-
 export type HostMessage =
   | { type: "doorbell" }
   // The host serves requests from here on.
@@ -144,7 +127,6 @@ export type HostMessage =
   | { type: "storage"; state: StorageState; message: string }
   | ({ type: "install" } & InstallReport)
   | ({ type: "collect" } & CollectReport)
-  | { type: "log"; level: LogLevel; message: string }
   // The host failed to start; it serves nothing.
   | { type: "error"; message: string }
   // The runtime stopped after the host was ready: the control buffer says

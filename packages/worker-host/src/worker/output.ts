@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+import { Word, type ControlViews } from "../shared/control.ts";
 import type { RingWriter } from "@ibus-web/protocol/transport";
 import type { Runtime } from "./runtime.ts";
 
@@ -27,4 +28,28 @@ export const drainOutput = (rt: Runtime, writer: RingWriter, words: Int32Array):
     if (copied > 0) rt._ibusweb_output_consume(copied);
   }
   return count;
+};
+
+// Host records use zero sequence and input context, so they never advance
+// the runtime's reply watermark. A full ring must not delay crash reporting.
+export const writeHostRecord = (
+  writer: RingWriter,
+  control: ControlViews,
+  kind: number,
+  payload: Uint8Array,
+): boolean => {
+  const record = new Uint8Array(Math.ceil((16 + payload.length) / 8) * 8);
+  const header = new DataView(record.buffer);
+  header.setUint16(8, kind, true);
+  header.setUint32(12, payload.length, true);
+  record.set(payload, 16);
+  try {
+    const position = (Atomics.load(control.words, Word.ringWrite) >>> 0) % control.ring.length;
+    const tail = control.ring.length - position;
+    const required = record.length <= tail ? record.length : tail + record.length;
+    if (writer.freeBytes() < required) return false;
+    return writer.write(record)._tag !== "full";
+  } catch {
+    return false;
+  }
 };

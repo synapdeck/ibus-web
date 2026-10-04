@@ -5,6 +5,8 @@
 // runtime: what the scope reports when it closes after a failure, and that
 // finalizers calling into the runtime run only while it is intact.
 
+import { RingReader, transportLayout, decodeRecord } from "@ibus-web/protocol";
+import { controlViews } from "../../src/shared/control.ts";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Layer, Scope } from "effect";
 import { createControl, State, Word } from "../../src/shared/control.ts";
@@ -96,14 +98,19 @@ describe("runtimeFinalizer", () => {
 describe("the Worker scope", () => {
   const init = (): HostInit<WebAssembly.Module, unknown> => ({
     runtimeUrl: "",
-    memory: { initial: 0, maximum: 0 },
+    manifestUrl: "",
     control: createControl(),
-    sides: [],
-    engine: { name: "test", version: "0", data: [] },
     storage: { kind: "none" },
     poolLowWater: 0,
-    engineThreads: 0,
-    constants: { pumpError: 0, waitTimedOut: 0, idbReadOnly: 0, memory: { minimum: 0, maximum: 0 } },
+    constants: {
+      runtimeAbi: 1,
+      protocol: 1,
+      canceled: -11,
+      pumpError: 0,
+      waitTimedOut: 0,
+      idbReadOnly: 0,
+      memory: { minimum: 0, maximum: 0 },
+    },
   });
 
   // Builds the scope, runs use() in it, then closes it with use()'s exit;
@@ -128,7 +135,10 @@ describe("the Worker scope", () => {
           yield* use(yield* HostWorker, uncaught);
         }).pipe(Effect.provide(layer)),
       );
-      return { posted, state: Atomics.load(new Int32Array(host.control, 0, 16), Word.state) };
+      const reader = new RingReader(controlViews(host.control), transportLayout());
+      const records = [];
+      for (let record = reader.next(); record !== undefined; record = reader.next()) records.push(decodeRecord(record));
+      return { records, posted, state: Atomics.load(new Int32Array(host.control, 0, 16), Word.state) };
     });
 
   it.live("reports a failure before ready as a failed start, the control buffer left alone", () =>
@@ -198,8 +208,8 @@ describe("the Worker scope", () => {
 
   it.live("sends log records to the page", () =>
     Effect.gen(function* () {
-      const { posted } = yield* run(() => Effect.logWarning("pool", "low"));
-      expect(posted).toEqual([{ type: "log", level: "Warn", message: "pool low" }]);
+      const { records } = yield* run(() => Effect.logWarning("pool", "low"));
+      expect(records).toMatchObject([{ seq: 0, ic: 0, record: { _tag: "Log", level: 16, message: "pool low" } }]);
     }),
   );
 

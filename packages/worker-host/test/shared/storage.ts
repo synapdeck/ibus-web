@@ -48,14 +48,21 @@ export const DATA_PATH = "/nix/store/00000000000000000000000000000000-test-data"
 export const withData = (engine: EngineManifest, { version, url, size }: TestArchive): EngineManifest => ({
   ...engine,
   version,
-  data: [{ url, storePath: DATA_PATH, size, encoding: "identity" }],
+  data: [
+    { url, storePath: DATA_PATH, size, encoding: "identity" },
+    ...engine.data.filter((entry) => entry.storePath !== DATA_PATH),
+  ],
 });
 
 // An engine of its own for a scenario on a runtime, named apart from those
 // of any earlier run in the same browser, with the test archive as its data.
 export const engineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): EngineManifest =>
   withData(
-    { name: `${scenario}-${runtime.name}-${Math.random().toString(36).slice(2, 8)}`, version: "", data: [] },
+    {
+      ...h.data.engines.empty,
+      memory: h.data.constants.memory.minimum,
+      name: `${scenario}-${runtime.name}-${Math.random().toString(36).slice(2, 8)}`,
+    },
     h.data.archives.tree,
   );
 
@@ -318,7 +325,7 @@ const locksAfter = async (h: Harness, engine: EngineManifest, writerFree: boolea
 };
 
 const crashedLogs = (host: RunningHost): string[] =>
-  host.messages.flatMap((message) => (message.type === "log" ? [message.message] : []));
+  host.client.page.records().flatMap(({ record }) => (record._tag === "Log" ? [record.message] : []));
 
 // A host whose relay fails crashes with its runtime intact: it seals its
 // user data, then lets go of every lock, the writer lock included.

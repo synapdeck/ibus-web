@@ -16,7 +16,10 @@ export class StartupFailed extends Data.TaggedError("StartupFailed")<{
 
 // A call into the runtime threw: a trap, an abort, or Emscripten unwinding
 // the host for another thread's crash.
-export class RuntimeStopped extends Data.TaggedError("RuntimeStopped")<{ readonly error: unknown }> {}
+export class RuntimeStopped extends Data.TaggedError("RuntimeStopped")<{
+  readonly error: unknown;
+  readonly reason?: number;
+}> {}
 
 export class RelayFailed extends Data.TaggedError("RelayFailed")<{ readonly message: string }> {}
 
@@ -24,7 +27,10 @@ export class RelayFailed extends Data.TaggedError("RelayFailed")<{ readonly mess
 // ErrorEvent its Worker fired, which Emscripten rethrows.
 export const describe = (error: unknown): string => {
   if (error instanceof Error) return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
-  if (typeof ErrorEvent === "function" && error instanceof ErrorEvent)
+  const errorEvent = (
+    globalThis as { ErrorEvent?: new (...args: never[]) => { message: string; filename: string; lineno: number } }
+  ).ErrorEvent;
+  if (typeof errorEvent === "function" && error instanceof errorEvent)
     return `${error.message} (${error.filename}:${error.lineno})`;
   return String(error);
 };
@@ -46,13 +52,17 @@ export const runtimeCallFailed = (error: unknown): StartupFailed =>
 // Whether the runtime may still be called once a scope closes with exit:
 // not once a call into it has thrown, since after a trap its memory can't
 // be trusted.
+const runtimeBroken = (error: unknown): boolean =>
+  error instanceof RuntimeStopped || (error instanceof StartupFailed && error.trapped === true);
+
 export const runtimeIntact = (exit: Exit.Exit<unknown, unknown>): boolean =>
   Exit.isSuccess(exit) ||
-  !exit.cause.reasons.some(
-    (reason) =>
-      Cause.isFailReason(reason) &&
-      (reason.error instanceof RuntimeStopped ||
-        (reason.error instanceof StartupFailed && reason.error.trapped === true)),
+  !exit.cause.reasons.some((reason) =>
+    Cause.isFailReason(reason)
+      ? runtimeBroken(reason.error)
+      : Cause.isDieReason(reason)
+        ? runtimeBroken(reason.defect)
+        : false,
   );
 
 // Registers a finalizer that calls into the runtime: it runs only while the

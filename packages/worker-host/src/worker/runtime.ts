@@ -4,7 +4,7 @@
 // What the host uses of ibus-runtime.js, and the plain functions that call
 // into it.
 
-import { WASM_PAGE, type HostInit, type RuntimeConstants } from "../shared/messages.ts";
+import { WASM_PAGE, type RuntimeMemory, type SideModule, type RuntimeConstants } from "../shared/messages.ts";
 
 // A failure that leaves the runtime fit to be called again: a call into it
 // returned an error, or the host refused something before calling it.
@@ -20,6 +20,7 @@ export interface Runtime {
   _creat(path: number, mode: number): number;
   _write(fd: number, buf: number, count: number): number;
   _close(fd: number): number;
+  _setenv(name: number, value: number, overwrite: number): number;
   _mkdir(path: number, mode: number): number;
   _wasmfs_create_node_backend(root: number): number;
   _wasmfs_create_memory_backend(): number;
@@ -79,7 +80,7 @@ export interface RuntimeHandle {
 // rather than as a LinkError from instantiating the runtime, or not at all
 // for a size that isn't whole pages, which WebAssembly.Memory rounds down.
 export const checkMemory = (
-  { initial, maximum }: HostInit["memory"],
+  { initial, maximum }: RuntimeMemory,
   { minimum, maximum: most }: RuntimeConstants["memory"],
 ): void => {
   const bounds = `a whole number of ${WASM_PAGE}-byte pages from ${minimum} to ${most} bytes`;
@@ -121,10 +122,14 @@ export const alloc = ({ rt }: RuntimeHandle, bytes: number): number => {
 export const withBytes = <T>(handle: RuntimeHandle, data: Uint8Array, use: (ptr: number) => T): T => {
   const ptr = alloc(handle, data.length);
   handle.bytes.set(data, ptr);
+  let intact = true;
   try {
     return use(ptr);
+  } catch (error) {
+    intact = error instanceof RuntimeRefused;
+    throw error;
   } finally {
-    handle.rt._free(ptr);
+    if (intact) handle.rt._free(ptr);
   }
 };
 
@@ -133,7 +138,7 @@ export const withString = <T>(handle: RuntimeHandle, text: string, use: (ptr: nu
 
 // Writes each module through the runtime's own libc, so it lands in its file
 // system whatever backs it, then loads it.
-export const loadSides = (handle: RuntimeHandle, sides: HostInit["sides"]): void => {
+export const loadSides = (handle: RuntimeHandle, sides: readonly SideModule[]): void => {
   const { rt } = handle;
   const dir = "/sides";
   withString(handle, dir, (ptr) => rt._mkdir(ptr, 0o755));

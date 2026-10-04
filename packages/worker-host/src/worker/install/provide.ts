@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Mounts this version's data at the engine's data directory, installing it
+// Mounts this version's data at /nix/store, installing it
 // first unless its marker says it is there, then lets other versions' data
 // go. A mount in memory is this host's alone and starts empty, so it
 // installs with no lock. Otherwise the host holds the version's data lock,
@@ -96,7 +96,6 @@ export const provideData = ({
 }: ProvideData): Effect.Effect<DataMount, StartupFailed, Scope.Scope> =>
   Effect.gen(function* () {
     const none: DataMount = { closed: () => false };
-    if (plan.mount === "none") return none;
     if (engine.version === "")
       return yield* new StartupFailed({ message: `engine ${engine.name}'s manifest has no version` });
     const root = engineDataRoot(engine);
@@ -104,7 +103,7 @@ export const provideData = ({
     const report = (state: InstallReport["state"], fields: Omit<InstallReport, "state" | "version" | "installMs">) =>
       post({ type: "install", state, version: engine.version, ...fields, installMs: performance.now() - startedAt });
 
-    if (plan.mount === "memory") {
+    if (plan.mount === "memory" || plan.mount === "none") {
       const lockedAt = Date.now();
       const tally = yield* Effect.tryPromise({
         try: () => {
@@ -136,6 +135,7 @@ export const provideData = ({
     const installLock = engineInstallLock(engine);
     const { lock, waitMs, lockedAt } = yield* hold(installLock, "exclusive", installLock);
 
+    yield* Effect.try({ try: () => makeDirs(handle, "/nix"), catch: runtimeCallFailed });
     const store: DataStore = yield* plan.mount === "node"
       ? Effect.tryPromise({ try: () => nodeStore(handle, engine, plan.hostPath), catch: startupFailed })
       : Effect.succeed(idbStore(handle, engine, idbReadOnly, config.deleteLimitMs));

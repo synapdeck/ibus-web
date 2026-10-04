@@ -11,6 +11,7 @@ import type { MountedStorage } from "./storage/mount.ts";
 
 export interface InstrumentReply {
   ret: number;
+  stop?: boolean;
   bytes?: Uint8Array;
 }
 

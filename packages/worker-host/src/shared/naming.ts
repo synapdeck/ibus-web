@@ -21,11 +21,10 @@ export const encodeComponent = (text: string): string =>
 // Where the engine's own files are, as the runtime sees them.
 export const engineDir = ({ name }: Pick<EngineIdentity, "name">): string => `/engines/${name}`;
 
-// Where the engine's installed data is mounted, apart from its own files.
-export const engineDataRoot = (engine: Pick<EngineIdentity, "name">): string => `${engineDir(engine)}/data`;
+// Every archive retains its Nix store identity inside the version's database.
+export const engineDataRoot = (_engine: Pick<EngineIdentity, "name">): string => "/nix/store";
 
-// Where an archive of the engine's data lands: under the data's mount, at
-// the path the engine expects it.
+// An archive lands at the exact store path compiled into the side module.
 export const engineDataDir = (engine: Pick<EngineIdentity, "name">, { storePath }: { storePath: string }): string =>
   `${engineDataRoot(engine)}/${storePath.slice("/nix/store/".length)}`;
 

@@ -6,9 +6,11 @@
 // HostInit.test tells it.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import type { HostMessage, Mount } from "../../src/shared/messages.ts";
+import type { HostMessage, Mount, SideModule } from "../../src/shared/messages.ts";
 
 export const HostOp = {
+  stop: 0xfff5,
+  loadedModules: 0xfff6,
   // A UTF-8 JSON HostStats.
   stats: 0xfff1,
   // Returns the host to its event loop for the int32 payload's milliseconds
@@ -54,6 +56,9 @@ export interface HostStats {
 }
 
 export interface TestInit {
+  sides?: readonly SideModule[];
+  callsAfterFault?: SharedArrayBuffer;
+  canceled?: number;
   // struct mallinfo's size, and the offset of uordblks (bytes in use), as
   // the WebAssembly target defines them.
   mallinfo: { bytes: number; inUseOffset: number };

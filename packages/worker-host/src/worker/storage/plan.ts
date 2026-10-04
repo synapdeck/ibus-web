@@ -4,7 +4,7 @@
 // What the host mounts at the engine's directory, decided before the
 // runtime's memory is made, since a mount in memory needs a larger one.
 
-import { memoryWithData, type EngineManifest, type EngineStorage, type HostInit } from "../../shared/messages.ts";
+import { memoryWithData, type EngineManifest, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 import { engineDatabase, engineWriterLock } from "../../shared/naming.ts";
 import type { Held } from "./held.ts";
 import { requestLock } from "./locks.ts";
@@ -108,5 +108,5 @@ export const planStorage = async (
 
 // The memory the runtime needs: mounted in memory, the engine's data sits
 // in it.
-export const memoryFor = (memory: HostInit["memory"], plan: StoragePlan, engine: EngineManifest): HostInit["memory"] =>
+export const memoryFor = (memory: RuntimeMemory, plan: StoragePlan, engine: EngineManifest): RuntimeMemory =>
   plan.mount === "memory" ? memoryWithData(memory, engine) : memory;

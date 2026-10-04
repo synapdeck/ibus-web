@@ -10,17 +10,23 @@
 // section, leaving it only to top the pthread pool up. Only this Worker, and
 // the relay it starts, touch the runtime's memory.
 
+import { CrashReason, encodeValue, type EngineManifest } from "@ibus-web/protocol";
+import { readManifest, fetchBytes } from "./startup.ts";
+import { mountStore } from "./store.ts";
+import { EngineScopes } from "./scopes.ts";
+import { writeHostRecord, drainOutput, HostDefect } from "./output.ts";
 import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { engineDir, engineWriterLock } from "../shared/naming.ts";
 import { RingWriter, transportLayout } from "@ibus-web/protocol/transport";
 import { controlViews, postCrash, Word, type ControlViews } from "../shared/control.ts";
-import { WASM_PAGE, type HostInit, type HostMessage } from "../shared/messages.ts";
+import { WASM_PAGE, type HostInit, type HostMessage, type RuntimeMemory } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
 import {
   describe,
   RelayFailed,
   runtimeCallFailed,
   runtimeFinalizer,
+  runtimeIntact,
   RuntimeStopped,
   StartupFailed,
   startupFailed,
@@ -77,6 +83,7 @@ export interface WorkerEnv {
 export interface HostWorkerShape {
   readonly init: HostInit<WebAssembly.Module, unknown>;
   readonly control: ControlViews;
+  readonly writer: RingWriter;
   readonly env: WorkerEnv;
   // Posts "ready"; from here on, a failure is a crash, not a failed start.
   readonly ready: () => void;
@@ -87,28 +94,48 @@ export interface HostWorkerShape {
 
 export class HostWorker extends Context.Service<HostWorker, HostWorkerShape>()("@ibus-web/worker-host/HostWorker") {}
 
-// Log records go to the page as "log" messages.
-const hostLogger = (post: WorkerEnv["post"]): Logger.Logger<unknown, void> =>
+const hostLogger = (writer: RingWriter, control: ControlViews, notify: () => void): Logger.Logger<unknown, void> =>
   Logger.make(({ logLevel, message, cause }) => {
     const parts = Array.isArray(message) ? message : [message];
     const text = parts.map((part) => (typeof part === "string" ? part : describe(part))).join(" ");
-    post({
-      type: "log",
-      level: logLevel,
-      message: cause.reasons.length === 0 ? text : `${text}\n${Cause.pretty(cause)}`,
+    const levels = { All: 128, Fatal: 4, Error: 8, Warn: 16, Info: 64, Debug: 128, Trace: 128, None: 0 };
+    const payload = encodeValue("(uss)", {
+      _tag: "()",
+      items: [
+        { _tag: "u", value: levels[logLevel] },
+        { _tag: "s", value: "worker-host" },
+        { _tag: "s", value: cause.reasons.length === 0 ? text : `${text}\n${Cause.pretty(cause)}` },
+      ],
     });
+    if (writeHostRecord(writer, control, 33, payload)) notify();
   });
 
-// Why the host stopped, for its crash report.
+// Cleanup failures are defects because Effect finalizers cannot fail through
+// the typed channel. Their RuntimeStopped value still controls later scopes.
+const crashFailure = (cause: Cause.Cause<unknown>): RuntimeStopped | RelayFailed | undefined => {
+  for (const reason of cause.reasons) {
+    let error: unknown;
+    if (Cause.isFailReason(reason)) error = reason.error;
+    else if (Cause.isDieReason(reason)) error = reason.defect;
+    else continue;
+    if (error instanceof RuntimeStopped || error instanceof RelayFailed) return error;
+  }
+  return undefined;
+};
+
+const crashReason = (cause: Cause.Cause<unknown>): number => {
+  const failure = crashFailure(cause);
+  if (failure instanceof RelayFailed) return CrashReason.relay;
+  if (failure instanceof RuntimeStopped) return failure.reason ?? CrashReason.trap;
+  return CrashReason.host;
+};
+
 const crashMessage = (cause: Cause.Cause<unknown>, threadError: Promise<string>, waitMs: number): Promise<string> => {
-  const error = Cause.findErrorOption(cause);
-  if (error._tag === "Some") {
-    const failure = error.value;
-    if (failure instanceof RelayFailed) return Promise.resolve(`relay: ${failure.message}`);
-    if (failure instanceof RuntimeStopped) {
-      if (failure.error !== UNWIND) return Promise.resolve(describe(failure.error));
-      return within(threadError, waitMs, "its error never arrived").then((why) => `a thread crashed: ${why}`);
-    }
+  const failure = crashFailure(cause);
+  if (failure instanceof RelayFailed) return Promise.resolve(`relay: ${failure.message}`);
+  if (failure instanceof RuntimeStopped) {
+    if (failure.error !== UNWIND) return Promise.resolve(describe(failure.error));
+    return within(threadError, waitMs, "its error never arrived").then((why) => `a thread crashed: ${why}`);
   }
   return Promise.resolve(Cause.pretty(cause));
 };
@@ -124,13 +151,17 @@ const startupMessage = (cause: Cause.Cause<unknown>): string => {
 export const workerLayer = (
   init: HostInit<WebAssembly.Module, unknown>,
   env: WorkerEnv,
-): Layer.Layer<HostWorker, never, HostConfig> =>
-  Layer.effect(
+): Layer.Layer<HostWorker, never, HostConfig> => {
+  const control = controlViews(init.control);
+  const writer = new RingWriter(control, transportLayout());
+  const notify = (): void => {
+    if (Atomics.exchange(control.words, Word.doorbell, 1) === 0) env.post({ type: "doorbell" });
+  };
+  return Layer.effect(
     HostWorker,
     Effect.gen(function* () {
       const config = yield* HostConfig;
       const startedAt = performance.now();
-      const control = controlViews(init.control);
       let isReady = false;
       let isCrashed = false;
       let keepError: (why: string) => void = () => {};
@@ -154,13 +185,27 @@ export const workerLayer = (
           : isReady
             ? Effect.promise(async () => {
                 crashed();
-                env.post({ type: "crashed", message: await crashMessage(exit.cause, threadError, config.crashWaitMs) });
+                const message = await crashMessage(exit.cause, threadError, config.crashWaitMs);
+                writeHostRecord(
+                  writer,
+                  control,
+                  34,
+                  encodeValue("(us)", {
+                    _tag: "()",
+                    items: [
+                      { _tag: "u", value: crashReason(exit.cause) },
+                      { _tag: "s", value: message },
+                    ],
+                  }),
+                );
+                env.post({ type: "crashed", message });
               })
             : Effect.sync(() => env.post({ type: "error", message: startupMessage(exit.cause) })),
       );
       return {
         init,
         control,
+        writer,
         env,
         ready: () => {
           isReady = true;
@@ -169,7 +214,8 @@ export const workerLayer = (
         crashed,
       };
     }),
-  ).pipe(Layer.provideMerge(Logger.layer([hostLogger(env.post)])));
+  ).pipe(Layer.provideMerge(Logger.layer([hostLogger(writer, control, notify)])));
+};
 
 // The storage's plan: what to mount at the engine's directory, decided
 // before the runtime's memory is made, since a mount in memory needs a
@@ -180,7 +226,9 @@ export interface PlannedStorageShape {
   readonly plan: StoragePlan;
   readonly held: Held;
   // The runtime's memory, in bytes.
-  readonly memory: HostInit["memory"];
+  readonly memory: RuntimeMemory;
+  readonly manifest: EngineManifest;
+  readonly module: ArrayBuffer;
 }
 
 export class PlannedStorage extends Context.Service<PlannedStorage, PlannedStorageShape>()(
@@ -192,14 +240,27 @@ export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWo
   Effect.gen(function* () {
     const { init } = yield* HostWorker;
     const instruments = yield* Instruments;
+    const manifest = yield* Effect.tryPromise({
+      try: () => readManifest(init),
+      catch: (error) => (error instanceof StartupFailed ? error : startupFailed(error)),
+    });
     const held = new Held();
     yield* Effect.addFinalizer(() => Effect.sync(() => held.releaseAll()));
     instruments.beforeProbe();
     const plan = yield* Effect.tryPromise({
-      try: () => planStorage(init.storage, init.engine, init.constants.idbReadOnly, held),
+      try: () => planStorage(init.storage, manifest, init.constants.idbReadOnly, held),
       catch: startupFailed,
     });
-    return { plan, held, memory: memoryFor(init.memory, plan, init.engine) };
+    const module = yield* Effect.tryPromise({ try: () => fetchBytes(manifest.module.url), catch: startupFailed });
+    if (module.length !== manifest.module.size)
+      return yield* new StartupFailed({ message: `module size ${module.length}, expected ${manifest.module.size}` });
+    return {
+      plan,
+      held,
+      manifest,
+      module: module.buffer as ArrayBuffer,
+      memory: memoryFor({ initial: manifest.memory, maximum: manifest.memory }, plan, manifest),
+    };
   }),
 );
 
@@ -222,9 +283,7 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
   HostRuntime,
   Effect.gen(function* () {
     const { init, control } = yield* HostWorker;
-    if (!Number.isInteger(init.engineThreads) || init.engineThreads < 0)
-      return yield* new StartupFailed({ message: "engineThreads must be a nonnegative integer" });
-    const { memory: bytes } = yield* PlannedStorage;
+    const { memory: bytes, manifest } = yield* PlannedStorage;
     const instruments = yield* Instruments;
     yield* Effect.try({ try: () => checkMemory(bytes, init.constants.memory), catch: startupFailed });
     const memory = new WebAssembly.Memory({
@@ -249,7 +308,7 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
         return Promise.race([
           createRuntime({
             wasmMemory: memory,
-            ibuswebEngineThreads: init.engineThreads,
+            ibuswebEngineThreads: manifest.threads,
             ...(wasm === undefined
               ? {}
               : {
@@ -341,7 +400,7 @@ export const relayLayer: Layer.Layer<Relay, StartupFailed, HostWorker | HostRunt
 );
 
 // The storage's mounts: the engine's own files at its directory, and its
-// data, installed first if need be, at the data directory inside it. The
+// data, installed first if need be, at /nix/store. The
 // backends' threads and connections end with the Worker, since WasmFS never
 // destroys a backend; released while the runtime can still be called, it
 // seals the read-write backends, which lets the writer lock go.
@@ -353,11 +412,11 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
     Effect.gen(function* () {
       const { init, env } = yield* HostWorker;
       const { handle } = yield* HostRuntime;
-      const { plan, held } = yield* PlannedStorage;
+      const { plan, held, manifest } = yield* PlannedStorage;
       const config = yield* HostConfig;
       const instruments = yield* Instruments;
       const mounted = yield* Effect.tryPromise({
-        try: () => mount(handle, plan, engineDir(init.engine)),
+        try: () => mount(handle, plan, engineDir(manifest)),
         catch: runtimeCallFailed,
       });
       const { seal } = mounted;
@@ -370,7 +429,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
               return Effect.void;
             } catch (error) {
               return Effect.logError(
-                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(init.engine)} until its Worker ends: ${describe(error)}`,
+                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(manifest)} until its Worker ends: ${describe(error)}`,
               );
             }
           }),
@@ -381,11 +440,11 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
         env.post({
           type: "storage",
           state: "read-only",
-          message: `another instance of engine ${init.engine.name} holds ${engineWriterLock(init.engine)}; this one's user data refuses changes${plan.mount === "node" ? " (in browsers; the Node backend has no read-only mode)" : ""}`,
+          message: `another instance of engine ${manifest.name} holds ${engineWriterLock(manifest)}; this one's user data refuses changes${plan.mount === "node" ? " (in browsers; the Node backend has no read-only mode)" : ""}`,
         });
       const data = yield* provideData({
         handle,
-        engine: init.engine,
+        engine: manifest,
         plan,
         idbReadOnly: init.constants.idbReadOnly,
         held,
@@ -394,39 +453,19 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
         post: env.post,
       });
       const storage: MountedStorage = { ...mounted, closed: () => mounted.closed() || data.closed() };
-      instruments.storageMounted(storage);
+      yield* Effect.try({ try: () => mountStore(handle, manifest), catch: runtimeCallFailed });
+      yield* Effect.try({ try: () => instruments.storageMounted(storage), catch: runtimeCallFailed });
       return storage;
     }),
   );
-
-// The engine module scope: the side modules, loaded and registered. Side
-// modules are never unloaded, and the runtime has no module shutdown call,
-// so there is nothing to release.
-export interface EngineModuleShape {
-  readonly names: readonly string[];
-}
-
-export class EngineModule extends Context.Service<EngineModule, EngineModuleShape>()(
-  "@ibus-web/worker-host/EngineModule",
-) {}
-
-export const engineModuleLayer: Layer.Layer<EngineModule, StartupFailed, HostWorker | HostRuntime> = Layer.effect(
-  EngineModule,
-  Effect.gen(function* () {
-    const { init } = yield* HostWorker;
-    const { handle } = yield* HostRuntime;
-    yield* Effect.try({ try: () => loadSides(handle, init.sides), catch: runtimeCallFailed });
-    return { names: init.sides.map(({ name }) => name) };
-  }),
-);
 
 // Serves requests for good, leaving the synchronous section only to top the
 // pool up or for an instrument's reply. Fails once the runtime or the relay
 // stops.
 export const serve: Effect.Effect<
-  never,
+  void,
   RuntimeStopped | RelayFailed,
-  HostWorker | HostRuntime | Relay | Storage | HostConfig
+  HostWorker | HostRuntime | Relay | Storage | HostConfig | PlannedStorage
 > = Effect.gen(function* () {
   const worker = yield* HostWorker;
   const { handle, wakeIndex, buffers } = yield* HostRuntime;
@@ -435,6 +474,21 @@ export const serve: Effect.Effect<
   const config = yield* HostConfig;
   const instruments = yield* Instruments;
   const { init, control } = worker;
+  const { module } = yield* PlannedStorage;
+  // Runs a runtime call; one that throws marks the host crashed before
+  // anything else can happen.
+  const guarded = <T>(call: () => T): Effect.Effect<T, RuntimeStopped> =>
+    Effect.try({
+      try: call,
+      catch: (error) => {
+        worker.crashed();
+        return error instanceof RuntimeStopped
+          ? error
+          : new RuntimeStopped({ error, reason: error instanceof HostDefect ? CrashReason.host : CrashReason.trap });
+      },
+    });
+  const scopes = new EngineScopes(buffers.request, init.constants.canceled);
+  let moduleLoaded = false;
   // The page hears of it once.
   let closedReported = false;
   const watchStorage = (): void => {
@@ -446,6 +500,7 @@ export const serve: Effect.Effect<
       message: "the IndexedDB connection closed; the engine's storage fails with EIO",
     });
   };
+  const outputLength = yield* guarded(() => new Int32Array(handle.bytes.buffer, alloc(handle, 4), 1));
   const ctx: LoopContext = {
     watchStorage,
     handle,
@@ -455,22 +510,30 @@ export const serve: Effect.Effect<
     buffers,
     instruments,
     lowWater: init.poolLowWater,
-    writer: new RingWriter(control, transportLayout()),
-    outputLength: new Int32Array(handle.bytes.buffer, alloc(handle, 4), 1),
+    writer: worker.writer,
+    scopes,
+    loadEngine: () => {
+      if (moduleLoaded) return;
+      try {
+        loadSides(handle, [{ name: "engine", bytes: module }]);
+      } catch (error) {
+        throw new RuntimeStopped({ error, reason: CrashReason.load });
+      }
+      moduleLoaded = true;
+    },
+    outputLength,
     postDoorbell: () => worker.env.post({ type: "doorbell" }),
     topUpFailed: false,
+    stopping: false,
     woken: false,
   };
-  // Runs a runtime call; one that throws marks the host crashed before
-  // anything else can happen.
-  const guarded = <T>(call: () => T): Effect.Effect<T, RuntimeStopped> =>
-    Effect.try({
-      try: call,
-      catch: (error) => {
-        worker.crashed();
-        return new RuntimeStopped({ error });
-      },
-    });
+  yield* Effect.addFinalizer((exit) =>
+    guarded(() => {
+      const intact = runtimeIntact(exit);
+      scopes.closeAll(handle.rt, intact);
+      if (intact) drainOutput(handle.rt, worker.writer, outputLength);
+    }).pipe(Effect.orDie),
+  );
   const relayFailed = Effect.gen(function* () {
     const message = yield* Effect.promise(() => within(relay.failed, config.crashWaitMs, "stopped without an error"));
     return yield* new RelayFailed({ message });
@@ -500,6 +563,7 @@ export const serve: Effect.Effect<
           yield* answer(next.reply);
           continue;
         }
+        if (next.kind === "stopped") return;
         if (next.kind === "relayFailed") return yield* relayFailed;
         const woke = Atomics.waitAsync(
           handle.words,
@@ -520,6 +584,8 @@ export const serve: Effect.Effect<
   for (;;) {
     const excursion = yield* guarded(() => serveUntilExcursion(ctx));
     switch (excursion.kind) {
+      case "stopped":
+        return;
       case "topUp":
         yield* topUpPool(excursion.want);
         break;
@@ -530,15 +596,14 @@ export const serve: Effect.Effect<
         return yield* relayFailed;
     }
   }
-});
+}).pipe(Effect.scoped);
 
 // Every scope the host runs in, outermost last.
 export const hostLayer = (
   init: HostInit<WebAssembly.Module, unknown>,
   env: WorkerEnv,
-): Layer.Layer<HostWorker | PlannedStorage | HostRuntime | Relay | Storage | EngineModule, StartupFailed, HostConfig> =>
-  engineModuleLayer.pipe(
-    Layer.provideMerge(storageLayer),
+): Layer.Layer<HostWorker | PlannedStorage | HostRuntime | Relay | Storage, StartupFailed, HostConfig> =>
+  storageLayer.pipe(
     Layer.provideMerge(relayLayer),
     Layer.provideMerge(runtimeLayer),
     Layer.provideMerge(storagePlanLayer),

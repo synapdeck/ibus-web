@@ -27,6 +27,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { browserMode, crossOriginIsolation, servePlugin, serveDirs } from "@ibus-web/test-programs/vitest";
 import type { TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
+import type { EngineManifest } from "@ibus-web/protocol";
 import type { BuildConstants, TestArchive, TestData } from "../shared/harness.ts";
 import { commands } from "./commands.ts";
 
@@ -40,6 +41,9 @@ interface Manifest {
   constants: string;
   errno: string;
   archives: string;
+  engines: Record<"echo" | "thrower" | "empty", string>;
+  echoData: string;
+  schemas: string;
   pool: TestData["pool"];
   stress: TestData["stress"];
 }
@@ -90,10 +94,32 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   // target, and the host would find the relay beside that.
   const failing = mkdtempSync(join(tmpdir(), "ibus-web-worker-host-failing-relay-"));
   copyFileSync(join(dist, "worker/index.js"), join(failing, "index.js"));
+  copyFileSync(join(dist, "worker/brotli-fallback.js"), join(failing, "brotli-fallback.js"));
   copyFileSync(join(dist, "test/worker/failing-relay.js"), join(failing, "relay.js"));
+  type EngineName = "echo" | "thrower" | "empty";
+  const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): EngineManifest => {
+    const engine = readJson<EngineManifest>(join(manifest.engines[name], "manifest.json"));
+    return {
+      ...engine,
+      module: { ...engine.module, url: url(name, engine.module.url) },
+      data: engine.data.map((entry) => ({ ...entry, url: url(name, entry.url) })),
+    };
+  };
   const testData = (
-    url: (dir: "asserting" | "released" | "sides" | "dist" | "failing" | "archives", file: string) => string,
+    url: (
+      dir: "asserting" | "released" | "sides" | "dist" | "failing" | "archives" | "echo" | "thrower" | "empty",
+      file: string,
+    ) => string,
   ): TestData => ({
+    engines: {
+      echo: engineManifest("echo", url),
+      thrower: engineManifest("thrower", url),
+      empty: engineManifest("empty", url),
+    },
+    echoData: manifest.echoData,
+    schemaFiles: readdirSync(manifest.schemas, { recursive: true, withFileTypes: true }).filter((entry) =>
+      entry.isFile(),
+    ).length,
     runtimes: (["asserting", "released"] as const).map((name) => ({ name, url: url(name, "ibus-runtime.js") })),
     sides: sideFiles.map((file) => ({ name: basename(file, ".wasm"), url: url("sides", file) })),
     testHostUrl: url("dist", "test/worker/host.js"),
@@ -109,11 +135,18 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       missing: url("archives", "missing.tar"),
     },
   });
-  const dirs = { ...manifest.runtimes, sides: manifest.sides, dist, failing, archives: manifest.archives };
+  const dirs = {
+    ...manifest.engines,
+    ...manifest.runtimes,
+    sides: manifest.sides,
+    dist,
+    failing,
+    archives: manifest.archives,
+  };
   const browsers = manifest.environments.filter((environment) => environment !== "node");
   const projects: TestProjectInlineConfiguration[] = [];
   const nodeOrigin = manifest.environments.includes("node")
-    ? await serveToNode({ archives: manifest.archives })
+    ? await serveToNode({ ...manifest.engines, archives: manifest.archives })
     : undefined;
   if (nodeOrigin !== undefined)
     projects.push({
@@ -123,7 +156,9 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
         include: ["test/node/**/*.test.ts"],
         provide: {
           workerHost: testData((dir, file) =>
-            dir === "archives" ? `${nodeOrigin}${prefix}${dir}/${file}` : pathToFileURL(join(dirs[dir], file)).href,
+            dir === "archives" || dir === "echo" || dir === "thrower" || dir === "empty"
+              ? `${nodeOrigin}${prefix}${dir}/${file}`
+              : pathToFileURL(join(dirs[dir], file)).href,
           ),
         },
       },

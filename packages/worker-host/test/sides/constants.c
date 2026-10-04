@@ -9,6 +9,7 @@
 #include "test-ops.h"
 
 #include <errno.h>
+#include <ibus-web/protocol.h>
 #include <ibus-web/wasmfs-idb.h>
 #include <malloc.h>
 #include <stddef.h>
@@ -25,6 +26,8 @@ int main(void) {
   printf("}, \"pumpError\": %d, \"waitTimedOut\": %d", IBUSWEB_PUMP_ERROR,
          -ETIMEDOUT);
   printf(", \"idbReadOnly\": %u", WASMFS_IDB_READ_ONLY);
+  printf(", \"runtimeAbi\": %u, \"protocol\": %u, \"canceled\": %d",
+         IBUSWEB_RUNTIME_ABI, IBUSWEB_PROTOCOL_VERSION, -ECANCELED);
   printf(", \"mallinfo\": {\"bytes\": %zu, \"inUseOffset\": %zu}}\n",
          sizeof(struct mallinfo), offsetof(struct mallinfo, uordblks));
   return 0;

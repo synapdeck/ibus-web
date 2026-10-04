@@ -50,11 +50,17 @@ const counts = ({ listing }: TestArchive): { files: number; bytes: number } => {
 };
 
 // The host found the engine's data in state, the archive's.
-const expectInstall = (messages: readonly Message[], state: InstallReport["state"], archive: TestArchive): void => {
+const expectInstall = (
+  h: Harness,
+  messages: readonly Message[],
+  state: InstallReport["state"],
+  archive: TestArchive,
+): void => {
   expect(installOf(messages), "the install report").toMatchObject({
     state,
     version: archive.version,
-    ...counts(archive),
+    files: counts(archive).files + h.data.schemaFiles,
+    bytes: counts(archive).bytes + h.data.engines.empty.data.reduce((sum, entry) => sum + entry.size, 0),
   });
 };
 
@@ -164,7 +170,7 @@ export const installFresh = (h: Harness, runtime: RuntimeBuild): Promise<void> =
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "install-fresh", runtime);
     const host = await launch(engine).ready;
-    expectInstall(host.messages, "installed", h.data.archives.tree);
+    expectInstall(h, host.messages, "installed", h.data.archives.tree);
     await expectTree(h, host.client, engine, h.data.archives.tree);
   });
 
@@ -174,10 +180,10 @@ export const installSkip = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "install-skip", runtime);
     const first = await launch(engine).ready;
-    expectInstall(first.messages, "installed", h.data.archives.tree);
+    expectInstall(h, first.messages, "installed", h.data.archives.tree);
     await first.terminate();
     const second = await launch(engine).ready;
-    expectInstall(second.messages, "present", h.data.archives.tree);
+    expectInstall(h, second.messages, "present", h.data.archives.tree);
     await expectTree(h, second.client, engine, h.data.archives.tree);
   });
 
@@ -207,7 +213,7 @@ export const installInterrupted = (h: Harness, runtime: RuntimeBuild): Promise<v
     const first = await stalledHost(h, launch, engine, h.data.archives.tree);
     await first.terminate();
     const next = await launch(engine).ready;
-    expectInstall(next.messages, "installed", h.data.archives.tree);
+    expectInstall(h, next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
@@ -230,7 +236,7 @@ export const installInterruptedQueued = (h: Harness, runtime: RuntimeBuild): Pro
     );
     await first.terminate();
     const host = await second.ready;
-    expectInstall(host.messages, "installed", h.data.archives.tree);
+    expectInstall(h, host.messages, "installed", h.data.archives.tree);
     await expectTree(h, host.client, engine, h.data.archives.tree);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
@@ -247,12 +253,12 @@ export const installInterruptedStray = (h: Harness, runtime: RuntimeBuild): Prom
     const { upgrade } = h.data.archives;
     const stray: EngineManifest = {
       ...engine,
-      data: engine.data.map((data) => ({ ...data, url: upgrade.url, size: upgrade.size })),
+      data: engine.data.map((data, i) => (i === 0 ? { ...data, url: upgrade.url, size: upgrade.size } : data)),
     };
     const first = await stalledHost(h, launch, stray, upgrade);
     await first.terminate();
     const next = await launch(engine).ready;
-    expectInstall(next.messages, "installed", h.data.archives.tree);
+    expectInstall(h, next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
@@ -263,11 +269,11 @@ export const installTornMarker = (h: Harness, runtime: RuntimeBuild): Promise<vo
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "install-torn-marker", runtime);
     const first = await launch(engine).ready;
-    expectInstall(first.messages, "installed", h.data.archives.tree);
+    expectInstall(h, first.messages, "installed", h.data.archives.tree);
     await first.terminate();
     await h.tearMarker(engine);
     const second = await launch(engine).ready;
-    expectInstall(second.messages, "installed", h.data.archives.tree);
+    expectInstall(h, second.messages, "installed", h.data.archives.tree);
     await expectTree(h, second.client, engine, h.data.archives.tree);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
@@ -284,9 +290,9 @@ export const upgradeWhileRunning = (h: Harness, runtime: RuntimeBuild): Promise<
     const oldVersion = encodeComponent(engine.version);
     const nextVersion = encodeComponent(next.version);
     const old = await launch(engine).ready;
-    expectInstall(old.messages, "installed", tree);
+    expectInstall(h, old.messages, "installed", tree);
     const upgrading = await launch(next).ready;
-    expectInstall(upgrading.messages, "installed", upgrade);
+    expectInstall(h, upgrading.messages, "installed", upgrade);
     await expectTree(h, old.client, engine, tree, "the old version's tree after the upgrade");
     await expectTree(h, upgrading.client, next, upgrade, "the upgraded tree");
     expect(collectOf(upgrading.messages), "what the upgrading host collected").toEqual({
@@ -296,7 +302,7 @@ export const upgradeWhileRunning = (h: Harness, runtime: RuntimeBuild): Promise<
     await old.terminate();
     await expectFreed(h, engineDataLock(engine, oldVersion));
     const later = await launch(next).ready;
-    expectInstall(later.messages, "present", upgrade);
+    expectInstall(h, later.messages, "present", upgrade);
     expect(collectOf(later.messages), "what the later host collected").toEqual({ removed: [oldVersion], inUse: [] });
     await expectTree(h, later.client, next, upgrade);
     expect(await h.versions(engine), "the versions kept").toEqual([nextVersion]);
@@ -312,14 +318,14 @@ export const interruptedUpgradeThenOld = (h: Harness, runtime: RuntimeBuild): Pr
     const engine = engineFor(h, "interrupted-upgrade-then-old", runtime);
     const next = upgradeOf(h, engine);
     const first = await launch(engine).ready;
-    expectInstall(first.messages, "installed", h.data.archives.tree);
+    expectInstall(h, first.messages, "installed", h.data.archives.tree);
     await first.terminate();
     const upgrading = await stalledHost(h, launch, next, h.data.archives.upgrade);
     await upgrading.terminate();
     const partial = encodeComponent(next.version);
     await expectFreed(h, engineDataLock(engine, partial));
     const old = await launch(engine).ready;
-    expectInstall(old.messages, "present", h.data.archives.tree);
+    expectInstall(h, old.messages, "present", h.data.archives.tree);
     expect(collectOf(old.messages), "what the old version's host collected").toEqual({
       removed: [partial],
       inUse: [],
@@ -362,10 +368,10 @@ export const staleFile = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
     const engine = engineFor(h, "stale-file", runtime);
     const next = upgradeOf(h, engine);
     const first = await launch(engine).ready;
-    expectInstall(first.messages, "installed", tree);
+    expectInstall(h, first.messages, "installed", tree);
     await first.terminate();
     const upgrading = await launch(next).ready;
-    expectInstall(upgrading.messages, "installed", upgrade);
+    expectInstall(h, upgrading.messages, "installed", upgrade);
     const listed = String(await treeOf(h, upgrading.client, next));
     const lines = listed.split("\n");
     const has = (path: string, kind: "d" | "f"): boolean => lines.some((line) => line.startsWith(`${path}\t${kind}`));
@@ -405,7 +411,7 @@ export const failedInstallReleasesLocks = (h: Harness, runtime: RuntimeBuild): P
     );
     for (const name of engineLocks(engine)) await expectFreed(h, name);
     const next = await launch(engine).ready;
-    expectInstall(next.messages, "installed", h.data.archives.tree);
+    expectInstall(h, next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
     if (h.storageMount === "indexeddb")
       await h.printed.take(
@@ -427,10 +433,10 @@ export const dataReadOnly = (h: Harness, runtime: RuntimeBuild): Promise<void> =
     const write = (client: Client): Promise<number> =>
       call32(client, opsOf(h).writeFile, encoder.encode(`${dir}/written.txt\0x`));
     const installing = await launch(engine).ready;
-    expectInstall(installing.messages, "installed", h.data.archives.tree);
+    expectInstall(h, installing.messages, "installed", h.data.archives.tree);
     const installingWrote = await write(installing.client);
     const present = await launch(engine).ready;
-    expectInstall(present.messages, "present", h.data.archives.tree);
+    expectInstall(h, present.messages, "present", h.data.archives.tree);
     const presentWrote = await write(present.client);
     h.record("data-read-only", { installingWrote, presentWrote });
     if (h.storageMount !== "indexeddb") return;
@@ -459,7 +465,7 @@ export const blockedDeletion = (h: Harness, runtime: RuntimeBuild): Promise<void
       close();
     }
     const next = await launch(engine).ready;
-    expectInstall(next.messages, "installed", h.data.archives.tree);
+    expectInstall(h, next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
   });
 
@@ -478,7 +484,7 @@ export const strayMarking = (h: Harness, runtime: RuntimeBuild): Promise<void> =
     await h.strayMarking(engine, own);
     await h.strayMarking(engine, other);
     const host = await launch(engine).ready;
-    expectInstall(host.messages, "installed", h.data.archives.tree);
+    expectInstall(h, host.messages, "installed", h.data.archives.tree);
     expect(collectOf(host.messages), "what the host collected").toEqual({ removed: [other], inUse: [] });
     expect(await h.dataEntries(engine), "what the data directory holds").toEqual([own, `${own}.installed`]);
     await expectTree(h, host.client, engine, h.data.archives.tree);
@@ -495,8 +501,8 @@ export const waitOutlivesLimit = (h: Harness, runtime: RuntimeBuild): Promise<vo
     await installing(h, engine, installer);
     const waiter = launch(engine, { config: { lockLimitMs, lockRoundMs: 100 } });
     const [installed, found] = await Promise.all([installer.ready, waiter.ready]);
-    expectInstall(installed.messages, "installed", h.data.archives.tree);
-    expectInstall(found.messages, "present", h.data.archives.tree);
+    expectInstall(h, installed.messages, "installed", h.data.archives.tree);
+    expectInstall(h, found.messages, "present", h.data.archives.tree);
     expect(found.messages, "the waiter's messages").toContainEqual({
       type: "waiting",
       lock: engineInstallLock(engine),
@@ -548,7 +554,7 @@ const installing = async (h: Harness, engine: EngineManifest, host: LaunchedHost
 // A host that mounts its storage in memory installs the engine's data at
 // every start, with no lock to wait for.
 export const installedInMemory = async (h: Harness, host: RunningHost, engine: EngineManifest): Promise<void> => {
-  expectInstall(host.messages, "installed", h.data.archives.tree);
+  expectInstall(h, host.messages, "installed", h.data.archives.tree);
   expect(installOf(host.messages)?.lockWaitMs, "the wait for a lock").toBe(0);
   expect(collectOf(host.messages), "a collect report").toBeUndefined();
   await expectTree(h, host.client, engine, h.data.archives.tree);
@@ -568,10 +574,12 @@ export const installBrotli = (h: Harness, runtime: RuntimeBuild, forceBrotliFall
     const engine = engineFor(h, `install-brotli-${forceBrotliFallback}`, runtime);
     const compressed = {
       ...engine,
-      data: engine.data.map((data) => ({ ...data, url: `${data.url}.br`, encoding: "br" as const })),
+      data: engine.data.map((data, i) =>
+        i === 0 ? { ...data, url: `${data.url}.br`, encoding: "br" as const } : data,
+      ),
     };
     const host = await launch(compressed, { test: { forceBrotliFallback } }).ready;
-    expectInstall(host.messages, "installed", h.data.archives.tree);
+    expectInstall(h, host.messages, "installed", h.data.archives.tree);
     await expectTree(h, host.client, engine, h.data.archives.tree);
   });
 
@@ -596,7 +604,7 @@ export const installBrokenBrotli = (
     expect(installOf(failing.messages)).toBeUndefined();
     await failing.terminate();
     const next = await launch(engine).ready;
-    expectInstall(next.messages, "installed", h.data.archives.tree);
+    expectInstall(h, next.messages, "installed", h.data.archives.tree);
     await expectTree(h, next.client, engine, h.data.archives.tree);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
   });

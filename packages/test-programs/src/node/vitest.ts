@@ -27,6 +27,7 @@ const types: Readonly<Record<string, string>> = {
   ".mjs": "text/javascript; charset=utf-8",
   ".wasm": "application/wasm",
   ".map": "application/json",
+  ".json": "application/json",
   ".tar": "application/x-tar",
   ".br": "application/octet-stream",
 };

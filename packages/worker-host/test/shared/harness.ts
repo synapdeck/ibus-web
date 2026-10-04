@@ -42,6 +42,9 @@ export interface TestArchive {
 // What Vitest's configuration provides each environment's tests, with
 // locations as that environment loads them.
 export interface TestData {
+  engines: Record<"echo" | "thrower" | "empty", EngineManifest>;
+  echoData: string;
+  schemaFiles: number;
   runtimes: RuntimeBuild[];
   sides: { name: string; url: string }[];
   // The host's test build and the host as released; and the host as
@@ -69,6 +72,8 @@ export interface HostOptions {
   runtime: RuntimeBuild;
   // The engine the host runs, by default one of no storage's named "test".
   engine?: EngineManifest;
+  manifest?: EngineManifest;
+  manifestUrl?: string;
   storage?: EngineStorage;
   // The runtime's memory; its least by default.
   memory?: { initial: number; maximum: number };

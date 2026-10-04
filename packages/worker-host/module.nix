@@ -12,6 +12,7 @@
     let
       inherit (config.ibusWeb)
         runtime
+        engines
         testing
         toolchain
         typescript
@@ -45,6 +46,64 @@
             "tree.c"
           ];
 
+      echoData = pkgs.runCommand "echo-data" { } ''
+        mkdir -p $out/share/echo
+        printf 'echo store data\n' > $out/share/echo/data.txt
+      '';
+      schemas =
+        pkgs.runCommand "echo-schemas"
+          {
+            nativeBuildInputs = [ pkgsWasm.pkg-config ];
+            buildInputs = [ pkgsWasm.glib ];
+          }
+          ''
+            mkdir -p $out/share/glib-2.0/schemas
+            cp ${sidesSrc}/echo.gschema.xml $out/share/glib-2.0/schemas/
+            cp ${runtime.libibusWeb}/share/gsettings-schemas/${runtime.libibusWeb.name}/glib-2.0/schemas/org.freedesktop.ibus.gschema.xml $out/share/glib-2.0/schemas/
+            compiler=$($PKG_CONFIG --variable=glib_compile_schemas gio-2.0)
+            "$compiler" --strict $out/share/glib-2.0/schemas
+          '';
+      settingsSchemaDir = "${schemas}/share/glib-2.0/schemas";
+      engineSide =
+        name: source:
+        let
+          side =
+            (runtime.mkSideModule {
+              inherit name;
+              src = sidesSrc;
+              sources = [ source ];
+            }).overrideAttrs
+              {
+                NIX_CFLAGS_COMPILE = ''-I${runtime.libibusWeb}/include/ibus-1.0 -DECHO_DATA="${echoData}/share/echo/data.txt" -DECHO_SCHEMAS="${settingsSchemaDir}"'';
+              };
+        in
+        pkgs.runCommand "worker-host-${name}"
+          {
+            version = runtime.libibusWeb.version;
+            meta.license = lib.licenses.mit;
+          }
+          ''
+            mkdir $out
+            cp ${side}/${name}.wasm $out/
+          '';
+      engineSides = {
+        echo = engineSide "echo" "engine.c";
+        thrower = engineSide "thrower" "engine-throw.cpp";
+        empty = engineSide "empty" "engine-empty.c";
+      };
+      engineDists = lib.mapAttrs (
+        name: package:
+        engines.mkEngineManifest {
+          inherit name package settingsSchemaDir;
+          threads = engineThreads;
+          heapBytes = 1024 * 1024;
+          engines = lib.optional (name != "empty") name;
+          settingsSchemas = [
+            "org.example.echo"
+            "org.freedesktop.ibus.panel"
+          ];
+        }
+      ) engineSides;
       sidesDir = pkgs.runCommand "ibus-web-worker-host-test-sides" { } ''
         mkdir $out
         ln -s ${toString (map (side: side.wasm) sides)} $out/
@@ -96,6 +155,9 @@
               released = "${runtime.ibusRuntime}";
             };
             sides = "${sidesDir}";
+            engines = lib.mapAttrs (_: dist: "${dist}") engineDists;
+            echoData = "${echoData}/share/echo/data.txt";
+            schemas = "${schemas}";
             constants = "${constants}/constants.json";
             errno = "${runtime.nodeHarness}/errno.json";
             archives = "${archives}";
@@ -155,7 +217,8 @@
       ];
       checks.worker-host-side-imports = runtime.checkSideModuleImports {
         name = "worker-host-test-sides";
-        modules = map (side: side.wasm) sides;
+        modules =
+          map (side: side.wasm) sides ++ lib.mapAttrsToList (name: side: "${side}/${name}.wasm") engineSides;
       };
     };
 }

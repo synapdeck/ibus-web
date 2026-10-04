@@ -8,7 +8,7 @@ import type { HostConfigValues } from "../../src/shared/config.ts";
 
 import type { InstrumentReply, Instruments } from "../../src/worker/instruments.ts";
 import { topUp } from "../../src/worker/loop.ts";
-import type { RuntimeHandle } from "../../src/worker/runtime.ts";
+import { loadSides, type RuntimeHandle } from "../../src/worker/runtime.ts";
 import type { MountedStorage } from "../../src/worker/storage/mount.ts";
 import { HostOp, type HostStats, type TestInit, type TestMessage } from "../shared/testing.ts";
 
@@ -68,6 +68,7 @@ export const makeInstruments = (
   let replyBuffer = 0;
   const capacity = 64 * 1024;
   let held = false;
+  const loadedModules: string[] = [];
   const counters = {
     requests: 0,
     requestsWhileAsleep: 0,
@@ -104,6 +105,7 @@ export const makeInstruments = (
     },
     storageMounted: (mounted) => {
       storage = mounted;
+      if (runtime !== undefined) loadSides(runtime, test.sides ?? []);
     },
     seal: (seal) => {
       if (test.sealThrows === true) throw new Error("the seal fails on purpose");
@@ -122,6 +124,29 @@ export const makeInstruments = (
     },
     runtimeStarted: (handle) => {
       runtime = handle;
+      const load = handle.rt._ibusweb_load_module.bind(handle.rt);
+      handle.rt._ibusweb_load_module = (path, out) => {
+        const result = load(path, out);
+        if (result === 0) {
+          const end = handle.bytes.indexOf(0, path);
+          loadedModules.push(new TextDecoder().decode(handle.bytes.slice(path, end)));
+        }
+        return result;
+      };
+      if (test.callsAfterFault !== undefined) {
+        const counts = new Int32Array(test.callsAfterFault);
+        let faulted = false;
+        for (const [name, value] of Object.entries(handle.rt)) {
+          if (!name.startsWith("_") || typeof value !== "function") continue;
+          const rt = handle.rt as unknown as Record<string, unknown>;
+          rt[name] = (...args: unknown[]) => {
+            if (faulted && !name.startsWith("_ibusweb_output_")) Atomics.add(counts, 0, 1);
+            const result: unknown = value.apply(handle.rt, args);
+            if (name === "_ibusweb_dispatch" && result === test.canceled) faulted = true;
+            return result;
+          };
+        }
+      }
       workers.counting = true;
       scratch = handle.rt._malloc(test.mallinfo.bytes);
       requestBuffer = handle.rt._malloc(capacity);
@@ -134,6 +159,12 @@ export const makeInstruments = (
       const arg = (fallback: number): number =>
         request.length >= 12 ? new DataView(request.buffer, request.byteOffset + 8).getInt32(0, true) : fallback;
       switch (kind) {
+        case HostOp.stop:
+          return { ret: 0, stop: true };
+        case HostOp.loadedModules: {
+          const json = encoder.encode(JSON.stringify(loadedModules));
+          return { ret: json.length, bytes: json };
+        }
         case HostOp.stats: {
           const json = encoder.encode(JSON.stringify(stats(runtime)));
           return { ret: json.length, bytes: json };

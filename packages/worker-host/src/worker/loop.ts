@@ -7,6 +7,9 @@
 
 import { postReply, ReqMode, State, Word, type ControlViews } from "../shared/control.ts";
 import { RingWriter } from "@ibus-web/protocol/transport";
+import { CrashReason, requestKinds } from "@ibus-web/protocol";
+import { describe, RuntimeStopped } from "./failure.ts";
+import type { EngineScopes } from "./scopes.ts";
 import { drainOutput } from "./output.ts";
 import type { RuntimeConstants } from "../shared/messages.ts";
 import type { InstrumentReply, Instruments } from "./instruments.ts";
@@ -25,12 +28,15 @@ export interface LoopContext {
   readonly buffers: { readonly request: number; readonly reply: number; readonly cap: number };
   readonly instruments: Instruments;
   readonly lowWater: number;
+  readonly scopes: EngineScopes;
+  readonly loadEngine: () => void;
   readonly writer: RingWriter;
   readonly outputLength: Int32Array;
   readonly postDoorbell: () => void;
   // Set once a top-up has failed; another would most likely fail the same
   // way.
   topUpFailed: boolean;
+  stopping: boolean;
   // Whether the last wait ended with its word changed, which is how a
   // request that arrives while the host sleeps wakes it.
   woken: boolean;
@@ -47,13 +53,15 @@ export type Step =
   | { kind: "served" }
   | { kind: "await"; reply: Promise<InstrumentReply> }
   | { kind: "relayFailed" }
+  | { kind: "stopped" }
   | { kind: "idle"; seen: number; delay: number };
 
 // Why the synchronous section returned.
 export type Excursion =
   | { kind: "topUp"; want: number }
   | { kind: "await"; reply: Promise<InstrumentReply> }
-  | { kind: "relayFailed" };
+  | { kind: "relayFailed" }
+  | { kind: "stopped" };
 
 export const pump = (rt: Runtime, constants: RuntimeConstants): number => {
   const delay = rt._ibusweb_pump();
@@ -67,6 +75,7 @@ export const ringDoorbell = (ctx: LoopContext): void => {
 
 // Both dispatch paths finish through the same publication and notification rules.
 export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
+  if (reply.stop === true) ctx.stopping = true;
   if (reply.bytes !== undefined) ctx.control.slot.set(reply.bytes);
   pump(ctx.handle.rt, ctx.constants);
   drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength);
@@ -89,6 +98,24 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
   }
   handle.bytes.set(request, buffers.request);
   const ret = handle.rt._ibusweb_dispatch(buffers.request, request.length);
+  if (ret === ctx.constants.canceled) {
+    postReply(control, ret, handle.rt._ibusweb_output_last_seq());
+    let message = "ibusweb_dispatch returned -ECANCELED";
+    try {
+      drainOutput(handle.rt, ctx.writer, ctx.outputLength);
+    } catch (error) {
+      message += `; output drain failed: ${describe(error)}`;
+    }
+    throw new RuntimeStopped({ error: message, reason: CrashReason.fault });
+  }
+  if (ret === 0 && request.length >= 8) {
+    const header = new DataView(request.buffer, request.byteOffset, 8);
+    const kind = header.getUint16(0, true);
+    const ic = header.getUint32(4, true);
+    if (kind === requestKinds.get("Init")) ctx.loadEngine();
+    else if (kind === requestKinds.get("CreateEngine")) ctx.scopes.opened(ic);
+    else if (kind === requestKinds.get("DestroyEngine")) ctx.scopes.closed(ic);
+  }
   finishReply(ctx, { ret });
   return undefined;
 };
@@ -97,6 +124,7 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
 // lands after them changes it and the sleep on it returns at once.
 export const step = (ctx: LoopContext): Step => {
   const { control, handle } = ctx;
+  if (ctx.stopping) return { kind: "stopped" };
   ctx.watchStorage();
   const seen = Atomics.load(handle.words, ctx.wakeIndex);
   const state = Atomics.load(control.words, Word.state);
