@@ -1,5 +1,5 @@
 <!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
-<!-- SPDX-License-Identifier: LGPL-2.1-or-later -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 # IBus source inventory
 
@@ -20,20 +20,28 @@ Meson generates enums and marshallers with the cross GLib tools. Its explicit
 IBus identifier and symbol prefixes replace upstream's post-generation sed
 renaming. The generated marshallers use their callback-specific typedefs.
 
-To compare against an unpacked release, set `IBUS_SOURCE` to its directory
-and run this from the repository root. A diff exit status of 1 means that
-an adapted file differs; files marked ours have no upstream counterpart.
+Files marked ours are reimplementations written for the runtime, not
+adaptations: some share a name with an upstream file, but diffing them
+against it shows nothing useful. `checks.libibus-web-vendored` holds the rest
+to this table: files marked unchanged must be byte-identical to the IBus
+source the build uses, adapted ones must differ from theirs, the generated
+version header must be what upstream's template gives for the release above,
+and that release and hash must be the build's IBus source's.
+
+To review the adaptations against an unpacked release, set `IBUS_SOURCE` to
+its directory and run this from the repository root. A diff exit status of 1
+means that an adapted file differs.
 
 ```sh
-for local in runtime/libibus-web/src/ibus/* runtime/libibus-web/include/ibus-1.0/*; do
-  upstream="$IBUS_SOURCE/src/${local##*/}"
-  case "$local" in
-    *.gschema.xml) upstream="$IBUS_SOURCE/data/dconf/${local##*/}" ;;
-  esac
-  if test -f "$upstream"; then
+cd runtime/libibus-web
+sed -n 's/^| `\([^`]*\)` *| Upstream.*/\1/p' src/ibus/README.md |
+  while read -r local; do
+    upstream="$IBUS_SOURCE/src/${local##*/}"
+    case "$local" in
+      *.gschema.xml) upstream="$IBUS_SOURCE/data/dconf/${local##*/}" ;;
+    esac
     diff -u "$upstream" "$local"
-  fi
-done
+  done
 ```
 
 | File                                        | Origin and purpose; changes                                                                                                                             |
@@ -74,7 +82,7 @@ done
 | `include/ibus-1.0/ibuskeysyms-compat.h`     | Upstream public type layout and declarations; unchanged.                                                                                                |
 | `include/ibus-1.0/ibuskeysyms.h`            | Upstream public type layout and declarations; unchanged.                                                                                                |
 | `include/ibus-1.0/ibuslookuptable.h`        | Upstream public type layout and declarations; unchanged.                                                                                                |
-| `include/ibus-1.0/ibusmessage.h`            | Upstream message declarations required by ibusengine.h; no implementation exported.                                                                     |
+| `include/ibus-1.0/ibusmessage.h`            | Upstream message declarations required by ibusengine.h, with no implementation exported; unchanged.                                                     |
 | `include/ibus-1.0/ibusobject.h`             | Upstream public type layout and declarations; unchanged.                                                                                                |
 | `include/ibus-1.0/ibusproperty.h`           | Upstream public type layout and declarations; unchanged.                                                                                                |
 | `include/ibus-1.0/ibusproplist.h`           | Upstream public type layout and declarations; unchanged.                                                                                                |

@@ -197,7 +197,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-9DLkiu+xMg0FLimR9OqrUvP8AZPuLNsNx2RC4bQyqng=";
+        hash = "sha256-kZA8XBnpHY+kV0FsfM4/Lph4o477X+pLUdV8Pj1pl5E=";
       };
 
       # Each package's node_modules, and the root's, installed offline
