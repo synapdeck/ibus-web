@@ -36,7 +36,7 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
     runtime,
     manifest: h.data.engines.echo,
     layout: transportLayout({ ringBytes: 4096 }),
-    test: { sides: [], runtimeCalls, waitTrap, deferPump },
+    test: { sides: [], runtimeCalls, waitTrap, deferPump, waitTrapOp: h.data.constants.ops["WAIT_TRAP"]! },
   });
   const page = host.client.page;
   page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: {} })), ReqMode.sync);
@@ -171,7 +171,7 @@ export const fullRingTrap = async (h: Harness, runtime: RuntimeBuild): Promise<v
     Atomics.store(trap, 0, 1);
     postKey(host, "a");
     await until(h, () => Atomics.load(page.views.words, Word.state) === State.crashed);
-    expect(await host.client.crashReport(h.pendingLimitMs)).toMatch(/unreachable|RuntimeError|trap/i);
+    expect(await host.client.crashReport(h.pendingLimitMs)).toMatch(/RuntimeError:.*unreachable/i);
     expect(Atomics.load(counts, RuntimeCall.pump)).toBe(pumps);
     expect(page.records().some(({ record }) => record._tag === "Crashed")).toBe(false);
     await expect(page.waitForReply()).rejects.toThrow("crashed");

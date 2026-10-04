@@ -63,6 +63,7 @@ export interface TestInit {
   sides?: readonly SideModule[];
   runtimeCalls?: SharedArrayBuffer;
   waitTrap?: SharedArrayBuffer;
+  waitTrapOp?: number;
   deferPump?: SharedArrayBuffer;
   callsAfterFault?: SharedArrayBuffer;
   canceled?: number;

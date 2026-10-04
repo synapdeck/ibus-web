@@ -1,6 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
-#include <ibus-web/runtime.h>
+#include "test-ops.h"
 #include <ibus.h>
 #include <stdio.h>
 #ifndef ECHO_DATA
@@ -33,7 +33,12 @@ static gboolean idle_commit(gpointer data) {
   g_free(text);
   return G_SOURCE_REMOVE;
 }
-IBUSWEB_API void ibusweb_test_wait_trap(void) { __builtin_trap(); }
+static void wait_trap(const uint8_t *payload, uint32_t len, GString *reply) {
+  (void)payload;
+  (void)len;
+  (void)reply;
+  __builtin_trap();
+}
 static gboolean process_key(IBusEngine *engine, guint keyval, guint keycode,
                             guint state) {
   (void)keycode;
@@ -86,7 +91,7 @@ static void echo_engine_class_init(EchoEngineClass *klass) {
 }
 static void echo_engine_init(EchoEngine *engine) { (void)engine; }
 void ibusweb_module_init(IBusWebModule *module) {
-  (void)module;
+  ibusweb_module_add_op(module, TEST_OP_WAIT_TRAP, "wait-trap", wait_trap);
   g_debug("echo schemas: %s", ECHO_SCHEMAS);
   GSettings *settings = g_settings_new("org.example.echo");
   gchar *value = g_settings_get_string(settings, "value");

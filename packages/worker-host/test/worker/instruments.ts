@@ -162,8 +162,14 @@ export const makeInstruments = (
       const wait = handle.rt._ibusweb_wait.bind(handle.rt);
       handle.rt._ibusweb_wait = (seen, delay) => {
         if (counts !== undefined) Atomics.add(counts, RuntimeCall.wait, 1);
-        if (trap !== undefined && Atomics.exchange(trap, 0, 0) === 1)
-          (handle.rt as typeof handle.rt & { _ibusweb_test_wait_trap(): never })._ibusweb_test_wait_trap();
+        if (trap !== undefined && Atomics.exchange(trap, 0, 0) === 1) {
+          if (test.waitTrapOp === undefined) throw new Error("wait trap opcode is required");
+          new DataView(handle.bytes.buffer, requestBuffer, 4).setUint32(0, test.waitTrapOp, true);
+          const rt = handle.rt as typeof handle.rt & {
+            _ibusweb_test_dispatch(request: number, length: number, reply: number, capacity: number): number;
+          };
+          rt._ibusweb_test_dispatch(requestBuffer, 4, replyBuffer, capacity);
+        }
         return wait(seen, delay);
       };
       const consume = handle.rt._ibusweb_output_consume.bind(handle.rt);
