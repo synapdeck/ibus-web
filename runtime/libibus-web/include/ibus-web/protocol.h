@@ -1,79 +1,194 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
+/* Generated from @ibus-web/protocol's schemas by `nix run .#write-files`; edit
+ * those, not this file. */
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
 
 #define IBUSWEB_PROTOCOL_VERSION 1
 
-/* A request: 8 bytes of header (kind, flags, ic), then the payload, the
- * GVariant normal form of the kind's signature, little-endian. No flags are
- * defined; they must be zero. The empty tuple () is one zero byte in normal
- * form, so every request carries at least one byte of payload: a request of
- * the header alone is malformed (-EBADMSG). */
 typedef struct {
-  uint16_t kind;
-  uint16_t flags;
-  uint32_t ic;
+  uint16_t kind;  /* Request kind identifying the payload schema. */
+  uint16_t flags; /* Reserved request flags; must be zero. */
+  uint32_t ic;    /* Input context identifier. */
 } IBusWebRequestHeader;
 
-/* An output record: 16 bytes of header (seq, ic, kind, flags, len), then len
- * bytes of payload (GVariant normal form), padded with zeros to a multiple of
- * 8. The runtime writes flags as zero; IBUSWEB_RECORD_CONTINUATION is the
- * only flag, and only the host sets it. */
 typedef struct {
-  uint32_t seq;
-  uint32_t ic;
-  uint16_t kind;
-  uint16_t flags;
-  uint32_t len;
+  uint32_t seq;   /* Output record sequence number. */
+  uint32_t ic;    /* Input context identifier. */
+  uint16_t kind;  /* Record kind identifying the payload schema. */
+  uint16_t flags; /* Record flags; only the host sets CONTINUATION when
+                     fragmenting. */
+  uint32_t len; /* Payload length in bytes, excluding the header and padding. */
 } IBusWebRecordHeader;
-#define IBUSWEB_RECORD_CONTINUATION                                            \
-  0x0001 /* set by the host when it fragments; never by the runtime */
+#define IBUSWEB_RECORD_CONTINUATION 0x0001
 
 enum IBusWebRequestKind {
-  IBUSWEB_REQ_INIT =
-      1, /* (ua{sa{sv}})  protocol version; schema id → key → value */
-  IBUSWEB_REQ_CREATE_ENGINE = 2,      /* (s)  engine name */
-  IBUSWEB_REQ_DESTROY_ENGINE = 3,     /* () */
-  IBUSWEB_REQ_SETTING_CHANGED = 4,    /* (ssv)  schema id, key, value */
-  IBUSWEB_REQ_PROCESS_KEY_EVENT = 16, /* (uuu) → reply 0 or 1 */
+  /* (ua{sa{sv}}) version, settings
+   * Initialize the runtime with the host's protocol version and settings.
+   * version: Protocol version supported by the host.
+   * settings: Initial GSettings values, indexed by schema id and then key. */
+  IBUSWEB_REQ_INIT = 1,
+  /* (s) name
+   * Create an engine for the input context.
+   * name: IBus engine name to instantiate for the input context. */
+  IBUSWEB_REQ_CREATE_ENGINE = 2,
+  /* ()
+   * Destroy the input context's engine. */
+  IBUSWEB_REQ_DESTROY_ENGINE = 3,
+  /* (ssv) schemaId, key, value
+   * Notify the runtime that a host setting changed.
+   * schemaId: GSettings schema id containing the changed key.
+   * key: GSettings key that changed.
+   * value: New typed GSettings value. */
+  IBUSWEB_REQ_SETTING_CHANGED = 4,
+  /* (uuu) keyval, keycode, state → reply 0 or 1
+   * Process a key event and reply whether the engine handled it.
+   * keyval: Key symbol value.
+   * keycode: Hardware key code.
+   * state: Modifier and event state mask. */
+  IBUSWEB_REQ_PROCESS_KEY_EVENT = 16,
+  /* ()
+   * Give the input context keyboard focus. */
   IBUSWEB_REQ_FOCUS_IN = 17,
+  /* ()
+   * Remove keyboard focus from the input context. */
   IBUSWEB_REQ_FOCUS_OUT = 18,
+  /* ()
+   * Reset the engine's composition state. */
   IBUSWEB_REQ_RESET = 19,
+  /* ()
+   * Enable the input context's engine. */
   IBUSWEB_REQ_ENABLE = 20,
-  IBUSWEB_REQ_DISABLE = 21,             /* () */
-  IBUSWEB_REQ_SET_CURSOR_LOCATION = 22, /* (iiii) */
-  IBUSWEB_REQ_SET_CAPABILITIES = 23,    /* (u) */
+  /* ()
+   * Disable the input context's engine. */
+  IBUSWEB_REQ_DISABLE = 21,
+  /* (iiii) x, y, width, height
+   * Update the cursor rectangle used to position input method UI.
+   * x: Horizontal position of the cursor rectangle in screen coordinates.
+   * y: Vertical position of the cursor rectangle in screen coordinates.
+   * width: Width of the cursor rectangle.
+   * height: Height of the cursor rectangle. */
+  IBUSWEB_REQ_SET_CURSOR_LOCATION = 22,
+  /* (u) capabilities
+   * Tell the engine which input method features the client supports.
+   * capabilities: IBusCapabilite flags describing the client's supported
+   * features. */
+  IBUSWEB_REQ_SET_CAPABILITIES = 23,
+  /* ()
+   * Move to the previous candidate page. */
   IBUSWEB_REQ_PAGE_UP = 24,
+  /* ()
+   * Move to the next candidate page. */
   IBUSWEB_REQ_PAGE_DOWN = 25,
+  /* ()
+   * Move the candidate cursor up. */
   IBUSWEB_REQ_CURSOR_UP = 26,
-  IBUSWEB_REQ_CURSOR_DOWN = 27,          /* () */
-  IBUSWEB_REQ_CANDIDATE_CLICKED = 28,    /* (uuu) index, button, state */
-  IBUSWEB_REQ_PROPERTY_ACTIVATE = 29,    /* (su) */
-  IBUSWEB_REQ_SET_SURROUNDING_TEXT = 30, /* (vuu) IBusText, cursor, anchor */
-  IBUSWEB_REQ_SET_CONTENT_TYPE = 31,     /* (uu) purpose, hints */
+  /* ()
+   * Move the candidate cursor down. */
+  IBUSWEB_REQ_CURSOR_DOWN = 27,
+  /* (uuu) index, button, state
+   * Notify the engine that the user clicked a candidate.
+   * index: Index of the clicked candidate in the lookup table.
+   * button: Mouse button used to select the candidate.
+   * state: Modifier state at the time of the click. */
+  IBUSWEB_REQ_CANDIDATE_CLICKED = 28,
+  /* (su) name, state
+   * Activate an input method property.
+   * name: Key of the IBus property to activate.
+   * state: IBusPropState requested for the property. */
+  IBUSWEB_REQ_PROPERTY_ACTIVATE = 29,
+  /* (vuu) text, cursor, anchor
+   * Update the surrounding text and selection known to the engine.
+   * text: Client text surrounding the insertion point.
+   * cursor: Insertion point in characters within the surrounding text.
+   * anchor: Selection anchor in characters within the surrounding text. */
+  IBUSWEB_REQ_SET_SURROUNDING_TEXT = 30,
+  /* (uu) purpose, hints
+   * Describe the focused input field's purpose and input hints.
+   * purpose: IBusInputPurpose of the focused input field.
+   * hints: IBusInputHints flags for the focused input field. */
+  IBUSWEB_REQ_SET_CONTENT_TYPE = 31,
 };
 
 enum IBusWebRecordKind {
-  IBUSWEB_REC_COMMIT_TEXT = 1,         /* (v) */
-  IBUSWEB_REC_UPDATE_PREEDIT_TEXT = 2, /* (vubu) text, cursor, visible, mode */
-  IBUSWEB_REC_UPDATE_AUXILIARY_TEXT = 3, /* (vb) */
-  IBUSWEB_REC_UPDATE_LOOKUP_TABLE = 4,   /* (vb) */
+  /* (v) text
+   * Commit the engine's text to the client.
+   * text: Text to insert into the client at the current selection. */
+  IBUSWEB_REC_COMMIT_TEXT = 1,
+  /* (vubu) text, cursor, visible, mode
+   * Update the client's preedit text, cursor and visibility.
+   * text: Current uncommitted composition text and its attributes.
+   * cursor: Cursor position in characters within the preedit text.
+   * visible: Whether to display the preedit text.
+   * mode: IBusPreeditFocusMode: what the client does with the preedit on focus
+   * out and reset. */
+  IBUSWEB_REC_UPDATE_PREEDIT_TEXT = 2,
+  /* (vb) text, visible
+   * Update the auxiliary text shown with the input method UI.
+   * text: Auxiliary text supplied by the engine.
+   * visible: Whether to display the auxiliary text. */
+  IBUSWEB_REC_UPDATE_AUXILIARY_TEXT = 3,
+  /* (vb) table, visible
+   * Update the candidate lookup table.
+   * table: Candidate list, labels, paging and cursor state.
+   * visible: Whether to display the candidate lookup table. */
+  IBUSWEB_REC_UPDATE_LOOKUP_TABLE = 4,
+  /* ()
+   * Show the existing preedit text. */
   IBUSWEB_REC_SHOW_PREEDIT_TEXT = 5,
+  /* ()
+   * Hide the preedit text. */
   IBUSWEB_REC_HIDE_PREEDIT_TEXT = 6,
+  /* ()
+   * Show the existing auxiliary text. */
   IBUSWEB_REC_SHOW_AUXILIARY_TEXT = 7,
+  /* ()
+   * Hide the auxiliary text. */
   IBUSWEB_REC_HIDE_AUXILIARY_TEXT = 8,
+  /* ()
+   * Show the existing candidate lookup table. */
   IBUSWEB_REC_SHOW_LOOKUP_TABLE = 9,
-  IBUSWEB_REC_HIDE_LOOKUP_TABLE = 10,        /* () */
-  IBUSWEB_REC_REGISTER_PROPERTIES = 11,      /* (v) */
-  IBUSWEB_REC_UPDATE_PROPERTY = 12,          /* (v) */
-  IBUSWEB_REC_FORWARD_KEY_EVENT = 13,        /* (uuu) */
-  IBUSWEB_REC_DELETE_SURROUNDING_TEXT = 14,  /* (iu) */
-  IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT = 15, /* () */
-  IBUSWEB_REC_SETTING_WRITTEN = 32,          /* (ssv) */
-  IBUSWEB_REC_LOG = 33,     /* (uss) GLogLevelFlags, domain, message */
-  IBUSWEB_REC_CRASHED = 34, /* written by the host only */
+  /* ()
+   * Hide the candidate lookup table. */
+  IBUSWEB_REC_HIDE_LOOKUP_TABLE = 10,
+  /* (v) properties
+   * Register the engine's available properties with the client.
+   * properties: Complete list of input method properties to display. */
+  IBUSWEB_REC_REGISTER_PROPERTIES = 11,
+  /* (v) property
+   * Update one registered input method property.
+   * property: Replacement state for the property identified by its key. */
+  IBUSWEB_REC_UPDATE_PROPERTY = 12,
+  /* (uuu) keyval, keycode, state
+   * Forward a key event to the client for normal handling.
+   * keyval: Key symbol value.
+   * keycode: Hardware key code.
+   * state: Modifier and event state mask. */
+  IBUSWEB_REC_FORWARD_KEY_EVENT = 13,
+  /* (iu) offset, count
+   * Delete a range of the client's surrounding text.
+   * offset: Signed character offset from the cursor to the start of the
+   * deletion. count: Number of surrounding characters to delete. */
+  IBUSWEB_REC_DELETE_SURROUNDING_TEXT = 14,
+  /* ()
+   * Ask the client to supply its current surrounding text. */
+  IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT = 15,
+  /* (ssv) schemaId, key, value
+   * Notify the host of a setting written by the engine.
+   * schemaId: GSettings schema id containing the written key.
+   * key: GSettings key written by the engine.
+   * value: Typed value the host should persist. */
+  IBUSWEB_REC_SETTING_WRITTEN = 32,
+  /* (uss) level, domain, message
+   * Deliver a runtime log entry to the host.
+   * level: GLogLevelFlags for this log entry.
+   * domain: GLib log domain that emitted the entry.
+   * message: Log message text. */
+  IBUSWEB_REC_LOG = 33,
+  /* written by the host only */
+  IBUSWEB_REC_CRASHED = 34,
 };
 
 static inline const char *ibusweb_request_signature(uint16_t kind) {
