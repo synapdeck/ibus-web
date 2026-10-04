@@ -420,3 +420,25 @@ aren't tests and don't use a test framework. The main ones:
 - `glib-patches`, `toolchain-cache`, `toolchain-exnref`, `cross-toolchain`, `meson-consumer`,
   `libhangul-wasm`: the toolchain and packages build, link and apply as expected
   ([toolchain.md](toolchain.md), [glib.md](glib.md)).
+
+## TypeScript protocol
+
+`checks.protocol` runs the package's Vitest suites under Node: GVariant vectors,
+strict rejection cases, schema and framing tests, generated-header/document tests,
+and fixed-seed Effect `Arbitrary` round trips. Its lookup benchmark warms a framed
+500-candidate record 50 times and measures 500 individual decodes, retaining median,
+p99, raw samples and machine details in `output.txt`. Only median < 5 ms gates the
+builder; the design target is < 0.5 ms. If exceeded, it also times bytes to tree and
+tree to classes separately.
+
+`checks.protocol-parity` supplies a Nix-built corpus and a WASM C fixture producer
+using real IBus and json-glib. Vitest asserts both directions of object serialization,
+every request's observed runtime arguments and result, every emitted record's fields
+and sequence, and GLib normal-form agreement on 500 fuzz inputs over twenty types.
+These tests skip without `IBUS_WEB_PROTOCOL_PARITY`; a standalone protocol check
+therefore does not establish C parity.
+
+The `files:runtime/libibus-web/include/ibus-web/protocol.h` and
+`files:packages/protocol/PROTOCOL.md` checks compare generated artifacts to their
+committed copies. Regenerate with `nix run .#write-files`. See
+[protocol.md](protocol.md) for the pipeline and benchmark evidence.

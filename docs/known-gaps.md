@@ -109,8 +109,7 @@ An item leaves this page when it is fixed or decided.
   its cost. Building GLib with `-fexceptions` wouldn't help: unwinding runs only
   cleanup-attributed locals, and GLib's emission push and pop aren't, so it
   would mean rewriting GLib's internals.
-- **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell and the GVariant
-  protocol are M1's. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
+- **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell are M1.3's; M1.2 supplies the GVariant codec and framed messages. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
   reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in
   `ibusweb_wait(seen, -1)` without pumping; the page, after advancing `ringRead`, clears `ringWaiting` and
   bumps `wake`.
@@ -306,3 +305,19 @@ An item leaves this page when it is fixed or decided.
 - **Moving the toolchain past 6.0.9 needs a newer clang.** Emscripten 6.0.10 and `main` build their libc
   with `__builtin_wasm_memory_fill`, which nixpkgs' clang 22 and 23.1 don't know, so the patches that
   shipped upstream (0001 in 6.0.10, 0004 in 6.0.11, 0016 after it) stay until nixpkgs' Emscripten moves.
+
+## Protocol
+
+- **NaN payload bits.** JavaScript does not promise to preserve a double's NaN payload.
+  Accepted normal-form GVariant bytes round-trip exactly except for those bits.
+- **Integer-like dictionary keys.** The tree layer preserves entry order; schema
+  records follow JavaScript's ordering of integer-like keys. IBus attachment names
+  and GSettings schema IDs and keys do not use these keys.
+- **Fragment reassembly (M1.3).** The ring reader must reassemble `CONTINUATION`
+  fragments before decoding; `decodeRecord` rejects flagged fragments.
+- **Lazy lookup decoding (M1.4).** A framed 500-candidate record (64,832 bytes) takes
+  2.6625 ms median / 4.4335 ms p99 under Node v24.21.0 on Ryzen 9 9950X3D,
+  exceeding the 0.5 ms target. AOT measured 2.7174 ms versus a comparable interpreted
+  2.6921 ms and was not adopted. The panel must decode the visible page eagerly and
+  defer the rest; today's decoder constructs the whole table. The strict byte layer
+  alone took 1.2556 ms. See [protocol.md](protocol.md#lookup-decode-measurement).
