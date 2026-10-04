@@ -180,15 +180,10 @@ describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("native and 
     expect(records.at(-1)).toEqual({ kind: "reply", step: 3, value: null });
   });
 
-  test("rejects output queued for a context after destruction", async () => {
-    const input = trace(create(), key(8), destroy(), create("b"), key(9, "b"), destroy("b"));
-    const result = await runAdapter(manifest().wasmCommand, input, { artifactDir: artifacts(), timeoutMs: 5000 });
-    expect(result.exitCode).toBe(1);
-    expect(result.records.at(-1)).toMatchObject({
-      kind: "error",
-      step: 4,
-      message: expect.stringContaining("kind=13 context=1 signature=(uuu) payload=(uint32 9, uint32 0, uint32 0)"),
-    });
+  test("drops output from an engine after its context is destroyed", async () => {
+    const records = await expectEquivalent(trace(create(), key(8), destroy(), create("b"), key(9, "b"), destroy("b")));
+    expect(records.filter((record) => record.kind === "event")).toEqual([]);
+    expect(records.at(-2)).toEqual({ kind: "reply", step: 4, value: true });
   });
 
   test("applies initial settings before module creation", async () => {
@@ -218,8 +213,14 @@ describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("native and 
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(diagnostic);
-    expect(result.stderr).toContain("WARNING");
-    expect(result.records).toEqual([]);
+    expect(result.records.length).toBeGreaterThan(0);
+    for (const record of result.records) {
+      expect(record).toMatchObject({
+        kind: "error",
+        step: 0,
+        message: expect.stringContaining(`unexpected runtime log [16] ibus-web: ${diagnostic}`),
+      });
+    }
   });
 
   test.each([

@@ -30,7 +30,8 @@ static gchar *mount_engine(const gchar *data, const gchar *module) {
 }
 
 int main(int argc, char **argv) {
-  /* Init selects the settings backend before installing the framed writer. */
+  /* Until Init installs the framed writer, a warning has no output record to
+   * fail the run through, so it aborts with GLib's stderr diagnostic. */
   g_log_writer_default_set_use_stderr(TRUE);
   GLogLevelFlags runtime_fatal_mask = g_log_get_always_fatal();
   g_log_set_always_fatal(runtime_fatal_mask | G_LOG_LEVEL_WARNING |

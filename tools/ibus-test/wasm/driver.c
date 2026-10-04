@@ -385,13 +385,14 @@ gboolean ibus_test_wasm_run(JsonObject *trace, const gchar *module,
          : NULL;
   if (ok)
     ok = snapshot != NULL;
+  /* Init installs the framed writer before applying the snapshot, so its
+   * warnings arrive as Log records that collection rejects. */
+  g_log_set_always_fatal(runtime_fatal_mask);
   if (ok)
     ok = dispatch(
              &driver, 0, IBUSWEB_REQ_INIT,
              g_variant_new("(u@a{sa{sv}})", IBUSWEB_PROTOCOL_VERSION, snapshot),
              &error) >= 0;
-  /* Init has installed the framed writer; collection now rejects warnings. */
-  g_log_set_always_fatal(runtime_fatal_mask);
   if (ok) {
     g_log_set_default_handler(g_log_default_handler, NULL);
     gint loaded = ibusweb_load_module(module, NULL);
