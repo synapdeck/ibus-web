@@ -126,18 +126,21 @@ replies as the native adapter. It pumps after dispatch and before reporting a
 reply. Explicit waits consume the same per-lifetime checkpoints as native waits,
 and use the runtime wake word and next-source deadline, bounded by `timeoutMs`.
 A timeout is failure, never proof of completion. Destroy output is drained before
-its reply; a final pump after every explicit context destruction detects pending
-output on closed contexts. As with the native barrier, this cannot certify that
-an engine will never violate its lifetime in the future. The outer `runAdapter`
+its reply. The runtime discards anything a destroyed engine emits, as native IBus
+does once the engine's object is unexported, so a stale reference produces no
+record; a record for a closed context still fails the run, and a final pump after
+every explicit context destruction checks for one. The outer `runAdapter`
 deadline also bounds synchronous dispatch or a misbehaving engine.
 
 Runtime log records remain diagnostics on stderr, outside behavioral comparison.
 Warning, critical, and error records fail the run. Early GLib initialization logs
-also use stderr. Before Init installs the framed writer, the executable uses
-GLib's fatal severity mask for warning-or-worse, covering both legacy and
-structured logging through the default writer. A fatal startup warning therefore
-exits nonzero with its diagnostic on stderr and may have an empty transcript.
-The original mask is restored after Init, before loading the engine module. Non-log global records, including `SettingWritten` with context
+also use stderr. Until the Init request, the executable uses GLib's fatal
+severity mask for warning-or-worse, so a warning with no framed writer to report
+through exits nonzero with its diagnostic on stderr and an empty transcript. The
+original mask is restored before Init, which installs the framed writer before
+applying the settings snapshot: an unknown schema or key or an invalid initial
+value arrives as a Log record and fails the run with step 0 error records before
+the engine module loads. Non-log global records, including `SettingWritten` with context
 ID zero, fail explicitly with their kind, ID, signature and typed payload. The
 native boundary currently observes Engine signals, and live-settings output
 parity is deferred; no invented context or suppressed record hides that limit.
