@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, it } from "@effect/vitest";
+import { Schema } from "effect";
 import {
   CommitText,
   FocusIn,
@@ -11,10 +12,15 @@ import {
   encodeValue,
   framing,
   RECORD_CONTINUATION,
+  type GVariantValue,
 } from "../../src/index.ts";
 
-function commitTextRecord(): Uint8Array {
-  const payload = encodeValue("(v)", {
+function commitTextRecord(
+  name = "IBusText",
+  attachments: readonly GVariantValue[] = [],
+  text: GVariantValue = { _tag: "s", value: "한" },
+): Uint8Array {
+  return frame({
     _tag: "()",
     items: [
       {
@@ -23,9 +29,9 @@ function commitTextRecord(): Uint8Array {
         value: {
           _tag: "()",
           items: [
-            { _tag: "s", value: "IBusText" },
-            { _tag: "a", items: [] },
-            { _tag: "s", value: "한" },
+            { _tag: "s", value: name },
+            { _tag: "a", items: attachments },
+            text,
             {
               _tag: "v",
               type: "(sa{sv}av)",
@@ -43,6 +49,10 @@ function commitTextRecord(): Uint8Array {
       },
     ],
   });
+}
+
+function frame(tree: GVariantValue): Uint8Array {
+  const payload = encodeValue("(v)", tree);
   const bytes = new Uint8Array(Math.ceil((16 + payload.length) / 8) * 8);
   const header = new DataView(bytes.buffer);
   header.setUint32(0, 3, true);
@@ -122,6 +132,44 @@ it("rejects continuation records until the ring reader reassembles them", () => 
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(10, RECORD_CONTINUATION, true);
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+});
+
+it("rejects record flags it does not define", () => {
+  const bytes = commitTextRecord();
+  new DataView(bytes.buffer).setUint16(10, 0x0002, true);
+  expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes)).toThrow(/flags/);
+});
+
+function expectPayloadError(bytes: Uint8Array, message: RegExp) {
+  let error: unknown;
+  try {
+    decodeRecord(bytes);
+  } catch (caught) {
+    error = caught;
+  }
+  expect(Schema.isSchemaError(error)).toBe(true);
+  expect(String((error as Error).message)).toMatch(message);
+}
+
+it("reports a variant holding the wrong type as a payload error", () => {
+  expectPayloadError(
+    frame({ _tag: "()", items: [{ _tag: "v", type: "s", value: { _tag: "s", value: "한" } }] }),
+    /IBusText variant type/,
+  );
+});
+
+it("reports an unexpected serializable name as a payload error", () => {
+  expectPayloadError(commitTextRecord("IBusFoo"), /serializable name IBusText/);
+});
+
+it("reports an attachment without its inner variant as a payload error", () => {
+  const attachment: GVariantValue = {
+    _tag: "{}",
+    key: { _tag: "s", value: "source" },
+    value: { _tag: "v", type: "s", value: { _tag: "s", value: "fixture" } },
+  };
+  expectPayloadError(commitTextRecord("IBusText", [attachment]), /inner variant/);
 });
 
 it.each([-1, 0.5, NaN, Infinity])("rejects invalid record offset %s", (offset) => {

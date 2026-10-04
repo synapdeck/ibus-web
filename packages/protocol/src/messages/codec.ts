@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { Schema, SchemaGetter } from "effect";
+import { Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { GVariantBytes } from "../gvariant/schema.ts";
 import { ProtocolError } from "../gvariant/type.ts";
 import { fromTree, signatureOf, toTree } from "../ibus/walk.ts";
@@ -12,9 +12,21 @@ function payloadCodecs<Type, Encoded>(schemas: readonly Schema.Codec<Type, Encod
   const codecs = new Map<number, Schema.Codec<Type, Uint8Array>>();
   for (const schema of schemas) {
     const kind = schema.ast.annotations!.kind!;
-    const codec = GVariantBytes(signatureOf(schema)).pipe(
+    const signature = signatureOf(schema);
+    const decodeTree = fromTree(schema);
+    const codec = GVariantBytes(signature).pipe(
       Schema.decodeTo(schema, {
-        decode: SchemaGetter.transform(fromTree(schema)),
+        decode: SchemaGetter.transformEffect((tree, options) =>
+          Effect.try({
+            try: () => decodeTree(tree),
+            catch: (error) =>
+              new SchemaIssue.InvalidValue(
+                { message: `GVariant ${signature}: ${error instanceof ProtocolError ? error.message : String(error)}` },
+                tree,
+                options,
+              ),
+          }),
+        ),
         encode: SchemaGetter.transform(toTree(schema)),
       }),
     );
@@ -55,6 +67,11 @@ export interface DecodedRecord {
   readonly record: OutputRecord;
 }
 
+/**
+ * Decodes the record at `offset`. Framing errors (a truncated header, an unknown kind, flags it
+ * cannot handle, padding) throw `ProtocolError`; a payload that doesn't match its kind's schema
+ * throws `SchemaError`.
+ */
 export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > bytes.length - 16) {
     throw new ProtocolError({ message: "Record offset is invalid or the header is truncated" });
@@ -67,6 +84,9 @@ export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
   const length = header.getUint32(12, true);
   if ((flags & RECORD_CONTINUATION) !== 0) {
     throw new ProtocolError({ message: "Continuation records must be reassembled before decoding" });
+  }
+  if (flags !== 0) {
+    throw new ProtocolError({ message: `Unknown record flags: 0x${flags.toString(16).padStart(4, "0")}` });
   }
   const decode = recordDecoders.get(kind);
   if (decode === undefined) {
