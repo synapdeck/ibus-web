@@ -13,7 +13,7 @@ relative to `runtime/libibus-web`; generated build outputs are not vendored.
 Callback changes preserve layouts and serialization. Explicit callbacks use
 the base class's actual function type and convert object pointers inside the
 function. The hand-written serializable GType initializers take both arguments
-GLib passes. The cast-audit allow-list documents the seven GLib-generated
+GLib passes. The cast-audit allow-list documents the GLib-generated
 adapters whose pointer parameters have identical WASM signatures.
 
 Meson generates enums and marshallers with the cross GLib tools. Its explicit

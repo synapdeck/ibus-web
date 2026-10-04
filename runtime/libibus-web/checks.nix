@@ -22,37 +22,49 @@
       '';
 
       checks.libibus-web-cast-audit =
+        let
+          # Paths are relative to Meson's build directory, where the audit
+          # compiles; Meson's own generated sources sit beside it.
+          cSources =
+            dir:
+            map (name: "../${dir}/${name}") (
+              lib.filter (name: lib.hasSuffix ".c" name) (
+                lib.attrNames (lib.filterAttrs (_: type: type == "regular") (builtins.readDir ./${dir}))
+              )
+            );
+          generated = [
+            "src/ibus/ibusenumtypes.c"
+            "src/ibus/ibusmarshalers.c"
+          ];
+          sources = cSources "src" ++ cSources "src/ibus" ++ generated;
+        in
         (config.ibusWeb.engines.castAudit {
           name = "libibus-web";
           src = runtime.libibusWeb.src;
-          sources = map (name: "../src/ibus/${name}.c") [
-            "ibusobject"
-            "ibusserializable"
-            "ibustext"
-            "ibusattribute"
-            "ibusattrlist"
-            "ibuslookuptable"
-            "ibusproperty"
-            "ibusproplist"
-            "ibuskeys"
-            "ibuskeyuni"
-            "ibusutil"
-            "ibuserror"
-          ];
-          cflags = "-DIBUS_COMPILATION -I../include/ibus-1.0 -Isrc/ibus";
+          inherit sources;
+          cflags = "-DIBUS_COMPILATION -I../include -I../include/ibus-1.0 -I../src/ibus -Isrc/ibus";
           buildInputs = [ toolchain.pkgsWasm.glib ];
-          pkgConfigModules = [ "gio-2.0" ];
+          pkgConfigModules = [
+            "gio-2.0"
+            "gmodule-no-export-2.0"
+          ];
           allowList = ./cast-audit.jsonc;
         }).overrideAttrs
           (old: {
-            # Generate the same headers as the library before compiling diagnostics.
+            # Generate the same headers and sources as the library before
+            # compiling diagnostics.
             dontConfigure = false;
             nativeBuildInputs = old.nativeBuildInputs ++ [
               toolchain.pkgsWasm.meson
               toolchain.pkgsWasm.ninja
+              pkgs.jq
             ];
             postConfigure = ''
-              ninja src/ibus/ibusenumtypes.h src/ibus/ibusmarshalers.h
+              ninja ${lib.escapeShellArgs (map (name: lib.removeSuffix ".c" name + ".h") generated ++ generated)}
+              # The audit must cover exactly the C the library compiles.
+              jq -r '.[].file | select(endswith(".c"))' compile_commands.json | sort > built.txt
+              printf '%s\n' ${lib.escapeShellArgs sources} | sort > audited.txt
+              diff -u built.txt audited.txt
             '';
           });
 
