@@ -24,6 +24,12 @@ The strict cast audit reports these three findings without the patch and none
 with it. Signal connections to `settings_changed` already have the full signal
 signature; the audit excludes the intentional `GCallback` casts.
 
+The audit also compiles the libhangul sources linked into `hangul.wasm`, using
+that library's configured `config.h`, and finds no incompatible casts. Its
+`hangul_ic_connect_callback` takes the callback as `void *`, which the compiler
+cannot check; the engine's transition callback has the declared
+`HangulOnTransition` signature.
+
 The golden lifecycle test finds the module's GSettings objects through a
 `changed` emission hook and checks that destroying an engine leaves no handler
 whose data is that engine, only the module handler on each object. It then
