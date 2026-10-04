@@ -5,7 +5,7 @@
 // HostOp requests.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import { requestOpcode } from "../../src/shared/control.ts";
+
 import type { InstrumentReply, Instruments } from "../../src/worker/instruments.ts";
 import { topUp } from "../../src/worker/loop.ts";
 import type { RuntimeHandle } from "../../src/worker/runtime.ts";
@@ -64,6 +64,9 @@ export const makeInstruments = (
   let runtime: RuntimeHandle | undefined;
   let storage: MountedStorage = { mount: "none", closed: () => false };
   let scratch = 0;
+  let requestBuffer = 0;
+  let replyBuffer = 0;
+  const capacity = 64 * 1024;
   let held = false;
   const counters = {
     requests: 0,
@@ -121,12 +124,16 @@ export const makeInstruments = (
       runtime = handle;
       workers.counting = true;
       scratch = handle.rt._malloc(test.mallinfo.bytes);
+      requestBuffer = handle.rt._malloc(capacity);
+      replyBuffer = handle.rt._malloc(capacity);
     },
     serve: (request): InstrumentReply | Promise<InstrumentReply> | undefined => {
-      if (request.length < 4 || runtime === undefined) return undefined;
+      if (request.length < 8 || runtime === undefined) return undefined;
+      const kind = new DataView(request.buffer, request.byteOffset).getUint16(0, true);
+      if (kind < 0xff00) return undefined;
       const arg = (fallback: number): number =>
-        request.length >= 8 ? new DataView(request.buffer, request.byteOffset + 4).getInt32(0, true) : fallback;
-      switch (requestOpcode(request)) {
+        request.length >= 12 ? new DataView(request.buffer, request.byteOffset + 8).getInt32(0, true) : fallback;
+      switch (kind) {
         case HostOp.stats: {
           const json = encoder.encode(JSON.stringify(stats(runtime)));
           return { ret: json.length, bytes: json };
@@ -148,8 +155,17 @@ export const makeInstruments = (
             () => ({ ret: -1 }),
           );
         }
-        default:
-          return undefined;
+        default: {
+          const bytes = new Uint8Array(4 + request.length - 8);
+          new DataView(bytes.buffer).setUint32(0, kind, true);
+          bytes.set(request.subarray(8), 4);
+          runtime.bytes.set(bytes, requestBuffer);
+          const rt = runtime.rt as typeof runtime.rt & {
+            _ibusweb_test_dispatch(request: number, length: number, reply: number, capacity: number): number;
+          };
+          const ret = rt._ibusweb_test_dispatch(requestBuffer, bytes.length, replyBuffer, capacity);
+          return ret > 0 ? { ret, bytes: runtime.bytes.slice(replyBuffer, replyBuffer + ret) } : { ret };
+        }
       }
     },
     requestServed: (whileAsleep) => {

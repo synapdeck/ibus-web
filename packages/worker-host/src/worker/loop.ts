@@ -5,7 +5,9 @@
 // asleep in ibusweb_wait() runs nothing else, so nothing here may rely on
 // another fiber, a timer or a promise; GLib's time is the wait's timeout.
 
-import { postReply, requestBytes, State, Word, type ControlViews } from "../shared/control.ts";
+import { postReply, ReqMode, State, Word, type ControlViews } from "../shared/control.ts";
+import { RingWriter } from "@ibus-web/protocol/transport";
+import { drainOutput } from "./output.ts";
 import type { RuntimeConstants } from "../shared/messages.ts";
 import type { InstrumentReply, Instruments } from "./instruments.ts";
 import type { Runtime, RuntimeHandle } from "./runtime.ts";
@@ -23,6 +25,9 @@ export interface LoopContext {
   readonly buffers: { readonly request: number; readonly reply: number; readonly cap: number };
   readonly instruments: Instruments;
   readonly lowWater: number;
+  readonly writer: RingWriter;
+  readonly outputLength: Int32Array;
+  readonly postDoorbell: () => void;
   // Set once a top-up has failed; another would most likely fail the same
   // way.
   topUpFailed: boolean;
@@ -56,22 +61,35 @@ export const pump = (rt: Runtime, constants: RuntimeConstants): number => {
   return delay;
 };
 
-// Answers the request in the slot, unless an instrument answers it later.
+export const ringDoorbell = (ctx: LoopContext): void => {
+  if (Atomics.exchange(ctx.control.words, Word.doorbell, 1) === 0) ctx.postDoorbell();
+};
+
+// Both dispatch paths finish through the same publication and notification rules.
+export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
+  if (reply.bytes !== undefined) ctx.control.slot.set(reply.bytes);
+  pump(ctx.handle.rt, ctx.constants);
+  drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength);
+  const published = postReply(ctx.control, reply.ret, ctx.handle.rt._ibusweb_output_last_seq());
+  if (published && Atomics.load(ctx.control.words, Word.reqMode) !== ReqMode.sync) ringDoorbell(ctx);
+};
+
 const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined => {
   const { control, handle, buffers } = ctx;
-  const request = requestBytes(control);
+  const length = Atomics.load(control.words, Word.reqLen);
+  if (length < 0 || length > control.slot.length) throw new Error("invalid request length");
+  const request = control.slot.slice(0, length);
   ctx.instruments.requestServed(ctx.woken);
   ctx.woken = false;
   const own = ctx.instruments.serve(request);
   if (own instanceof Promise) return own;
   if (own !== undefined) {
-    postReply(control, own.ret, own.bytes);
+    finishReply(ctx, own);
     return undefined;
   }
   handle.bytes.set(request, buffers.request);
-  const ret = handle.rt._ibusweb_test_dispatch(buffers.request, request.length, buffers.reply, buffers.cap);
-  pump(handle.rt, ctx.constants);
-  postReply(control, ret, ret > 0 ? handle.bytes.subarray(buffers.reply, buffers.reply + ret) : undefined);
+  const ret = handle.rt._ibusweb_dispatch(buffers.request, request.length);
+  finishReply(ctx, { ret });
   return undefined;
 };
 
@@ -89,6 +107,7 @@ export const step = (ctx: LoopContext): Step => {
   }
   ctx.woken = false;
   const delay = pump(handle.rt, ctx.constants);
+  if (drainOutput(handle.rt, ctx.writer, ctx.outputLength) > 0) ringDoorbell(ctx);
   const after = Atomics.load(control.words, Word.state);
   if (after === State.request || after === State.crashed) return { kind: "served" };
   return { kind: "idle", seen, delay };

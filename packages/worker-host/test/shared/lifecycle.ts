@@ -42,7 +42,7 @@ export const released = async (h: Harness, runtime: RuntimeBuild): Promise<void>
   const host = await h.start({ runtime, released: true, test: { relayFailsAfter: 0 } });
   try {
     const ops = opsFrom(h.data.constants.ops);
-    expect(await call32(host.client, ops.add, int32s(2, 3)), "add").toBe(5);
+    expect((await host.client.call(ops.add, int32s(2, 3))).ret, "reserved kind").toBe(-h.data.errno["ENOSYS"]!);
     expect((await host.client.call(HostOp.stats)).ret, "stats").toBe(-h.data.errno["ENOSYS"]!);
   } finally {
     await host.terminate();
@@ -61,8 +61,11 @@ export const relayFailure = async (h: Harness, runtime: RuntimeBuild, released =
     let failure: unknown;
     for (let i = 0; i < 10 && failure === undefined; i++) {
       try {
-        await call32(host.client, ops.add, int32s(i, 1));
+        await host.client.call(ops.add, int32s(i, 1));
         answered++;
+        // Give the relay a turn to forward this wake before the next one
+        // arrives, rather than coalescing the entire burst into one wake.
+        await h.sleep(10);
       } catch (error) {
         failure = error;
       }

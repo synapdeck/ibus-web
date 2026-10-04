@@ -12,7 +12,8 @@
 
 import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { engineDir, engineWriterLock } from "../shared/naming.ts";
-import { controlViews, postCrash, postReply, Word, type ControlViews } from "../shared/control.ts";
+import { RingWriter, transportLayout } from "@ibus-web/protocol/transport";
+import { controlViews, postCrash, Word, type ControlViews } from "../shared/control.ts";
 import { WASM_PAGE, type HostInit, type HostMessage } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
 import {
@@ -30,7 +31,7 @@ import { mount, type MountedStorage } from "./storage/mount.ts";
 import { memoryFor, planStorage, type StoragePlan } from "./storage/plan.ts";
 import type { RelayInit } from "./forward.ts";
 import { Instruments, type InstrumentReply } from "./instruments.ts";
-import { serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
+import { finishReply, serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
 import {
   alloc,
   check,
@@ -454,6 +455,9 @@ export const serve: Effect.Effect<
     buffers,
     instruments,
     lowWater: init.poolLowWater,
+    writer: new RingWriter(control, transportLayout()),
+    outputLength: new Int32Array(handle.bytes.buffer, alloc(handle, 4), 1),
+    postDoorbell: () => worker.env.post({ type: "doorbell" }),
     topUpFailed: false,
     woken: false,
   };
@@ -472,7 +476,7 @@ export const serve: Effect.Effect<
     return yield* new RelayFailed({ message });
   });
   const answer = (reply: Promise<InstrumentReply>) =>
-    Effect.promise(() => reply).pipe(Effect.map(({ ret, bytes }) => postReply(control, ret, bytes)));
+    Effect.promise(() => reply).pipe(Effect.flatMap((value) => guarded(() => finishReply(ctx, value))));
 
   // The only asynchronous excursion: the new Workers load only while this
   // thread's event loop runs, so the host waits for requests with

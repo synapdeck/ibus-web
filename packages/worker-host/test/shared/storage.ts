@@ -7,7 +7,7 @@
 // scenario's databases, directories or locks run into another's.
 
 import { expect } from "vitest";
-import type { Reply } from "../../src/shared/control.ts";
+import type { Reply } from "./client.ts";
 import { memoryWithData, type EngineManifest, type StorageState } from "../../src/shared/messages.ts";
 import { encodeComponent, engineDataLock, engineDir, engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";

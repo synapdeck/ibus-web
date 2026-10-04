@@ -50,9 +50,10 @@
   X(LIST_TREE, 32)                                                             \
   X(BENCH_WRITE, 33)                                                           \
   X(BENCH_READ, 34)                                                            \
-  X(BENCH_APPEND, 35)
+  X(BENCH_APPEND, 35)                                                          \
+  X(TIMER_OUTPUT, 36)
 
-#define TEST_OP_ENUM(name, opcode) TEST_OP_##name = opcode,
+#define TEST_OP_ENUM(name, opcode) TEST_OP_##name = 0xff00 + opcode,
 enum { TEST_OPS(TEST_OP_ENUM) };
 #undef TEST_OP_ENUM
 

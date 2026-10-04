@@ -27,6 +27,7 @@ import {
   threadCreateBlocked,
   threadExitBlocked,
 } from "../shared/scenarios.ts";
+import { protocolRoundtrip } from "../shared/protocol.ts";
 import { failedInstantiate, refusedMemory, relayFailure, released, topUpLimit } from "../shared/lifecycle.ts";
 import { engineDir } from "../../src/shared/naming.ts";
 import {
@@ -210,12 +211,7 @@ describe.each(h.data.runtimes)("the host as released on the $name runtime", (run
       await host.terminate();
     }
   };
-  test("dispatch", () => releasedHost((host) => dispatch(h, host)));
-  test("thread-crash", () =>
-    releasedHost(async (host) => {
-      await threadCrash(h, host);
-      await crashPrinted(h, runtime);
-    }));
+  test("protocol dispatch", () => releasedHost((host) => protocolRoundtrip(h, host)));
   test("relay-failure", () => relayFailure(h, runtime, true));
   test("ignores what HostInit.test asks", () => released(h, runtime));
 });

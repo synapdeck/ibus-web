@@ -43,6 +43,10 @@ const SETTLE_LIMIT_MS = 10_000;
 const clock: Clock = {
   now: () => performance.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  schedule: (ms, run) => {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
 };
 
 const fetchOk = async (url: string): Promise<Response> => {
@@ -193,13 +197,18 @@ export const browserHarness = async (): Promise<Harness> => {
         test,
       };
       const startupMs = await startHost(worker, init, messages);
+      const client = blockingClient(control, messages, {
+        ...clock,
+        block: () => {},
+        budgetMs: SPIN_LIMIT_MS,
+        lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
+      });
+      worker.addEventListener("message", ({ data }) => {
+        if ((data as Message).type === "doorbell") client.page.onDoorbell();
+        if ((data as Message).type === "crashed") client.page.onCrash();
+      });
       return {
-        client: blockingClient(control, messages, {
-          ...clock,
-          block: () => {},
-          budgetMs: SPIN_LIMIT_MS,
-          lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
-        }),
+        client,
         instrumented: options.released !== true,
         startupMs,
         messages,

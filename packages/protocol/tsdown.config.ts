@@ -3,7 +3,7 @@
 
 import { defineConfig } from "tsdown";
 export default defineConfig({
-  entry: { index: "src/index.ts" },
+  entry: { index: "src/index.ts", transport: "src/transport/index.ts" },
   platform: "neutral",
   dts: { generator: "tsgo" },
   deps: { neverBundle: ["effect", /^effect\//] },

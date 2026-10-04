@@ -138,6 +138,7 @@ export interface CollectReport {
 export type LogLevel = "All" | "Fatal" | "Error" | "Warn" | "Info" | "Debug" | "Trace" | "None";
 
 export type HostMessage =
+  | { type: "doorbell" }
   // The host serves requests from here on.
   | { type: "ready"; startupMs: number }
   | { type: "storage"; state: StorageState; message: string }

@@ -9,7 +9,7 @@
 // only through the control buffer, so either test environment runs them.
 
 import { expect } from "vitest";
-import type { Reply } from "../../src/shared/control.ts";
+import type { Reply } from "./client.ts";
 import type { Client } from "./client.ts";
 import { CRASH_REPORT_LIMIT_MS, type Harness, type RunningHost, type RuntimeBuild } from "./harness.ts";
 import { HostOp, type HostStats } from "./testing.ts";

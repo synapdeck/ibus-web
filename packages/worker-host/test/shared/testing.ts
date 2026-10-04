@@ -10,16 +10,16 @@ import type { HostMessage, Mount } from "../../src/shared/messages.ts";
 
 export const HostOp = {
   // A UTF-8 JSON HostStats.
-  stats: 0xffff_0001,
+  stats: 0xfff1,
   // Returns the host to its event loop for the int32 payload's milliseconds
   // (10 if none), then replies 0.
-  yield: 0xffff_0002,
+  yield: 0xfff2,
   // Holds off topping the pool up while the int32 payload is 0, and allows
   // it again otherwise; replies 0.
-  topUp: 0xffff_0003,
+  topUp: 0xfff3,
   // Adds the int32 payload's count of Workers to the pool, then replies 0
   // once they have all loaded the runtime, or -1.
-  addWorkers: 0xffff_0004,
+  addWorkers: 0xfff4,
 } as const;
 
 export interface HostStats {
@@ -81,3 +81,12 @@ export type TestMessage =
   | { type: "stalled"; bytes: number };
 
 export type Message = HostMessage | TestMessage;
+
+// Test requests use protocol framing, while the C test dispatcher retains its
+// private uint32 opcode ABI behind the test-build hook.
+export const encodeTestOp = (kind: number, payload: Uint8Array = new Uint8Array()): Uint8Array => {
+  const bytes = new Uint8Array(8 + payload.length);
+  new DataView(bytes.buffer).setUint16(0, kind, true);
+  bytes.set(payload, 8);
+  return bytes;
+};

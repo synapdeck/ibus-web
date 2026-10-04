@@ -43,6 +43,7 @@
     "test": "vitest run --configLoader native"
   },
   "dependencies": {
+    "@ibus-web/protocol": "workspace:*",
     "brotli-dec-wasm": "catalog:"
   },
   "devDependencies": {

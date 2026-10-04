@@ -5,8 +5,7 @@
 //
 //   shared/index.js   what the page imports: the control buffer, the
 //                     messages and the storage names, with its declarations.
-//                     It imports nothing; Effect is a peer dependency of the
-//                     package, for pages that use it.
+//                     It shares the protocol transport exports with pages.
 //   worker/index.js   the host's Worker script, which the page starts by URL.
 //   worker/relay.js   the wake relay's Worker script, which the host starts
 //                     by URL from beside its own.
@@ -40,7 +39,7 @@ const worker = (name: string, source: string, tsconfig: string): UserConfig => (
   // The Node store and mount import node:fs/promises only when running under
   // Node; a browser never reaches that import.
   deps: {
-    alwaysBundle: ["effect", /^effect\//, /^brotli-dec-wasm/],
+    alwaysBundle: [/^@ibus-web\/protocol(?:\/|$)/, "effect", /^effect\//, /^brotli-dec-wasm/],
     neverBundle: [/^node:/],
     onlyBundle: false,
   },

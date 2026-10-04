@@ -41,6 +41,10 @@ const LATE_REPLY_MS = 30_000;
 const clock: Clock = {
   now: () => performance.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  schedule: (ms, run) => {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
 };
 
 const scratch = mkdtempSync(join(tmpdir(), "ibus-web-worker-host-"));
@@ -112,21 +116,26 @@ export const nodeHarness = async (): Promise<Harness> => {
         test,
       };
       const startupMs = await startHost(worker, init, messages);
+      const client = blockingClient(control, messages, {
+        ...clock,
+        block: (words, index, value, ms) => {
+          Atomics.wait(words, index, value, ms);
+        },
+        budgetMs: BUDGET_MS,
+        lateReply: {
+          wait: async (words, index, value, ms) => {
+            const result = Atomics.waitAsync(words, index, value, ms);
+            if (result.async) await result.value;
+          },
+          ms: LATE_REPLY_MS,
+        },
+      });
+      worker.addEventListener("message", ({ data }) => {
+        if ((data as Message).type === "doorbell") client.page.onDoorbell();
+        if ((data as Message).type === "crashed") client.page.onCrash();
+      });
       return {
-        client: blockingClient(control, messages, {
-          ...clock,
-          block: (words, index, value, ms) => {
-            Atomics.wait(words, index, value, ms);
-          },
-          budgetMs: BUDGET_MS,
-          lateReply: {
-            wait: async (words, index, value, ms) => {
-              const result = Atomics.waitAsync(words, index, value, ms);
-              if (result.async) await result.value;
-            },
-            ms: LATE_REPLY_MS,
-          },
-        }),
+        client,
         instrumented: options.released !== true,
         startupMs,
         messages,

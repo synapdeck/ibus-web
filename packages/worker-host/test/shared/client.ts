@@ -6,21 +6,19 @@
 // at most a budget, then waits for the reply without holding it. A reply
 // that comes only then is a late reply, which fails the test that made it.
 
-import {
-  controlViews,
-  encodeRequest,
-  postRequest,
-  State,
-  takeReply,
-  Word,
-  type Reply,
-} from "../../src/shared/control.ts";
-import type { Message } from "./testing.ts";
+import { ReqMode, State, Word, type Reply as ProtocolReply } from "../../src/shared/control.ts";
+import { encodeTestOp, type Message } from "./testing.ts";
+import { Page } from "./page.ts";
+export interface Reply extends ProtocolReply {
+  bytes: Uint8Array;
+}
 
 export interface Clock {
   // Milliseconds, from a monotonic clock.
   now(): number;
   sleep(ms: number): Promise<void>;
+  // Runs once after ms; returns a cancellation function.
+  schedule(ms: number, run: () => void): () => void;
 }
 
 export interface BlockingClientEnv extends Clock {
@@ -53,6 +51,7 @@ export interface CallOptions {
 }
 
 export interface Client {
+  readonly page: Page;
   call(opcode: number, payload?: Uint8Array, options?: CallOptions): Promise<Reply>;
   // The host's report of why it crashed, or null if none came within
   // timeoutMs.
@@ -70,7 +69,12 @@ export const blockingClient = (
   messages: readonly Message[],
   env: BlockingClientEnv,
 ): Client => {
-  const views = controlViews(control);
+  const page = new Page(control, env, env.lateReply.ms);
+  const views = page.views;
+  const takeTestReply = (reply: ProtocolReply = page.takeReply()): Reply => ({
+    ...reply,
+    bytes: reply.ret > 0 ? views.slot.slice(0, reply.ret) : new Uint8Array(),
+  });
   const lateReplies: LateReply[] = [];
   const heldMs: number[] = [];
 
@@ -80,7 +84,7 @@ export const blockingClient = (
       const state = Atomics.load(views.words, Word.state);
       if (state === State.reply) {
         lateReplies.push({ opcode, heldMs: budgetMs, afterMs: Number((env.now() - timedOutAt).toFixed(1)) });
-        return takeReply(views);
+        return takeTestReply();
       }
       if (state === State.crashed) throw new Error(`the host crashed on opcode ${opcode}`);
       const left = deadline - env.now();
@@ -91,24 +95,27 @@ export const blockingClient = (
   };
 
   return {
+    page,
     lateReplies,
     heldMs,
     call: (opcode, payload, { budgetMs = env.budgetMs } = {}) => {
       if (Atomics.load(views.words, Word.state) === State.crashed)
         return Promise.reject(new Error("the host has crashed"));
-      postRequest(views, encodeRequest(opcode, payload));
+      page.post(encodeTestOp(opcode, payload), ReqMode.sync);
       const postedAt = env.now();
       const deadline = postedAt + budgetMs;
       for (;;) {
         const state = Atomics.load(views.words, Word.state);
         if (state === State.reply) {
           heldMs.push(env.now() - postedAt);
-          return Promise.resolve(takeReply(views));
+          return Promise.resolve(takeTestReply());
         }
         if (state === State.crashed) return Promise.reject(new Error(`the host crashed on opcode ${opcode}`));
         const left = deadline - env.now();
         if (left <= 0) {
           heldMs.push(env.now() - postedAt);
+          const reply = page.abandon();
+          if (reply !== undefined) return Promise.resolve(takeTestReply(reply));
           return awaitLateReply(opcode, budgetMs, env.now());
         }
         env.block(views.words, Word.state, state, left);

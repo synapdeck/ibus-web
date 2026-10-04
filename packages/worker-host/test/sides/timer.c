@@ -52,7 +52,25 @@ static void timeout_result(const uint8_t *payload, uint32_t len,
   }
 }
 
+static guint output_remaining;
+
+static gboolean output_tick(gpointer data) {
+  (void)data;
+  g_warning("timer output %u", output_remaining);
+  return --output_remaining != 0 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+}
+
+static void timer_output(const uint8_t *payload, uint32_t len, GString *reply) {
+  (void)payload;
+  (void)len;
+  (void)reply;
+  output_remaining = 2;
+  g_timeout_add(20, output_tick, NULL);
+}
+
 void ibusweb_module_init(IBusWebModule *module) {
+  ibusweb_module_add_op(module, TEST_OP_TIMER_OUTPUT, "timer-output",
+                        timer_output);
   ibusweb_module_add_op(module, TEST_OP_TIMEOUT, "timeout", timeout);
   ibusweb_module_add_op(module, TEST_OP_TIMEOUT_RESULT, "timeout-result",
                         timeout_result);

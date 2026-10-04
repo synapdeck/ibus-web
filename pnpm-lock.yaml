@@ -230,6 +230,9 @@ importers:
 
   packages/worker-host:
     dependencies:
+      '@ibus-web/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       brotli-dec-wasm:
         specifier: 'catalog:'
         version: 2.3.2
