@@ -13,9 +13,7 @@ ibus_enums = gnome.mkenums(
   install_dir: get_option('includedir') / 'ibus-1.0',
 )
 ibus_marshallers = gnome.genmarshal('ibusmarshalers',
-  sources: 'ibusmarshalers.list', prefix: '_ibus_marshal', internal: true,
-  install_header: true,
-  install_dir: get_option('includedir') / 'ibus-web/private')
+  sources: 'ibusmarshalers.list', prefix: '_ibus_marshal', internal: true)
 
 libibus_ibus = static_library(
   'ibus-web-ibus',
