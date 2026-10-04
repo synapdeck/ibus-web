@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { parseType, ProtocolError, type GVariantType } from "./type.ts";
+import { isSignature, parseType, ProtocolError, type GVariantType } from "./type.ts";
 import { isWellFormedString, type GVariantValue } from "./value.ts";
 
 export const align = (size: number, alignment: number): number => Math.ceil(size / alignment) * alignment;
@@ -35,6 +35,51 @@ function invalidValue(message: string): never {
   throw new ProtocolError({ message });
 }
 
+const integerRanges = {
+  y: [0, 0xff],
+  n: [-0x8000, 0x7fff],
+  q: [0, 0xffff],
+  i: [-0x80000000, 0x7fffffff],
+  h: [-0x80000000, 0x7fffffff],
+  u: [0, 0xffffffff],
+} as const;
+const bigintRanges = {
+  x: [-(2n ** 63n), 2n ** 63n - 1n],
+  t: [0n, 2n ** 64n - 1n],
+} as const;
+const objectPath = /^\/(?:[A-Za-z0-9_]+(?:\/[A-Za-z0-9_]+)*)?$/;
+
+// DataView setters wrap or truncate what doesn't fit, which would put a different value on the
+// wire than the caller asked for.
+function checkBasic(value: GVariantValue): void {
+  switch (value._tag) {
+    case "y":
+    case "n":
+    case "q":
+    case "i":
+    case "h":
+    case "u": {
+      const [minimum, maximum] = integerRanges[value._tag];
+      if (!Number.isInteger(value.value) || value.value < minimum || value.value > maximum)
+        invalidValue(`GVariant ${value._tag} out of range: ${value.value}`);
+      break;
+    }
+    case "x":
+    case "t": {
+      const [minimum, maximum] = bigintRanges[value._tag];
+      if (typeof value.value !== "bigint" || value.value < minimum || value.value > maximum)
+        invalidValue(`GVariant ${value._tag} out of range: ${value.value}`);
+      break;
+    }
+    case "o":
+      if (!objectPath.test(value.value)) invalidValue("Invalid GVariant object path");
+      break;
+    case "g":
+      if (!isSignature(value.value)) invalidValue("Invalid GVariant signature");
+      break;
+  }
+}
+
 function containerMembers(
   type: GVariantType,
   value: GVariantValue,
@@ -50,12 +95,13 @@ function containerMembers(
 }
 
 function measure(type: GVariantType, value: GVariantValue, depth: number): EncodingPlan {
-  if (depth > 128) invalidValue("GVariant nesting exceeds 128");
+  if (depth >= 128) invalidValue("GVariant nesting exceeds 128");
   const expectedTag = type._tag === "basic" ? type.char : type._tag;
   if (value._tag !== expectedTag) invalidValue(`GVariant value does not match ${type.signature}`);
 
   const plan: EncodingPlan = { type, value, size: 0, children: [], offsets: [], offsetWidth: 0 };
   if (type._tag === "basic") {
+    checkBasic(value);
     if (value._tag === "s" || value._tag === "o" || value._tag === "g") {
       if (value.value.includes("\0") || !isWellFormedString(value.value)) invalidValue("Invalid GVariant string");
       plan.text = encoder.encode(value.value);
@@ -67,7 +113,9 @@ function measure(type: GVariantType, value: GVariantValue, depth: number): Encod
   }
 
   if (type._tag === "v" && value._tag === "v") {
-    const child = measure(parseType(value.type), value.value, depth + 1);
+    const childType = parseType(value.type);
+    if (depth + childType.depth >= 128) invalidValue("GVariant variant type nests too deeply");
+    const child = measure(childType, value.value, depth + 1);
     plan.children.push({ position: 0, plan: child });
     plan.text = encoder.encode(value.type);
     plan.size = child.size + 1 + plan.text.length;
