@@ -233,13 +233,19 @@ which GLib's default `XDG_DATA_DIRS` already searches.
 **Patch layers (spec §5.4.2).**
 
 - `engines/hangul/patches/casts/`: function-pointer fixes. The two one-argument `GTypeInfo`
-  init functions (`engine.c:370`, `:375`) trap on WebAssembly.
+  init functions (`engine.c:370`, `:375`) trap on WebAssembly. _Deviation:_ casts 0001 changes
+  three functions; the destroy callback also takes its declared `IBusObjectDestroyFunc` pointer
+  type, so the allow-list stays empty.
 - `engines/hangul/patches/port/`: the build is ours, so no build-system patch is needed. Port
   patches also fix engine bugs the runtime's lifecycle exposes, as diffs upstream could take:
   - the `changed` handlers are never disconnected on destroy, a use-after-free once engines
     come and go per input context;
   - a digit key past the last candidate trips `ibus_lookup_table_set_cursor_pos`'s assertion.
   - Each is red in the golden tests before its patch.
+  - _Deviation:_ review added port 0003 (one module listener keeps the globals current with no
+    live engine; instance handlers only reselect their keyboard; init-only settings stay
+    init-only) and port 0004 (`CandidateClicked` read as page-relative; a click no visible label
+    has is ignored).
 
 **The cast audit replaces the lookup's debug log for now.** Spec §11.3's audit report came from
 the lazy arity lookup's debug logging, which isn't built. `ibusWeb.engines.castAudit` compiles
@@ -248,14 +254,15 @@ types differ. Casts to `GCallback` are left out, since signal-handler arity can'
 the cast; the golden tests' traps cover those.
 
 - The report must equal a committed allow-list (`cast-audit.jsonc`), empty after fixes.
-- It runs on libibus-web's vendored IBus sources and on the engine.
+- It runs on libibus-web's vendored IBus sources and on the engine. _Deviation:_ it covers every
+  C translation unit of libibus-web, and the private libhangul linked into `hangul.wasm` too.
 - A connect-time arity audit, for engines with many handlers, is a known gap for M3–M5.
 
 ## File map
 
 | Path                                                                                                                                                                                                                        | Change                                | Task |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---- |
-| `modules/engines/cast-audit.{nix,ts,test.ts}`, `modules/engines/tsconfig.json`, `modules/engines/fixtures/`                                                                                                                 | the cast audit                        | 1    |
+| `modules/engines/cast-audit.{nix,ts,test.ts}`, `modules/engines/tsconfig.json`, `modules/engines/fixtures/` (_deviation:_ the TypeScript, tests and fixtures live in `tools/cast-audit/`)                                   | the cast audit                        | 1    |
 | `runtime/libibus-web/_package.nix` (from `package.nix`), `runtime/libibus-web/overlay.nix`, `runtime/libibus-web/package.nix`                                                                                               | libibus-web in `pkgsWasm`             | 2    |
 | `runtime/libibus-web/meson.build`, `meson.options`, `include/ibus-1.0/` (vendored headers, our `ibus.h`), `src/ibus/` (vendored sources, `README.md`), `cast-audit.jsonc`, `tests/test-serializable.c`, `tests/meson.build` | IBus layer: data types and keys       | 2    |
 | `runtime/ibus-runtime/exports.nix`, `exports.py`, `checks.nix`, `package.nix`                                                                                                                                               | the `ibus` export library, ABI 1      | 2    |
@@ -270,7 +277,7 @@ the cast; the golden tests' traps cover those.
 
 ### Task 1: The cast audit
 
-**Files:** `modules/engines/cast-audit.nix`, `modules/engines/cast-audit.ts`, `modules/engines/cast-audit.test.ts`, `modules/engines/tsconfig.json`, `modules/engines/fixtures/{casts.c,allow.jsonc}`, `modules/engines/options.nix`.
+**Files:** `modules/engines/cast-audit.nix`, `modules/engines/cast-audit.ts`, `modules/engines/cast-audit.test.ts`, `modules/engines/tsconfig.json`, `modules/engines/fixtures/{casts.c,allow.jsonc}`, `modules/engines/options.nix`. _Deviation:_ everything but the Nix moved to `tools/cast-audit/`, with dependencies in `tools/package.json`.
 
 **Interfaces:** Produces `ibusWeb.engines.castAudit { name, src, sources, cflags ? "", buildInputs ? [ ], pkgConfigModules ? [ ], allowList }` → a check derivation, and `checks.engines-cast-audit-script` (its Vitest suite). `allowList` is a path to a JSONC file:
 
@@ -336,7 +343,7 @@ the cast; the golden tests' traps cover those.
   - Add the `ibus` library to `spec.libraries` in `exports.nix` after `libibus-web`, versioned `{ibus}+ibus-web.{abi}`; `{ibus}` comes from a new `versions.ibus` entry evaluating the three macros through `ibus-1.0`.
   - Extend `exports.py`'s `verify` with `--api-subset LIBRARY=HEADER` (every exported symbol is declared by the header, not necessarily the reverse), and use it for `ibus` in `checks.ibus-runtime-exports`.
   - `IBUSWEB_RUNTIME_ABI` becomes `1`.
-- **Cast audit.** `checks.libibus-web-cast-audit` runs `castAudit` over the upstream sources compiled into the IBus layer. Fix every finding by editing the vendored file (README row: what and why); the allow-list stays empty unless a cast is provably harmless, with its reason.
+- **Cast audit.** `checks.libibus-web-cast-audit` runs `castAudit` over the upstream sources compiled into the IBus layer (_deviation:_ over every C translation unit of libibus-web, checked against `compile_commands.json`). Fix every finding by editing the vendored file (README row: what and why); the allow-list stays empty unless a cast is provably harmless, with its reason.
 - **Tests** (`test-serializable`, g_test, TAP, in `checks.libibus-web`):
   - Each data type serializes to exactly upstream's GVariant type string, checked with `g_variant_get_type_string`:
     - `IBusText` `(sa{sv}sv)`
@@ -444,6 +451,7 @@ the cast; the golden tests' traps cover those.
 - **Values.**
   - The backend stores values by path. The snapshot (`a{sa{sv}}`, schema id → key → value) and `SettingChanged` name schema and key; resolve them with the default `GSettingsSchemaSource` (`g_settings_schema_get_path` + key). Keys that don't exist or have the wrong type are skipped with a warning.
   - Relocatable schemas have no path and are skipped with a warning; none of the target engines' are relocatable.
+  - _Deviation:_ this skipping holds for the snapshot only. `SettingChanged` returns an error instead, with the warning as a `Log` record: `-ENOENT` for an unknown schema or key, `-EINVAL` for an invalid value, `-ENOTSUP` for a relocatable schema or a foreign default backend.
   - Snapshot values apply silently. A `SettingChanged` whose value differs calls `g_settings_backend_changed`, so engines' `changed::` handlers run (on the context they were created on, here the default context, possibly at the next pump).
 - **Writes.**
   - An engine's write (`write`, `write_tree`, `reset`) updates the store, emits the change, and appends a `SettingWritten` record `(ssv)`; a reset writes the schema default.
@@ -488,13 +496,13 @@ the cast; the golden tests' traps cover those.
   - `glib-2.0/schemas/`: ibus-hangul's `org.freedesktop.ibus.engine.hangul.gschema.xml` and ibus's `org.freedesktop.ibus.gschema.xml` (from libibus-web's `share/glib-2.0/schemas/`; it holds the panel schema `org.freedesktop.ibus.panel`, which ibus-hangul's init aborts without), compiled together with `pkgsWasm.glib`'s `glib-compile-schemas` into `gschemas.compiled`. The build isn't Meson, so it takes the tool from `$PKG_CONFIG --variable=glib_compile_schemas gio-2.0`, never by name from `PATH`, where the native one shadows it, with the sources kept beside it (spec §5.2.5).
 - **`module.c`** (GPL-2.0-or-later, Synapdeck) defines `ibusweb_module_init` per the decisions; it includes ibus-hangul's `engine.h`. `main.c` is not compiled.
 - **Patches.** Each patch is a `git format-patch` against nixpkgs' src, minimal, with a header saying what and why; the README records provenance and upstream status.
-  - **casts 0001:** give `ibus_hangul_engine_class_init` and `ibus_hangul_engine_init` their `GClassInitFunc`/`GInstanceInitFunc` signatures (second parameter unused), keeping their bodies.
+  - **casts 0001:** give `ibus_hangul_engine_class_init` and `ibus_hangul_engine_init` their `GClassInitFunc`/`GInstanceInitFunc` signatures (second parameter unused), keeping their bodies. _Deviation:_ it also gives `ibus_hangul_engine_destroy` its `IBusObjectDestroyFunc` parameter type, three functions in all.
   - **port 0001:** disconnect both `changed` handlers in `ibus_hangul_engine_destroy`.
   - **port 0002:** ignore a digit selecting past the last candidate.
   - Write the two port patches in Task 7, after their golden tests are red; this task carries casts 0001 only.
 - **Checks.**
   - `checks.hangul-imports`: `checkSideModuleImports` on `hangul.wasm`. Any symbol it lacks means Task 3's survey list missed something: implement it in libibus-web, never stub it in the engine.
-  - `checks.hangul-cast-audit`: `castAudit` over `src/engine.c`, `src/ustring.c` and `module.c` with the patches applied; the allow-list is empty. Show it red without casts 0001 (two findings) and green with it, and record both in the report.
+  - `checks.hangul-cast-audit`: `castAudit` over `src/engine.c`, `src/ustring.c` and `module.c` with the patches applied; the allow-list is empty. Show it red without casts 0001 (two findings; _deviation:_ three) and green with it, and record both in the report.
 - **REUSE:** `engines/hangul/**` annotated `GPL-2.0-or-later`, copyright Synapdeck for our files; patches also name ibus-hangul's authors. A `REUSE.toml` comment states the annotation matches the recipe's `meta.license`.
 
 - [ ] Steps: options; overlay with private libhangul; build + data tree; module.c; imports check (fill libibus-web gaps); cast audit red → casts 0001 → green; `nix flake check`; commit.
@@ -533,7 +541,7 @@ the cast; the golden tests' traps cover those.
   13. No `Log` record of level warning or worse in any case, beyond expected ones listed in the case (the simple engine's missing compose resource doesn't apply: it is ours).
   14. With `IBUS_CAP_SYNC_PROCESS_KEY_V2` in the capabilities (and `use-event-forwarding` at its default, true), `space` after 한 is consumed (reply 1), and the records are `CommitText` 한 then `ForwardKeyEvent` space, in that order. The router doesn't advertise that capability: its reply already carries the records in order, and declining the key lets the browser apply it natively. That choice goes into the known gaps as a decision for M1.4.
 - **Port patches.** Write port 0001 and 0002 here, after cases 9 and 7 are red; both go green with them.
-- **Report:** the patch count per layer (casts 1, port 2, unless something else turned up) and any engine behaviour that surprised.
+- **Report:** the patch count per layer (casts 1, port 2, unless something else turned up) and any engine behaviour that surprised. _Deviation:_ port ended at 4 (0003 and 0004 above), and the golden suite at 16 cases.
 
 - [ ] Steps: harness and program; cases 1–6, 8, 10–12 green; case 7 red → port 0002 → green; case 9 red → port 0001 → green; `nix flake check`; commit.
 
@@ -566,7 +574,7 @@ the cast; the golden tests' traps cover those.
   - `IBusEngineSimple`'s compose, Ctrl+Shift+U and emoji;
   - the connect-time arity audit;
   - ibus-hangul's `setup` property spawning nothing;
-  - its globals read only at init and updated only through live engines' handlers (a `SettingChanged` with no engine alive is missed until the next init);
+  - its globals read only at init and updated only through live engines' handlers (a `SettingChanged` with no engine alive is missed until the next init); _deviation:_ port 0003 fixed this instead;
   - the host's FHS data mapping and Init-before-load ordering (M1.3);
   - the runtime has no module shutdown, so `ibus_hangul_exit` never runs;
   - for M1.4: the page commits a preedit whose last mode was `IBUS_ENGINE_PREEDIT_COMMIT` on blur and on reset (ibus-hangul relies on it), and the router doesn't advertise `IBUS_CAP_SYNC_PROCESS_KEY_V2`;
