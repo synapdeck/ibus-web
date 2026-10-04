@@ -52,8 +52,24 @@ export {
   RequireSurroundingText,
   SettingWritten,
   Log,
+  Crashed,
+  CrashReason,
   OutputRecord,
   recordKinds,
 } from "./messages/records.ts";
-export { framing, type HeaderField, RECORD_CONTINUATION } from "./messages/framing.ts";
+export { framing, type HeaderField, RECORD_CONTINUATION, PADDING_KIND } from "./messages/framing.ts";
 export { encodeRequest, decodeRecord, type DecodedRecord } from "./messages/codec.ts";
+
+export {
+  Word,
+  State,
+  ReqMode,
+  HEADER_BYTES,
+  DEFAULT_SLOT_BYTES,
+  DEFAULT_RING_BYTES,
+  transportLayout,
+  transportViews,
+  type TransportLayout,
+  type TransportViews,
+} from "./transport/layout.ts";
+export { RingWriter, RingReader, type WriteResult } from "./transport/ring.ts";

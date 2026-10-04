@@ -133,7 +133,7 @@ it("rejects payload lengths beyond the byte view", () => {
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
 });
 
-it.each([0xffff, 34])("rejects record kind %s without a payload schema", (kind) => {
+it.each([0xffff, 0])("rejects record kind %s without a payload schema", (kind) => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(8, kind, true);
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);

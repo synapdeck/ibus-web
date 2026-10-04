@@ -17,6 +17,30 @@ A record is 16 bytes of header (`seq`, `ic`, `kind`, `flags`, `len`) followed by
 
 The runtime writes record flags as zero. `CONTINUATION` (`0x0001`) is the only flag; only the host sets it, when it fragments a record.
 
+## Transport
+
+Shared memory contains a 64-byte control header, a 65536-byte request slot and a 262144-byte ring by default. Slot and ring sizes are multiples of 8; the ring is a power of two of at least 64 bytes.
+
+| Index | Word          | Written by | Meaning                                                                  |
+| ----- | ------------- | ---------- | ------------------------------------------------------------------------ |
+| 0     | `state`       | both       | IDLE 0, REQUEST 1, REPLY 2, CRASHED 3.                                   |
+| 1     | `reqSeq`      | page       | Request sequence for diagnostics; ignored by the host.                   |
+| 2     | `reqLen`      | page       | Request bytes in the slot.                                               |
+| 3     | `replyRet`    | host       | Return value of ibusweb_dispatch.                                        |
+| 4     | `replyOutSeq` | host       | Last runtime record produced by dispatch and pump; unchanged if none.    |
+| 5     | `ringWrite`   | host       | Bytes written modulo 2³².                                                |
+| 6     | `ringRead`    | page       | Bytes consumed modulo 2³².                                               |
+| 7     | `ringWaiting` | both       | Host sets 1 before waiting; page clears after freeing space.             |
+| 8     | `doorbell`    | both       | 1 while a doorbell is outstanding; page clears before draining.          |
+| 9     | `wake`        | page       | Bumped and notified after requests and freeing space for a waiting host. |
+| 10    | `reqMode`     | both       | SYNC 0, ASYNC 1, ABANDONED 2.                                            |
+
+Ring counters count bytes modulo 2³²; free space is ringBytes minus the unsigned difference of ringWrite and ringRead. Bytes are published before ringWrite advances. Records have a 16-byte header and zero padding to multiples of 8 and never wrap. A tail shorter than 16 bytes is skipped; otherwise a padding record fills an unusable tail (kind, seq, ic and flags zero; len equals tail bytes minus 16). Kind 0 is reserved in both directions.
+
+When a record exceeds available space, the writer emits the largest fitting fragment with at least 8 payload bytes. All fragments share seq, ic and kind and remain consecutive, apart from padding. CONTINUATION is set on every fragment except the last. The reader concatenates payloads and returns one framed record with flags zero. On full, resume with the same immutable record; needBytes is the minimum free space needed for progress, including a required tail skip. After consuming bytes the reader clears ringWaiting and bumps and notifies wake if a writer was waiting.
+
+Host records use seq and ic zero and do not advance replyOutSeq. Runtime sequences skip zero on wrap. The control state is authoritative for crashes; Crashed is a best-effort host record.
+
 ## Request header
 
 | Field   | Width (bytes) | Description                                  |
@@ -422,7 +446,14 @@ Deliver a runtime log entry to the host.
 
 ### Crashed
 
-Kind: **34**. Reserved for the host; no payload schema or signature is defined.
+Kind: **34**. Signature: `(us)`.
+
+Host crash report; the shared control state is authoritative. Written by the host only.
+
+| Name      | GVariant type | Description |
+| --------- | ------------- | ----------- |
+| `reason`  | `u`           |             |
+| `message` | `s`           |             |
 
 ## IBus types
 

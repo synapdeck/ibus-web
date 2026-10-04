@@ -31,7 +31,7 @@ it("matches every request kind and payload signature in protocol version 1", () 
   expect(new Set(requestKinds.values()).size).toBe(requestKinds.size);
 });
 
-it("matches every record kind and reserves Crashed without a payload schema", () => {
+it("matches every record kind and includes the host crash payload", () => {
   const actual = OutputRecord.members.map((message) => [
     message.name,
     recordKinds.get(message.name),
@@ -55,8 +55,13 @@ it("matches every record kind and reserves Crashed without a payload schema", ()
     ["RequireSurroundingText", 15, "()"],
     ["SettingWritten", 32, "(ssv)"],
     ["Log", 33, "(uss)"],
+    ["Crashed", 34, "(us)"],
   ]);
   expect(recordKinds.get("Crashed")).toBe(34);
   expect(recordKinds.size).toBe(18);
   expect(new Set(recordKinds.values()).size).toBe(recordKinds.size);
+});
+
+it("reserves kind zero for ring padding", () => {
+  expect([...requestKinds.values(), ...recordKinds.values()]).not.toContain(0);
 });

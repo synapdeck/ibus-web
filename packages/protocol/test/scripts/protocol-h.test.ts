@@ -83,10 +83,10 @@ describe("generated C wire header", () => {
     });
   }
 
-  it("reserves Crashed without assigning a payload signature", () => {
+  it("assigns the Crashed payload signature", () => {
     const header = renderProtocolH();
     expect(header).toContain("IBUSWEB_REC_CRASHED = 34,");
-    expect(header).not.toContain("{IBUSWEB_REC_CRASHED,");
+    expect(header).toContain('{IBUSWEB_REC_CRASHED, "(us)"}');
   });
 
   it("documents schema fields, descriptions and the key event reply", () => {

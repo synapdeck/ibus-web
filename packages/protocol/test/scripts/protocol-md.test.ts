@@ -26,7 +26,7 @@ describe("protocol document", () => {
         expect(section).toContain("| Name | GVariant type | Description |");
       }
     }
-    expect(document).toContain("### Crashed\n\nKind: **34**. Reserved for the host");
+    expect(document).toContain("### Crashed\n\nKind: **34**. Signature: `(us)`");
     for (const name of [
       "IBusAttribute",
       "IBusAttrList",
@@ -65,4 +65,12 @@ describe("protocol document", () => {
     );
     expect(section).not.toContain("Reply: `b`");
   });
+});
+
+it("documents transport layout, control words and ring rules", () => {
+  const document = renderProtocolMd();
+  expect(document).toContain("## Transport");
+  expect(document).toContain("| 10 | `reqMode` | both |");
+  for (const term of ["65536", "262144", "CONTINUATION", "padding record", "modulo 2³²"])
+    expect(document).toContain(term);
 });

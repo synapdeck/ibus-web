@@ -9,3 +9,7 @@
  * floats. */
 G_GNUC_INTERNAL void ibusweb_output_append(uint32_t ic, uint16_t kind,
                                            GVariant *payload);
+
+#ifdef IBUSWEB_TESTS
+G_GNUC_INTERNAL void ibusweb_output_test_set_seq(uint32_t seq);
+#endif

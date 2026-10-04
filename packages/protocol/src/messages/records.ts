@@ -130,6 +130,13 @@ export class Log extends Schema.TaggedClass<Log>()(
   { kind: 33, description: "Deliver a runtime log entry to the host." },
 ) {}
 
+export const CrashReason = { trap: 1, fault: 2, relay: 3, load: 4, host: 5 } as const;
+export class Crashed extends Schema.TaggedClass<Crashed>()(
+  "Crashed",
+  { reason: Uint32, message: Str },
+  { kind: 34, description: "Host crash report; the shared control state is authoritative. Written by the host only." },
+) {}
+
 export const OutputRecord = Schema.Union([
   CommitText,
   UpdatePreeditText,
@@ -148,13 +155,10 @@ export const OutputRecord = Schema.Union([
   RequireSurroundingText,
   SettingWritten,
   Log,
+  Crashed,
 ]).pipe(Schema.toTaggedUnion("_tag"));
 export type OutputRecord = typeof OutputRecord.Type;
 
-export const recordKinds: ReadonlyMap<string, number> = new Map([
-  ...Object.entries(OutputRecord.cases).map(([name, schema]): [string, number] => [
-    name,
-    schema.ast.annotations!.kind!,
-  ]),
-  ["Crashed", 34],
-]);
+export const recordKinds: ReadonlyMap<string, number> = new Map(
+  Object.entries(OutputRecord.cases).map(([name, schema]): [string, number] => [name, schema.ast.annotations!.kind!]),
+);

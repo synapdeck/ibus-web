@@ -213,7 +213,9 @@ enum IBusWebRecordKind {
    * domain: GLib log domain that emitted the entry.
    * message: Log message text. */
   IBUSWEB_REC_LOG = 33,
-  /* written by the host only */
+  /* (us) reason, message
+   * Host crash report; the shared control state is authoritative. Written by
+   *   the host only. */
   IBUSWEB_REC_CRASHED = 34,
 };
 
@@ -271,6 +273,7 @@ static inline const char *ibusweb_record_signature(uint16_t kind) {
       {IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, "()"},
       {IBUSWEB_REC_SETTING_WRITTEN, "(ssv)"},
       {IBUSWEB_REC_LOG, "(uss)"},
+      {IBUSWEB_REC_CRASHED, "(us)"},
   };
   for (size_t i = 0; i < sizeof signatures / sizeof signatures[0]; i++)
     if (signatures[i].kind == kind)

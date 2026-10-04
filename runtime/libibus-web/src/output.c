@@ -30,8 +30,10 @@ static gboolean append_record(gpointer data) {
     g_critical("Output buffer exceeds its addressable size");
     return G_SOURCE_REMOVE;
   }
+  if (++last_seq == 0)
+    ++last_seq;
   IBusWebRecordHeader header = {
-      .seq = GUINT32_TO_LE(++last_seq),
+      .seq = GUINT32_TO_LE(last_seq),
       .ic = GUINT32_TO_LE(record->ic),
       .kind = GUINT16_TO_LE(record->kind),
       .flags = 0,
@@ -113,3 +115,11 @@ uint32_t ibusweb_output_last_seq(void) {
   g_mutex_unlock(&output_lock);
   return seq;
 }
+
+#ifdef IBUSWEB_TESTS
+void ibusweb_output_test_set_seq(uint32_t seq) {
+  g_mutex_lock(&output_lock);
+  last_seq = seq;
+  g_mutex_unlock(&output_lock);
+}
+#endif

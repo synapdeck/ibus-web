@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 #include "../src/ibus/ibusweb-private.h"
+#define IBUSWEB_TESTS
 #include "../src/output.h"
 #include <errno.h>
 #include <ibus-web/protocol.h>
@@ -39,6 +40,16 @@ static GVariant *first_record(uint16_t kind, uint32_t ic, uint32_t seq,
   g_bytes_unref(bytes);
   g_assert_true(g_variant_is_normal_form(payload));
   return payload;
+}
+
+static void output_sequence_wrap(void) {
+  clear_output();
+  ibusweb_output_test_set_seq(G_MAXUINT32);
+  ibusweb_output_append(7, IBUSWEB_REC_HIDE_PREEDIT_TEXT, g_variant_new("()"));
+  uint32_t size;
+  GVariant *payload = first_record(IBUSWEB_REC_HIDE_PREEDIT_TEXT, 7, 1, &size);
+  g_variant_unref(payload);
+  clear_output();
 }
 
 static void output_framing(void) {
@@ -623,6 +634,7 @@ int main(int argc, char **argv) {
   g_assert_null(ibusweb_request_signature(0));
   g_assert_null(ibusweb_record_signature(0));
   g_test_add_func("/output/framing", output_framing);
+  g_test_add_func("/output/sequence-wrap", output_sequence_wrap);
   g_test_add_func("/output/thread", output_thread);
   g_test_add_func("/output/thread-access", output_thread_access);
   g_test_add_func("/engine/emitters", emitters);
