@@ -5,7 +5,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: { index: "src/index.ts" },
   platform: "neutral",
-  dts: { generator: "oxc" },
+  dts: { generator: "tsgo" },
   deps: { neverBundle: ["effect", /^effect\//] },
   tsconfig: "src/tsconfig.json",
 });

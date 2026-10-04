@@ -7,3 +7,6 @@ export { type GVariantValue } from "./gvariant/value.ts";
 export { encodeValue } from "./gvariant/encode.ts";
 export { decodeValue, GVariantDecodeError } from "./gvariant/decode.ts";
 export { GVariantTree, GVariantBytes, GVariantVariant } from "./gvariant/schema.ts";
+export { signatureOf } from "./ibus/walk.ts";
+export { IBusAttribute, IBusAttrList, IBusText, IBusLookupTable, IBusProperty, IBusPropList } from "./ibus/types.ts";
+export { IBusAttrType, IBusOrientation, IBusPropType, IBusPropState, IBusPreeditFocusMode } from "./ibus/enums.ts";
