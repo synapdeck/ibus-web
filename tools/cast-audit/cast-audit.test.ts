@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { compare, report } from "./cast-audit.ts";
+import { compare, parseAllowList, report } from "./cast-audit.ts";
 
 const root = fileURLToPath(new URL("fixtures/", import.meta.url));
 const sarif = readFileSync(new URL("fixtures/casts.sarif", import.meta.url), "utf8");
@@ -63,4 +63,34 @@ test("resolves SARIF URI bases", () => {
     { ...expected, file: expect.stringContaining("casts.c"), line: 12 },
     { ...direct, file: expect.stringContaining("casts.c") },
   ]);
+});
+
+describe("allow-list parsing", () => {
+  const entry = { ...expected, reason: "fixture" };
+  const allowList = (...casts: object[]) => JSON.stringify({ casts });
+
+  test("accepts JSONC with comments and trailing commas", () => {
+    expect(parseAllowList(`// header\n{ "casts": [${JSON.stringify(entry)},], }`)).toEqual([entry]);
+  });
+  test("rejects a misspelled field, naming the entry", () => {
+    const { function: name, ...rest } = entry;
+    expect(() => parseAllowList(allowList(entry, { ...rest, fucntion: name }))).toThrow(
+      /casts\/1 .*"fucntion".*must NOT have additional properties.*\bfucntion\b/s,
+    );
+  });
+  test("rejects an entry without a reason", () => {
+    const { reason: _, ...rest } = entry;
+    expect(() => parseAllowList(allowList(rest))).toThrow(/casts\/0 .*must have required property 'reason'/s);
+  });
+  test("rejects an extra property", () => {
+    expect(() => parseAllowList(allowList({ ...entry, line: 12 }))).toThrow(
+      /casts\/0 .*must NOT have additional properties.*\bline\b/s,
+    );
+  });
+  test("rejects a document without casts", () => {
+    expect(() => parseAllowList("{}")).toThrow(/must have required property 'casts'/);
+  });
+  test("rejects malformed JSONC", () => {
+    expect(() => parseAllowList('{ "casts": [')).toThrow(/invalid cast allow-list/);
+  });
 });

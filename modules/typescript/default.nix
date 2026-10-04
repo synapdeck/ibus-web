@@ -42,6 +42,7 @@
           vitest = "^5.0.3";
           "@vitest/browser" = "^5.0.3";
           "@vitest/browser-playwright" = "^5.0.3";
+          ajv = "^8.20.0";
           jsonc-parser = "^3.3.1";
           smol-toml = "^1.9.0";
           tsdown = "^0.23.0";
@@ -196,7 +197,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-BeXAV3AWYTtDIarQfO1B3Cs0ZQoz6z5gCfJKTzrYVxE=";
+        hash = "sha256-9DLkiu+xMg0FLimR9OqrUvP8AZPuLNsNx2RC4bQyqng=";
       };
 
       # Each package's node_modules, and the root's, installed offline

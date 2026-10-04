@@ -5,7 +5,9 @@ import { extname, relative } from "node:path";
 import process from "node:process";
 import { castOperandName } from "./c-operand.ts";
 import { castTypes, readSarif, sourcePath } from "./sarif.ts";
-import { parse } from "jsonc-parser";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import type { ErrorObject } from "ajv/dist/2020.js";
+import { parse, printParseErrorCode } from "jsonc-parser";
 import type { ParseError } from "jsonc-parser";
 
 export interface Cast {
@@ -41,6 +43,39 @@ export function report(stderr: string, root: string): Cast[] {
   return casts;
 }
 
+export interface Allowance extends Cast {
+  reason: string;
+}
+
+const validateAllowList = new Ajv2020({ allErrors: true, allowUnionTypes: true }).compile<{ casts: Allowance[] }>(
+  JSON.parse(readFileSync(new URL("cast-audit.schema.json", import.meta.url), "utf8")),
+);
+
+function describeError(document: unknown, error: ErrorObject): string {
+  const detail =
+    error.keyword === "additionalProperties" ? `${error.message}: ${error.params.additionalProperty}` : error.message;
+  // Name the offending entry by its index and content so the message can be
+  // matched to the allow-list without line numbers.
+  const entry = /^\/casts\/\d+/.exec(error.instancePath)?.[0];
+  if (entry === undefined) return `${error.instancePath || "document"}: ${detail}`;
+  const value = (document as { casts: unknown[] }).casts[Number(entry.slice("/casts/".length))];
+  return `${error.instancePath} ${JSON.stringify(value)}: ${detail}`;
+}
+
+export function parseAllowList(text: string): Allowance[] {
+  const errors: ParseError[] = [];
+  const document: unknown = parse(text, errors, { allowTrailingComma: true });
+  if (errors.length) {
+    const found = errors.map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`);
+    throw new Error(`invalid cast allow-list: ${found.join(", ")}`);
+  }
+  if (!validateAllowList(document)) {
+    const found = validateAllowList.errors!.map((error) => describeError(document, error));
+    throw new Error(`invalid cast allow-list:\n  ${found.join("\n  ")}`);
+  }
+  return document.casts;
+}
+
 const key = (cast: Cast): string => JSON.stringify([cast.file, cast.function, cast.from, cast.to]);
 export function compare(actual: Cast[], allowed: Cast[]): { missing: Cast[]; unexpected: Cast[] } {
   const missing = [...allowed];
@@ -61,10 +96,8 @@ if (import.meta.main) {
     for (const cast of casts)
       console.error(`${cast.file}:${cast.line}: ${cast.function ?? "<expression>"}: ${cast.from} → ${cast.to}`);
   } else if (command === "compare" && args.length === 2) {
-    const errors: ParseError[] = [];
-    const allowed = parse(readFileSync(args[1], "utf8"), errors, { allowTrailingComma: true }) as { casts: Cast[] };
-    if (errors.length || !Array.isArray(allowed?.casts)) throw new Error("invalid cast allow-list");
-    const result = compare(JSON.parse(readFileSync(args[0], "utf8")), allowed.casts);
+    const allowed = parseAllowList(readFileSync(args[1], "utf8"));
+    const result = compare(JSON.parse(readFileSync(args[0], "utf8")), allowed);
     for (const [kind, casts] of Object.entries(result)) {
       for (const cast of casts) console.error(`${kind}: ${JSON.stringify(cast)}`);
     }
