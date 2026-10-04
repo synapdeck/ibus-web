@@ -99,10 +99,11 @@ static int32_t route(gpointer data) {
     g_variant_get_child(payload, 0, "u", &version);
     if (version != IBUSWEB_PROTOCOL_VERSION)
       return -EPROTO;
+    /* Before the snapshot, whose warnings belong in the output too. */
+    ibusweb_log_init();
     g_autoptr(GVariant) snapshot = g_variant_get_child_value(payload, 1);
     ibusweb_settings_init(snapshot);
     engines = g_hash_table_new(g_direct_hash, g_direct_equal);
-    ibusweb_log_init();
     initialized = TRUE;
     return 0;
   }

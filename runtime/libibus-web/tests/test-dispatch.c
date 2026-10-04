@@ -108,6 +108,7 @@ static gint send(guint16 kind, guint32 ic, GVariant *payload) {
 static GVariant *snapshot(guint version) {
   GVariantBuilder builder;
   g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sa{sv}}"));
+  g_variant_builder_add_parsed(&builder, "{'review', {'value': <true>}}");
   return g_variant_new("(u@a{sa{sv}})", version,
                        g_variant_builder_end(&builder));
 }
@@ -143,6 +144,30 @@ static void expect_log(GLogLevelFlags expected_level,
   g_variant_unref(payload);
   ibusweb_output_consume((sizeof header + payload_length + 7) & ~7u);
   empty_output();
+}
+
+/* Drops the debug records G_MESSAGES_DEBUG lets GLib write. */
+static void skip_debug_logs(void) {
+  for (;;) {
+    guint32 length;
+    const guint8 *data = ibusweb_output_peek(&length);
+    if (data == NULL)
+      return;
+    IBusWebRecordHeader header;
+    memcpy(&header, data, sizeof header);
+    guint payload_length = GUINT32_FROM_LE(header.len);
+    if (GUINT16_FROM_LE(header.kind) != IBUSWEB_REC_LOG)
+      return;
+    GVariant *payload = g_variant_ref_sink(
+        g_variant_new_from_data(G_VARIANT_TYPE("(uss)"), data + sizeof header,
+                                payload_length, FALSE, NULL, NULL));
+    guint level;
+    g_variant_get_child(payload, 0, "u", &level);
+    g_variant_unref(payload);
+    if ((level & G_LOG_LEVEL_MASK) != G_LOG_LEVEL_DEBUG)
+      return;
+    ibusweb_output_consume((sizeof header + payload_length + 7) & ~7u);
+  }
 }
 
 typedef struct {
@@ -339,6 +364,9 @@ static void protocol(void) {
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(2)), ==, -EPROTO);
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
                   ==, 0);
+  skip_debug_logs();
+  expect_log(G_LOG_LEVEL_WARNING, "ibus-web",
+             "Unknown settings schema: review");
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
                   ==, -EALREADY);
   g_assert_cmpint(
