@@ -189,6 +189,11 @@ static int32_t route(gpointer data) {
     if (text == NULL)
       return -EBADMSG;
     g_object_ref_sink(text);
+    guint length = ibus_text_get_length(text);
+    if (cursor > length || anchor > length) {
+      g_object_unref(text);
+      return -EINVAL;
+    }
     g_signal_emit_by_name(engine, "set-surrounding-text", text, cursor, anchor);
     g_object_unref(text);
     return 0;

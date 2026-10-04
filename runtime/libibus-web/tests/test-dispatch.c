@@ -351,6 +351,23 @@ static void malformed(void) {
   g_assert_cmpint(send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
                        g_variant_new("(vuu)", invalid_attributes, 0u, 0u)),
                   ==, -EBADMSG);
+  IBusText *short_text = g_object_ref_sink(ibus_text_new_from_string("한글"));
+  GVariant *serialized =
+      ibus_serializable_serialize(IBUS_SERIALIZABLE(short_text));
+  g_variant_ref_sink(serialized);
+  g_object_unref(short_text);
+  guint id = g_signal_lookup("set-surrounding-text", IBUS_TYPE_ENGINE);
+  guint emissions = 0;
+  gulong hook = g_signal_add_emission_hook(id, 0, count, &emissions, NULL);
+  g_assert_cmpint(send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+                       g_variant_new("(vuu)", serialized, 3u, 0u)),
+                  ==, -EINVAL);
+  g_assert_cmpint(send(IBUSWEB_REQ_SET_SURROUNDING_TEXT, 7,
+                       g_variant_new("(vuu)", serialized, 0u, 3u)),
+                  ==, -EINVAL);
+  g_assert_cmpuint(emissions, ==, 0);
+  g_signal_remove_emission_hook(id, hook);
+  g_variant_unref(serialized);
   GThread *thread = g_thread_new("dispatch", wrong_thread, NULL);
   g_thread_join(thread);
   empty_output();
