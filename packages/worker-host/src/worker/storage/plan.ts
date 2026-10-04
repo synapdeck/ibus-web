@@ -106,7 +106,7 @@ export const planStorage = async (
   }
 };
 
-// The memory the runtime needs: mounted in memory, the engine's data sits
-// in it.
+// Both the browser fallback and the default filesystem used without user
+// storage keep the engine's data in runtime memory.
 export const memoryFor = (memory: RuntimeMemory, plan: StoragePlan, engine: EngineManifest): RuntimeMemory =>
-  plan.mount === "memory" ? memoryWithData(memory, engine) : memory;
+  plan.mount === "memory" || plan.mount === "none" ? memoryWithData(memory, engine) : memory;

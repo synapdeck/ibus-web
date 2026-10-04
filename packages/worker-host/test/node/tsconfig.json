@@ -4,7 +4,7 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2023", "es2024.sharedmemory"],
+    "lib": ["es2023", "es2024.sharedmemory", "webworker"],
     "typeRoots": ["../../../../node_modules/@types", "../../../../types"],
     "types": ["node", "webassembly"]
   },
