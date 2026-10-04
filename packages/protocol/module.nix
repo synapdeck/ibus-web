@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb)
         testing
@@ -81,8 +86,25 @@
         limit = 600;
         env = { };
         inBrowsers = false;
-        # Other suites must not compete with the wall-clock decode benchmark.
-        vitestArgs = [ "--no-file-parallelism" ];
+      };
+      # Wall-clock timing means nothing on a loaded builder, so the decode benchmark is an app run
+      # on demand rather than a check.
+      apps.protocol-bench = {
+        type = "app";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "protocol-bench";
+            runtimeInputs = [ typescript.nodejs ];
+            text = ''
+              HOME=$(mktemp -d)
+              export HOME
+              trap 'rm -rf "$HOME"' EXIT
+              cd ${typescript.workspace}/packages/protocol
+              node node_modules/vitest/vitest.mjs run --configLoader native --config vitest.bench.config.ts
+            '';
+          }
+        );
+        meta.description = "Time decoding a framed 500-candidate lookup table";
       };
     };
 }

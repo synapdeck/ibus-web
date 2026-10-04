@@ -16,8 +16,6 @@ jobs:
         run: if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - name: Use FlakeHub Cache
         uses: DeterminateSystems/flakehub-cache-action@v3.23.0
-      - name: Check protocol and decode budget
-        run: nix build -L --no-link --max-jobs 1 .#checks.x86_64-linux.protocol
       - name: Check
         run: nix flake check -L --system x86_64-linux
     timeout-minutes: 240
