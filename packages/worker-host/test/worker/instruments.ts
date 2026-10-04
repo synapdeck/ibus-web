@@ -135,8 +135,18 @@ export const makeInstruments = (
       if (test.sealThrows === true) throw new Error("the seal fails on purpose");
       seal();
     },
-    waiting: (lock) => post({ type: "waiting", lock }),
+    waiting: (lock) => {
+      if (test.traceInstallProgress === true) post({ type: "install-progress", event: "waiting", at: Date.now() });
+      post({ type: "waiting", lock });
+    },
     beforePiece: (fed) => {
+      if (test.traceInstallProgress === true) post({ type: "install-progress", event: "piece", at: Date.now(), fed });
+      if (fed === 0 && test.firstPieceGate !== undefined) {
+        const gate = new Int32Array(test.firstPieceGate);
+        return (async () => {
+          while (Atomics.load(gate, 0) === 0) await sleep(5);
+        })();
+      }
       if (test.stallAt !== undefined && fed >= test.stallAt) {
         post({ type: "stalled", bytes: fed });
         return new Promise<void>(() => {});
@@ -144,6 +154,23 @@ export const makeInstruments = (
       return test.pieceDelayMs === undefined ? undefined : sleep(test.pieceDelayMs);
     },
     beforeRuntime: () => {
+      if (test.traceInstallProgress === true || test.silentInstallProgress === true) {
+        const Base = globalThis.BroadcastChannel;
+        globalThis.BroadcastChannel = class extends Base {
+          constructor(name: string) {
+            super(name);
+            if (test.traceInstallProgress === true)
+              this.addEventListener("message", () =>
+                post({ type: "install-progress", event: "heard", at: Date.now() }),
+              );
+          }
+          override postMessage(message: unknown): void {
+            if (test.silentInstallProgress === true) return;
+            if (test.traceInstallProgress === true) post({ type: "install-progress", event: "said", at: Date.now() });
+            super.postMessage(message);
+          }
+        };
+      }
       workers = trackWorkers();
     },
     runtimeStarted: (handle) => {

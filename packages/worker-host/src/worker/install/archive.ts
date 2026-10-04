@@ -26,8 +26,6 @@ export interface ArchiveHooks {
   // An archive that sends nothing for this long fails the install.
   readonly idleMs: number;
   readonly forceBrotliFallback: boolean;
-  // Called as each piece of an archive reaches the extractor.
-  readonly progressed: () => void;
   // Called before each piece is fed; the install waits for it.
   readonly beforePiece: (tally: Tally) => Promise<void> | undefined;
 }
@@ -105,7 +103,6 @@ const installArchive = async (
         handle.bytes.set(part, piece);
         check(`install ${url} at byte ${tally.fed}`, rt._ibusweb_install_feed(install, piece, part.length));
         tally.fed += part.length;
-        hooks.progressed();
       }
     }
     done = true;

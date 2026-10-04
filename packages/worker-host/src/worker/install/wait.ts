@@ -4,6 +4,7 @@
 // Waiting for a version's data and install locks, and an installer's word
 // that it is still going, which keeps a waiter from giving up on it.
 
+import { Effect, Schedule, type Scope } from "effect";
 import type { HostConfigValues } from "../../shared/config.ts";
 import type { HeldLock } from "../storage/held.ts";
 import { requestLock } from "../storage/locks.ts";
@@ -63,23 +64,17 @@ export const holdLock = async (
   throw new Error(`${name}: not granted after ${limits.lockLimitMs} ms without word from the host holding it`);
 };
 
-export interface Progress {
-  // Says the installer is still going, unless it said so within the
-  // interval.
-  said(): void;
-  close(): void;
-}
-
-export const progressOn = (name: string, intervalMs: number): Progress => {
-  const channel = new BroadcastChannel(name);
-  let last = -Infinity;
-  return {
-    said() {
-      const now = performance.now();
-      if (now - last < intervalMs) return;
-      last = now;
-      channel.postMessage(null);
-    },
-    close: () => channel.close(),
-  };
-};
+// The install lock owns the channel and timer, including time spent clearing,
+// mounting, fetching and sealing. Closing that scope stops the timer before
+// closing the channel, so no announcement can escape the lock's lifetime.
+export const progressOn = (name: string, intervalMs: number): Effect.Effect<void, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const channel = yield* Effect.acquireRelease(
+      Effect.sync(() => new BroadcastChannel(name)),
+      (channel) => Effect.sync(() => channel.close()),
+    );
+    yield* Effect.sync(() => channel.postMessage(null)).pipe(
+      Effect.repeat(Schedule.fixed(intervalMs)),
+      Effect.forkScoped({ startImmediately: true }),
+    );
+  });

@@ -136,9 +136,10 @@ const stalledHost = async (
   launch: (engine: EngineManifest, more?: Partial<HostOptions>) => LaunchedHost,
   engine: EngineManifest,
   archive: TestArchive,
+  silentInstallProgress = false,
 ): Promise<LaunchedHost> => {
   expect(archive.size, `${archive.archive}'s size`).toBeGreaterThan(2 * INSTALL_PIECE);
-  const host = launch(engine, { test: { stallAt: Math.floor(archive.size / 2) } });
+  const host = launch(engine, { test: { stallAt: Math.floor(archive.size / 2), silentInstallProgress } });
   const { bytes } = await waitFor(h, host, stalled, "the install stalling");
   expect(bytes, "archive bytes fed before the stall").toBeGreaterThan(0);
   expect(bytes, "archive bytes fed before the stall").toBeLessThan(archive.size);
@@ -497,30 +498,61 @@ export const waitOutlivesLimit = (h: Harness, runtime: RuntimeBuild): Promise<vo
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "wait-outlives-limit", runtime);
     const lockLimitMs = 500;
-    const installer = launch(engine, { test: { pieceDelayMs: 100 }, config: { progressIntervalMs: 50 } });
-    await installing(h, engine, installer);
-    const waiter = launch(engine, { config: { lockLimitMs, lockRoundMs: 100 } });
-    const [installed, found] = await Promise.all([installer.ready, waiter.ready]);
-    expectInstall(h, installed.messages, "installed", h.data.archives.tree);
-    expectInstall(h, found.messages, "present", h.data.archives.tree);
-    expect(found.messages, "the waiter's messages").toContainEqual({
-      type: "waiting",
-      lock: engineInstallLock(engine),
+    const gate = new Int32Array(new SharedArrayBuffer(4));
+    const installer = launch(engine, {
+      test: { pieceDelayMs: 100, traceInstallProgress: true, firstPieceGate: gate.buffer },
+      config: { progressIntervalMs: 50 },
     });
-    const { lockWaitMs } = installOf(found.messages)!;
-    h.record("wait-outlives-limit", { lockWaitMs: round(lockWaitMs, 1) });
-    expect(lockWaitMs, "the waiter's wait for the install lock").toBeGreaterThan(lockLimitMs);
-    await expectTree(h, found.client, engine, h.data.archives.tree);
+    await installing(h, engine, installer);
+    const waiter = launch(engine, { test: { traceInstallProgress: true }, config: { lockLimitMs, lockRoundMs: 100 } });
+    // Attach both rejection handlers before waiting, including the silent
+    // holder's failure in a regression, so cleanup never leaks a rejection.
+    const ready = Promise.all([installer.ready, waiter.ready]);
+    void ready.catch(() => {});
+    try {
+      await waitFor(
+        h,
+        waiter,
+        (message): message is { type: "waiting"; lock: string } =>
+          message.type === "waiting" && message.lock === engineInstallLock(engine),
+        "the waiter starting its lock wait",
+      );
+      // Starting this delay at the waiting event keeps slow Worker startup
+      // from consuming the part of the install the scenario needs to observe.
+      await h.sleep(2 * lockLimitMs);
+      Atomics.store(gate, 0, 1);
+      const [installed, found] = await ready;
+      expectInstall(h, installed.messages, "installed", h.data.archives.tree);
+      expectInstall(h, found.messages, "present", h.data.archives.tree);
+      expect(found.messages, "the waiter's messages").toContainEqual({
+        type: "waiting",
+        lock: engineInstallLock(engine),
+      });
+      const { lockWaitMs } = installOf(found.messages)!;
+      h.record("wait-outlives-limit", { lockWaitMs: round(lockWaitMs, 1) });
+      expect(lockWaitMs, "the waiter's wait for the install lock").toBeGreaterThan(lockLimitMs);
+      await expectTree(h, found.client, engine, h.data.archives.tree);
+    } finally {
+      Atomics.store(gate, 0, 1);
+      h.record("install-progress", {
+        installer: installer.messages.filter(
+          (message) => message.type === "install-progress" || message.type === "install",
+        ),
+        waiter: waiter.messages.filter(
+          (message) => message.type === "install-progress" || message.type === "install" || message.type === "crashed",
+        ),
+      });
+    }
   });
 
 // A host waiting on the install lock gives up, failing its start, once the
-// lock limit has passed without word from the installer, here one stalled
-// for good.
+// lock limit has passed without word from a silent holder. An async
+// pause alone stays live because the progress timer still runs.
 export const waitFailsWithoutProgress = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "wait-fails-without-progress", runtime);
     const lockLimitMs = 500;
-    await stalledHost(h, launch, engine, h.data.archives.tree);
+    await stalledHost(h, launch, engine, h.data.archives.tree, true);
     const lock = engineInstallLock(engine);
     const waiter = launch(engine, { config: { lockLimitMs, lockRoundMs: 100 } });
     const failed = expect(waiter.ready, "the waiter's start").rejects.toThrow(

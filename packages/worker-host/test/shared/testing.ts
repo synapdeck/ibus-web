@@ -68,6 +68,12 @@ export const PumpControl = { run: 0, deferOnce: 1, holdUntilDispatch: 2, armHold
 export const RuntimeCall = { pump: 0, dispatch: 1, wait: 2, consumed: 3 } as const;
 
 export interface TestInit {
+  // Observes the real channel in the test build only.
+  traceInstallProgress?: boolean;
+  // Models a holder whose event loop no longer announces liveness.
+  silentInstallProgress?: boolean;
+  // Holds the first piece until the page stores 1, without blocking timers.
+  firstPieceGate?: SharedArrayBuffer;
   sides?: readonly SideModule[];
   runtimeCalls?: SharedArrayBuffer;
   waitTrap?: SharedArrayBuffer;
@@ -96,6 +102,7 @@ export interface TestInit {
 
 // What the test build posts beside the host's own messages.
 export type TestMessage =
+  | { type: "install-progress"; event: "heard" | "said" | "piece" | "waiting"; at: number; fed?: number }
   // A request for the lock wasn't granted at once, so the host waits.
   | { type: "waiting"; lock: string }
   // The install stopped where TestInit.stallAt said, after fed bytes.

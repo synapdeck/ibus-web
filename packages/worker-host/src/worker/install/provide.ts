@@ -77,10 +77,9 @@ const collect = async (store: DataStore, engine: EngineManifest): Promise<Collec
   return report;
 };
 
-const archiveHooks = (config: HostConfigValues, instruments: Instruments, progressed: () => void): ArchiveHooks => ({
+const archiveHooks = (config: HostConfigValues, instruments: Instruments): ArchiveHooks => ({
   idleMs: config.archiveIdleMs,
   forceBrotliFallback: instruments.forceBrotliFallback,
-  progressed,
   beforePiece: ({ fed }: Tally) => instruments.beforePiece(fed),
 });
 
@@ -108,11 +107,7 @@ export const provideData = ({
       const tally = yield* Effect.tryPromise({
         try: () => {
           makeDirs(handle, root);
-          return installArchives(
-            handle,
-            engine,
-            archiveHooks(config, instruments, () => {}),
-          );
+          return installArchives(handle, engine, archiveHooks(config, instruments));
         },
         catch: runtimeCallFailed,
       });
@@ -133,43 +128,48 @@ export const provideData = ({
       }).pipe(Effect.tap(({ lock }) => Effect.sync(() => held.add(lock))));
     yield* hold(engineDataLock(engine, encodeComponent(engine.version)), "shared");
     const installLock = engineInstallLock(engine);
-    const { lock, waitMs, lockedAt } = yield* hold(installLock, "exclusive", installLock);
+    const { store, marker, found, waitMs, lockedAt, releasedAt } = yield* Effect.gen(function* () {
+      const { waitMs, lockedAt } = yield* Effect.acquireRelease(
+        hold(installLock, "exclusive", installLock),
+        ({ lock }) => Effect.sync(() => held.release(lock)),
+      );
+      yield* progressOn(installLock, config.progressIntervalMs);
 
-    yield* Effect.try({ try: () => makeDirs(handle, "/nix"), catch: runtimeCallFailed });
-    const store: DataStore = yield* plan.mount === "node"
-      ? Effect.tryPromise({ try: () => nodeStore(handle, engine, plan.hostPath), catch: startupFailed })
-      : Effect.succeed(idbStore(handle, engine, idbReadOnly, config.deleteLimitMs));
-    const marker = yield* Effect.tryPromise({ try: () => store.installed(), catch: startupFailed });
-    let found = marker;
-    if (found === null) {
-      yield* Effect.tryPromise({ try: () => store.clear(), catch: startupFailed });
-      yield* Effect.try({
-        try: () => mountAt(handle, store.backend(false), root, plan.mount),
-        catch: runtimeCallFailed,
-      });
-      // Sealed below once marked; a start that fails before then seals it
-      // as it closes, while the runtime can still be called.
-      let unsealed = store.seal;
-      yield* runtimeFinalizer(Effect.sync(() => unsealed?.()));
-      const progress = progressOn(installLock, config.progressIntervalMs);
-      const tally = yield* Effect.tryPromise({
-        try: () => installArchives(handle, engine, archiveHooks(config, instruments, progress.said)),
-        catch: runtimeCallFailed,
-      }).pipe(Effect.ensuring(Effect.sync(() => progress.close())));
-      found = { version: engine.version, files: tally.files, bytes: tally.bytes };
-      const marked = found;
-      yield* Effect.tryPromise({ try: () => store.mark(marked), catch: startupFailed });
-      yield* Effect.try({ try: () => store.seal?.(), catch: runtimeCallFailed });
-      unsealed = undefined;
-    } else
-      yield* Effect.try({
-        try: () => mountAt(handle, store.backend(true), root, plan.mount),
-        catch: runtimeCallFailed,
-      });
-    // Read before letting go, so that a host waiting on the lock can't take
-    // it at an earlier time than this.
-    const releasedAt = Date.now();
-    held.release(lock);
+      yield* Effect.try({ try: () => makeDirs(handle, "/nix"), catch: runtimeCallFailed });
+      const store: DataStore = yield* plan.mount === "node"
+        ? Effect.tryPromise({ try: () => nodeStore(handle, engine, plan.hostPath), catch: startupFailed })
+        : Effect.succeed(idbStore(handle, engine, idbReadOnly, config.deleteLimitMs));
+      const marker = yield* Effect.tryPromise({ try: () => store.installed(), catch: startupFailed });
+      let found = marker;
+      if (found === null) {
+        yield* Effect.tryPromise({ try: () => store.clear(), catch: startupFailed });
+        yield* Effect.try({
+          try: () => mountAt(handle, store.backend(false), root, plan.mount),
+          catch: runtimeCallFailed,
+        });
+        // Sealed below once marked; a start that fails before then seals it
+        // as it closes, while the runtime can still be called.
+        let unsealed = store.seal;
+        yield* runtimeFinalizer(Effect.sync(() => unsealed?.()));
+        const tally = yield* Effect.tryPromise({
+          try: () => installArchives(handle, engine, archiveHooks(config, instruments)),
+          catch: runtimeCallFailed,
+        });
+        found = { version: engine.version, files: tally.files, bytes: tally.bytes };
+        const marked = found;
+        yield* Effect.tryPromise({ try: () => store.mark(marked), catch: startupFailed });
+        yield* Effect.try({ try: () => store.seal?.(), catch: runtimeCallFailed });
+        unsealed = undefined;
+      } else
+        yield* Effect.try({
+          try: () => mountAt(handle, store.backend(true), root, plan.mount),
+          catch: runtimeCallFailed,
+        });
+      // Read before letting go, so that a host waiting on the lock can't take
+      // it at an earlier time than this.
+      const releasedAt = Date.now();
+      return { store, marker, found, waitMs, lockedAt, releasedAt };
+    }).pipe(Effect.scoped);
     report(marker === null ? "installed" : "present", {
       files: found.files,
       bytes: found.bytes,
