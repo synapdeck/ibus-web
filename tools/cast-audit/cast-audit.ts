@@ -36,7 +36,7 @@ export function report(stderr: string, root: string): Cast[] {
         file: relative(root, path),
         function: castOperandName(source, location.region, language),
         ...types,
-        line: location.region.startLine,
+        ...(location.region.startLine === undefined ? {} : { line: location.region.startLine }),
       });
     }
   }

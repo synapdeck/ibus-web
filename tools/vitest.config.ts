@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { defineConfig } from "vitest/config";
 
+const cacheDir = process.env["IBUS_WEB_TEST_CACHE_DIR"];
+
 export default defineConfig({
-  cacheDir: process.env["IBUS_WEB_TEST_CACHE_DIR"],
+  ...(cacheDir === undefined ? {} : { cacheDir }),
   test: { include: ["cast-audit/**/*.test.ts", "ibus-test/**/*.test.ts", "vendor-inventory/**/*.test.ts"] },
 });

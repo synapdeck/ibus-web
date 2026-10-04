@@ -27,7 +27,7 @@ function run(mode: string, extra: string[] = [], options: { timeoutMs?: number; 
     promise: runAdapter([process.execPath, fixture, mode, ...extra], trace, {
       artifactDir,
       timeoutMs: options.timeoutMs ?? 2000,
-      signal: options.signal,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     }),
     artifactDir,
   };

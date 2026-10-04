@@ -192,7 +192,7 @@ export async function withNativeSession<T>(
         // helper PID for signaling later after the OS might have reused it.
         signalGroup(child, "SIGKILL");
         owned.groupClosed = true;
-        owned.error = error;
+        if (error !== undefined) owned.error = error;
         if (service && !closing) controller.abort(processError(owned));
         resolve();
       };
