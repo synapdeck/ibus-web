@@ -6,7 +6,7 @@
 request slot of a dedicated `SharedArrayBuffer`. The host dispatches them with `ibusweb_dispatch`,
 pumps, and streams every output record through the output ring, with back-pressure, fragments,
 `replyOutSeq` and doorbells. It starts an engine from a manifest Nix builds: memory and thread
-shares from the manifest, the engine's data mapped at its FHS paths, `Init` before the engine module
+shares from the manifest, the engine's data mounted at its own Nix store paths, `Init` before the engine module
 loads, one scope per input context. A headless TypeScript harness runs ibus-hangul through the real
 host under Node's `worker_threads`, and the spec's M1.3 questions (real engine transport, data
 mapping, resource limits, ordered replies) get their answers.
@@ -16,8 +16,7 @@ padding) is defined once in `@ibus-web/protocol` (`src/transport/`), as data and
 reader in plain TypeScript, and joins the generated `PROTOCOL.md`. The host's request loop (plain
 synchronous TypeScript, spec §7.4) uses the writer; the tests' page driver and later M1.4's keystroke
 path use the reader. The host's bootstrap reads an `EngineManifest` (schema in `@ibus-web/protocol`),
-checks it, sizes memory and the pool from it, installs the data, symlinks `/usr/share` to the
-installed tree, and waits for `Init`, after which it loads the engine module. Nix builds each
+checks it, sizes memory and the pool from it, installs the data, mounts it at `/nix/store`, and waits for `Init`, after which it loads the engine module. Nix builds each
 engine's manifest and data archive from the engine's build. Test operations used by the host's own
 suites travel in a reserved request-kind range that only the test build serves.
 
@@ -99,18 +98,26 @@ never count toward `replyOutSeq`. The runtime's sequence skips 0 when it wraps (
 the ring has room without waiting; the `state` word is authoritative and the `crashed` host message
 still carries the report. `protocol.h` gains its signature-table entry.
 
-**Startup order.** The bootstrap (spec §5.5) ends with storage mounted, data installed and the FHS
-view mapped; the request loop then starts. The engine module is loaded when the first `Init` succeeds:
+**Startup order.** The bootstrap (spec §5.5) ends with storage mounted, data installed and the store
+view mounted; the request loop then starts. The engine module is loaded when the first `Init` succeeds:
 the host dispatches `Init`, and on a return of 0 loads the module (opening the engine-module scope),
 pumps, drains and only then publishes the reply. `Init` thus always precedes module initialization,
 and restart (spec §8) is the same path. A module load failure crashes the Worker with reason `LOAD`.
 A request other than `Init` before it gets `-ENOTCONN` from the runtime, as today.
 
-**The FHS view.** Engine data archives' paths are under `/usr/share/` (the manifest schema enforces
-it). After installing, the host creates `/usr` and symlinks `/usr/share` to
-`<engineDataRoot>/usr/share`, in every storage mode, and sets `GSETTINGS_SCHEMA_DIR` to
-`/usr/share/glib-2.0/schemas` with the runtime's `setenv` before any `Init`. GLib caches its schema
-source on first lookup, which is `Init`'s.
+**The store view.** Engines keep the paths their Nix build gives them: libhangul looks for its Hanja
+table under its own store path, ibus-hangul for `symbol.txt` under its own, and no engine is patched
+toward FHS paths. An engine's data is the closure of its side module's store references (Nix's
+reference scanner finds them in the `.wasm`), minus the module's own output; every path in it must be
+data only. The manifest lists one archive per store path, and the host installs them into the
+engine version's data database, as today, but mounts that database at `/nix/store` (creating `/nix`)
+instead of `/engines/<name>/data`, so each archive lands at its own store path; the engine's own files
+stay at `/engines/<name>`. Before any `Init`, the host sets `GSETTINGS_SCHEMA_DIR` to the manifest's
+`settingsSchemaDir` (a store path in the closure holding the engine's compiled schemas with IBus's
+panel schema) with the runtime's `setenv`; GLib caches its schema source on first lookup, which is
+`Init`'s. Store paths make the data's identity explicit, but each engine version still installs its
+whole closure into its own database; sharing paths across versions and engines through one
+content-addressed store database is a later plan (Task 8 records it in the known gaps).
 
 **Engine scopes.** The engine-module scope has no release action (there is no module shutdown call).
 Each successful `CreateEngine` opens an engine-instance scope keyed by `ic`, synchronously in the
@@ -132,7 +139,8 @@ else):
 ```ts
 { name: string; version: string; license: string; runtimeAbi: number; protocol: number;
   module: { url: string; size: number }; memory: number; threads: number;
-  data: { url: string; path: string; size: number; encoding: "br" | "identity" }[]; engines: string[]; settingsSchemas: string[] }
+  data: { storePath: string; url: string; size: number; encoding: "br" | "identity" }[];
+  settingsSchemaDir: string; engines: string[]; settingsSchemas: string[] }
 ```
 
 `memory` is whole 64 KiB pages within the runtime's bounds; `threads` a nonnegative integer;
@@ -141,7 +149,9 @@ else):
 carries the manifest instead of today's `engine`, `memory` and `sides` fields; tests pass test
 manifests.
 
-**Data archives are Brotli-compressed ustar.** Nix writes each engine's data as `<name>-<version>.tar.br`,
+`storePath` is a `/nix/store/<hash>-<name>` path; `settingsSchemaDir` lies inside one of the data's store paths.
+
+**Data archives are Brotli-compressed ustar,** one per store path. Nix writes each as `<hash>-<name>.tar.br`, its entries relative to the store path,
 compressed with `brotli --quality=11` at the standard window (no `--large_window`, which streaming
 decoders in browsers needn't support), and the manifest entry says `encoding: "br"`; `size` stays the
 unpacked size the installer checks. `identity` (a plain `.tar`) remains for the host's own test
@@ -166,22 +176,23 @@ can't silently go stale.
 
 ## File map
 
-| Path                                                                                         | Responsibility                                                     | Task |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---- |
-| `packages/protocol/src/transport/{layout,ring}.ts`, `test/transport/*`                       | control words, layout, ring writer and reader                      | 1    |
-| `packages/protocol/src/messages/records.ts`, `src/manifest.ts`, `scripts/protocol-md.ts`     | `Crashed`, padding kind, manifest schema, generated docs           | 1, 2 |
-| `runtime/libibus-web/src/output.c`, `tests/test-engine.c`                                    | seq skips 0                                                        | 1    |
-| `runtime/ibus-runtime/package.nix`, `runtime/options.nix`                                    | pool size from `ibuswebEngineThreads`                              | 2    |
-| `modules/engines/manifest.nix`, `modules/engines/options.nix`, `tools/engine-manifest/*`     | `mkEngineManifest`: manifest, data archive, memory                 | 2    |
-| `engines/hangul/package.nix`                                                                 | Hangul's manifest                                                  | 2    |
-| `packages/worker-host/src/shared/{control,messages}.ts`                                      | control from the protocol layout; `HostInit`, doorbell message     | 3    |
-| `packages/worker-host/src/worker/{loop,output,runtime,host}.ts`                              | the protocol loop, ring output, replies, doorbells                 | 3, 5 |
-| `packages/worker-host/test/shared/{page,client,testing}.ts`, scenarios                       | the page driver, test kinds, migrated scenarios                    | 3, 5 |
-| `packages/worker-host/src/worker/{startup,scopes,fhs}.ts`                                    | manifest checks, FHS view, Init-then-load, instance scopes, faults | 4    |
-| `packages/worker-host/test/sides/engine.c`                                                   | a test engine registered through `IBusFactory`                     | 4    |
-| `packages/worker-host/test/engines/hangul.test.ts`, `engines/hangul/checks/host/default.nix` | the Hangul conformance harness over the host                       | 6    |
-| `packages/worker-host/src/worker/install/*`, `test/shared/install.ts`                        | the install-lock wait's flake                                      | 7    |
-| `docs/*`, spec                                                                               | docs                                                               | 8    |
+| Path                                                                                         | Responsibility                                                       | Task |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---- |
+| `packages/protocol/src/transport/{layout,ring}.ts`, `test/transport/*`                       | control words, layout, ring writer and reader                        | 1    |
+| `packages/protocol/src/messages/records.ts`, `src/manifest.ts`, `scripts/protocol-md.ts`     | `Crashed`, padding kind, manifest schema, generated docs             | 1, 2 |
+| `runtime/libibus-web/src/output.c`, `tests/test-engine.c`                                    | seq skips 0                                                          | 1    |
+| `runtime/ibus-runtime/package.nix`, `runtime/options.nix`                                    | pool size from `ibuswebEngineThreads`                                | 2    |
+| `modules/engines/manifest.nix`, `modules/engines/options.nix`, `tools/engine-manifest/*`     | `mkEngineManifest`: manifest, store-path archives, memory            | 2    |
+| `engines/hangul/{overlay.nix,package.nix}`, `checks/golden/*`, `tools/ibus-test/wasm/*`      | Hangul's data at store paths; harnesses mount `/nix/store`           | 2    |
+| `engines/hangul/package.nix`                                                                 | Hangul's manifest                                                    | 2    |
+| `packages/worker-host/src/shared/{control,messages}.ts`                                      | control from the protocol layout; `HostInit`, doorbell message       | 3    |
+| `packages/worker-host/src/worker/{loop,output,runtime,host}.ts`                              | the protocol loop, ring output, replies, doorbells                   | 3, 5 |
+| `packages/worker-host/test/shared/{page,client,testing}.ts`, scenarios                       | the page driver, test kinds, migrated scenarios                      | 3, 5 |
+| `packages/worker-host/src/worker/{startup,scopes,store}.ts`                                  | manifest checks, store view, Init-then-load, instance scopes, faults | 4    |
+| `packages/worker-host/test/sides/engine.c`                                                   | a test engine registered through `IBusFactory`                       | 4    |
+| `packages/worker-host/test/engines/hangul.test.ts`, `engines/hangul/checks/host/default.nix` | the Hangul conformance harness over the host                         | 6    |
+| `packages/worker-host/src/worker/install/*`, `test/shared/install.ts`                        | the install-lock wait's flake                                        | 7    |
+| `docs/*`, spec                                                                               | docs                                                                 | 8    |
 
 ---
 
@@ -252,18 +263,19 @@ export const CrashReason = { trap: 1, fault: 2, relay: 3, load: 4, host: 5 } as 
 
 **Interfaces:**
 
-- Produces: `EngineManifest` (Schema, the Decisions' shape) and `decodeEngineManifest(json: unknown): EngineManifest` (throws `SchemaError`); `ibusWeb.engines.mkEngineManifest { name, package, threads, heapBytes, engines, settingsSchemas }` returning a derivation with `manifest.json`, `<name>.wasm` and `data/<name>-<version>.tar.br`; `decompressed(body: ReadableStream<Uint8Array>, encoding): ReadableStream<Uint8Array>` in `install/decompress.ts`; `packages.ibus-web-hangul-dist` (or an `ibusWeb.engines.hangulDist` option) with Hangul's.
+- Produces: `EngineManifest` (Schema, the Decisions' shape) and `decodeEngineManifest(json: unknown): EngineManifest` (throws `SchemaError`); `ibusWeb.engines.mkEngineManifest { name, package, threads, heapBytes, settingsSchemaDir, engines, settingsSchemas }` returning a derivation with `manifest.json`, `<name>.wasm` and `data/<hash>-<name>.tar.br` per store path of the module's closure; `decompressed(body: ReadableStream<Uint8Array>, encoding): ReadableStream<Uint8Array>` in `install/decompress.ts`; `packages.ibus-web-hangul-dist` (or an `ibusWeb.engines.hangulDist` option) with Hangul's.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `manifest.test.ts`: a valid manifest decodes; rejected: missing `version`, a data entry without `encoding` or with one other than `br`/`identity`, `memory` not a multiple of 65536, `memory` above 2 GiB or below the runtime minimum (bounds passed as data, not literals: `decodeEngineManifest(json, { minimum, maximum })`), negative or fractional `threads`, a data `path` outside `/usr/share/`, duplicate data paths.
+  - `manifest.test.ts`: a valid manifest decodes; rejected: missing `version`, a data entry without `encoding` or with one other than `br`/`identity`, `memory` not a multiple of 65536, `memory` above 2 GiB or below the runtime minimum (bounds passed as data, not literals: `decodeEngineManifest(json, { minimum, maximum })`), negative or fractional `threads`, a `storePath` that isn't `/nix/store/<32 base-32 chars>-<name>` or is nested, duplicate store paths, a `settingsSchemaDir` outside every data store path.
   - install scenarios (worker-host suites): a `.tar.br` archive installs byte for byte like its `.tar`, natively and with the fallback forced (a `HostInit.test` switch), in Node and both browsers; a corrupt or truncated `.tar.br` fails the install with a Brotli error naming the `Content-Encoding` pitfall and leaves no installed marker; an `identity` archive still installs.
   - `dylink.test.ts`: on a fixture produced in the check (`runtime.mkSideModule` of a trivial C file with a known static array), the script prints the `dylink.0` memory size `wasm-objdump -x --section=dylink.0` reports (parse only its documented `mem_size:` line), and fails on a module without the section.
 - [ ] **Step 2: Run them; they fail.**
 - [ ] **Step 3: Implement the pool link.** In `runtime/ibus-runtime/package.nix`, link `-sPTHREAD_POOL_SIZE='<base>+Module["ibuswebEngineThreads"]'` (base from the GLib and storage shares and `lowWater`), add `ibuswebEngineThreads` to `-sINCOMING_MODULE_JS_API`, and remove the engine share from `threadPool.shares` and `planned`; prove the quoting survives the cc-wrapper and the export-list link by grepping the generated `ibus-runtime.js` for `Module["ibuswebEngineThreads"]` in a build-only check line (`checks.ibus-runtime-exports` already greps the output; extend it). Update the host minimally so the existing suites still pass: `HostInit` gains `engineThreads`, set from the test manifest's `pool.engine`, passed to `createRuntime` as `ibuswebEngineThreads`; the host refuses to start without it.
-- [ ] **Step 4: Implement decompression** in the installer: `decompressed` pipes the fetched body through the native `DecompressionStream("brotli")` when constructing one succeeds, else through the fallback script (built by tsdown as `dist/worker/brotli-fallback.js` with the package's `.wasm` copied beside it, loaded with `import(new URL("./brotli-fallback.js", import.meta.url))`), and feeds the installer's 64 KiB pieces from its output. Add Brotli versions of the test archives in `module.nix` (`pkgs.brotli`).
-- [ ] **Step 5: Implement `mkEngineManifest`** in `modules/engines/manifest.nix`: tar `package/data/usr/share` as ustar with paths under `usr/share` (the installer's format; see `runtime.installArchives`), record its unpacked size, compress it with `brotli --quality=11`, run `tools/engine-manifest/dylink.ts` on the module, compute `memory` per the Decisions, and write `manifest.json` (URLs relative to the manifest: `./<name>.wasm`, `./data/<file>`). `runtimeAbi` and `protocol` come from the runtime's header and the protocol package (evaluate, don't hard-code). Hangul: `threads = 0` and a provisional `heapBytes = 16 MiB`, both replaced by Task 6's measurements, `engines = [ "hangul" ]`, `settingsSchemas = [ "org.freedesktop.ibus.engine.hangul" "org.freedesktop.ibus.panel" ]`.
-- [ ] **Step 6:** `nix build -L .#checks.x86_64-linux.{protocol,ibus-runtime-exports,ibus-runtime-load,worker-host-node,worker-host-browser,hk}` and the Hangul dist; read its `manifest.json` and note the archive's compressed and unpacked sizes.
-- [ ] **Step 7: Commit** `feat: build Brotli-compressed engine data and manifests, and size the pool from them`.
+- [ ] **Step 4: Implement decompression** in the installer: `decompressed` pipes the fetched body through the native `DecompressionStream("brotli")` when constructing one succeeds, else through the fallback script (built by tsdown as `dist/worker/brotli-fallback.js` with the package's `.wasm` copied beside it, loaded with `import(new URL("./brotli-fallback.js", import.meta.url))`), and feeds the installer's 64 KiB pieces from its output. Data entries name a `storePath` instead of a `path`: the installer extracts each archive into `<data mount>/<basename of storePath>` (the data mount moves to `/nix/store` in Task 4); migrate the existing install scenarios and test archives to the new shape. Add Brotli versions of the test archives in `module.nix` (`pkgs.brotli`).
+- [ ] **Step 5: Hangul's data at store paths.** In `engines/hangul/overlay.nix`, drop the FHS paths: build the private libhangul with its data in a `data` output (`--datadir` there, so its default Hanja path follows) and no Hanja-path substitution; give the ibus-hangul build a `data` output for `share/` and point `IBUSHANGUL_DATADIR`/`LOCALEDIR` at it, so `hangul.wasm` (in `out`) references only data outputs; build a `hangul-gsettings-schemas` derivation (Hangul's schema and IBus's panel schema compiled with `pkgsWasm.glib`'s `glib-compile-schemas`). Add `checks.hangul-data-closure` (build-only, as the cast audit is): the closure of `hangul.wasm` minus its own output holds no `lib/`, `include/`, `.a`, `.wasm`, `.pc` or compiler paths (if debug info drags build paths in, link without it or strip them) and includes the schemas directory. Update the harnesses that mounted `<pkg>/data/usr/share` at `/usr/share`: `checks/golden/harness.c` and `tools/ibus-test/wasm/main.c` mount the host's `/nix/store` at `/nix/store` with WasmFS's Node backend (the sandbox has the closure) and take the schemas directory as an argument; `hangul-golden`, `hangul-differential` and `ibus-test-conformance` must pass unchanged in their cases.
+- [ ] **Step 6: Implement `mkEngineManifest`** in `modules/engines/manifest.nix`: take the closure of the module (`pkgs.closureInfo`) minus its own output; for each store path, tar its contents as ustar with entries relative to the path (the installer's format; see `runtime.installArchives`), record its unpacked size, compress it with `brotli --quality=11`, run `tools/engine-manifest/dylink.ts` on the module, compute `memory` per the Decisions, and write `manifest.json` (URLs relative to the manifest: `./<name>.wasm`, `./data/<file>`). `runtimeAbi` and `protocol` come from the runtime's header and the protocol package (evaluate, don't hard-code). Hangul: `threads = 0` and a provisional `heapBytes = 16 MiB`, both replaced by Task 6's measurements, `engines = [ "hangul" ]`, `settingsSchemas = [ "org.freedesktop.ibus.engine.hangul" "org.freedesktop.ibus.panel" ]`, `settingsSchemaDir` the schemas derivation's `share/glib-2.0/schemas`.
+- [ ] **Step 7:** `nix build -L .#checks.x86_64-linux.{protocol,ibus-runtime-exports,ibus-runtime-load,worker-host-node,worker-host-browser,hangul-golden,hangul-differential,hangul-data-closure,ibus-test-conformance,hk}` and the Hangul dist; read its `manifest.json` and note the archive's compressed and unpacked sizes.
+- [ ] **Step 8: Commit** `feat: ship engine data at its store paths in Brotli archives, and size the pool from manifests`.
 
 ### Task 3: The protocol request loop and the output ring
 
@@ -288,35 +300,34 @@ export const CrashReason = { trap: 1, fault: 2, relay: 3, load: 4, host: 5 } as 
 - [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{worker-host-node,worker-host-browser,worker-host-side-imports,hk}`.
 - [ ] **Step 5: Commit** `feat(worker-host): serve the protocol and stream output through the ring`.
 
-### Task 4: Engine startup, the FHS view and engine scopes
+### Task 4: Engine startup, the store view and engine scopes
 
-**Files:** `src/worker/{startup,fhs,scopes,host,loop,failure}.ts`, `src/shared/messages.ts`,
+**Files:** `src/worker/{startup,store,scopes,host,loop,failure}.ts`, `src/shared/messages.ts`,
 `test/sides/engine.c` (new test engine), `module.nix` (its side and a test manifest with data),
 `test/shared/{engine,scenarios,lifecycle}.ts`.
 
 **Interfaces:**
 
 - Consumes: `EngineManifest`, `decodeEngineManifest`, Task 3's loop.
-- Produces: `HostInit { runtimeUrl; wasm?; control; manifestUrl | manifest; storage; poolLowWater; constants; test? }` (manifest replaces `engine`, `memory`, `sides`, `engineThreads`); `startup.ts`: `checkManifest(manifest, constants): EngineManifest` (raising `StartupFailed` with the bound or mismatch in its message); `fhs.ts`: `mapFhs(rt, manifest)`; `scopes.ts`: `EngineScopes` with `opened(ic)`, `closed(ic)`, `closeAll(rt, intact)`; `Crashed` written on every crash path.
+- Produces: `HostInit { runtimeUrl; wasm?; control; manifestUrl | manifest; storage; poolLowWater; constants; test? }` (manifest replaces `engine`, `memory`, `sides`, `engineThreads`); `startup.ts`: `checkManifest(manifest, constants): EngineManifest` (raising `StartupFailed` with the bound or mismatch in its message); `store.ts`: `mountStore(rt, manifest)` (the data database at `/nix/store`, then `GSETTINGS_SCHEMA_DIR`); `scopes.ts`: `EngineScopes` with `opened(ic)`, `closed(ic)`, `closeAll(rt, intact)`; `Crashed` written on every crash path.
 
 The test engine `engine.c` registers `"echo"` through `IBusFactory`. Its `process_key_event` interprets
 the keyval: `'a'` → accept; `'b'` → `CommitText` of `state` bytes of text (for large records); `'c'` →
-commit from an idle source (output outside the request); `'d'` → read `/usr/share/echo/data.txt` and
-commit its first line (the FHS view); `'s'` → write a GSettings key of its schema (`SettingWritten`);
+commit from an idle source (output outside the request); `'d'` → read the data file whose store path is compiled in (`-DECHO_DATA="${echoData}/share/echo/data.txt"`) and
+commit its first line (the store view); `'s'` → write a GSettings key of its schema (`SettingWritten`);
 and a second test side, `engine-throw.cpp`, registers `"thrower"`, whose `process_key_event` throws a C++ exception, for the fault path.
-Its data archive (built in `module.nix` with `mkEngineManifest`) carries `usr/share/echo/data.txt` and its schema, compiled with
-`pkgsWasm.glib`'s `glib-compile-schemas` (through the `.pc` variable), under `usr/share/glib-2.0/schemas`.
+Its manifest (built in `module.nix` with `mkEngineManifest`) carries the closure: the `echo-data` store path with `share/echo/data.txt`, and a schemas store path compiled with `pkgsWasm.glib`'s `glib-compile-schemas` (through the `.pc` variable).
 
 - [ ] **Step 1: Write the failing tests:**
   - the start fails, with the bound or mismatch in the error, for a manifest with `memory` out of bounds, a wrong `runtimeAbi`, a wrong `protocol`, missing `threads`;
-  - before `Init`, `/usr/share/echo/data.txt` is readable through the symlink (test kind reading a file) in each storage mode (`node`, `memory`, and in browsers `indexeddb`);
+  - before `Init`, the echo data file is readable at its store path (test kind reading a file) in each storage mode (`node`, `memory`, and in browsers `indexeddb`), and nothing is mounted at `/engines/<name>/data`;
   - the module isn't loaded before `Init` (`CreateEngine` → `-ENOTCONN`, test kind listing loaded modules → none); after `Init` it is, and `CreateEngine(1, "echo")` → 0; `Init`'s snapshot is visible to the engine at its init (the engine logs its key's value at module init; assert the `Log` record);
   - `'d'` commits the data file's line; `'s'` yields a `SettingWritten` record with `ic` 0;
   - `DestroyEngine` closes the instance scope; stopping the host with two open instances dispatches two `DestroyEngine`s (count through the engine's finalize log);
   - a key to `"thrower"` → reply `-ECANCELED`, the records already written are in the ring, then a `Crashed` record with reason `FAULT`, `state = CRASHED`, a `crashed` host message, and no further runtime calls (instrument: the test build counts calls);
   - a trap (an existing crash side) → `Crashed` reason `TRAP`; a failing relay → reason `RELAY`; a module that fails to load → reason `LOAD`.
 - [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement** per the Decisions; the bootstrap order becomes: probe and writer lock → memory from the manifest (+ data size in the memory fallback) → runtime with `ibuswebEngineThreads` → relay → storage → install → FHS view and `GSETTINGS_SCHEMA_DIR` → request loop; the engine-module scope opens inside the loop on `Init`. The host's Effect logger writes `Log` records (seq 0) into the ring instead of `log` host messages.
+- [ ] **Step 3: Implement** per the Decisions; the bootstrap order becomes: probe and writer lock → memory from the manifest (+ data size in the memory fallback) → runtime with `ibuswebEngineThreads` → relay → storage → install → store view at `/nix/store` and `GSETTINGS_SCHEMA_DIR` → request loop; the engine-module scope opens inside the loop on `Init`. The host's Effect logger writes `Log` records (seq 0) into the ring instead of `log` host messages.
 - [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{worker-host-node,worker-host-browser,worker-host-side-imports,hk}`.
 - [ ] **Step 5: Commit** `feat(worker-host): start engines from their manifest behind Init`.
 
@@ -374,7 +385,7 @@ first piece (clear, mount, fetch) and after the last (marker, seal) carry no wor
 
 ### Task 8: Docs and spec
 
-- [ ] **Step 1:** `docs/worker-host.md`: the transport (pointer to `PROTOCOL.md`'s Transport section for the layout), the loop, doorbells and `reqMode`, the full-ring wait, fragments, startup order with `Init`-then-load, the FHS view, engine scopes, faults and `Crashed`, test kinds, the conformance harness. `docs/engines.md`: manifests, `mkEngineManifest`, Brotli data archives and how to serve them, `heapBytes` and its guard, `threads`. `docs/storage.md`: decompression on install (native or fallback). `docs/runtime.md`: pool size from `ibuswebEngineThreads`; seq skips 0. `docs/testing.md`: the new checks. `docs/known-gaps.md`: remove what M1.3 did (ring, `replyOutSeq`, doorbell, engine share, host startup, fragment reassembly); keep the persister, router and lazy decoding for M1.4.
-- [ ] **Step 2: Spec:** §5.3 (pool from the manifest; `memory` from build data with `heapBytes`), §5.4.4 (the manifest's final fields, including `encoding`), §5.6 (Brotli archives, native or fallback decompression), §5.5 (bootstrap order; engine module on `Init`), §5.5.1 (engine-module scope without a release action; instance scopes), §6.1.4 (`Crashed (us)`, padding kind 0, host-written records' `seq` 0), §6.2.1 (eleven words with `reqMode`), §6.2.2 (record placement, padding, fragments), §6.2.3 (doorbell coalescing and the `reqMode` rule), §8 (faults and reasons), §11.3 (the harness), §12 (M1.3 row done, with the answers).
+- [ ] **Step 1:** `docs/worker-host.md`: the transport (pointer to `PROTOCOL.md`'s Transport section for the layout), the loop, doorbells and `reqMode`, the full-ring wait, fragments, startup order with `Init`-then-load, the store view, engine scopes, faults and `Crashed`, test kinds, the conformance harness. `docs/engines.md`: engine data as store-path closures (data-only outputs, no FHS patching), manifests, `mkEngineManifest`, Brotli data archives and how to serve them, `heapBytes` and its guard, `threads`. `docs/storage.md`: the data database mounted at `/nix/store`, archives per store path, decompression on install (native or fallback). `docs/runtime.md`: pool size from `ibuswebEngineThreads`; seq skips 0. `docs/testing.md`: the new checks. `docs/known-gaps.md`: remove what M1.3 did (ring, `replyOutSeq`, doorbell, engine share, host startup, fragment reassembly); keep the persister, router and lazy decoding for M1.4; add **a shared content-addressed store** as a future plan: one IndexedDB database mounted read-only at `/nix/store` in every engine's Worker (one backend thread), each store path installed once behind its own marker and used by every engine and version that references it, with a store-wide install lock (the backend allocates inodes from `meta.nextIno`, so writers can't overlap), a shared Web Lock per store path held by its users, and deletion taking that lock exclusively. Content addressing removes the half-updated-tree failure that made data a database per version.
+- [ ] **Step 2: Spec:** §5.3 (pool from the manifest; `memory` from build data with `heapBytes`), §5.4.4 (the manifest's final fields, including `encoding`), §5.6 (data as store-path closures mounted at `/nix/store`, Brotli archives, native or fallback decompression), §5.5 (bootstrap order; engine module on `Init`), §5.5.1 (engine-module scope without a release action; instance scopes), §6.1.4 (`Crashed (us)`, padding kind 0, host-written records' `seq` 0), §6.2.1 (eleven words with `reqMode`), §6.2.2 (record placement, padding, fragments), §6.2.3 (doorbell coalescing and the `reqMode` rule), §8 (faults and reasons), §11.3 (the harness), §12 (M1.3 row done, with the answers).
 - [ ] **Step 3:** `nix flake check`; republish nothing (the reviewer does).
 - [ ] **Step 4: Commit** `docs: describe the Worker host's transport and engine startup`.
