@@ -71,9 +71,13 @@ export class Page {
             finish(new Error("no completion doorbell before the page's deadline")),
           );
           this.replyReady = () => {
-            const current = Atomics.load(this.views.words, Word.state);
-            if (current === State.reply) finish(this.takeReply());
-            else if (current === State.crashed) finish(new Error("the host crashed"));
+            try {
+              const current = Atomics.load(this.views.words, Word.state);
+              if (current === State.reply) finish(this.takeReply());
+              else if (current === State.crashed) finish(new Error("the host crashed"));
+            } catch (error) {
+              finish(error instanceof Error ? error : new Error(String(error)));
+            }
           };
           // Recheck after installing the waiter, including replies that landed
           // just before the page abandoned its synchronous wait.

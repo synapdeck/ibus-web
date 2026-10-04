@@ -32,23 +32,35 @@ export const createControl = (layout: TransportLayout = transportLayout()): Shar
 export const controlViews = (buffer: SharedArrayBuffer, layout: TransportLayout = transportLayout()): ControlViews =>
   transportViews(buffer, layout);
 
+const requireState = (actual: number, expected: number, message: string): void => {
+  if (actual !== expected) throw new Error(actual === State.crashed ? "the host has crashed" : message);
+};
+
 export const postRequest = ({ words, slot }: ControlViews, request: Uint8Array, mode: number = ReqMode.sync): void => {
-  if (Atomics.load(words, Word.state) !== State.idle) throw new Error("request slot is not idle");
+  requireState(Atomics.load(words, Word.state), State.idle, "request slot is not idle");
   if (request.length > slot.length) throw new RangeError(`request of ${request.length} bytes`);
   slot.set(request);
   Atomics.store(words, Word.reqLen, request.length);
   Atomics.add(words, Word.reqSeq, 1);
   Atomics.store(words, Word.reqMode, mode);
-  Atomics.store(words, Word.state, State.request);
+  requireState(
+    Atomics.compareExchange(words, Word.state, State.idle, State.request),
+    State.idle,
+    "request slot changed before publication",
+  );
   Atomics.add(words, Word.wake, 1);
   Atomics.notify(words, Word.wake);
 };
 
 export const takeReply = ({ words }: ControlViews): Reply => {
-  if (Atomics.load(words, Word.state) !== State.reply) throw new Error("no reply in the request slot");
+  requireState(Atomics.load(words, Word.state), State.reply, "no reply in the request slot");
   const ret = Atomics.load(words, Word.replyRet);
   const outSeq = Atomics.load(words, Word.replyOutSeq) >>> 0;
-  Atomics.store(words, Word.state, State.idle);
+  requireState(
+    Atomics.compareExchange(words, Word.state, State.reply, State.idle),
+    State.reply,
+    "reply state changed before it was taken",
+  );
   return { ret, outSeq };
 };
 
