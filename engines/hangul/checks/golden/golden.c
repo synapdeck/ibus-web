@@ -78,31 +78,64 @@ static void composition(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   commit(fixture, "한");
 }
 
+static gboolean capture_settings(GSignalInvocationHint *hint G_GNUC_UNUSED,
+                                 guint count G_GNUC_UNUSED,
+                                 const GValue *values, gpointer data) {
+  GPtrArray *instances = data;
+  GObject *settings = g_value_get_object(&values[0]);
+  if (!g_ptr_array_find(instances, settings, NULL))
+    g_ptr_array_add(instances, g_object_ref(settings));
+  return TRUE;
+}
+
+static guint changed_handlers(GPtrArray *instances, GSignalMatchType mask,
+                              gpointer data) {
+  guint signal = g_signal_lookup("changed", G_TYPE_SETTINGS);
+  guint count = 0;
+  for (guint i = 0; i < instances->len; ++i) {
+    gpointer settings = g_ptr_array_index(instances, i);
+    /* Blocking is the only public API that counts matching handlers. */
+    count += g_signal_handlers_block_matched(settings, G_SIGNAL_MATCH_ID | mask,
+                                             signal, 0, NULL, NULL, data);
+    g_signal_handlers_unblock_matched(settings, G_SIGNAL_MATCH_ID | mask,
+                                      signal, 0, NULL, NULL, data);
+  }
+  return count;
+}
+
 static void lifecycle(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
-  golden_destroy(fixture);
-  golden_clear(fixture);
+  g_autoptr(GPtrArray) instances =
+      g_ptr_array_new_with_free_func(g_object_unref);
+  guint signal = g_signal_lookup("changed", G_TYPE_SETTINGS);
+  gulong hook =
+      g_signal_add_emission_hook(signal, 0, capture_settings, instances, NULL);
   golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
                  g_variant_new_string("Hangul_Hanja,F9,F8,F7"));
   golden_setting(fixture, "org.freedesktop.ibus.panel",
                  "lookup-table-orientation", g_variant_new_int32(0));
-  guint settings_notifications = 0;
-  for (guint i = 0; i < fixture->records->len; ++i) {
-    Record *record = g_ptr_array_index(fixture->records, i);
-    if (record->kind == IBUSWEB_REC_LOG) {
-      const gchar *message;
-      g_variant_get_child(record->payload, 2, "&s", &message);
-      settings_notifications += g_str_has_prefix(message, "settings_changed:");
-    }
-  }
-  /* Only the module listener remains after the weak engine reference clears. */
-  g_assert_cmpuint(settings_notifications, ==, 2);
+  g_signal_remove_emission_hook(signal, hook);
+  g_assert_cmpuint(instances->len, ==, 2);
+  /* Compared by address only; the engine is never dereferenced. */
+  gpointer engine = fixture->engine;
+  g_assert_cmpuint(changed_handlers(instances, G_SIGNAL_MATCH_DATA, engine), ==,
+                   2);
+  g_assert_cmpuint(changed_handlers(instances, 0, NULL), ==, 4);
+  golden_destroy(fixture);
+  g_assert_cmpuint(changed_handlers(instances, G_SIGNAL_MATCH_DATA, engine), ==,
+                   0);
+  /* Only the module listener on each settings object remains. */
+  g_assert_cmpuint(changed_handlers(instances, 0, NULL), ==, 2);
+  /* A stale instance handler would select a keyboard on the freed context. */
+  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+                 g_variant_new_string("39"));
   golden_create(fixture);
-  golden_setting(fixture, "org.freedesktop.ibus.panel",
-                 "lookup-table-orientation", g_variant_new_int32(1));
-  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
-                 g_variant_new_string("Hangul_Hanja,F9,F8"));
   toggle(fixture);
-  compose_han(fixture);
+  g_assert_cmpint(golden_key(fixture, IBUS_m, 50, 0), ==, 1);
+  preedit(fixture, "ㅎ", IBUS_ENGINE_PREEDIT_COMMIT);
+  g_assert_cmpint(golden_key(fixture, IBUS_f, 33, 0), ==, 1);
+  preedit(fixture, "하", IBUS_ENGINE_PREEDIT_COMMIT);
+  g_assert_cmpint(golden_key(fixture, IBUS_s, 31, 0), ==, 1);
+  preedit(fixture, "한", IBUS_ENGINE_PREEDIT_COMMIT);
 }
 
 static IBusLookupTable *lookup(Fixture *fixture) {

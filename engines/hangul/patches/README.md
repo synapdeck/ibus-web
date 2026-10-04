@@ -23,8 +23,13 @@ The strict cast audit reports these three findings without the patch and none
 with it. Signal connections to `settings_changed` already have the full signal
 signature; the audit excludes the intentional `GCallback` casts.
 
-The golden lifecycle test observes a cleared weak engine reference and then
-checks that only one module callback remains per settings change. The candidate
+The golden lifecycle test finds the module's GSettings objects through a
+`changed` emission hook and checks that destroying an engine leaves no handler
+whose data is that engine, only the module handler on each object. It then
+changes `hangul-keyboard`, which a stale handler would apply to the freed
+context, and composes with the new layout in a fresh engine. Without port 0001
+the handler assertion fails deterministically; when earlier cases leave stale
+handlers too, the full suite traps on a later keyboard change. The candidate
 test presses 9 on an incomplete last page. The idle-settings test recreates an
 engine after changing keyboard and Hanja hotkey with no live instance, then uses
 both without resending settings. All three bugs failed before their port patches;
