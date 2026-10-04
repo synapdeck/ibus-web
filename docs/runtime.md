@@ -129,9 +129,10 @@ alive past destruction emits is dropped.
 The installed GLib log writer emits `Log` records with level, domain and UTF-8
 message, respecting GLib's message/debug filtering. The vendored IBus layer
 (all of `src/ibus`) logs under the domain `IBUS`, as IBus does natively; the
-rest of the runtime logs under `ibus-web`. Fatal messages also reach the
-default writer and terminate normally for GLib; recording them does not make
-them recoverable.
+rest of the runtime logs under `ibus-web`. Fatal messages, including any level
+in GLib's always-fatal mask (`G_DEBUG=fatal-warnings`), also reach the default
+writer, which prints them to stderr, and terminate normally for GLib; recording
+them does not make them recoverable.
 
 ### GSettings
 
