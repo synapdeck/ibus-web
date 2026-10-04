@@ -29,7 +29,9 @@ const waitForSpace = (rt: Runtime, writer: RingWriter, needBytes: number, ctx: O
   const seen = Atomics.load(ctx.handle.words, ctx.wakeIndex);
   const free = writer.freeBytes();
   requireLiveRelay(ctx.control);
-  if (free >= needBytes) return;
+  // A partial read can acknowledge waiting before its wake is sampled.
+  // Re-arm so the remaining reads still have a waiter to notify.
+  if (free >= needBytes || Atomics.load(ctx.control.words, Word.ringWaiting) === 0) return;
   const ret = rt._ibusweb_wait(seen, -1);
   if (ret < 0 && ret !== ctx.constants.waitTimedOut) throw new Error(`ibusweb_wait: ${ret}`);
   requireLiveRelay(ctx.control);

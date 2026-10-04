@@ -122,3 +122,79 @@ test("a trap after an earlier complete record does not call consume on the broke
   expect(() => drainOutput(f.context.handle.rt, f.writer, f.length, f.context)).toThrow("unreachable");
   expect(f.consumed()).toBe(0);
 });
+
+test("a partial tail read before seen re-arms waiting for the remaining page read", () => {
+  const f = drainFixture();
+  const { control, handle, wakeIndex } = f.context;
+  Atomics.store(control.words, Word.ringRead, 120);
+  Atomics.store(control.words, Word.ringWrite, 120);
+  const occupied = new Uint8Array(120);
+  const occupiedHeader = new DataView(occupied.buffer);
+  occupiedHeader.setUint32(0, 1, true);
+  occupiedHeader.setUint16(8, 33, true);
+  occupiedHeader.setUint32(12, 104, true);
+  expect(f.writer.write(occupied)).toEqual({ _tag: "written" });
+  expect(f.writer.freeBytes()).toBe(0);
+
+  const pending = new Uint8Array(24);
+  const pendingHeader = new DataView(pending.buffer);
+  pendingHeader.setUint32(0, 2, true);
+  pendingHeader.setUint16(8, 33, true);
+  pendingHeader.setUint32(12, 8, true);
+  handle.rt.HEAPU8.set(pending, 16);
+  handle.rt._ibusweb_output_peek = () => {
+    f.length[0] = pending.length;
+    return 16;
+  };
+
+  const pauseAfterTail = new Error("the page pauses after its tail read");
+  const notify = Atomics.notify;
+  let paused = false;
+  let bells = 0;
+  let waits = 0;
+  Atomics.notify = ((words: Int32Array, index: number, count?: number): number => {
+    const result = notify(words, index, count);
+    if (words === control.words && index === Word.wake && !paused) {
+      paused = true;
+      // Forward the completed read's wake before the host samples seen.
+      Atomics.store(handle.words, wakeIndex, Atomics.load(control.words, Word.wake));
+      throw pauseAfterTail;
+    }
+    return result;
+  }) as typeof Atomics.notify;
+  f.context.postDoorbell = () => {
+    bells++;
+    Atomics.store(control.words, Word.doorbell, 0);
+    if (bells !== 1) return;
+    try {
+      f.reader.next();
+    } catch (error) {
+      if (error !== pauseAfterTail) throw error;
+    }
+    expect(paused).toBe(true);
+    expect(Atomics.load(control.words, Word.ringRead)).toBe(128);
+    expect(Atomics.load(control.words, Word.ringWaiting)).toBe(0);
+    expect(f.writer.freeBytes()).toBe(8);
+  };
+  handle.rt._ibusweb_wait = (seen, delay) => {
+    waits++;
+    expect(delay).toBe(-1);
+    expect(f.consumed()).toBe(0);
+    const waiting = Atomics.load(control.words, Word.ringWaiting);
+    expect(f.reader.next()).toEqual(occupied);
+    Atomics.store(handle.words, wakeIndex, Atomics.load(control.words, Word.wake));
+    // An indefinite wait could return only if this remaining read wakes it.
+    expect(Atomics.load(handle.words, wakeIndex), "remaining page read must wake the host").not.toBe(seen);
+    expect(waiting).toBe(1);
+    return 0;
+  };
+  try {
+    expect(drainOutput(handle.rt, f.writer, f.length, f.context)).toBe(1);
+    expect(bells).toBe(2);
+    expect(waits).toBe(1);
+    expect(f.consumed()).toBe(24);
+    expect(f.reader.next()).toEqual(pending);
+  } finally {
+    Atomics.notify = notify;
+  }
+});
