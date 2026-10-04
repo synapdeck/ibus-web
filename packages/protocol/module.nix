@@ -27,7 +27,7 @@
         ];
         buildInputs = [
           runtime.libibusWeb
-          config.ibusWeb.engines.wasmJson
+          testing.jsonGlib
         ];
         dontFixup = true;
         buildPhase = ''
@@ -64,7 +64,7 @@
     in
     {
       ibusWeb.toolchain.clangdPathFlags."packages/protocol/test/parity/c/.*" = [
-        "-I${config.ibusWeb.engines.wasmJson}/include/json-glib-1.0"
+        "-I${testing.jsonGlib}/include/json-glib-1.0"
       ];
       files.file."runtime/libibus-web/include/ibus-web/protocol.h".source = protocolHeader;
       files.file."packages/protocol/PROTOCOL.md".source = protocolDocument;

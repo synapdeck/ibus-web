@@ -7,10 +7,6 @@
       type = lib.types.package;
       description = "The Hangul side module and its data/usr/share tree.";
     };
-    options.ibusWeb.engines.wasmJson = lib.mkOption {
-      type = lib.types.package;
-      description = "json-glib cross build for WebAssembly fixture producers.";
-    };
     options.ibusWeb.engines.ibusTest = lib.mkOption {
       type = lib.types.functionTo lib.types.package;
       description = "Build a Linux native/WASM trace check from name, nativeConfig, module, data, and traces.";

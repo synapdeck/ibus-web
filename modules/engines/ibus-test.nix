@@ -50,24 +50,6 @@
         # nixpkgs otherwise disables Meson's own timeout globally.
         mesonCheckFlags = [ "--timeout-multiplier=1" ];
       };
-      # Test-only cross build; production runtime dependencies remain unchanged.
-      wasmJson = toolchain.pkgsWasm.stdenv.mkDerivation {
-        pname = "ibus-test-json-glib";
-        inherit (pkgs.json-glib) version src;
-        nativeBuildInputs = [
-          pkgs.meson
-          pkgs.ninja
-          toolchain.pkgsWasm.pkg-config
-        ];
-        buildInputs = [ toolchain.pkgsWasm.glib ];
-        mesonFlags = [
-          "-Dintrospection=disabled"
-          "-Ddocumentation=disabled"
-          "-Dtests=false"
-          "-Dinstalled_tests=false"
-          "-Dnls=disabled"
-        ];
-      };
       wasm = testing.program {
         name = "ibus-test-wasm";
         src = ../../tools/ibus-test;
@@ -79,7 +61,7 @@
         nativeBuildInputs = [ toolchain.pkgsWasm.pkg-config ];
         buildInputs = [
           runtime.libibusWeb
-          wasmJson
+          testing.jsonGlib
         ];
         cflags = "$($PKG_CONFIG --cflags libibus-web json-glib-1.0)";
         libs = "$($PKG_CONFIG --static --libs libibus-web json-glib-1.0)";
@@ -269,12 +251,11 @@
     in
     {
       ibusWeb.toolchain = {
-        clangdPathFlags."tools/ibus-test/wasm/.*" = [ "-I${wasmJson}/include/json-glib-1.0" ];
+        clangdPathFlags."tools/ibus-test/wasm/.*" = [ "-I${testing.jsonGlib}/include/json-glib-1.0" ];
         clangdFragments = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ nativeClangd ];
         clangdQueryDrivers = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ "${pkgs.stdenv.cc}/bin/cc" ];
       };
       ibusWeb.engines.ibusTest = ibusTest;
-      ibusWeb.engines.wasmJson = wasmJson;
       packages = {
         ibus-test-wasm = wasm;
         ibus-test-tools = testTools;
