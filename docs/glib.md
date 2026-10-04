@@ -219,8 +219,8 @@ the word the hook bumps are described in [runtime.md](runtime.md); the hook's ru
   take 2 ms on Node. Nothing in it is specific to WebAssembly
   ([README](../modules/glib/patches/README.md#0015-characters-iconv-replaces)).
 - **GSettings.** GIO is built with GSettings and its tools (`glib-compile-schemas`, `gsettings`).
-  The backend the runtime registers, and the registration hook, belong to the settings bridge;
-  see spec §5.1.3 and §5.2.5.
+  The runtime registers its backend through public GIO API (`g_io_extension_point_implement`), with no
+  GLib change; see [runtime.md](runtime.md#gsettings) and spec §5.2.5.
 
 ## Platform backends
 

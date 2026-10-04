@@ -41,8 +41,7 @@ An item leaves this page when it is fixed or decided.
 ## GLib
 
 - **Not built from spec §5.1**: the lazy arity lookup for callbacks with fewer parameters (§5.1.2, R1,
-  waiting on the engine audit); the GSettings backend registration hook and a review of the series'
-  `gsettings.c` changes (§5.1.3); the §5.1.4 platform backends (locale, collation, localized dates,
+  waiting on the engine audit); a review of the series' `gsettings.c` changes (§5.1.3); the §5.1.4 platform backends (locale, collation, localized dates,
   `TextDecoder` charsets, file monitoring, network, a synthesized user and host).
 - **Tool shadowing.** A build that runs a GLib tool by name from `PATH` gets nixpkgs' native, unpatched one,
   whose `gdbus-codegen` output traps on WebAssembly.
@@ -90,7 +89,26 @@ An item leaves this page when it is fixed or decided.
   browser host/router behavior or live settings. The stock engine's invalid
   final-page digit emits five extra signals and two GLib criticals while both
   adapters exit successfully; the corpus declares that exact upstream outcome.
+  The `hanja-click-page` trace pages forward and back and clicks on the first
+  page: stock ibus-hangul, without port 0004, selects by absolute index and
+  diverges from page 2 on, and the comparator tolerates only extra native
+  records, so page-2 clicks are covered by the golden tests alone.
   See [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
+- **An engine's C++ exception poisons the runtime.** The exception unwinds
+  through GLib's signal emission, so `ibusweb_dispatch` latches a fault and
+  returns `-ECANCELED`, and the host treats it as a crash and restarts the
+  engine. Containing it needs a small GLib patch, once a C++ engine is in
+  scope: hook the `marshal(...)` call in `g_closure_invoke` and
+  `_g_closure_invoke_va` (`gobject/gclosure.c`) and the source dispatch call in
+  `g_main_dispatch` through a C++ `try`/`catch` trampoline that libibus-web
+  sets, so GLib's bookkeeping completes and only the engine module is marked
+  faulted. Engine-internal C frames between the catch and the throw would still
+  skip their cleanup, and engine modules keep state in globals, so the module
+  would still be torn down; the gain is a clean report instead of later
+  corruption. Snapshotting and restoring the heap was rejected for its cost;
+  building GLib with `-fexceptions` for its cost too, and because GLib's
+  emission push and pop aren't cleanup-attributed, so unwinding wouldn't undo
+  them.
 - **The ring and the protocol** (spec §6): the output ring, `replyOutSeq`, the doorbell and the GVariant
   protocol are M1's. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
   reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in

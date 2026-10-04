@@ -295,9 +295,12 @@ fails on `gtest/gtest.h` ([tooling.md](tooling.md#editor-tooling)).
 An engine owns its golden traces under `engines/<name>/checks/`. Hangul's
 `checks.hangul-golden` uses a g_test main module with assertions and the actual
 engine side module. It mounts the package's data at FHS paths, sends framed
-runtime requests and decodes records with GVariant/IBus. Its 15 cases cover
-composition, candidates, focus, settings (including changes with zero instances),
-lifetime, surrounding text and event ordering. The shim reports those cases and a run-completion check under Node.
+runtime requests and decodes records with GVariant/IBus. Its 16 cases cover
+composition, candidates (page-relative clicks included), focus, settings
+(including changes with zero instances), lifetime, surrounding text and event
+ordering. The fixture resets the engine's settings to their defaults, plus
+Init's `hanja-keys`, before each case, and the lifecycle case checks the
+settings handlers left after destruction. The shim reports those cases and a run-completion check under Node.
 See [engines.md](engines.md#golden-tests) for the harness and the port bugs it
 reproduced. `checks.hangul-differential` separately replays ten engine-owned
 traces through private stock-native IBus sessions and the WASM engine, comparing
@@ -307,10 +310,21 @@ see [the adapter contract](../tools/ibus-test/README.md).
 
 `checks.hangul-cast-audit` and `checks.libibus-web-cast-audit` compile real
 sources with Clang's strict function-cast warning and compare the structured
-report with committed JSONC allow-lists. The parser and comparison have Vitest
-tests in `tools/cast-audit`; a compiled C fixture also proves that an empty
-allow-list rejects incompatible casts. The audit does not cover signal
-connection arity. `checks.hangul-imports` checks runtime symbol compatibility.
+report with committed JSONC allow-lists, which are validated against their
+schema (Ajv) at run time. `checks.hangul-cast-audit` makes two runs, the
+engine (its inputs from the overlay's `passthru`) and the private libhangul
+(`engines/hangul/libhangul-cast-audit.jsonc`); both allow-lists are empty.
+`checks.libibus-web-cast-audit` covers every C translation unit of
+libibus-web, generated ones included, with a list derived from the source
+directories and checked against Meson's `compile_commands.json`; the C++
+`call-op.cpp` is not audited. The parser and comparison have Vitest tests in
+`tools/cast-audit`; a compiled C fixture also proves that an empty allow-list
+rejects incompatible casts. The audit does not cover signal connection arity.
+`checks.hangul-imports` checks runtime symbol compatibility.
+
+`checks.libibus-web-vendored` checks the vendored IBus tree against its
+inventory and the build's IBus source ([runtime.md](runtime.md#ibus-layer));
+`checks.libibus-web-vendored-script` runs the checker's Vitest suite.
 
 `checks.glib-settings-listeners` owns the regression for GLib patch 0018: ten
 g_test cases exercise five listener signatures, in direct and queued delivery,

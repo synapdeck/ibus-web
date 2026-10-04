@@ -52,32 +52,68 @@ marshallers with the cross GLib tools, update the inventory and version, then
 run the serialization, export, cast-audit and engine checks. Files marked ours
 need an API comparison, not replacement with upstream's D-Bus implementation.
 
+`checks.libibus-web-vendored` holds the tree to the inventory against the IBus
+source the build uses (`pkgs.ibus.src`): every file is listed, rows reading
+"Upstream …; unchanged" must be byte-identical to upstream, other Upstream rows
+must differ, the Generated row must equal `ibusversion.h.in` expanded for the
+release, and the README's release and hash must equal `pkgs.ibus.version` and
+`pkgs.ibus.src.outputHash`. `checks.libibus-web-vendored-script` runs the
+checker's Vitest suite. The generated marshaller header `ibusmarshalers.h` is
+private to the IBus layer and is not installed.
+
 ### Protocol, dispatch and output
 
 [`ibus-web/protocol.h`](../runtime/libibus-web/include/ibus-web/protocol.h)
 defines the request/record numbers, signatures and protocol version. A request
 starts with an eight-byte little-endian header (`u16 kind`, `u16 flags`,
-`u32 ic`), followed by one normal-form serialized GVariant tuple. Records have
-a sixteen-byte header (`u32 len`, `u16 kind`, `u16 flags`, `u32 ic`, `u32 seq`),
-followed by the payload and padding to an eight-byte boundary; `len` counts
-only the payload. Flags are currently zero. The sequence starts at one and
-wraps at 2^32.
+`u32 ic`), followed by one normal-form serialized GVariant tuple. No request
+flags are defined; they must be zero. The empty tuple `()` is one zero byte in
+normal form, so every request carries at least one byte of payload, and a
+request of the header alone is `-EBADMSG`. Records have a sixteen-byte header
+(`u32 seq`, `u32 ic`, `u16 kind`, `u16 flags`, `u32 len`), followed by the
+payload and padding to an eight-byte boundary; `len` counts only the payload.
+The runtime writes record flags as zero. `IBUSWEB_RECORD_CONTINUATION` is the
+only record flag, and only the host sets it, when it fragments a record. The
+sequence starts at one and wraps at 2^32.
 
 Call `ibusweb_runtime_init`, map the schemas/data, and send `Init` with the
 settings snapshot **before loading the engine module**: engine initialization
-reads settings. Then create contexts and dispatch their requests. The dispatcher
-copies request bytes, validates their framing and payload, and calls the engine
-signal. It returns 0/1 for `ProcessKeyEvent`, zero for other successful requests,
-or a negative errno. It does not pump; the host pumps and drains output after
-each request and on wakes.
+reads settings. Init installs the log writer before it applies the snapshot,
+so the snapshot's warnings (an unknown schema or key, an invalid value) become
+`Log` records on context 0. Then create contexts and dispatch their requests.
+The dispatcher copies request bytes, validates their framing and payload, and
+calls the engine signal. It returns 0/1 for `ProcessKeyEvent`, zero for other
+successful requests, or a negative errno. It does not pump; the host pumps and
+drains output after each request and on wakes.
 
-Errors include `-EBADMSG` for malformed input, `-ENOSYS` for unknown request
-kinds, `-ENOTCONN` before Init, `-EALREADY` for repeated Init, `-EPROTO` for a
-version mismatch, `-ENOENT` for an absent context, `-EEXIST` for a duplicate
-context, `-ESRCH` for an unregistered engine and `-EPERM` off the pumping thread.
-A C++ exception becomes a warning and `-ECANCELED`; this does not undo effects
-or cleanup skipped while unwinding through C. JavaScript errors and WASM traps
-remain host failures.
+`SetContentType` emits `set-content-type` only when the purpose or hints
+differ from the context's current ones, which start at 0 and 0.
+`CandidateClicked`'s index is page-relative, as IBus's GTK panel sends it: the
+position of the clicked label on the visible page.
+
+The errors are exactly those `runtime.h` lists: `-EBADMSG` for invalid framing
+or payload, `-ENOSYS` for unknown request kinds, `-ENOTCONN` before Init,
+`-EALREADY` for repeated Init, `-EPROTO` for a version mismatch, `-ENOENT` for
+an absent context, `-EEXIST` for a duplicate context, `-ESRCH` for an
+unregistered engine, `-EINVAL` for a `SetSurroundingText` cursor or anchor
+past the text's length in characters, `-EPERM` off the pumping thread, and
+`-ECANCELED` when an engine throws a C++ exception. Requests failing on their
+framing, payload or context reach no engine. `SettingChanged` ignores the
+header's `ic`, so its `-ENOENT` means an unknown schema or key, never a
+missing context; it returns `-EINVAL` for a value outside the key's type or
+range and `-ENOTSUP` for a relocatable schema or a default settings backend
+other than the runtime's, and each of these also writes a `Log` record.
+
+`-ECANCELED` means the runtime is unusable. The exception unwound through
+GLib's signal emission, skipping its cleanup and leaking the engine's
+reference; the C++ frame that caught it logs a warning, but nothing undoes
+what it skipped. The host treats it as a crash of the runtime. Afterwards
+every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` without touching GLib or
+any engine, and `ibusweb_pump` dispatches nothing and returns -1. Output peek,
+consume and `ibusweb_output_last_seq` keep working, so the host can drain the
+records written before the fault; a record still waiting to be appended from
+another thread when the fault happened is lost. JavaScript errors and WASM
+traps remain host failures.
 
 Emitters serialize owned snapshots immediately. Calls from other threads queue
 those snapshots on the default main context; the pumping thread assigns their
@@ -86,16 +122,24 @@ sequence numbers and appends them to a mutex-protected `GByteArray`.
 call. `ibusweb_output_consume` accepts only complete-record boundaries and
 otherwise logs a critical without dropping data. Peek/consume run on the
 pumping thread; `ibusweb_output_last_seq` reports the last appended sequence.
+Once IBusEngine's `destroy` has run, an engine emits nothing: the host may
+already have given its context to a new engine, so whatever a reference kept
+alive past destruction emits is dropped.
 
 The installed GLib log writer emits `Log` records with level, domain and UTF-8
-message, respecting GLib's message/debug filtering. Fatal messages also reach
-the default writer and terminate normally for GLib; recording them does not
-make them recoverable.
+message, respecting GLib's message/debug filtering. The vendored IBus layer
+(all of `src/ibus`) logs under the domain `IBUS`, as IBus does natively; the
+rest of the runtime logs under `ibus-web`. Fatal messages also reach the
+default writer and terminate normally for GLib; recording them does not make
+them recoverable.
 
 ### GSettings
 
-Runtime init registers the `ibus-web` backend at priority 1000. With no explicit
-`GSETTINGS_BACKEND` override it is the default. Its per-instance store is keyed
+Runtime init registers the `ibus-web` backend at priority 1000 through public
+GIO API: creating and dropping a memory backend registers GIO's extension
+points, and `g_io_extension_point_implement` adds the backend to them; GLib
+needs no hook for it. With no explicit `GSETTINGS_BACKEND` override it is the
+default. Its per-instance store is keyed
 by settings path and key, protected by a mutex, and falls back to schema
 defaults. Init snapshots are applied silently. `SettingChanged` validates the
 schema, key, type and range; a different value notifies listeners, an equal
@@ -117,11 +161,15 @@ values, as Emscripten's libc numbers them.
 | Function                                                               | What it does                                                                                                                                                                                                   |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ibusweb_runtime_init(wake_word)`                                      | On the thread that will pump: acquires the default `GMainContext` for good and installs the wake hook on it, which bumps `*wake_word`. `-EINVAL`, `-EALREADY`, or `-EBUSY` if another thread owns the context. |
-| `ibusweb_pump()`                                                       | Dispatches ready sources without blocking and returns the delay until pumping is due again (below).                                                                                                            |
+| `ibusweb_pump()`                                                       | Dispatches ready sources without blocking and returns the delay until pumping is due again (below). After `ibusweb_dispatch` has returned `-ECANCELED`, dispatches nothing and returns -1.                     |
 | `ibusweb_wait(seen, timeout_ms)`                                       | Sleeps while the wake word holds `seen`, running proxied calls meanwhile (below). `0`, `-ETIMEDOUT`, `-EINVAL` before init, `-EPERM` off the pumping thread.                                                   |
 | `ibusweb_load_module(path, out)`                                       | Loads a side module and registers it (Side modules, below). `-ENOENT`, `-ENOEXEC`, or the registration's error.                                                                                                |
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                |
 | `ibusweb_test_dispatch(request, len, reply, cap)`                      | The test dispatcher (below).                                                                                                                                                                                   |
+| `ibusweb_dispatch(request, len)`                                       | Dispatches one `protocol.h` request on the pumping thread without pumping: a key event's 0/1 reply, zero for other requests, or a negative errno (Protocol, dispatch and output, above).                       |
+| `ibusweb_output_peek(len)`                                             | The buffered whole records, in sequence order; the pointer is valid until the next runtime call. Pumping thread only.                                                                                          |
+| `ibusweb_output_consume(len)`                                          | Drops `len` bytes of records from the front; a length not on a record boundary logs a critical and drops nothing. Pumping thread only.                                                                         |
+| `ibusweb_output_last_seq()`                                            | The last appended sequence number, zero before any record.                                                                                                                                                     |
 | `ibusweb_install_begin/feed/count/end`                                 | A streaming ustar extractor that installs an engine's data through the file system; see [storage.md](storage.md#installing).                                                                                   |
 
 `ibusweb_module_init(IBusWebModule *)` is the entry point every side module
@@ -283,7 +331,7 @@ ABI. A symbol two libraries define belongs to the first.
 | Library                                        | Version it is identified by   | What it contributes                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `libibus-web`                                  | `IBUSWEB_RUNTIME_ABI`         | its `IBUSWEB_API`                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `ibus`                                         | IBus 1.5.34                   | the default-visible symbols declared by the headers reachable from `ibus.h`, including generated enums                                                                                                                                                                                                                                                                                                               |
+| `ibus`                                         | IBus 1.5.34                   | the default-visible symbols declared by the headers reachable from `ibus.h` within its own directory (`ibus-1.0`), including generated enums                                                                                                                                                                                                                                                                         |
 | GLib, GObject, GModule, GIO (the subset built) | GLib's version                | their default-visible symbols (GLib is built hidden too)                                                                                                                                                                                                                                                                                                                                                             |
 | libffi                                         | its version                   | what `ffi.h` declares                                                                                                                                                                                                                                                                                                                                                                                                |
 | `wasmfs-idb`                                   | `IBUSWEB_RUNTIME_ABI`         | what `ibus-web/wasmfs-idb.h` declares, not its C++ internals                                                                                                                                                                                                                                                                                                                                                         |
