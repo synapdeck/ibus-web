@@ -1,15 +1,23 @@
-From 447b2085ff6248cb238cf8eae690d3b271cfa83d Mon Sep 17 00:00:00 2001
+From b4e9833dc09361a7766b9e8176ca8ccf7114e58e Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Sat, 3 Oct 2026 12:55:58 -0700
 Subject: [PATCH] Use the declared GObject callback types
 
-Class and instance initialization are called with two arguments. Their one-argument definitions trap on WebAssembly. Match the destroy callback type as well, so no incompatible callback casts remain.
+GObject calls class and instance initializers with two arguments, but
+ibus_hangul_engine_class_init and ibus_hangul_engine_init were defined
+with one and cast to GClassInitFunc and GInstanceInitFunc. WebAssembly
+checks the signature of every indirect call, so these casts trap.
+Define both with the declared signatures, and give
+ibus_hangul_engine_destroy the IBusObjectDestroyFunc parameter type
+instead of casting it, so no incompatible callback casts remain.
+
+The copyright notice covers these changes.
 ---
  src/engine.c | 25 ++++++++++++++++---------
  1 file changed, 16 insertions(+), 9 deletions(-)
 
 diff --git a/src/engine.c b/src/engine.c
-index faa3fb1..f72a5d5 100644
+index 1f80208..5499ce5 100644
 --- a/src/engine.c
 +++ b/src/engine.c
 @@ -2,6 +2,7 @@
@@ -55,7 +63,7 @@ index faa3fb1..f72a5d5 100644
      };
  
      if (type == 0) {
-@@ -551,7 +554,8 @@ ibus_hangul_engine_set_surrounding_text (IBusEngine     *engine,
+@@ -557,7 +560,8 @@ ibus_hangul_engine_set_surrounding_text (IBusEngine     *engine,
  */
  
  static void
@@ -65,7 +73,7 @@ index faa3fb1..f72a5d5 100644
  {
      GObjectClass *object_class = G_OBJECT_CLASS (klass);
      IBusObjectClass *ibus_object_class = IBUS_OBJECT_CLASS (klass);
-@@ -560,7 +564,7 @@ ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
+@@ -566,7 +570,7 @@ ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
      parent_class = (IBusEngineSimpleClass *) g_type_class_peek_parent (klass);
  
      object_class->constructor = ibus_hangul_engine_constructor;
@@ -74,7 +82,7 @@ index faa3fb1..f72a5d5 100644
  
      engine_class->process_key_event = ibus_hangul_engine_process_key_event;
  
-@@ -586,8 +590,10 @@ ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
+@@ -592,8 +596,10 @@ ibus_hangul_engine_class_init (IBusHangulEngineClass *klass)
  }
  
  static void
@@ -86,7 +94,7 @@ index faa3fb1..f72a5d5 100644
      IBusProperty* prop;
      IBusText* label;
      IBusText* tooltip;
-@@ -680,8 +686,9 @@ ibus_hangul_engine_constructor (GType                   type,
+@@ -686,8 +692,9 @@ ibus_hangul_engine_constructor (GType                   type,
  
  
  static void
