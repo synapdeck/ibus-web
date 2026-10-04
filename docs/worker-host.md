@@ -4,12 +4,14 @@
 TypeScript that runs in each engine's Worker. It makes the runtime's memory,
 instantiates `ibus-runtime.wasm` ([runtime.md](runtime.md)), starts the wake
 relay, mounts storage and installs the engine's data
-([storage.md](storage.md)), loads the engine's side modules, and then serves
-the page's requests for good, asleep inside the runtime between them. It is
-written in Effect 4.
+([storage.md](storage.md)), mounts the Nix store view, and serves requests,
+asleep inside the runtime between them. Effect 4 builds the resource scopes;
+the production request loop is synchronous TypeScript. The first successful
+`Init` applies the settings snapshot before the host loads the engine module,
+pumps and drains its output, and publishes the reply.
 
-The output ring, the protocol's records and the page-side router that drive
-it are M1's (spec §5.5, §6); this page describes the host as it is.
+The host implements the output ring and ordered replies. The production
+page-side router remains M1.4 work; the test Page exercises the transport.
 
 ## Package and bundles
 
@@ -18,6 +20,11 @@ it are M1's (spec §5.5, §6); this page describes the host as it is.
 | `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer (`Word`, `State`, helpers), the messages, the storage names, `HostConfigValues`; with declarations.                        |
 | `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s. |
 | `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                  |
+
+The host also ships `dist/worker/brotli-fallback.js`, a separate lazy decoder
+bundle. Its WASM is embedded by Rolldown's binary loader; it needs no adjacent
+`.wasm` or decoder fetch. A host with native Brotli never imports it. The
+fallback uses `brotli-dec-wasm`'s streaming decoder.
 
 `tsdown` builds them (`tsdown.config.ts`), ESM, platform-neutral, with
 source maps. **Each Worker script is one self-contained module, Effect
@@ -50,18 +57,17 @@ same-origin`, `Cross-Origin-Embedder-Policy: require-corp` on every
    bundle (spec §9.2).
 4. It posts one `HostInit` and waits for `ready` or `error`.
 
-| `HostInit` field | What it is                                                                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runtimeUrl`     | `ibus-runtime.js`, which the host imports.                                                                                                        |
-| `wasm`           | The compiled runtime; without it Emscripten fetches the `.wasm` itself.                                                                           |
-| `memory`         | `{ initial, maximum }` in bytes: the manifest's `memory`; the runtime never grows it.                                                             |
-| `control`        | The control buffer ([runtime.md](runtime.md#the-control-buffer)).                                                                                 |
-| `sides`          | The side modules' bytes and names, loaded in order.                                                                                               |
-| `engine`         | What the host reads of the manifest: `name`, `version`, `data` (each archive's URL, path and unpacked size).                                      |
-| `storage`        | `{ kind: "browser" }` (IndexedDB, or memory without it), `{ kind: "node", hostPath }` (tests), or `{ kind: "none" }`.                             |
-| `poolLowWater`   | The idle Workers the host tops the pool up to (`ibusWeb.runtime.threadPool.lowWater`).                                                            |
-| `constants`      | Values the build defines: `IBUSWEB_PUMP_ERROR`, `ibusweb_wait()`'s `-ETIMEDOUT`, `WASMFS_IDB_READ_ONLY`, and the memory bounds the runtime takes. |
-| `test`           | Read only by the test build; the host as released ignores it.                                                                                     |
+| `HostInit` field            | What it is                                                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtimeUrl`                | `ibus-runtime.js`, which the host imports.                                                                                                                                  |
+| `wasm`                      | The compiled runtime; without it Emscripten fetches the `.wasm` itself.                                                                                                     |
+| `manifest` or `manifestUrl` | Exactly one: an engine manifest (validated again by the host) or the URL of its JSON. Relative module/archive URLs resolve against the fetched manifest URL.                |
+| `control`                   | The transport SAB; its layout is specified in [PROTOCOL.md](../packages/protocol/PROTOCOL.md#transport).                                                                    |
+| `layout`                    | Optional slot/ring sizes, matching the buffer; defaults to 64 KiB and 256 KiB.                                                                                              |
+| `storage`                   | `{ kind: "browser" }` (IndexedDB, or memory without it), `{ kind: "node", hostPath }` (tests), or `{ kind: "none" }`.                                                       |
+| `poolLowWater`              | The idle Workers the host tops the pool up to (`ibusWeb.runtime.threadPool.lowWater`).                                                                                      |
+| `constants`                 | Values the build defines: `IBUSWEB_PUMP_ERROR`, `ibusweb_wait()`'s `-ETIMEDOUT`, `WASMFS_IDB_READ_ONLY`, the memory bounds, runtime ABI, protocol version and `-ECANCELED`. |
+| `test`                      | Read only by the test build; the host as released ignores it.                                                                                                               |
 
 The page touches only the control buffer and `postMessage`, never the
 runtime's memory, and no message carries a pointer into it. What else the
@@ -86,15 +92,15 @@ page owes its hosts:
 
 `HostMessage`, every message the host posts:
 
-| `type`    | When                                                                                                                                                                                                             |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`   | Every scope is up; the host serves requests from here on. Carries `startupMs`.                                                                                                                                   |
-| `storage` | `ephemeral` (mounted in memory for want of IndexedDB, with why), `read-only` (another host holds the writer lock), or `closed` (an IndexedDB connection closed under the host; posted once, when it next wakes). |
-| `install` | How the engine's data was found: `installed` or `present`, with the marker's `files` and `bytes`, the install lock's wait and its `lockedAt`/`releasedAt`, and `installMs`.                                      |
-| `collect` | Other versions' data: `removed`, `inUse`, and `error` if it couldn't look or delete. Collecting never fails a start.                                                                                             |
-| `log`     | An Effect log record: `level` and `message`.                                                                                                                                                                     |
-| `error`   | The host failed to start; it serves nothing, and stays alive to say why.                                                                                                                                         |
-| `crashed` | The runtime stopped after `ready`; the control buffer already says `CRASHED`, and this says why.                                                                                                                 |
+| `type`     | When                                                                                                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ready`    | Bootstrap is complete; storage is mounted and the loop accepts requests. The engine loads on Init. Carries `startupMs`.                                                                                          |
+| `storage`  | `ephemeral` (mounted in memory for want of IndexedDB, with why), `read-only` (another host holds the writer lock), or `closed` (an IndexedDB connection closed under the host; posted once, when it next wakes). |
+| `install`  | How the engine's data was found: `installed` or `present`, with the marker's `files` and `bytes`, the install lock's wait and its `lockedAt`/`releasedAt`, and `installMs`.                                      |
+| `collect`  | Other versions' data: `removed`, `inUse`, and `error` if it couldn't look or delete. Collecting never fails a start.                                                                                             |
+| `doorbell` | A coalesced notification to drain the ring and check reply state.                                                                                                                                                |
+| `error`    | The host failed to start; it serves nothing, and stays alive to say why.                                                                                                                                         |
+| `crashed`  | The runtime stopped after `ready`; the control buffer already says `CRASHED`, and this says why.                                                                                                                 |
 
 The storage names (`encodeComponent`, `engineDatabase`,
 `engineDataDatabase`, `engineInstallLock`, `engineWriterLock`,
@@ -109,19 +115,21 @@ The host is a scoped Effect program (`src/worker/host.ts`): each resource a
 
 | Scope           | Acquire                                                                                                                                                                                             | Release                                                                                                                  |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Worker          | Control buffer views; the `Logger` that posts `log`; an uncaught-error listener, registered up front because a thread's error may already be queued by the time the host stops.                     | With a failure: before `ready`, posts `error`; after it, writes `CRASHED` and posts `crashed`.                           |
+| Worker          | Control buffer views; the `Logger` that writes ring `Log` records; an uncaught-error listener, registered up front because a thread's error may already be queued by the time the host stops.       | With a failure: before `ready`, posts `error`; after it, writes `CRASHED` and posts `crashed`.                           |
 | Planned storage | Probes IndexedDB (opens the engine's database without creating it, closes it at once), takes the writer lock `ifAvailable`, decides the mount, and sizes the memory from the plan.                  | Lets go of every lock, the writer lock only once the user backend is sealed or was never mounted read-write.             |
 | Runtime         | Checks the memory's size, makes it, imports and instantiates the runtime, checks its JavaScript surface, allocates the wake word and the request and reply buffers, calls `ibusweb_runtime_init()`. | Nothing: the runtime ends with the Worker.                                                                               |
 | Wake relay      | Starts the relay Worker, which bumps a word in the runtime's memory, so it follows the runtime.                                                                                                     | Terminates the relay.                                                                                                    |
-| Storage         | Mounts the engine's own files at `/engines/<name>`, posts `storage` events, then installs or finds the version's data and mounts it at `/engines/<name>/data`, posts `install` and `collect`.       | Seals the read-write backends, while the runtime can still be called; their threads and connections end with the Worker. |
-| Engine module   | Writes the side modules into WasmFS and loads them.                                                                                                                                                 | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                    |
+| Storage         | Mounts the engine's own files at `/engines/<name>`, posts `storage` events, then installs or finds the version's data and mounts it at `/nix/store`, posts `install` and `collect`.                 | Seals the read-write backends, while the runtime can still be called; their threads and connections end with the Worker. |
+| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`.                                                                                                                         | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                    |
 
 **The storage plan comes before the runtime** because the memory can't grow
 later: without IndexedDB the data is installed into a memory backend, and
 the memory must be made larger by the data's size. **The relay comes after
 the runtime** because the word it bumps lives in the runtime's memory.
-Engine instances, one per input context, will be child scopes of the engine
-module (M1, spec §5.5.1).
+Each successful `CreateEngine` opens an instance scope keyed by `ic`, and
+`DestroyEngine` closes it synchronously. Closing the host destroys remaining
+instances while the runtime is intact; a trap or `-ECANCELED` skips runtime
+cleanup. The engine-module scope has no release action: no shutdown ABI exists.
 
 **Finalizers inspect the `Exit`.** After a trap the runtime's memory can't be
 trusted, so a finalizer that calls into the runtime (`runtimeFinalizer`, the
@@ -145,6 +153,9 @@ it ends.
 
 The host fails its start, posting `error`, when:
 
+- the manifest is malformed or its numeric runtime ABI or protocol version
+  mismatches (`RuntimeAbiMismatch` or `ProtocolMismatch`);
+
 - the memory isn't whole pages within the runtime's bounds (the message
   gives the value and the bounds), rather than as a `LinkError` or, for a
   size that isn't whole pages, a silently rounded memory;
@@ -155,8 +166,7 @@ The host fails its start, posting `error`, when:
 - the runtime lacks `HEAPU8` or the `PThread` members the host uses: better
   to refuse at once than fail at the first top-up after an Emscripten update;
 - `malloc()` for the wake word or the buffers fails, `ibusweb_runtime_init()`
-  fails, or a side module doesn't load (its error, such as `-EEXIST` for an
-  opcode another module holds);
+  fails, or the runtime refuses initialization;
 - storage fails: IndexedDB found but the backend won't open, a lock not
   granted within the lock limit of the last word from its holder, a fetch
   error or an archive idle too long, an install the extractor refuses, a
@@ -177,8 +187,11 @@ timeout. The section is a single `Effect.try`, so a throw becomes
    sleep on it returns at once.
 2. `CRASHED` means the relay failed (only the relay writes it while the host
    runs).
-3. `REQUEST`: copy the request into the runtime's heap, `ibusweb_test_dispatch()`,
-   pump, copy the reply into the slot, write `replyRet`, `REPLY`, notify.
+3. `REQUEST`: copy the framed request into the runtime's heap and call
+   `ibusweb_dispatch()`. A successful `Init` loads the module; successful
+   create/destroy requests update instance scopes. Pump, drain complete output
+   to the ring, publish `replyRet` and `replyOutSeq`, set `REPLY` and notify.
+   Ring space may delay publication, but no pump runs during that wait.
 4. Otherwise pump; if no request arrived meanwhile, the host is idle with
    the pump's delay.
 5. Idle with fewer than `poolLowWater` idle Workers (and no failed top-up):
@@ -187,6 +200,44 @@ timeout. The section is a single `Effect.try`, so a throw becomes
 
 Before each step the host checks whether either IndexedDB backend's
 connection has closed, and posts `storage: closed` the first time one has.
+
+### The ring and replies
+
+The generated [Transport section](../packages/protocol/PROTOCOL.md#transport)
+is authoritative for the eleven control words and buffer layout. The ring has
+power-of-two capacity and uses unsigned byte counters. A framed record never
+wraps: both sides skip a tail shorter than 16 bytes; otherwise the writer
+fills an unusable tail with kind-0 padding, which the reader discards.
+
+When a frame exceeds current free space, the writer emits the largest
+fragment that fits, with at least eight payload bytes. Consecutive fragments
+keep `seq`, `ic` and `kind`; padding may separate them, and all but the
+last have `CONTINUATION`. The reader
+concatenates them before `decodeRecord`. Counts and `replyOutSeq` refer to
+records, never fragments. The host retains a copied runtime frame until it
+is completely published, then consumes runtime output.
+
+A full ring sets `ringWaiting = 1`, rings the doorbell, reads the runtime's
+wake word, and rechecks space. If the page has already cleared `ringWaiting`
+but not freed enough space, the host retries and re-arms the flag before
+sleeping. Otherwise it calls `ibusweb_wait(seen, -1)` and retries. This also
+handles partial reads without losing the next wake. It never pumps during
+the wait. The page advances `ringRead`, clears a set `ringWaiting`, and bumps
+and notifies the control `wake`. A relay failure detected during this wait
+is reported synchronously with reason `RELAY`.
+
+Doorbells are `{ type: "doorbell" }`, posted only when swapping the control
+`doorbell` word from 0 to 1. The page clears that word **before** draining.
+The host rings after output from an idle pump, before a full-ring wait, and
+after publishing a reply whose `reqMode` is `ASYNC` (1) or `ABANDONED` (2).
+A synchronous page writes `SYNC` (0); on timeout it compare-exchanges that
+to `ABANDONED` and rereads `state`. Either the host sees abandonment or the
+page sees the reply, so neither side can miss completion.
+
+Test operations occupy request kinds `0xff00`–`0xffff`. Only test instruments
+intercept them and call `ibusweb_test_dispatch()`, placing reply bytes in
+the slot. The production loop sends every kind to `ibusweb_dispatch()`,
+which rejects those reserved test operations with `-ENOSYS`.
 
 ### The pool top-up
 
@@ -228,17 +279,20 @@ a top-up) is handled the same way.
 
 ## Crashes
 
-| What happened                 | What the host does                                                                                                                                                                                                                                                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A call into the runtime traps | `CRASHED` at once, then `crashed` with the error.                                                                                                                                                                                                                                                                                                 |
-| A thread traps                | Emscripten marks the runtime crashed and wakes the host, whose next call into the runtime throws `"unwind"`; the thread's own error reaches the host only afterwards, through its event loop. The host writes `CRASHED` at once, then waits up to `crashWaitMs` (1 s) for that error and reports `a thread crashed: …`, or that it never arrived. |
-| The heap is full              | Emscripten aborts (`Aborted(OOM)`), a crash like a trap.                                                                                                                                                                                                                                                                                          |
-| The relay fails               | `relay: …`, as above. The runtime is intact, so the seals run and every lock goes.                                                                                                                                                                                                                                                                |
+After `ready`, a failure marks `state = CRASHED` and notifies before reporting.
+That state is authoritative. The host attempts a `Crashed (us)` record without
+waiting for space and posts `crashed` with its diagnostic even if the ring is
+full. Reasons are `TRAP` 1, `FAULT` 2, `RELAY` 3, `LOAD` 4 and `HOST` 5.
+Host-written `Log` and `Crashed` records have `seq = ic = 0` and do not
+advance `replyOutSeq`; runtime sequences skip zero when they wrap.
 
-After a trap the host keeps the engine's writer lock until its Worker ends
-(the read-write user backend couldn't be sealed, and a thread of the runtime
-could still write through it) and lets go of every other lock. A seal that
-throws on the crash path does the same and logs which lock it kept.
+A dispatch returning `-ECANCELED` publishes its reply and drains already
+written output, then reports `FAULT`. No subsequent dispatch or pump runs.
+A module load failure after successful `Init` is `LOAD`. A trap skips runtime
+finalizers; JavaScript cleanup still runs. For a pthread's `"unwind"`, the
+host waits briefly in its event loop for the thread's diagnostic. A relay
+killed outright cannot report itself, so page-side hang detection is still
+needed. Restart uses the same bootstrap and `Init`-then-load order.
 
 ## Storage and engine data in the host
 
@@ -264,8 +318,8 @@ are [storage.md](storage.md)'s. The host's part
   soon as the data is there; the host then collects other versions whose
   data lock it gets exclusively at once. A memory mount installs at every
   start with no lock.
-- **Progress**: an installer says it is still going, at most every
-  `progressIntervalMs`, on a `BroadcastChannel` named after the install lock.
+- **Progress**: an installer says it is still going, every
+  `progressIntervalMs` throughout its install-lock lifetime during asynchronous bootstrap, on a `BroadcastChannel` named after the install lock.
   A host waiting for that lock gives up only after `lockLimitMs` without
   word, so a slow install is waited for and a dead one isn't.
 - **Lock waits** are requests of `lockRoundMs` each, made again when they
@@ -327,7 +381,7 @@ The host runs under Node's `worker_threads` only for tests (`storage:
 Vitest suites from the built workspace, under Node and in Chromium and
 Firefox (Playwright's headless builds from nixpkgs), each against the
 asserting and the released runtime. Nix hands them a manifest
-(`IBUS_WEB_WORKER_HOST_TESTS`): both runtimes, the nine test side modules,
+(`IBUS_WEB_WORKER_HOST_TESTS`): both runtimes, the test side modules and engine manifests,
 the constants the C side defines, Emscripten's errno values, the install
 test archives, the pool's size, shares and `lowWater`, and the stress
 workloads' sizes. `checks.worker-host-side-imports` checks the side modules'
@@ -385,3 +439,30 @@ report isn't required to carry the error, whether a thread's or, in
 round trip, not a sleep: under Node the threads' writes are synchronous,
 and in a browser a line printed by a Worker started for the purpose
 arrives after every line printed before it.
+
+### Transport and Hangul conformance
+
+The host checks include ordered replies, idle-pump output, coalesced doorbells,
+SYNC/ASYNC/ABANDONED completion, padding and fragment reassembly, repeated
+full-ring waits, partial-read wake races, faults and relay failure during
+back-pressure. Manifest mismatch and native/forced-fallback archive cases use
+the same bootstrap as production.
+
+`checks.hangul-host` runs the real Hangul distribution through a Node Worker
+and the test Page, ten cases on each runtime build. It checks composition,
+Hanja paging and page-relative clicks, Init settings and later changes,
+context recreation/independence, surrounding text, forwarding, focus, and
+repeated lifecycle resource use. Each request checks decoded record ordering
+and `replyOutSeq`; GLib warning/error/critical records fail. Hanja paging uses
+`ProcessKeyEvent`, matching the golden path. A test-only action performs a
+real GSettings write because upstream Hangul exposes no suitable writing
+action; it verifies `SettingWritten` transport, not an upstream UI action.
+
+The measured program-break high-water was 3,461,120 bytes asserting and
+3,452,928 released, below the 4 MiB build declaration. The initial and peak
+pool size was eight, and checked-out pthread peak was zero, supporting a
+zero engine-thread declaration for this workload. These are Node storage
+workload results, not universal heap or browser pthread bounds. The harness
+uses reserved test instruments for statistics; it never reads WASM memory
+from the page. The golden C harness remains separate: 16 behavior cases and a run-completion
+check, 17 reported tests.

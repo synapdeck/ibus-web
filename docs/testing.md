@@ -294,13 +294,14 @@ fails on `gtest/gtest.h` ([tooling.md](tooling.md#editor-tooling)).
 
 An engine owns its golden traces under `engines/<name>/checks/`. Hangul's
 `checks.hangul-golden` uses a g_test main module with assertions and the actual
-engine side module. It mounts the package's data at FHS paths, sends framed
-runtime requests and decodes records with GVariant/IBus. Its 16 cases cover
+engine side module. It mounts the package's store-path data, sends framed
+runtime requests and decodes records with GVariant/IBus. Its 16 behavioral cases cover
 composition, candidates (page-relative clicks included), focus, settings
 (including changes with zero instances), lifetime, surrounding text and event
 ordering. The fixture resets the engine's settings to their defaults, plus
 Init's `hanja-keys`, before each case, and the lifecycle case checks the
-settings handlers left after destruction. The shim reports those cases and a run-completion check under Node.
+settings handlers left after destruction. The shim reports those cases and a run-completion check under Node, 17 tests
+in total.
 See [engines.md](engines.md#golden-tests) for the harness and the port bugs it
 reproduced. `checks.hangul-differential` separately replays ten engine-owned
 traces through private stock-native IBus sessions and the WASM engine, comparing
@@ -449,3 +450,38 @@ The decode benchmark is not a check, since wall-clock timing on a loaded builder
 means nothing: `nix run .#protocol-bench` runs it and prints the median and p99 of
 each layer. See [protocol.md](protocol.md) for the pipeline, the method and the
 figures.
+
+## Worker transport and engine resources
+
+```sh
+nix build .#checks.x86_64-linux.worker-host-node
+nix build .#checks.x86_64-linux.worker-host-browser
+nix build .#checks.x86_64-linux.hangul-host
+nix build .#checks.x86_64-linux.engine-manifest
+nix build .#checks.x86_64-linux.hangul-data-closure
+```
+
+Worker-host suites run production transport behavior on asserting and released
+runtimes, under Node and Chromium/Firefox. They cover ordered `replyOutSeq`,
+doorbells, abandonment, fragment/padding boundaries, wraparound, full-ring
+waits without pumping, partial-read wake races and crash reporting. Archive
+checks include native Brotli where supported and forced/automatic fallback.
+Pinned Chromium uses fallback; construction of `DecompressionStream("brotli")`
+is the production feature test. Generated `PROTOCOL.md` includes the SAB layout.
+
+`hangul-host` uses a real Node Worker, the built Hangul manifest and the test
+Page: 20 cases across both builds. It checks output ordering and real engine
+behavior and fails on warning/error/critical logs. Reserved test operations
+measure program-break, retained pool Worker and checked-out pthread peaks;
+`heapBytes` comes from build metadata. These workload results guard declarations
+without establishing universal resource bounds. The 16-case C golden harness (17 reported tests including completion)
+and native differential traces remain independent checks. Browser host checks
+exercise the transport, not a live page router or panel.
+
+Install-lock liveness tests distinguish a slow installer announcing progress
+from a silent holder. The deterministic first-piece gate spans the fixed
+500 ms test timeout. A saturated-builder repetition passed 50/50 with maximum
+heard-message gap 86 ms; a controlled run with the earlier implementation
+reproduced a missing-progress timeout. The natural baseline load run exposed
+late fixture startup, not a missing-heartbeat timeout. These are targeted
+regression observations, not a timer deadline under arbitrary starvation.

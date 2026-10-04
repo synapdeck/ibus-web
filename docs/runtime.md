@@ -74,7 +74,8 @@ request of the header alone is `-EBADMSG`. Records have a sixteen-byte header
 payload and padding to an eight-byte boundary; `len` counts only the payload.
 The runtime writes record flags as zero. `IBUSWEB_RECORD_CONTINUATION` is the
 only record flag, and only the host sets it, when it fragments a record. The
-sequence starts at one and wraps at 2^32.
+sequence starts at one, wraps at 2^32 and skips zero. Host-written records
+reserve zero and never advance the runtime watermark.
 
 Call `ibusweb_runtime_init`, map the schemas/data, and send `Init` with the
 settings snapshot **before loading the engine module**: engine initialization
@@ -347,8 +348,11 @@ thread and its other reads lock the file across the origin
 ([storage.md](storage.md#not-opfs)).
 
 The runtime's ABI identity is that set of versions plus
-`IBUSWEB_RUNTIME_ABI`; an engine's manifest records the identity it was
-built against (spec §5.3, §5.4.4). `checks.ibus-runtime-exports` checks that
+`IBUSWEB_RUNTIME_ABI`. The engine manifest currently records only the numeric
+ABI; the host compares it and the protocol number at startup. Carrying and
+checking the whole library-version identity remains a compatibility gap
+(spec §5.3, §5.4.4). Matching import names alone does not prove compatibility
+when a library changes without a numeric ABI bump. `checks.ibus-runtime-exports` checks that
 the two manifest files agree with the runtime's copies, that each library is
 at the version the build's inputs carry, and that `libibus-web` and
 `wasmfs-idb` export exactly what their headers declare.
@@ -500,25 +504,14 @@ memory, so it would be host-side, shared by the hosts. It isn't built.
 
 ### The control buffer
 
-Each Worker has one dedicated `SharedArrayBuffer`, separate from its
-`WebAssembly.Memory` (`packages/worker-host/src/shared/control.ts`): a
-64-byte header of `Int32` words, then one slot (64 KiB by default) that
-carries the request and then its reply.
-
-| Word       | Index | Written by | Meaning                                                                     |
-| ---------- | ----- | ---------- | --------------------------------------------------------------------------- |
-| `state`    | 0     | both       | `IDLE` 0, `REQUEST` 1, `REPLY` 2, `CRASHED` 3                               |
-| `reqSeq`   | 1     | page       | incremented per request                                                     |
-| `reqLen`   | 2     | page       | the request's length in the slot                                            |
-| `replyRet` | 3     | host       | `ibusweb_test_dispatch()`'s result: the reply's length, or a negative errno |
-| `wake`     | 4     | page       | bumped and notified after each request; the relay forwards it               |
-
-The page writes the request, `reqLen`, `reqSeq`, sets `state = REQUEST`, then
-bumps and notifies `wake`. The host dispatches, pumps, copies the reply into
-the slot, writes `replyRet`, sets `state = REPLY` and notifies `state`; the
-page copies the reply out and sets `IDLE`. `CRASHED` is written by the host
-when its runtime stops and by the relay when it fails. The output ring,
-`replyOutSeq`, the doorbell and the full-ring wait are M1's (spec §6.2).
+The host and page share a dedicated SAB separate from `WebAssembly.Memory`.
+Its eleven-word control header, request slot and output ring are specified in
+the generated [Transport section](../packages/protocol/PROTOCOL.md#transport).
+The default slot is 64 KiB and ring 256 KiB. Runtime replies carry an integer
+`replyRet` and output watermark `replyOutSeq`; test instruments alone put
+reply bytes in the slot. `reqMode` controls asynchronous completion doorbells.
+The [host loop](worker-host.md#the-ring-and-replies) handles fragments,
+back-pressure, wake forwarding and the abandonment race.
 
 ## Threads
 
@@ -538,22 +531,20 @@ The size is derived in Nix (`ibusWeb.runtime.threadPool`, from
 `runtime/ibus-runtime/package.nix`) from shares, by what starts the
 threads:
 
-| Share      | Threads | How it was counted                                                                                                                                                                                                                                                                                            |
-| ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GLib       | 3       | What one `GTask` in flight keeps alive, measured under Node and in both browsers: the worker context's thread (`gmain`, where GTask's pool manager runs) and the thread-pool spawner, kept for good, and a GTask worker, kept 15.5 s after its last task (0.5 s in the pool, then 15 s among unused threads). |
-| Storage    | 2       | One thread per IndexedDB backend, from mount, for good; a host mounts two (the engine's own files and its version's data). With both mounted, 10 of 12 Workers are idle in both browsers, 12 of 12 under Node and on the memory backend, which run on the calling thread.                                     |
-| Engine     | 4       | The most threads a test side module bursts to (`spawn(4)`). An engine's share is meant to come from its manifest.                                                                                                                                                                                             |
-| Planned    | 9       | The sum.                                                                                                                                                                                                                                                                                                      |
-| `lowWater` | 3       | Spare Workers: GLib's share.                                                                                                                                                                                                                                                                                  |
-| Pool       | **12**  | planned + spares                                                                                                                                                                                                                                                                                              |
+| Share      | Threads            | How it was counted                                                                                                                                                                                                                                                                                            |
+| ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GLib       | 3                  | What one `GTask` in flight keeps alive, measured under Node and in both browsers: the worker context's thread (`gmain`, where GTask's pool manager runs) and the thread-pool spawner, kept for good, and a GTask worker, kept 15.5 s after its last task (0.5 s in the pool, then 15 s among unused threads). |
+| Storage    | 2                  | One thread per IndexedDB backend, from mount, for good; a host mounts two (the engine's own files and its version's data). With both mounted, 10 of 12 Workers are idle in both browsers, 12 of 12 under Node and on the memory backend, which run on the calling thread.                                     |
+| Engine     | manifest `threads` | Declared engine share, guarded by conformance workload measurements.                                                                                                                                                                                                                                          |
+| Base       | **8**              | GLib + storage + `lowWater`.                                                                                                                                                                                                                                                                                  |
+| `lowWater` | 3                  | Spare Workers: GLib's share.                                                                                                                                                                                                                                                                                  |
+| Pool       | **8 + threads**    | Base plus engine share; Hangul declares zero.                                                                                                                                                                                                                                                                 |
 
-The engine's share is fixed at link time for now. The design (spec §5.3)
-adds it per Worker: Emscripten writes `-sPTHREAD_POOL_SIZE` into the
-runtime's JavaScript verbatim, inside the modularized factory where `Module`
-is the host's settings object, so the runtime could link with the Nix base
-plus `Module["ibuswebEngineThreads"]` (a probe linked that way, base 2 plus
-3, started 5 pool Workers). That isn't wired up
-([known-gaps.md](known-gaps.md#runtime)).
+The runtime links `-sPTHREAD_POOL_SIZE=8+Module["ibuswebEngineThreads"]`;
+Nix derives the base from runtime shares, and the host supplies the manifest's
+`threads`. The runtime refuses startup without that setting. The engine share
+is no longer a member of `ibusWeb.runtime.threadPool.shares`. Historical pool
+measurements below used the stated synthetic test-engine shares.
 
 **Why spares, and why GLib's share of them.** GLib handles a failed thread
 creation badly (GLib 2.88, in the paths the runtime uses):
@@ -670,11 +661,13 @@ Each runtime's memory is fixed, made by the host:
 
 The size is a manifest field, not a link per engine, so one compiled runtime
 serves every engine and the page compiles it once. The rule for computing it
-(the runtime's minimum, the side module's `dylink.0` memory, files in the
-memory backend, 1 MiB per thread of its share, the heap its checks peak at,
-a quarter more, rounded to whole MiB) is spec §5.3; computing it from build
-data is M1's. The runtime starts at about 2.3 MiB of heap, and each running
-thread adds about 1 MiB, mostly its stack.
+(runtime minimum + the side module's `dylink.0` static bytes + 1 MiB per
+engine-share thread + declared `heapBytes`) adds 25% headroom and rounds up
+to whole MiB. `mkEngineManifest` computes it from build data; `heapBytes`
+stays build/check metadata, guarded against the conformance harness's
+program-break high-water. Without IndexedDB, the host adds unpacked data
+bytes separately in whole pages. The runtime starts at about 2.3 MiB of heap,
+and each running thread adds about 1 MiB, mostly its stack.
 
 GLib's tests and other Node-run test programs use a fixed 512 MiB
 (`ibusWeb.toolchain.testMemoryFlags`; GLib's largest test peaks at 280 MiB),

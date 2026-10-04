@@ -81,6 +81,13 @@ An item leaves this page when it is fixed or decided.
 
 ## Runtime
 
+- **Full runtime ABI identity.** Engine manifests currently compare numeric
+  `runtimeAbi` with `IBUSWEB_RUNTIME_ABI`. They do not carry or compare all
+  linked library versions from the runtime export list; the stronger identity
+  described by the design is still pending. A library mismatch with the same
+  numeric ABI can pass this check; the import-name guard does not prove that
+  layouts and calling conventions match.
+
 - **IBus API scope.** M1.1 supplies engine/data types, emitters, the framed dispatcher
   and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji;
   unused bus/config/component APIs remain absent. Keymap lookup uses page-provided keysyms.
@@ -96,7 +103,7 @@ An item leaves this page when it is fixed or decided.
   See [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
 - **An engine's C++ exception poisons the runtime.** The exception unwinds
   through GLib's signal emission, so `ibusweb_dispatch` latches a fault and
-  returns `-ECANCELED`, and the host treats it as a crash and restarts the
+  returns `-ECANCELED`, and the host treats it as a crash. The page must restart the
   engine. Containing it needs a small GLib patch, once a C++ engine is in
   scope: hook the `marshal(...)` call in `g_closure_invoke` and
   `_g_closure_invoke_va` (`gobject/gclosure.c`) and the source dispatch call in
@@ -109,18 +116,6 @@ An item leaves this page when it is fixed or decided.
   its cost. Building GLib with `-fexceptions` wouldn't help: unwinding runs only
   cleanup-attributed locals, and GLib's emission push and pop aren't, so it
   would mean rewriting GLib's internals.
-- **The ring and the protocol** (spec §6): the output ring, `replyOutSeq` and the doorbell are M1.3's; `@ibus-web/protocol` supplies the GVariant codec and the framed messages. The full-ring wait must follow §6.2.2: the host sets `ringWaiting`, posts a doorbell,
-  reads the wake word as `seen`, re-checks the free space and, while the ring is full, sleeps in
-  `ibusweb_wait(seen, -1)` without pumping; the page, after advancing `ringRead`, clears `ringWaiting` and
-  bumps `wake`.
-- **The engine's pool share is fixed at 4** (`runtime/ibus-runtime/package.nix`). The design (spec §5.3)
-  links `-sPTHREAD_POOL_SIZE` as the Nix-derived base plus `Module["ibuswebEngineThreads"]`, which the host
-  sets from the manifest's `threads`, refusing to start without it. Emscripten 6.0.9 writes the setting
-  verbatim inside the modularized factory, so this works (a probe linked that way started 2 + 3 Workers);
-  the quoting must survive the cc-wrapper and the export-list link.
-- **The manifest's sizes from build data.** Computing `memory`, `threads` and data sizes from the side
-  module's `dylink.0`, files in the memory backend, the checks' measured peak heap, the engine's thread
-  burst and each data archive's unpacked size is M1's.
 - **No module shutdown call.** The ABI has no shutdown entry point; Hangul's
   `ibus_hangul_exit` never runs and its module globals live for the Worker lifetime.
 - **GLib's pool share under concurrent `GTask`s.** The share of 3 covers one `GTask` in flight; each
@@ -141,6 +136,9 @@ An item leaves this page when it is fixed or decided.
 
 ## Engines and page integration
 
+- **Page router (M1.4).** Transport integration currently lives in the test Page;
+  the production router, replay queue and adapters remain to be implemented.
+
 - **Connection-time callback audit.** The current cast audit sees explicit casts;
   it cannot establish every connected handler's arity. Hangul needs no lazy arity
   bridge; m17n, libpinyin and Rime still need their own audits.
@@ -151,9 +149,6 @@ An item leaves this page when it is fixed or decided.
 - **Surrounding selection anchor.** The IBus-compatible delete operation updates
   cached text/cursor but leaves the selection anchor unchanged until the host's
   next `SetSurroundingText`; callers can observe that stale anchor.
-- **Host startup (M1.3).** Map the installed engine data into its FHS view and
-  apply the Init snapshot before loading the module. The existing host's data
-  installation does not yet wire this engine startup sequence.
 - **Client preedit policy (M1.4).** Commit the last COMMIT-mode preedit on blur
   and reset; Hangul clears its own composition and relies on the client. A Hanja
   list instead uses CLEAR mode. The router should omit
@@ -166,6 +161,25 @@ An item leaves this page when it is fixed or decided.
   (spec §7.1.4). The C backend is in-memory only.
 
 ## Storage
+
+- **A shared content-addressed store (future design).** Today every engine
+  version installs its whole closure into its own data database. The proposed
+  replacement is one IndexedDB database, mounted read-only at `/nix/store`
+  in every engine Worker with one backend thread per Worker. Each store path
+  would be installed once and reused by all engines and versions referencing it.
+  Content addressing avoids the half-updated-tree failure that motivated a
+  database per version. No install lock or per-path marker is planned: the
+  backend already reads and bumps `nextIno` in the same readwrite transaction
+  as the entry's `add`, and IndexedDB serializes overlapping readwrite
+  transactions across connections. Installers would extract to private staging
+  names, then rename onto the store path in one transaction; a loser would
+  discard its identical staging copy, and readers would see only whole paths.
+  Deletion would require every Worker to hold a shared Web Lock for each path
+  it uses; deletion would take that lock exclusively with `ifAvailable`.
+  Before implementing this, verify that backend rename is one transaction
+  that refuses an existing target, and define how interrupted staging trees
+  are swept. This sharing, rename contract and staging cleanup are not
+  implemented or verified.
 
 - **Host API**: usage report, export and reset (spec §5.6), and the quota `storage` events of spec §8, aren't
   built.
@@ -186,8 +200,6 @@ An item leaves this page when it is fixed or decided.
 - **The memory fallback's headroom for metadata.** Without IndexedDB the memory grows by the page-rounded
   data size, which covers file contents only; WasmFS's file objects and directory entries come out of the
   base memory's spare, which a manifest of many small files could exhaust.
-- **A manifest without a version** fails the start for every storage but `none`, the memory fallback
-  included, which may be stricter than it needs to be.
 - **Real quota failures** aren't reached in tests; the backend's tests inject the state one leaves.
 - **Measurements on one machine.** The fsync and storage figures come from one host's ZFS. Chromium's
   64 KiB cliff is attributed to Blink's value wrapping, not traced; Firefox's out-of-line threshold is
@@ -317,8 +329,6 @@ An item leaves this page when it is fixed or decided.
 - **Integer-like dictionary keys.** The tree layer preserves entry order; schema
   records follow JavaScript's ordering of integer-like keys. IBus attachment names
   and GSettings schema IDs and keys do not use these keys.
-- **Fragment reassembly (M1.3).** The ring reader must reassemble `CONTINUATION`
-  fragments before decoding; `decodeRecord` rejects flagged fragments.
 - **Lazy lookup decoding (M1.4).** A framed 500-candidate record (64,832 bytes) takes
   1.01 ms median / 4.40 ms p99 under Node v24.21.0 on a Ryzen 9 9950X3D
   (`nix run .#protocol-bench`), twice the 0.5 ms target. Bytes to tree (0.43 ms) and

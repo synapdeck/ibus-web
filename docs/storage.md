@@ -13,16 +13,17 @@ values are not stored here; the settings bridge hands them to the host
 
 ## What is mounted where
 
-| Path                    | Browser                                                 | Without IndexedDB     | Node (tests)                              |
-| ----------------------- | ------------------------------------------------------- | --------------------- | ----------------------------------------- |
-| `/engines/<name>/`      | IndexedDB backend over `ibus-web/<name>`                | WasmFS memory backend | Node backend over `<dir>/user/`           |
-| `/engines/<name>/data/` | IndexedDB backend over `ibus-web/<name>/data/<version>` | the same memory mount | Node backend over `<dir>/data/<version>/` |
+| Path               | Browser                                                 | Without IndexedDB     | Node (tests)                              |
+| ------------------ | ------------------------------------------------------- | --------------------- | ----------------------------------------- |
+| `/engines/<name>/` | IndexedDB backend over `ibus-web/<name>`                | WasmFS memory backend | Node backend over `<dir>/user/`           |
+| `/nix/store/`      | IndexedDB backend over `ibus-web/<name>/data/<version>` | the same memory mount | Node backend over `<dir>/data/<version>/` |
 
-`/engines` itself is in memory. The data mount is a WasmFS mount inside the
-user mount: WasmFS keeps it in its directory cache and records nothing in
-the user database, so the engine can't make a `data` entry of its own
-there. In the memory fallback the data is installed into the one memory
-mount, under the same path.
+`/engines` and `/nix` are created in memory. The version's data backend is
+mounted at `/nix/store`, separate from its user backend, and each archive
+lands at its exact store-path basename. Without IndexedDB, data is installed
+under the same store paths in WasmFS memory. Engine builds retain their Nix
+paths; no FHS mapping is applied. Each version still installs its own whole
+closure; a shared store is [future work](known-gaps.md#storage).
 
 The engine's name and version are encoded in every database, lock and
 directory name (`encodeURIComponent`, with `!'()*.~` also escaped), so
@@ -418,8 +419,8 @@ handle's 8–56 µs.
 ## Engine data: a database per version
 
 Read-only engine data (m17n-db, Hangul's Hanja tables, Rime's prebuilt
-schemas) is listed in the engine manifest as archives (`url`, `path`,
-unpacked `size`), fetched, installed once per version and read lazily like
+schemas) is listed in the engine manifest as archives (`storePath`, `url`,
+unpacked `size`, `encoding`), fetched, installed once per version and read lazily like
 any other file. The protocol lives in
 `packages/worker-host/src/worker/install/`.
 
@@ -472,8 +473,13 @@ since a strict commit that writes makes every earlier change to the database
 durable. A marker whose value isn't one for this version counts as none, so
 the version is installed again rather than every start failing.
 
-**The extractor.** Archives are uncompressed POSIX ustar (compression is
-HTTP's job), streamed from the response body into `libibus-web`'s
+**The extractor.** Archives are Brotli-compressed POSIX ustar, one per store path. The host
+streams native `DecompressionStream("brotli")` output, where construction
+succeeds, or a lazy `brotli-dec-wasm` fallback with its WASM embedded in the
+separate decoder script. Native support avoids loading that script. Plain
+ustar (`encoding: "identity"`) remains available for fixtures. Serve the
+archives without `Content-Encoding: br` to avoid fetch decoding them twice.
+Decompressed bytes are re-cut into at most 64 KiB pieces and streamed into `libibus-web`'s
 `ibusweb_install_begin`, `_feed`, `_count` and `_end`, which write through
 the mounted file system, so the stored layout has one writer. The host
 feeds it through a 64 KiB buffer in the runtime's memory. It takes regular
@@ -485,12 +491,17 @@ can redo it; existing files are truncated and rewritten, missing parents
 made. Each regular file is sized from its header before its data is
 written, so a file in memory is allocated once, and `fsync()`ed once
 written. Each archive lands under the data mount at its manifest entry's
-`path`.
+`storePath`. The bounded C parser uses standard `tar.h` constants and an
+explicitly size/offset-checked ustar header layout.
 
 **Waiting and progress.** A host waiting for the data or install lock gives
 up, failing its start, after 120 s without word from the holder. The
-installer says it is still going, at most once a second while archive bytes
-reach the extractor, on a `BroadcastChannel` named after the install lock,
+installer sends progress every second throughout the install lock's lifetime
+on a `BroadcastChannel` named after that lock, including asynchronous mount,
+fetch, decoder setup, marker commit and sealing. The timer starts when the
+lock is acquired and stops before release. It runs only during asynchronous
+bootstrap, never in the synchronous request loop. Synchronous runtime calls
+or OS starvation can still delay timer delivery,
 and each word starts a waiter's 120 s over, so a long install holds no one
 up for good. An archive that sends nothing for 30 s fails its installer's
 start, which lets go of the lock. In Firefox a response body waits while

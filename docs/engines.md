@@ -10,7 +10,8 @@ nix build .#checks.x86_64-linux.hangul-golden
 nix build .#checks.x86_64-linux.hangul-cast-audit
 ```
 
-The package contains `hangul.wasm` and `data/usr/share/`. Its module links engine
+The package contains `hangul.wasm`; `ibus-web-hangul-dist` adds a manifest and
+store-path data archives. Its module links engine
 code and private libhangul, importing IBus, GLib and system libraries from
 `ibus-runtime.wasm`. It is GPL-2.0-or-later. The internal option is
 `ibusWeb.engines.hangul`; the public package is `packages.ibus-web-hangul`.
@@ -25,18 +26,81 @@ the small engine config header, and compiles `engine.c`, `ustring.c` and our
 contributes link libraries; the shared `checkSideModuleLibraries` guard rejects
 runtime libraries accidentally added by pkg-config.
 
-A private override of libhangul 0.2.0 changes its default Hanja path to
-`/usr/share/libhangul/hanja/hanja.txt`, without changing the general libhangul
-package. Hangul's symbols live at `/usr/share/ibus-hangul/data/symbol.txt`.
-libhangul keeps the Hanja dictionary open and uses seeks to read entries;
-the eventual host mapping must support that access pattern.
+Engine data keeps the paths compiled by Nix. Private libhangul's Hanja table
+and ibus-hangul's symbols retain their respective `/nix/store/<hash>-<name>`
+paths; no FHS path patch is needed. libhangul keeps the Hanja dictionary open
+and seeks through it. The host mounts the version's data database at
+`/nix/store`, while user files stay at `/engines/<name>`.
 
-The data tree also contains the Hangul and IBus schema XML files, including
-`org.freedesktop.ibus.panel`, and `gschemas.compiled`. Compilation uses the
-cross GLib tool named by `gio-2.0.pc`, executed under Node, with `--strict`.
-The native build machine's schema compiler is not substituted. The host must
-expose this tree at its FHS paths before loading the module; wiring the
-installed data backend into that view is M1.3 work.
+The data closure is the side module's Nix store references, minus its own
+output. Every dependency must be data only: dictionaries, schema XML and
+`gschemas.compiled`, without runtime libraries, development files or compilers.
+The schema output includes Hangul and `org.freedesktop.ibus.panel`. The cross
+GLib compiler named by `gio-2.0.pc` runs under Node with `--strict`.
+Hangul's module retains the schema directory string as a store reference;
+the host sets `GSETTINGS_SCHEMA_DIR` before Init, GLib's first lookup.
+
+### Distribution manifest
+
+`ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`,
+`heapBytes`, `settingsSchemaDir`, `engines` and `settingsSchemas`. It derives
+version and license from the package, runtime ABI and protocol from the build,
+and static memory from the module's `dylink.0` section. Build:
+
+```sh
+nix build .#ibus-web-hangul-dist
+```
+
+The output contains `manifest.json`, `hangul.wasm`, and one
+`data/<hash>-<name>.tar.br` per closure store path. `EngineManifest` in
+`@ibus-web/protocol` has these fields:
+
+```ts
+type EngineManifest = {
+  name: string;
+  version: string;
+  license: string;
+  runtimeAbi: number;
+  protocol: number;
+  module: { url: string; size: number };
+  memory: number;
+  threads: number;
+  data: { storePath: string; url: string; size: number; encoding: "br" | "identity" }[];
+  settingsSchemaDir: string;
+  engines: string[];
+  settingsSchemas: string[];
+};
+```
+
+`memory` is bytes in whole 64 KiB pages within the runtime bounds; `threads`
+is a nonnegative engine pool share. `settingsSchemaDir` must be inside a
+unique data store path. The host validates the manifest before allocating
+runtime resources and rejects ABI/protocol mismatches. Numeric `runtimeAbi`
+checks `IBUSWEB_RUNTIME_ABI`; the stronger full library-version identity is
+still a [known gap](known-gaps.md#runtime).
+
+The build computes memory as `(runtime minimum + dylink static bytes +
+threads × 1 MiB + heapBytes) × 1.25`, rounded up to whole MiB. `heapBytes`
+is build/check metadata, not a manifest field. `checks.hangul-host` fails if
+the measured program-break peak exceeds it or engine thread demand exceeds
+`threads`. Hangul declares 4 MiB heap and zero threads, based on its current
+Node conformance workload; the formula adds headroom separately. Browser
+storage threads belong to the runtime's storage share.
+
+### Archives and serving
+
+Each archive is deterministic POSIX ustar with entries relative to its store
+path, Brotli quality 11 and the standard window (no `--large_window`). `size`
+counts unpacked regular-file bytes, which the installer verifies. Serve
+`.tar.br` as opaque bytes, **without `Content-Encoding: br`**: fetch must
+not decompress it before the host. `encoding: "identity"` supports plain
+ustar fixtures.
+
+The host constructs `DecompressionStream("brotli")` to detect native support.
+Otherwise it lazily imports a separate `brotli-dec-wasm` streaming decoder
+bundle with WASM embedded by Rolldown's binary loader. No external decoder
+WASM fetch is needed, and native installations never load that bundle. Both
+paths feed the bounded C extractor in pieces of at most 64 KiB.
 
 ## Startup and patch layers
 
@@ -119,7 +183,7 @@ sends framed protocol requests,
 pumps, and decodes owned output records with GVariant and IBus serialization.
 Keys use US keysyms, evdev keycodes, modifiers and releases.
 
-Sixteen cases cover Latin mode, Hangul composition and CapsLock, BackSpace,
+Sixteen behavioral cases cover Latin mode, Hangul composition and CapsLock, BackSpace,
 focus/reset, Hanja keyboard and click selection (after paging forward), paging
 and invalid digits, clicks no visible label has, settings, destruction,
 password fields, surrounding text, enable, and commit/forward ordering. The idle-settings case destroys the last engine, changes
@@ -154,3 +218,11 @@ The page must eventually commit COMMIT-mode preedit on blur and
 reset. Without `IBUS_CAP_SYNC_PROCESS_KEY_V2`, space passes through after the
 engine commits; with it, the engine consumes space and emits `ForwardKeyEvent`
 after `CommitText`. M1.4's router must choose capabilities accordingly.
+
+The shim reports 17 golden tests, including its run-completion check.
+The [Worker-host conformance harness](worker-host.md#transport-and-hangul-conformance)
+is a separate Node check: ten scenarios on each asserting/released build,
+20 reported tests. It runs the
+real engine through SAB requests and records rather than calling WASM directly,
+and guards the declared heap and thread shares. Neither harness establishes
+live browser UI behavior or device input behavior.
