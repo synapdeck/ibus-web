@@ -27,7 +27,7 @@ const manifest = {
   module: { url: "https://example.test/test.wasm", size: 1 },
   data: [{ storePath: root, url: "https://example.test/schemas.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `${root}/schemas`,
-  engines: [],
+  engines: ["test"],
   settingsSchemas: [],
 };
 describe("manifest startup validation", () => {
