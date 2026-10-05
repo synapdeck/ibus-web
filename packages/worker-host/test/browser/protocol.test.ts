@@ -21,9 +21,10 @@ afterAll(() => h.cleanUp());
 describe.each(h.data.runtimes)("protocol on $name", (runtime) => {
   for (const [name, scenario] of Object.entries({ protocolRoundtrip, replySequence, requestModes, timerOutput }))
     test(name, async () => {
-      const host = await h.start({ runtime });
+      const replies = new SharedArrayBuffer(8);
+      const host = await h.start({ runtime, test: { replies } });
       try {
-        await scenario(h, host);
+        await scenario(h, host, new Int32Array(replies));
       } finally {
         await host.terminate();
       }

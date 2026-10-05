@@ -89,6 +89,7 @@ export const makeInstruments = (
   const capacity = 64 * 1024;
   let held = false;
   const loadedModules: string[] = [];
+  const replies = test.replies === undefined ? undefined : new Int32Array(test.replies);
   const counters = {
     activeThreadsAtRuntimeStart: 0,
     activeThreadsPeak: 0,
@@ -331,6 +332,12 @@ export const makeInstruments = (
           return ret > 0 ? { ret, bytes: runtime.bytes.slice(replyBuffer, replyBuffer + ret) } : { ret };
         }
       }
+    },
+    replied: (mode) => {
+      if (replies === undefined) return;
+      Atomics.store(replies, 1, mode);
+      Atomics.add(replies, 0, 1);
+      Atomics.notify(replies, 0);
     },
     requestServed: (whileAsleep) => {
       counters.requests++;

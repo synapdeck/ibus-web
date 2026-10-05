@@ -36,6 +36,9 @@ export interface Instruments {
   // Answers a request itself, or undefined to have the runtime dispatch it.
   // A promise has the host leave its request loop until it settles.
   readonly serve: (request: Uint8Array) => InstrumentReply | Promise<InstrumentReply> | undefined;
+  // A reply was published, and mode is the reqMode the host then read for
+  // it.
+  readonly replied: (mode: number) => void;
   // whileAsleep: the request arrived while the host slept, rather than
   // before it started a wait.
   readonly requestServed: (whileAsleep: boolean) => void;
@@ -56,6 +59,7 @@ const none: Instruments = {
   waiting: () => {},
   beforePiece: () => undefined,
   serve: () => undefined,
+  replied: () => {},
   requestServed: () => {},
   eventLoopTurn: () => {},
   topUpsHeld: () => false,

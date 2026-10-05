@@ -79,8 +79,10 @@ export const ringDoorbell = (ctx: LoopContext): void => {
 // Called only once the request's records are in the ring, so a reply never
 // lands ahead of them.
 const publishReply = (ctx: LoopContext, ret: number): void => {
-  const published = postReply(ctx.control, ret, ctx.lastSeq);
-  if (published && Atomics.load(ctx.control.words, Word.reqMode) !== ReqMode.sync) ringDoorbell(ctx);
+  if (!postReply(ctx.control, ret, ctx.lastSeq)) return;
+  const mode = Atomics.load(ctx.control.words, Word.reqMode);
+  if (mode !== ReqMode.sync) ringDoorbell(ctx);
+  ctx.instruments.replied(mode);
 };
 
 // Both dispatch paths finish through the same publication and notification rules.

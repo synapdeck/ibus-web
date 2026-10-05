@@ -181,7 +181,7 @@ export const engineLoadFailure = async (h: Harness, runtime: RuntimeBuild): Prom
   const host = await h.start({ runtime, manifest, test: { sides: [] } });
   try {
     await call(host, 0, init()).catch(() => {});
-    expect(await host.client.crashReport(20_000)).toBeDefined();
+    expect(await host.client.crashReport(20_000)).not.toBeNull();
     expect(host.client.page.records().at(-1)).toMatchObject({ record: { _tag: "Crashed", reason: CrashReason.load } });
   } finally {
     await host.terminate();

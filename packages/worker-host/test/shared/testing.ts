@@ -84,6 +84,9 @@ export interface TestInit {
   waitAppend?: SharedArrayBuffer;
   waitAppendOp?: number;
   waitAppendBytes?: number;
+  // Two int32s the host updates on each reply it publishes: the reqMode it
+  // read for it, at 1, then the count of them, at 0, which it notifies.
+  replies?: SharedArrayBuffer;
   deferPump?: SharedArrayBuffer;
   callsAfterFault?: SharedArrayBuffer;
   canceled?: number;
