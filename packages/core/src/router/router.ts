@@ -17,13 +17,24 @@ import {
 import { EngineRegistry } from "../services/engines.ts";
 import { CoreConfig } from "../services/config.ts";
 import { PanelEvents, SyncMailbox, type PanelEvent } from "../services/logging.ts";
-import type { SurfaceAdapter } from "./replay.ts";
+import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
 import { InputContext } from "./contexts.ts";
 export interface HotkeyRegistry {
   add(predicate: (event: KeyboardEvent) => boolean, action: () => void): () => void;
 }
+export interface AttachOptions {
+  /** sync preserves native passthrough; async owns fallback; manual leaves keyboard capture to the editor. */
+  readonly keyMode?: "sync" | "async" | "manual";
+}
 export interface RouterService {
-  attach(adapter: SurfaceAdapter): () => void;
+  attach(adapter: SurfaceAdapter, options?: AttachOptions): () => void;
+  /**
+   * Call during the original event dispatch. Accepted keys are prevented immediately;
+   * excluded keys retain native handling. The router applies fallback before returning
+   * `replayed`; callers must not prevent excluded events or replay the result again.
+   * Detach/disposal cancels pending ownership. Adapter callback failures reject.
+   */
+  keyAsync(adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult>;
   select(engine: string): Effect.Effect<void, Error>;
   override(adapter: SurfaceAdapter, engine: string | undefined): Effect.Effect<void, Error>;
   readonly hotkeys: HotkeyRegistry;
@@ -278,7 +289,14 @@ export const makeRouter = Effect.gen(function* () {
         }
         return submit(() => reconcile(surface));
       }),
-    attach: (adapter) => {
+    keyAsync: (adapter, event) => {
+      const surface = surfaces.get(adapter),
+        context = surface?.active;
+      if (!surface || !context || surface.suspended || !wants(surface, context.engine))
+        return Promise.resolve("passthrough");
+      return registry.keyAsync(context.engine, context, event);
+    },
+    attach: (adapter, { keyMode = "sync" } = {}) => {
       if (closed) throw new Error("Router is closed");
       if (surfaces.has(adapter)) throw new Error("Surface is already attached");
       const surface: Surface = {
@@ -350,6 +368,12 @@ export const makeRouter = Effect.gen(function* () {
               event.stopPropagation();
               return;
             }
+        if (keyMode === "async") {
+          void service.keyAsync(adapter, event).catch((cause) => {
+            mailbox.enqueue(() => Effect.fail(asError(cause)));
+          });
+          return;
+        }
         const context = surface.active;
         if (!context || surface.suspended || !wants(surface, context.engine)) return;
         if (registry.keySink(context.engine, context).key(event) === "consumed") {
@@ -359,8 +383,10 @@ export const makeRouter = Effect.gen(function* () {
       };
       adapter.element.addEventListener("focus", focus);
       adapter.element.addEventListener("blur", blur);
-      adapter.element.addEventListener("keydown", key, true);
-      adapter.element.addEventListener("keyup", key, true);
+      if (keyMode !== "manual") {
+        adapter.element.addEventListener("keydown", key, true);
+        adapter.element.addEventListener("keyup", key, true);
+      }
       surface.cleanup = () => {
         removeReset();
         adapter.element.removeEventListener("focus", focus);

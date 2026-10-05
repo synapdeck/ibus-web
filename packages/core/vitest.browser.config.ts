@@ -8,7 +8,7 @@ export default defineConfig({
   server: { headers: crossOriginIsolation },
   test: {
     fileParallelism: false,
-    include: ["test/router/{contexts,preedit,surrounding,content-type,switching}.test.ts"],
+    include: ["test/browser/**/*.test.ts", "test/router/{contexts,preedit,surrounding,content-type,switching}.test.ts"],
     browser: browserMode(["chromium", "firefox"], {}),
   },
 });

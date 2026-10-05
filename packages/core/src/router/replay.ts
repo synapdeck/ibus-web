@@ -28,6 +28,12 @@ export interface SurfaceAdapter {
   onReset(listener: () => void): () => void;
 }
 
+/**
+ * consumed: reply records applied; replayed: declined key already applied once.
+ * passthrough: excluded, never intercepted/replayed; cancelled: owner detached/disposed.
+ * Never replay a `replayed` result.
+ */
+export type AsyncKeyResult = "consumed" | "replayed" | "passthrough" | "cancelled";
 export type KeyResult = "consumed" | "passthrough";
 export interface KeySink {
   key(event: KeyboardEvent): KeyResult;

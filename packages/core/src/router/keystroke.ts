@@ -3,7 +3,7 @@
 import { ProcessKeyEvent, type DecodedRecord, type EngineManifest, type Request } from "@ibus-web/protocol";
 import type { Connection, CrashInfo, Reply } from "../connection/connection.ts";
 import { translateKey } from "../keys/translate.ts";
-import { ReplayQueue, type KeySink, type KeyResult, type SurfaceAdapter } from "./replay.ts";
+import { ReplayQueue, type KeySink, type KeyResult, type AsyncKeyResult, type SurfaceAdapter } from "./replay.ts";
 export type EngineState = "starting" | "ready" | "busy" | "restarting" | "failed";
 export type KeyConnection = Pick<
   Connection,
@@ -35,6 +35,7 @@ interface PendingKey {
   readonly request: Request;
   readonly generation: number;
   retired?: boolean;
+  readonly completion?: { resolve(result: AsyncKeyResult): void; reject(cause: unknown): void };
 }
 export interface RouterOutput {
   readonly replayLimit: number;
@@ -103,18 +104,30 @@ export class KeyRouter {
   retire(context: KeyContext, beforeReplay?: () => void): void {
     const keys = [...this.accepted].filter((key) => key.context === context);
     this.replay.remove((key) => key.context === context);
-    if (keys.length > 0 || beforeReplay)
-      context.adapter.batch(() => {
-        beforeReplay?.();
-        for (const key of keys) {
-          key.retired = true;
-          if (this.attached(context)) context.adapter.replayKey(key.event);
-          this.finished(key);
-        }
-      });
+    try {
+      if (keys.length > 0 || beforeReplay)
+        context.adapter.batch(() => {
+          beforeReplay?.();
+          for (const key of keys) {
+            key.retired = true;
+            this.fallback(key);
+          }
+        });
+    } catch (error) {
+      for (const key of keys) {
+        key.retired = true;
+        this.finished(key, { error });
+      }
+      throw error;
+    }
   }
-  private finished(key: PendingKey): void {
-    this.accepted.delete(key);
+
+  private finished(key: PendingKey, result: AsyncKeyResult | { error: unknown } = "cancelled"): void {
+    if (!this.accepted.delete(key)) return;
+    if (key.completion) {
+      const completion = key.completion;
+      queueMicrotask(() => (typeof result === "string" ? completion.resolve(result) : completion.reject(result.error)));
+    }
     for (const drain of this.drains) {
       drain.keys.delete(key);
       if (drain.keys.size === 0) {
@@ -142,7 +155,7 @@ export class KeyRouter {
   private current(context: KeyContext): boolean {
     return context.ready && this.attached(context);
   }
-  private key(context: KeyContext, event: KeyboardEvent): KeyResult {
+  private prepare(context: KeyContext, event: KeyboardEvent): PendingKey | undefined {
     const snapshot = this.snapshot;
     if (
       !snapshot.enabled ||
@@ -150,17 +163,38 @@ export class KeyRouter {
       !this.current(context) ||
       context.adapter.contentType().disabled
     )
-      return "passthrough";
+      return undefined;
     const translated = translateKey(event, snapshot.keyboard.layout);
-    if (!translated || snapshot.passThrough.has(translated.keyval)) return "passthrough";
+    if (!translated || snapshot.passThrough.has(translated.keyval)) return undefined;
     const connection = snapshot.connection;
-    if (!connection) return "passthrough";
-    const pending: PendingKey = {
+    if (!connection) return undefined;
+    return {
       context,
       event,
       request: new ProcessKeyEvent(translated),
       generation: snapshot.generation,
     };
+  }
+  /** Invoke during event dispatch: only accepted keys are prevented, before this call returns. */
+  keyAsync(context: KeyContext, event: KeyboardEvent): Promise<AsyncKeyResult> {
+    const pending = this.prepare(context, event);
+    if (!pending) return Promise.resolve("passthrough");
+    event.preventDefault();
+    event.stopPropagation();
+    return new Promise((resolve, reject) => {
+      const owner = { ...pending, completion: { resolve, reject } };
+      this.accepted.add(owner);
+      this.replay.push(owner);
+      if (this.replay.size + (this.active ? 1 : 0) > this.replay.limit)
+        this.crash({ reason: "hang", message: "Replay queue exceeded its limit" });
+      else this.next();
+    });
+  }
+  private key(context: KeyContext, event: KeyboardEvent): KeyResult {
+    const pending = this.prepare(context, event);
+    if (!pending) return "passthrough";
+    const snapshot = this.snapshot,
+      connection = snapshot.connection!;
     this.accepted.add(pending);
     if (this.busy) {
       this.replay.push(pending);
@@ -243,20 +277,39 @@ export class KeyRouter {
     };
     run(0);
   }
+  private fallback(pending: PendingKey): void {
+    try {
+      if (this.attached(pending.context)) {
+        pending.context.adapter.replayKey(pending.event);
+        this.finished(pending, "replayed");
+      } else this.finished(pending);
+    } catch (error) {
+      this.finished(pending, { error });
+      if (!pending.completion) throw error;
+    }
+  }
   private complete(reply: Reply): void {
     const pending = this.active;
     this.active = undefined;
     this.activeMode = undefined;
     if (!pending) return;
-    if (pending.generation === this.snapshot.generation) {
-      this.apply(
-        this.ownedRecords(reply.records, pending),
-        !pending.retired && reply.ret === 1 ? pending.context : undefined,
-      );
-      if (!pending.retired && reply.ret !== 1 && this.current(pending.context))
-        pending.context.adapter.replayKey(pending.event);
+    try {
+      if (pending.generation === this.snapshot.generation) {
+        this.apply(
+          this.ownedRecords(reply.records, pending),
+          !pending.retired && reply.ret === 1 ? pending.context : undefined,
+        );
+        if (!pending.retired && this.attached(pending.context)) {
+          if (reply.ret === 1) this.finished(pending, "consumed");
+          else this.fallback(pending);
+        }
+      }
+    } catch (error) {
+      this.finished(pending, { error });
+      if (!pending.completion) throw error;
+    } finally {
+      this.finished(pending);
     }
-    this.finished(pending);
   }
   private drainUnsolicited(): void {
     if (this.activeMode === "async" || this.lifecycle > 0) return;
@@ -275,19 +328,22 @@ export class KeyRouter {
     this.active = pending;
     this.activeMode = "async";
     const owner = pending;
-    void connection.requestAsync(pending.request, pending.context.ic).then(
-      (reply) => {
+    const failed = () => {
+      if (this.active === owner && this.snapshot.connection === connection)
+        this.crash({ reason: "worker", message: "Asynchronous key request failed" });
+    };
+    try {
+      void connection.requestAsync(pending.request, pending.context.ic).then((reply) => {
         if (this.active !== owner || this.snapshot.connection !== connection) return;
         this.complete(reply);
         this.drainUnsolicited();
         this.next();
-      },
-      () => {
-        if (this.active === owner && this.snapshot.connection === connection)
-          this.crash({ reason: "worker", message: "Asynchronous key request failed" });
-      },
-    );
+      }, failed);
+    } catch {
+      failed();
+    }
   }
+
   crash(crash: CrashInfo): void {
     this.snapshot.connection?.terminate(crash);
     this.crashed(crash);
@@ -302,21 +358,32 @@ export class KeyRouter {
     this.active = undefined;
     this.activeMode = undefined;
     this.lifecycle = 0;
+    const failures: unknown[] = [];
     for (const pending of events) {
-      if (!pending.retired && this.current(pending.context)) pending.context.adapter.replayKey(pending.event);
-      this.finished(pending);
+      try {
+        if (!pending.retired) this.fallback(pending);
+        else this.finished(pending);
+      } catch (error) {
+        // One surface's callback must not strand another surface's accepted keys.
+        failures.push(error);
+      }
     }
     this.snapshot.generation++;
     for (const context of this.contexts.values()) {
       context.ready = false;
-      context.adapter.batch(() => {
-        context.adapter.setPreedit(undefined);
-        context.invalidate();
-      });
-      this.output.hide(context.ic);
+      try {
+        context.adapter.batch(() => {
+          context.adapter.setPreedit(undefined);
+          context.invalidate();
+        });
+        this.output.hide(context.ic);
+      } catch (error) {
+        failures.push(error);
+      }
     }
     connection.terminate();
     this.output.crashed(crash);
+    if (failures.length > 0) throw failures[0];
   }
   disconnect(): void {
     for (const unsubscribe of this.unsubscribe.splice(0)) unsubscribe();

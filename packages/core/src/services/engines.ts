@@ -13,7 +13,7 @@ import {
   type KeyConnection,
   type KeyContext,
 } from "../router/keystroke.ts";
-import type { KeySink } from "../router/replay.ts";
+import type { AsyncKeyResult, KeySink } from "../router/replay.ts";
 import { makeRestarter, type WaitForWriter } from "../router/restart.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
@@ -39,6 +39,7 @@ export interface EngineRegistryService {
   drainContext(name: string, context: KeyContext): Promise<void>;
   retireContext(name: string, context: KeyContext, beforeReplay?: () => void): void;
   keySink(name: string, context: KeyContext): KeySink;
+  keyAsync(name: string, context: KeyContext, event: KeyboardEvent): Promise<AsyncKeyResult>;
   request(name: string, request: Request, ic: number): Promise<Reply>;
 }
 export class EngineRegistry extends Context.Service<EngineRegistry, EngineRegistryService>()(
@@ -328,6 +329,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       drainContext: (name, context) => get(name).router.drain(context),
       retireContext: (name, context, beforeReplay) => get(name).router.retire(context, beforeReplay),
       keySink: (name, context) => get(name).router.sink(context),
+      keyAsync: (name, context, event) => get(name).router.keyAsync(context, event),
       request: (name, request, ic) => get(name).router.request(request, ic),
     };
     return service;
