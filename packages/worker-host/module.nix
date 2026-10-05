@@ -103,7 +103,7 @@
           inherit name package settingsSchemaDir;
           threads = engineThreads;
           heapBytes = 1024 * 1024;
-          engines = lib.optional (name != "empty") name;
+          engines = [ name ];
           settingsSchemas = [
             "org.example.echo"
             "org.freedesktop.ibus.panel"
@@ -116,7 +116,7 @@
         settingsSchemaDir = rebuiltSchemaDir;
         threads = engineThreads;
         heapBytes = 1024 * 1024;
-        engines = [ ];
+        engines = [ "empty" ];
         settingsSchemas = [
           "org.example.echo"
           "org.freedesktop.ibus.panel"
