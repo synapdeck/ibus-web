@@ -42,6 +42,8 @@ export interface RouterOutput {
   enqueue(record: DecodedRecord): void;
   hide(ic: number): void;
   crashed(crash: CrashInfo): void;
+  /** Reports page callback errors from background work without restarting the engine. */
+  error?(cause: unknown, ic: number): void;
 }
 export class KeyRouter {
   private readonly contexts = new Map<number, KeyContext>();
@@ -69,12 +71,15 @@ export class KeyRouter {
       connection.onCrash((crash) => this.crashed(crash)),
       connection.onDoorbell(() => {
         if (this.snapshot.connection !== connection) return;
-        for (const reply of connection.replies.take()) {
-          if (this.activeMode !== "abandoned") continue;
-          this.complete(reply);
+        try {
+          for (const reply of connection.replies.take()) {
+            if (this.activeMode !== "abandoned") continue;
+            this.complete(reply);
+          }
+          this.drainUnsolicited();
+        } finally {
+          this.next();
         }
-        this.drainUnsolicited();
-        this.next();
       }),
     ];
   }
@@ -333,12 +338,23 @@ export class KeyRouter {
         this.crash({ reason: "worker", message: "Asynchronous key request failed" });
     };
     try {
-      void connection.requestAsync(pending.request, pending.context.ic).then((reply) => {
-        if (this.active !== owner || this.snapshot.connection !== connection) return;
-        this.complete(reply);
-        this.drainUnsolicited();
-        this.next();
-      }, failed);
+      void connection
+        .requestAsync(pending.request, pending.context.ic)
+        .then((reply) => {
+          if (this.active !== owner || this.snapshot.connection !== connection) return;
+          try {
+            this.complete(reply);
+            this.drainUnsolicited();
+          } finally {
+            this.next();
+          }
+        }, failed)
+        .catch((cause) => {
+          queueMicrotask(() => {
+            if (this.output.error) this.output.error(cause, owner.context.ic);
+            else throw cause;
+          });
+        });
     } catch {
       failed();
     }

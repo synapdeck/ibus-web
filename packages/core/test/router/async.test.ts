@@ -349,3 +349,49 @@ test("a native fallback exception during a shared crash cannot strand an async o
   expect(f.context.ready).toBe(false);
   expect(f.crashes).toHaveLength(1);
 });
+for (const callback of ["output", "fallback"])
+  test(`a queued native ${callback} exception reports without stalling the following async owner`, async () => {
+    const f = fixture();
+    f.connection.busy = true;
+    f.sink.key(key("a"));
+    const b = f.router.keyAsync(f.context, event("b"));
+    const failure = new Error("native output failed");
+    if (callback === "output")
+      f.context.apply = () => {
+        throw failure;
+      };
+    else
+      f.context.adapter.replayKey = () => {
+        throw failure;
+      };
+    try {
+      f.connection.busy = false;
+      f.connection.bell();
+      f.connection.completeAsync(callback === "output" ? 1 : 0, callback === "output" ? [output(1)] : []);
+      await Promise.resolve();
+      expect(f.connection.sent).toHaveLength(2);
+      f.connection.completeAsync(1);
+      expect(await b).toBe("consumed");
+      expect(f.errors).toEqual([failure]);
+      expect(f.crashes).toEqual([]);
+      expect(f.snapshot.generation).toBe(0);
+    } finally {
+      f.router.dispose();
+      await b;
+    }
+  });
+test("an abandoned native output exception releases the following async owner before propagating", async () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("a"));
+  const b = f.router.keyAsync(f.context, event("b"));
+  const failure = new Error("native output failed");
+  f.context.apply = () => {
+    throw failure;
+  };
+  expect(() => f.connection.completeAbandoned(1, [output(1)])).toThrow(failure);
+  expect(f.connection.sent).toHaveLength(2);
+  f.connection.completeAsync(1);
+  expect(await b).toBe("consumed");
+  expect(f.crashes).toEqual([]);
+});

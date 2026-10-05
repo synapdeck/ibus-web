@@ -216,6 +216,12 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
             else if (record._tag === "SettingWritten") settings.written(record);
           },
           hide: (ic) => panel.enqueue({ _tag: "hide", engine: name, ic }),
+          error: (cause, ic) =>
+            logger.enqueue({
+              engine: name,
+              ic,
+              record: { _tag: "Log", level: 8, domain: "page-adapter", message: error(cause).message },
+            }),
           crashed: (crash) => {
             if (!entry.hasReady) {
               snapshot.status = "failed";

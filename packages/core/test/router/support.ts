@@ -83,7 +83,8 @@ export class FakeConnection implements KeyConnection {
 export function fixture() {
   const calls: string[] = [],
     hidden: number[] = [],
-    crashes: CrashInfo[] = [];
+    crashes: CrashInfo[] = [],
+    errors: unknown[] = [];
   const connection = new FakeConnection();
   const snapshot: EngineSnapshot = {
     name: "test",
@@ -118,8 +119,20 @@ export function fixture() {
     enqueue: () => {},
     hide: (ic) => hidden.push(ic),
     crashed: (crash) => crashes.push(crash),
+    error: (cause) => errors.push(cause),
   });
   router.connect(connection);
   const unregister = router.register(context);
-  return { calls, hidden, crashes, connection, snapshot, context, router, unregister, sink: router.sink(context) };
+  return {
+    calls,
+    hidden,
+    crashes,
+    errors,
+    connection,
+    snapshot,
+    context,
+    router,
+    unregister,
+    sink: router.sink(context),
+  };
 }
