@@ -539,3 +539,51 @@ test("reply acquisition keeps non-crash invariant errors visible", async () => {
   expect(() => connection.requestSync(key, 1)).toThrow("reply state changed before it was taken");
   expect(host.terminated).toBe(false);
 });
+
+test("buffered output access does not drain a live ring or steal in-flight reply records", async () => {
+  const connection = await start();
+  host.write(record(1));
+  expect(connection.records.takeBuffered()).toEqual([]);
+  expect(Atomics.load(host.views.words, Word.ringRead)).toBe(0);
+  host.scripts.push({ after: 100, records: [record(2)] });
+  expect(connection.requestSync(key, 1)).toEqual({ _tag: "pending" });
+  expect(connection.records.takeBuffered()).toEqual([]);
+  while (host.now < 150) host.tick();
+  host.deliver();
+  expect(connection.replies.take()).toMatchObject([{ records: [{ seq: 1 }, { seq: 2 }] }]);
+  host.scripts.push({ records: [record(3)] });
+  let appended = false;
+  host.onTick = () => {
+    if (!appended && Atomics.load(host.views.words, Word.state) === State.reply) {
+      appended = true;
+      host.write(record(4));
+    }
+  };
+  expect(connection.requestSync(key, 1)).toMatchObject({ _tag: "reply", records: [{ seq: 3 }] });
+  host.write(record(5));
+  const read = Atomics.load(host.views.words, Word.ringRead);
+  expect(connection.records.takeBuffered()).toMatchObject([{ seq: 4 }]);
+  expect(connection.records.takeBuffered()).toEqual([]);
+  expect(Atomics.load(host.views.words, Word.ringRead)).toBe(read);
+  expect(connection.records.take()).toMatchObject([{ seq: 5 }]);
+});
+
+test("buffered output access observes CRASHED before returning stale records", async () => {
+  const connection = await start();
+  host.write(record(1));
+  host.ring();
+  host.deliver();
+  host.crash();
+  expect(connection.records.takeBuffered()).toEqual([]);
+  expect(host.terminated).toBe(true);
+});
+
+test("forced termination retains caller reason and last storage state exactly once", async () => {
+  const connection = await start();
+  const listener = vi.fn();
+  connection.onCrash(listener);
+  host.message({ type: "storage", state: "read-only", message: "lock held" });
+  connection.terminate({ reason: "hang", message: "overflow" });
+  connection.terminate();
+  expect(listener).toHaveBeenCalledExactlyOnceWith({ reason: "hang", message: "overflow", storage: "read-only" });
+});

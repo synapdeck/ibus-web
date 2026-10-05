@@ -4,6 +4,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     fileParallelism: false,
-    include: ["test/keys/**/*.test.ts", "test/connection/**/*.test.ts", "test/node/**/*.test.ts"],
+    include: [
+      "test/keys/**/*.test.ts",
+      "test/connection/**/*.test.ts",
+      "test/router/**/*.test.ts",
+      "test/node/**/*.test.ts",
+    ],
   },
 });

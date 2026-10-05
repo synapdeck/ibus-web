@@ -127,6 +127,11 @@ export class Connection {
   /** Completed abandoned requests, in publication order. Async replies belong to their promises. */
   readonly replies = { take: (): Reply[] => this.abandoned.splice(0) };
   readonly records = {
+    /** Only decoded output; a deferred sync tail must not chase a live producer. */
+    takeBuffered: (): DecodedRecord[] => {
+      this.checkCrash();
+      return this.crash || this.inFlight ? [] : this.output.splice(0);
+    },
     take: (): DecodedRecord[] => {
       this.drain();
       this.checkCrash();
@@ -193,8 +198,8 @@ export class Connection {
       this.next();
     });
   }
-  terminate(): void {
-    this.fail({ reason: "worker", message: "Connection terminated" });
+  terminate(crash: CrashInfo = { reason: "worker", message: "Connection terminated" }): void {
+    this.fail(crash);
   }
   private publish(bytes: Uint8Array, mode: number, canContinue?: () => boolean): boolean {
     try {

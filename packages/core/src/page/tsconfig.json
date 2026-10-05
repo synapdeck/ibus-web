@@ -7,5 +7,5 @@
     "types": [],
     "declaration": true
   },
-  "include": [".", "../connection"]
+  "include": [".", "../connection", "../router", "../services"]
 }
