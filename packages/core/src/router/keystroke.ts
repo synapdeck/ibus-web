@@ -71,17 +71,27 @@ export class KeyRouter {
       connection.onCrash((crash) => this.crashed(crash)),
       connection.onDoorbell(() => {
         if (this.snapshot.connection !== connection) return;
+        const ic = this.active?.context.ic ?? 0;
         try {
           for (const reply of connection.replies.take()) {
             if (this.activeMode !== "abandoned") continue;
             this.complete(reply);
           }
           this.drainUnsolicited();
+        } catch (cause) {
+          // Returning to the connection lets its lifecycle/settings FIFO advance too.
+          this.reportError(cause, ic);
         } finally {
           this.next();
         }
       }),
     ];
+  }
+  private reportError(cause: unknown, ic: number): void {
+    queueMicrotask(() => {
+      if (this.output.error) this.output.error(cause, ic);
+      else throw cause;
+    });
   }
   register(context: KeyContext): () => void {
     if (this.contexts.has(context.ic)) throw new Error(`Input context ${context.ic} already registered`);
@@ -349,12 +359,7 @@ export class KeyRouter {
             this.next();
           }
         }, failed)
-        .catch((cause) => {
-          queueMicrotask(() => {
-            if (this.output.error) this.output.error(cause, owner.context.ic);
-            else throw cause;
-          });
-        });
+        .catch((cause) => this.reportError(cause, owner.context.ic));
     } catch {
       failed();
     }

@@ -380,7 +380,7 @@ for (const callback of ["output", "fallback"])
       await b;
     }
   });
-test("an abandoned native output exception releases the following async owner before propagating", async () => {
+test("an abandoned native output exception reports and releases the following async owner", async () => {
   const f = fixture();
   f.connection.outcome = { _tag: "pending" };
   f.sink.key(key("a"));
@@ -389,9 +389,89 @@ test("an abandoned native output exception releases the following async owner be
   f.context.apply = () => {
     throw failure;
   };
-  expect(() => f.connection.completeAbandoned(1, [output(1)])).toThrow(failure);
+  expect(() => f.connection.completeAbandoned(1, [output(1)])).not.toThrow();
   expect(f.connection.sent).toHaveLength(2);
   f.connection.completeAsync(1);
   expect(await b).toBe("consumed");
+  expect(f.errors).toEqual([failure]);
   expect(f.crashes).toEqual([]);
 });
+for (const callback of ["output", "fallback"])
+  for (const request of [
+    new FocusIn({}),
+    new SettingChanged({
+      schemaId: "test",
+      key: "mode",
+      value: { _tag: "v", type: "b", value: { _tag: "b", value: true } },
+    }),
+  ])
+    test(`real Connection advances ${request._tag} and async input after abandoned native ${callback} failure`, async () => {
+      const { Connection } = await import("../../src/connection/connection.ts");
+      const { FakeWorker, record } = await import("../support/fake-worker.ts");
+      const { Word, State, ReqMode } = await import("@ibus-web/worker-host");
+      const host = new FakeWorker(),
+        f = fixture();
+      const module = await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response()));
+      vi.spyOn(WebAssembly, "compileStreaming").mockResolvedValue(module);
+      const connection = await Connection.start({
+        hostUrl: new URL("https://example.test/host.js"),
+        runtimeUrl: new URL("https://example.test/async/runtime.js"),
+        manifestUrl: new URL("https://example.test/engine.json"),
+        storage: "none",
+        budgetMs: 0,
+        hangMs: 2000,
+        worker: () => host.asWorker(),
+      });
+      const promises: Promise<unknown>[] = [];
+      try {
+        f.router.connect(connection);
+        host.scripts.push(
+          { records: [record(1)], ret: callback === "output" ? 1 : 0 },
+          { records: [record(2)] },
+          { records: [record(3)] },
+        );
+        const failure = new Error(`native ${callback} failed`);
+        f.context.apply = (record) => {
+          if (callback === "output" && record.seq === 1) throw failure;
+          f.calls.push(`record:${record.seq}`);
+        };
+        if (callback === "fallback")
+          f.context.adapter.replayKey = () => {
+            throw failure;
+          };
+        expect(f.sink.key(key("a"))).toBe("consumed");
+        expect(Atomics.load(host.views.words, Word.reqMode)).toBe(ReqMode.abandoned);
+        const lifecycle = f.router.request(request, 1);
+        void lifecycle.catch(() => {});
+        const b = f.router.keyAsync(f.context, event("b"));
+        const drained = f.router.drain(f.context);
+        promises.push(lifecycle, b, drained);
+        host.tick();
+        host.deliver();
+        // The real transport must publish its queued lifecycle request after notifying listeners.
+        expect(Atomics.load(host.views.words, Word.state)).toBe(State.request);
+        expect(Atomics.load(host.views.words, Word.reqMode)).toBe(ReqMode.async);
+        expect(f.errors).toEqual([]);
+        host.tick();
+        host.deliver();
+        await lifecycle;
+        expect(f.calls).toContain("record:2");
+        expect(f.errors).toEqual([failure]);
+        expect(Atomics.load(host.views.words, Word.state)).toBe(State.request);
+        host.tick();
+        host.deliver();
+        expect(await b).toBe("consumed");
+        await drained;
+        expect(f.calls.indexOf("record:2")).toBeLessThan(f.calls.indexOf("record:3"));
+        expect(host.requests).toHaveLength(3);
+        expect(f.crashes).toEqual([]);
+        expect(f.snapshot.generation).toBe(0);
+        expect(connection.busy).toBe(false);
+      } finally {
+        f.router.dispose();
+        await Promise.allSettled(promises);
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+    });
