@@ -70,10 +70,11 @@
                 uses = "DeterminateSystems/flakehub-cache-action@${determinateVersion}";
               }
               # Runners are x86_64-linux; the other systems' checks need
-              # their own machines.
+              # their own machines. Cold compilation and CPU-bound test
+              # checks must not compete for the runner's limited cores.
               {
                 name = "Check";
-                run = "nix flake check -L --system x86_64-linux";
+                run = "nix flake check -L --system x86_64-linux --max-jobs 1";
               }
             ];
           };

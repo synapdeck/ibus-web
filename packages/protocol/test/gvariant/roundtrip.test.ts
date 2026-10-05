@@ -17,6 +17,10 @@ import {
   typeArbitrary,
 } from "../support/arbitraries.ts";
 
+// Generation and structural comparisons of 64 KiB containers share CPU with the CI host.
+// This is a completion watchdog, not the decoder's performance budget.
+const largeContainerTimeoutMs = 30_000;
+
 // The one value shape whose accepted encodings are not all canonical: a tuple of variable-size
 // members that are all empty, which GLib also accepts in zero bytes.
 function isEmptyVariableTuple(type: GVariantType, value: GVariantValue): boolean {
@@ -81,7 +85,7 @@ it.prop(
     const bytes = encodeValue(signature, value);
     expect(decodeValue(signature, bytes)).toEqual(value);
   },
-  { arbitrary: { runs: 200, seed: 3 } },
+  { timeout: largeContainerTimeoutMs, arbitrary: { runs: 200, seed: 3 } },
 );
 it.prop(
   "arbitrary bytes decode or fail cleanly",
@@ -93,5 +97,5 @@ it.prop(
   "mutated encodings decode or fail cleanly",
   [mutatedEncodingArbitrary],
   ([{ signature, bytes }]) => expectCanonicalOrClean(signature, bytes),
-  { arbitrary: { runs: 500, seed: 4 } },
+  { timeout: largeContainerTimeoutMs, arbitrary: { runs: 500, seed: 4 } },
 );
