@@ -21,10 +21,12 @@ page-side router remains M1.4 work; the test Page exercises the transport.
 | `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s. |
 | `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                  |
 
-The host also ships `dist/worker/brotli-fallback.js`, a separate lazy decoder
-bundle. Its WASM is embedded by Rolldown's binary loader; it needs no adjacent
-`.wasm` or decoder fetch. A host with native Brotli never imports it. The
-fallback uses `brotli-dec-wasm`'s streaming decoder.
+The host also ships `dist/worker/brotli-fallback.js` (291 KB), a separate
+decoder bundle that the host imports by URL from beside its own script only
+when the environment has no native Brotli `DecompressionStream`. Its WASM is
+embedded in the script by Rolldown's binary loader, so it needs no adjacent
+`.wasm` or second fetch. The fallback uses `brotli-dec-wasm`'s streaming
+decoder.
 
 `tsdown` builds them (`tsdown.config.ts`), ESM, platform-neutral, with
 source maps. **Each Worker script is one self-contained module, Effect
@@ -113,23 +115,34 @@ stored data is found by them, so they never change. Their layout is
 The host is a scoped Effect program (`src/worker/host.ts`): each resource a
 `Layer`, each scope inside the last, closed in reverse.
 
-| Scope           | Acquire                                                                                                                                                                                             | Release                                                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Worker          | Control buffer views; the `Logger` that writes ring `Log` records; an uncaught-error listener, registered up front because a thread's error may already be queued by the time the host stops.       | With a failure: before `ready`, posts `error`; after it, writes `CRASHED` and posts `crashed`.                           |
-| Planned storage | Probes IndexedDB (opens the engine's database without creating it, closes it at once), takes the writer lock `ifAvailable`, decides the mount, and sizes the memory from the plan.                  | Lets go of every lock, the writer lock only once the user backend is sealed or was never mounted read-write.             |
-| Runtime         | Checks the memory's size, makes it, imports and instantiates the runtime, checks its JavaScript surface, allocates the wake word and the request and reply buffers, calls `ibusweb_runtime_init()`. | Nothing: the runtime ends with the Worker.                                                                               |
-| Wake relay      | Starts the relay Worker, which bumps a word in the runtime's memory, so it follows the runtime.                                                                                                     | Terminates the relay.                                                                                                    |
-| Storage         | Mounts the engine's own files at `/engines/<name>`, posts `storage` events, then installs or finds the version's data and mounts it at `/nix/store`, posts `install` and `collect`.                 | Seals the read-write backends, while the runtime can still be called; their threads and connections end with the Worker. |
-| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`.                                                                                                                         | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                    |
+| Scope           | Acquire                                                                                                                                                                                                                                                                | Release                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker          | Control buffer views; the `Logger` that writes ring `Log` records; an uncaught-error listener, registered up front because a thread's error may already be queued by the time the host stops.                                                                          | With a failure: before `ready`, posts `error`; after it, writes the `Crashed` record if the ring has room, then `CRASHED`, and posts `crashed`. |
+| Planned storage | Probes IndexedDB (opens the engine's database without creating it, closes it at once), takes the writer lock `ifAvailable`, decides the mount, and sizes the memory from the plan.                                                                                     | Lets go of every lock, the writer lock only once the user backend is sealed or was never mounted read-write.                                    |
+| Runtime         | Checks the memory's size, makes it, imports and instantiates the runtime, checks its JavaScript surface, allocates the wake word and the request and reply buffers, calls `ibusweb_runtime_init()`.                                                                    | Nothing: the runtime ends with the Worker.                                                                                                      |
+| Wake relay      | Starts the relay Worker, which bumps a word in the runtime's memory, so it follows the runtime.                                                                                                                                                                        | Terminates the relay.                                                                                                                           |
+| Storage         | Mounts the engine's own files at `/engines/<encodeComponent(name)>`, posts `storage` events, installs or finds the version's data and mounts it at `/nix/store`, posts `install` and `collect`, and sets `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir`. | Seals the read-write backends, while the runtime can still be called; their threads and connections end with the Worker.                        |
+| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`.                                                                                                                                                                                            | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                                           |
 
 **The storage plan comes before the runtime** because the memory can't grow
 later: without IndexedDB the data is installed into a memory backend, and
 the memory must be made larger by the data's size. **The relay comes after
 the runtime** because the word it bumps lives in the runtime's memory.
+**The schema directory is set before any `Init`**: the host calls the
+runtime's `setenv("GSETTINGS_SCHEMA_DIR", settingsSchemaDir)` once the store
+is mounted, because GLib caches its default schema source on its first
+lookup, which is `Init`'s.
+
 Each successful `CreateEngine` opens an instance scope keyed by `ic`, and
-`DestroyEngine` closes it synchronously. Closing the host destroys remaining
-instances while the runtime is intact; a trap or `-ECANCELED` skips runtime
-cleanup. The engine-module scope has no release action: no shutdown ABI exists.
+`DestroyEngine` closes it synchronously. Closing the host with the runtime
+intact dispatches `DestroyEngine` for every open instance, then pumps up to
+eight rounds, stopping at the first that leaves nothing due at once, so the
+engines' finalizers can finish work they queued without the host chasing a
+source that keeps itself due; it drains what that wrote and rings the
+doorbell if it wrote records, since they belong to no request. A trap skips
+runtime cleanup; a `DestroyEngine` that returns `-ECANCELED` drains what the
+runtime wrote before the fault and stops there. The engine-module scope has
+no release action: no shutdown ABI exists.
 
 **Finalizers inspect the `Exit`.** After a trap the runtime's memory can't be
 trusted, so a finalizer that calls into the runtime (`runtimeFinalizer`, the
@@ -153,8 +166,9 @@ it ends.
 
 The host fails its start, posting `error`, when:
 
-- the manifest is malformed or its numeric runtime ABI or protocol version
-  mismatches (`RuntimeAbiMismatch` or `ProtocolMismatch`);
+- the manifest fails to decode as an `EngineManifest` (the rules are
+  [engines.md](engines.md#distribution-manifest)'s) or its numeric runtime ABI or
+  protocol version mismatches (`RuntimeAbiMismatch` or `ProtocolMismatch`);
 
 - the memory isn't whole pages within the runtime's bounds (the message
   gives the value and the bounds), rather than as a `LinkError` or, for a
@@ -190,8 +204,9 @@ timeout. The section is a single `Effect.try`, so a throw becomes
 3. `REQUEST`: copy the framed request into the runtime's heap and call
    `ibusweb_dispatch()`. A successful `Init` loads the module; successful
    create/destroy requests update instance scopes. Pump, drain complete output
-   to the ring, publish `replyRet` and `replyOutSeq`, set `REPLY` and notify.
-   Ring space may delay publication, but no pump runs during that wait.
+   to the ring, publish `replyRet` and `replyOutSeq`, set `REPLY` and notify,
+   then apply the `reqMode` doorbell rule. Ring space may delay publication,
+   but no pump runs during that wait.
 4. Otherwise pump; if no request arrived meanwhile, the host is idle with
    the pump's delay.
 5. Idle with fewer than `poolLowWater` idle Workers (and no failed top-up):
@@ -204,32 +219,57 @@ connection has closed, and posts `storage: closed` the first time one has.
 ### The ring and replies
 
 The generated [Transport section](../packages/protocol/PROTOCOL.md#transport)
-is authoritative for the eleven control words and buffer layout. The ring has
-power-of-two capacity and uses unsigned byte counters. A framed record never
-wraps: both sides skip a tail shorter than 16 bytes; otherwise the writer
-fills an unusable tail with kind-0 padding, which the reader discards.
+is authoritative for the eleven control words and buffer layout. The ring's
+size is a power of two from 64 bytes (`MIN_RING_BYTES`) to 2³¹
+(`MAX_RING_BYTES`), so it divides the byte counters' 2³² wrap and a full ring
+never reads as empty. A framed record never wraps: both sides skip a tail
+shorter than a record header (16 bytes, `RECORD_HEADER_BYTES`); otherwise the
+writer fills an unusable tail with kind-0 padding, which the reader discards.
 
 When a frame exceeds current free space, the writer emits the largest
-fragment that fits, with at least eight payload bytes. Consecutive fragments
-keep `seq`, `ic` and `kind`; padding may separate them, and all but the
-last have `CONTINUATION`. The reader
-concatenates them before `decodeRecord`. Counts and `replyOutSeq` refer to
-records, never fragments. The host retains a copied runtime frame until it
-is completely published, then consumes runtime output.
+fragment that fits. Every fragment but the last carries `CONTINUATION` and at
+least 8 payload bytes (`MIN_FRAGMENT_PAYLOAD_BYTES`), a multiple of 8, so the
+next fragment stays aligned and each makes progress; the last carries the
+rest of the payload, which may be shorter. The writer never shortens a
+fragment to fit before the ring's end: it pads to the end and writes the
+fragment at the start. Consecutive fragments keep `seq`, `ic` and `kind`;
+only padding may separate them. A full write returns `needBytes`, the least
+free space with which the next write publishes a fragment, counting any
+padding or skip before the ring's end. The reader concatenates fragments
+before `decodeRecord`. Counts and `replyOutSeq` refer to records, never
+fragments.
 
-A full ring sets `ringWaiting = 1`, rings the doorbell, reads the runtime's
-wake word, and rechecks space. If the page has already cleared `ringWaiting`
-but not freed enough space, the host retries and re-arms the flag before
-sleeping. Otherwise it calls `ibusweb_wait(seen, -1)` and retries. This also
-handles partial reads without losing the next wake. It never pumps during
-the wait. The page advances `ringRead`, clears a set `ringWaiting`, and bumps
-and notifies the control `wake`. A relay failure detected during this wait
-is reported synchronously with reason `RELAY`.
+`drainOutput` copies the runtime's whole output batch out of its memory
+before writing any of it: the pointer `ibusweb_output_peek()` returns lasts
+only until the next runtime call, and the full-ring wait is one, inside which
+a call another thread proxied to the host can append a record and move the
+buffer. The host consumes the runtime's output only once every record of the
+batch is published.
+
+**The full-ring wait.** The host sets `ringWaiting` to 1, rings the doorbell,
+reads the runtime's wake word as `seen`, then checks free space and
+`ringWaiting` again. It calls `ibusweb_wait(seen, -1)` only if space is still
+short and `ringWaiting` is still 1; otherwise, or once it wakes, it starts
+over from setting `ringWaiting`. The second check of `ringWaiting` is what
+keeps partial reads from losing a wake: a page read that lands between
+setting the flag and sampling `seen` clears it and spends its wake before the
+sample, and later reads see the flag clear and bump nothing, so sleeping on
+`seen` then would never wake. The host never pumps during the wait. The page
+advances `ringRead`, clears a set `ringWaiting`, and bumps and notifies the
+control `wake`. A relay failure found during this wait is reported at once
+with reason `RELAY`.
+
+**`replyOutSeq`** is the `seq` of the last runtime record the host published
+to the ring for the request, or unchanged if none; it never comes from
+`ibusweb_output_last_seq()`. A record a proxied call appends during a
+full-ring wait isn't in the batch being drained, so it reaches the ring with
+the next drain, after the reply, and the reply doesn't count it.
 
 Doorbells are `{ type: "doorbell" }`, posted only when swapping the control
 `doorbell` word from 0 to 1. The page clears that word **before** draining.
-The host rings after output from an idle pump, before a full-ring wait, and
-after publishing a reply whose `reqMode` is `ASYNC` (1) or `ABANDONED` (2).
+The host rings after output from an idle pump or from the pumps at shutdown,
+before a full-ring wait, and after publishing a reply whose `reqMode` is
+`ASYNC` (1) or `ABANDONED` (2).
 A synchronous page writes `SYNC` (0); on timeout it compare-exchanges that
 to `ABANDONED` and rereads `state`. Either the host sees abandonment or the
 page sees the reply, so neither side can miss completion.
@@ -279,20 +319,39 @@ a top-up) is handled the same way.
 
 ## Crashes
 
-After `ready`, a failure marks `state = CRASHED` and notifies before reporting.
-That state is authoritative. The host attempts a `Crashed (us)` record without
-waiting for space and posts `crashed` with its diagnostic even if the ring is
-full. Reasons are `TRAP` 1, `FAULT` 2, `RELAY` 3, `LOAD` 4 and `HOST` 5.
-Host-written `Log` and `Crashed` records have `seq = ic = 0` and do not
-advance `replyOutSeq`; runtime sequences skip zero when they wrap.
+After `ready`, a failure writes a `Crashed (us)` record, if the ring has room
+without waiting, then sets `state = CRASHED` and notifies, and posts
+`crashed`. The control state is authoritative; the record comes first so
+that a page draining once on seeing `CRASHED` finds it. The exception is
+`RELAY`: the relay itself sets `CRASHED` before the host hears of the
+failure, so the record follows it. The reasons:
 
-A dispatch returning `-ECANCELED` publishes its reply and drains already
-written output, then reports `FAULT`. No subsequent dispatch or pump runs.
-A module load failure after successful `Init` is `LOAD`. A trap skips runtime
-finalizers; JavaScript cleanup still runs. For a pthread's `"unwind"`, the
-host waits briefly in its event loop for the thread's diagnostic. A relay
-killed outright cannot report itself, so page-side hang detection is still
-needed. Restart uses the same bootstrap and `Init`-then-load order.
+| Reason  | Value | When                                                                      |
+| ------- | ----- | ------------------------------------------------------------------------- |
+| `TRAP`  | 1     | A runtime call threw: a trap, an abort, or another thread's crash.        |
+| `FAULT` | 2     | `ibusweb_dispatch()` returned `-ECANCELED`, leaving the runtime unusable. |
+| `RELAY` | 3     | The wake relay failed.                                                    |
+| `LOAD`  | 4     | The engine module failed to load after a successful `Init`.               |
+| `HOST`  | 5     | The host itself failed, for instance runtime output it couldn't frame.    |
+
+The record's message is what is known at once; for a thread's crash, which
+reaches the host as `"unwind"`, it says only "a thread crashed". The
+`crashed` message waits briefly (`crashWaitMs`) in the event loop for the
+thread's own error and carries the full report. Host-written `Log` and
+`Crashed` records have `seq = ic = 0` and do not advance `replyOutSeq`;
+runtime sequences skip zero when they wrap. The protocol's decoder rejects a
+`Crashed` record with another reason (`SchemaError`) or with a nonzero `seq`
+or `ic` (`ProtocolError`).
+
+**Faults.** On `-ECANCELED` the host drains the output the runtime already
+wrote, publishes the reply under the `reqMode` doorbell rule, then writes
+`Crashed` with `FAULT` and sets `CRASHED`, so the page reads the request's
+records, then its reply, then the crash. No dispatch or pump runs after it.
+A module the runtime refuses to load likewise has its output drained before
+the `LOAD` crash, so the runtime's account of the failure precedes the
+record. A trap skips runtime finalizers; JavaScript cleanup still runs. A
+relay killed outright cannot report itself, so page-side hang detection is
+still needed. Restart uses the same bootstrap and `Init`-then-load order.
 
 ## Storage and engine data in the host
 
@@ -319,7 +378,9 @@ are [storage.md](storage.md)'s. The host's part
   data lock it gets exclusively at once. A memory mount installs at every
   start with no lock.
 - **Progress**: an installer says it is still going, every
-  `progressIntervalMs` throughout its install-lock lifetime during asynchronous bootstrap, on a `BroadcastChannel` named after the install lock.
+  `progressIntervalMs` for as long as it holds the install lock, from
+  acquiring it to releasing it, on a `BroadcastChannel` named after the
+  install lock.
   A host waiting for that lock gives up only after `lockLimitMs` without
   word, so a slow install is waited for and a dead one isn't.
 - **Lock waits** are requests of `lockRoundMs` each, made again when they
@@ -339,7 +400,7 @@ replaces some.
 | `crashWaitMs`        | 1 s     | The wait for a crashed thread's error, or the relay's.                                                |
 | `lockRoundMs`        | 1 s     | Each request of a lock wait.                                                                          |
 | `lockLimitMs`        | 120 s   | A lock wait without word from its holder.                                                             |
-| `progressIntervalMs` | 1 s     | How often, at most, an installer says it is going.                                                    |
+| `progressIntervalMs` | 1 s     | The interval at which an installer says it is going, while the install lock is held.                  |
 | `archiveIdleMs`      | 30 s    | An archive that sends nothing for this long fails its install.                                        |
 | `deleteLimitMs`      | 10 s    | A database deletion blocked by a connection that doesn't close when asked.                            |
 
@@ -444,9 +505,15 @@ arrives after every line printed before it.
 
 The host checks include ordered replies, idle-pump output, coalesced doorbells,
 SYNC/ASYNC/ABANDONED completion, padding and fragment reassembly, repeated
-full-ring waits, partial-read wake races, faults and relay failure during
-back-pressure. Manifest mismatch and native/forced-fallback archive cases use
-the same bootstrap as production.
+full-ring waits, partial-read wake races, a record appended during a
+full-ring wait (`fullRingAppend`: the reply names only the request's commit,
+and the appended record follows it), faults and relay failure during
+back-pressure. The abandoned-reply case orders itself by the test build's
+`replied` instrument, which reports each published reply with the `reqMode`
+the host read for it, so the page gives up spinning only after the host has
+read `SYNC`. Manifest mismatch and native/forced-fallback archive cases use
+the same bootstrap as production; the test build reports which Brotli
+decoder each archive went through.
 
 `checks.hangul-host` runs the real Hangul distribution through a Node Worker
 and the test Page, ten cases on each runtime build. It checks composition,
@@ -458,8 +525,11 @@ and `replyOutSeq`; GLib warning/error/critical records fail. Hanja paging uses
 real GSettings write because upstream Hangul exposes no suitable writing
 action; it verifies `SettingWritten` transport, not an upstream UI action.
 
-The measured program-break high-water was 3,461,120 bytes asserting and
-3,452,928 released, below the 4 MiB build declaration. The initial and peak
+The measured program break (`sbrk(0)`, which the allocator never lowers)
+peaked at 3,461,120 bytes asserting and 3,452,928 released, below the
+4 MiB `heapBytes` declaration, which the harness checks it against as
+`breakPeak`. The break is an address, so it counts static data below the
+heap as well. The initial and peak
 pool size was eight, and checked-out pthread peak was zero, supporting a
 zero engine-thread declaration for this workload. These are Node storage
 workload results, not universal heap or browser pthread bounds. The harness

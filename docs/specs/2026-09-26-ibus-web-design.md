@@ -626,12 +626,16 @@ doorbell `postMessage` (§6.2.3).
   memory size), plus 1 MiB per thread of its pool share, plus declared
   `heapBytes`, with a quarter more for margin, rounded up to whole MiB.
   `mkEngineManifest` computes this from build data. `heapBytes` is separate
-  build/check metadata, not a manifest field; the conformance harness fails
-  if its measured program-break high-water exceeds the declaration. Engine
+  build/check metadata, not a manifest field: the declared peak of the
+  program break (`sbrk(0)`), which the conformance harness measures as
+  `breakPeak` and fails if it exceeds the declaration. The break is an
+  address, so it counts the static data below the heap as well as the heap;
+  adding it to the runtime minimum and the module's static size counts that
+  data twice, and the memory figure is conservative. Engine
   data in IndexedDB is read lazily and does not count; without IndexedDB
   the host adds unpacked data bytes in whole pages to memory and maximum.
-  Hangul declares 4 MiB heap and zero engine threads, guarded by its Node
-  conformance workload, not universal resource bounds. The page's budget
+  Hangul declares a 4 MiB program break and zero engine threads, guarded by
+  its Node conformance workload, not universal resource bounds. The page's budget
   is that memory, touched or not, plus each pool Worker's own cost, since
   each holds an instance of the runtime: about 18 MiB in Chromium and
   12–16 MiB in Firefox, and 3–5 MiB more once it has run a thread (about
@@ -702,7 +706,13 @@ type EngineManifest = {
 ```
 
 `memory` is bytes in whole 64 KiB pages within runtime bounds, and `threads`
-is a nonnegative integer. `runtimeAbi` must match `IBUSWEB_RUNTIME_ABI` and
+is a nonnegative integer. `name` matches `[A-Za-z0-9][A-Za-z0-9._+-]*`, since
+it becomes a directory (`/engines/<encodeComponent(name)>`) and database name
+and must be one path component that can't climb out of its parent or hide
+itself. `version`, `license` and every URL are non-empty, and `engines` names
+at least one engine, each non-empty. Unknown keys are rejected at every
+level, so a misspelled field fails rather than reading as missing.
+`runtimeAbi` must match `IBUSWEB_RUNTIME_ABI` and
 `protocol` must match `PROTOCOL_VERSION`; mismatches fail startup before
 runtime initialization. Full library ABI identity remains pending (§5.3).
 Distribution `version` is `<upstream-version>+nix.<output-hash>`: the Nix
@@ -715,7 +725,8 @@ manifests must also change version when their distribution changes.
 
 Module `size` is fetched byte length; data `size` is unpacked regular-file
 bytes. Data paths are unique `/nix/store/<hash>-<name>` roots, and
-`settingsSchemaDir` must lie inside one. `heapBytes` is build/check metadata.
+`settingsSchemaDir` must be canonical (no empty, `.` or `..` component) and
+lie inside one. `heapBytes` is build/check metadata.
 Engine names and schema IDs are string arrays; richer page metadata and
 source-release assets are outside this manifest's current interface.
 
@@ -739,7 +750,9 @@ page bundle (§9.2).
    starts the pool with the engine's share in it (§5.3), starts the wake
    relay (§5.2.4), mounts storage, installs the data files unless they are
    there and lets go of old versions' (§5.6), mounts the version's data at `/nix/store`, and sets
-   `GSETTINGS_SCHEMA_DIR` before any schema lookup.
+   `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir` with the
+   runtime's `setenv` before any `Init`, since GLib caches its schema
+   source on the first lookup.
 3. Posts `ready` and enters the request loop. On the first successful
    `Init`, dispatch applies its settings snapshot, then the host loads the
    module and calls `ibusweb_module_init`, pumps and drains, and only then
@@ -760,16 +773,17 @@ Failures the host must report, beyond traps in its own calls:
 - **A thread traps.** Emscripten marks the runtime crashed and wakes the host,
   whose call into the runtime then throws `"unwind"`; the thread's own error
   reaches the host only afterwards, through its event loop. The host writes
-  `CRASHED` at once, then waits briefly for the thread's error and reports it
-  (§8).
+  a `Crashed` record saying only that a thread crashed, then `CRASHED`, at
+  once, then waits briefly for the thread's error and reports it in its
+  `crashed` message (§8).
 - **The relay fails.** A host asleep in the runtime never hears the relay's
   `error` event, so the relay catches its own failure, writes `CRASHED` and
   bumps both wake words. A relay killed without running its own code is
   silent to a sleeping host; the page's hang detection (§8) is the backstop.
 - **An engine throws a C++ exception.** `ibusweb_dispatch` returns
   `-ECANCELED` (§5.2.3). The runtime is unusable, so the host reports a
-  crash (§8), as for a trap; it can still drain the records already written
-  before discarding the Worker.
+  crash (§8), as for a trap, after draining the records already written and
+  publishing the reply.
 - **Startup fails.** A failed `WebAssembly.instantiate()` inside Emscripten's
   `instantiateWasm` hook, which Emscripten never hears of, fails the host's
   startup rather than leaving it waiting.
@@ -788,6 +802,12 @@ Scopes open in this order and close in reverse:
 | Engine module                                                      | load side module, `ibusweb_module_init`                                                              | none (no shutdown ABI)                                                                               | skipped                                                                            |
 | Engine instance (one per input context, child of the module scope) | `CreateEngine`                                                                                       | `DestroyEngine` (`g_object_unref`)                                                                   | skipped                                                                            |
 
+- **Instances left open at shutdown.** Closing the host with the runtime
+  intact dispatches `DestroyEngine` for each open instance, then pumps up to
+  eight rounds, stopping once nothing is due at once, so work the engines'
+  finalizers queued runs without chasing a source that keeps itself due. It
+  drains what that wrote and rings the doorbell (§6.2.3) if it wrote
+  records, since they belong to no request.
 - **Finalizers inspect the `Exit`.** After a trap or fault the WASM heap cannot be
   trusted, so finalizers that call into the runtime run only when no call into it
   threw (a trap is recognised by where the error came from, not its type);
@@ -828,9 +848,10 @@ its own loggers with engine and domain annotations (§7.4).
 
 - **Filesystem.** WasmFS with our own IndexedDB backend. An engine's own
   files (user dictionaries for libpinyin and Rime, Rime's deployed data and
-  user YAML) are mounted at `/engines/<name>/`, and its installed data at
-  `/nix/store`. The host installs data-only store-path closures there and
-  sets the manifest's schema directory before Init, retaining the paths
+  user YAML) are mounted at `/engines/<name>/` (the name encoded as one path
+  component), and its installed data at `/nix/store`. The host installs
+  data-only store-path closures there and sets `GSETTINGS_SCHEMA_DIR` to the
+  manifest's schema directory before any Init, retaining the paths
   compiled into the module. GSettings values are not stored here; the
   settings bridge hands them to the page, which persists them (§5.2.5,
   §7.1.4).
@@ -987,25 +1008,36 @@ its own loggers with engine and domain annotations (§7.4).
   Brotli-compressed POSIX ustar, one per data-only store path in the side
   module's reference closure, minus the module's own output. Engines keep
   the store paths compiled by Nix rather than being patched to FHS paths.
-  `mkEngineManifest` writes `<hash>-<name>.tar.br` with entries relative to
-  that path, Brotli quality 11 and the standard window, no `--large_window`.
+  `mkEngineManifest` writes `<hash>-<name>.tar.br` with entries named from
+  `/nix/store` (`<hash>-<name>/…`, or the bare file for a store path that is
+  a single file), Brotli quality 11 and the standard window, no
+  `--large_window`. Hard links, which store optimisation makes of identical
+  files, are stored as files (`--hard-dereference`); symbolic links are kept,
+  and the build fails if one in the closure resolves outside it, or if its
+  target exceeds ustar's 100 bytes.
   Serve opaque bytes without `Content-Encoding: br`, so fetch cannot decode
-  them first. The host feature-detects `DecompressionStream("brotli")` by
-  construction; otherwise it lazily imports a separate streaming
-  `brotli-dec-wasm` bundle with WASM embedded by Rolldown's binary loader.
-  Native installations load no decoder bundle, and the fallback needs no
-  external WASM fetch. Plain ustar with `encoding: "identity"` serves test
+  them first; a decoding failure's message says so, while a failure of the
+  body itself (the network, an abort) passes through as it is. The host
+  feature-detects `DecompressionStream("brotli")` by construction; otherwise
+  it imports, by URL from beside its own script, a separate streaming
+  `brotli-dec-wasm` bundle (291 KB) with its WASM embedded by Rolldown's
+  binary loader. Native installations load no decoder bundle, and the
+  fallback needs no external WASM fetch. Plain ustar with `encoding: "identity"` serves test
   fixtures. Decompressed bytes are re-cut into at most 64 KiB pieces and
   passed to the bounded C extractor in `libibus-web`
   (`ibusweb_install_begin`, `_set_limit`, `_feed`, `_end`, and `_count`, the files and
   bytes written) that writes through the mounted file system, so the stored
-  layout has one writer. It takes regular files and directories only,
-  refuses absolute paths and `..` with `EINVAL`, gives every entry the
+  layout has one writer. It takes regular files, directories and symbolic
+  links (`SYMTYPE`, the target kept unresolved), refuses hard links
+  (`LNKTYPE`) with `EOPNOTSUPP` and absolute paths and `..` with `EINVAL`,
+  never writes through a link, gives every entry the
   archive's mode (its owner can always read and write it, and search a
   directory), sizes each regular file from its header before writing its
   data, so that a file in memory is allocated once at its size, and
-  `fsync()`s each file it writes. Each archive lands under the
-  data mount at its manifest entry's `storePath`. The extractor uses `tar.h`
+  `fsync()`s each file it writes. Each archive is extracted at the root of
+  the data mount; the host follows its ustar framing as it streams and
+  refuses an entry outside the archive's own store path before the
+  extractor sees it, so no archive can replace another's files. The extractor uses `tar.h`
   constants and an explicitly checked ustar header layout. The host checks
   the unpacked regular-file byte count against manifest `size` before marking
   the install complete. Before the first feed, it sets the extractor's uint64
@@ -1115,8 +1147,8 @@ its own loggers with engine and domain annotations (§7.4).
   the Node host is given, and each version's data over `<dir>/data/<version>/`.
   The backend runs `fs.*Sync` on the calling thread, so nothing is proxied
   and no pool thread is taken, and works from pthreads under
-  `worker_threads`; its limits (32-bit file sizes, no symlinks) don't matter
-  to engine data. A version's marker is the file `<version>.installed`
+  `worker_threads`; its limits (32-bit file sizes, `O_WRONLY` opening
+  `"r+"`) don't matter to engine data. A version's marker is the file `<version>.installed`
   beside its directory, written as `<version>.marking`, synced and renamed
   over it, with the directory synced after; one that doesn't parse counts
   as absent, and removal deletes the marker first. The host takes the same
@@ -1188,10 +1220,12 @@ visibility reaches the page in the engine's `UpdateProperty` records.
 `HideLookupTable`, `RegisterProperties`, `UpdateProperty`, `ForwardKeyEvent`,
 `DeleteSurroundingText`, `RequireSurroundingText`, with IBus's signatures;
 plus `SettingWritten (ssv)` and `Log (uss)` (level, domain, message).
-`Crashed (us)` carries a reason and message: `TRAP` 1, `FAULT` 2,
-`RELAY` 3, `LOAD` 4, `HOST` 5. Host-written `Log` and `Crashed` records
-have `seq = ic = 0` and do not advance `replyOutSeq`; runtime sequence
-numbers skip zero on wrap. Kind 0 is padding in both kind spaces, with
+`Crashed (us)` carries a reason and message: `TRAP` 1, `FAULT` 2
+(a request returned `-ECANCELED`), `RELAY` 3, `LOAD` 4, `HOST` 5; decoders
+reject any other reason as a schema error, and a `Crashed` record with a
+nonzero `seq` or `ic` as a protocol error. Host-written `Log` and `Crashed`
+records have `seq = ic = 0` and do not advance `replyOutSeq`; runtime
+sequence numbers skip zero on wrap. Kind 0 is padding in both kind spaces, with
 `seq = ic = flags = 0`, and is discarded by the ring reader.
 
 ### 6.2 Transport
@@ -1210,8 +1244,9 @@ Each Worker has one **dedicated** `SharedArrayBuffer`, separate from its
 The header's eleven words take 44 of its bytes, in table order. `reqMode`
 is `SYNC` 0, `ASYNC` 1 or `ABANDONED` 2, written by the page with each request.
 Sizes are configurable per Worker; the slot and ring are multiples of eight
-bytes, and the ring capacity is a power of two so unsigned byte counters
-remain consistent across their 2³² wrap. The generated `PROTOCOL.md` Transport
+bytes, and the ring capacity is a power of two from 64 bytes to 2³¹, so it
+divides the unsigned byte counters' 2³² wrap and a full ring never reads as
+empty. The generated `PROTOCOL.md` Transport
 section owns the layout and each word's writer. Only the page bumps `wake`: it bumps and notifies it after each
 request, and after advancing `ringRead` while `ringWaiting` is set (§6.2.2);
 the wake relay forwards it into WASM memory, where the host sleeps (§5.2.4).
@@ -1228,28 +1263,46 @@ the wake relay forwards it into WASM memory, where the host sleeps (§5.2.4).
   frame; a continuation's payload may be held privately while it waits for
   the remaining fragments.
 - **Full ring.** The Worker host sets `ringWaiting` to 1, posts a doorbell,
-  reads the wake word in WASM memory as `seen` and checks the free space
-  again. If the page already cleared `ringWaiting` after a partial read but
-  not enough space is free, the host retries and re-arms rather than sleeping
-  with a cleared flag. Otherwise, if still full, it calls `ibusweb_wait(seen, -1)` and
-  starts over, until there is space. It doesn't pump meanwhile: a wake from
+  reads the wake word in WASM memory as `seen`, and checks both the free
+  space and `ringWaiting` again. It calls `ibusweb_wait(seen, -1)` only if
+  space is still short and `ringWaiting` is still 1; otherwise, or after
+  waking, it starts over from setting `ringWaiting`, until the record is
+  written. The `ringWaiting` check matters for partial reads: a page read
+  that lands between setting the flag and sampling `seen` clears the flag
+  with its wake already counted in `seen`, and later reads, finding the flag
+  clear, bump nothing, so a sleep on `seen` would never end. It doesn't pump meanwhile: a wake from
   GLib's hook only prompts the re-check, and a request that lands meanwhile
   waits for the record to be written. The host sleeps in the runtime, not on
   `ringRead`, so calls other threads proxy to its thread still run (§5.2.4).
   The page, after advancing `ringRead`, clears `ringWaiting` if it was set
   and bumps and notifies `wake`, which the relay forwards; notifying is
-  allowed on the main thread. Setting the flag before the re-check, and
-  reading `seen` before it too, means space freed at any point is either
-  seen by the re-check or announced by a wake. A relay failure during this
+  allowed on the main thread. Setting the flag before the re-check, reading
+  `seen` before it too, and sleeping only while the flag still stands means
+  space freed at any point is either seen by the re-check or announced by a
+  wake. A relay failure during this
   drain is diagnosed synchronously as `RELAY`; a wait that traps is `TRAP`.
 - **Fragments.** If a record's framed size exceeds free space, the host writes
-  the largest fragment that fits, with at least eight payload bytes, or waits.
-  Fragments keep the record's `seq`, `ic` and `kind`, and stay consecutive
-  apart from padding;
-  `flags = CONTINUATION` except on the unflagged final fragment. The reader
-  concatenates payloads before `decodeRecord`. Counts and `replyOutSeq` are
-  in records, not fragments. The host keeps the copied runtime frame until
-  fully published, then consumes it; back-pressure cannot interleave a pump.
+  the largest fragment that fits, or waits. Every fragment but the last
+  carries `flags = CONTINUATION` and at least eight payload bytes, a
+  multiple of eight, so the next stays aligned and each makes progress; the
+  unflagged final fragment carries the rest, which may be shorter. The host
+  never shortens a fragment to fit before the ring's end: it pads to the end
+  and writes the fragment at the start. Fragments keep the record's `seq`,
+  `ic` and `kind`, and stay consecutive apart from padding. A write that
+  finds the ring full reports `needBytes`, the least free space with which
+  the next write publishes a fragment, counting any padding or skip before
+  the ring's end. The reader concatenates payloads before `decodeRecord`.
+  Counts and `replyOutSeq` are in records, not fragments.
+- **Draining.** The host copies the runtime's whole output batch before
+  writing any of it, since the peeked pointer lasts only until the next
+  runtime call, and the full-ring wait is one: a call another thread proxies
+  to the host runs inside it and can append a record, moving the buffer. It
+  consumes the batch once every record is published; back-pressure cannot
+  interleave a pump. `replyOutSeq` is the `seq` of the last runtime record
+  the host published to the ring for the request, not the runtime's last
+  appended sequence, so a record appended during a full-ring wait reaches
+  the ring with the next drain, after the reply, and the reply doesn't
+  count it.
 
 #### 6.2.3 One ordered stream in each direction
 
@@ -1262,8 +1315,9 @@ the wake relay forwards it into WASM memory, where the host sleeps (§5.2.4).
   number, skipping zero on wrap, so a timer's output can never be reordered
   around a keystroke's.
 - **Doorbell.** `{ type: "doorbell" }` tells the page to drain and check state.
-  The host sends it after idle-pump output, before a full-ring wait, or after
-  publishing a reply whose `reqMode` is `ASYNC` or `ABANDONED`. It posts only
+  The host sends it after output from an idle pump or the pumps at shutdown,
+  before a full-ring wait, or after publishing a reply whose `reqMode` is
+  `ASYNC` or `ABANDONED`. It posts only
   when `Atomics.exchange(doorbell, 1)` returns zero; the page clears that word
   before draining, so suppressed notifications cannot hide earlier output.
 - **Abandonment.** At its spin timeout the page compare-exchanges `SYNC` to
@@ -1588,19 +1642,26 @@ exposes them through subpath exports:
 ## 8. Errors and recovery
 
 A WASM trap or `-ECANCELED` fault leaves a Worker's state untrustworthy; a
-crashed Worker is discarded. The host marks `state = CRASHED` and notifies
-before reporting. It writes `Crashed (us)` best-effort without waiting for ring
-space and posts `crashed` with the diagnostic. State is authoritative even
-when the ring has no room. Reasons distinguish `TRAP`, `FAULT`, `RELAY`,
-`LOAD` (module loading after Init) and `HOST` failures. On `-ECANCELED`, it
-publishes the fault reply, drains already-written runtime output and marks
-the crash; no subsequent dispatch or pump occurs. Runtime finalizers are
-skipped after traps and faults; restart repeats bootstrap and Init-then-load.
+crashed Worker is discarded. The host writes `Crashed (us)` best-effort,
+without waiting for ring space, then marks `state = CRASHED` and notifies, so
+a page that drains once on seeing `CRASHED` finds the record; it then posts
+`crashed` with the diagnostic. State is authoritative even when the ring has
+no room. For `RELAY` the relay sets `CRASHED` itself, before the host hears
+of the failure, so the record follows. Reasons distinguish `TRAP`, `FAULT`,
+`RELAY`, `LOAD` (module loading after Init) and `HOST` failures. A thread's
+crash reaches the host as `"unwind"`, and its record says only that a
+thread crashed; the `crashed` message carries the thread's own error once
+it arrives. On `-ECANCELED`, the host drains the runtime output already
+written, publishes the fault reply under the `reqMode` doorbell rule
+(§6.2.3), then writes `Crashed` and marks the crash; no subsequent dispatch
+or pump occurs. A module load failure likewise drains the runtime's output
+before its `LOAD` crash. Runtime finalizers are skipped after traps and
+faults; restart repeats bootstrap and Init-then-load.
 The following page recovery policies are implemented by the later router.
 
 | Failure                                                      | Detection                                                                                                                                                                                                                                                                                                  | Handling                                                                                                                                                                                                                                                                                                                                                                                                                         | Host sees                                                                                                    |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`, or a thread's error after `"unwind"` (§5.5)                                                                                                                                                                                                                            | Writes `CRASHED` and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                                                                                                                                                                               | `EngineCrashed` with message and symbolized stack in debug builds                                            |
+| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`, or a thread's error after `"unwind"` (§5.5)                                                                                                                                                                                                                            | Writes `Crashed`, then `CRASHED`, and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                                                                                                                                                              | `EngineCrashed` with message and symbolized stack in debug builds                                            |
 | Engine C++ exception                                         | `ibusweb_dispatch` returns `-ECANCELED`: the exception unwound through GLib's signal emission                                                                                                                                                                                                              | as trap: the runtime is unusable and the Worker is discarded. Until then every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` and `ibusweb_pump` dispatches nothing, while output peek and consume still drain the records already written. Restart per policy.                                                                                                                                                                   | `EngineCrashed`                                                                                              |
 | Hang                                                         | no progress for 2 s, or replay queue over 64                                                                                                                                                                                                                                                               | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                                                                                                                                                                                    | `EngineHung`                                                                                                 |
 | Restart                                                      | policy `Schedule`                                                                                                                                                                                                                                                                                          | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. A Worker the page terminated may hold the engine's writer lock for some 2 s more in Chromium, so the page first waits, up to 10 s, for that lock (§5.6). On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and stored data are not. | engine state `failed` after the limit                                                                        |
@@ -2226,10 +2287,11 @@ rules for sequences of programs, and how to add and run a test are in
    Hangul has no suitable writing action. It is not a live UI test.
    Reserved test operations `0xff00`–`0xffff` supply statistics only through
    instruments; the production dispatcher rejects them with `-ENOSYS`.
-   Program-break peak was 3,461,120 bytes asserting / 3,452,928 released,
-   below declared 4 MiB; initial/peak pool Workers eight and checked-out
-   pthread peak zero support `threads = 0` for this Node storage workload.
-   The heap/thread guard fails when declarations become insufficient; these
+   The program break (`sbrk(0)`, checked as `breakPeak` against `heapBytes`)
+   peaked at 3,461,120 bytes asserting / 3,452,928 released, below the
+   declared 4 MiB; initial/peak pool Workers eight and checked-out pthread
+   peak zero support `threads = 0` for this Node storage workload. The
+   break/thread guard fails when declarations become insufficient; these
    measurements are workload evidence, not universal engine bounds.
    The strict Clang/SARIF cast audit covers engine, private libhangul and
    libibus-web casts against their committed allow-lists. The independent
@@ -2261,7 +2323,7 @@ rules for sequences of programs, and how to add and run a test are in
 | M1     | Hangul end to end, delivered in the four steps below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Engine correctness first, then codec, transport and page integration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ↳ M1.1 | **Done.** IBus types and engine API, framed dispatcher/output, settings backend, strict cast audit, Hangul side module/data and 16 Node golden cases; runtime ABI 1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Hangul needs one cast patch (two init arity fixes and one destroy pointer type), three port fixes, and GLib listener patch 0018. No lazy arity lookup needed for Hangul; GSettings bridge works.                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ↳ M1.2 | **Done.** Strict TypeScript GVariant codec matching GLib's normal form, IBus struct and message schemas, framing, generated C header and wire reference, fixed-seed property tests and real IBus WASM C/TS parity, including exact normal-form agreement on 1000 mutated and valid encodings.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 500-candidate framed decode (`nix run .#protocol-bench`): 1.01 ms median, 4.40 ms p99 (64,832 bytes; bytes to tree 0.43 ms, tree to schemas 0.46 ms); 0.5 ms target unmet, so M1.4 owns lazy candidate decoding. AOT did not help. See `docs/protocol.md`.                                                                                                                                                                                                                                                                                                                                                                  |
-| ↳ M1.3 | **Done.** Host output ring and fragments, ordered replyOutSeq/coalesced doorbells, engine scopes, Init-then-load, store-path data closures, Brotli installation, manifest-derived pool/memory and real-engine SAB conformance                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Hangul runs through a real Node Worker/Page; ordered replies and full-ring waits are checked. Data retains Nix paths. Measured heap peaks fit 4 MiB and Node engine-thread demand is zero; full ABI identity and shared store remain gaps                                                                                                                                                                                                                                                                                                                                                                                   |
+| ↳ M1.3 | **Done.** Host output ring and fragments, ordered replyOutSeq/coalesced doorbells, engine scopes, Init-then-load, store-path data closures, Brotli installation, manifest-derived pool/memory and real-engine SAB conformance                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Hangul runs through a real Node Worker/Page; ordered replies and full-ring waits are checked. Data retains Nix paths. Measured program-break peaks fit 4 MiB and Node engine-thread demand is zero; full ABI identity and shared store remain gaps                                                                                                                                                                                                                                                                                                                                                                          |
 | ↳ M1.4 | Minimal router, textarea adapter, Hanja panel and replaceable settings persister with IndexedDB/BroadcastChannel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Browser key/preedit policy, page UX and settings synchronization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | M2     | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M3     | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |

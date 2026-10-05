@@ -389,3 +389,50 @@ first piece (clear, mount, fetch) and after the last (marker, seal) carry no wor
 - [ ] **Step 2: Spec:** §5.3 (pool from the manifest; `memory` from build data with `heapBytes`), §5.4.4 (the manifest's final fields, including `encoding`), §5.6 (data as store-path closures mounted at `/nix/store`, Brotli archives, native or fallback decompression), §5.5 (bootstrap order; engine module on `Init`), §5.5.1 (engine-module scope without a release action; instance scopes), §6.1.4 (`Crashed (us)`, padding kind 0, host-written records' `seq` 0), §6.2.1 (eleven words with `reqMode`), §6.2.2 (record placement, padding, fragments), §6.2.3 (doorbell coalescing and the `reqMode` rule), §8 (faults and reasons), §11.3 (the harness), §12 (M1.3 row done, with the answers).
 - [ ] **Step 3:** `nix flake check`; republish nothing (the reviewer does).
 - [ ] **Step 4: Commit** `docs: describe the Worker host's transport and engine startup`.
+
+## Deviations in the implementation
+
+Where the code differs from the Decisions and tasks above; the docs and the spec describe the code.
+
+- **The Brotli fallback is one script.** Rolldown's binary loader embeds `brotli-dec-wasm`'s WASM in
+  `dist/worker/brotli-fallback.js` (291 KB), rather than shipping a separate `.wasm` beside it. The
+  host still imports the script by URL only where constructing `DecompressionStream("brotli")` fails,
+  so hosts with native Brotli never load it, and the fallback makes no second fetch. Only a failure
+  that starts in the decoder carries the `Content-Encoding` hint; a failure of the body itself (the
+  network, an abort) passes through unlabelled.
+- **`dylink.0` is parsed in TypeScript.** `tools/engine-manifest/dylink.ts` reads the section's memory
+  size from the module's bytes; `wasm-objdump` appears only in its test, as a cross-check on a compiled
+  fixture. The protocol version and the manifest check likewise run from a TypeScript script
+  (`tools/engine-manifest/protocol.ts`) against the built protocol package.
+- **The full-ring wait re-arms.** After reading the wake word as `seen`, the host re-checks
+  `ringWaiting` as well as free space, and calls `ibusweb_wait(seen, -1)` only if space is still short
+  and `ringWaiting` is still 1; otherwise, or after waking, it starts over from setting `ringWaiting`.
+  The wait as decided above loses a wake: a page read between setting the flag and sampling `seen`
+  clears it with its wake already counted, and later reads see it clear and bump nothing. `needBytes`
+  is defined as the least free space with which the next write publishes a fragment, counting
+  padding or a skip before the ring's end, and non-final fragments carry a multiple of 8 payload
+  bytes, the writer padding to the ring's end rather than shortening one.
+- **Fault ordering.** On `-ECANCELED` the host drains the runtime's output, publishes the reply under
+  the `reqMode` doorbell rule, then writes `Crashed` and only then sets `CRASHED`: every crash path
+  writes the record before the state, so a page draining once on `CRASHED` finds it, except `RELAY`,
+  whose relay sets `CRASHED` itself first. A refused module load drains before its `LOAD` crash.
+  Decoders reject a `Crashed` reason outside 1–5 and a `Crashed` record with a nonzero `seq` or `ic`.
+  At shutdown, after `DestroyEngine` for the open instances, the host pumps up to eight rounds,
+  drains, and rings the doorbell if records were written.
+- **`replyOutSeq` is what the host published.** It is the `seq` of the last runtime record the host
+  published to the ring for the request, not `ibusweb_output_last_seq()`: the host copies the output
+  batch before writing it, and a record a proxied call appends during a full-ring wait goes out with
+  the next drain, after the reply.
+- **Archives are laid out from the store root and keep symbolic links.** Entries are named from
+  `/nix/store` (`<hash>-<name>/…`, or the bare file for a single-file store path) rather than relative
+  to the store path, with hard links stored as files (`--hard-dereference`). The host extracts every
+  archive at the root of the `/nix/store` mount and refuses entries outside the archive's own store
+  path. The installer takes symbolic links and refuses hard links with `-EOPNOTSUPP`; the build fails
+  on a link that leaves the closure (`tools/engine-manifest/symlinks.ts`) or a target longer than
+  ustar's 100 bytes. Engine directories are `/engines/<encodeComponent(name)>`, and the manifest
+  schema restricts `name`, requires non-empty fields and at least one engine, rejects unknown keys and
+  requires a canonical `settingsSchemaDir`.
+- **`heapBytes` is a program-break peak.** The harness measures `sbrk(0)` (`breakPeak`), an address
+  that includes the static data below the heap, and checks it against `heapBytes`. Adding that to the
+  runtime minimum and the module's static size counts the static data twice, so `memory` is
+  conservative.
