@@ -376,7 +376,7 @@ export const poolTopUp = async (h: Harness, { client }: RunningHost): Promise<vo
   await release(h, client);
   const released = await stats(client);
   expect(released.poolWorkersPeak).toBe(over.poolWorkersPeak);
-  expect(released.heapPeak).toBeGreaterThanOrEqual(over.heapPeak);
+  expect(released.breakPeak).toBeGreaterThanOrEqual(over.breakPeak);
   h.record("pool-top-up", {
     plannedPeak: describeStats(h, peak, first),
     overshoot:

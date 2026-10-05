@@ -3,6 +3,7 @@
 import {
   CandidateClicked,
   DestroyEngine,
+  FocusIn,
   FocusOut,
   Reset,
   SetCapabilities,
@@ -49,7 +50,7 @@ const lookup = (records: DecodedRecord[]) => {
 describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
   let session: PageSession;
   let started = false;
-  let heapPeak = 0;
+  let breakPeak = 0;
   let poolWorkersPeak = 0;
   let activeThreadsPeak = 0;
   beforeEach(async () => {
@@ -61,13 +62,13 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     if (!started) return;
     try {
       const stats = await session.stats();
-      heapPeak = Math.max(heapPeak, stats.heapPeak);
+      breakPeak = Math.max(breakPeak, stats.breakPeak);
       poolWorkersPeak = Math.max(poolWorkersPeak, stats.poolWorkersPeak);
       activeThreadsPeak = Math.max(activeThreadsPeak, stats.activeThreadsPeak);
       expect(stats.activeThreadsAtRuntimeStart).toBe(0);
       expect(stats.activeThreadsPeak).toBeLessThanOrEqual(build.manifest.threads);
-      expect(stats.heapPeak).toBeGreaterThan(0);
-      expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
+      expect(stats.breakPeak).toBeGreaterThan(0);
+      expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
       expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + build.manifest.threads);
     } finally {
       await session.host.terminate();
@@ -75,7 +76,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
   });
   afterAll(() =>
     console.log(
-      `Hangul ${runtime.name} suite peaks: ${JSON.stringify({ heapPeak, poolWorkersPeak, activeThreadsPeak, threads: build.manifest.threads })}`,
+      `Hangul ${runtime.name} suite peaks: ${JSON.stringify({ breakPeak, poolWorkersPeak, activeThreadsPeak, threads: build.manifest.threads })}`,
     ),
   );
   const compose = async (ic = 1, keyboard = "2") => {
@@ -186,12 +187,23 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       records.findIndex(({ record }) => record._tag === "ForwardKeyEvent"),
     );
   });
+  // A COMMIT-mode preedit is the client's to commit on focus out, so the
+  // engine only hides it; one in CLEAR mode, under the Hanja table, is
+  // dropped with the table, and neither commits.
+  const tags = (records: DecodedRecord[]) => records.map(({ record }) => record._tag);
   test("focus out leaves client-owned COMMIT-mode preedit without committing", async () => {
-    const records = [...(await compose()), ...(await session.request(1, new FocusOut({})))];
-    expect(records.some(({ record }) => record._tag === "CommitText")).toBe(false);
-    expect(last(records, "UpdatePreeditText").mode).toBe(1);
+    expect(last(await compose(), "UpdatePreeditText").mode).toBe(1);
+    expect(tags(await session.request(1, new FocusOut({})))).toEqual(["HidePreeditText"]);
+    await session.request(1, new FocusIn({}));
+    await compose();
+    expect(last(await session.key(1, ...Key.f9), "UpdatePreeditText")).toMatchObject({ text: { text: "한" }, mode: 0 });
+    expect(tags(await session.request(1, new FocusOut({})))).toEqual([
+      "HideLookupTable",
+      "HideAuxiliaryText",
+      "HidePreeditText",
+    ]);
   });
-  test("Hanja and repeated lifecycle stay within measured heap and thread declarations", async () => {
+  test("Hanja and repeated lifecycle stay within the declared program break and threads", async () => {
     const before = await session.stats();
     for (let i = 0; i < 3; i++) {
       await compose();
@@ -201,13 +213,13 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     }
     const stats = await session.stats();
     console.log(
-      `Hangul ${runtime.name} resources: ${JSON.stringify({ heapPeak: stats.heapPeak, poolWorkersPeak: stats.poolWorkersPeak, idleWorkers: stats.idleWorkers, activeThreadsPeak: stats.activeThreadsPeak, threads: build.manifest.threads, heapBytes: build.heapBytes })}`,
+      `Hangul ${runtime.name} resources: ${JSON.stringify({ breakPeak: stats.breakPeak, poolWorkersPeak: stats.poolWorkersPeak, idleWorkers: stats.idleWorkers, activeThreadsPeak: stats.activeThreadsPeak, threads: build.manifest.threads, heapBytes: build.heapBytes })}`,
     );
     expect(stats.poolWorkersPeak).toBe(build.poolBase + build.manifest.threads);
     expect(stats.workersCreated).toBe(0);
     expect(stats).toMatchObject({ activeThreadsAtRuntimeStart: 0, activeThreadsPeak: 0 });
-    expect(stats.heapPeak).toBeGreaterThan(0);
-    expect(stats.heapPeak).toBeGreaterThanOrEqual(before.heapPeak);
-    expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
+    expect(stats.breakPeak).toBeGreaterThan(0);
+    expect(stats.breakPeak).toBeGreaterThanOrEqual(before.breakPeak);
+    expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
   });
 });
