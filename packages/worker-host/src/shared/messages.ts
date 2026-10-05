@@ -74,10 +74,6 @@ export type HostInit<Wasm = unknown, Test = never> = {
   control: SharedArrayBuffer;
   layout?: TransportLayout;
   storage: EngineStorage;
-  // The host tops Emscripten's pthread pool up, when no request is pending,
-  // to this many idle Workers.
-  poolLowWater: number;
-  constants: RuntimeConstants;
   test?: Test;
 } & ({ manifest: EngineManifest; manifestUrl?: never } | { manifest?: never; manifestUrl: string });
 

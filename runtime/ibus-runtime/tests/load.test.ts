@@ -241,3 +241,20 @@ describe.each([
     });
   });
 });
+
+test("released and asserting distributions ship the generated runtime constants", async () => {
+  const expected = await readFile(data("constants"), "utf8");
+  const constants = JSON.parse(expected) as Record<string, unknown>;
+  expect(Object.keys(constants).sort()).toEqual([
+    "canceled",
+    "idbReadOnly",
+    "memory",
+    "poolLowWater",
+    "protocol",
+    "pumpError",
+    "runtimeAbi",
+    "waitTimedOut",
+  ]);
+  for (const runtime of [data("released"), data("asserting")])
+    expect(await readFile(new URL("constants.json", pathToFileURL(runtime)), "utf8")).toBe(expected);
+});

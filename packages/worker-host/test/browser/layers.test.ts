@@ -101,16 +101,6 @@ describe("the Worker scope", () => {
     manifestUrl: "",
     control: createControl(),
     storage: { kind: "none" },
-    poolLowWater: 0,
-    constants: {
-      runtimeAbi: 1,
-      protocol: 1,
-      canceled: -11,
-      pumpError: 0,
-      waitTimedOut: 0,
-      idbReadOnly: 0,
-      memory: { minimum: 0, maximum: 0 },
-    },
   });
 
   // Builds the scope, runs use() in it, then closes it with use()'s exit;

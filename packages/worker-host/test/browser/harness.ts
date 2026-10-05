@@ -198,8 +198,6 @@ export const browserHarness = async (): Promise<Harness> => {
             }
           : { manifestUrl: new URL(options.manifestUrl, location.href).href }),
         storage: options.storage ?? { kind: "none" },
-        poolLowWater: data.pool.lowWater,
-        constants: data.constants,
         test,
       };
       const startupMs = await startHost(worker, init, messages);

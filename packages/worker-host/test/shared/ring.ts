@@ -33,6 +33,7 @@ const until = async (h: Harness, check: () => boolean): Promise<void> => {
 const commits = (records: DecodedRecord[]) => records.filter(({ record }) => record._tag === "CommitText");
 const start = async (h: Harness, runtime: RuntimeBuild) => {
   const runtimeCalls = new SharedArrayBuffer(16);
+  const ringWaitEntries = new SharedArrayBuffer(4);
   const waitTrap = new SharedArrayBuffer(4);
   const deferPump = new SharedArrayBuffer(4);
   const waitAppend = new SharedArrayBuffer(4);
@@ -43,6 +44,7 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
     test: {
       sides: [],
       runtimeCalls,
+      ringWaitEntries,
       waitTrap,
       deferPump,
       waitTrapOp: h.data.constants.ops["WAIT_TRAP"]!,
@@ -61,6 +63,7 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
     host,
     page,
     counts: new Int32Array(runtimeCalls),
+    ringWaits: new Int32Array(ringWaitEntries),
     trap: new Int32Array(waitTrap),
     defer: new Int32Array(deferPump),
     append: new Int32Array(waitAppend),
@@ -86,13 +89,17 @@ export const largeCommit = async (h: Harness, runtime: RuntimeBuild): Promise<vo
 };
 
 export const fullRingReply = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
-  const { host, page, counts } = await start(h, runtime);
+  const { host, page, counts, ringWaits } = await start(h, runtime);
   try {
     page.pauseReading();
+    const beforeRingWait = Atomics.load(ringWaits, 0);
     const consumed = Atomics.load(counts, RuntimeCall.consumed);
     postKey(host, "b", largeBytes);
     await until(h, () => Atomics.load(page.views.words, Word.ringWaiting) === 1);
     await until(h, () => host.messages.some(({ type }) => type === "doorbell"));
+    // The doorbell is posted before wait entry; observe this request's wait
+    // before taking the counters whose stability is measured below.
+    await until(h, () => Atomics.load(ringWaits, 0) > beforeRingWait);
     const pumps = Atomics.load(counts, RuntimeCall.pump);
     const waits = Atomics.load(counts, RuntimeCall.wait);
     expect(Atomics.load(page.views.words, Word.state)).toBe(State.request);

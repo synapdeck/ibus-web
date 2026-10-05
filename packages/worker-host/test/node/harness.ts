@@ -117,8 +117,6 @@ export const nodeHarness = async (): Promise<Harness> => {
             }
           : { manifestUrl: options.manifestUrl }),
         storage: options.storage ?? { kind: "none" },
-        poolLowWater: data.pool.lowWater,
-        constants: data.constants,
         test,
       };
       const startupMs = await startHost(worker, init, messages);

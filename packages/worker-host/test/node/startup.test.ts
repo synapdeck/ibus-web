@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { HostInit } from "../../src/shared/messages.ts";
 import { describe, expect, test } from "vitest";
-import { checkManifest, readManifest } from "../../src/worker/startup.ts";
+import { checkManifest, readManifest, readRuntimeConstants } from "../../src/worker/startup.ts";
 
 const root = "/nix/store/00000000000000000000000000000000-schemas";
 const constants = {
@@ -73,14 +73,38 @@ test("redirected manifests resolve relative assets from their final location", a
   try {
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     for (const path of ["/latest.json", "/v1/manifest.json"]) {
-      const result = await readManifest({ constants, manifestUrl: `${origin}${path}` } as HostInit<unknown, unknown>);
+      const result = await readManifest({ manifestUrl: `${origin}${path}` } as HostInit<unknown, unknown>, constants);
       expect(result.module.url).toBe(`${origin}/v1/engine.wasm`);
       expect(result.data[0]!.url).toBe(`${origin}/v1/schemas.tar`);
     }
-    const inline = await readManifest({ constants, manifest: relative } as HostInit<unknown, unknown>);
+    const inline = await readManifest({ manifest: relative } as HostInit<unknown, unknown>, constants);
     expect(inline.module.url).toBe("./engine.wasm");
     expect(inline.data[0]!.url).toBe("./schemas.tar");
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
+});
+
+describe("runtime constants startup", () => {
+  test("loads every runtime constant beside the runtime URL", async () => {
+    const directory = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { pathToFileURL } = await import("node:url");
+    const path = await directory.mkdtemp(`${tmpdir()}/runtime-constants-`);
+    const runtimeUrl = pathToFileURL(`${path}/ibus-runtime.js`).href;
+    const shipped = { ...constants, poolLowWater: 3 };
+    try {
+      await expect(readRuntimeConstants(runtimeUrl)).rejects.toThrow(/constants\.json/);
+      await directory.writeFile(`${path}/constants.json`, "{");
+      await expect(readRuntimeConstants(runtimeUrl)).rejects.toThrow(/constants\.json/);
+      for (const value of [{}, { ...shipped, poolLowWater: -1 }, { ...shipped, canceled: "errno" }]) {
+        await directory.writeFile(`${path}/constants.json`, JSON.stringify(value));
+        await expect(readRuntimeConstants(runtimeUrl)).rejects.toThrow(/constants\.json/);
+      }
+      await directory.writeFile(`${path}/constants.json`, JSON.stringify(shipped));
+      expect(await readRuntimeConstants(runtimeUrl)).toEqual(shipped);
+    } finally {
+      await directory.rm(path, { recursive: true });
+    }
+  });
 });

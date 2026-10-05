@@ -18,7 +18,7 @@
 // fetch from a server of this process's own; in a browser, from this
 // server, as it is on disk, as are the host's own scripts from dist/.
 
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { basename, join } from "node:path";
@@ -100,6 +100,14 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   copyFileSync(join(dist, "worker/index.js"), join(failing, "index.js"));
   copyFileSync(join(dist, "worker/brotli-fallback.js"), join(failing, "brotli-fallback.js"));
   copyFileSync(join(dist, "test/worker/failing-relay.js"), join(failing, "relay.js"));
+  const brokenRuntimes = Object.fromEntries(
+    ["missingConstants", "malformedConstants"].map((name) => {
+      const path = mkdtempSync(join(tmpdir(), `ibus-web-${name}-`));
+      copyFileSync(join(manifest.runtimes.released, "ibus-runtime.wasm"), join(path, "ibus-runtime.wasm"));
+      if (name === "malformedConstants") writeFileSync(join(path, "constants.json"), "{}");
+      return [name, path];
+    }),
+  ) as Record<"missingConstants" | "malformedConstants", string>;
   type EngineName = "echo" | "thrower" | "empty" | "rebuilt";
   const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): EngineManifest => {
     const engine = readJson<EngineManifest>(join(manifest.engines[name], "manifest.json"));
@@ -112,6 +120,8 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const testData = (
     url: (
       dir:
+        | "missingConstants"
+        | "malformedConstants"
         | "asserting"
         | "released"
         | "sides"
@@ -135,6 +145,9 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
     schemaFiles: readdirSync(manifest.schemas, { recursive: true, withFileTypes: true }).filter((entry) =>
       entry.isFile(),
     ).length,
+    brokenRuntimes: ["missingConstants", "malformedConstants"].map((name) =>
+      url(name as "missingConstants" | "malformedConstants", "ibus-runtime.js"),
+    ),
     runtimes: (["asserting", "released"] as const).map((name) => ({ name, url: url(name, "ibus-runtime.js") })),
     sides: sideFiles.map((file) => ({ name: basename(file, ".wasm"), url: url("sides", file) })),
     testHostUrl: url("dist", "test/worker/host.js"),
@@ -153,6 +166,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const dirs = {
     ...manifest.engines,
     ...manifest.runtimes,
+    ...brokenRuntimes,
     sides: manifest.sides,
     dist,
     failing,

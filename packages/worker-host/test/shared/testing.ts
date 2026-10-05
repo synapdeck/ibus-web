@@ -78,6 +78,8 @@ export interface TestInit {
   firstPieceGate?: SharedArrayBuffer;
   sides?: readonly SideModule[];
   runtimeCalls?: SharedArrayBuffer;
+  // Entries into a runtime wait while output is blocked on ring space.
+  ringWaitEntries?: SharedArrayBuffer;
   waitTrap?: SharedArrayBuffer;
   waitTrapOp?: number;
   // Once the page stores 1 here, the next wait the host starts while it

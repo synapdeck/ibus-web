@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 {
   perSystem =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) pkgsWasm;
@@ -131,16 +136,46 @@
           installPhase = ''
             runHook preInstall
             mkdir -p $out
-            cp ibus-runtime.js ibus-runtime.wasm ${exportList}/exports.txt ${exportList}/exports.json $out/
+            cp ibus-runtime.js ibus-runtime.wasm ${exportList}/exports.txt ${exportList}/exports.json ${constants}/constants.json $out/
             runHook postInstall
           '';
         };
+
+      # Evaluate ABI and errno macros for the same WebAssembly target as the runtime.
+      constants = pkgsWasm.stdenv.mkDerivation {
+        name = "ibus-runtime-constants";
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = ./constants.c;
+        };
+        nativeBuildInputs = [
+          pkgsWasm.pkg-config
+          config.ibusWeb.typescript.nodejs
+          pkgs.jq
+        ];
+        buildInputs = [ runtime.libibusWeb ];
+        dontFixup = true;
+        buildPhase = ''
+          runHook preBuild
+          $CC $($PKG_CONFIG --cflags libibus-web) -I${runtime.wasmfsIdb}/include -c constants.c -o constants.o
+          $CXX ${toolchain.testMainFlags} constants.o -o constants.js
+          node constants.js | jq -c --argjson minimum ${toString minimumMemory} \
+            --argjson maximum ${toString maximumMemory} --argjson poolLowWater ${toString lowWater} \
+            '. + { memory: { $minimum, $maximum }, $poolLowWater }' > constants.json
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          install -Dm644 constants.json -t $out
+          runHook postInstall
+        '';
+      };
 
       ibusRuntime = link { pname = "ibus-runtime"; };
     in
     {
       ibusWeb.runtime = {
-        inherit ibusRuntime linkFlags;
+        inherit ibusRuntime linkFlags constants;
         memory = {
           minimum = minimumMemory;
           maximum = maximumMemory;
@@ -156,6 +191,10 @@
           extraFlags = "-sASSERTIONS=1";
         };
       };
+      # The IndexedDB backend's header comes with no pkg-config module.
+      ibusWeb.toolchain.clangdPathFlags."runtime/ibus-runtime/constants\\.c" = [
+        "-I${runtime.wasmfsIdb}/include"
+      ];
       packages.ibus-runtime = ibusRuntime;
     };
 }

@@ -241,9 +241,12 @@ export const makeInstruments = (
       };
       const append = test.waitAppend === undefined ? undefined : new Int32Array(test.waitAppend);
       const controlWords = new Int32Array(control);
+      const ringWaitEntries = test.ringWaitEntries === undefined ? undefined : new Int32Array(test.ringWaitEntries);
       const wait = handle.rt._ibusweb_wait.bind(handle.rt);
       handle.rt._ibusweb_wait = (seen, delay) => {
         if (counts !== undefined) Atomics.add(counts, RuntimeCall.wait, 1);
+        if (ringWaitEntries !== undefined && Atomics.load(controlWords, Word.ringWaiting) === 1)
+          Atomics.add(ringWaitEntries, 0, 1);
         if (trap !== undefined && Atomics.exchange(trap, 0, 0) === 1) testDispatch(test.waitTrapOp);
         if (
           append !== undefined &&

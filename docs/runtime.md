@@ -286,7 +286,7 @@ See [testing.md](testing.md).
 
 ## `ibus-runtime.wasm`
 
-`packages.ibus-runtime` holds `ibus-runtime.js`, `ibus-runtime.wasm`,
+`packages.ibus-runtime` holds `ibus-runtime.js`, `ibus-runtime.wasm`, `constants.json`,
 `exports.txt` and `exports.json`; `ibusWeb.runtime.ibusRuntimeAsserting` is
 the same link with `-sASSERTIONS=1`, which every runtime test runs beside
 the released one.

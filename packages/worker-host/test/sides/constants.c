@@ -1,16 +1,11 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
 
-/* Prints, as JSON, the values the TypeScript host and scenarios share with
- * the C side, as the WebAssembly target defines them: the test side modules'
- * opcodes, the runtime's return values the host checks for, the IndexedDB
- * backend's flags, and where mallinfo() reports the bytes in use. */
+/* Test side module opcodes and the allocator's layout, evaluated for the
+ * WebAssembly target. */
 
 #include "test-ops.h"
 
-#include <errno.h>
-#include <ibus-web/protocol.h>
-#include <ibus-web/wasmfs-idb.h>
 #include <malloc.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -23,11 +18,7 @@ int main(void) {
   sep = ", ";
   TEST_OPS(PRINT_OP)
 #undef PRINT_OP
-  printf("}, \"pumpError\": %d, \"waitTimedOut\": %d", IBUSWEB_PUMP_ERROR,
-         -ETIMEDOUT);
-  printf(", \"idbReadOnly\": %u", WASMFS_IDB_READ_ONLY);
-  printf(", \"runtimeAbi\": %u, \"protocol\": %u, \"canceled\": %d",
-         IBUSWEB_RUNTIME_ABI, IBUSWEB_PROTOCOL_VERSION, -ECANCELED);
+  printf("}");
   printf(", \"mallinfo\": {\"bytes\": %zu, \"inUseOffset\": %zu}}\n",
          sizeof(struct mallinfo), offsetof(struct mallinfo, uordblks));
   return 0;

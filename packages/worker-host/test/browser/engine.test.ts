@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterAll, describe, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import { browserHarness } from "./harness.ts";
 import {
   manifestUrl,
@@ -21,4 +21,9 @@ describe.each(h.data.runtimes)("engine on $name", (runtime) => {
   }
   test("engine fault", () => engineFault(h, runtime));
   test("engine load failure", () => engineLoadFailure(h, runtime));
+});
+
+test("missing or malformed constants.json fails host startup with its filename", async () => {
+  for (const url of h.data.brokenRuntimes)
+    await expect(h.start({ runtime: { name: "released", url } })).rejects.toThrow(/constants\.json/);
 });

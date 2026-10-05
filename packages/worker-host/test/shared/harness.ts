@@ -47,6 +47,7 @@ export interface TestData {
   echoData: string;
   schemaFiles: number;
   runtimes: RuntimeBuild[];
+  brokenRuntimes: string[];
   sides: { name: string; url: string }[];
   // The host's test build and the host as released; and the host as
   // released beside the relay that fails after three wakes, as its relay.

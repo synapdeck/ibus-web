@@ -11,7 +11,7 @@
 // the relay it starts, touch the runtime's memory.
 
 import { CrashReason, encodeValue, type EngineManifest } from "@ibus-web/protocol";
-import { readManifest, fetchBytes } from "./startup.ts";
+import { readManifest, fetchBytes, readRuntimeConstants, type RuntimeDistributionConstants } from "./startup.ts";
 import { mountStore } from "./store.ts";
 import { EngineScopes } from "./scopes.ts";
 import { writeHostRecord, drainOutput, HostDefect } from "./output.ts";
@@ -244,6 +244,7 @@ export const workerLayer = (
 // host takes before it creates its user backend. Released, it lets go of
 // every lock, but of the writer lock only once the user backend is sealed.
 export interface PlannedStorageShape {
+  readonly constants: RuntimeDistributionConstants;
   readonly plan: StoragePlan;
   readonly held: Held;
   // The runtime's memory, in bytes.
@@ -261,21 +262,26 @@ export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWo
   Effect.gen(function* () {
     const { init } = yield* HostWorker;
     const instruments = yield* Instruments;
+    const constants = yield* Effect.tryPromise({
+      try: () => readRuntimeConstants(init.runtimeUrl),
+      catch: startupFailed,
+    });
     const manifest = yield* Effect.tryPromise({
-      try: () => readManifest(init),
+      try: () => readManifest(init, constants),
       catch: (error) => (error instanceof StartupFailed ? error : startupFailed(error)),
     });
     const held = new Held();
     yield* Effect.addFinalizer(() => Effect.sync(() => held.releaseAll()));
     instruments.beforeProbe();
     const plan = yield* Effect.tryPromise({
-      try: () => planStorage(init.storage, manifest, init.constants.idbReadOnly, held),
+      try: () => planStorage(init.storage, manifest, constants.idbReadOnly, held),
       catch: startupFailed,
     });
     const module = yield* Effect.tryPromise({ try: () => fetchBytes(manifest.module.url), catch: startupFailed });
     if (module.length !== manifest.module.size)
       return yield* new StartupFailed({ message: `module size ${module.length}, expected ${manifest.module.size}` });
     return {
+      constants,
       plan,
       held,
       manifest,
@@ -304,9 +310,9 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
   HostRuntime,
   Effect.gen(function* () {
     const { init, control } = yield* HostWorker;
-    const { memory: bytes, manifest } = yield* PlannedStorage;
+    const { memory: bytes, manifest, constants } = yield* PlannedStorage;
     const instruments = yield* Instruments;
-    yield* Effect.try({ try: () => checkMemory(bytes, init.constants.memory), catch: startupFailed });
+    yield* Effect.try({ try: () => checkMemory(bytes, constants.memory), catch: startupFailed });
     const memory = new WebAssembly.Memory({
       initial: bytes.initial / WASM_PAGE,
       maximum: bytes.maximum / WASM_PAGE,
@@ -432,9 +438,9 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
   Layer.effect(
     Storage,
     Effect.gen(function* () {
-      const { init, env } = yield* HostWorker;
+      const { env } = yield* HostWorker;
       const { handle } = yield* HostRuntime;
-      const { plan, held, manifest } = yield* PlannedStorage;
+      const { plan, held, manifest, constants } = yield* PlannedStorage;
       const config = yield* HostConfig;
       const instruments = yield* Instruments;
       const mounted = yield* Effect.tryPromise({
@@ -468,7 +474,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
         handle,
         engine: manifest,
         plan,
-        idbReadOnly: init.constants.idbReadOnly,
+        idbReadOnly: constants.idbReadOnly,
         held,
         config,
         instruments,
@@ -495,8 +501,8 @@ export const serve: Effect.Effect<
   const storage = yield* Storage;
   const config = yield* HostConfig;
   const instruments = yield* Instruments;
-  const { init, control } = worker;
-  const { module } = yield* PlannedStorage;
+  const { control } = worker;
+  const { module, constants } = yield* PlannedStorage;
   // Runs a runtime call; one that throws marks the host crashed before
   // anything else can happen.
   const guarded = <T>(call: () => T): Effect.Effect<T, RuntimeStopped> =>
@@ -511,7 +517,7 @@ export const serve: Effect.Effect<
         return stopped;
       },
     });
-  const scopes = new EngineScopes(buffers.request, init.constants.canceled);
+  const scopes = new EngineScopes(buffers.request, constants.canceled);
   let moduleLoaded = false;
   // The page hears of it once.
   let closedReported = false;
@@ -529,11 +535,11 @@ export const serve: Effect.Effect<
     watchStorage,
     handle,
     control,
-    constants: init.constants,
+    constants,
     wakeIndex,
     buffers,
     instruments,
-    lowWater: init.poolLowWater,
+    lowWater: constants.poolLowWater,
     writer: worker.writer,
     scopes,
     loadEngine: () => {
@@ -579,7 +585,7 @@ export const serve: Effect.Effect<
         throw error;
       }
       if (!intact) return;
-      for (let round = 0; round < SHUTDOWN_PUMPS; round++) if (pump(handle.rt, init.constants) !== 0) break;
+      for (let round = 0; round < SHUTDOWN_PUMPS; round++) if (pump(handle.rt, constants) !== 0) break;
       if (drainOutput(handle.rt, worker.writer, outputLength, ctx) > 0) ringDoorbell(ctx);
     }).pipe(Effect.orDie),
   );

@@ -59,17 +59,22 @@ same-origin`, `Cross-Origin-Embedder-Policy: require-corp` on every
    bundle (spec §9.2).
 4. It posts one `HostInit` and waits for `ready` or `error`.
 
-| `HostInit` field            | What it is                                                                                                                                                                  |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runtimeUrl`                | `ibus-runtime.js`, which the host imports.                                                                                                                                  |
-| `wasm`                      | The compiled runtime; without it Emscripten fetches the `.wasm` itself.                                                                                                     |
-| `manifest` or `manifestUrl` | Exactly one: an engine manifest (validated again by the host) or the URL of its JSON. Relative module/archive URLs resolve against the fetched manifest URL.                |
-| `control`                   | The transport SAB; its layout is specified in [PROTOCOL.md](../packages/protocol/PROTOCOL.md#transport).                                                                    |
-| `layout`                    | Optional slot/ring sizes, matching the buffer; defaults to 64 KiB and 256 KiB.                                                                                              |
-| `storage`                   | `{ kind: "browser" }` (IndexedDB, or memory without it), `{ kind: "node", hostPath }` (tests), or `{ kind: "none" }`.                                                       |
-| `poolLowWater`              | The idle Workers the host tops the pool up to (`ibusWeb.runtime.threadPool.lowWater`).                                                                                      |
-| `constants`                 | Values the build defines: `IBUSWEB_PUMP_ERROR`, `ibusweb_wait()`'s `-ETIMEDOUT`, `WASMFS_IDB_READ_ONLY`, the memory bounds, runtime ABI, protocol version and `-ECANCELED`. |
-| `test`                      | Read only by the test build; the host as released ignores it.                                                                                                               |
+| `HostInit` field            | What it is                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `runtimeUrl`                | `ibus-runtime.js`, which the host imports.                                                                                                                   |
+| `wasm`                      | The compiled runtime; without it Emscripten fetches the `.wasm` itself.                                                                                      |
+| `manifest` or `manifestUrl` | Exactly one: an engine manifest (validated again by the host) or the URL of its JSON. Relative module/archive URLs resolve against the fetched manifest URL. |
+| `control`                   | The transport SAB; its layout is specified in [PROTOCOL.md](../packages/protocol/PROTOCOL.md#transport).                                                     |
+| `layout`                    | Optional slot/ring sizes, matching the buffer; defaults to 64 KiB and 256 KiB.                                                                               |
+| `storage`                   | `{ kind: "browser" }` (IndexedDB, or memory without it), `{ kind: "node", hostPath }` (tests), or `{ kind: "none" }`.                                        |
+| `test`                      | Read only by the test build; the host as released ignores it.                                                                                                |
+
+The host reads `constants.json` from beside `runtimeUrl` before validating the
+engine manifest. This runtime distribution file carries the runtime ABI,
+protocol version, errno values (`-ECANCELED`, `-ETIMEDOUT`), pump error,
+IndexedDB read-only flag, memory bounds, and `poolLowWater` (the idle Workers
+the host tops the pool up to). Missing or malformed constants fail startup
+with a diagnostic naming `constants.json`.
 
 The page touches only the control buffer and `postMessage`, never the
 runtime's memory, and no message carries a pointer into it. What else the

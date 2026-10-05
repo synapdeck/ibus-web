@@ -100,6 +100,9 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
+          for runtime in ${runtime.ibusRuntime} ${runtime.ibusRuntimeAsserting}; do
+            cmp ${runtime.constants}/constants.json $runtime/constants.json
+          done
           grep -F 'Module["ibuswebEngineThreads"]' ${runtime.ibusRuntime}/ibus-runtime.js > /dev/null
           manifest=${runtime.exportList}
           for file in exports.txt exports.json; do
@@ -171,6 +174,7 @@
         nodeTests = ./tests;
         nodeTestData = {
           harness = "${nodeHarness}";
+          constants = "${runtime.constants}/constants.json";
           released = "${runtime.ibusRuntime}/ibus-runtime.js";
           asserting = "${runtime.ibusRuntimeAsserting}/ibus-runtime.js";
           side = testSide.wasm;

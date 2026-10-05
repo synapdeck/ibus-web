@@ -151,8 +151,7 @@
         ln -s ${toString (map (side: side.wasm) sides)} $out/
       '';
 
-      # The values the tests share with the C side, as the WebAssembly target
-      # defines them, and the runtime's memory bounds.
+      # Test-only opcodes and allocator layout augment the runtime distribution.
       constants = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-worker-host-test-constants";
         src = sidesSrc;
@@ -165,13 +164,11 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
-          $CC $($PKG_CONFIG --cflags libibus-web) -I${runtime.wasmfsIdb}/include \
-            -c constants.c -o constants.o
+          $CC $($PKG_CONFIG --cflags libibus-web) -c constants.c -o constants.o
           $CXX ${toolchain.testMainFlags} constants.o -o constants.js
           node constants.js |
-            jq -c --argjson minimum ${toString runtime.memory.minimum} \
-              --argjson maximum ${toString runtime.memory.maximum} \
-              '. + { memory: { $minimum, $maximum } }' > constants.json
+            jq -c --slurpfile runtime ${runtime.ibusRuntime}/constants.json \
+              '. + $runtime[0]' > constants.json
           runHook postBuild
         '';
         installPhase = ''
@@ -265,17 +262,12 @@
         };
     in
     {
-      # The IndexedDB backend's header comes with no pkg-config module.
-      ibusWeb.toolchain.clangdPathFlags."packages/worker-host/test/sides/constants\\.c" = [
-        "-I${runtime.wasmfsIdb}/include"
-      ];
-
       checks.engine-distribution-identity =
         pkgs.runCommand "engine-distribution-identity" { nativeBuildInputs = [ pkgs.jq ]; }
           ''
             base=$(jq -r .version ${engineDists.empty}/manifest.json)
             test "$base" = "${runtime.libibusWeb.version}+nix.${
-              builtins.substring 0 32 (builtins.baseNameOf (toString engineDists.empty))
+              builtins.substring 0 32 (baseNameOf (toString engineDists.empty))
             }"
             for dist in ${rebuiltDist} ${
               engineDists.empty.overrideAttrs (old: {
