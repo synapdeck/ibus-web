@@ -216,10 +216,12 @@ IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
 IBUSWEB_API int ibusweb_install_end(IBusWebInstall *install);
 
 /* Whole records in sequence order. The pointer remains valid until the next
- * runtime call. Peek and consume are restricted to the pumping thread. They
- * keep working after ibusweb_dispatch() has returned -ECANCELED, so the host
- * can drain the records written before the fault; a record still waiting to
- * be appended from another thread when the fault happened is lost. */
+ * runtime call, ibusweb_wait() included: a call another thread proxied to
+ * the pumping thread runs inside the wait, and one that appends a record
+ * can move the buffer. Peek and consume are restricted to the pumping thread.
+ * They keep working after ibusweb_dispatch() has returned -ECANCELED, so the
+ * host can drain the records written before the fault; a record still waiting
+ * to be appended from another thread when the fault happened is lost. */
 IBUSWEB_API const uint8_t *ibusweb_output_peek(uint32_t *len);
 /* A length not ending on a record boundary logs a critical and drops nothing.
  */
