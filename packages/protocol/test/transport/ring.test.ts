@@ -3,6 +3,7 @@
 import { expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import { RingReader, RingWriter, transportLayout, transportViews, Word, RECORD_CONTINUATION } from "../../src/index.ts";
+import { published } from "./support.ts";
 function record(payloadBytes: number, seq = 1): Uint8Array {
   const bytes = new Uint8Array(Math.ceil((16 + payloadBytes) / 8) * 8);
   const header = new DataView(bytes.buffer);
@@ -101,4 +102,59 @@ it("rejects malformed records and changing a pending record", () => {
   expect(() => writer.write(invalid)).toThrow("framing");
   writer.write(record(170));
   expect(() => writer.write(record(170))).toThrow("same record");
+});
+it("asks for exactly the free space the next fragment needs on a 64-byte ring", () => {
+  const ringBytes = 64;
+  const layout = transportLayout({ slotBytes: 8, ringBytes });
+  // Replays the same first write so each probe starts from the writer's state after it.
+  const start = (position: number, free: number, payloadBytes: number) => {
+    const views = transportViews(new SharedArrayBuffer(layout.totalBytes), layout);
+    Atomics.store(views.words, Word.ringWrite, position);
+    Atomics.store(views.words, Word.ringRead, position - (ringBytes - free));
+    const writer = new RingWriter(views, layout);
+    const input = record(payloadBytes);
+    return { views, writer, input, result: writer.write(input) };
+  };
+  const probe = (position: number, free: number, payloadBytes: number, freeAfter: number) => {
+    const { views, writer, input } = start(position, free, payloadBytes);
+    Atomics.add(views.words, Word.ringRead, freeAfter - writer.freeBytes());
+    const before = Atomics.load(views.words, Word.ringWrite);
+    const result = writer.write(input);
+    return (
+      result._tag === "written" || published(views, before, Atomics.load(views.words, Word.ringWrite)).fragments > 0
+    );
+  };
+  let probes = 0;
+  for (let position = 0; position < ringBytes; position += 8)
+    for (let free = 0; free <= ringBytes; free += 8)
+      for (let payloadBytes = 0; payloadBytes <= 3 * ringBytes; payloadBytes++) {
+        const { writer, result } = start(position, free, payloadBytes);
+        if (result._tag !== "full") continue;
+        const context = { position, free, payloadBytes, needBytes: result.needBytes };
+        expect(result.needBytes, JSON.stringify(context)).toBeGreaterThan(writer.freeBytes());
+        expect(result.needBytes, JSON.stringify(context)).toBeLessThanOrEqual(ringBytes);
+        expect(probe(position, free, payloadBytes, result.needBytes), JSON.stringify(context)).toBe(true);
+        expect(probe(position, free, payloadBytes, result.needBytes - 8), JSON.stringify(context)).toBe(false);
+        probes++;
+      }
+  expect(probes).toBeGreaterThan(1000);
+});
+it("rejects ring counters that claim more than the ring holds", () => {
+  const ringBytes = 64;
+  const layout = transportLayout({ slotBytes: 8, ringBytes });
+  for (let position = 0; position < ringBytes; position += 8)
+    for (let offset = -ringBytes; offset <= ringBytes; offset++)
+      for (const payloadBytes of [0, 5, 8, 40, 200]) {
+        const views = transportViews(new SharedArrayBuffer(layout.totalBytes), layout);
+        const write = position + ringBytes;
+        Atomics.store(views.words, Word.ringWrite, write);
+        // A ringRead past ringWrite makes the unsigned used count exceed the ring.
+        Atomics.store(views.words, Word.ringRead, write + offset);
+        const writer = new RingWriter(views, layout);
+        const reader = new RingReader(views, layout);
+        if (offset > 0) {
+          expect(() => writer.write(record(payloadBytes))).toThrow("Invalid ring counters");
+          expect(() => reader.next()).toThrow("Invalid ring counters");
+        } else expect(() => writer.write(record(payloadBytes))).not.toThrow();
+      }
 });
