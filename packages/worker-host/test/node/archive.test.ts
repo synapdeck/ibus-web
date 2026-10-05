@@ -15,7 +15,7 @@ const engine: EngineManifest = {
   threads: 0,
   module: { url: "https://unused.test/engine.wasm", size: 1 },
   settingsSchemaDir: "/nix/store/00000000000000000000000000000000-data/schemas",
-  engines: [],
+  engines: ["allocation"],
   settingsSchemas: [],
   name: "allocation",
   data: [
