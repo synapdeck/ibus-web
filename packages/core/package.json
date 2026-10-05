@@ -19,8 +19,12 @@
   "type": "module",
   "exports": {
     "./keys": {
-      "types": "./dist/keys.d.ts",
-      "default": "./dist/keys.js"
+      "types": "./dist/shared/index.d.ts",
+      "default": "./dist/shared/index.js"
+    },
+    ".": {
+      "types": "./dist/page/index.d.ts",
+      "default": "./dist/page/index.js"
     }
   },
   "publishConfig": {
@@ -33,7 +37,8 @@
     "test": "vitest run --configLoader native"
   },
   "dependencies": {
-    "@ibus-web/protocol": "workspace:*"
+    "@ibus-web/protocol": "workspace:*",
+    "@ibus-web/worker-host": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

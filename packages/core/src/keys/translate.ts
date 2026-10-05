@@ -5,9 +5,14 @@ import { evdevForCode } from "./dom-codes.generated.ts";
 import { keysymForCodepoint } from "./keysyms.generated.ts";
 import { namedKeysym } from "./named.ts";
 import { usKeysym } from "./us.ts";
-export type KeyLike = Pick<KeyboardEvent, "type" | "key" | "code" | "isComposing" | "repeat"> & {
+export interface KeyLike {
+  readonly type: string;
+  readonly key: string;
+  readonly code: string;
+  readonly isComposing: boolean;
+  readonly repeat: boolean;
   getModifierState(key: string): boolean;
-};
+}
 export function translateKey(
   event: KeyLike,
   layout: "us" | "default",

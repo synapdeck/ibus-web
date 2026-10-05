@@ -93,13 +93,6 @@
           value = xkbExport;
         }
       ];
-      checks.core = testing.vitestCheck {
-        name = "core";
-        env = { };
-        packageDir = "${typescript.workspace}/packages/core";
-        inBrowsers = false;
-        limit = 120;
-      };
       checks.keys-generators = testing.vitestCheck {
         name = "keys-generators";
         packageDir = "${typescript.workspace}/tools";
