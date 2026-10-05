@@ -27,14 +27,14 @@ Firefox for the real host), Vite 8 for the demo, Nix (`files` writer, `pkgs.xorg
 ## Global constraints
 
 - nixpkgs: whatever `flake.lock` pins; versions from Nix evaluation or the pnpm catalog. New npm dependencies go through the catalog in `modules/typescript/default.nix` (Vite becomes a catalog entry here) and `pnpm-workspace.yaml` is regenerated with `nix run .#write-files`; update `pnpmDeps.hash` when the lock changes.
-- **The keystroke path is plain synchronous TypeScript** (spec §7.4): from `keydown` to `consumed`/`passthrough`, no promises, fibers or Effect calls. It reads a snapshot that services keep current and hands records and log lines to them through a synchronous enqueue.
+- **The native synchronous keystroke path is plain synchronous TypeScript** (spec §7.4): from `keydown` to `consumed`/`passthrough`, no promises, fibers or Effect calls. It reads a snapshot that services keep current and hands records and log lines to them through a synchronous enqueue. Task 6b adds a separate, fully asynchronous interface for editor adapters; synchronous and asynchronous surfaces must coexist on the same page, including sharing an engine.
 - **License boundary (spec §9.2):** no Worker, runtime or engine code, Emscripten glue included, enters any page bundle; Workers load by URL. `@ibus-web/core` is `MIT OR Apache-2.0`; generated key tables carry their sources' notices (`MIT-open-group` and the Digital HPND-style notice for `keysymdef.h`, `BSD-3-Clause` for `dom_code_data.inc`), and the notices ship in the package (spec §9.3). The router never special-cases an engine's internals.
 - `effect` is a peer dependency of every package. Effect 4 conventions: `exactOptionalPropertyTypes` repo-wide; property tests with Effect's `Arbitrary` and fixed seeds; no `SchemaJITCompiler`. Verify APIs against `node_modules/.pnpm/effect@4.0.0/node_modules/effect/dist/*.d.ts`.
 - Browser floor: Baseline Widely available (Chrome 123, Firefox 126, Safari 17.4; `legacyPackages.emscriptenMinimumVersions`). Pages must be cross-origin isolated (COOP `same-origin`, COEP `require-corp`).
 - **Structured tests:** Vitest; `@effect/vitest` for Effect code. Timing assertions are one-sided only; tests that need ordering get it from instruments or fake clocks, never sleeps.
 - TypeScript first (scripts are TypeScript; no inline scripts in Nix); standard formats through maintained libraries (the two key-table sources are C sources whose line formats are documented by their own annotations; their generators are this package's code).
 - Comments explain why, not what; never refer to other files, this plan or its history. Docs describe the system as it is.
-- `nix flake check` passes at the end of every task. Stage named paths only; commit with `nix develop -c git commit -- <paths>`; conventional messages, no attribution lines. The user edits concurrently: never revert changes you didn't make.
+- Each task passes the focused tests and Nix checks covering its changes; do not rerun the whole integration matrix for unrelated edits. `nix flake check` is the default deterministic gate. Extended browser/storage/stress matrices have explicit commands and CI coverage, and run locally when the affected integration changes or at milestone validation. Task 5a establishes these tiers. Stage named paths only; commit with `nix develop -c git commit -- <paths>`; conventional messages, no attribution lines. The user edits concurrently: never revert changes you didn't make.
 
 ## Decisions fixed here
 
@@ -274,6 +274,40 @@ back-pressure, fragments, doorbells and crashes, following PROTOCOL.md's transpo
 - [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
 - [ ] **Step 5: Commit** `feat(core): serve keys synchronously with a replay queue and restart crashed engines`.
 
+### Task 5a: Separate default checks from extended integration
+
+**User correction:** Slow and scheduling-sensitive browser/storage matrices are unsuitable for every `nix flake check` and every implementation task. Preserve their coverage through explicit integration commands and CI. Serialization alone does not solve test placement or broad cache invalidation.
+
+**Files:** `modules/{testing/default,typescript/default,typescript/options,flake/ci}.nix`, `packages/worker-host/{module.nix,vitest.unit.config.ts,test/browser/smoke.test.ts}`, generated `.github/workflows/ci.yml`, `engines/hangul/checks/host/default.nix` as needed for narrowed workspace inputs, and `docs/{testing,worker-host}.md`.
+
+**Interfaces (produced):**
+
+- `ibusWeb.typescript.workspaceFor(packageDirs)` builds the selected packages and their workspace dependency closure with the existing build machinery; `workspace` remains the complete workspace. Source-only edits to an excluded package must not invalidate the selected workspace. Use this for WorkerHost checks rather than the whole-workspace output.
+- `checks.worker-host-node` runs deterministic Node unit tests; `checks.worker-host-browser` runs a small real Worker/protocol smoke set in Chromium and Firefox. Keep tight heartbeat timing, installation/upgrade contention, and stress scenarios out of those default sets.
+- Preserve the complete current matrices as explicit `packages.worker-host-node-integration` and `packages.worker-host-browser-integration`. `packages.integration-checks` aggregates extended checks registered through `ibusWeb.testing.extendedChecks`; CI runs them separately from the default gate. Later Playwright end-to-end matrices use this extended tier. Keep the small real Hangul host conformance gate unless measurements establish it belongs in the extended tier.
+
+- [ ] **Step 1: Inspect and record** existing suite groups, their dependencies, observed timings, and exact cases selected for default smoke. No existing test may silently disappear; map every moved group to an explicit target.
+- [ ] **Step 2: Add failing verification** for default/extended separation, absence of extended matrix derivations from the default dependency graph, and selected-workspace source invalidation. A source-only core edit leaves WorkerHost check derivations unchanged; a WorkerHost source edit changes them. Restore all probe edits before validation. Default smoke asserts actual startup, request/reply and ordered protocol output with a real Worker, rather than only successful loading.
+- [ ] **Step 3: Implement** the selected-workspace builder, suite placement, explicit integration targets and generated CI jobs using repository Nix/module conventions. Keep existing test assertions intact. Do not weaken timing limits, add automatic retries or serialize every runner to make default checks pass. Report any observed flaky extended case with evidence.
+- [ ] **Step 4: Verify** affected unit/default-smoke checks, generated files/hk and the new default `nix flake check`. Run the explicit extended targets once to establish preserved coverage after changing their configuration/inputs. Record elapsed time and exact results separately for default and extended gates; cold toolchain compilation and test execution are distinct costs.
+- [ ] **Step 5: Commit** `test: separate default checks from extended integration suites`.
+
+Subsequent tasks run covering checks rather than the full matrix. Documentation must replace the current claim that every test is a flake check and list the explicit integration command and CI ownership.
+
+### Task 5b: Centralize and clean packaged upstream notices
+
+**User correction:** License texts belong in the central root store and are copied into package artifacts during assembly. Do not retain a duplicate `packages/core/LICENSES/` directory in the checkout. Extracted upstream notices must be plain text, with source-comment delimiters removed and their copyright, permission and disclaimer wording preserved.
+
+**Files:** `LICENSES/`, `REUSE.toml`, `modules/keys.nix`, `modules/typescript/default.nix` as needed for hermetic packaging inputs, `packages/core/package.json`, `tools/keysyms/{notices.ts,notices.test.ts,us.ts,us.test.ts}`, and removal of tracked `packages/core/LICENSES/` copies. Reuse the existing root project-license prepack/postpack convention. Keep changes specific to packaging the core's generated key tables.
+
+**Interfaces (produced):** One canonical central source for each shipped license/notice. The assembled core package includes its project licenses, relevant SPDX license texts, exact X11/Chromium notices and pinned xkeyboard-config COPYING. Package-local notice copies are packaging outputs, not persistent source assets. Any source-notice extraction helper accepts pinned upstream content and returns clean plain text; generated headers and REUSE annotations retain accurate attribution.
+
+- [ ] **Step 1: Write failing tests** proving the X11 notice has no C comment wrapper, Chromium's notice has no `//` prefixes, and all substantive notice wording survives extraction. Keep xkeyboard-config COPYING byte-identical to its pinned input. Verify the actual packed core artifact contains the required notices and that pack cleanup leaves no package-local license copies in the checkout.
+- [ ] **Step 2: Run focused tests and record expected failures.**
+- [ ] **Step 3: Implement** central notice storage/generation and package-assembly copying. Standard SPDX template texts do not replace source-specific copyright notices. Remove duplicated tracked package files and their duplicate-generation/asset declarations. Supply only the canonical inputs needed by hermetic Nix builds/tests; do not bypass package-relative asset validation or introduce a general packaging framework.
+- [ ] **Step 4: Verify** focused extraction tests, an actual core package pack and content inspection, relevant generated-file checks and REUSE/hk after self-review/type/format corrections. Document source provenance and any normalization precisely; do not rerun unrelated extended integration matrices.
+- [ ] **Step 5: Commit** `fix(core): assemble clean notices from the central license store`.
+
 ### Task 6: Input contexts and the client's duties
 
 **Files:** `src/router/{router,contexts,surrounding,preedit}.ts`, `src/adapters/textarea.ts`, `test/router/{contexts,preedit,surrounding,content-type,switching}.test.ts`.
@@ -292,6 +326,30 @@ back-pressure, fragments, doorbells and crashes, following PROTOCOL.md's transpo
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
 - [ ] **Step 5: Commit** `feat(core): route input contexts and perform the client's preedit and surrounding-text duties`.
+
+### Task 6b: Fully asynchronous input alongside native synchronous surfaces
+
+**User requirement:** The primary Markdown editor uses CodeMirror. It needs a fully asynchronous interface while normal `<input>` and `<textarea>` surfaces retain synchronous native passthrough, including on the same page. Input policy belongs to each surface, not the page or engine.
+
+**Files:** Modify `packages/core/src/router/{router,contexts,keystroke,replay}.ts`, `packages/core/src/services/engines.ts` and `packages/core/src/page/index.ts`; add `packages/core/test/router/async.test.ts` and mixed-surface browser cases under `packages/core/test/browser/`. Modify the core browser check wiring as needed.
+
+**Interfaces (produced):** Extend `Router.attach(adapter, options?: { keyMode?: "sync" | "async" | "manual" }): () => void`, defaulting to `sync`. `async` installs asynchronous key handling; `manual` preserves context lifecycle without installing keyboard interception, for editor-owned capture. Add `Router.keyAsync(adapter, event): Promise<AsyncKeyResult>`, where `AsyncKeyResult` is `"consumed" | "replayed" | "passthrough" | "cancelled"`. `consumed` means reply records have been applied; `replayed` means the adapter has already applied the declined key exactly once; `passthrough` means the event was excluded from interception and was not replayed; `cancelled` means the owning context was detached/disposed before completion. Callers must not replay a `replayed` result. Editor-owned capture must preserve native handling for excluded composing/dead events. M1.4b Task 6 exposes this custom-adapter/manual-input path alongside native `attach(element)`.
+
+- [ ] **Step 1: Write failing tests** with deterministic fake Worker instruments and deferred replies:
+  - asynchronous dispatch never calls `requestSync` or spins, even with an immediately available reply;
+  - a synchronous native input and asynchronous editor adapter share one Router and engine, retain distinct input contexts, and receive only their own output;
+  - consumed output applies before promise settlement; declined-key fallback applies once through the adapter before the next dependent key is dispatched;
+  - queued keys preserve order across lifecycle/settings requests and mixed surface modes; changing one surface's mode does not change another's;
+  - focus movement while a reply is pending does not redirect that reply; detached/replaced contexts ignore late output and settle their awaiters;
+  - crashes and queue overflow settle awaiters and perform fallback exactly once; disposal settles outstanding promises without editing disposed surfaces;
+  - existing keydown/keyup translation, pass-through declarations, composing/dead-key bypass, password exclusions and readiness gating remain intact;
+  - `manual` attachments do not also intercept the editor's keyboard events; browser tests cover concurrent native and editor-style adapter lifecycle.
+- [ ] **Step 2: Run the focused tests and record their expected failures.**
+- [ ] **Step 3: Implement** the asynchronous entry point through the existing engine FIFO, ASYNC transport, output ring, watchdog and restart machinery. Keep fallback ownership explicit and generation/context checks intact. Do not introduce a second engine dispatcher, a CodeMirror dependency or a Markdown editor implementation.
+- [ ] **Step 4: Verify** focused tests and covering core/browser/Hangul checks after self-review/type/format corrections. Record the exact commands and results. Concrete CodeMirror integration is not established by an editor-style test adapter.
+- [ ] **Step 5: Commit** `feat(core): support asynchronous editor input alongside native surfaces`.
+
+Task 9 documents both modes, per-surface configuration and fallback/cancellation ownership. This user amendment extends the older spec's synchronous-only integration contract.
 
 ### Task 7: The real host and Hangul in browsers
 

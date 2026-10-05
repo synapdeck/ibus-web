@@ -195,7 +195,10 @@ outcome is recorded in `docs/testing.md`.
 
 **Files:** `packages/ibus-web/{package.json,tsconfig*.json,tsdown.config.ts,src/{index,effect,panel,worker}.ts,test/*}`, `module.nix`.
 
+**Mixed-surface integration:** Consume M1.4a Task 6b's editor-neutral asynchronous interface. Expose `attachAdapter(adapter, options?: { keyMode?: "sync" | "async" | "manual" }): () => void` and `keyAsync(adapter, event): Promise<AsyncKeyResult>` alongside native `attach(element)`. One facade instance must support normal inputs and asynchronous editor adapters on the same page, including sharing an engine. Preserve core's output ordering and fallback/cancellation ownership; do not add a page-global input mode or a CodeMirror dependency.
+
 - [ ] **Step 1: Failing tests:** `createIbusWeb` starts nothing until `select`; `attach` returns a detach function; events fire as `CustomEvent`s with typed `detail`; `logger` receives entries at or above `logLevel`; `dispose()` terminates every Worker and detaches every surface; `ibus-web/effect` exports core's services and tagged errors and protocol's public schemas; `ibus-web/worker` exports a URL and its module graph contains no worker-host code (checked by bundling it with tsdown in the test and inspecting the output).
+  - native and asynchronous editor-style adapters coexist through one facade; `manual` attachments leave keyboard capture to the editor; asynchronous dispatch never invokes the synchronous path; disposal settles outstanding asynchronous calls without duplicate edits.
 - [ ] **Step 2: Run them; they fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{ibus-web,core-browser,hk}`.
@@ -222,7 +225,7 @@ checkout); `packages.demo` is the production build the Playwright suites serve.
 
 ### Task 8: Playwright suites, the keystroke bench, WebKit and the bundle scan
 
-**Files:** `tests/playwright/{playwright.config.ts,demo.spec.ts,settings.spec.ts,keystroke.bench.ts,tsconfig.json}`, `modules/playwright.nix` (`checks.playwright`, `apps.keystroke-bench`), `modules/testing/default.nix` (WebKit), `tools/bundle-scan/{scan.ts,scan.test.ts}` and `checks.bundle-scan`, CI generation if the WebKit fallback is needed.
+**Files:** `tests/playwright/{playwright.config.ts,demo.spec.ts,settings.spec.ts,keystroke.bench.ts,tsconfig.json}`, `modules/playwright.nix` (`packages.playwright-integration`, `apps.keystroke-bench`), `modules/testing/default.nix` (WebKit), `tools/bundle-scan/{scan.ts,scan.test.ts}` and `checks.bundle-scan`, CI generation if the WebKit fallback is needed.
 
 - [ ] **Step 1: Enable WebKit** in `ibusWeb.testing.playwright.browsers` (try `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu-24.04` if nixpkgs' note applies) and confirm a trivial page loads in the sandbox; otherwise configure the CI fallback and record it.
 - [ ] **Step 2: Write the suites** against `packages.demo` served by the same Vite configuration in preview mode with COOP/COEP, using `page.keyboard` (trusted events):
@@ -235,9 +238,9 @@ checkout); `packages.demo` is the production build the Playwright suites serve.
   - password input: Latin letters only;
   - restart control: typing works again after the engine restarts.
     Run every spec in Chromium, Firefox and WebKit (or Chromium and Firefox with the WebKit fallback).
-- [ ] **Step 3: The keystroke bench** (`nix run .#keystroke-bench`): drives 500 keystrokes through the demo in each browser and prints keydown-to-applied p50/p99 (measured in the page with `performance.now()` around the router's handling), with the machine and browser versions. No timing assertion in `checks.playwright` beyond one-sided generous bounds.
+- [ ] **Step 3: The keystroke bench** (`nix run .#keystroke-bench`): drives 500 keystrokes through the demo in each browser and prints keydown-to-applied p50/p99 (measured in the page with `performance.now()` around the router's handling), with the machine and browser versions. No timing assertion in `packages.playwright-integration` beyond one-sided generous bounds.
 - [ ] **Step 4: The bundle scan:** `checks.bundle-scan` bundles each published page entry (`ibus-web`, `ibus-web/effect`, `ibus-web/panel`, `ibus-web/worker`, `@ibus-web/core`, `@ibus-web/panel`, `@ibus-web/protocol`) and the demo's production build, and fails on Worker, runtime or Emscripten code: WebAssembly magic bytes, Emscripten glue markers, `_ibusweb_` exports, worker-host module paths. Its test feeds it a bundle that inlines the host script and expects failure.
-- [ ] **Step 5:** `nix flake check`; record the keystroke bench's figures for the docs.
+- [ ] **Step 5:** Run `packages.playwright-integration` explicitly and register it in `ibusWeb.testing.extendedChecks` for CI; run the default `nix flake check` at this milestone and record the keystroke bench's figures for the docs.
 - [ ] **Step 6: Commit** `test: drive the demo with Playwright in three browsers and scan page bundles`.
 
 ### Task 9: Docs and spec
