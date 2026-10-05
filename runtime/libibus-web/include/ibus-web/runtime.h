@@ -159,11 +159,16 @@ IBUSWEB_API int32_t ibusweb_test_dispatch(const uint8_t *request,
  * uncompressed, fed in pieces of any size as they arrive and written
  * through the file system as it goes.
  *
- * It takes regular files and directories only. A symbolic or hard link, a
- * device, a FIFO, an extended header, a name that is absolute or has a ".."
- * component, a header whose checksum doesn't match, or one that isn't
- * ustar's fails the install with -EINVAL, as does an archive that ends
- * before its end-of-archive blocks. Files and directories take the
+ * It takes regular files, directories and symbolic links. A hard link fails
+ * the install with -EOPNOTSUPP. A device, a FIFO, an extended header, a
+ * name that is absolute or has a ".." component, a link with data or no
+ * target, a header whose checksum doesn't match, or one that isn't ustar's
+ * fails it with -EINVAL, as does an archive that ends before its
+ * end-of-archive blocks. A link keeps its target as the archive has it,
+ * unresolved. Nothing is written through a link: a member under one fails
+ * with -ENOTDIR, and a file or link member replaces a link already at its
+ * name; a link member also replaces a file there, and fails with -EISDIR
+ * on a directory. Files and directories take the
  * archive's permission bits, plus the owner's read and write (and search,
  * for a directory), so that an install can always redo what an earlier one
  * wrote; a file that exists already is truncated and rewritten, a directory
@@ -199,9 +204,9 @@ IBUSWEB_API int ibusweb_install_feed(IBusWebInstall *install,
                                      const uint8_t *data, uint32_t len);
 
 /* What the install has written so far: the regular files written whole,
- * and the bytes of file data written. Call it before ibusweb_install_end(),
- * which frees `install`; a NULL install gives 0 and 0. Either pointer may
- * be NULL. */
+ * and the bytes of file data written; links count as neither. Call it before
+ * ibusweb_install_end(), which frees `install`; a NULL install gives 0 and 0.
+ * Either pointer may be NULL. */
 IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
                                        uint32_t *files, uint64_t *bytes);
 
