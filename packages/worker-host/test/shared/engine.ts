@@ -97,16 +97,19 @@ export const engineLifecycle = async (h: Harness, runtime: RuntimeBuild, memory:
       host.client.page.records().filter(({ record }) => record._tag === "Log" && record.message === "echo finalized"),
     ).toHaveLength(1);
     for (const ic of [2, 3]) expect(await call(host, ic, new CreateEngine({ name: "echo" }))).toBe(0);
+    // Stopping destroys the engines still open, and the page hears of their
+    // last records through a doorbell, as of any written outside a request.
+    host.client.page.records();
+    Atomics.store(host.client.page.views.words, Word.doorbell, 0);
+    const since = host.messages.length;
     await host.client.call(HostOp.stop);
     const deadline = h.now() + 30_000;
-    let finalized = 0;
-    while (finalized < 2 && h.now() < deadline) {
-      finalized += host.client.page
-        .records()
-        .filter(({ record }) => record._tag === "Log" && record.message === "echo finalized").length;
-      if (finalized < 2) await h.sleep(10);
-    }
-    expect(finalized, "the two remaining engines finalized before the deadline").toBe(2);
+    while (!host.messages.slice(since).some(({ type }) => type === "doorbell") && h.now() < deadline) await h.sleep(10);
+    expect(host.messages.slice(since).map(({ type }) => type)).toContain("doorbell");
+    expect(
+      host.client.page.records().filter(({ record }) => record._tag === "Log" && record.message === "echo finalized"),
+      "the two remaining engines finalized",
+    ).toHaveLength(2);
   } finally {
     await host.terminate();
   }

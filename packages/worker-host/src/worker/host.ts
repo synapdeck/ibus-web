@@ -37,7 +37,7 @@ import { mount, type MountedStorage } from "./storage/mount.ts";
 import { memoryFor, planStorage, type StoragePlan } from "./storage/plan.ts";
 import type { RelayInit } from "./forward.ts";
 import { Instruments, type InstrumentReply } from "./instruments.ts";
-import { finishReply, serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
+import { finishReply, pump, ringDoorbell, serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
 import {
   alloc,
   check,
@@ -58,6 +58,10 @@ const SpawnWorker: typeof Worker = globalThis.Worker;
 // has crashed. That thread's own error reaches this one's event loop only
 // afterwards, as an uncaught error.
 const UNWIND = "unwind";
+
+// The most pumps the host runs to settle the engines it destroys on its way
+// out.
+const SHUTDOWN_PUMPS = 8;
 
 // The promise's value, or fallback if it takes longer than ms.
 const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
@@ -556,11 +560,27 @@ export const serve: Effect.Effect<
     stopping: false,
     woken: false,
   };
+  // Destroying the engines left open runs their finalizers, which can leave
+  // work for the default context; a few pumps run it without chasing a
+  // source that keeps itself due. Records written here belong to no request,
+  // so the page hears of them through a doorbell.
   yield* Effect.addFinalizer((exit) =>
     guarded(() => {
       const intact = runtimeIntact(exit);
-      scopes.closeAll(handle.rt, intact);
-      if (intact) drainOutput(handle.rt, worker.writer, outputLength, ctx);
+      try {
+        scopes.closeAll(handle.rt, intact);
+      } catch (error) {
+        if (error instanceof RuntimeStopped && error.reason === CrashReason.fault)
+          try {
+            drainOutput(handle.rt, worker.writer, outputLength, ctx);
+          } catch {
+            // The crash is already the fault's; a failed drain only loses records.
+          }
+        throw error;
+      }
+      if (!intact) return;
+      for (let round = 0; round < SHUTDOWN_PUMPS; round++) if (pump(handle.rt, init.constants) !== 0) break;
+      if (drainOutput(handle.rt, worker.writer, outputLength, ctx) > 0) ringDoorbell(ctx);
     }).pipe(Effect.orDie),
   );
   const relayFailed = Effect.gen(function* () {
