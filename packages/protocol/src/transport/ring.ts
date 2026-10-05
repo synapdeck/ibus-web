@@ -104,8 +104,9 @@ export class RingReader {
     this.views = views;
     this.layout = layout;
   }
-  next(): Uint8Array | undefined {
-    while (true) {
+  /** Returning false pauses before the next ring unit; partial fragments survive the pause. */
+  next(canContinue?: () => boolean): Uint8Array | undefined {
+    while (canContinue?.() ?? true) {
       const read = Atomics.load(this.views.words, Word.ringRead) >>> 0;
       const available = (Atomics.load(this.views.words, Word.ringWrite) - read) >>> 0;
       if (available === 0) return undefined;

@@ -72,6 +72,7 @@ export class Connection {
   private movedAt = 0;
   private ringWrite = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private deferred: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
   private resolveStart: (() => void) | undefined;
   private rejectStart: ((error: Error) => void) | undefined;
@@ -145,25 +146,38 @@ export class Connection {
     };
   }
   requestSync(request: Request, ic: number): SyncOutcome {
-    this.drain();
+    const deadline = performance.now() + this.options.budgetMs;
+    const canContinue = () => performance.now() < deadline;
+    this.drain(canContinue);
     this.checkCrash();
     if (this.crash) return { _tag: "crashed", crash: this.crash };
     if (this.busy) throw new ConnectionBusyError();
-    if (!this.publish(encodeRequest(ic, request), ReqMode.sync)) return { _tag: "crashed", crash: this.crash! };
-    const deadline = performance.now() + this.options.budgetMs;
+    if (!this.publish(encodeRequest(ic, request), ReqMode.sync, canContinue))
+      return { _tag: "crashed", crash: this.crash! };
     do {
-      this.drain();
+      this.drain(canContinue);
       this.checkCrash();
       if (this.crash) return { _tag: "crashed", crash: this.crash };
-      const reply = this.complete();
+      const reply = this.complete(canContinue);
+      this.checkCrash();
+      if (this.crash) return { _tag: "crashed", crash: this.crash };
       if (reply) return { _tag: "reply", ret: reply.ret, records: reply.records };
-    } while (performance.now() < deadline);
+    } while (canContinue());
     Atomics.compareExchange(this.control.words, Word.reqMode, ReqMode.sync, ReqMode.abandoned);
-    this.drain();
     this.checkCrash();
     if (this.crash) return { _tag: "crashed", crash: this.crash };
-    const reply = this.complete();
+    const reply = this.complete(canContinue);
+    this.checkCrash();
+    if (this.crash) return { _tag: "crashed", crash: this.crash };
     if (reply) return { _tag: "reply", ret: reply.ret, records: reply.records };
+    // The host may have observed SYNC before abandonment and omitted its doorbell.
+    // Unread output must finish off the synchronous path without dispatching the key again.
+    if (Atomics.load(this.control.words, Word.state) === State.reply) {
+      this.deferred = setTimeout(() => {
+        this.deferred = undefined;
+        this.doorbell();
+      }, 0);
+    }
     this.watch();
     return { _tag: "pending" };
   }
@@ -182,11 +196,11 @@ export class Connection {
   terminate(): void {
     this.fail({ reason: "worker", message: "Connection terminated" });
   }
-  private publish(bytes: Uint8Array, mode: number): boolean {
+  private publish(bytes: Uint8Array, mode: number, canContinue?: () => boolean): boolean {
     try {
       postRequest(this.control, bytes, mode);
     } catch (error) {
-      this.drain();
+      this.drain(canContinue);
       this.checkCrash();
       if (this.crash) return false;
       throw error;
@@ -202,12 +216,20 @@ export class Connection {
     if (!this.current) return;
     if (this.publish(this.current.bytes, ReqMode.async)) this.watch();
   }
-  private complete(): Reply | undefined {
+  private complete(canContinue?: () => boolean): Reply | undefined {
     if (!this.inFlight || Atomics.load(this.control.words, Word.state) !== State.reply) return;
     const outSeq = Atomics.load(this.control.words, Word.replyOutSeq) >>> 0;
     // Modulo ordering admits output published after the reply and sequence wrap.
     if (outSeq !== 0 && (this.seq - outSeq) >>> 0 >= 0x80000000) return;
-    const reply = takeReply(this.control);
+    let reply;
+    try {
+      reply = takeReply(this.control);
+    } catch (error) {
+      this.drain(canContinue);
+      this.checkCrash();
+      if (this.crash) return;
+      throw error;
+    }
     this.inFlight = false;
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -226,12 +248,12 @@ export class Connection {
     if (this.options.development) throw diagnostic;
     console.error(diagnostic);
   }
-  private drain(): void {
+  private drain(canContinue?: () => boolean): void {
     if (this.crash) return;
     for (;;) {
       let bytes: Uint8Array | undefined;
       try {
-        bytes = this.reader.next();
+        bytes = this.reader.next(canContinue);
       } catch (error) {
         this.diagnostic(error);
         this.fail({ reason: "host", message: "Invalid ring framing" });
@@ -287,24 +309,31 @@ export class Connection {
         this.drain();
         this.fail({ reason: "host", message: message.message });
         break;
-      case "doorbell": {
-        Atomics.store(this.control.words, Word.doorbell, 0);
-        this.drain();
-        this.checkCrash();
-        if (this.crash) return;
-        const reply = this.complete();
-        if (reply) {
-          const current = this.current;
-          this.current = undefined;
-          if (current) current.resolve(reply);
-          else this.abandoned.push(reply);
-        }
-        for (const listener of this.doorbells) listener();
-        this.next();
+      case "doorbell":
+        this.doorbell();
         break;
-      }
     }
   };
+  private doorbell(): void {
+    clearTimeout(this.deferred);
+    this.deferred = undefined;
+    if (this.crash) return;
+    Atomics.store(this.control.words, Word.doorbell, 0);
+    this.drain();
+    this.checkCrash();
+    if (this.crash) return;
+    const reply = this.complete();
+    this.checkCrash();
+    if (this.crash) return;
+    if (reply) {
+      const current = this.current;
+      this.current = undefined;
+      if (current) current.resolve(reply);
+      else this.abandoned.push(reply);
+    }
+    for (const listener of this.doorbells) listener();
+    this.next();
+  }
   private readonly error = (event: Event): void => {
     this.drain();
     this.fail({ reason: "worker", message: "message" in event ? String(event.message) : "Worker error" });
@@ -325,6 +354,7 @@ export class Connection {
     if (this.storage) crash = { ...crash, storage: this.storage };
     this.crash = crash;
     this.inFlight = false;
+    clearTimeout(this.deferred);
     clearTimeout(this.timer);
     this.worker.removeEventListener("message", this.message);
     this.worker.removeEventListener("error", this.error);

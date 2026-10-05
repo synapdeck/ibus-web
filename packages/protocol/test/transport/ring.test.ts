@@ -158,3 +158,31 @@ it("rejects ring counters that claim more than the ring holds", () => {
         } else expect(() => writer.write(record(payloadBytes))).not.toThrow();
       }
 });
+it("can yield before padding or a short tail and resume without losing a record", () => {
+  for (const start of [40, 56]) {
+    const { writer, reader, views } = setup(start);
+    const input = record(24);
+    expect(writer.write(input)._tag).toBe("written");
+    expect(reader.next(() => false)).toBeUndefined();
+    expect(Atomics.load(views.words, Word.ringRead)).toBe(start);
+    let units = 0;
+    expect(reader.next(() => units++ < 1)).toBeUndefined();
+    expect(Atomics.load(views.words, Word.ringRead)).toBe(64);
+    expect(reader.next()).toEqual(input);
+    expect(reader.next()).toBeUndefined();
+  }
+});
+it("bounded reads retain fragment identity and payload across repeated yields", () => {
+  const { writer, reader, views } = setup();
+  const input = record(170);
+  while (writer.write(input)._tag === "full") {
+    const before = Atomics.load(views.words, Word.ringRead);
+    expect(reader.next(() => false)).toBeUndefined();
+    expect(Atomics.load(views.words, Word.ringRead)).toBe(before);
+    let units = 0;
+    expect(reader.next(() => units++ < 1)).toBeUndefined();
+  }
+  expect(reader.next(() => false)).toBeUndefined();
+  expect(reader.next()).toEqual(input);
+  expect(reader.next()).toBeUndefined();
+});

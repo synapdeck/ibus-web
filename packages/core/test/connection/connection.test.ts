@@ -366,3 +366,176 @@ test("async reply does not resolve until its advertised output has drained", asy
   host.deliver();
   expect(await pending).toMatchObject({ records: [{ seq: 1 }] });
 });
+test.each(["sync", "async"] as const)("CRASHED racing %s reply acquisition follows normal cleanup", async (mode) => {
+  const registration = vi.spyOn(host, "addEventListener");
+  const connection = await start();
+  const crash = vi.fn();
+  connection.onCrash(crash);
+  const original = Atomics.compareExchange;
+  vi.spyOn(Atomics, "compareExchange").mockImplementation(((
+    words: Int32Array,
+    index: number,
+    expected: number,
+    replacement: number,
+  ) => {
+    if (
+      words.buffer === host.views.words.buffer &&
+      index === Word.state &&
+      expected === State.reply &&
+      replacement === State.idle
+    )
+      Atomics.store(words, Word.state, State.crashed);
+    return original(words, index, expected, replacement);
+  }) as typeof Atomics.compareExchange);
+  if (mode === "sync")
+    expect(connection.requestSync(key, 1)).toMatchObject({ _tag: "crashed", crash: { reason: "host" } });
+  else {
+    const pending = connection.requestAsync(key, 1);
+    const rejected = expect(pending).rejects.toMatchObject({ reason: "host" });
+    // Capture listener exceptions in this call instead of Node's later uncaught-event turn.
+    const dispatch = vi.spyOn(host, "dispatchEvent").mockImplementation((event) => {
+      const listener = registration.mock.calls.find(([type]) => type === "message")?.[1];
+      if (typeof listener === "function") listener.call(host, event);
+      return true;
+    });
+    host.deliver();
+    dispatch.mockRestore();
+    await rejected;
+  }
+  expect(crash).toHaveBeenCalledTimes(1);
+  expect(connection.busy).toBe(false);
+  expect(host.terminated).toBe(true);
+});
+test("all sync drains stop at the deadline despite replenished output, then complete once without a host bell", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const connection = await start({ budgetMs: 3 });
+  let elapsed = 0;
+  vi.mocked(performance.now).mockImplementation(() => {
+    host.tick();
+    return elapsed;
+  });
+  let seq = 1;
+  host.write(record(seq));
+  const original = Atomics.store;
+  vi.spyOn(Atomics, "store").mockImplementation(((words: Int32Array, index: number, value: number) => {
+    const result = original(words, index, value);
+    if (words.buffer === host.views.words.buffer && index === Word.ringRead) {
+      elapsed++;
+      if (seq < 10) host.write(record(++seq));
+    }
+    return result;
+  }) as typeof Atomics.store);
+  const bell = vi.fn();
+  connection.onDoorbell(bell);
+  expect(connection.requestSync(key, 1)).toEqual({ _tag: "pending" });
+  expect(elapsed).toBeLessThanOrEqual(3);
+  expect(Atomics.load(host.views.words, Word.reqMode)).toBe(ReqMode.abandoned);
+  expect(Atomics.load(host.views.words, Word.doorbell)).toBe(0);
+  vi.advanceTimersByTime(0);
+  expect(connection.replies.take()).toMatchObject([
+    { ret: 1, outSeq: 4, records: [{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }] },
+  ]);
+  expect(connection.records.take().map((r) => r.seq)).toEqual([5, 6, 7, 8, 9, 10]);
+  expect(connection.replies.take()).toEqual([]);
+  expect(host.requests).toHaveLength(1);
+  expect(connection.busy).toBe(false);
+  expect(bell).toHaveBeenCalledTimes(1);
+});
+test("sync fragment draining yields within budget and resumes the same abandoned batch in order", async () => {
+  const connection = await start({ budgetMs: 3, layout: transportLayout({ ringBytes: 64 }) });
+  let elapsed = 0;
+  vi.mocked(performance.now).mockImplementation(() => {
+    host.tick();
+    return elapsed;
+  });
+  host.scripts.push({ records: [record(1, 0, "Log", "(uss)", [1, "test", "z".repeat(500)]), record(2)] });
+  const original = Atomics.store;
+  vi.spyOn(Atomics, "store").mockImplementation(((words: Int32Array, index: number, value: number) => {
+    const result = original(words, index, value);
+    if (words.buffer === host.views.words.buffer && index === Word.ringRead) {
+      elapsed++;
+      host.tick();
+    }
+    return result;
+  }) as typeof Atomics.store);
+  expect(connection.requestSync(key, 1)).toEqual({ _tag: "pending" });
+  expect(elapsed).toBeLessThanOrEqual(3);
+  expect(connection.busy).toBe(true);
+  host.deliver();
+  for (let i = 0; i < 15 && connection.busy; i++) {
+    host.tick();
+    host.deliver();
+  }
+  expect(connection.replies.take()).toMatchObject([
+    { records: [{ seq: 1, record: { message: "z".repeat(500) } }, { seq: 2 }] },
+  ]);
+  expect(connection.records.take()).toEqual([]);
+  expect(host.requests).toHaveLength(1);
+  expect(connection.busy).toBe(false);
+});
+test("a reply with unread output arriving during abandonment defers its drain without losing completion", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const connection = await start({ budgetMs: 3 });
+  host.scripts.push({ after: "never" });
+  const original = Atomics.compareExchange;
+  vi.spyOn(Atomics, "compareExchange").mockImplementation(((
+    words: Int32Array,
+    index: number,
+    expected: number,
+    replacement: number,
+  ) => {
+    if (words.buffer === host.views.words.buffer && index === Word.reqMode && replacement === ReqMode.abandoned) {
+      host.write(record(1));
+      postReply(host.views, 0, 1);
+    }
+    return original(words, index, expected, replacement);
+  }) as typeof Atomics.compareExchange);
+  expect(connection.requestSync(key, 1)).toEqual({ _tag: "pending" });
+  expect(Atomics.load(host.views.words, Word.ringRead)).toBe(0);
+  expect(Atomics.load(host.views.words, Word.doorbell)).toBe(0);
+  vi.advanceTimersByTime(0);
+  expect(connection.replies.take()).toMatchObject([{ ret: 0, outSeq: 1, records: [{ seq: 1 }] }]);
+  expect(host.requests).toHaveLength(1);
+  expect(connection.busy).toBe(false);
+});
+test("a real doorbell supersedes deferred completion and queued requests retain their own batch", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const connection = await start({ budgetMs: 0 });
+  host.scripts.push({ records: [record(1)] }, { records: [record(2)] });
+  expect(connection.requestSync(key, 1)).toEqual({ _tag: "pending" });
+  const queued = connection.requestAsync(key, 2);
+  const bell = vi.fn();
+  connection.onDoorbell(bell);
+  host.ring();
+  host.deliver();
+  expect(connection.replies.take()).toMatchObject([{ outSeq: 1, records: [{ seq: 1 }] }]);
+  host.deliver();
+  expect(await queued).toMatchObject({ outSeq: 2, records: [{ seq: 2 }] });
+  const notifications = bell.mock.calls.length;
+  vi.advanceTimersByTime(0);
+  expect(bell).toHaveBeenCalledTimes(notifications);
+  expect(connection.replies.take()).toEqual([]);
+  expect(connection.records.take()).toEqual([]);
+  expect(host.requests).toHaveLength(2);
+});
+test("reply acquisition keeps non-crash invariant errors visible", async () => {
+  const connection = await start();
+  const original = Atomics.compareExchange;
+  vi.spyOn(Atomics, "compareExchange").mockImplementation(((
+    words: Int32Array,
+    index: number,
+    expected: number,
+    replacement: number,
+  ) => {
+    if (
+      words.buffer === host.views.words.buffer &&
+      index === Word.state &&
+      expected === State.reply &&
+      replacement === State.idle
+    )
+      return State.idle;
+    return original(words, index, expected, replacement);
+  }) as typeof Atomics.compareExchange);
+  expect(() => connection.requestSync(key, 1)).toThrow("reply state changed before it was taken");
+  expect(host.terminated).toBe(false);
+});
