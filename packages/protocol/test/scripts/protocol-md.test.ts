@@ -27,6 +27,10 @@ describe("protocol document", () => {
       }
     }
     expect(document).toContain("### Crashed\n\nKind: **34**. Signature: `(us)`");
+    const crashed = document.split("### Crashed\n\n")[1]!.split("\n\n## ")[0]!;
+    for (const reason of ["TRAP 1", "FAULT 2", "-ECANCELED", "RELAY 3", "LOAD 4", "HOST 5"])
+      expect(crashed).toMatch(new RegExp(`\\| \`reason\` \\|[^\n]*${reason}`));
+    expect(crashed).toMatch(/\| `message` \|[^\n]*\w/);
     for (const name of [
       "IBusAttribute",
       "IBusAttrList",

@@ -450,10 +450,10 @@ Kind: **34**. Signature: `(us)`.
 
 Host crash report; the shared control state is authoritative. Written by the host only.
 
-| Name      | GVariant type | Description |
-| --------- | ------------- | ----------- |
-| `reason`  | `u`           |             |
-| `message` | `s`           |             |
+| Name      | GVariant type | Description                                                                                                                                                                                                                               |
+| --------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reason`  | `u`           | Why the Worker stopped: TRAP 1 (the runtime trapped), FAULT 2 (a request returned -ECANCELED, leaving the runtime unusable), RELAY 3 (the wake relay failed), LOAD 4 (the engine module failed to load), HOST 5 (the host itself failed). |
+| `message` | `s`           | Human-readable detail of the failure, for logs.                                                                                                                                                                                           |
 
 ## IBus types
 

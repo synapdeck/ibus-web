@@ -3,6 +3,8 @@
 import { expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import {
+  CrashReason,
+  ProtocolError,
   Request,
   OutputRecord,
   decodeValue,
@@ -24,8 +26,10 @@ function encodeRecordForTest(record: OutputRecord): Uint8Array {
   const payload = encodeValue(signatureOf(schema), toTree(schema)(encodeRecordFields(record)));
   const bytes = new Uint8Array(Math.ceil((16 + payload.length) / 8) * 8);
   const header = new DataView(bytes.buffer);
-  header.setUint32(0, 0xffffffff, true);
-  header.setUint32(4, 7, true);
+  // Only the host writes Crashed, always with seq and ic zero.
+  const fromHost = record._tag === "Crashed";
+  header.setUint32(0, fromHost ? 0 : 0xffffffff, true);
+  header.setUint32(4, fromHost ? 0 : 7, true);
   header.setUint16(8, recordKinds.get(record._tag)!, true);
   header.setUint32(12, payload.length, true);
   bytes.set(payload, 16);
@@ -56,9 +60,49 @@ it.prop(
   ([record]) => {
     const bytes = encodeRecordForTest(record);
     const decoded = decodeRecord(bytes);
-    expect(decoded).toMatchObject({ seq: 0xffffffff, ic: 7, flags: 0, size: bytes.length });
+    const fromHost = record._tag === "Crashed";
+    expect(decoded).toMatchObject({
+      seq: fromHost ? 0 : 0xffffffff,
+      ic: fromHost ? 0 : 7,
+      flags: 0,
+      size: bytes.length,
+    });
     expect(encodeRecordFields(decoded.record)).toEqual(encodeRecordFields(record));
     expect(encodeRecordForTest(decoded.record)).toEqual(bytes);
   },
   { arbitrary: { runs: 200, seed: 42 } },
 );
+
+function crashedRecord(reason: number, seq = 0, ic = 0): Uint8Array {
+  const payload = encodeValue("(us)", {
+    _tag: "()",
+    items: [
+      { _tag: "u", value: reason },
+      { _tag: "s", value: "boom" },
+    ],
+  });
+  const bytes = new Uint8Array(Math.ceil((16 + payload.length) / 8) * 8);
+  const header = new DataView(bytes.buffer);
+  header.setUint32(0, seq, true);
+  header.setUint32(4, ic, true);
+  header.setUint16(8, recordKinds.get("Crashed")!, true);
+  header.setUint32(12, payload.length, true);
+  bytes.set(payload, 16);
+  return bytes;
+}
+
+it.each(Object.values(CrashReason))("decodes Crashed with reason %i", (reason) => {
+  expect(decodeRecord(crashedRecord(reason)).record).toMatchObject({ _tag: "Crashed", reason, message: "boom" });
+});
+
+it.each([0, 6, 9, 0xffffffff])("rejects Crashed with unknown reason %i", (reason) => {
+  expect(() => decodeRecord(crashedRecord(reason))).toThrow();
+});
+
+it.each([
+  [1, 0],
+  [0, 1],
+  [0xffffffff, 7],
+])("rejects Crashed from seq %i and ic %i", (seq, ic) => {
+  expect(() => decodeRecord(crashedRecord(CrashReason.trap, seq, ic))).toThrow(ProtocolError);
+});

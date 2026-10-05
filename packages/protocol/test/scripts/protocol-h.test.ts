@@ -89,6 +89,14 @@ describe("generated C wire header", () => {
     expect(header).toContain('{IBUSWEB_REC_CRASHED, "(us)"}');
   });
 
+  it("documents the crash reasons", () => {
+    const header = commentText(renderProtocolH());
+    const crashed = header.split("(us) reason, message")[1]!.split("IBUSWEB_REC_CRASHED")[0]!;
+    for (const reason of ["TRAP 1", "FAULT 2", "-ECANCELED", "RELAY 3", "LOAD 4", "HOST 5"])
+      expect(crashed).toContain(reason);
+    expect(crashed).toContain("message: ");
+  });
+
   it("documents schema fields, descriptions and the key event reply", () => {
     const header = commentText(renderProtocolH());
     expect(header).toContain("(uuu) keyval, keycode, state → reply 0 or 1");
