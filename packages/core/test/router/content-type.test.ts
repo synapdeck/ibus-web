@@ -121,3 +121,40 @@ it.each([
 ])("maps autocomplete %s on text fields", (autocomplete, purpose) => {
   expect(textareaAdapter(input({ autocomplete })).contentType().purpose).toBe(purpose);
 });
+
+it.each(["input", "textarea"] as const)("replays printable AltGraph into a native %s with one input event", (tag) => {
+  const element = document.createElement(tag);
+  document.body.append(element);
+  const inputs: (string | null)[] = [];
+  element.addEventListener("input", (event) => inputs.push((event as InputEvent).data));
+  const event = new KeyboardEvent("keydown", {
+    key: "€",
+    code: "KeyE",
+    ctrlKey: true,
+    altKey: true,
+    modifierAltGraph: true,
+  });
+  expect(event.getModifierState("AltGraph")).toBe(true);
+  textareaAdapter(element).replayKey(event);
+  expect(element.value).toBe("€");
+  expect(element.selectionStart).toBe(1);
+  expect(inputs).toEqual(["€"]);
+});
+it("AltGraph replay still suppresses real Meta, ordinary Ctrl/Alt shortcuts and key releases", () => {
+  const element = input();
+  let inputs = 0;
+  element.addEventListener("input", () => inputs++);
+  const adapter = textareaAdapter(element);
+  for (const modifiers of [
+    { ctrlKey: true },
+    { altKey: true },
+    { ctrlKey: true, altKey: true },
+    { modifierAltGraph: true, metaKey: true },
+  ])
+    adapter.replayKey(new KeyboardEvent("keydown", { key: "€", code: "KeyE", ...modifiers }));
+  adapter.replayKey(
+    new KeyboardEvent("keyup", { key: "€", code: "KeyE", ctrlKey: true, altKey: true, modifierAltGraph: true }),
+  );
+  expect(element.value).toBe("");
+  expect(inputs).toBe(0);
+});

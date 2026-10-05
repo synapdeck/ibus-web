@@ -147,7 +147,12 @@ export function textareaAdapter(
     },
     setPreedit: (preedit) => options.onPreedit?.(preedit),
     replayKey: (event) => {
-      if (event.type !== "keyup") replay(event.key, event.shiftKey, event.ctrlKey || event.altKey || event.metaKey);
+      if (event.type !== "keyup")
+        replay(
+          event.key,
+          event.shiftKey,
+          event.metaKey || (!event.getModifierState("AltGraph") && (event.ctrlKey || event.altKey)),
+        );
     },
     forwardKey: (key) => {
       if (key.state & IBusModifier.RELEASE) return;

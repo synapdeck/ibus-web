@@ -275,3 +275,31 @@ it("new keys after retirement wait behind Reset while the retired reply retains 
     expect(f.element.value).toBe("ab");
     expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(2);
   }));
+
+it("replays an accepted AltGraph character exactly once when its pending request is declined", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const c = connections.a[0]!;
+    c.outcome = { _tag: "pending" };
+    const inputs: (string | null)[] = [];
+    f.element.addEventListener("input", (event) => inputs.push((event as InputEvent).data));
+    const event = new KeyboardEvent("keydown", {
+      key: "€",
+      code: "KeyE",
+      ctrlKey: true,
+      altKey: true,
+      modifierAltGraph: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    f.element.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(f.element.value).toBe("");
+    c.completeAbandoned(0);
+    await select(router);
+    expect(f.element.value).toBe("€");
+    expect(inputs).toEqual(["€"]);
+    expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
+  }));
