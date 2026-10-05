@@ -20,6 +20,15 @@
         url = "https://raw.githubusercontent.com/chromium/chromium/${chromiumRevision}/ui/events/keycodes/dom/dom_code_data.inc";
         hash = "sha256-hB4sWOY4jxRzZxfrbjZci46XZ3iONjOb8dNaN6tI5bI=";
       };
+      chromiumLicense = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/chromium/chromium/${chromiumRevision}/LICENSE";
+        hash = "sha256-NozKEQa+mdOezTKjjYMFWF2AKkde/7ZjgLkf/JvPcJs=";
+      };
+      notice =
+        kind: source:
+        pkgs.runCommand "${kind}-notice.txt" { } ''
+          ${typescript.nodejs}/bin/node ${../tools/keysyms/notices.ts} ${kind} ${source} > $out
+        '';
       xkbExport =
         pkgs.runCommand "ibus-web-us-keymap.json"
           {
@@ -69,13 +78,18 @@
       files.file."packages/core/src/keys/us.generated.ts".source =
         generate "us.generated.ts" ../tools/keysyms/us.ts
           xkbExport;
-      files.file."packages/core/LICENSES/xkeyboard-config-COPYING.txt".source = xkbNotice;
+      files.file."NOTICES/keysymdef.txt".source = notice "keysymdef" keysymdef;
+      files.file."NOTICES/chromium.txt".source = notice "chromium" chromiumLicense;
       files.file."LICENSES/LicenseRef-xkeyboard-config.txt".source = xkbNotice;
       ibusWeb.toolchain = {
         clangdFragments = [ nativeClangd ];
         clangdQueryDrivers = [ "${pkgs.stdenv.cc}/bin/cc" ];
       };
       devshells.default.env = [
+        {
+          name = "IBUS_WEB_CHROMIUM_LICENSE";
+          value = chromiumLicense;
+        }
         {
           name = "IBUS_WEB_KEYSYMDEF";
           value = keysymdef;
@@ -93,18 +107,30 @@
           value = xkbExport;
         }
       ];
-      checks.keys-generators = testing.vitestCheck {
-        name = "keys-generators";
-        packageDir = "${typescript.workspace}/tools";
-        limit = 120;
-        inBrowsers = false;
-        env = {
-          IBUS_WEB_KEYSYMDEF = keysymdef;
-          IBUS_WEB_XKB_EXPORT = xkbExport;
-          IBUS_WEB_XKB_NOTICE = xkbNotice;
-          IBUS_WEB_DOM_CODES = domCodes;
-        };
-        vitestArgs = [ "keysyms" ];
-      };
+      checks.keys-generators =
+        (testing.vitestCheck {
+          name = "keys-generators";
+          packageDir = "${
+            typescript.workspaceFor [
+              "tools"
+              "packages/core"
+            ]
+          }/tools";
+          limit = 120;
+          inBrowsers = false;
+          env = {
+            # Use the pinned pnpm binary without bootstrapping another copy from npm.
+            pnpm_config_pm_on_fail = "ignore";
+            IBUS_WEB_CHROMIUM_LICENSE = chromiumLicense;
+            IBUS_WEB_KEYSYMDEF = keysymdef;
+            IBUS_WEB_XKB_EXPORT = xkbExport;
+            IBUS_WEB_XKB_NOTICE = xkbNotice;
+            IBUS_WEB_DOM_CODES = domCodes;
+          };
+          vitestArgs = [ "keysyms" ];
+        }).overrideAttrs
+          (old: {
+            nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.pnpm ];
+          });
     };
 }

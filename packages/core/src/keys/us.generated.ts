@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The xkeyboard-config contributors
 // SPDX-License-Identifier: LicenseRef-xkeyboard-config
 // Generated from xkeyboard-config US (evdev/pc105/us, empty variant and options), resolved by libxkbcommon.
-// Source notices: LICENSES/xkeyboard-config-COPYING.txt.
+// Source notices: LICENSES/LicenseRef-xkeyboard-config.txt (packaged as LICENSES/xkeyboard-config-COPYING.txt).
 const levels: ReadonlyMap<number, readonly (readonly [number, number])[]> = new Map([
   [1, [[65307, 27]]],
   [

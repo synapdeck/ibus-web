@@ -23,11 +23,8 @@ test("pinned libxkbcommon levels and Unicode pairs", () => {
   expect(usLevels(79)?.map((x) => x[0])).toEqual([0xff9c, 0xffb1]);
 });
 
-test("XKB source notice ships with core", () => {
-  const notice = readFileSync(
-    new URL("../../packages/core/LICENSES/xkeyboard-config-COPYING.txt", import.meta.url),
-    "utf8",
-  );
+test("central XKB source notice matches the pinned input byte-for-byte", () => {
+  const notice = readFileSync(new URL("../../LICENSES/LicenseRef-xkeyboard-config.txt", import.meta.url), "utf8");
   expect(notice).toContain("Permission to use");
   expect(notice).toBe(readFileSync(process.env["IBUS_WEB_XKB_NOTICE"]!, "utf8"));
 });
