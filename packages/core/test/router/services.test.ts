@@ -435,3 +435,31 @@ for (const phase of ["initial", "restart"] as const) {
     }).pipe(Effect.ensuring(Effect.sync(() => resolveStart?.(late))), Effect.provide(services));
   });
 }
+
+it.effect(
+  "ensure starts and enables multiple identities without duplicating workers, while select stays exclusive",
+  () =>
+    Effect.gen(function* () {
+      const starts: string[] = [];
+      const registry = yield* makeEngineRegistry({
+        hostUrl: url,
+        runtimeUrl: url,
+        engines: { a: new URL("a", url), b: new URL("b", url) },
+        loadManifest: async (u) => ({ ...manifest, name: u.pathname.slice(1) }),
+        start: async (options) => {
+          starts.push(options.manifestUrl.pathname);
+          const c = new FakeConnection();
+          c.requestAsync = async () => emptyReply;
+          return c;
+        },
+      });
+      yield* registry.ensure("a");
+      yield* registry.ensure("b");
+      yield* registry.ensure("a");
+      expect(starts).toEqual(["/a", "/b"]);
+      expect(registry.snapshot("a")!.enabled).toBe(true);
+      expect(registry.snapshot("b")!.enabled).toBe(true);
+      yield* registry.select("a");
+      expect(registry.snapshot("b")!.enabled).toBe(false);
+    }).pipe(Effect.provide(services)),
+);

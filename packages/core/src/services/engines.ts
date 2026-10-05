@@ -31,10 +31,13 @@ export interface EngineRegistryOptions {
 }
 export interface EngineRegistryService {
   select(name: string | undefined): Effect.Effect<void, Error>;
+  ensure(name: string): Effect.Effect<void, Error>;
   whenReady(name: string): Effect.Effect<void, Error>;
   state(name: string): EngineState;
   snapshot(name: string): EngineSnapshot | undefined;
   registerContext(name: string, context: KeyContext): () => void;
+  drainContext(name: string, context: KeyContext): Promise<void>;
+  retireContext(name: string, context: KeyContext, beforeReplay?: () => void): void;
   keySink(name: string, context: KeyContext): KeySink;
   request(name: string, request: Request, ic: number): Promise<Reply>;
 }
@@ -293,21 +296,27 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           entry.watchers.delete(check);
         });
       });
+    const ensure = (name: string): Effect.Effect<void, Error> =>
+      Effect.gen(function* () {
+        if (!entries.has(name)) return yield* Effect.fail(new Error(`Unknown engine: ${name}`));
+        const entry = get(name);
+        entry.snapshot.enabled = true;
+        if (!entry.started) {
+          entry.started = true;
+          yield* boot(name, entry).pipe(
+            Effect.catch(() => Effect.sync(() => fail(entry))),
+            Effect.forkIn(scope),
+          );
+        }
+        yield* whenReady(name);
+      });
     const service: EngineRegistryService = {
+      ensure,
       select: (name) =>
         Effect.gen(function* () {
           if (name !== undefined && !entries.has(name)) return yield* Effect.fail(new Error(`Unknown engine: ${name}`));
           for (const [key, entry] of entries) entry.snapshot.enabled = key === name;
-          if (name === undefined) return;
-          const entry = get(name);
-          if (!entry.started) {
-            entry.started = true;
-            yield* boot(name, entry).pipe(
-              Effect.catch(() => Effect.sync(() => fail(entry))),
-              Effect.forkIn(scope),
-            );
-          }
-          yield* whenReady(name);
+          if (name !== undefined) yield* ensure(name);
         }),
       whenReady,
       state: (name) => {
@@ -316,6 +325,8 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       },
       snapshot: (name) => entries.get(name)?.snapshot,
       registerContext: (name, context) => get(name).router.register(context),
+      drainContext: (name, context) => get(name).router.drain(context),
+      retireContext: (name, context, beforeReplay) => get(name).router.retire(context, beforeReplay),
       keySink: (name, context) => get(name).router.sink(context),
       request: (name, request, ic) => get(name).router.request(request, ic),
     };

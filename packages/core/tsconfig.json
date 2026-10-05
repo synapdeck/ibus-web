@@ -3,5 +3,5 @@
 {
   "extends": "../../tsconfig.node-scripts.json",
   "compilerOptions": { "skipLibCheck": true },
-  "files": ["tsdown.config.ts", "vitest.config.ts"]
+  "files": ["tsdown.config.ts", "vitest.config.ts", "vitest.browser.config.ts"]
 }

@@ -7,5 +7,12 @@
     "types": [],
     "declaration": true
   },
-  "include": ["."]
+  "include": [
+    ".",
+    "../router/contexts.test.ts",
+    "../router/preedit.test.ts",
+    "../router/surrounding.test.ts",
+    "../router/content-type.test.ts",
+    "../router/switching.test.ts"
+  ]
 }

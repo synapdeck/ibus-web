@@ -80,3 +80,101 @@ test("an unready context receives creation records but cannot send keys", async 
   await creation;
   expect(f.calls.filter((c) => c.startsWith("record:"))).toEqual(["record:1"]);
 });
+
+test("drain captures accepted owners and completes after their records/fallback, without waiting for later keys", async () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("a"));
+  f.sink.key(key("b"));
+  const drained = f.router.drain(f.context);
+  f.sink.key(key("c"));
+  f.connection.completeAbandoned(1, [output(1)]);
+  f.connection.completeAsync(0, [output(2)]);
+  await drained;
+  expect(f.calls.filter((x) => x.startsWith("record:") || x.startsWith("replay:"))).toEqual([
+    "record:1",
+    "record:2",
+    "replay:b",
+  ]);
+  expect(f.connection.sent.at(-1)!.request).toMatchObject({ keyval: 99 });
+});
+test("retire replays active and queued owners exactly once and suppresses late output", async () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("a"));
+  f.sink.key(key("b"));
+  const drained = f.router.drain(f.context);
+  f.router.retire(f.context);
+  f.router.retire(f.context);
+  expect(f.calls.filter((x) => x.startsWith("replay:"))).toEqual(["replay:a", "replay:b"]);
+  await drained;
+  expect(f.connection.sent).toHaveLength(1);
+  f.connection.completeAbandoned(0, [output(1)]);
+  expect(f.calls.filter((x) => x.startsWith("record:") || x.startsWith("replay:"))).toEqual(["replay:a", "replay:b"]);
+  expect(f.router.busy).toBe(false);
+});
+test("crash after retirement does not replay retired owners twice and settles drains", async () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("a"));
+  const drained = f.router.drain(f.context);
+  f.router.retire(f.context);
+  f.connection.crash();
+  await drained;
+  expect(f.calls.filter((x) => x.startsWith("replay:"))).toEqual(["replay:a"]);
+});
+test("context removal and disposal settle captured drains without edits", async () => {
+  for (const close of ["detach", "dispose"]) {
+    const f = fixture();
+    f.connection.outcome = { _tag: "pending" };
+    f.sink.key(key("a"));
+    f.sink.key(key("b"));
+    const drained = f.router.drain(f.context);
+    if (close === "detach") f.unregister();
+    else f.router.dispose();
+    await drained;
+    expect(f.calls).toEqual([]);
+  }
+});
+test("retired async keys keep transport ownership while their late promise is discarded", async () => {
+  const f = fixture();
+  f.connection.busy = true;
+  f.sink.key(key("a"));
+  f.connection.busy = false;
+  f.connection.bell();
+  f.router.retire(f.context);
+  f.connection.completeAsync(1, [output(1)]);
+  await Promise.resolve();
+  expect(f.calls.filter((x) => x.startsWith("replay:") || x.startsWith("record:"))).toEqual(["replay:a"]);
+});
+test("retirement's local finalizer and fallbacks share one batch in chronological order", () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("a"));
+  f.sink.key(key("b"));
+  f.router.retire(f.context, () => f.calls.push("finish-preedit"));
+  expect(f.calls).toEqual(["batch", "finish-preedit", "replay:a", "replay:b", "end"]);
+});
+test("retirement preserves global logs from the retired request", async () => {
+  const f = fixture();
+  f.router.disconnect();
+  const globals: string[] = [];
+  const { KeyRouter } = await import("../../src/router/keystroke.ts");
+  const router = new KeyRouter(f.snapshot, {
+    replayLimit: 64,
+    enqueue: (r) => globals.push(r.record._tag),
+    hide: () => {},
+    crashed: () => {},
+  });
+  router.connect(f.connection);
+  router.register(f.context);
+  f.connection.outcome = { _tag: "pending" };
+  router.sink(f.context).key(key("a"));
+  router.retire(f.context);
+  f.connection.completeAbandoned(1, [
+    output(1),
+    { ...output(2), record: { _tag: "Log", level: 16, domain: "engine", message: "late" } },
+  ]);
+  expect(globals).toEqual(["Log"]);
+  expect(f.calls).not.toContain("record:1");
+});

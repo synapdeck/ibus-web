@@ -15,3 +15,5 @@ export {
   type PanelEvent,
   type PanelRecord,
 } from "../services/logging.ts";
+export * from "../router/router.ts";
+export * from "../adapters/textarea.ts";

@@ -34,6 +34,7 @@ interface PendingKey {
   readonly event: KeyboardEvent;
   readonly request: Request;
   readonly generation: number;
+  retired?: boolean;
 }
 export interface RouterOutput {
   readonly replayLimit: number;
@@ -44,6 +45,8 @@ export interface RouterOutput {
 export class KeyRouter {
   private readonly contexts = new Map<number, KeyContext>();
   private readonly replay: ReplayQueue<PendingKey>;
+  private readonly accepted = new Set<PendingKey>();
+  private readonly drains = new Set<{ keys: Set<PendingKey>; resolve: () => void }>();
   private active: PendingKey | undefined;
   private activeMode: "sync" | "abandoned" | "async" | undefined;
   private lifecycle = 0;
@@ -81,7 +84,54 @@ export class KeyRouter {
       if (this.contexts.get(context.ic) === context) this.contexts.delete(context.ic);
       context.ready = false;
       this.replay.remove((key) => key.context === context);
+      for (const key of this.accepted)
+        if (key.context === context) {
+          key.retired = true;
+          this.finished(key);
+        }
     };
+  }
+  /** Wait only for keys already accepted for this context, not for global idleness. */
+  drain(context: KeyContext): Promise<void> {
+    const keys = new Set([...this.accepted].filter((key) => key.context === context));
+    return new Promise((resolve) => {
+      if (keys.size === 0) resolve();
+      else this.drains.add({ keys, resolve });
+    });
+  }
+  /** Replay before a synchronous caret/reset boundary while retaining wire ownership. */
+  retire(context: KeyContext, beforeReplay?: () => void): void {
+    const keys = [...this.accepted].filter((key) => key.context === context);
+    this.replay.remove((key) => key.context === context);
+    if (keys.length > 0 || beforeReplay)
+      context.adapter.batch(() => {
+        beforeReplay?.();
+        for (const key of keys) {
+          key.retired = true;
+          if (this.attached(context)) context.adapter.replayKey(key.event);
+          this.finished(key);
+        }
+      });
+  }
+  private finished(key: PendingKey): void {
+    this.accepted.delete(key);
+    for (const drain of this.drains) {
+      drain.keys.delete(key);
+      if (drain.keys.size === 0) {
+        this.drains.delete(drain);
+        // Retirement can run on a native event stack; settle awaiters off that stack.
+        queueMicrotask(drain.resolve);
+      }
+    }
+  }
+  private ownedRecords(records: readonly DecodedRecord[], key: PendingKey): DecodedRecord[] {
+    return records.filter(
+      (record) =>
+        record.record._tag === "Log" ||
+        record.record._tag === "SettingWritten" ||
+        record.ic !== key.context.ic ||
+        (!key.retired && this.contexts.get(record.ic) === key.context),
+    );
   }
   sink(context: KeyContext): KeySink {
     return { key: (event) => this.key(context, event) };
@@ -111,6 +161,7 @@ export class KeyRouter {
       request: new ProcessKeyEvent(translated),
       generation: snapshot.generation,
     };
+    this.accepted.add(pending);
     if (this.busy) {
       this.replay.push(pending);
       if (this.replay.size + (this.active ? 1 : 0) > this.replay.limit)
@@ -131,7 +182,11 @@ export class KeyRouter {
     }
     this.active = undefined;
     this.activeMode = undefined;
-    this.apply(outcome.records, outcome.ret === 1 ? context : undefined);
+    this.finished(pending);
+    this.apply(
+      this.ownedRecords(outcome.records, pending),
+      !pending.retired && outcome.ret === 1 ? context : undefined,
+    );
     const generation = snapshot.generation;
     queueMicrotask(() => {
       if (
@@ -142,7 +197,7 @@ export class KeyRouter {
       )
         this.apply(connection.records.takeBuffered());
     });
-    return outcome.ret === 1 ? "consumed" : "passthrough";
+    return pending.retired || outcome.ret === 1 ? "consumed" : "passthrough";
   }
   /** Lifecycle requests retain ownership until their promise's records have been applied. */
   async request(request: Request, ic: number): Promise<Reply> {
@@ -192,14 +247,16 @@ export class KeyRouter {
     const pending = this.active;
     this.active = undefined;
     this.activeMode = undefined;
-    if (!pending || pending.generation !== this.snapshot.generation) return;
-    this.apply(
-      reply.records.filter(
-        (record) => record.ic !== pending.context.ic || this.contexts.get(record.ic) === pending.context,
-      ),
-      reply.ret === 1 ? pending.context : undefined,
-    );
-    if (reply.ret !== 1 && this.current(pending.context)) pending.context.adapter.replayKey(pending.event);
+    if (!pending) return;
+    if (pending.generation === this.snapshot.generation) {
+      this.apply(
+        this.ownedRecords(reply.records, pending),
+        !pending.retired && reply.ret === 1 ? pending.context : undefined,
+      );
+      if (!pending.retired && reply.ret !== 1 && this.current(pending.context))
+        pending.context.adapter.replayKey(pending.event);
+    }
+    this.finished(pending);
   }
   private drainUnsolicited(): void {
     if (this.activeMode === "async" || this.lifecycle > 0) return;
@@ -212,6 +269,7 @@ export class KeyRouter {
     let pending: PendingKey | undefined;
     do {
       pending = this.replay.shift();
+      if (pending && !this.current(pending.context)) this.finished(pending);
     } while (pending && !this.current(pending.context));
     if (!pending) return;
     this.active = pending;
@@ -244,7 +302,10 @@ export class KeyRouter {
     this.active = undefined;
     this.activeMode = undefined;
     this.lifecycle = 0;
-    for (const pending of events) if (this.current(pending.context)) pending.context.adapter.replayKey(pending.event);
+    for (const pending of events) {
+      if (!pending.retired && this.current(pending.context)) pending.context.adapter.replayKey(pending.event);
+      this.finished(pending);
+    }
     this.snapshot.generation++;
     for (const context of this.contexts.values()) {
       context.ready = false;
@@ -268,5 +329,6 @@ export class KeyRouter {
     this.contexts.clear();
     this.active = undefined;
     this.replay.take();
+    for (const pending of this.accepted) this.finished(pending);
   }
 }

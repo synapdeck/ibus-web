@@ -1,0 +1,398 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+import { Context, Effect, Layer, type Stream } from "effect";
+import {
+  CreateEngine,
+  DestroyEngine,
+  Disable,
+  Enable,
+  FocusIn,
+  FocusOut,
+  Reset,
+  SetCapabilities,
+  SetContentType,
+  IBusCapability as Cap,
+  type Request,
+} from "@ibus-web/protocol";
+import { EngineRegistry } from "../services/engines.ts";
+import { CoreConfig } from "../services/config.ts";
+import { PanelEvents, SyncMailbox, type PanelEvent } from "../services/logging.ts";
+import type { SurfaceAdapter } from "./replay.ts";
+import { InputContext } from "./contexts.ts";
+export interface HotkeyRegistry {
+  add(predicate: (event: KeyboardEvent) => boolean, action: () => void): () => void;
+}
+export interface RouterService {
+  attach(adapter: SurfaceAdapter): () => void;
+  select(engine: string): Effect.Effect<void, Error>;
+  override(adapter: SurfaceAdapter, engine: string | undefined): Effect.Effect<void, Error>;
+  readonly hotkeys: HotkeyRegistry;
+  readonly panel: Stream.Stream<PanelEvent>;
+}
+export class Router extends Context.Service<Router, RouterService>()("@ibus-web/core/Router") {
+  static readonly Default = Layer.effect(
+    Router,
+    Effect.suspend(() => makeRouter),
+  );
+}
+interface Surface {
+  readonly adapter: SurfaceAdapter;
+  readonly ic: number;
+  readonly contexts: Map<string, InputContext>;
+  attached: boolean;
+  focused: boolean;
+  suspended: boolean;
+  override: string | undefined;
+  active: InputContext | undefined;
+  cleanup: () => void;
+}
+const asError = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)));
+export const makeRouter = Effect.gen(function* () {
+  const registry = yield* EngineRegistry;
+  const config = yield* CoreConfig;
+  const panel = yield* PanelEvents;
+  const surfaces = new Map<SurfaceAdapter, Surface>();
+  const hotkeys = new Set<{ predicate: (event: KeyboardEvent) => boolean; action: () => void }>();
+  const mailbox = new SyncMailbox<() => Effect.Effect<void, Error>>();
+  let selected: string | undefined,
+    nextIc = 1,
+    closed = false;
+  const desired = (surface: Surface) => surface.override ?? selected;
+  const wants = (surface: Surface, engine: string) =>
+    !closed &&
+    surface.attached &&
+    surface.focused &&
+    !surface.adapter.contentType().disabled &&
+    desired(surface) === engine;
+  const live = (context: InputContext) =>
+    registry.snapshot(context.engine)?.generation === context.generation &&
+    !!registry.snapshot(context.engine)?.connection;
+  const request = (context: InputContext, message: Request) =>
+    Effect.tryPromise({ try: () => registry.request(context.engine, message, context.ic), catch: asError });
+  const refresh = (surface: Surface, context: InputContext) =>
+    Effect.gen(function* () {
+      if (!wants(surface, context.engine) || !context.created || !context.focused || !live(context)) return;
+      for (const message of context.updates(config.surroundingWindow)) {
+        if (!wants(surface, context.engine) || !live(context)) return;
+        yield* request(context, message);
+      }
+    });
+  const drain = (context: InputContext) =>
+    Effect.tryPromise({ try: () => registry.drainContext(context.engine, context), catch: asError });
+  const pendingSubmissions = new Set<() => void>();
+  const pendingRefresh = new Set<InputContext>();
+  const enqueueRefresh = (surface: Surface, context: InputContext) => {
+    if (pendingRefresh.has(context) || closed) return;
+    pendingRefresh.add(context);
+    mailbox.enqueue(() =>
+      Effect.gen(function* () {
+        pendingRefresh.delete(context);
+        yield* refresh(surface, context);
+      }),
+    );
+  };
+  const finish = (surface: Surface) => {
+    if (surface.active) {
+      surface.active.ready = false;
+      surface.active.finish();
+    }
+  };
+  const reconcile = (surface: Surface) =>
+    Effect.gen(function* () {
+      const engine = desired(surface),
+        old = surface.active;
+      if (old && (!wants(surface, old.engine) || engine !== old.engine)) {
+        surface.suspended = true;
+        yield* drain(old);
+        old.finish();
+        old.ready = false;
+        old.acceptOutput = false;
+        if (live(old) && old.created) {
+          if (engine !== old.engine && old.enabled) {
+            old.enabled = false;
+            yield* request(old, new Disable({}));
+          }
+          if (old.focused) {
+            old.focused = false;
+            yield* request(old, new FocusOut({}));
+          }
+        }
+        panel.enqueue({ _tag: "hide", engine: old.engine, ic: old.ic });
+        if (engine !== old.engine) surface.active = undefined;
+      }
+      if (engine === undefined || !wants(surface, engine)) return;
+      yield* registry.ensure(engine);
+      if (!wants(surface, engine)) return;
+      const snapshot = registry.snapshot(engine)!;
+      let context = surface.contexts.get(engine);
+      if (!context) {
+        const created = new InputContext({
+          ic: surface.ic,
+          engine,
+          generation: snapshot.generation,
+          adapter: surface.adapter,
+          current: () =>
+            surface.attached &&
+            live(created) &&
+            (created.created ? created.acceptOutput : wants(surface, engine) && surface.active === created),
+          refresh: () => enqueueRefresh(surface, created),
+          panel: (event) => panel.enqueue(event),
+        });
+        context = created;
+        surface.contexts.set(engine, context);
+        context.unregister = registry.registerContext(engine, context);
+      }
+      surface.active = context;
+      if (context.generation !== snapshot.generation) {
+        context.invalidate();
+        context.generation = snapshot.generation;
+      }
+      const generation = context.generation;
+      const current = () => wants(surface, engine) && live(context) && generation === context.generation;
+      if (!context.created) {
+        const reply = yield* request(context, new CreateEngine({ name: snapshot.manifest!.engines[0]! }));
+        if (generation !== registry.snapshot(engine)?.generation) return;
+        if (reply.ret < 0) return;
+        context.created = true;
+      }
+      if (!current()) return;
+      context.acceptOutput = true;
+      if (!context.focused) {
+        const capabilities = surface.adapter.capabilities();
+        yield* request(
+          context,
+          new SetCapabilities({
+            capabilities:
+              Cap.FOCUS |
+              Cap.PROPERTY |
+              (capabilities.preedit ? Cap.PREEDIT_TEXT : 0) |
+              (capabilities.auxText ? Cap.AUXILIARY_TEXT : 0) |
+              (capabilities.lookupTable ? Cap.LOOKUP_TABLE : 0) |
+              (capabilities.surroundingText && surface.adapter.surrounding(config.surroundingWindow) !== undefined
+                ? Cap.SURROUNDING_TEXT
+                : 0),
+          }),
+        );
+        if (!current()) return;
+        const { purpose, hints } = surface.adapter.contentType();
+        yield* request(context, new SetContentType({ purpose, hints }));
+        if (!current()) return;
+        if (!context.enabled) {
+          yield* request(context, new Enable({}));
+          context.enabled = true;
+        }
+        if (!current()) return;
+        yield* request(context, new FocusIn({}));
+        context.focused = true;
+        if (!current()) return;
+      }
+      context.ready = true;
+      surface.suspended = false;
+      yield* refresh(surface, context);
+    });
+  const submit = (work: () => Effect.Effect<void, Error>): Effect.Effect<void, Error> =>
+    Effect.callback((resume) => {
+      const cancel = () => resume(Effect.fail(new Error("Router is closed")));
+      if (closed) {
+        cancel();
+        return;
+      }
+      pendingSubmissions.add(cancel);
+      mailbox.enqueue(() =>
+        work().pipe(
+          Effect.matchEffect({
+            onFailure: (error) =>
+              Effect.sync(() => {
+                pendingSubmissions.delete(cancel);
+                resume(Effect.fail(error));
+              }),
+            onSuccess: () =>
+              Effect.sync(() => {
+                pendingSubmissions.delete(cancel);
+                resume(Effect.void);
+              }),
+          }),
+        ),
+      );
+      return Effect.sync(() => {
+        pendingSubmissions.delete(cancel);
+      });
+    });
+  yield* mailbox.take.pipe(
+    Effect.flatMap((work) => Effect.suspend(work).pipe(Effect.catch((error) => Effect.logWarning(error)))),
+    Effect.forever,
+    Effect.forkScoped,
+  );
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      closed = true;
+      mailbox.close();
+      pendingRefresh.clear();
+      hotkeys.clear();
+      for (const cancel of pendingSubmissions) cancel();
+      pendingSubmissions.clear();
+      for (const surface of surfaces.values()) {
+        surface.attached = false;
+        surface.cleanup();
+        finish(surface);
+        for (const context of surface.contexts.values()) context.unregister();
+      }
+      surfaces.clear();
+    }),
+  );
+  const service: RouterService = {
+    panel: panel.events,
+    hotkeys: {
+      add: (predicate, action) => {
+        const entry = { predicate, action };
+        if (!closed) hotkeys.add(entry);
+        return () => {
+          hotkeys.delete(entry);
+        };
+      },
+    },
+    select: (engine) =>
+      Effect.suspend(() => {
+        if (closed) return Effect.fail(new Error("Router is closed"));
+        if (!registry.snapshot(engine)) return Effect.fail(new Error(`Unknown engine: ${engine}`));
+        const previous = selected;
+        selected = engine;
+        if (previous !== engine)
+          for (const surface of surfaces.values()) if (surface.override === undefined) surface.suspended = true;
+        return submit(() =>
+          Effect.gen(function* () {
+            yield* registry.ensure(engine);
+            for (const surface of surfaces.values()) yield* reconcile(surface);
+          }),
+        );
+      }),
+    override: (adapter, engine) =>
+      Effect.suspend(() => {
+        const surface = surfaces.get(adapter);
+        if (!surface) return Effect.fail(new Error("Surface is not attached"));
+        if (engine !== undefined && !registry.snapshot(engine))
+          return Effect.fail(new Error(`Unknown engine: ${engine}`));
+        if (surface.override !== engine) {
+          surface.override = engine;
+          surface.suspended = true;
+        }
+        return submit(() => reconcile(surface));
+      }),
+    attach: (adapter) => {
+      if (closed) throw new Error("Router is closed");
+      if (surfaces.has(adapter)) throw new Error("Surface is already attached");
+      const surface: Surface = {
+        adapter,
+        ic: nextIc++,
+        contexts: new Map(),
+        attached: true,
+        focused: adapter.element.ownerDocument.activeElement === adapter.element,
+        suspended: false,
+        override: undefined,
+        active: undefined,
+        cleanup: () => {},
+      };
+      surfaces.set(adapter, surface);
+      const focus = () => {
+        surface.focused = true;
+        mailbox.enqueue(() => reconcile(surface));
+      };
+      const blur = () => {
+        const context = surface.active;
+        surface.focused = false;
+        surface.suspended = true;
+        mailbox.enqueue(() =>
+          Effect.gen(function* () {
+            // Preserve the blur boundary even if another focus arrived before the queue drained.
+            if (context) {
+              yield* drain(context);
+              context.finish();
+              context.ready = false;
+              context.acceptOutput = false;
+            }
+            if (context?.created && context.focused && live(context)) {
+              context.focused = false;
+              yield* request(context, new FocusOut({}));
+              panel.enqueue({ _tag: "hide", engine: context.engine, ic: context.ic });
+            }
+            yield* reconcile(surface);
+          }),
+        );
+      };
+      const reset = () => {
+        const context = surface.active;
+        if (!context || !context.created || !live(context)) return;
+        surface.suspended = true;
+        context.ready = false;
+        registry.retireContext(context.engine, context, () => context.preedit.finish(context.adapter));
+        enqueueRefresh(surface, context);
+        mailbox.enqueue(() =>
+          Effect.gen(function* () {
+            if (!wants(surface, context.engine) || !live(context)) return;
+            const result = request(context, new Reset({}));
+            context.acceptOutput = true;
+            context.ready = true;
+            surface.suspended = false;
+            yield* result;
+            yield* refresh(surface, context);
+          }),
+        );
+      };
+      // Install adapter reset detection before the sink sees the same DOM event.
+      const removeReset = adapter.onReset(reset);
+      const key = (event: KeyboardEvent) => {
+        if (adapter.contentType().disabled || event.isComposing || event.key === "Dead") return;
+        if (event.type === "keydown")
+          for (const binding of hotkeys)
+            if (binding.predicate(event)) {
+              binding.action();
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+        const context = surface.active;
+        if (!context || surface.suspended || !wants(surface, context.engine)) return;
+        if (registry.keySink(context.engine, context).key(event) === "consumed") {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      };
+      adapter.element.addEventListener("focus", focus);
+      adapter.element.addEventListener("blur", blur);
+      adapter.element.addEventListener("keydown", key, true);
+      adapter.element.addEventListener("keyup", key, true);
+      surface.cleanup = () => {
+        removeReset();
+        adapter.element.removeEventListener("focus", focus);
+        adapter.element.removeEventListener("blur", blur);
+        adapter.element.removeEventListener("keydown", key, true);
+        adapter.element.removeEventListener("keyup", key, true);
+      };
+      if (surface.focused) mailbox.enqueue(() => reconcile(surface));
+      return () => {
+        if (!surface.attached) return;
+        surface.attached = false;
+        surface.focused = false;
+        surface.cleanup();
+        finish(surface);
+        surfaces.delete(adapter);
+        for (const context of surface.contexts.values()) context.unregister();
+        mailbox.enqueue(() =>
+          Effect.gen(function* () {
+            for (const context of surface.contexts.values())
+              if (context.created && live(context)) {
+                if (context.focused) {
+                  context.focused = false;
+                  yield* request(context, new FocusOut({}));
+                }
+                yield* request(context, new DestroyEngine({}));
+                context.invalidate();
+                panel.enqueue({ _tag: "hide", engine: context.engine, ic: context.ic });
+              }
+          }),
+        );
+      };
+    },
+  };
+  return service;
+});
