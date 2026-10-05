@@ -66,6 +66,10 @@
       packages.ibus-web-hangul = hangul;
       packages.ibus-web-hangul-dist = engines.mkEngineManifest {
         name = "hangul";
+        keyboard = {
+          layout = "us";
+          passThrough = [ ];
+        };
         package = hangul;
         # Host conformance peaks at 3,461,120 bytes and uses no engine threads.
         # The manifest builder adds headroom after this whole-MiB declaration.

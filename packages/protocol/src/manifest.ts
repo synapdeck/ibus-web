@@ -13,6 +13,7 @@ const storePath = Schema.String.check(
 
 export const EngineManifest = Schema.Struct({
   name: engineName,
+  keyboard: Schema.Struct({ layout: Schema.Literals(["us", "default"]), passThrough: Schema.Array(Schema.String) }),
   version: nonEmpty,
   license: nonEmpty,
   runtimeAbi: count,

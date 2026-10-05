@@ -17,6 +17,7 @@ const valid = {
   data: [{ storePath, url: "./data/hangul.tar.br", size: 4096, encoding: "br" }],
   settingsSchemaDir: `${storePath}/share/glib-2.0/schemas`,
   engines: ["hangul"],
+  keyboard: { layout: "us", passThrough: [] },
   settingsSchemas: ["org.freedesktop.ibus.engine.hangul"],
 };
 
@@ -26,6 +27,12 @@ describe("engine manifests", () => {
     expect(
       decodeEngineManifest({ ...valid, data: [{ ...valid.data[0], encoding: "identity" }] }, bounds),
     ).toBeDefined());
+  it("requires keyboard", () => {
+    const { keyboard: _, ...missing } = valid;
+    expect(() => decodeEngineManifest(missing, bounds)).toThrow();
+  });
+  it("rejects unknown layout", () =>
+    expect(() => decodeEngineManifest({ ...valid, keyboard: { layout: "de", passThrough: [] } }, bounds)).toThrow());
   it("requires the version", () => {
     const { version: _, ...missing } = valid;
     expect(() => decodeEngineManifest(missing, bounds)).toThrow();

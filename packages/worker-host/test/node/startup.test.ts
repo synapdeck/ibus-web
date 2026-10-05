@@ -28,6 +28,7 @@ const manifest = {
   data: [{ storePath: root, url: "https://example.test/schemas.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `${root}/schemas`,
   engines: ["test"],
+  keyboard: { layout: "us", passThrough: [] },
   settingsSchemas: [],
 };
 describe("manifest startup validation", () => {

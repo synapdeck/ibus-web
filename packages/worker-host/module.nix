@@ -116,6 +116,10 @@
       engineDists = lib.mapAttrs (
         name: package:
         engines.mkEngineManifest {
+          keyboard = {
+            layout = "default";
+            passThrough = [ ];
+          };
           inherit name package settingsSchemaDir;
           threads = engineThreads;
           heapBytes = 1024 * 1024;
@@ -127,6 +131,10 @@
         }
       ) engineSides;
       rebuiltDist = engines.mkEngineManifest {
+        keyboard = {
+          layout = "default";
+          passThrough = [ ];
+        };
         name = "empty";
         package = engineSideWithSchemas rebuiltSchemaDir "empty" "engine-empty.c";
         settingsSchemaDir = rebuiltSchemaDir;

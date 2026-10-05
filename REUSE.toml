@@ -126,3 +126,10 @@ path = "packages/core/LICENSES/chromium-notice.txt"
 SPDX-FileCopyrightText = "The Chromium Authors"
 SPDX-License-Identifier = "BSD-3-Clause"
 precedence = "override"
+
+# The source distributes a collection of permissive notices in COPYING.
+[[annotations]]
+path = "packages/core/src/keys/us.generated.ts"
+SPDX-FileCopyrightText = "The xkeyboard-config contributors"
+SPDX-License-Identifier = "LicenseRef-xkeyboard-config"
+precedence = "override"

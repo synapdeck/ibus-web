@@ -20,6 +20,7 @@
       ibusWeb.engines.mkEngineManifest =
         {
           name,
+          keyboard,
           package,
           threads,
           heapBytes,
@@ -34,6 +35,7 @@
             builtins.toJSON {
               inherit
                 name
+                keyboard
                 threads
                 settingsSchemaDir
                 engines

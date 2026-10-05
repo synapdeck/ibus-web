@@ -183,6 +183,10 @@ importers:
         version: 1.9.0
 
   packages/core:
+    dependencies:
+      '@ibus-web/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'

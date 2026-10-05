@@ -16,6 +16,7 @@ const engine: EngineManifest = {
   module: { url: "https://unused.test/engine.wasm", size: 1 },
   settingsSchemaDir: "/nix/store/00000000000000000000000000000000-data/schemas",
   engines: ["allocation"],
+  keyboard: { layout: "us", passThrough: [] },
   settingsSchemas: [],
   name: "allocation",
   data: [

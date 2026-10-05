@@ -20,6 +20,37 @@
         url = "https://raw.githubusercontent.com/chromium/chromium/${chromiumRevision}/ui/events/keycodes/dom/dom_code_data.inc";
         hash = "sha256-hB4sWOY4jxRzZxfrbjZci46XZ3iONjOb8dNaN6tI5bI=";
       };
+      xkbExport =
+        pkgs.runCommand "ibus-web-us-keymap.json"
+          {
+            nativeBuildInputs = [
+              pkgs.stdenv.cc
+              pkgs.pkg-config
+            ];
+            buildInputs = [ pkgs.libxkbcommon ];
+          }
+          ''
+            cc -Wall -Wextra -Werror ${../tools/keysyms/xkb-export.c} $(pkg-config --cflags --libs xkbcommon) -o exporter
+            ./exporter ${pkgs.xkeyboard_config}/share/X11/xkb > $out
+            XKB_CONFIG_ROOT=/nonexistent XKB_DEFAULT_LAYOUT=de XKB_DEFAULT_OPTIONS=ctrl:nocaps \
+              ./exporter ${pkgs.xkeyboard_config}/share/X11/xkb > repeated.json
+            cmp $out repeated.json
+          '';
+      nativeClangd = (pkgs.formats.yaml { }).generate "xkb-export-clangd.yaml" {
+        If.PathMatch = "tools/keysyms/xkb-export\\.c";
+        CompileFlags = {
+          Compiler = "${pkgs.stdenv.cc}/bin/cc";
+          Remove = [
+            "-isystem"
+            "-fwasm-exceptions"
+            "-mextended-const"
+          ];
+          Add = [ "-I${lib.getDev pkgs.libxkbcommon}/include" ];
+        };
+      };
+      xkbNotice = pkgs.runCommand "xkeyboard-config-COPYING.txt" { nativeBuildInputs = [ pkgs.xz ]; } ''
+        tar -xOf ${pkgs.xkeyboard_config.src} xkeyboard-config-${pkgs.xkeyboard_config.version}/COPYING > $out
+      '';
       keysymdef = "${pkgs.xorgproto}/include/X11/keysymdef.h";
       generate =
         name: script: source:
@@ -35,6 +66,40 @@
       files.file."packages/core/src/keys/dom-codes.generated.ts".source =
         generate "dom-codes.generated.ts" ../tools/keysyms/dom-codes.ts
           domCodes;
+      files.file."packages/core/src/keys/us.generated.ts".source =
+        generate "us.generated.ts" ../tools/keysyms/us.ts
+          xkbExport;
+      files.file."packages/core/LICENSES/xkeyboard-config-COPYING.txt".source = xkbNotice;
+      files.file."LICENSES/LicenseRef-xkeyboard-config.txt".source = xkbNotice;
+      ibusWeb.toolchain = {
+        clangdFragments = [ nativeClangd ];
+        clangdQueryDrivers = [ "${pkgs.stdenv.cc}/bin/cc" ];
+      };
+      devshells.default.env = [
+        {
+          name = "IBUS_WEB_KEYSYMDEF";
+          value = keysymdef;
+        }
+        {
+          name = "IBUS_WEB_DOM_CODES";
+          value = domCodes;
+        }
+        {
+          name = "IBUS_WEB_XKB_NOTICE";
+          value = xkbNotice;
+        }
+        {
+          name = "IBUS_WEB_XKB_EXPORT";
+          value = xkbExport;
+        }
+      ];
+      checks.core = testing.vitestCheck {
+        name = "core";
+        env = { };
+        packageDir = "${typescript.workspace}/packages/core";
+        inBrowsers = false;
+        limit = 120;
+      };
       checks.keys-generators = testing.vitestCheck {
         name = "keys-generators";
         packageDir = "${typescript.workspace}/tools";
@@ -42,6 +107,8 @@
         inBrowsers = false;
         env = {
           IBUS_WEB_KEYSYMDEF = keysymdef;
+          IBUS_WEB_XKB_EXPORT = xkbExport;
+          IBUS_WEB_XKB_NOTICE = xkbNotice;
           IBUS_WEB_DOM_CODES = domCodes;
         };
         vitestArgs = [ "keysyms" ];
