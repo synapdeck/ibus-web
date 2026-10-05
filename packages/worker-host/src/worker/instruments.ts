@@ -18,6 +18,8 @@ export interface InstrumentReply {
 export interface Instruments {
   // Before the host looks for IndexedDB.
   readonly forceBrotliFallback: boolean;
+  // A Brotli archive of the engine's data is decoded through this decoder.
+  readonly brotliDecoder: (decoder: "native" | "fallback") => void;
   readonly beforeProbe: () => void;
   // Before the runtime's module is imported, which under Node replaces the
   // global Worker class.
@@ -45,6 +47,7 @@ export interface Instruments {
 
 const none: Instruments = {
   forceBrotliFallback: false,
+  brotliDecoder: () => {},
   beforeProbe: () => {},
   beforeRuntime: () => {},
   runtimeStarted: () => {},

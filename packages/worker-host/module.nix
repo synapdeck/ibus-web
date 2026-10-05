@@ -47,9 +47,25 @@
             "tree.c"
           ];
 
+      # The echo engine's data holds what store paths can: a file with two
+      # names, links relative and absolute, to a file and a directory, into
+      # its own store path and into others it references, one of them a
+      # store path that is a single file.
+      linkTarget = pkgs.runCommand "echo-link-target" { } ''
+        mkdir -p $out/share
+        printf 'echo link target\n' > $out/share/target.txt
+      '';
+      singleFile = pkgs.writeText "echo-single-file" "echo single file\n";
       echoData = pkgs.runCommand "echo-data" { } ''
         mkdir -p $out/share/echo
-        printf 'echo store data\n' > $out/share/echo/data.txt
+        cd $out/share/echo
+        printf 'echo store data\n' > data.txt
+        printf 'echo hard link\n' > hard-a.txt
+        ln hard-a.txt hard-b.txt
+        ln -s data.txt relative.txt
+        ln -s ${linkTarget}/share/target.txt absolute.txt
+        ln -s ${linkTarget}/share linked-dir
+        ln -s ${singleFile} single.txt
       '';
       schemas =
         pkgs.runCommand "echo-schemas"
@@ -194,11 +210,29 @@
           }
         );
 
+      # The test engines' data is installed at the store's root, so their
+      # archives' entries are named from there, under the store path the
+      # tests give them.
+      testDataName = "00000000000000000000000000000000-test-data";
       archives =
-        pkgs.runCommand "ibus-web-worker-host-archives" { nativeBuildInputs = [ pkgs.brotli ]; }
+        pkgs.runCommand "ibus-web-worker-host-archives"
+          {
+            nativeBuildInputs = [
+              pkgs.brotli
+              pkgs.gnutar
+            ];
+          }
           ''
             mkdir $out
             cp ${runtime.installArchives}/* $out/
+            chmod u+w $out/*
+            for archive in tree tree-upgrade; do
+              mkdir -p store/${testDataName}
+              tar -xf $out/$archive.tar -C store/${testDataName}
+              tar --format=ustar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+                --mode=u+rw,go=rX -C store -cf $out/$archive.tar ${testDataName}
+              rm -rf store
+            done
             brotli --quality=11 --output=$out/tree.tar.br $out/tree.tar
             head -c -1 $out/tree.tar.br > $out/truncated.tar.br
             printf '\377\377\377\377' > $out/corrupt.tar.br

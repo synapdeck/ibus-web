@@ -57,6 +57,7 @@ import {
   installTornMarker,
   interruptedUpgradeThenOld,
   staleFile,
+  storeLinks,
   strayMarking,
   upgradeWhileRunning,
   rebuiltDistributionWhileRunning,
@@ -180,6 +181,8 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
 // Node's Web Locks can grant an exclusive lock twice, so install-concurrent runs only in browsers.
 describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => {
   test("install-fresh", () => installFresh(h, runtime));
+  for (const memory of [false, true])
+    test(`store-links-${memory ? "memory" : "stored"}`, () => storeLinks(h, runtime, memory));
   for (const encoding of ["identity", "br"] as const)
     for (const delta of [-1, 0, 1])
       test(`install-size-${encoding}-${delta}`, () => installSizeMismatch(h, runtime, encoding, delta));

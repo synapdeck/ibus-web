@@ -80,6 +80,7 @@ const collect = async (store: DataStore, engine: EngineManifest): Promise<Collec
 const archiveHooks = (config: HostConfigValues, instruments: Instruments): ArchiveHooks => ({
   idleMs: config.archiveIdleMs,
   forceBrotliFallback: instruments.forceBrotliFallback,
+  brotliDecoder: instruments.brotliDecoder,
   beforePiece: ({ fed }: Tally) => instruments.beforePiece(fed),
 });
 

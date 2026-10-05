@@ -613,6 +613,13 @@ export const installBrotli = (h: Harness, runtime: RuntimeBuild, forceBrotliFall
     const host = await launch(compressed, { test: { forceBrotliFallback } }).ready;
     expectInstall(h, host.messages, "installed", h.data.archives.tree);
     await expectTree(h, host.client, engine, h.data.archives.tree);
+    // The page and the host's Worker share the environment, so the page's
+    // feature test answers for the host's.
+    const expected = forceBrotliFallback || !nativeAvailable ? "fallback" : "native";
+    expect(
+      host.messages.flatMap((message) => (message.type === "brotli-decoder" ? [message.decoder] : [])),
+      "the decoders the archives went through",
+    ).toEqual(compressed.data.map(() => expected));
   });
 
 export const installBrokenBrotli = (
@@ -696,4 +703,35 @@ export const rebuiltDistributionWhileRunning = (h: Harness, runtime: RuntimeBuil
     const sameBuild = await launch(newEngine).ready;
     expect(installOf(sameBuild.messages)?.state).toBe("present");
     expect(await readSchema(old, oldEngine)).toEqual(oldSchema);
+  });
+
+// A store path's archive holds what tar makes of the store: a file with a
+// second name, links relative and absolute, to files and directories, within
+// the store path and into others of the closure, and a store path that is a
+// single file. Each reads as the store has it, on storage in memory and on
+// storage that outlives the host.
+export const storeLinks = (h: Harness, runtime: RuntimeBuild, memory: boolean): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = { ...h.data.engines.echo, name: `store-links-${runtime.name}-${memory}-${Math.random()}` };
+    const host = await launch(engine, memory ? { storage: { kind: "browser" }, test: h.withoutIndexedDB } : {}).ready;
+    const read = async (path: string) => replyFile(await host.client.call(opsOf(h).readFile, encoder.encode(path)));
+    const dir = h.data.echoData.slice(0, h.data.echoData.lastIndexOf("/"));
+    const single = engine.data.find(({ storePath }) => storePath.endsWith("-echo-single-file"));
+    expect(single, "the single-file store path among the echo engine's data").toBeDefined();
+    const expected: Record<string, string> = {
+      [`${dir}/data.txt`]: "echo store data\n",
+      [`${dir}/hard-a.txt`]: "echo hard link\n",
+      [`${dir}/hard-b.txt`]: "echo hard link\n",
+      [`${dir}/relative.txt`]: "echo store data\n",
+      [`${dir}/absolute.txt`]: "echo link target\n",
+      [`${dir}/linked-dir/target.txt`]: "echo link target\n",
+      [`${dir}/single.txt`]: "echo single file\n",
+      [single!.storePath]: "echo single file\n",
+    };
+    const got: Record<string, string | number> = {};
+    for (const path of Object.keys(expected)) {
+      const reply = await read(path);
+      got[path] = reply.text ?? reply.status;
+    }
+    expect(got).toEqual(expected);
   });

@@ -112,7 +112,8 @@ export type TestMessage =
   // A request for the lock wasn't granted at once, so the host waits.
   | { type: "waiting"; lock: string }
   // The install stopped where TestInit.stallAt said, after fed bytes.
-  | { type: "stalled"; bytes: number };
+  | { type: "stalled"; bytes: number }
+  | { type: "brotli-decoder"; decoder: "native" | "fallback" };
 
 export type Message = HostMessage | TestMessage;
 
