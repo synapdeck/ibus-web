@@ -106,3 +106,13 @@ it("describes fragment sizes and padding before the ring's end", () => {
     "The writer never shortens a fragment to fit before the ring's end: it pads to the end and writes the fragment at the start.",
   );
 });
+
+it("describes needBytes and the writer's re-armed wait for space", () => {
+  const document = renderProtocolMd();
+  expect(document).toContain(
+    "needBytes is the least free space with which the next write publishes a fragment, counting any padding or skip before the ring's end.",
+  );
+  expect(document).toContain(
+    "it waits only while space is still short and ringWaiting is still 1; a read between setting ringWaiting and sampling wake clears it and spends its wake before the sample, so a cleared ringWaiting means starting over.",
+  );
+});
