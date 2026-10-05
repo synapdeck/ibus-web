@@ -66,6 +66,7 @@ const drainFixture = () => {
       events.push("doorbell");
       expect(Atomics.load(control.words, Word.ringWaiting)).toBe(1);
     },
+    lastSeq: 0,
   };
   return { writer, length, reader, context, events, consumed: () => consumed };
 };
@@ -101,6 +102,40 @@ test("a full-ring wait trap never consumes runtime output afterward", () => {
   expect(() => drainOutput(f.context.handle.rt, f.writer, f.length, f.context)).toThrow("unreachable");
   expect(f.consumed()).toBe(0);
   expect(writeHostRecord(f.writer, f.context.control, 34, new Uint8Array(8))).toBe(false);
+});
+
+test("a full-ring wait that moves the runtime's output leaves the batch being drained intact", () => {
+  const f = drainFixture();
+  const bytes = f.context.handle.rt.HEAPU8;
+  const large = bytes.slice(16, 288);
+  new DataView(large.buffer).setUint32(0, 7, true);
+  const small = new Uint8Array(24);
+  new DataView(small.buffer).setUint32(0, 8, true);
+  new DataView(small.buffer).setUint16(8, 33, true);
+  new DataView(small.buffer).setUint32(12, 8, true);
+  small.fill(0x5a, 16, 24);
+  bytes.set(large, 16);
+  bytes.set(small, 288);
+  f.context.handle.rt._ibusweb_output_peek = () => {
+    f.length[0] = large.length + small.length;
+    return 16;
+  };
+  const read: Uint8Array[] = [];
+  const readAll = (): void => {
+    for (let next = f.reader.next(); next !== undefined; next = f.reader.next()) read.push(next);
+  };
+  // A call proxied into the wait appends a record, the buffer moves and its
+  // old bytes are reused.
+  f.context.handle.rt._ibusweb_wait = () => {
+    bytes.fill(0xff, 16, 16 + large.length + small.length);
+    readAll();
+    return 0;
+  };
+  expect(drainOutput(f.context.handle.rt, f.writer, f.length, f.context)).toBe(2);
+  readAll();
+  expect(f.consumed()).toBe(296);
+  expect(f.context.lastSeq).toBe(8);
+  expect(read).toEqual([large, small]);
 });
 
 test("a trap after an earlier complete record does not call consume on the broken runtime", () => {

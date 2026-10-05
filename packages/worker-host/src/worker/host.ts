@@ -525,6 +525,7 @@ export const serve: Effect.Effect<
     },
     outputLength,
     postDoorbell: () => worker.env.post({ type: "doorbell" }),
+    lastSeq: 0,
     topUpFailed: false,
     stopping: false,
     woken: false,

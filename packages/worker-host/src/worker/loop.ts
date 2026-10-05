@@ -33,6 +33,9 @@ export interface LoopContext {
   readonly writer: RingWriter;
   readonly outputLength: Int32Array;
   readonly postDoorbell: () => void;
+  // The sequence number of the last runtime record published to the ring,
+  // which a reply names.
+  lastSeq: number;
   // Set once a top-up has failed; another would most likely fail the same
   // way.
   topUpFailed: boolean;
@@ -79,7 +82,7 @@ export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
   if (reply.bytes !== undefined) ctx.control.slot.set(reply.bytes);
   pump(ctx.handle.rt, ctx.constants);
   drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength, ctx);
-  const published = postReply(ctx.control, reply.ret, ctx.handle.rt._ibusweb_output_last_seq());
+  const published = postReply(ctx.control, reply.ret, ctx.lastSeq);
   if (published && Atomics.load(ctx.control.words, Word.reqMode) !== ReqMode.sync) ringDoorbell(ctx);
 };
 
@@ -99,7 +102,7 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
   handle.bytes.set(request, buffers.request);
   const ret = handle.rt._ibusweb_dispatch(buffers.request, request.length);
   if (ret === ctx.constants.canceled) {
-    postReply(control, ret, handle.rt._ibusweb_output_last_seq());
+    postReply(control, ret, ctx.lastSeq);
     let message = "ibusweb_dispatch returned -ECANCELED";
     try {
       drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx);

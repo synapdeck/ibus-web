@@ -5,6 +5,7 @@
 // HostOp requests.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
+import { Word } from "../../src/shared/control.ts";
 
 import type { InstrumentReply, Instruments } from "../../src/worker/instruments.ts";
 import { topUp } from "../../src/worker/loop.ts";
@@ -76,6 +77,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 export const makeInstruments = (
   test: TestInit,
   config: HostConfigValues,
+  control: SharedArrayBuffer,
   post: (message: TestMessage) => void,
 ): Instruments => {
   let workers = workerCounts();
@@ -225,17 +227,28 @@ export const makeInstruments = (
         if (counts !== undefined) Atomics.add(counts, RuntimeCall.dispatch, 1);
         return dispatch(pointer, length);
       };
+      const rt = handle.rt as typeof handle.rt & {
+        _ibusweb_test_dispatch(request: number, length: number, reply: number, capacity: number): number;
+      };
+      const testDispatch = (op: number | undefined, ...args: number[]): void => {
+        if (op === undefined) throw new Error("the operation's opcode is required");
+        const request = new DataView(handle.bytes.buffer, requestBuffer, 4 + 4 * args.length);
+        request.setUint32(0, op, true);
+        args.forEach((arg, i) => request.setInt32(4 + 4 * i, arg, true));
+        rt._ibusweb_test_dispatch(requestBuffer, request.byteLength, replyBuffer, capacity);
+      };
+      const append = test.waitAppend === undefined ? undefined : new Int32Array(test.waitAppend);
+      const controlWords = new Int32Array(control);
       const wait = handle.rt._ibusweb_wait.bind(handle.rt);
       handle.rt._ibusweb_wait = (seen, delay) => {
         if (counts !== undefined) Atomics.add(counts, RuntimeCall.wait, 1);
-        if (trap !== undefined && Atomics.exchange(trap, 0, 0) === 1) {
-          if (test.waitTrapOp === undefined) throw new Error("wait trap opcode is required");
-          new DataView(handle.bytes.buffer, requestBuffer, 4).setUint32(0, test.waitTrapOp, true);
-          const rt = handle.rt as typeof handle.rt & {
-            _ibusweb_test_dispatch(request: number, length: number, reply: number, capacity: number): number;
-          };
-          rt._ibusweb_test_dispatch(requestBuffer, 4, replyBuffer, capacity);
-        }
+        if (trap !== undefined && Atomics.exchange(trap, 0, 0) === 1) testDispatch(test.waitTrapOp);
+        if (
+          append !== undefined &&
+          Atomics.load(controlWords, Word.ringWaiting) === 1 &&
+          Atomics.exchange(append, 0, 0) === 1
+        )
+          testDispatch(test.waitAppendOp, test.waitAppendBytes ?? 0);
         return wait(seen, delay);
       };
       const consume = handle.rt._ibusweb_output_consume.bind(handle.rt);

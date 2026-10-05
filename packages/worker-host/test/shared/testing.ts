@@ -78,6 +78,12 @@ export interface TestInit {
   runtimeCalls?: SharedArrayBuffer;
   waitTrap?: SharedArrayBuffer;
   waitTrapOp?: number;
+  // Once the page stores 1 here, the next wait the host starts while it
+  // waits for ring space first runs waitAppendOp, as a call another thread
+  // proxied to it would, with the int32 payload waitAppendBytes.
+  waitAppend?: SharedArrayBuffer;
+  waitAppendOp?: number;
+  waitAppendBytes?: number;
   deferPump?: SharedArrayBuffer;
   callsAfterFault?: SharedArrayBuffer;
   canceled?: number;

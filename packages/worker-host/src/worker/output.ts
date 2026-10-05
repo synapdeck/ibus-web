@@ -14,6 +14,8 @@ export interface OutputWaitContext {
   readonly wakeIndex: number;
   readonly constants: { readonly waitTimedOut: number };
   readonly postDoorbell: () => void;
+  // The sequence number of the last runtime record published to the ring.
+  lastSeq: number;
 }
 
 const requireLiveRelay = (control: ControlViews): void => {
@@ -37,25 +39,32 @@ const waitForSpace = (rt: Runtime, writer: RingWriter, needBytes: number, ctx: O
   requireLiveRelay(ctx.control);
 };
 
-// Keep the copied frame unchanged until its final fragment is published.
-// Only the wait runs under back-pressure, so no pump can interleave records.
+// The peeked pointer is good only until the next runtime call, and a wait
+// for ring space is one: a call another thread proxied to the host runs
+// inside it, and one that logs appends to the output buffer, which may move.
+// So the whole batch is copied before anything is written. Only the wait
+// runs under back-pressure, so no pump can interleave records. lastSeq
+// follows the records actually published, never ibusweb_output_last_seq(),
+// which can already count a record appended during the wait and still
+// waiting for the next drain.
 export const drainOutput = (rt: Runtime, writer: RingWriter, words: Int32Array, ctx: OutputWaitContext): number => {
   const pointer = rt._ibusweb_output_peek(words.byteOffset);
-  const length = words[0]! >>> 0;
+  const batch = rt.HEAPU8.slice(pointer, pointer + (words[0]! >>> 0));
+  const view = new DataView(batch.buffer);
   let copied = 0;
   let count = 0;
-  while (copied < length) {
-    if (length - copied < 16) throw new HostDefect("truncated runtime output header");
-    const header = new DataView(rt.HEAPU8.buffer, pointer + copied, 16);
-    const size = Math.ceil((16 + header.getUint32(12, true)) / 8) * 8;
-    if (size > length - copied) throw new HostDefect("truncated runtime output record");
-    const record = rt.HEAPU8.slice(pointer + copied, pointer + copied + size);
+  while (copied < batch.length) {
+    if (batch.length - copied < 16) throw new HostDefect("truncated runtime output header");
+    const size = Math.ceil((16 + view.getUint32(copied + 12, true)) / 8) * 8;
+    if (size > batch.length - copied) throw new HostDefect("truncated runtime output record");
+    const record = batch.subarray(copied, copied + size);
     let result = writer.write(record);
     while (result._tag === "full") {
       waitForSpace(rt, writer, result.needBytes, ctx);
       result = writer.write(record);
     }
     Atomics.store(ctx.control.words, Word.ringWaiting, 0);
+    ctx.lastSeq = view.getUint32(copied, true);
     copied += size;
     count++;
   }
