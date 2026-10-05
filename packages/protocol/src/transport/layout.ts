@@ -31,7 +31,11 @@ export const wordDescriptions: Record<keyof typeof Word, { writer: string; descr
   reqSeq: { writer: "page", description: "Request sequence for diagnostics; ignored by the host." },
   reqLen: { writer: "page", description: "Request bytes in the slot." },
   replyRet: { writer: "host", description: "Return value of ibusweb_dispatch." },
-  replyOutSeq: { writer: "host", description: "Last runtime record produced by dispatch and pump; unchanged if none." },
+  replyOutSeq: {
+    writer: "host",
+    description:
+      "Seq of the last runtime record the host published to the ring for this request; unchanged if none. A record appended during a full-ring wait follows the reply.",
+  },
   ringWrite: { writer: "host", description: "Bytes written modulo 2³²." },
   ringRead: { writer: "page", description: "Bytes consumed modulo 2³²." },
   ringWaiting: { writer: "both", description: "Host sets 1 before waiting; page clears after freeing space." },

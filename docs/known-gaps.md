@@ -336,10 +336,6 @@ An item leaves this page when it is fixed or decided.
   reads its missing framing offsets as 0; it decodes, and re-encodes with explicit
   zero offsets (the empty `(ayay)` as `00`). Every other accepted input re-encodes
   exactly.
-- **`replyOutSeq`'s generated description is loose.** The word table in
-  `PROTOCOL.md` calls it the last runtime record "produced by dispatch and
-  pump"; the host sets it to the last runtime record it published to the ring
-  for the request, which leaves out a record appended during a full-ring wait.
 - **Integer-like dictionary keys.** The tree layer preserves entry order; schema
   records follow JavaScript's ordering of integer-like keys. IBus attachment names
   and GSettings schema IDs and keys do not use these keys.
