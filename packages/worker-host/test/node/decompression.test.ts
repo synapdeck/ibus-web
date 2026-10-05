@@ -10,7 +10,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 type Decode = (body: ReadableStream<Uint8Array>) => ReadableStream<Uint8Array>;
 type Wrapper = {
-  decompressed(body: ReadableStream<Uint8Array>, encoding: "br", forceFallback: boolean): ReadableStream<Uint8Array>;
+  decompressed(
+    body: ReadableStream<Uint8Array>,
+    encoding: "br" | "identity",
+    forceFallback: boolean,
+    decoder?: (decoder: "native" | "fallback") => void,
+  ): ReadableStream<Uint8Array>;
 };
 
 const directories: string[] = [];
@@ -153,7 +158,12 @@ describe("Brotli stream ownership during initialization", () => {
     const { decompressed } = await loadWrapper(await prepared(false));
     const input = source();
     const reader = decompressed(input.body, "br", true).getReader();
-    await expect(reader.read()).rejects.toThrow(/Brotli.*Content-Encoding/);
+    const failure = await reader.read().then(
+      () => undefined,
+      (error: unknown) => error as Error,
+    );
+    expect(failure?.message).toMatch(/Brotli fallback decoder failed to load/);
+    expect(failure?.message).not.toMatch(/Content-Encoding/);
     expect(input.cancelled).toHaveLength(1);
     expect(input.body.locked).toBe(false);
     reader.releaseLock();
@@ -200,5 +210,81 @@ describe("Brotli stream ownership during initialization", () => {
       initialization.release.resolve();
       await initialization.finished.promise;
     }
+  });
+});
+
+// A body that sends the bytes, then fails as a network or an abort does.
+const failingBody = (bytes: Uint8Array, failure: Error): ReadableStream<Uint8Array> => {
+  let sent = false;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent) controller.error(failure);
+      else {
+        sent = true;
+        controller.enqueue(bytes);
+      }
+    },
+  });
+};
+
+const bodyOf = (bytes: Uint8Array): ReadableStream<Uint8Array> =>
+  new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+
+const readAll = async (stream: ReadableStream<Uint8Array>): Promise<string> => {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks).toString();
+};
+
+const failureOf = (stream: ReadableStream<Uint8Array>): Promise<Error> =>
+  readAll(stream).then(
+    () => {
+      throw new Error("the stream ended without failing");
+    },
+    (error: unknown) => error as Error,
+  );
+
+describe.each([false, true])("Brotli errors with the fallback forced %s", (forceFallback) => {
+  it("say how archives must be served when the bytes don't decode", async () => {
+    const { decompressed } = await loadWrapper(await prepared());
+    const failure = await failureOf(decompressed(bodyOf(Uint8Array.of(255, 255, 255, 255)), "br", forceFallback));
+    expect(failure.message).toMatch(/Brotli decompression failed.*Content-Encoding/);
+  });
+
+  it("keep the body's own failure, mid-stream, as a network's or an abort's", async () => {
+    const { decompressed } = await loadWrapper(await prepared());
+    const compressed = brotliCompressSync(Buffer.alloc(1 << 20, "x"));
+    const failure = new Error("nothing arrived for 10 ms");
+    const got = await failureOf(
+      decompressed(failingBody(compressed.subarray(0, compressed.length >> 1), failure), "br", forceFallback),
+    );
+    expect(got).toBe(failure);
+  });
+});
+
+describe("the decoder", () => {
+  it("is reported: native where the environment decodes Brotli, the fallback when forced", async () => {
+    const { decompressed } = await loadWrapper(await prepared());
+    for (const forceFallback of [false, true]) {
+      const used: string[] = [];
+      const text = await readAll(
+        decompressed(bodyOf(brotliCompressSync("decoded")), "br", forceFallback, (decoder) => used.push(decoder)),
+      );
+      expect(text).toBe("decoded");
+      // Node 24 decodes Brotli natively.
+      expect(used).toEqual([forceFallback ? "fallback" : "native"]);
+    }
+  });
+
+  it("is not reported for an identity archive", async () => {
+    const { decompressed } = await loadWrapper(await prepared());
+    const used: string[] = [];
+    await readAll(decompressed(bodyOf(Buffer.from("plain")), "identity", false, (decoder) => used.push(decoder)));
+    expect(used).toEqual([]);
   });
 });
