@@ -18,11 +18,17 @@ values are not stored here; the settings bridge hands them to the host
 | `/engines/<name>/` | IndexedDB backend over `ibus-web/<name>`                | WasmFS memory backend | Node backend over `<dir>/user/`           |
 | `/nix/store/`      | IndexedDB backend over `ibus-web/<name>/data/<version>` | the same memory mount | Node backend over `<dir>/data/<version>/` |
 
-`/engines` and `/nix` are created in memory. The version's data backend is
-mounted at `/nix/store`, separate from its user backend, and each archive
-lands at its exact store-path basename. Without IndexedDB, data is installed
-under the same store paths in WasmFS memory. Engine builds retain their Nix
-paths; no FHS mapping is applied. Each version still installs its own whole
+`/engines` and `/nix` are created in memory. The engine's own files are at
+`/engines/<encodeComponent(name)>`, one directory under `/engines` whatever
+the name holds. The version's data backend is mounted at `/nix/store`,
+separate from its user backend, and every archive is extracted at the
+mount's root, its entries named from the store, so each lands at its exact
+store path. Without IndexedDB, data is installed under the same store paths
+in WasmFS memory. Engine builds retain their Nix paths; no FHS mapping is
+applied. Once the store is mounted, and before any `Init`, the host sets
+`GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir` with the
+runtime's `setenv`, since GLib caches its default schema source on its first
+lookup. Each version still installs its own whole
 closure; a shared store is [future work](known-gaps.md#storage).
 
 The engine's name and version are encoded in every database, lock and
@@ -473,25 +479,35 @@ since a strict commit that writes makes every earlier change to the database
 durable. A marker whose value isn't one for this version counts as none, so
 the version is installed again rather than every start failing.
 
-**The extractor.** Archives are Brotli-compressed POSIX ustar, one per store path. The host
-streams native `DecompressionStream("brotli")` output, where construction
-succeeds, or a lazy `brotli-dec-wasm` fallback with its WASM embedded in the
-separate decoder script. Native support avoids loading that script. Plain
-ustar (`encoding: "identity"`) remains available for fixtures. Serve the
-archives without `Content-Encoding: br` to avoid fetch decoding them twice.
+**The extractor.** Archives are Brotli-compressed POSIX ustar, one per store
+path, its entries named from `/nix/store` (`<hash>-<name>/…`, or the bare
+file for a store path that is one); how they are built is
+[engines.md](engines.md#archives-and-serving)'s. The host streams native
+`DecompressionStream("brotli")` output, where construction succeeds, or a
+`brotli-dec-wasm` fallback with its WASM embedded in a separate decoder
+script, imported by URL only without native support. Plain ustar
+(`encoding: "identity"`) remains available for fixtures. Serve the archives
+without `Content-Encoding: br` to avoid fetch decoding them twice; a
+decoding failure's message says so, while a failure of the response body
+itself passes through unlabelled.
 Decompressed bytes are re-cut into at most 64 KiB pieces and streamed into `libibus-web`'s
 `ibusweb_install_begin`, `_set_limit`, `_feed`, `_count` and `_end`, which write through
 the mounted file system, so the stored layout has one writer. The host
 feeds it through a 64 KiB buffer in the runtime's memory. It takes regular
-files and directories only; links, devices, FIFOs, extended headers,
-absolute names, `..`, a bad checksum, a non-ustar header or an archive that
-ends early fail with `EINVAL`. Each entry takes the archive's mode plus its
+files, directories and symbolic links (`SYMTYPE`), a link keeping its target
+unresolved; a hard link (`LNKTYPE`) fails with `EOPNOTSUPP`; devices, FIFOs,
+extended headers, absolute names, `..`, a link with data or no target, a bad
+checksum, a non-ustar header or an archive that ends early fail with
+`EINVAL`. Nothing is written through a link: a member under one fails with
+`ENOTDIR`, and a file or link member replaces a link already at its name. Each entry takes the archive's mode plus its
 owner's read and write (and search, for a directory), so a later install
 can redo it; existing files are truncated and rewritten, missing parents
 made. Each regular file is sized from its header before its data is
 written, so a file in memory is allocated once, and `fsync()`ed once
-written. Each archive lands under the data mount at its manifest entry's
-`storePath`. The bounded C parser uses standard `tar.h` constants and an
+written. Each archive is extracted at the root of the data mount; as it
+streams, the host follows its ustar framing and refuses any entry outside
+the archive's own store path before the extractor sees it, so one archive
+can't replace another's files. The bounded C parser uses standard `tar.h` constants and an
 explicitly size/offset-checked ustar header layout.
 
 The streaming extractor's optional `ibusweb_install_set_limit(install, bytes)`
@@ -506,8 +522,8 @@ the host checks that the runtime provides it before startup continues.
 
 **Waiting and progress.** A host waiting for the data or install lock gives
 up, failing its start, after 120 s without word from the holder. The
-installer sends progress every second throughout the install lock's lifetime
-on a `BroadcastChannel` named after that lock, including asynchronous mount,
+installer sends progress every second for as long as it holds the install
+lock, on a `BroadcastChannel` named after that lock, including asynchronous mount,
 fetch, decoder setup, marker commit and sealing. The timer starts when the
 lock is acquired and stops before release. It runs only during asynchronous
 bootstrap, never in the synchronous request loop. Synchronous runtime calls
@@ -659,7 +675,7 @@ fallback. There `/engines/<name>/` is WasmFS's Node backend
 host is given, and each version's data over `<dir>/data/<version>/`. The
 backend runs `fs.*Sync` on the calling thread, so nothing is proxied and no
 pool thread is taken, and works from pthreads under `worker_threads`. Its
-limits (32-bit file sizes, `O_WRONLY` opening `"r+"`, no symlinks) don't
+limits (32-bit file sizes, `O_WRONLY` opening `"r+"`) don't
 matter to engine data.
 
 - **The marker** is the file `<version>.installed` beside the version's

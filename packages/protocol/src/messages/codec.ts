@@ -6,7 +6,7 @@ import { ProtocolError } from "../gvariant/type.ts";
 import { fromTree, signatureOf, toTree } from "../ibus/walk.ts";
 import { RECORD_ALIGNMENT, RECORD_CONTINUATION } from "./framing.ts";
 import { Request, requestKinds } from "./requests.ts";
-import { OutputRecord } from "./records.ts";
+import { OutputRecord, recordKinds } from "./records.ts";
 
 function payloadCodecs<Type, Encoded>(schemas: readonly Schema.Codec<Type, Encoded>[]) {
   const codecs = new Map<number, Schema.Codec<Type, Uint8Array>>();
@@ -37,6 +37,7 @@ function payloadCodecs<Type, Encoded>(schemas: readonly Schema.Codec<Type, Encod
 
 const requestCodecs = payloadCodecs<Request, typeof Request.Encoded>(Request.members);
 const recordCodecs = payloadCodecs<OutputRecord, typeof OutputRecord.Encoded>(OutputRecord.members);
+const crashedKind = recordKinds.get("Crashed");
 const requestEncoders = new Map([...requestCodecs].map(([kind, codec]) => [kind, Schema.encodeSync(codec)]));
 const recordDecoders = new Map([...recordCodecs].map(([kind, codec]) => [kind, Schema.decodeUnknownSync(codec)]));
 
@@ -69,8 +70,8 @@ export interface DecodedRecord {
 
 /**
  * Decodes the record at `offset`. Framing errors (a truncated header, an unknown kind, flags it
- * cannot handle, padding) throw `ProtocolError`; a payload that doesn't match its kind's schema
- * throws `SchemaError`.
+ * cannot handle, padding, a Crashed record the host didn't write) throw `ProtocolError`; a payload
+ * that doesn't match its kind's schema throws `SchemaError`.
  */
 export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > bytes.length - 16) {
@@ -91,6 +92,10 @@ export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
   const decode = recordDecoders.get(kind);
   if (decode === undefined) {
     throw new ProtocolError({ message: `Unknown record payload kind: ${kind}` });
+  }
+  // seq 0 marks a host-written record, so a Crashed from anywhere else is forged or corrupt.
+  if (kind === crashedKind && (seq !== 0 || ic !== 0)) {
+    throw new ProtocolError({ message: "Crashed records must carry seq 0 and ic 0" });
   }
   const size = Math.ceil((16 + length) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
   if (size > bytes.length - offset) {

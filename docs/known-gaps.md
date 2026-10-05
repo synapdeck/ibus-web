@@ -139,6 +139,16 @@ An item leaves this page when it is fixed or decided.
 - **Page router (M1.4).** Transport integration currently lives in the test Page;
   the production router, replay queue and adapters remain to be implemented.
 
+- **The memory figure counts static data twice.** `heapBytes` is the declared
+  program-break peak, an address that includes the static data below the heap,
+  and the manifest's `memory` adds it to the runtime minimum and the module's
+  `dylink.0` static size, which count that data already. The figure errs
+  large; declaring the heap alone would need the break measured from the
+  heap's base.
+- **Link targets of at most 100 bytes.** Data archives are plain ustar, whose
+  link-target field holds 100 bytes, and the installer refuses extended
+  headers, so a closure with a longer symbolic-link target fails its
+  distribution's build.
 - **Connection-time callback audit.** The current cast audit sees explicit casts;
   it cannot establish every connected handler's arity. Hangul needs no lazy arity
   bridge; m17n, libpinyin and Rime still need their own audits.

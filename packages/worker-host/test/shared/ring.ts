@@ -18,6 +18,9 @@ import { postCrash } from "../../src/shared/control.ts";
 import { PumpControl, RuntimeCall } from "./testing.ts";
 
 const largeBytes = 64 * 1024;
+// Larger than all the output buffered before it, so appending it reallocates
+// the runtime's output buffer.
+const appendBytes = 256 * 1024;
 const key = (value: string, bytes = 0) =>
   new ProcessKeyEvent({ keyval: value.charCodeAt(0), keycode: 0, state: bytes });
 const postKey = (host: RunningHost, value: string, bytes = 0): void =>
@@ -32,11 +35,21 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
   const runtimeCalls = new SharedArrayBuffer(16);
   const waitTrap = new SharedArrayBuffer(4);
   const deferPump = new SharedArrayBuffer(4);
+  const waitAppend = new SharedArrayBuffer(4);
   const host = await h.start({
     runtime,
     manifest: h.data.engines.echo,
     layout: transportLayout({ ringBytes: 4096 }),
-    test: { sides: [], runtimeCalls, waitTrap, deferPump, waitTrapOp: h.data.constants.ops["WAIT_TRAP"]! },
+    test: {
+      sides: [],
+      runtimeCalls,
+      waitTrap,
+      deferPump,
+      waitTrapOp: h.data.constants.ops["WAIT_TRAP"]!,
+      waitAppend,
+      waitAppendOp: h.data.constants.ops["LOG"]!,
+      waitAppendBytes: appendBytes,
+    },
   });
   const page = host.client.page;
   page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: {} })), ReqMode.sync);
@@ -50,6 +63,7 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
     counts: new Int32Array(runtimeCalls),
     trap: new Int32Array(waitTrap),
     defer: new Int32Array(deferPump),
+    append: new Int32Array(waitAppend),
   };
 };
 
@@ -93,6 +107,38 @@ export const fullRingReply = async (h: Harness, runtime: RuntimeBuild): Promise<
     expect(records).toHaveLength(1);
     expect(reply.outSeq).toBe(records[0]?.seq);
     expect(records[0]?.record).toMatchObject({ text: { text: "b".repeat(largeBytes) } });
+  } finally {
+    await host.terminate();
+  }
+};
+
+// A record appended on the host's thread while it waits for ring space, as a
+// call another thread proxied to it can, belongs to no request: the reply
+// names only what the request's drain published, and the record follows.
+export const fullRingAppend = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
+  const { host, page, append } = await start(h, runtime);
+  try {
+    page.pauseReading();
+    Atomics.store(append, 0, 1);
+    postKey(host, "b", largeBytes);
+    await until(h, () => Atomics.load(append, 0) === 0);
+    page.resumeReading();
+    const reply = await page.waitForReply();
+    expect(reply.ret).toBe(1);
+    const records = page.records();
+    const committed = commits(records);
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.record).toMatchObject({ text: { text: "b".repeat(largeBytes) } });
+    expect(reply.outSeq).toBe(committed[0]?.seq);
+    const isAppended = ({ record }: DecodedRecord) => record._tag === "Log" && record.message.startsWith("l");
+    const later = records.filter(isAppended);
+    await until(h, () => {
+      later.push(...page.records().filter(isAppended));
+      return later.length > 0;
+    });
+    expect(later).toHaveLength(1);
+    expect(later[0]?.seq).toBe(reply.outSeq + 1);
+    expect(later[0]?.record).toMatchObject({ message: "l".repeat(appendBytes) });
   } finally {
     await host.terminate();
   }

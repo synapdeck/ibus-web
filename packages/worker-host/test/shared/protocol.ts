@@ -42,6 +42,7 @@ export const replySequence = async (h: Harness, { client }: RunningHost): Promis
   );
   const first = await page.waitForReply();
   expect(first.ret).toBe(0);
+  expect(first.outSeq).toBeGreaterThan(0);
   const records = page.records();
   expect(records.length).toBeGreaterThan(0);
   expect(records.every(({ record }) => record._tag === "Log")).toBe(true);
@@ -53,7 +54,13 @@ export const replySequence = async (h: Harness, { client }: RunningHost): Promis
   expect(page.records()).toEqual([]);
 };
 
-export const requestModes = async (h: Harness, { client, messages }: RunningHost): Promise<void> => {
+// replies counts the replies the host has published, beside the reqMode it
+// read for the last.
+export const requestModes = async (
+  h: Harness,
+  { client, messages }: RunningHost,
+  replies: Int32Array,
+): Promise<void> => {
   const page = client.page;
   const bells = () => messages.filter(({ type }) => type === "doorbell").length;
   page.request(HostOp.yield, 0, int32s(10), ReqMode.async);
@@ -69,14 +76,15 @@ export const requestModes = async (h: Harness, { client, messages }: RunningHost
   await page.waitForReply();
   await h.sleep(30);
   expect(bells()).toBe(2);
+  const published = Atomics.load(replies, 0);
   page.request(HostOp.yield, 0, int32s(10), ReqMode.sync);
   const deadline = h.now() + h.pendingLimitMs;
-  while (Atomics.load(page.views.words, Word.state) !== State.reply && h.now() < deadline) await h.sleep(1);
-  expect(Atomics.load(page.views.words, Word.state)).toBe(State.reply);
-  // The host has completed its reqMode read before the page gives up spinning.
-  await h.sleep(30);
+  while (Atomics.load(replies, 0) === published && h.now() < deadline) await h.sleep(1);
+  // The host has read reqMode for this reply before the page gives up
+  // spinning, and found SYNC, so it never rings.
+  expect(Atomics.load(replies, 0)).toBe(published + 1);
+  expect(Atomics.load(replies, 1)).toBe(ReqMode.sync);
   expect(page.abandon()?.ret).toBe(0);
-  await h.sleep(30);
   expect(bells()).toBe(2);
 };
 

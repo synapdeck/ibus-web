@@ -29,7 +29,7 @@ self.onmessage = ({ data }: MessageEvent<HostInit<WebAssembly.Module, TestInit>>
       Effect.provide(HostConfig.layerWith(config)),
       Effect.provideService(
         Instruments,
-        makeInstruments(test, config, (message) => self.postMessage(message)),
+        makeInstruments(test, config, data.control, (message) => self.postMessage(message)),
       ),
     ),
   );

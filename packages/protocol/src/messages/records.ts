@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
 import { GVariantVariant } from "../gvariant/schema.ts";
-import { Bool, Int32, Str, Uint32 } from "../ibus/annotations.ts";
+import { Bool, gvariant, Int32, Str, Uint32 } from "../ibus/annotations.ts";
 import { IBusText, IBusLookupTable, IBusPropList, IBusProperty, KeyEvent } from "../ibus/types.ts";
 
 export class CommitText extends Schema.TaggedClass<CommitText>()(
@@ -131,9 +131,27 @@ export class Log extends Schema.TaggedClass<Log>()(
 ) {}
 
 export const CrashReason = { trap: 1, fault: 2, relay: 3, load: 4, host: 5 } as const;
+const crashReasonDescriptions: Record<keyof typeof CrashReason, string> = {
+  trap: "the runtime trapped",
+  fault: "a request returned -ECANCELED, leaving the runtime unusable",
+  relay: "the wake relay failed",
+  load: "the engine module failed to load",
+  host: "the host itself failed",
+};
+const crashReasons = Object.entries(CrashReason)
+  .map(
+    ([name, value]) => `${name.toUpperCase()} ${value} (${crashReasonDescriptions[name as keyof typeof CrashReason]})`,
+  )
+  .join(", ");
+
 export class Crashed extends Schema.TaggedClass<Crashed>()(
   "Crashed",
-  { reason: Uint32, message: Str },
+  {
+    reason: Schema.Literals(Object.values(CrashReason))
+      .pipe(gvariant("u"))
+      .annotate({ description: `Why the Worker stopped: ${crashReasons}.` }),
+    message: Str.annotate({ description: "Human-readable detail of the failure, for logs." }),
+  },
   { kind: 34, description: "Host crash report; the shared control state is authoritative. Written by the host only." },
 ) {}
 

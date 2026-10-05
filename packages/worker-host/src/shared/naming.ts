@@ -18,8 +18,9 @@ export interface EngineIdentity {
 export const encodeComponent = (text: string): string =>
   encodeURIComponent(text).replace(/[!'()*.~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
-// Where the engine's own files are, as the runtime sees them.
-export const engineDir = ({ name }: Pick<EngineIdentity, "name">): string => `/engines/${name}`;
+// Where the engine's own files are, as the runtime sees them: one directory
+// under /engines, whatever the name holds.
+export const engineDir = ({ name }: Pick<EngineIdentity, "name">): string => `/engines/${encodeComponent(name)}`;
 
 // Every archive retains its Nix store identity inside the version's database.
 export const engineDataRoot = (_engine: Pick<EngineIdentity, "name">): string => "/nix/store";

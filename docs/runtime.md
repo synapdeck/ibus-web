@@ -120,7 +120,9 @@ Emitters serialize owned snapshots immediately. Calls from other threads queue
 those snapshots on the default main context; the pumping thread assigns their
 sequence numbers and appends them to a mutex-protected `GByteArray`.
 `ibusweb_output_peek` returns complete records, valid until the next runtime
-call. `ibusweb_output_consume` accepts only complete-record boundaries and
+call, `ibusweb_wait()` included: a call another thread proxied to the pumping
+thread runs inside the wait, and one that appends a record can move the
+buffer. `ibusweb_output_consume` accepts only complete-record boundaries and
 otherwise logs a critical without dropping data. Peek/consume run on the
 pumping thread; `ibusweb_output_last_seq` reports the last appended sequence.
 Once IBusEngine's `destroy` has run, an engine emits nothing: the host may
@@ -169,7 +171,7 @@ values, as Emscripten's libc numbers them.
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                |
 | `ibusweb_test_dispatch(request, len, reply, cap)`                      | The test dispatcher (below).                                                                                                                                                                                   |
 | `ibusweb_dispatch(request, len)`                                       | Dispatches one `protocol.h` request on the pumping thread without pumping: a key event's 0/1 reply, zero for other requests, or a negative errno (Protocol, dispatch and output, above).                       |
-| `ibusweb_output_peek(len)`                                             | The buffered whole records, in sequence order; the pointer is valid until the next runtime call. Pumping thread only.                                                                                          |
+| `ibusweb_output_peek(len)`                                             | The buffered whole records, in sequence order; the pointer is valid until the next runtime call, `ibusweb_wait()` included. Pumping thread only.                                                               |
 | `ibusweb_output_consume(len)`                                          | Drops `len` bytes of records from the front; a length not on a record boundary logs a critical and drops nothing. Pumping thread only.                                                                         |
 | `ibusweb_output_last_seq()`                                            | The last appended sequence number, zero before any record.                                                                                                                                                     |
 | `ibusweb_install_begin/set_limit/feed/count/end`                       | A streaming ustar extractor that installs an engine's data through the file system; see [storage.md](storage.md#installing).                                                                                   |
@@ -295,18 +297,18 @@ the released one.
 `libffi`, `libwasmfs-idb` and its JavaScript library); the export list
 decides what of them is linked. The flags (`ibusWeb.runtime.linkFlags`):
 
-| Flags                                                                                              | Why                                                                                                                                                                 |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-sMAIN_MODULE=2 -sWASMFS=1 -sEXIT_RUNTIME=0` (`toolchain.runtimeMainFlags`)                       | A main module with an explicit export list; WasmFS for its backends; the runtime never exits. See [toolchain.md](toolchain.md#dynamic-linking) for dynamic linking. |
-| `-sEXPORTED_FUNCTIONS=@exports.txt`                                                                | The export list, below.                                                                                                                                             |
-| `-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread`                                                        | The host copies requests through `HEAPU8` and tops the pool up through `PThread`.                                                                                   |
-| `-sPTHREAD_POOL_SIZE` (12, derived) `-sPTHREAD_POOL_SIZE_STRICT=2`                                 | A pool sized for the planned peak plus spares; a thread beyond it fails with `EAGAIN` (Threads, below).                                                             |
-| `-sSTACK_SIZE=1MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB`                                                | GRegex overflows Emscripten's 64 KiB default stack, on any thread.                                                                                                  |
-| `-sALLOW_MEMORY_GROWTH=0 -sIMPORTED_MEMORY=1`, `-sINITIAL_MEMORY` 32 MiB, `-sMAXIMUM_MEMORY` 2 GiB | Fixed memory made by the host, of any size between the two (Memory, below).                                                                                         |
-| `-sABORTING_MALLOC=1`                                                                              | A full heap aborts; the remedy is a larger memory from the host.                                                                                                    |
-| `-sINCOMING_MODULE_JS_API=instantiateWasm,wasmMemory,noExitRuntime`                                | The settings the host passes. `noExitRuntime` must be named, or the runtime's thread exits after a callback and retires its pthreads' Workers.                      |
-| `--pre-js=host-memory.js`                                                                          | Refuses to start without `wasmMemory` from the host, rather than make a memory of the least size.                                                                   |
-| `-sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node`                                      | An ES module factory the host imports by URL, in browsers and under Node (for tests).                                                                               |
+| Flags                                                                                                | Why                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-sMAIN_MODULE=2 -sWASMFS=1 -sEXIT_RUNTIME=0` (`toolchain.runtimeMainFlags`)                         | A main module with an explicit export list; WasmFS for its backends; the runtime never exits. See [toolchain.md](toolchain.md#dynamic-linking) for dynamic linking. |
+| `-sEXPORTED_FUNCTIONS=@exports.txt`                                                                  | The export list, below.                                                                                                                                             |
+| `-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread`                                                          | The host copies requests through `HEAPU8` and tops the pool up through `PThread`.                                                                                   |
+| `-sPTHREAD_POOL_SIZE=8+Module["ibuswebEngineThreads"]` (base derived) `-sPTHREAD_POOL_SIZE_STRICT=2` | A pool sized for the planned peak plus spares, the engine's share from its manifest; a thread beyond it fails with `EAGAIN` (Threads, below).                       |
+| `-sSTACK_SIZE=1MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB`                                                  | GRegex overflows Emscripten's 64 KiB default stack, on any thread.                                                                                                  |
+| `-sALLOW_MEMORY_GROWTH=0 -sIMPORTED_MEMORY=1`, `-sINITIAL_MEMORY` 32 MiB, `-sMAXIMUM_MEMORY` 2 GiB   | Fixed memory made by the host, of any size between the two (Memory, below).                                                                                         |
+| `-sABORTING_MALLOC=1`                                                                                | A full heap aborts; the remedy is a larger memory from the host.                                                                                                    |
+| `-sINCOMING_MODULE_JS_API=instantiateWasm,wasmMemory,noExitRuntime,ibuswebEngineThreads`             | The settings the host passes. `noExitRuntime` must be named, or the runtime's thread exits after a callback and retires its pthreads' Workers.                      |
+| `--pre-js=host-memory.js`                                                                            | Refuses to start without `wasmMemory` from the host, rather than make a memory of the least size.                                                                   |
+| `-sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node`                                        | An ES module factory the host imports by URL, in browsers and under Node (for tests).                                                                               |
 
 The common flags (`-O2 -fPIC -pthread -fwasm-exceptions -mextended-const`)
 and the minimum browser and Node versions come from the toolchain
@@ -544,8 +546,9 @@ The runtime links `-sPTHREAD_POOL_SIZE=8+Module["ibuswebEngineThreads"]`;
 Nix derives the base from runtime shares, and the host supplies the manifest's
 `threads`. The host refuses a manifest without `threads` and always passes
 `ibuswebEngineThreads`; raw runtime creation does not require this setting. The engine share
-is no longer a member of `ibusWeb.runtime.threadPool.shares`. Historical pool
-measurements below used the stated synthetic test-engine shares.
+is not a member of `ibusWeb.runtime.threadPool.shares`. The host's test
+engines declare 4 threads, so the pool measurements on this page, taken
+through them, are of a 12-Worker pool.
 
 **Why spares, and why GLib's share of them.** GLib handles a failed thread
 creation badly (GLib 2.88, in the paths the runtime uses):
@@ -665,8 +668,11 @@ serves every engine and the page compiles it once. The rule for computing it
 (runtime minimum + the side module's `dylink.0` static bytes + 1 MiB per
 engine-share thread + declared `heapBytes`) adds 25% headroom and rounds up
 to whole MiB. `mkEngineManifest` computes it from build data; `heapBytes`
-stays build/check metadata, guarded against the conformance harness's
-program-break high-water. Without IndexedDB, the host adds unpacked data
+stays build/check metadata, the declared peak of the program break, guarded
+against the conformance harness's measured `sbrk(0)`. The break is an
+address, so it counts the static data below the heap too, which the
+runtime minimum and the module's static bytes already count: the figure is
+conservative. Without IndexedDB, the host adds unpacked data
 bytes separately in whole pages. The runtime starts at about 2.3 MiB of heap,
 and each running thread adds about 1 MiB, mostly its stack.
 

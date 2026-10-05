@@ -31,8 +31,10 @@ export interface HostStats {
   // storage mount, Init and engine module load, and their subsequent peak.
   activeThreadsAtRuntimeStart: number;
   activeThreadsPeak: number;
-  // Program-break high-water, retained by the non-trimming allocator.
-  heapPeak: number;
+  // The program break's high-water mark, which the allocator never lowers:
+  // an address, so it counts everything below the heap too, static data
+  // included.
+  breakPeak: number;
   // Workers Emscripten created after the runtime started, beyond its pool.
   workersCreated: number;
   // Workers in Emscripten's pool that host no thread and can take one.
@@ -78,6 +80,15 @@ export interface TestInit {
   runtimeCalls?: SharedArrayBuffer;
   waitTrap?: SharedArrayBuffer;
   waitTrapOp?: number;
+  // Once the page stores 1 here, the next wait the host starts while it
+  // waits for ring space first runs waitAppendOp, as a call another thread
+  // proxied to it would, with the int32 payload waitAppendBytes.
+  waitAppend?: SharedArrayBuffer;
+  waitAppendOp?: number;
+  waitAppendBytes?: number;
+  // Two int32s the host updates on each reply it publishes: the reqMode it
+  // read for it, at 1, then the count of them, at 0, which it notifies.
+  replies?: SharedArrayBuffer;
   deferPump?: SharedArrayBuffer;
   callsAfterFault?: SharedArrayBuffer;
   canceled?: number;
@@ -106,7 +117,8 @@ export type TestMessage =
   // A request for the lock wasn't granted at once, so the host waits.
   | { type: "waiting"; lock: string }
   // The install stopped where TestInit.stallAt said, after fed bytes.
-  | { type: "stalled"; bytes: number };
+  | { type: "stalled"; bytes: number }
+  | { type: "brotli-decoder"; decoder: "native" | "fallback" };
 
 export type Message = HostMessage | TestMessage;
 

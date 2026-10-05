@@ -39,6 +39,17 @@ static void wait_trap(const uint8_t *payload, uint32_t len, GString *reply) {
   (void)reply;
   __builtin_trap();
 }
+/* log(bytes): logs a message of that many bytes, enough to make the output
+ * buffer reallocate. */
+static void log_bytes(const uint8_t *payload, uint32_t len, GString *reply) {
+  int32_t bytes;
+  if (!test_arg(payload, len, 0, &bytes) || bytes < 0)
+    return;
+  gchar *text = g_strnfill((gsize)bytes, 'l');
+  g_message("%s", text);
+  g_free(text);
+  test_reply(reply, 0);
+}
 static gboolean process_key(IBusEngine *engine, guint keyval, guint keycode,
                             guint state) {
   (void)keycode;
@@ -92,6 +103,7 @@ static void echo_engine_class_init(EchoEngineClass *klass) {
 static void echo_engine_init(EchoEngine *engine) { (void)engine; }
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, TEST_OP_WAIT_TRAP, "wait-trap", wait_trap);
+  ibusweb_module_add_op(module, TEST_OP_LOG, "log", log_bytes);
   g_debug("echo schemas: %s", ECHO_SCHEMAS);
   GSettings *settings = g_settings_new("org.example.echo");
   gchar *value = g_settings_get_string(settings, "value");

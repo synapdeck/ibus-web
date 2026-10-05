@@ -60,12 +60,45 @@ tagged request and output unions. Cached synchronous schema codecs implement
 have a sixteen-byte header and zero padding to eight-byte alignment. `decodeRecord`
 returns `size`, including padding, for advancing a reader. Its errors split by layer:
 framing faults (a truncated header, an unknown kind, any flag set, including
-`CONTINUATION`, whose fragments the M1.3 ring reader reassembles, nonzero padding,
-a length past the buffer) throw `ProtocolError`; a payload that doesn't decode as
-its kind's schema throws Effect's `SchemaError`. `encodeRequest` throws
-`ProtocolError` for an `ic` outside 32 bits and `SchemaError` for a request that
-fails its schema. `Crashed` has reserved kind 34 but no payload schema until the host
-milestone defines it.
+`CONTINUATION`, whose fragments the ring reader reassembles first, nonzero padding,
+a length past the buffer, a `Crashed` record with a nonzero `seq` or `ic`) throw
+`ProtocolError`; a payload that doesn't decode as its kind's schema throws Effect's
+`SchemaError`. `encodeRequest` throws `ProtocolError` for an `ic` outside 32 bits
+and `SchemaError` for a request that fails its schema.
+
+`Crashed (us)` (kind 34) is written by the host only, with `seq` and `ic` 0: its
+`reason` is one of `TRAP` 1, `FAULT` 2 (a request returned `-ECANCELED`), `RELAY`
+3, `LOAD` 4 and `HOST` 5 (`CrashReason`), and any other value fails its schema.
+The control state, not the record, is authoritative for a crash.
+
+## Transport
+
+`@ibus-web/protocol/transport` exports the shared-memory layout and the ring:
+`Word`, `State`, `ReqMode`, `transportLayout` and `transportViews`, the sizes
+`HEADER_BYTES`, `RECORD_HEADER_BYTES` (16), `MIN_FRAGMENT_PAYLOAD_BYTES` (8),
+`MIN_RING_BYTES` (64), `MAX_RING_BYTES` (2³¹), `DEFAULT_SLOT_BYTES` and
+`DEFAULT_RING_BYTES`, and `RingWriter` and `RingReader`. `transportLayout`
+refuses a slot that isn't a positive multiple of 8 and a ring that isn't a power
+of two between the two bounds: the ring must divide the byte counters' 2³² wrap
+and be smaller than it, or a full ring would read as empty.
+
+`RingWriter.write(record)` writes a framed record, or as much of it as fits as
+fragments, and returns `written` or `full` with `needBytes`, the least free space
+with which the next write of the same record publishes a fragment, counting any
+padding or skip before the ring's end. Every fragment but the last carries
+`CONTINUATION` and at least `MIN_FRAGMENT_PAYLOAD_BYTES` of payload, a multiple of
+8; the writer pads to the ring's end rather than shortening a fragment to fit
+there. `RingReader.next()` returns the next whole record, fragments reassembled
+and padding skipped, framed with flags 0 for `decodeRecord`, and clears
+`ringWaiting` and bumps `wake` when it frees space for a waiting writer. Both
+throw on counters that claim more than the ring holds. The wire rules, including
+the writer's full-ring wait, are the generated
+[Transport section](../packages/protocol/PROTOCOL.md#transport)'s.
+
+`EngineManifest` and `decodeEngineManifest(json, { minimum, maximum })` decode an
+engine's distribution manifest against the runtime's memory bounds, rejecting
+unknown keys at every level; the rules are
+[engines.md](engines.md#distribution-manifest)'s.
 
 ## Generated artifacts
 
@@ -77,8 +110,9 @@ TypeScript also defines protocol version 1, header layouts and the continuation 
 generates the package's [wire reference](../packages/protocol/PROTOCOL.md), including
 the IBus serializers and message framing; it is in the package's `files`, so every
 release carries it. Both state the framing rules from one source,
-`scripts/framing-notes.ts`, built from the header layouts. The SAB layout joins the
-document in M1.3, when its schemas exist.
+`scripts/framing-notes.ts`, built from the header layouts. The document's Transport
+section renders the control words from `transport/layout.ts`'s data and derives its
+sizes from the layout's constants.
 
 `packages/protocol/module.nix` runs those generators against the built TypeScript
 workspace and formats their output with clang-format and oxfmt respectively.

@@ -213,6 +213,7 @@ typedef struct {
   /* What the refused member would have made, relative to the install's
    * directory. */
   const char *escape;
+  int error;
 } Refused;
 
 static void test_refused(gconstpointer data) {
@@ -223,11 +224,11 @@ static void test_refused(gconstpointer data) {
   g_assert_cmpint(ibusweb_install_begin(dir, &install), ==, 0);
   int fed = feed(install, g_bytes_get_data(bytes, NULL),
                  g_bytes_get_size(bytes), g_bytes_get_size(bytes));
-  g_assert_cmpint(fed, ==, -EINVAL);
+  g_assert_cmpint(fed, ==, refused->error);
   /* A failed install stays failed. */
   g_assert_cmpint(ibusweb_install_feed(install, (const uint8_t *)"", 0), ==,
-                  -EINVAL);
-  g_assert_cmpint(ibusweb_install_end(install), ==, -EINVAL);
+                  refused->error);
+  g_assert_cmpint(ibusweb_install_end(install), ==, refused->error);
 
   /* The member before was taken; the refusal is the refused member's. */
   g_autofree char *ok = g_build_filename(dir, "ok.txt", NULL);
@@ -312,6 +313,7 @@ typedef struct {
   char type;
   guint mode;
   const char *data;
+  const char *linkname;
   /* The size field's 12 bytes as given, rather than the data's length. */
   const uint8_t *size_field;
   /* Checksummed as some old writers do, summing the bytes as signed, with
@@ -339,6 +341,8 @@ static void add_member(GByteArray *tar, const Member *member) {
     g_snprintf((char *)header + 124, 12, "%011" G_GSIZE_MODIFIER "o", len);
   put_text(header, 136, 12, "00000000000");
   header[156] = (uint8_t)member->type;
+  if (member->linkname != NULL)
+    put_text(header, 157, 100, member->linkname);
   memcpy(header + 257, "ustar", 6);
   memcpy(header + 263, "00", 2);
   if (member->signed_sum)
@@ -379,8 +383,6 @@ static char *read_file(const char *dir, const char *rel) {
   return contents;
 }
 
-/* A size field that checksums but isn't octal, or is GNU's base-256, fails
- * the install before its member is made. */
 /* Reject at the header, before even creating the oversized member. */
 static void test_size_limit(void) {
   const Member members[] = {
@@ -430,6 +432,8 @@ static void test_limit_exact_and_zero(void) {
   }
 }
 
+/* A size field that checksums but isn't octal, or is GNU's base-256, fails
+ * the install before its member is made. */
 static void test_size_fields(void) {
   static const uint8_t not_octal[12] = "0000000001a";
   static const uint8_t base256[12] = {0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5};
@@ -507,6 +511,172 @@ static void test_directory_size(void) {
   g_autoptr(GBytes) tar = make_archive(&member, 1);
   g_autofree char *dir = fresh_dir();
   g_assert_cmpint(install(dir, tar, 65536), ==, -EINVAL);
+}
+
+static char *link_target(const char *dir, const char *rel) {
+  g_autofree char *path = g_build_filename(dir, rel, NULL);
+  char buf[256];
+  ssize_t len = readlink(path, buf, sizeof buf);
+  g_assert_cmpint(len, >, 0);
+  g_assert_cmpint(len, <, (ssize_t)sizeof buf);
+  return g_strndup(buf, (gsize)len);
+}
+
+/* A symbolic link is made with its target as the archive has it, relative
+ * or absolute, and reads through to it; it counts as no file and no
+ * bytes. */
+static void test_symlinks(void) {
+  g_autofree char *dir = fresh_dir();
+  g_autofree char *absolute = g_build_filename(dir, "base/data.txt", NULL);
+  const Member members[] = {
+      {.name = "base/", .type = '5', .mode = 0755},
+      {.name = "base/data.txt", .type = '0', .mode = 0444, .data = "data\n"},
+      {.name = "base/relative",
+       .type = '2',
+       .mode = 0777,
+       .linkname = "data.txt"},
+      {.name = "base/absolute",
+       .type = '2',
+       .mode = 0777,
+       .linkname = absolute},
+      /* Its parents are missing, as for a file. */
+      {.name = "base/sub/deep",
+       .type = '2',
+       .mode = 0777,
+       .linkname = "../data.txt"},
+      {.name = "base/dir-link", .type = '2', .mode = 0777, .linkname = "sub"},
+  };
+  g_autoptr(GBytes) tar = make_archive(members, G_N_ELEMENTS(members));
+  IBusWebInstall *install = NULL;
+  g_assert_cmpint(ibusweb_install_begin(dir, &install), ==, 0);
+  g_assert_cmpint(
+      feed(install, g_bytes_get_data(tar, NULL), g_bytes_get_size(tar), 7), ==,
+      0);
+  uint32_t files;
+  uint64_t bytes;
+  ibusweb_install_count(install, &files, &bytes);
+  g_assert_cmpuint(files, ==, 1);
+  g_assert_cmpuint(bytes, ==, 5);
+  g_assert_cmpint(ibusweb_install_end(install), ==, 0);
+
+  g_autofree char *relative_target = link_target(dir, "base/relative");
+  g_assert_cmpstr(relative_target, ==, "data.txt");
+  g_autofree char *absolute_target = link_target(dir, "base/absolute");
+  g_assert_cmpstr(absolute_target, ==, absolute);
+  g_autofree char *deep_target = link_target(dir, "base/sub/deep");
+  g_assert_cmpstr(deep_target, ==, "../data.txt");
+  const char *through[] = {"base/relative", "base/absolute", "base/sub/deep",
+                           "base/dir-link/deep"};
+  for (gsize i = 0; i < G_N_ELEMENTS(through); i++) {
+    g_autofree char *contents = read_file(dir, through[i]);
+    g_assert_cmpstr(contents, ==, "data\n");
+  }
+}
+
+/* The make-tree archive's link to "/" is a link like any other: its target
+ * is never resolved while installing. */
+static void test_symlink_archive(void) {
+  g_autoptr(GBytes) bytes = archive("symlink.tar");
+  g_autofree char *dir = fresh_dir();
+  g_assert_cmpint(install(dir, bytes, 65536), ==, 0);
+  g_autofree char *target = link_target(dir, "link");
+  g_assert_cmpstr(target, ==, "/");
+}
+
+/* A link's name is held to a file's rules, it has no data, and it names
+ * something. */
+static void test_symlink_refused(void) {
+  static const uint8_t one[12] = "00000000001";
+  const Member bad[] = {
+      {.name = "/ibus-web-escape", .type = '2', .linkname = "x"},
+      {.name = "sub/../../ibus-web-escape", .type = '2', .linkname = "x"},
+      {.name = "./", .type = '2', .linkname = "x"},
+      {.name = "sized", .type = '2', .linkname = "x", .size_field = one},
+      {.name = "empty", .type = '2', .linkname = ""},
+  };
+  for (gsize i = 0; i < G_N_ELEMENTS(bad); i++) {
+    g_test_message("link named %s", bad[i].name);
+    g_autoptr(GBytes) tar = make_archive(&bad[i], 1);
+    g_autofree char *dir = fresh_dir();
+    g_assert_cmpint(install(dir, tar, 65536), ==, -EINVAL);
+    g_autofree char *parent = g_path_get_dirname(dir);
+    g_autofree char *escape = g_build_filename(parent, "ibus-web-escape", NULL);
+    g_assert_false(exists(escape));
+    g_assert_false(exists("/ibus-web-escape"));
+  }
+}
+
+/* A hard link names another member, which a store path's archive never
+ * needs: tar stores each of its names whole. It fails before anything is
+ * made of it. */
+static void test_hardlink_refused(void) {
+  const Member members[] = {
+      {.name = "a", .type = '0', .mode = 0644, .data = "a\n"},
+      {.name = "b", .type = '1', .mode = 0644, .linkname = "a"},
+  };
+  g_autoptr(GBytes) tar = make_archive(members, G_N_ELEMENTS(members));
+  g_autofree char *dir = fresh_dir();
+  g_assert_cmpint(install(dir, tar, 65536), ==, -EOPNOTSUPP);
+  g_autofree char *b = g_build_filename(dir, "b", NULL);
+  g_assert_false(exists(b));
+}
+
+/* Nothing is written through a link the archive made: a member under a
+ * link fails, and a member at a link replaces the link itself. */
+static void test_symlink_not_followed(void) {
+  g_autofree char *dir = fresh_dir();
+  g_autofree char *elsewhere = fresh_dir();
+  g_autofree char *target = g_build_filename(elsewhere, "target", NULL);
+  write_file(target, 3, 't');
+  const char *under[] = {"out/escaped.txt", "out/sub/"};
+  for (gsize i = 0; i < G_N_ELEMENTS(under); i++) {
+    g_autofree char *into = fresh_dir();
+    const gboolean is_dir = g_str_has_suffix(under[i], "/");
+    const Member members[] = {
+        {.name = "out", .type = '2', .linkname = elsewhere},
+        {.name = under[i],
+         .type = is_dir ? '5' : '0',
+         .mode = 0644,
+         .data = is_dir ? NULL : "escaped\n"},
+    };
+    g_autoptr(GBytes) tar = make_archive(members, G_N_ELEMENTS(members));
+    g_test_message("member %s", under[i]);
+    g_assert_cmpint(install(into, tar, 65536), ==, -ENOTDIR);
+  }
+  g_autofree char *escaped = g_build_filename(elsewhere, "escaped.txt", NULL);
+  g_autofree char *sub = g_build_filename(elsewhere, "sub", NULL);
+  g_assert_false(exists(escaped));
+  g_assert_false(exists(sub));
+
+  const Member replaced[] = {
+      {.name = "file", .type = '2', .linkname = target},
+      {.name = "file", .type = '0', .mode = 0644, .data = "file\n"},
+      {.name = "link", .type = '0', .mode = 0644, .data = "link\n"},
+      {.name = "link", .type = '2', .linkname = target},
+  };
+  g_autoptr(GBytes) tar = make_archive(replaced, G_N_ELEMENTS(replaced));
+  g_assert_cmpint(install(dir, tar, 65536), ==, 0);
+  g_autofree char *file = read_file(dir, "file");
+  g_assert_cmpstr(file, ==, "file\n");
+  g_autofree char *link = link_target(dir, "link");
+  g_assert_cmpstr(link, ==, target);
+  g_autofree char *untouched = read_file(elsewhere, "target");
+  g_assert_cmpstr(untouched, ==, "ttt");
+}
+
+/* A link where the tree has a directory fails rather than replace it. */
+static void test_symlink_over_directory(void) {
+  const Member members[] = {
+      {.name = "dir/", .type = '5', .mode = 0755},
+      {.name = "dir", .type = '2', .linkname = "elsewhere"},
+  };
+  g_autoptr(GBytes) tar = make_archive(members, G_N_ELEMENTS(members));
+  g_autofree char *dir = fresh_dir();
+  g_assert_cmpint(install(dir, tar, 65536), ==, -EISDIR);
+  g_autofree char *path = g_build_filename(dir, "dir", NULL);
+  struct stat st;
+  g_assert_cmpint(lstat(path, &st), ==, 0);
+  g_assert_true(S_ISDIR(st.st_mode));
 }
 
 static guint mode_of(const char *dir, const char *rel) {
@@ -641,11 +811,10 @@ int main(int argc, char **argv) {
 
   static const Refused refused[] = {
       /* Nor stripped of its leading slash, as GNU tar would. */
-      {"absolute.tar", "ibus-web-escape.txt"},
-      {"dotdot.tar", "../ibus-web-escape.txt"},
-      {"symlink.tar", "link"},
-      {"hardlink.tar", "hard"},
-      {"fifo.tar", "fifo"},
+      {"absolute.tar", "ibus-web-escape.txt", -EINVAL},
+      {"dotdot.tar", "../ibus-web-escape.txt", -EINVAL},
+      {"hardlink.tar", "hard", -EOPNOTSUPP},
+      {"fifo.tar", "fifo", -EINVAL},
   };
   g_test_add_func("/install/size-limit", test_size_limit);
   g_test_add_func("/install/limit-exact-and-zero", test_limit_exact_and_zero);
@@ -667,6 +836,13 @@ int main(int argc, char **argv) {
   g_test_add_func("/install/signed-checksum", test_signed_checksum);
   g_test_add_func("/install/directory-size", test_directory_size);
   g_test_add_func("/install/modes", test_modes);
+  g_test_add_func("/install/symlinks", test_symlinks);
+  g_test_add_func("/install/symlink-archive", test_symlink_archive);
+  g_test_add_func("/install/symlink-refused", test_symlink_refused);
+  g_test_add_func("/install/hardlink-refused", test_hardlink_refused);
+  g_test_add_func("/install/symlink-not-followed", test_symlink_not_followed);
+  g_test_add_func("/install/symlink-over-directory",
+                  test_symlink_over_directory);
   g_test_add_func("/install/null-feed", test_null_feed);
   g_test_add_func("/install/begin-errors", test_begin_errors);
   g_test_add_func("/install/large-file", test_large_file);

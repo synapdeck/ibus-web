@@ -5,7 +5,7 @@
 // runtime: what the scope reports when it closes after a failure, and that
 // finalizers calling into the runtime run only while it is intact.
 
-import { RingReader, transportLayout, decodeRecord } from "@ibus-web/protocol";
+import { CrashReason, RingReader, transportLayout, decodeRecord } from "@ibus-web/protocol";
 import { controlViews } from "../../src/shared/control.ts";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Layer, Scope } from "effect";
@@ -171,7 +171,7 @@ describe("the Worker scope", () => {
       const { posted } = yield* run((worker, uncaught) =>
         Effect.gen(function* () {
           worker.ready();
-          worker.crashed();
+          worker.crashed({ reason: CrashReason.trap, message: "a thread crashed" });
           setTimeout(() => uncaught({ error: "the thread's trap", preventDefault: () => (prevented = true) }), 10);
           return yield* new RuntimeStopped({ error: "unwind" });
         }),

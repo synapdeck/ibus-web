@@ -5,6 +5,7 @@ import { nodeHarness } from "./harness.ts";
 import {
   largeCommit,
   fullRingReply,
+  fullRingAppend,
   idleFullRing,
   idleRequestOrder,
   fullRingTrap,
@@ -16,6 +17,7 @@ describe.each(h.data.runtimes)("ring on $name", (runtime) => {
   for (const [name, scenario] of Object.entries({
     largeCommit,
     fullRingReply,
+    fullRingAppend,
     idleFullRing,
     idleRequestOrder,
     fullRingTrap,

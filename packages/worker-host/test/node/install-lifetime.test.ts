@@ -56,7 +56,7 @@ describe("install lock lifetime", () => {
         threads: 0,
         data: [],
         settingsSchemaDir: "unused",
-        engines: ["test"],
+        engines: ["progress"],
         settingsSchemas: [],
       };
       const held = new Held();

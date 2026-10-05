@@ -37,13 +37,14 @@ import { mount, type MountedStorage } from "./storage/mount.ts";
 import { memoryFor, planStorage, type StoragePlan } from "./storage/plan.ts";
 import type { RelayInit } from "./forward.ts";
 import { Instruments, type InstrumentReply } from "./instruments.ts";
-import { finishReply, serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
+import { finishReply, pump, ringDoorbell, serveUntilExcursion, step, topUp, type LoopContext } from "./loop.ts";
 import {
   alloc,
   check,
   checkMemory,
   loadSides,
   requireRuntime,
+  RuntimeRefused,
   type CreateRuntime,
   type Runtime,
   type RuntimeHandle,
@@ -57,6 +58,10 @@ const SpawnWorker: typeof Worker = globalThis.Worker;
 // has crashed. That thread's own error reaches this one's event loop only
 // afterwards, as an uncaught error.
 const UNWIND = "unwind";
+
+// The most pumps the host runs to settle the engines it destroys on its way
+// out.
+const SHUTDOWN_PUMPS = 8;
 
 // The promise's value, or fallback if it takes longer than ms.
 const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
@@ -87,9 +92,18 @@ export interface HostWorkerShape {
   readonly env: WorkerEnv;
   // Posts "ready"; from here on, a failure is a crash, not a failed start.
   readonly ready: () => void;
-  // Writes CRASHED to the control buffer at once, so the page stops
-  // waiting, and starts keeping the next uncaught error as the cause.
-  readonly crashed: () => void;
+  // Writes the Crashed record, if the ring has room, then CRASHED, so the
+  // page stops waiting and a drain once it sees CRASHED finds the record;
+  // then starts keeping the next uncaught error as the cause. Only the first
+  // call does anything.
+  readonly crashed: (record: CrashRecord) => void;
+}
+
+// What the Crashed record says: what is known at once, which a crashed
+// thread's own error isn't; the crash report carries that.
+export interface CrashRecord {
+  readonly reason: number;
+  readonly message: string;
 }
 
 export class HostWorker extends Context.Service<HostWorker, HostWorkerShape>()("@ibus-web/worker-host/HostWorker") {}
@@ -123,11 +137,16 @@ const crashFailure = (cause: Cause.Cause<unknown>): RuntimeStopped | RelayFailed
   return undefined;
 };
 
-const crashReason = (cause: Cause.Cause<unknown>): number => {
+const stoppedRecord = (failure: RuntimeStopped): CrashRecord => ({
+  reason: failure.reason ?? CrashReason.trap,
+  message: failure.error === UNWIND ? "a thread crashed" : describe(failure.error),
+});
+
+const crashRecord = (cause: Cause.Cause<unknown>): CrashRecord => {
   const failure = crashFailure(cause);
-  if (failure instanceof RelayFailed) return CrashReason.relay;
-  if (failure instanceof RuntimeStopped) return failure.reason ?? CrashReason.trap;
-  return CrashReason.host;
+  if (failure instanceof RelayFailed) return { reason: CrashReason.relay, message: `relay: ${failure.message}` };
+  if (failure instanceof RuntimeStopped) return stoppedRecord(failure);
+  return { reason: CrashReason.host, message: Cause.pretty(cause) };
 };
 
 const crashMessage = (cause: Cause.Cause<unknown>, threadError: Promise<string>, waitMs: number): Promise<string> => {
@@ -176,8 +195,21 @@ export const workerLayer = (
         event.preventDefault();
         keepError(describe(event.error ?? event.message));
       });
-      const crashed = (): void => {
+      const crashed = ({ reason, message }: CrashRecord): void => {
+        if (isCrashed) return;
         isCrashed = true;
+        writeHostRecord(
+          writer,
+          control,
+          34,
+          encodeValue("(us)", {
+            _tag: "()",
+            items: [
+              { _tag: "u", value: reason },
+              { _tag: "s", value: message },
+            ],
+          }),
+        );
         postCrash(control);
       };
       yield* Effect.addFinalizer((exit) =>
@@ -185,20 +217,8 @@ export const workerLayer = (
           ? Effect.void
           : isReady
             ? Effect.promise(async () => {
-                crashed();
+                crashed(crashRecord(exit.cause));
                 const message = await crashMessage(exit.cause, threadError, config.crashWaitMs);
-                writeHostRecord(
-                  writer,
-                  control,
-                  34,
-                  encodeValue("(us)", {
-                    _tag: "()",
-                    items: [
-                      { _tag: "u", value: crashReason(exit.cause) },
-                      { _tag: "s", value: message },
-                    ],
-                  }),
-                );
                 env.post({ type: "crashed", message });
               })
             : Effect.sync(() => env.post({ type: "error", message: startupMessage(exit.cause) })),
@@ -483,10 +503,12 @@ export const serve: Effect.Effect<
     Effect.try({
       try: call,
       catch: (error) => {
-        worker.crashed();
-        return error instanceof RuntimeStopped
-          ? error
-          : new RuntimeStopped({ error, reason: error instanceof HostDefect ? CrashReason.host : CrashReason.trap });
+        const stopped =
+          error instanceof RuntimeStopped
+            ? error
+            : new RuntimeStopped({ error, reason: error instanceof HostDefect ? CrashReason.host : CrashReason.trap });
+        worker.crashed(stoppedRecord(stopped));
+        return stopped;
       },
     });
   const scopes = new EngineScopes(buffers.request, init.constants.canceled);
@@ -519,21 +541,46 @@ export const serve: Effect.Effect<
       try {
         loadSides(handle, [{ name: "engine", bytes: module }]);
       } catch (error) {
+        // A refused load leaves the runtime fit to call, so its account of
+        // the failure reaches the page ahead of the Crashed record.
+        if (error instanceof RuntimeRefused)
+          try {
+            drainOutput(handle.rt, worker.writer, outputLength, ctx);
+          } catch {
+            // The crash is already LOAD's; a failed drain only loses records.
+          }
         throw new RuntimeStopped({ error, reason: CrashReason.load });
       }
       moduleLoaded = true;
     },
     outputLength,
     postDoorbell: () => worker.env.post({ type: "doorbell" }),
+    lastSeq: 0,
     topUpFailed: false,
     stopping: false,
     woken: false,
   };
+  // Destroying the engines left open runs their finalizers, which can leave
+  // work for the default context; a few pumps run it without chasing a
+  // source that keeps itself due. Records written here belong to no request,
+  // so the page hears of them through a doorbell.
   yield* Effect.addFinalizer((exit) =>
     guarded(() => {
       const intact = runtimeIntact(exit);
-      scopes.closeAll(handle.rt, intact);
-      if (intact) drainOutput(handle.rt, worker.writer, outputLength, ctx);
+      try {
+        scopes.closeAll(handle.rt, intact);
+      } catch (error) {
+        if (error instanceof RuntimeStopped && error.reason === CrashReason.fault)
+          try {
+            drainOutput(handle.rt, worker.writer, outputLength, ctx);
+          } catch {
+            // The crash is already the fault's; a failed drain only loses records.
+          }
+        throw error;
+      }
+      if (!intact) return;
+      for (let round = 0; round < SHUTDOWN_PUMPS; round++) if (pump(handle.rt, init.constants) !== 0) break;
+      if (drainOutput(handle.rt, worker.writer, outputLength, ctx) > 0) ringDoorbell(ctx);
     }).pipe(Effect.orDie),
   );
   const relayFailed = Effect.gen(function* () {

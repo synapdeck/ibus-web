@@ -442,7 +442,7 @@ int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   gchar *schemas_dir = NULL, *module = NULL;
   GOptionEntry options[] = {{"schemas", 0, 0, G_OPTION_ARG_STRING, &schemas_dir,
-                             "Engine share directory", "DIR"},
+                             "Compiled GSettings schemas directory", "DIR"},
                             {"module", 0, 0, G_OPTION_ARG_FILENAME, &module,
                              "Engine side module", "FILE"},
                             {NULL}};

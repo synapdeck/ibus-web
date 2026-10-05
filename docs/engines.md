@@ -30,7 +30,8 @@ Engine data keeps the paths compiled by Nix. Private libhangul's Hanja table
 and ibus-hangul's symbols retain their respective `/nix/store/<hash>-<name>`
 paths; no FHS path patch is needed. libhangul keeps the Hanja dictionary open
 and seeks through it. The host mounts the version's data database at
-`/nix/store`, while user files stay at `/engines/<name>`.
+`/nix/store`, while user files stay at `/engines/<encodeComponent(name)>`,
+one directory under `/engines` whatever the name holds.
 
 The data closure is the side module's Nix store references, minus its own
 output. Every dependency must be data only: dictionaries, schema XML and
@@ -38,7 +39,8 @@ output. Every dependency must be data only: dictionaries, schema XML and
 The schema output includes Hangul and `org.freedesktop.ibus.panel`. The cross
 GLib compiler named by `gio-2.0.pc` runs under Node with `--strict`.
 Hangul's module retains the schema directory string as a store reference;
-the host sets `GSETTINGS_SCHEMA_DIR` before Init, GLib's first lookup.
+the host sets `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir`
+before any Init, since GLib caches its schema source on the first lookup.
 
 ### Distribution manifest
 
@@ -83,26 +85,63 @@ installation-lock namespaces, so a new build can install while an older
 host continues reading its own closure. Manually authored manifests must
 likewise change version whenever their distribution changes.
 
-`memory` is bytes in whole 64 KiB pages within the runtime bounds; `threads`
-is a nonnegative engine pool share. `settingsSchemaDir` must be inside a
-unique data store path. The host validates the manifest before allocating
-runtime resources and rejects ABI/protocol mismatches. Numeric `runtimeAbi`
+`decodeEngineManifest` enforces:
+
+- `name` matches `[A-Za-z0-9][A-Za-z0-9._+-]*`: it becomes a directory and
+  database name, so it must be one path component that can't climb out of
+  its parent or hide itself;
+- `version`, `license` and every URL are non-empty; `engines` lists at least
+  one engine, each name non-empty;
+- `memory` is bytes in whole 64 KiB pages within the runtime bounds;
+  `threads` is a nonnegative engine pool share;
+- each `storePath` is `/nix/store/<32 base-32 characters>-<name>`, with no
+  two alike;
+- `settingsSchemaDir` is canonical (no empty, `.` or `..` component) and lies
+  inside one of the data's store paths;
+- unknown keys are rejected at every level, so a misspelled field fails
+  rather than reading as missing.
+
+The host validates the manifest before allocating runtime resources and
+rejects ABI/protocol mismatches. Numeric `runtimeAbi`
 checks `IBUSWEB_RUNTIME_ABI`; the stronger full library-version identity is
 still a [known gap](known-gaps.md#runtime).
 
 The build computes memory as `(runtime minimum + dylink static bytes +
 threads × 1 MiB + heapBytes) × 1.25`, rounded up to whole MiB. `heapBytes`
-is build/check metadata, not a manifest field. `checks.hangul-host` fails if
-the measured program-break peak exceeds it or engine thread demand exceeds
-`threads`. Hangul declares 4 MiB heap and zero threads, based on its current
-Node conformance workload; the formula adds headroom separately. Browser
-storage threads belong to the runtime's storage share.
+is build/check metadata, not a manifest field: the declared peak of the
+program break (`sbrk(0)`), which is an address and so counts the static data
+below the heap as well as the heap itself. Adding it to the runtime minimum
+and the module's static size therefore counts that memory twice, so the
+figure is conservative. `checks.hangul-host` fails
+if the measured break peak (`breakPeak`) exceeds `heapBytes` or engine thread
+demand exceeds `threads`. Hangul declares a 4 MiB break and zero threads,
+based on its current Node conformance workload; the formula adds headroom
+separately. Browser storage threads belong to the runtime's storage share.
 
 ### Archives and serving
 
-Each archive is deterministic POSIX ustar with entries relative to its store
-path, Brotli quality 11 and the standard window (no `--large_window`). `size`
-counts unpacked regular-file bytes. Before creating or sizing each regular
+Each archive is deterministic POSIX ustar, Brotli quality 11 and the standard
+window (no `--large_window`). Entries are named from `/nix/store`:
+`<hash>-<name>/…`, or the bare `<hash>-<name>` file for a store path that is
+a single file. `--hard-dereference` stores hard links, which store
+optimisation makes of identical files, as regular files, since the installer
+takes none. Symbolic links are kept as links, with their targets as the
+store has them; before archiving, `tools/engine-manifest/symlinks.ts`
+resolves every link in the closure the way the engine's file system will,
+holding only the closure's store paths, and fails the build if one leads
+outside them. ustar holds a link target of at most 100 bytes; GNU tar
+refuses a longer one and the build fails rather than archiving it. `size`
+counts unpacked regular-file bytes, every name of a hard-linked file in
+full and nothing for a symbolic link.
+
+The host extracts each archive at the root of the `/nix/store` mount. Since
+every archive lands there, the host follows each archive's ustar framing as
+it streams and refuses an entry outside the archive's own store path before
+the extractor sees it. The extractor (`ibusweb_install_feed`) takes regular
+files, directories and symbolic links (`SYMTYPE`), keeping a link's target
+unresolved; it refuses hard links (`LNKTYPE`) with `-EOPNOTSUPP` and never
+writes through a link: a member under one fails with `-ENOTDIR`, and a file
+or link member replaces a link already at its name. Before creating or sizing each regular
 file, the extractor rejects a member that would exceed the remaining declared
 budget. The host also requires exact equality after extraction before writing
 the installed marker. A mismatch is an ordinary installation refusal; a
@@ -116,10 +155,14 @@ Relative module/archive URLs in a fetched manifest resolve against the final
 response URL after redirects. Inline manifests retain the caller's URLs.
 
 The host constructs `DecompressionStream("brotli")` to detect native support.
-Otherwise it lazily imports a separate `brotli-dec-wasm` streaming decoder
-bundle with WASM embedded by Rolldown's binary loader. No external decoder
-WASM fetch is needed, and native installations never load that bundle. Both
-paths feed the bounded C extractor in pieces of at most 64 KiB.
+Otherwise it imports, by URL from beside its own script, a separate
+`brotli-dec-wasm` streaming decoder bundle (`brotli-fallback.js`, 291 KB) with
+its WASM embedded by Rolldown's binary loader. No external decoder WASM fetch
+is needed, and native installations never load that bundle. Both paths feed
+the bounded C extractor in pieces of at most 64 KiB. Only a failure that
+starts in the decoder is reported as a Brotli error, with the hint about
+`Content-Encoding: br`; a failure of the body itself (the network, an abort)
+passes through as it is, and a fallback that fails to load says so.
 
 ## Startup and patch layers
 
@@ -243,5 +286,5 @@ The [Worker-host conformance harness](worker-host.md#transport-and-hangul-confor
 is a separate Node check: ten scenarios on each asserting/released build,
 20 reported tests. It runs the
 real engine through SAB requests and records rather than calling WASM directly,
-and guards the declared heap and thread shares. Neither harness establishes
+and guards the declared program break and thread share. Neither harness establishes
 live browser UI behavior or device input behavior.

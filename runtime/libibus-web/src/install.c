@@ -179,13 +179,15 @@ static char *relative_name(const uint8_t *header) {
   return g_string_free(out, FALSE);
 }
 
-/* mkdir() that accepts a directory already there. */
+/* mkdir() that accepts a directory already there. A link there is no
+ * directory, even to one: following it would let the archive write outside
+ * the install's directory through a link it made itself. */
 static int ensure_dir(const char *path, mode_t mode) {
   if (mkdir(path, mode) == 0)
     return 0;
   int error = errno;
   struct stat st;
-  if (error == EEXIST && stat(path, &st) == 0)
+  if (error == EEXIST && lstat(path, &st) == 0)
     return S_ISDIR(st.st_mode) ? 0 : -ENOTDIR;
   return -error;
 }
@@ -202,6 +204,33 @@ static int ensure_parents(IBusWebInstall *install, const char *rel) {
       return ret;
   }
   return 0;
+}
+
+/* Removes what is at path unless it is a directory, so that the member
+ * replaces it rather than write through it. */
+static int clear_non_dir(const char *path) {
+  struct stat st;
+  if (lstat(path, &st) != 0)
+    return errno == ENOENT ? 0 : -errno;
+  if (S_ISDIR(st.st_mode))
+    return -EISDIR;
+  return unlink(path) == 0 ? 0 : -errno;
+}
+
+static int make_symlink(IBusWebInstall *install, const char *rel,
+                        const uint8_t *header) {
+  g_autoptr(GString) target = g_string_new(NULL);
+  append_field(target, header, USTAR_FIELD(linkname));
+  if (target->len == 0)
+    return -EINVAL;
+  int ret = ensure_parents(install, rel);
+  if (ret != 0)
+    return ret;
+  g_autofree char *path = g_build_filename(install->dir, rel, NULL);
+  ret = clear_non_dir(path);
+  if (ret != 0)
+    return ret;
+  return symlink(target->str, path) == 0 ? 0 : -errno;
 }
 
 static int finish_file(IBusWebInstall *install) {
@@ -244,12 +273,25 @@ static int take_header(IBusWebInstall *install) {
                   TOREAD | TOWRITE | TOEXEC)) |
          TUREAD | TUWRITE;
   char type = (char)header[USTAR_OFFSET(typeflag)];
+  /* A hard link would name a member written earlier, which a reader can't
+   * trust to be the archive's; archives store each name whole instead. */
+  if (type == LNKTYPE)
+    return -EOPNOTSUPP;
   gboolean regular = type == REGTYPE || type == AREGTYPE;
-  if (!regular && type != DIRTYPE)
+  if (!regular && type != DIRTYPE && type != SYMTYPE)
     return -EINVAL;
   g_autofree char *rel = relative_name(header);
   if (rel == NULL)
     return -EINVAL;
+
+  /* A link's target is kept as the archive has it, absolute or relative,
+   * and never resolved here: it may name a path another archive installs
+   * later. */
+  if (type == SYMTYPE) {
+    if (size != 0 || rel[0] == '\0')
+      return -EINVAL;
+    return make_symlink(install, rel, header);
+  }
 
   if (!regular) {
     /* A directory's size, if any, is no data of its own. */
@@ -278,7 +320,10 @@ static int take_header(IBusWebInstall *install) {
   if (ret != 0)
     return ret;
   g_autofree char *path = g_build_filename(install->dir, rel, NULL);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, (mode_t)mode);
+  struct stat st;
+  if (lstat(path, &st) == 0 && S_ISLNK(st.st_mode) && unlink(path) != 0)
+    return -errno;
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, (mode_t)mode);
   if (fd < 0)
     return -errno;
   install->fd = fd;

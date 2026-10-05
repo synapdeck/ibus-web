@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { PADDING_KIND, RECORD_ALIGNMENT, RECORD_CONTINUATION } from "../messages/framing.ts";
-import { Word, type TransportLayout, type TransportViews } from "./layout.ts";
-const HEADER_SIZE = 16;
-const MIN_FRAGMENT_PAYLOAD = 8;
+import {
+  MIN_FRAGMENT_PAYLOAD_BYTES as MIN_FRAGMENT_PAYLOAD,
+  RECORD_HEADER_BYTES as HEADER_SIZE,
+  Word,
+  type TransportLayout,
+  type TransportViews,
+} from "./layout.ts";
 const alignedSize = (payloadBytes: number): number =>
   Math.ceil((HEADER_SIZE + payloadBytes) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
 const headerOf = (bytes: Uint8Array): DataView => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

@@ -55,4 +55,29 @@ describe("engine manifests", () => {
       expect(() => decodeEngineManifest({ ...valid, settingsSchemaDir }, bounds)).toThrow();
     },
   );
+  it.each(["", ".", "..", "a/b", "/hangul", ".hidden", "-hangul", "han gul", "hangul\0", "한글"])(
+    "rejects name %j",
+    (name) => expect(() => decodeEngineManifest({ ...valid, name }, bounds)).toThrow(),
+  );
+  it.each(["hangul", "Hangul2", "m17n.ko", "chewing-plus", "x_y+z", "a..b"])("accepts name %j", (name) =>
+    expect(decodeEngineManifest({ ...valid, name }, bounds).name).toBe(name),
+  );
+  it("rejects an empty license", () => expect(() => decodeEngineManifest({ ...valid, license: "" }, bounds)).toThrow());
+  it("rejects an empty module url", () =>
+    expect(() => decodeEngineManifest({ ...valid, module: { ...valid.module, url: "" } }, bounds)).toThrow());
+  it("rejects an empty data url", () =>
+    expect(() => decodeEngineManifest({ ...valid, data: [{ ...valid.data[0], url: "" }] }, bounds)).toThrow());
+  it("requires at least one engine", () =>
+    expect(() => decodeEngineManifest({ ...valid, engines: [] }, bounds)).toThrow());
+  it("rejects an empty engine name", () =>
+    expect(() => decodeEngineManifest({ ...valid, engines: [""] }, bounds)).toThrow());
+  it.each([
+    ["the manifest", { ...valid, extra: 1 }],
+    ["the module", { ...valid, module: { ...valid.module, extra: 1 } }],
+    ["a data entry", { ...valid, data: [{ ...valid.data[0], extra: 1 }] }],
+  ])("rejects an excess key in %s", (_, manifest) => expect(() => decodeEngineManifest(manifest, bounds)).toThrow());
+  it.each([`${storePath}//schemas`, `${storePath}/share/`, `${storePath}/`, `${storePath}/share//`])(
+    "rejects schema directory %s with an empty component",
+    (settingsSchemaDir) => expect(() => decodeEngineManifest({ ...valid, settingsSchemaDir }, bounds)).toThrow(),
+  );
 });

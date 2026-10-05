@@ -18,6 +18,8 @@ export interface InstrumentReply {
 export interface Instruments {
   // Before the host looks for IndexedDB.
   readonly forceBrotliFallback: boolean;
+  // A Brotli archive of the engine's data is decoded through this decoder.
+  readonly brotliDecoder: (decoder: "native" | "fallback") => void;
   readonly beforeProbe: () => void;
   // Before the runtime's module is imported, which under Node replaces the
   // global Worker class.
@@ -34,6 +36,9 @@ export interface Instruments {
   // Answers a request itself, or undefined to have the runtime dispatch it.
   // A promise has the host leave its request loop until it settles.
   readonly serve: (request: Uint8Array) => InstrumentReply | Promise<InstrumentReply> | undefined;
+  // A reply was published, and mode is the reqMode the host then read for
+  // it.
+  readonly replied: (mode: number) => void;
   // whileAsleep: the request arrived while the host slept, rather than
   // before it started a wait.
   readonly requestServed: (whileAsleep: boolean) => void;
@@ -45,6 +50,7 @@ export interface Instruments {
 
 const none: Instruments = {
   forceBrotliFallback: false,
+  brotliDecoder: () => {},
   beforeProbe: () => {},
   beforeRuntime: () => {},
   runtimeStarted: () => {},
@@ -53,6 +59,7 @@ const none: Instruments = {
   waiting: () => {},
   beforePiece: () => undefined,
   serve: () => undefined,
+  replied: () => {},
   requestServed: () => {},
   eventLoopTurn: () => {},
   topUpsHeld: () => false,

@@ -430,6 +430,24 @@ and fixed-seed Effect `Arbitrary` round trips, including encodings mutated by on
 three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. The
 default Vitest configuration leaves out the parity suite and the decode benchmark.
 
+The transport's ring has four kinds of test beyond its unit cases:
+
+- **Fuzz** (`ring-fuzz.test.ts`): fixed-seed plans of record sizes and reads on
+  64-, 128-, 256- and 1024-byte rings, from counters at zero, just before the
+  2³² wrap at several distances, and across the sign bit. Every record arrives
+  once, in order and unchanged, and whenever a write returns `full`, freeing
+  exactly `needBytes` lets the next write publish a fragment.
+- **Two threads** (`ring-threads.test.ts`): a writer in a `worker_thread`
+  pushes 20,000 records through the full-ring wait while the test thread
+  reads, on small rings and from counters near the wrap; every record arrives
+  in order.
+- **Exhaustive `needBytes`**: on a 64-byte ring, every write position, free
+  amount and payload size up to three rings that returns `full` asks for
+  exactly the least space with which the next write publishes a fragment:
+  `needBytes` free makes progress, 8 bytes less doesn't.
+- **Bad counters**: a `ringRead` past `ringWrite`, which claims more than the
+  ring holds, makes both the writer and the reader throw.
+
 `checks.protocol-parity` supplies a Nix-built corpus and a WASM C fixture producer
 using real IBus and json-glib, and runs the parity suite (`vitest.parity.config.ts`).
 Vitest asserts both directions of object serialization, every request's observed
@@ -464,24 +482,76 @@ nix build .#checks.x86_64-linux.hangul-data-closure
 Worker-host suites run production transport behavior on asserting and released
 runtimes, under Node and Chromium/Firefox. They cover ordered `replyOutSeq`,
 doorbells, abandonment, fragment/padding boundaries, wraparound, full-ring
-waits without pumping, partial-read wake races and crash reporting. Archive
-checks include native Brotli where supported and forced/automatic fallback.
-Pinned Chromium uses fallback; construction of `DecompressionStream("brotli")`
-is the production feature test. Generated `PROTOCOL.md` includes the SAB layout.
+waits without pumping, partial-read wake races and crash reporting.
+`fullRingAppend` has the test side append a record on the host's thread
+during a full-ring wait, as a proxied call can: the reply's `replyOutSeq`
+names the request's own commit, and the appended record arrives after the
+reply with the next `seq`. The abandoned-reply case orders itself by the test
+build's `replied` instrument, which counts published replies in a shared
+buffer beside the `reqMode` the host read for the last, so the page abandons
+only once the host has read `SYNC` and the test can assert no doorbell
+follows. Node unit tests drive `drainOutput` against a fake runtime: a
+full-ring drain resumes the same copied record and consumes the runtime's
+output only once it is published.
+
+Archive checks include native Brotli where supported and forced/automatic
+fallback; the test build posts a `brotli-decoder` message naming the decoder
+each archive went through, and the install scenarios assert it against the
+page's own feature test. Pinned Chromium uses fallback; construction of
+`DecompressionStream("brotli")` is the production feature test. Node unit
+tests of the decoder check that undecodable bytes fail with the
+`Content-Encoding` hint, natively and through the fallback, while a body
+that fails mid-stream (a network error, an abort) passes its own error
+through. `store-links-memory` and `store-links-stored` install the echo
+engine's data, which holds a file with two names, relative and absolute
+links to a file and a directory, within its store path and into others of
+the closure, and a store path that is a single file, and read each path back
+as the store has it, on memory storage and on storage that outlives the
+host. Generated `PROTOCOL.md` includes the SAB layout.
+
+`engine-manifest` runs the build tools' Vitest suites: `dylink.ts` against
+`wasm-objdump` on a compiled side module; `symlinks.ts`, which accepts links
+that resolve inside a closure (relative, absolute, chained, or a store path
+that is itself a link) and refuses a dangling link, one leading out of the
+closure, a chain that passes outside on its way back in, a link to a
+directory that only holds closure paths, and a loop, failing the command
+with the link named; and `protocol.ts`, which prints the protocol version and
+checks a manifest with the protocol's decoder and the runtime's memory
+bounds.
 
 `hangul-host` uses a real Node Worker, the built Hangul manifest and the test
 Page: 20 cases across both builds. It checks output ordering and real engine
 behavior and fails on warning/error/critical logs. Reserved test operations
-measure program-break, retained pool Worker and checked-out pthread peaks;
-`heapBytes` comes from build metadata. These workload results guard declarations
+measure the program break's peak (`breakPeak`, checked against the declared
+`heapBytes`), retained pool Worker and checked-out pthread peaks; `heapBytes`
+comes from build metadata. These workload results guard declarations
 without establishing universal resource bounds. The 16-case C golden harness (17 reported tests including completion)
 and native differential traces remain independent checks. Browser host checks
 exercise the transport, not a live page router or panel.
 
 Install-lock liveness tests distinguish a slow installer announcing progress
-from a silent holder. The deterministic first-piece gate spans the fixed
-500 ms test timeout. A saturated-builder repetition passed 50/50 with maximum
-heard-message gap 86 ms; a controlled run with the earlier implementation
-reproduced a missing-progress timeout. The natural baseline load run exposed
-late fixture startup, not a missing-heartbeat timeout. These are targeted
-regression observations, not a timer deadline under arbitrary starvation.
+from a silent holder. In "a wait for the install lock outlives the lock
+limit while the installer's word keeps arriving" the installer announces every
+50 ms and holds its first piece behind a gate for twice the waiter's 500 ms
+lock limit, so the waiter must keep waiting on progress alone, and then
+finds the data present; in "a wait for the install lock fails once the
+installer's word stops" the holder is silent, and the waiter fails its start
+after the limit. A Node unit test
+(`install-lifetime.test.ts`) checks that progress is announced through the
+clear, the mount, the fetch, the marker and the seal, and that the lock and
+the timer are released together.
+
+`test/node/saturate.ts` is a manual load tool, not a check: it starts one
+CPU-bound Worker per available CPU and runs a command repeatedly beneath
+them, printing each run's exit code and time as a JSON line, and stops after 30 minutes or on an interrupt,
+killing the command's whole process group. From `packages/worker-host`, in
+the dev shell and with a check's manifest in the environment
+(`IBUS_WEB_WORKER_HOST_TESTS`, from the check's `passthru.manifest`):
+
+```sh
+node test/node/saturate.ts 50 pnpm exec vitest run --configLoader native \
+  test/node/scenarios.test.ts -t 'outlives the lock limit'
+```
+
+Its results are observations under one load, not a timer deadline under
+arbitrary starvation.
