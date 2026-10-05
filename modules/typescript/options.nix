@@ -30,6 +30,15 @@
         type = lib.types.functionTo lib.types.str;
         description = "Given a workspace package's directory, as a path, its node_modules in nodeModules.";
       };
+      workspaceFor = lib.mkOption {
+        type = lib.types.functionTo lib.types.package;
+        description = ''
+          Given repository-relative workspace package directories, build their sources
+          and transitive workspace dependencies (including development dependencies).
+          Uses the shared offline dependency install and repository configuration;
+          source edits outside that closure do not invalidate the build.
+        '';
+      };
       workspace = lib.mkOption {
         type = lib.types.package;
         description = ''

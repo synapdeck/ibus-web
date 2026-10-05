@@ -232,53 +232,111 @@
         '';
       };
 
+      packageManifests = lib.genAttrs packageDirs (dir: lib.importJSON (root + "/${dir}/package.json"));
+      dirsByName = lib.listToAttrs (
+        map (dir: lib.nameValuePair packageManifests.${dir}.name dir) packageDirs
+      );
+      workspaceFor =
+        requested:
+        let
+          selected = builtins.genericClosure {
+            startSet = map (dir: {
+              key =
+                lib.throwIfNot (lib.elem dir packageDirs) "workspaceFor: ${dir} isn't a package of the workspace"
+                  dir;
+            }) requested;
+            operator =
+              { key }:
+              let
+                manifest = packageManifests.${key};
+                localNames = lib.unique (
+                  lib.concatMap
+                    (
+                      field:
+                      lib.attrNames (
+                        lib.filterAttrs (_: version: lib.hasPrefix "workspace:" version) (manifest.${field} or { })
+                      )
+                    )
+                    [
+                      "dependencies"
+                      "devDependencies"
+                      "optionalDependencies"
+                      "peerDependencies"
+                    ]
+                );
+              in
+              map (name: {
+                key =
+                  dirsByName.${name} or (throw "workspaceFor: ${key} depends on unknown workspace package ${name}");
+              }) localNames;
+          };
+        in
+        buildWorkspace (lib.sort builtins.lessThan (map (entry: entry.key) selected));
+
       # The sources with nodeModules laid over them, whose links between
       # packages and into the root's store are relative, then compiled.
-      workspace = pkgs.stdenvNoCC.mkDerivation {
-        name = "ibus-web-typescript";
-        src = withWorkspaceFile (
-          lib.fileset.toSource {
-            inherit root;
-            # Every package's tsconfig extends the repository's base.
-            fileset = lib.fileset.unions (
-              workspaceFiles
-              ++ [
-                (root + "/tsconfig.base.json")
-                (root + "/tsconfig.node-scripts.json")
-              ]
-              ++ map packageSources packageDirs
-            );
-          }
-        );
-        nativeBuildInputs = [
-          nodejs
-          pnpm
-        ];
-        configurePhase = ''
-          runHook preConfigure
-          # Modes kept, for the executables; the store's are read-only.
-          cp -R ${nodeModules}/. .
-          chmod -R u+w .
-          runHook postConfigure
-        '';
-        buildPhase = ''
-          runHook preBuild
-          pnpm -r run build
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          mkdir -p $out
-          # Tests that run from source are compiled through their configs,
-          # which extend the repository's base.
-          cp -R package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node-scripts.json node_modules $out/
-          ${lib.concatMapStrings (dir: ''
-            mkdir -p $out/${dirOf dir}
-            cp -R ${dir} $out/${dir}
-          '') packageDirs}
-          runHook postInstall
-        '';
-      };
+      buildWorkspace =
+        selectedDirs:
+        pkgs.stdenvNoCC.mkDerivation {
+          name = "ibus-web-typescript";
+          src = withWorkspaceFile (
+            lib.fileset.toSource {
+              inherit root;
+              # Every package's tsconfig extends the repository's base.
+              fileset = lib.fileset.unions (
+                workspaceFiles
+                ++ [
+                  (root + "/tsconfig.base.json")
+                  (root + "/tsconfig.node-scripts.json")
+                ]
+                # pnpm validates every workspace dependency in the root manifest and lockfile.
+                ++ map (dir: root + "/${dir}/package.json") packageDirs
+                ++ map packageSources selectedDirs
+              );
+            }
+          );
+          nativeBuildInputs = [
+            nodejs
+            pnpm
+          ];
+          configurePhase = ''
+            runHook preConfigure
+            # Modes kept, for the executables; the store's are read-only.
+            cp -R ${nodeModules}/. .
+            chmod -R u+w .
+            runHook postConfigure
+          '';
+          buildPhase = ''
+            runHook preBuild
+            pnpm -r${
+              lib.optionalString (selectedDirs != packageDirs) (
+                " "
+                + lib.escapeShellArgs (
+                  lib.concatMap (dir: [
+                    "--filter"
+                    packageManifests.${dir}.name
+                  ]) selectedDirs
+                )
+              )
+            } run build
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            # Keep manifest-only directories too: the shared install links to
+            # every workspace package. Only selected packages contain sources
+            # and compiled output.
+            cp -R package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node-scripts.json node_modules $out/
+            ${lib.concatMapStrings (dir: ''
+              mkdir -p $out/${dirOf dir}
+              cp -R ${dir} $out/${dir}
+            '') packageDirs}
+            runHook postInstall
+          '';
+        };
+
+      workspace = buildWorkspace packageDirs;
 
       # The lockfile resolves typescript to one version, whichever packages
       # depend on it.
@@ -294,7 +352,12 @@
     {
       ibusWeb.typescript = {
         nodejs = pkgs.nodejs_24;
-        inherit workspace nodeModules tsc;
+        inherit
+          workspace
+          workspaceFor
+          nodeModules
+          tsc
+          ;
         packageNodeModules =
           dir:
           let

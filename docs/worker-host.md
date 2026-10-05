@@ -444,10 +444,26 @@ The host runs under Node's `worker_threads` only for tests (`storage:
 
 ## Tests
 
-`checks.worker-host-node` and `checks.worker-host-browser` run the package's
-Vitest suites from the built workspace, under Node and in Chromium and
-Firefox (Playwright's headless builds from nixpkgs), each against the
-asserting and the released runtime. Nix hands them a manifest
+`checks.worker-host-node` runs the deterministic Node units: archive, decompression,
+held locks, host output, install lifetime/progress, naming, scopes, startup and storage plan.
+`checks.worker-host-browser` runs `protocolRoundtrip` and `replySequence` with real
+Workers on both runtime builds in Chromium and Firefox, eight smoke cases.
+
+The complete matrices run as `packages.worker-host-node-integration` and
+`packages.worker-host-browser-integration`, also included in `packages.integration-checks`.
+Node integration retains every `test/node/*.test.ts`, including the runtime matrices
+`engine.test.ts`, `protocol.test.ts`, `ring.test.ts` and `scenarios.test.ts`.
+Browser integration retains `engine.test.ts`, `layers.test.ts`, `protocol.test.ts`,
+`ring.test.ts` and `scenarios.test.ts`; the new `smoke.test.ts` runs only in the default gate.
+These matrices preserve the contention, tight heartbeat timing and stress scenarios.
+Run both with `nix build .#worker-host-node-integration .#worker-host-browser-integration -L`.
+CI runs the extended aggregate separately and requires both tiers before publication.
+
+All host targets use a selected workspace containing the host and its protocol and
+test-programs dependencies. Source-only edits to other packages do not rebuild them.
+The integration and browser smoke configurations use Chromium and Firefox
+(Playwright's headless builds from nixpkgs), against the asserting and released
+runtime. Nix hands them a manifest
 (`IBUS_WEB_WORKER_HOST_TESTS`): both runtimes, the test side modules and engine manifests,
 the constants the C side defines, Emscripten's errno values, the install
 test archives, the pool's size, shares and `lowWater`, and the stress

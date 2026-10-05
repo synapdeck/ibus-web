@@ -19,11 +19,27 @@ jobs:
       - name: Check
         run: nix flake check -L --system x86_64-linux --max-jobs 1
     timeout-minutes: 240
+  integration:
+    name: extended integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@v3.23.0
+      - name: Allow unprivileged user namespaces
+        run: if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      - name: Use FlakeHub Cache
+        uses: DeterminateSystems/flakehub-cache-action@v3.23.0
+      - name: Check
+        run: nix build .#integration-checks -L --max-jobs 1
+    timeout-minutes: 240
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     name: Publish to FlakeHub
     needs:
       - check
+      - integration
     runs-on: ubuntu-latest
     steps:
       - name: Check out

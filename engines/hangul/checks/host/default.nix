@@ -10,7 +10,7 @@
     {
       checks.hangul-host = testing.vitestCheck {
         name = "hangul-host";
-        packageDir = "${typescript.workspace}/packages/worker-host";
+        packageDir = "${typescript.workspaceFor [ "packages/worker-host" ]}/packages/worker-host";
         env = {
           IBUS_WEB_WORKER_HOST_TESTS = config.checks.worker-host-node.manifest;
           IBUS_WEB_HANGUL_MANIFEST = "${dist}/manifest.json";

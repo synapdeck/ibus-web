@@ -5,6 +5,11 @@
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
     options.ibusWeb.testing = {
+      extendedChecks = lib.mkOption {
+        type = lib.types.attrsOf lib.types.package;
+        default = { };
+        description = "Extended integration checks aggregated by packages.integration-checks, outside the default flake check gate.";
+      };
       playwright = {
         chromiumSandbox = lib.mkOption {
           type = lib.types.bool;
@@ -486,6 +491,9 @@
       ibusWeb.toolchain.clangdPathFlags."modules/testing/.*\\.(cpp|h)" = gtestCflagList;
 
       packages.gtest-main-types = reportTypes;
+      packages.integration-checks = pkgs.linkFarm "ibus-web-integration-checks" (
+        lib.mapAttrsToList (name: path: { inherit name path; }) config.ibusWeb.testing.extendedChecks
+      );
 
       # The report library must name every Emscripten symbol it uses in its
       # __deps, and type-check against what Emscripten gives it.

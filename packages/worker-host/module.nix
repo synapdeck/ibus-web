@@ -18,6 +18,7 @@
         typescript
         ;
       inherit (toolchain) pkgsWasm;
+      workspace = typescript.workspaceFor [ "packages/worker-host" ];
 
       sidesSrc = ./test/sides;
       engineThreads = 4;
@@ -246,10 +247,10 @@
       # Each runs the host's tests on the asserting runtime and the released
       # one, from the built package.
       check =
-        name: environments:
+        name: environments: vitestArgs:
         testing.vitestCheck {
-          inherit name;
-          packageDir = "${typescript.workspace}/packages/worker-host";
+          inherit name vitestArgs;
+          packageDir = "${workspace}/packages/worker-host";
           env.IBUS_WEB_WORKER_HOST_TESTS = manifest environments;
           inBrowsers = environments != [ "node" ];
           # Vitest holds each test to its own limit.
@@ -278,11 +279,39 @@
             done
             touch $out
           '';
-      checks.worker-host-node = check "worker-host-node" [ "node" ];
-      checks.worker-host-browser = check "worker-host-browser" [
-        "chromium"
-        "firefox"
-      ];
+      checks.worker-host-node = testing.vitestCheck {
+        name = "worker-host-node";
+        packageDir = "${workspace}/packages/worker-host";
+        env = { };
+        inBrowsers = false;
+        limit = 300;
+        vitestArgs = [
+          "--config"
+          "vitest.unit.config.ts"
+        ];
+        passthru = {
+          manifest = manifest [ "node" ];
+          inherit constants;
+        };
+      };
+      checks.worker-host-browser =
+        check "worker-host-browser"
+          [ "chromium" "firefox" ]
+          [
+            "test/browser/smoke.test.ts"
+          ];
+      packages.worker-host-node-integration = check "worker-host-node-integration" [ "node" ] [ ];
+      packages.worker-host-browser-integration =
+        check "worker-host-browser-integration"
+          [ "chromium" "firefox" ]
+          [
+            "--exclude"
+            "test/browser/smoke.test.ts"
+          ];
+      ibusWeb.testing.extendedChecks = {
+        worker-host-node = config.packages.worker-host-node-integration;
+        worker-host-browser = config.packages.worker-host-browser-integration;
+      };
       checks.worker-host-side-imports = runtime.checkSideModuleImports {
         name = "worker-host-test-sides";
         modules =

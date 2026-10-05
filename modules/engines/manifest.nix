@@ -87,7 +87,9 @@
             memory=$(( ((${toString runtime.memory.minimum} + static + ${toString threads} * mib + ${toString heapBytes}) * 5 + 4 * mib - 1) / (4 * mib) * mib ))
             test "$memory" -le ${toString runtime.memory.maximum}
             abi=$(jq '.abi' ${runtime.exportList}/exports.json)
-            protocol=$(node ${../../tools/engine-manifest/protocol.ts} version ${typescript.workspace}/packages/protocol/dist/index.js)
+            protocol=$(node ${../../tools/engine-manifest/protocol.ts} version ${
+              typescript.workspaceFor [ "packages/protocol" ]
+            }/packages/protocol/dist/index.js)
             # The output identity covers the recipe and every build input,
             # including data, schema, protocol and runtime dependencies.
             identity="''${out##*/}"
@@ -97,7 +99,9 @@
               --slurpfile data data.jsonl \
               '.version += "+nix." + $identity | . + { $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data }' \
               ${description} > $out/manifest.json
-            node ${../../tools/engine-manifest/protocol.ts} check ${typescript.workspace}/packages/protocol/dist/index.js \
+            node ${../../tools/engine-manifest/protocol.ts} check ${
+              typescript.workspaceFor [ "packages/protocol" ]
+            }/packages/protocol/dist/index.js \
               $out/manifest.json ${toString runtime.memory.minimum} ${toString runtime.memory.maximum}
           '';
       checks.engine-manifest =

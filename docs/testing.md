@@ -1,9 +1,11 @@
 # Testing
 
-Every test is a flake check. `nix flake check` runs them all; one check runs on its own with
-`nix build .#checks.<system>.<name> -L` (for example `nix build .#checks.x86_64-linux.wasmfs-idb -L`).
-The checks build their programs, browsers and dependencies from the flake, run offline in the Nix
-sandbox, and pass or fail as a derivation does. CI runs `nix flake check` on x86_64-linux
+`nix flake check` runs the default correctness gates. Extended integration matrices run with
+`nix build .#integration-checks -L`; they are registered in `ibusWeb.testing.extendedChecks`.
+One default check runs with `nix build .#checks.<system>.<name> -L` (for example
+`nix build .#checks.x86_64-linux.wasmfs-idb -L`). Both tiers build their programs, browsers and
+dependencies from the flake and run offline in the Nix sandbox. CI runs separate default and
+extended jobs on x86_64-linux; master publication requires both to pass
 ([tooling.md](tooling.md#ci)).
 
 ## Frameworks
@@ -479,7 +481,28 @@ nix build .#checks.x86_64-linux.engine-manifest
 nix build .#checks.x86_64-linux.hangul-data-closure
 ```
 
-Worker-host suites run production transport behavior on asserting and released
+The default WorkerHost Node gate runs deterministic unit tests without runtime fixtures.
+The default browser gate runs eight real Worker smoke cases: `protocolRoundtrip` and
+`replySequence`, each on asserting and released runtimes in Chromium and Firefox. They prove
+startup, request/reply results and ordered protocol output without storage contention or tight
+heartbeat timing. The small real Hangul host conformance gate remains default.
+
+The full WorkerHost matrices, including storage, installation/upgrade contention, heartbeat
+liveness and stress, run explicitly:
+
+```sh
+nix build .#worker-host-node-integration .#worker-host-browser-integration -L
+# All registered extended checks, including future end-to-end matrices:
+nix build .#integration-checks -L
+```
+
+`ibusWeb.typescript.workspaceFor [ "packages/worker-host" ]` builds the host, protocol and
+test-programs workspace dependency closure using the shared offline install and build machinery.
+Source-only edits to excluded packages such as core leave WorkerHost and Hangul host checks
+cached. Manifest, lockfile and shared configuration changes still invalidate relevant inputs;
+other checks may use the complete `ibusWeb.typescript.workspace`.
+
+Worker-host integration suites run production transport behavior on asserting and released
 runtimes, under Node and Chromium/Firefox. They cover ordered `replyOutSeq`,
 doorbells, abandonment, fragment/padding boundaries, wraparound, full-ring
 waits without pumping, partial-read wake races and crash reporting.
