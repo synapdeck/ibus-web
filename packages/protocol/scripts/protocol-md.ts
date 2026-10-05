@@ -18,14 +18,24 @@ import {
   requestKinds,
   signatureOf,
 } from "../src/index.ts";
+import { RECORD_ALIGNMENT } from "../src/messages/framing.ts";
 import {
   Word,
   wordDescriptions,
   HEADER_BYTES,
   DEFAULT_SLOT_BYTES,
   DEFAULT_RING_BYTES,
+  MAX_RING_BYTES,
+  MIN_FRAGMENT_PAYLOAD_BYTES,
+  MIN_RING_BYTES,
+  RECORD_HEADER_BYTES,
 } from "../src/transport/layout.ts";
 import { framingNotes } from "./framing-notes.ts";
+
+function powerOfTwo(value: number): string {
+  const superscripts = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+  return `2${[...String(Math.log2(value))].map((digit) => superscripts[Number(digit)]).join("")}`;
+}
 
 function cell(text: string): string {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ");
@@ -111,7 +121,7 @@ export function renderProtocolMd(): string {
     `Protocol version: **${PROTOCOL_VERSION}**.`,
     ...framingNotes((text) => `\`${text}\``),
     "## Transport",
-    `Shared memory contains a ${HEADER_BYTES}-byte control header, a ${DEFAULT_SLOT_BYTES}-byte request slot and a ${DEFAULT_RING_BYTES}-byte ring by default. Slot and ring sizes are multiples of 8; the ring is a power of two of at least 64 bytes.`,
+    `Shared memory contains a ${HEADER_BYTES}-byte control header, a ${DEFAULT_SLOT_BYTES}-byte request slot and a ${DEFAULT_RING_BYTES}-byte ring by default. Slot and ring sizes are multiples of ${RECORD_ALIGNMENT}; the ring is a power of two from ${MIN_RING_BYTES} to ${powerOfTwo(MAX_RING_BYTES)} bytes.`,
     table(
       ["Index", "Word", "Written by", "Meaning"],
       Object.entries(Word).map(([name, index]) => {
@@ -119,8 +129,8 @@ export function renderProtocolMd(): string {
         return [String(index), `\`${name}\``, field.writer, field.description];
       }),
     ),
-    "Ring counters count bytes modulo 2³²; free space is ringBytes minus the unsigned difference of ringWrite and ringRead. Bytes are published before ringWrite advances. Records have a 16-byte header and zero padding to multiples of 8 and never wrap. A tail shorter than 16 bytes is skipped; otherwise a padding record fills an unusable tail (kind, seq, ic and flags zero; len equals tail bytes minus 16). Kind 0 is reserved in both directions.",
-    "When a record exceeds available space, the writer emits the largest fitting fragment with at least 8 payload bytes. All fragments share seq, ic and kind and remain consecutive, apart from padding. CONTINUATION is set on every fragment except the last. The reader concatenates payloads and returns one framed record with flags zero. On full, resume with the same immutable record; needBytes is the minimum free space needed for progress, including a required tail skip. After consuming bytes the reader clears ringWaiting and bumps and notifies wake if a writer was waiting.",
+    `Ring counters count bytes modulo 2³²; free space is ringBytes minus the unsigned difference of ringWrite and ringRead. Bytes are published before ringWrite advances. Records have a ${RECORD_HEADER_BYTES}-byte header and zero padding to multiples of ${RECORD_ALIGNMENT} and never wrap. A tail shorter than ${RECORD_HEADER_BYTES} bytes is skipped; otherwise a padding record fills an unusable tail (kind, seq, ic and flags zero; len equals tail bytes minus ${RECORD_HEADER_BYTES}). Kind 0 is reserved in both directions.`,
+    `When a record exceeds the free space, the writer emits the largest fragment that fits in it. Every fragment but the last carries CONTINUATION and at least ${MIN_FRAGMENT_PAYLOAD_BYTES} payload bytes, a multiple of ${RECORD_ALIGNMENT}; the last carries flags zero and the rest of the payload, which may be shorter. The writer never shortens a fragment to fit before the ring's end: it pads to the end and writes the fragment at the start. All fragments share seq, ic and kind and remain consecutive, apart from padding. The reader concatenates payloads and returns one framed record with flags zero. On full, resume with the same immutable record; needBytes is the minimum free space needed for progress, including a required tail skip. After consuming bytes the reader clears ringWaiting and bumps and notifies wake if a writer was waiting.`,
     "Host records use seq and ic zero and do not advance replyOutSeq. Runtime sequences skip zero on wrap. The control state is authoritative for crashes; Crashed is a best-effort host record.",
     renderHeader("Request", framing.request),
     renderHeader("Record", framing.record),

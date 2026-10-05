@@ -3,6 +3,14 @@
 import { describe, expect, it } from "vitest";
 import { renderProtocolMd } from "../../scripts/protocol-md.ts";
 import { Request, OutputRecord, requestKinds, recordKinds, signatureOf } from "../../src/index.ts";
+import { RECORD_ALIGNMENT } from "../../src/messages/framing.ts";
+import {
+  HEADER_BYTES,
+  MAX_RING_BYTES,
+  MIN_FRAGMENT_PAYLOAD_BYTES,
+  MIN_RING_BYTES,
+  RECORD_HEADER_BYTES,
+} from "../../src/transport/layout.ts";
 
 describe("protocol document", () => {
   it("documents licensing, framing, every message and serializable", () => {
@@ -77,4 +85,24 @@ it("documents transport layout, control words and ring rules", () => {
   expect(document).toContain("| 10 | `reqMode` | both |");
   for (const term of ["65536", "262144", "CONTINUATION", "padding record", "modulo 2³²"])
     expect(document).toContain(term);
+});
+
+it("states the transport's sizes from the layout's constants", () => {
+  const document = renderProtocolMd();
+  expect(document).toContain(`a ${HEADER_BYTES}-byte control header`);
+  expect(document).toContain(`Slot and ring sizes are multiples of ${RECORD_ALIGNMENT}`);
+  expect(document).toContain(`from ${MIN_RING_BYTES} to 2³¹ bytes`);
+  expect(MAX_RING_BYTES).toBe(2 ** 31);
+  expect(document).toContain(`Records have a ${RECORD_HEADER_BYTES}-byte header`);
+  expect(document).toContain(`A tail shorter than ${RECORD_HEADER_BYTES} bytes is skipped`);
+});
+
+it("describes fragment sizes and padding before the ring's end", () => {
+  const document = renderProtocolMd();
+  expect(document).toContain(
+    `Every fragment but the last carries CONTINUATION and at least ${MIN_FRAGMENT_PAYLOAD_BYTES} payload bytes, a multiple of ${RECORD_ALIGNMENT}; the last carries flags zero and the rest of the payload, which may be shorter.`,
+  );
+  expect(document).toContain(
+    "The writer never shortens a fragment to fit before the ring's end: it pads to the end and writes the fragment at the start.",
+  );
 });

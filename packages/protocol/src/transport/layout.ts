@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+import { RECORD_ALIGNMENT } from "../messages/framing.ts";
 export const Word = {
   state: 0,
   reqSeq: 1,
@@ -16,6 +17,13 @@ export const Word = {
 export const State = { idle: 0, request: 1, reply: 2, crashed: 3 } as const;
 export const ReqMode = { sync: 0, async: 1, abandoned: 2 } as const;
 export const HEADER_BYTES = 64;
+export const RECORD_HEADER_BYTES = 16;
+// A non-final fragment's payload must keep the next fragment aligned and must make progress.
+export const MIN_FRAGMENT_PAYLOAD_BYTES = RECORD_ALIGNMENT;
+export const MIN_RING_BYTES = 64;
+// The ring must divide the byte counters' 2³² wrap and be smaller than it, or a full ring would read
+// as empty.
+export const MAX_RING_BYTES = 2 ** 31;
 export const DEFAULT_SLOT_BYTES = 65536;
 export const DEFAULT_RING_BYTES = 262144;
 export const wordDescriptions: Record<keyof typeof Word, { writer: string; description: string }> = {
@@ -46,15 +54,15 @@ export interface TransportViews {
 export function transportLayout(options: { slotBytes?: number; ringBytes?: number } = {}): TransportLayout {
   const slotBytes = options.slotBytes ?? DEFAULT_SLOT_BYTES;
   const ringBytes = options.ringBytes ?? DEFAULT_RING_BYTES;
-  if (!Number.isSafeInteger(slotBytes) || slotBytes <= 0 || slotBytes % 8 !== 0)
-    throw new RangeError("Slot size must be a positive multiple of 8");
+  if (!Number.isSafeInteger(slotBytes) || slotBytes <= 0 || slotBytes % RECORD_ALIGNMENT !== 0)
+    throw new RangeError(`Slot size must be a positive multiple of ${RECORD_ALIGNMENT}`);
   if (
     !Number.isSafeInteger(ringBytes) ||
-    ringBytes < 64 ||
-    ringBytes > 2 ** 31 ||
+    ringBytes < MIN_RING_BYTES ||
+    ringBytes > MAX_RING_BYTES ||
     !Number.isInteger(Math.log2(ringBytes))
   )
-    throw new RangeError("Ring size must be a power of two from 64 to 2³¹ bytes");
+    throw new RangeError(`Ring size must be a power of two from ${MIN_RING_BYTES} to ${MAX_RING_BYTES} bytes`);
   const totalBytes = HEADER_BYTES + slotBytes + ringBytes;
   if (!Number.isSafeInteger(totalBytes)) throw new RangeError("Transport size exceeds safe integer range");
   return { slotBytes, ringBytes, totalBytes, slotOffset: HEADER_BYTES, ringOffset: HEADER_BYTES + slotBytes };
