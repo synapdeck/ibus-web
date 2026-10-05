@@ -76,6 +76,8 @@ struct _IBusWebInstall {
   /* Regular files written whole, and the bytes written. */
   uint32_t files;
   uint64_t bytes;
+  uint64_t limit;
+  gboolean started;
 };
 
 static int fail(IBusWebInstall *install, int error) {
@@ -270,6 +272,8 @@ static int take_header(IBusWebInstall *install) {
 
   if (rel[0] == '\0')
     return -EINVAL;
+  if (size > install->limit - install->bytes)
+    return -EFBIG;
   int ret = ensure_parents(install, rel);
   if (ret != 0)
     return ret;
@@ -313,7 +317,15 @@ int ibusweb_install_begin(const char *dir, IBusWebInstall **out) {
   install->dir = g_strdup(dir);
   install->state = STATE_HEADER;
   install->fd = -1;
+  install->limit = UINT64_MAX;
   *out = install;
+  return 0;
+}
+
+int ibusweb_install_set_limit(IBusWebInstall *install, uint64_t bytes) {
+  if (install == NULL || install->started)
+    return -EINVAL;
+  install->limit = bytes;
   return 0;
 }
 
@@ -321,6 +333,7 @@ int ibusweb_install_feed(IBusWebInstall *install, const uint8_t *data,
                          uint32_t len) {
   if (install == NULL)
     return -EINVAL;
+  install->started = TRUE;
   if (install->state == STATE_FAILED)
     return install->error;
   if (data == NULL && len > 0)

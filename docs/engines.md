@@ -44,7 +44,7 @@ the host sets `GSETTINGS_SCHEMA_DIR` before Init, GLib's first lookup.
 
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`,
 `heapBytes`, `settingsSchemaDir`, `engines` and `settingsSchemas`. It derives
-version and license from the package, runtime ABI and protocol from the build,
+license and the upstream version from the package, runtime ABI and protocol from the build,
 and static memory from the module's `dylink.0` section. Build:
 
 ```sh
@@ -72,6 +72,17 @@ type EngineManifest = {
 };
 ```
 
+`version` is an immutable distribution identity: `<upstream-version>+nix.<output-hash>`.
+The hash comes from the distribution's Nix output path, covering its build
+recipe and inputs, including the module, data/schema closure, runtime,
+protocol and manifest metadata. Identical builds retain the identity;
+rebuilds with changed inputs receive a different one even when the upstream
+version is unchanged. This is a Nix build identity, not a digest computed
+from the archive bytes. Hosts use the entire version for data-cache and
+installation-lock namespaces, so a new build can install while an older
+host continues reading its own closure. Manually authored manifests must
+likewise change version whenever their distribution changes.
+
 `memory` is bytes in whole 64 KiB pages within the runtime bounds; `threads`
 is a nonnegative engine pool share. `settingsSchemaDir` must be inside a
 unique data store path. The host validates the manifest before allocating
@@ -91,10 +102,18 @@ storage threads belong to the runtime's storage share.
 
 Each archive is deterministic POSIX ustar with entries relative to its store
 path, Brotli quality 11 and the standard window (no `--large_window`). `size`
-counts unpacked regular-file bytes, which the installer verifies. Serve
+counts unpacked regular-file bytes. Before creating or sizing each regular
+file, the extractor rejects a member that would exceed the remaining declared
+budget. The host also requires exact equality after extraction before writing
+the installed marker. A mismatch is an ordinary installation refusal; a
+corrected retry reinstalls. This limit excludes tar headers/padding, decoder
+buffers and filesystem metadata, so it is not a total-memory or quota bound. Serve
 `.tar.br` as opaque bytes, **without `Content-Encoding: br`**: fetch must
 not decompress it before the host. `encoding: "identity"` supports plain
 ustar fixtures.
+
+Relative module/archive URLs in a fetched manifest resolve against the final
+response URL after redirects. Inline manifests retain the caller's URLs.
 
 The host constructs `DecompressionStream("brotli")` to detect native support.
 Otherwise it lazily imports a separate `brotli-dec-wasm` streaming decoder

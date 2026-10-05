@@ -705,6 +705,14 @@ type EngineManifest = {
 is a nonnegative integer. `runtimeAbi` must match `IBUSWEB_RUNTIME_ABI` and
 `protocol` must match `PROTOCOL_VERSION`; mismatches fail startup before
 runtime initialization. Full library ABI identity remains pending (§5.3).
+Distribution `version` is `<upstream-version>+nix.<output-hash>`: the Nix
+distribution output identity covers its recipe and inputs, including the
+runtime, protocol, module, schema/data closure and manifest metadata. The
+same build retains its version; changed inputs get a distinct data-cache and
+lock namespace even when the upstream version is unchanged. This is a Nix
+build identity, not a hash computed from the final archive bytes. Authored
+manifests must also change version when their distribution changes.
+
 Module `size` is fetched byte length; data `size` is unpacked regular-file
 bytes. Data paths are unique `/nix/store/<hash>-<name>` roots, and
 `settingsSchemaDir` must lie inside one. `heapBytes` is build/check metadata.
@@ -989,7 +997,7 @@ its own loggers with engine and domain annotations (§7.4).
   external WASM fetch. Plain ustar with `encoding: "identity"` serves test
   fixtures. Decompressed bytes are re-cut into at most 64 KiB pieces and
   passed to the bounded C extractor in `libibus-web`
-  (`ibusweb_install_begin`, `_feed`, `_end`, and `_count`, the files and
+  (`ibusweb_install_begin`, `_set_limit`, `_feed`, `_end`, and `_count`, the files and
   bytes written) that writes through the mounted file system, so the stored
   layout has one writer. It takes regular files and directories only,
   refuses absolute paths and `..` with `EINVAL`, gives every entry the
@@ -999,7 +1007,13 @@ its own loggers with engine and domain annotations (§7.4).
   `fsync()`s each file it writes. Each archive lands under the
   data mount at its manifest entry's `storePath`. The extractor uses `tar.h`
   constants and an explicitly checked ustar header layout. The host checks
-  the unpacked regular-file byte count against manifest `size`.
+  the unpacked regular-file byte count against manifest `size` before marking
+  the install complete. Before the first feed, it sets the extractor's uint64
+  limit from `size` (a JavaScript `bigint` at the WASM boundary). Each regular
+  member is refused with `-EFBIG` before creating/sizing its file if it exceeds
+  the remaining budget. Metadata, tar padding and decoder buffers are outside
+  this limit; it is not a total-memory or quota bound. Low-level callers that
+  omit `_set_limit` retain the unlimited default.
 - **A database per version.** Each version's data is a database of its own,
   `ibus-web/<name>/data/<version>`, apart from the engine's own files
   (`ibus-web/<name>`) and from every other version, so installing one never

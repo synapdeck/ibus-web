@@ -381,6 +381,55 @@ static char *read_file(const char *dir, const char *rel) {
 
 /* A size field that checksums but isn't octal, or is GNU's base-256, fails
  * the install before its member is made. */
+/* Reject at the header, before even creating the oversized member. */
+static void test_size_limit(void) {
+  const Member members[] = {
+      {.name = "ok", .type = '0', .mode = 0644, .data = "abc"},
+      {.name = "too-large/file",
+       .type = '0',
+       .mode = 0644,
+       .size_field = (const uint8_t *)"77777777777"},
+  };
+  g_autoptr(GByteArray) tar = g_byte_array_new();
+  add_member(tar, &members[0]);
+  add_member(tar, &members[1]);
+  for (uint64_t limit = 0; limit <= 3; limit += 3) {
+    g_autofree char *dir = fresh_dir();
+    IBusWebInstall *install = NULL;
+    g_assert_cmpint(ibusweb_install_begin(dir, &install), ==, 0);
+    g_assert_cmpint(ibusweb_install_set_limit(install, limit), ==, 0);
+    g_assert_cmpint(feed(install, tar->data, tar->len, 7), ==, -EFBIG);
+    uint32_t files;
+    uint64_t bytes;
+    ibusweb_install_count(install, &files, &bytes);
+    g_assert_cmpuint(files, ==, limit == 0 ? 0 : 1);
+    g_assert_cmpuint(bytes, ==, limit);
+    g_assert_cmpint(ibusweb_install_end(install), ==, -EFBIG);
+    g_autofree char *large = g_build_filename(dir, "too-large", NULL);
+    g_assert_false(exists(large));
+  }
+}
+
+static void test_limit_exact_and_zero(void) {
+  for (uint64_t size = 0; size <= 3; size += 3) {
+    g_autoptr(GByteArray) tar = g_byte_array_new();
+    const Member member = {.name = "file",
+                           .type = '0',
+                           .mode = 0644,
+                           .data = size == 0 ? "" : "abc"};
+    add_member(tar, &member);
+    static const uint8_t end[2 * BLOCK];
+    g_byte_array_append(tar, end, sizeof(end));
+    g_autofree char *dir = fresh_dir();
+    IBusWebInstall *install = NULL;
+    g_assert_cmpint(ibusweb_install_begin(dir, &install), ==, 0);
+    g_assert_cmpint(ibusweb_install_set_limit(install, size), ==, 0);
+    g_assert_cmpint(feed(install, tar->data, tar->len, 1), ==, 0);
+    g_assert_cmpint(ibusweb_install_set_limit(install, size), ==, -EINVAL);
+    g_assert_cmpint(ibusweb_install_end(install), ==, 0);
+  }
+}
+
 static void test_size_fields(void) {
   static const uint8_t not_octal[12] = "0000000001a";
   static const uint8_t base256[12] = {0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5};
@@ -598,6 +647,8 @@ int main(int argc, char **argv) {
       {"hardlink.tar", "hard"},
       {"fifo.tar", "fifo"},
   };
+  g_test_add_func("/install/size-limit", test_size_limit);
+  g_test_add_func("/install/limit-exact-and-zero", test_limit_exact_and_zero);
   g_test_add_func("/install/whole", test_whole);
   g_test_add_func("/install/count", test_count);
   g_test_add_func("/install/pieces", test_pieces);

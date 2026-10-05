@@ -49,6 +49,7 @@ const installArchive = async (
   url: string,
   dir: string,
   encoding: "br" | "identity",
+  expectedBytes: number,
   tally: Tally,
   hooks: ArchiveHooks,
 ): Promise<void> => {
@@ -59,7 +60,6 @@ const installArchive = async (
     clearTimeout(timer);
     timer = setTimeout(() => idle.abort(new Error(`nothing arrived for ${hooks.idleMs} ms`)), hooks.idleMs);
   };
-  arrived();
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let install = 0;
   let done = false;
@@ -67,15 +67,12 @@ const installArchive = async (
   // is freed or ended after one.
   let intact = true;
   // The install's handle, then its count: files, then bytes as a uint64.
-  const out = alloc(handle, 16);
-  let piece: number;
+  let out = 0;
+  let piece = 0;
   try {
+    out = alloc(handle, 16);
     piece = alloc(handle, INSTALL_PIECE);
-  } catch (error) {
-    handle.rt._free(out);
-    throw error;
-  }
-  try {
+    arrived();
     const response = await outside(`fetch ${url}`, fetch(url, { signal: idle.signal }));
     if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
     reader = decompressed(response.body, encoding, hooks.forceBrotliFallback).getReader();
@@ -85,6 +82,7 @@ const installArchive = async (
       withString(handle, dir, (ptr) => rt._ibusweb_install_begin(ptr, out)),
     );
     install = handle.words[out / 4]! >>> 0;
+    check(`install ${url} size limit`, rt._ibusweb_install_set_limit(install, BigInt(expectedBytes)));
     for (;;) {
       const next = await outside(`fetch ${url}`, reader.read());
       if (next.done) break;
@@ -113,6 +111,8 @@ const installArchive = async (
     const ended = rt._ibusweb_install_end(install);
     install = 0;
     check(`install ${url}`, ended);
+    if (bytes !== expectedBytes)
+      throw new RuntimeRefused(`install ${url} size: expected ${expectedBytes} regular-file bytes, got ${bytes}`);
     tally.files += files;
     tally.bytes += bytes;
   } catch (error) {
@@ -122,8 +122,8 @@ const installArchive = async (
     clearTimeout(timer);
     if (intact) {
       if (install !== 0) rt._ibusweb_install_end(install);
-      rt._free(piece);
-      rt._free(out);
+      if (piece !== 0) rt._free(piece);
+      if (out !== 0) rt._free(out);
     }
     if (reader !== undefined && !done) reader.cancel().catch(() => {});
   }
@@ -137,6 +137,6 @@ export const installArchives = async (
 ): Promise<Tally> => {
   const tally: Tally = { fed: 0, files: 0, bytes: 0 };
   for (const data of engine.data)
-    await installArchive(handle, data.url, engineDataDir(engine, data), data.encoding, tally, hooks);
+    await installArchive(handle, data.url, engineDataDir(engine, data), data.encoding, data.size, tally, hooks);
   return tally;
 };

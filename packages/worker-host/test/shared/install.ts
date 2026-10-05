@@ -640,3 +640,60 @@ export const installBrokenBrotli = (
     await expectTree(h, next.client, engine, h.data.archives.tree);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
   });
+
+export const installSizeMismatch = (
+  h: Harness,
+  runtime: RuntimeBuild,
+  encoding: "identity" | "br",
+  delta: number,
+): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = engineFor(h, `install-size-${encoding}-${delta}`, runtime);
+    const actual = engine.data[0]!.size;
+    const changed = {
+      ...engine,
+      data: engine.data.map((entry, index) =>
+        index === 0
+          ? {
+              ...entry,
+              size: delta === 0 ? 0 : actual + delta,
+              encoding,
+              url: encoding === "br" ? `${entry.url}.br` : entry.url,
+            }
+          : entry,
+      ),
+    };
+    const failed = launch(changed);
+    await expect(failed.ready).rejects.toThrow(/install .*size|install .*: -/);
+    expect(installOf(failed.messages)).toBeUndefined();
+    for (const lock of engineLocks(engine)) await expectFreed(h, lock);
+    const corrected = await launch(engine).ready;
+    expectInstall(h, corrected.messages, "installed", h.data.archives.tree);
+    await expectTree(h, corrected.client, engine, h.data.archives.tree);
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
+  });
+
+export const rebuiltDistributionWhileRunning = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const name = `rebuilt-${runtime.name}-${Math.random()}`;
+    const oldEngine = { ...h.data.engines.empty, name };
+    const newEngine = { ...h.data.engines.rebuilt, name };
+    expect(oldEngine.version.split("+nix.")[0]).toBe(newEngine.version.split("+nix.")[0]);
+    expect(oldEngine.settingsSchemaDir).not.toBe(newEngine.settingsSchemaDir);
+    const old = await launch(oldEngine).ready;
+    const readSchema = async (host: RunningHost, engine: EngineManifest) =>
+      replyFile(await host.client.call(opsOf(h).listTree, encoder.encode(engine.settingsSchemaDir)));
+    const oldSchema = await readSchema(old, oldEngine);
+    expect(oldSchema.status).toBeGreaterThanOrEqual(0);
+    expect(oldSchema.text).toContain("gschemas.compiled");
+    const rebuilt = await launch(newEngine).ready;
+    expect(installOf(rebuilt.messages)?.state).toBe("installed");
+    expect(engineDataDatabase(oldEngine)).not.toBe(engineDataDatabase(newEngine));
+    expect(engineInstallLock(oldEngine)).not.toBe(engineInstallLock(newEngine));
+    expect((await readSchema(rebuilt, newEngine)).text).toContain("gschemas.compiled");
+    expect(await readSchema(old, oldEngine)).toEqual(oldSchema);
+    expect(collectOf(rebuilt.messages)).toEqual({ removed: [], inUse: [encodeComponent(oldEngine.version)] });
+    const sameBuild = await launch(newEngine).ready;
+    expect(installOf(sameBuild.messages)?.state).toBe("present");
+    expect(await readSchema(old, oldEngine)).toEqual(oldSchema);
+  });

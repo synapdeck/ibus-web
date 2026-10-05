@@ -43,7 +43,7 @@ export interface TestArchive {
 // What Vitest's configuration provides each environment's tests, with
 // locations as that environment loads them.
 export interface TestData {
-  engines: Record<"echo" | "thrower" | "empty", EngineManifest>;
+  engines: Record<"echo" | "thrower" | "empty" | "rebuilt", EngineManifest>;
   echoData: string;
   schemaFiles: number;
   runtimes: RuntimeBuild[];

@@ -182,6 +182,15 @@ typedef struct _IBusWebInstall IBusWebInstall;
  * -ENOMEM. */
 IBUSWEB_API int ibusweb_install_begin(const char *dir, IBusWebInstall **out);
 
+/* Caps the cumulative regular-file bytes. Call before the first feed;
+ * otherwise returns -EINVAL. The default is UINT64_MAX. A member exceeding
+ * the remaining budget fails feed with -EFBIG before creating its parents
+ * or opening/sizing the file. Headers, padding and filesystem metadata do
+ * not count toward this limit; the caller checks the final count for exact
+ * equality when the declaration is also an expected size. */
+IBUSWEB_API int ibusweb_install_set_limit(IBusWebInstall *install,
+                                          uint64_t bytes);
+
 /* Feeds the next `len` bytes of the archive; returns 0 or a negative errno.
  * Once a feed has failed, every later one fails the same way; NULL data with
  * a length fails it with -EINVAL. Bytes after the end-of-archive blocks are

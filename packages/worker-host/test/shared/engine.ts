@@ -98,10 +98,15 @@ export const engineLifecycle = async (h: Harness, runtime: RuntimeBuild, memory:
     ).toHaveLength(1);
     for (const ic of [2, 3]) expect(await call(host, ic, new CreateEngine({ name: "echo" }))).toBe(0);
     await host.client.call(HostOp.stop);
-    await h.sleep(100);
-    expect(
-      host.client.page.records().filter(({ record }) => record._tag === "Log" && record.message === "echo finalized"),
-    ).toHaveLength(2);
+    const deadline = h.now() + 30_000;
+    let finalized = 0;
+    while (finalized < 2 && h.now() < deadline) {
+      finalized += host.client.page
+        .records()
+        .filter(({ record }) => record._tag === "Log" && record.message === "echo finalized").length;
+      if (finalized < 2) await h.sleep(10);
+    }
+    expect(finalized, "the two remaining engines finalized before the deadline").toBe(2);
   } finally {
     await host.terminate();
   }

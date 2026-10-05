@@ -41,7 +41,7 @@ interface Manifest {
   constants: string;
   errno: string;
   archives: string;
-  engines: Record<"echo" | "thrower" | "empty", string>;
+  engines: Record<"echo" | "thrower" | "empty" | "rebuilt", string>;
   echoData: string;
   schemas: string;
   pool: TestData["pool"];
@@ -100,7 +100,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   copyFileSync(join(dist, "worker/index.js"), join(failing, "index.js"));
   copyFileSync(join(dist, "worker/brotli-fallback.js"), join(failing, "brotli-fallback.js"));
   copyFileSync(join(dist, "test/worker/failing-relay.js"), join(failing, "relay.js"));
-  type EngineName = "echo" | "thrower" | "empty";
+  type EngineName = "echo" | "thrower" | "empty" | "rebuilt";
   const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): EngineManifest => {
     const engine = readJson<EngineManifest>(join(manifest.engines[name], "manifest.json"));
     return {
@@ -111,7 +111,17 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   };
   const testData = (
     url: (
-      dir: "asserting" | "released" | "sides" | "dist" | "failing" | "archives" | "echo" | "thrower" | "empty",
+      dir:
+        | "asserting"
+        | "released"
+        | "sides"
+        | "dist"
+        | "failing"
+        | "archives"
+        | "echo"
+        | "thrower"
+        | "empty"
+        | "rebuilt",
       file: string,
     ) => string,
   ): TestData => ({
@@ -119,6 +129,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       echo: engineManifest("echo", url),
       thrower: engineManifest("thrower", url),
       empty: engineManifest("empty", url),
+      rebuilt: engineManifest("rebuilt", url),
     },
     echoData: manifest.echoData,
     schemaFiles: readdirSync(manifest.schemas, { recursive: true, withFileTypes: true }).filter((entry) =>
@@ -177,7 +188,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
                 },
               }),
           workerHost: testData((dir, file) =>
-            dir === "archives" || dir === "echo" || dir === "thrower" || dir === "empty"
+            dir === "archives" || dir === "echo" || dir === "thrower" || dir === "empty" || dir === "rebuilt"
               ? `${nodeOrigin}${prefix}${dir}/${file}`
               : pathToFileURL(join(dirs[dir], file)).href,
           ),

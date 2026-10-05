@@ -49,6 +49,7 @@ import {
   installConcurrent,
   installedInMemory,
   installFresh,
+  installSizeMismatch,
   installBrotli,
   installBrokenBrotli,
   installInterrupted,
@@ -59,6 +60,7 @@ import {
   interruptedUpgradeThenOld,
   staleFile,
   upgradeWhileRunning,
+  rebuiltDistributionWhileRunning,
   waitFailsWithoutProgress,
   waitOutlivesLimit,
 } from "../shared/install.ts";
@@ -181,6 +183,9 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
 
 describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => {
   test("install-fresh", () => installFresh(h, runtime));
+  for (const encoding of ["identity", "br"] as const)
+    for (const delta of [-1, 0, 1])
+      test(`install-size-${encoding}-${delta}`, () => installSizeMismatch(h, runtime, encoding, delta));
   for (const fallback of [false, true]) {
     test(`install-brotli-${fallback}`, () => installBrotli(h, runtime, fallback));
     for (const kind of ["corrupt", "truncated"] as const)
@@ -192,6 +197,7 @@ describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => 
   test("install-interrupted-queued", () => installInterruptedQueued(h, runtime));
   test("install-interrupted-stray", () => installInterruptedStray(h, runtime));
   test("install-torn-marker", () => installTornMarker(h, runtime));
+  test("rebuilt-distribution-while-running", () => rebuiltDistributionWhileRunning(h, runtime));
   test("upgrade-while-running", () => upgradeWhileRunning(h, runtime));
   test("interrupted-upgrade-then-old", () => interruptedUpgradeThenOld(h, runtime));
   test("stale-file", () => staleFile(h, runtime));

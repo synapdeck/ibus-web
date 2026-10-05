@@ -37,6 +37,7 @@ export interface Runtime {
   _ibusweb_output_consume(length: number): void;
   _ibusweb_output_last_seq(): number;
   _ibusweb_install_begin(dir: number, installOut: number): number;
+  _ibusweb_install_set_limit(install: number, bytes: bigint): number;
   _ibusweb_install_feed(install: number, data: number, len: number): number;
   _ibusweb_install_count(install: number, files: number, bytes: number): void;
   _ibusweb_install_end(install: number): number;
@@ -98,6 +99,7 @@ export const checkMemory = (
 export const requireRuntime = (rt: Runtime): void => {
   const pool = (rt as Partial<Runtime>).PThread as Partial<EmscriptenPool> | undefined;
   const missing = [
+    ...(typeof rt._ibusweb_install_set_limit === "function" ? [] : ["ibusweb_install_set_limit"]),
     ...(rt.HEAPU8 instanceof Uint8Array ? [] : ["HEAPU8"]),
     ...(Array.isArray(pool?.unusedWorkers) ? [] : ["PThread.unusedWorkers"]),
     ...(typeof pool?.allocateUnusedWorker === "function" ? [] : ["PThread.allocateUnusedWorker"]),

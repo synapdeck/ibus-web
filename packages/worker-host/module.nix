@@ -65,8 +65,8 @@
             "$compiler" --strict $out/share/glib-2.0/schemas
           '';
       settingsSchemaDir = "${schemas}/share/glib-2.0/schemas";
-      engineSide =
-        name: source:
+      engineSideWithSchemas =
+        schemaDir: name: source:
         let
           side =
             (runtime.mkSideModule {
@@ -75,7 +75,7 @@
               sources = [ source ];
             }).overrideAttrs
               {
-                NIX_CFLAGS_COMPILE = ''-I${runtime.libibusWeb}/include/ibus-1.0 -DECHO_DATA="${echoData}/share/echo/data.txt" -DECHO_SCHEMAS="${settingsSchemaDir}"'';
+                NIX_CFLAGS_COMPILE = ''-I${runtime.libibusWeb}/include/ibus-1.0 -DECHO_DATA="${echoData}/share/echo/data.txt" -DECHO_SCHEMAS="${schemaDir}"'';
               };
         in
         pkgs.runCommand "worker-host-${name}"
@@ -87,6 +87,11 @@
             mkdir $out
             cp ${side}/${name}.wasm $out/
           '';
+      engineSide = engineSideWithSchemas settingsSchemaDir;
+      rebuiltSchemas = schemas.overrideAttrs (old: {
+        buildCommand = old.buildCommand + "\necho rebuilt > $out/build.txt\n";
+      });
+      rebuiltSchemaDir = "${rebuiltSchemas}/share/glib-2.0/schemas";
       engineSides = {
         echo = engineSide "echo" "engine.c";
         thrower = engineSide "thrower" "engine-throw.cpp";
@@ -105,6 +110,18 @@
           ];
         }
       ) engineSides;
+      rebuiltDist = engines.mkEngineManifest {
+        name = "empty";
+        package = engineSideWithSchemas rebuiltSchemaDir "empty" "engine-empty.c";
+        settingsSchemaDir = rebuiltSchemaDir;
+        threads = engineThreads;
+        heapBytes = 1024 * 1024;
+        engines = [ ];
+        settingsSchemas = [
+          "org.example.echo"
+          "org.freedesktop.ibus.panel"
+        ];
+      };
       sidesDir = pkgs.runCommand "ibus-web-worker-host-test-sides" { } ''
         mkdir $out
         ln -s ${toString (map (side: side.wasm) sides)} $out/
@@ -156,7 +173,7 @@
               released = "${runtime.ibusRuntime}";
             };
             sides = "${sidesDir}";
-            engines = lib.mapAttrs (_: dist: "${dist}") engineDists;
+            engines = lib.mapAttrs (_: dist: "${dist}") (engineDists // { rebuilt = rebuiltDist; });
             echoData = "${echoData}/share/echo/data.txt";
             schemas = "${schemas}";
             constants = "${constants}/constants.json";
@@ -211,6 +228,22 @@
         "-I${runtime.wasmfsIdb}/include"
       ];
 
+      checks.engine-distribution-identity =
+        pkgs.runCommand "engine-distribution-identity" { nativeBuildInputs = [ pkgs.jq ]; }
+          ''
+            base=$(jq -r .version ${engineDists.empty}/manifest.json)
+            test "$base" = "${runtime.libibusWeb.version}+nix.${
+              builtins.substring 0 32 (builtins.baseNameOf (toString engineDists.empty))
+            }"
+            for dist in ${rebuiltDist} ${
+              engineDists.empty.overrideAttrs (old: {
+                buildCommand = old.buildCommand + "\n# A changed packaging recipe.\n";
+              })
+            } ${engineDists.empty.overrideAttrs { runtimeBuild = runtime.ibusRuntimeAsserting; }}; do
+              test "$(jq -r .version "$dist/manifest.json")" != "$base"
+            done
+            touch $out
+          '';
       checks.worker-host-node = check "worker-host-node" [ "node" ];
       checks.worker-host-browser = check "worker-host-browser" [
         "chromium"

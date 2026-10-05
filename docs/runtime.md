@@ -172,7 +172,7 @@ values, as Emscripten's libc numbers them.
 | `ibusweb_output_peek(len)`                                             | The buffered whole records, in sequence order; the pointer is valid until the next runtime call. Pumping thread only.                                                                                          |
 | `ibusweb_output_consume(len)`                                          | Drops `len` bytes of records from the front; a length not on a record boundary logs a critical and drops nothing. Pumping thread only.                                                                         |
 | `ibusweb_output_last_seq()`                                            | The last appended sequence number, zero before any record.                                                                                                                                                     |
-| `ibusweb_install_begin/feed/count/end`                                 | A streaming ustar extractor that installs an engine's data through the file system; see [storage.md](storage.md#installing).                                                                                   |
+| `ibusweb_install_begin/set_limit/feed/count/end`                       | A streaming ustar extractor that installs an engine's data through the file system; see [storage.md](storage.md#installing).                                                                                   |
 
 `ibusweb_module_init(IBusWebModule *)` is the entry point every side module
 defines; the export list's check expects it to be defined by side modules,
@@ -542,7 +542,8 @@ threads:
 
 The runtime links `-sPTHREAD_POOL_SIZE=8+Module["ibuswebEngineThreads"]`;
 Nix derives the base from runtime shares, and the host supplies the manifest's
-`threads`. The runtime refuses startup without that setting. The engine share
+`threads`. The host refuses a manifest without `threads` and always passes
+`ibuswebEngineThreads`; raw runtime creation does not require this setting. The engine share
 is no longer a member of `ibusWeb.runtime.threadPool.shares`. Historical pool
 measurements below used the stated synthetic test-engine shares.
 

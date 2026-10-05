@@ -480,7 +480,7 @@ separate decoder script. Native support avoids loading that script. Plain
 ustar (`encoding: "identity"`) remains available for fixtures. Serve the
 archives without `Content-Encoding: br` to avoid fetch decoding them twice.
 Decompressed bytes are re-cut into at most 64 KiB pieces and streamed into `libibus-web`'s
-`ibusweb_install_begin`, `_feed`, `_count` and `_end`, which write through
+`ibusweb_install_begin`, `_set_limit`, `_feed`, `_count` and `_end`, which write through
 the mounted file system, so the stored layout has one writer. The host
 feeds it through a 64 KiB buffer in the runtime's memory. It takes regular
 files and directories only; links, devices, FIFOs, extended headers,
@@ -493,6 +493,16 @@ written, so a file in memory is allocated once, and `fsync()`ed once
 written. Each archive lands under the data mount at its manifest entry's
 `storePath`. The bounded C parser uses standard `tar.h` constants and an
 explicitly size/offset-checked ustar header layout.
+
+The streaming extractor's optional `ibusweb_install_set_limit(install, bytes)`
+sets a uint64 regular-file byte budget before the first feed. The host always
+sets it from the manifest, passing a JavaScript `bigint` across the WASM i64
+boundary; older low-level callers of `ibusweb_install_begin` retain an
+unlimited default. Feed returns `-EFBIG` before creating or sizing a member
+that exceeds the remaining budget. The host checks final count equality
+before persisting the installed marker. Metadata and decompressor buffers
+are outside this budget. This additive export preserves the existing C ABI;
+the host checks that the runtime provides it before startup continues.
 
 **Waiting and progress.** A host waiting for the data or install lock gives
 up, failing its start, after 120 s without word from the holder. The

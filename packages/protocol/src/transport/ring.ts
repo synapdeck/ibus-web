@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { PADDING_KIND, RECORD_CONTINUATION } from "../messages/framing.ts";
+import { PADDING_KIND, RECORD_ALIGNMENT, RECORD_CONTINUATION } from "../messages/framing.ts";
 import { Word, type TransportLayout, type TransportViews } from "./layout.ts";
 const HEADER_SIZE = 16;
-const alignedSize = (payloadBytes: number): number => Math.ceil((HEADER_SIZE + payloadBytes) / 8) * 8;
+const MIN_FRAGMENT_PAYLOAD = 8;
+const alignedSize = (payloadBytes: number): number =>
+  Math.ceil((HEADER_SIZE + payloadBytes) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
 const headerOf = (bytes: Uint8Array): DataView => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 export type WriteResult = { readonly _tag: "written" } | { readonly _tag: "full"; readonly needBytes: number };
 
@@ -45,14 +47,17 @@ export class RingWriter {
       const tail = this.layout.ringBytes - position;
       const free = this.freeBytes();
       const remaining = pending.payloadBytes - pending.offset;
-      const minimum = alignedSize(Math.min(8, remaining));
+      const minimum = alignedSize(Math.min(MIN_FRAGMENT_PAYLOAD, remaining));
       if (tail < HEADER_SIZE) {
         if (free < tail) return { _tag: "full", needBytes: tail + minimum };
         this.publish(write, tail);
         continue;
       }
       if (free < minimum) return { _tag: "full", needBytes: tail < minimum ? tail + minimum : minimum };
-      const payloadBytes = alignedSize(remaining) <= free ? remaining : Math.floor((free - HEADER_SIZE) / 8) * 8;
+      const payloadBytes =
+        alignedSize(remaining) <= free
+          ? remaining
+          : Math.floor((free - HEADER_SIZE) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
       const size = alignedSize(payloadBytes);
       if (size > tail) {
         const padding = new Uint8Array(tail);
@@ -122,7 +127,8 @@ export class RingReader {
         this.consume(read, size);
         continue;
       }
-      if (flags === RECORD_CONTINUATION && (len < 8 || len % 8 !== 0)) throw new Error("Invalid continuation payload");
+      if (flags === RECORD_CONTINUATION && (len < MIN_FRAGMENT_PAYLOAD || len % RECORD_ALIGNMENT !== 0))
+        throw new Error("Invalid continuation payload");
       const bytes = this.views.ring.slice(position, position + size);
       if (bytes.subarray(HEADER_SIZE + len).some((byte) => byte !== 0)) throw new Error("Nonzero ring padding");
       if (this.firstHeader) {

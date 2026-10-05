@@ -38,9 +38,11 @@ export const readManifest = async (init: HostInit<unknown, unknown>): Promise<En
   const response = await fetch(init.manifestUrl);
   if (!response.ok) throw new StartupFailed({ message: `fetch manifest: ${response.status}` });
   const manifest = checkManifest(await response.json(), init.constants);
+  // Synthetic Responses have no URL; network responses include redirects.
+  const base = response.url || init.manifestUrl;
   return {
     ...manifest,
-    module: { ...manifest.module, url: new URL(manifest.module.url, init.manifestUrl).href },
-    data: manifest.data.map((entry) => ({ ...entry, url: new URL(entry.url, init.manifestUrl).href })),
+    module: { ...manifest.module, url: new URL(manifest.module.url, base).href },
+    data: manifest.data.map((entry) => ({ ...entry, url: new URL(entry.url, base).href })),
   };
 };
