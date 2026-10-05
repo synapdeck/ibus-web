@@ -112,6 +112,7 @@
       engineSides = {
         echo = engineSide "echo" "engine.c";
         thrower = engineSide "thrower" "engine-throw.cpp";
+        recoverable = engineSide "recoverable" "engine-recoverable.cpp";
         empty = engineSide "empty" "engine-empty.c";
       };
       engineDists = lib.mapAttrs (
