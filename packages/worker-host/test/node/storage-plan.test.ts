@@ -26,7 +26,7 @@ const engine: EngineManifest = {
     },
   ],
   settingsSchemaDir: `${root}/schemas`,
-  engines: [],
+  engines: ["test"],
   settingsSchemas: [],
 };
 const memory = { initial: 131072, maximum: 262144 };

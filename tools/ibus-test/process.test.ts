@@ -61,7 +61,8 @@ test("preserves UTF-8 split across pipe chunks", async () => {
 });
 
 test.each(["partial-malformed", "partial-timeout"])("retains parsed records on %s", async (mode) => {
-  const { promise } = run(mode, [], { timeoutMs: 300 });
+  // Retained-output assertions need the same Node startup allowance as the other fixtures.
+  const { promise } = run(mode);
   await expect(promise).rejects.toMatchObject({
     reason: mode === "partial-malformed" ? "protocol" : "timeout",
     result: { records: [{ kind: "reply", step: 0, value: true }] },
