@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     include: [
       "cast-audit/**/*.test.ts",
+      "keysyms/**/*.test.ts",
       "engine-manifest/**/*.test.ts",
       "ibus-test/**/*.test.ts",
       "vendor-inventory/**/*.test.ts",

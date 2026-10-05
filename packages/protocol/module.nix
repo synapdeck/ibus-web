@@ -15,6 +15,21 @@
         typescript
         runtime
         ;
+      flagsConstants =
+        pkgs.runCommand "ibus-web-flags.json"
+          {
+            nativeBuildInputs = [
+              pkgs.stdenv.cc
+              pkgs.pkg-config
+            ];
+            buildInputs = [ pkgs.glib ];
+          }
+          ''
+            cc $(pkg-config --cflags glib-2.0 gobject-2.0 gio-2.0) \
+              -I${../../runtime/libibus-web/include/ibus-1.0} \
+              ${./test/ibus/flags/constants.c} -o constants
+            ./constants > $out
+          '';
       corpus = pkgs.runCommand "ibus-web-protocol-corpus" { } ''
         ${typescript.nodejs}/bin/node ${typescript.workspace}/packages/protocol/test/parity/write-corpus.ts $out
       '';
@@ -84,7 +99,7 @@
         name = "protocol";
         packageDir = "${typescript.workspace}/packages/protocol";
         limit = 600;
-        env = { };
+        env.IBUS_WEB_FLAGS = flagsConstants;
         inBrowsers = false;
       };
       # Wall-clock timing means nothing on a loaded builder, so the decode benchmark is an app run

@@ -1,0 +1,51 @@
+{
+  "name": "@ibus-web/core",
+  "version": "0.0.0",
+  "description": "Page-side IBus key translation and input routing.",
+  "homepage": "https://github.com/synapdeck/ibus-web",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/core"
+  },
+  "files": [
+    "dist",
+    "LICENSES",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "type": "module",
+  "exports": {
+    "./keys": {
+      "types": "./dist/keys.d.ts",
+      "default": "./dist/keys.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsdown",
+    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
+    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
+    "test": "vitest run --configLoader native"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "ibusWeb": {
+    "assets": [
+      "LICENSES"
+    ]
+  }
+}

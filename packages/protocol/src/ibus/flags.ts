@@ -1,0 +1,74 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+export const IBusCapability = {
+  PREEDIT_TEXT: 1,
+  AUXILIARY_TEXT: 2,
+  LOOKUP_TABLE: 4,
+  FOCUS: 8,
+  PROPERTY: 16,
+  SURROUNDING_TEXT: 32,
+  OSK: 64,
+  SYNC_PROCESS_KEY: 128,
+  SYNC_PROCESS_KEY_V2: 128,
+} as const;
+
+export const IBusModifier = {
+  SHIFT: 1,
+  LOCK: 2,
+  CONTROL: 4,
+  MOD1: 8,
+  MOD2: 16,
+  MOD3: 32,
+  MOD4: 64,
+  MOD5: 128,
+  BUTTON1: 256,
+  BUTTON2: 512,
+  BUTTON3: 1024,
+  BUTTON4: 2048,
+  BUTTON5: 4096,
+  HANDLED: 16777216,
+  FORWARD: 33554432,
+  IGNORED: 33554432,
+  SUPER: 67108864,
+  HYPER: 134217728,
+  META: 268435456,
+  RELEASE: 1073741824,
+  MODIFIER: 1593843711,
+} as const;
+
+export const IBusInputPurpose = {
+  FREE_FORM: 0,
+  ALPHA: 1,
+  DIGITS: 2,
+  NUMBER: 3,
+  PHONE: 4,
+  URL: 5,
+  EMAIL: 6,
+  NAME: 7,
+  PASSWORD: 8,
+  PIN: 9,
+  TERMINAL: 10,
+  DATE: 11,
+  TIME: 12,
+  DATETIME: 13,
+} as const;
+
+export const IBusInputHints = {
+  NONE: 0,
+  SPELLCHECK: 1,
+  NO_SPELLCHECK: 2,
+  WORD_COMPLETION: 4,
+  LOWERCASE: 8,
+  UPPERCASE_CHARS: 16,
+  UPPERCASE_WORDS: 32,
+  UPPERCASE_SENTENCES: 64,
+  INHIBIT_OSK: 128,
+  VERTICAL_WRITING: 256,
+  EMOJI: 512,
+  NO_EMOJI: 1024,
+  PRIVATE: 2048,
+  HIDDEN_TEXT: 4096,
+  LATIN: 8192,
+  MULTILINE: 16384,
+} as const;

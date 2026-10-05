@@ -92,3 +92,37 @@ SPDX-FileCopyrightText = [
   "The IBus authors",
 ]
 SPDX-License-Identifier = "LGPL-2.1-or-later"
+
+[[annotations]]
+path = "packages/core/src/keys/keysyms.generated.ts"
+SPDX-FileCopyrightText = ["1987, 1994, 1998 The Open Group", "1987 Digital Equipment Corporation"]
+SPDX-License-Identifier = "MIT-open-group AND HPND"
+precedence = "override"
+
+[[annotations]]
+path = "packages/core/src/keys/dom-codes.generated.ts"
+SPDX-FileCopyrightText = "2013 The Chromium Authors"
+SPDX-License-Identifier = "BSD-3-Clause"
+precedence = "override"
+
+[[annotations]]
+path = [
+  "packages/core/LICENSES/BSD-3-Clause.txt",
+  "packages/core/LICENSES/HPND.txt",
+  "packages/core/LICENSES/MIT-open-group.txt",
+]
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "CC0-1.0"
+precedence = "override"
+
+[[annotations]]
+path = "packages/core/LICENSES/keysymdef-notice.txt"
+SPDX-FileCopyrightText = ["1987, 1994, 1998 The Open Group", "1987 Digital Equipment Corporation"]
+SPDX-License-Identifier = "MIT-open-group AND HPND"
+precedence = "override"
+
+[[annotations]]
+path = "packages/core/LICENSES/chromium-notice.txt"
+SPDX-FileCopyrightText = "The Chromium Authors"
+SPDX-License-Identifier = "BSD-3-Clause"
+precedence = "override"
