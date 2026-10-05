@@ -137,7 +137,7 @@ export type KeyResult = "consumed" | "passthrough";
 The panel-facing records (lookup table, auxiliary text, properties) are published on a `PanelEvents`
 stream that M1.4b's panel consumes; M1.4a's demo prints them.
 
-**The demo** is a private workspace package, `packages/demo`, run by Vite's dev server with hot reload
+**The demo** is a private workspace package, `examples/hangul`, run by Vite's dev server with hot reload
 and COOP/COEP headers. `nix run .#demo`, from the checkout, installs the workspace's dependencies if they
 are missing (`pnpm install --frozen-lockfile`), builds the packages the demo imports, and starts Vite's
 dev server over the demo's sources, with the Nix-built runtime, host Worker scripts and Hangul
@@ -158,7 +158,7 @@ suites) use `packages.demo`, a production build of the same page.
 | `packages/core/src/router/{keystroke,replay,restart}.ts`, `src/services/*`, `test/router/*`                                                                        | keystroke path, replay, hangs, restarts, services                                        | 5    |
 | `packages/core/src/router/{router,contexts,surrounding,preedit}.ts`, `src/adapters/textarea.ts`, `test/router/*`                                                   | input contexts, client duties, minimal adapter                                           | 6    |
 | `packages/core/test/browser/*`, `packages/core/module.nix`                                                                                                         | the real host and Hangul in browsers                                                     | 7    |
-| `packages/demo/**`, `modules/demo.nix`                                                                                                                             | the demo                                                                                 | 8    |
+| `examples/hangul/**`, `modules/demo.nix`                                                                                                                           | the demo                                                                                 | 8    |
 | `docs/core.md`, `docs/README.md`, `docs/known-gaps.md`, `docs/worker-host.md`, spec                                                                                | docs                                                                                     | 9    |
 
 ---
@@ -366,7 +366,7 @@ Task 9 documents both modes, per-surface configuration and fallback/cancellation
 
 ### Task 8: The demo
 
-**Files:** `packages/demo/{package.json,index.html,src/main.ts,src/style.css,vite.config.ts,tsconfig.json}`, `modules/demo.nix` (`apps.demo`, `packages.demo`, `checks.demo`), catalog entry for `vite`.
+**Files:** `examples/hangul/{package.json,index.html,src/main.ts,src/style.css,vite.config.ts,tsconfig.json}`, `modules/demo.nix` (`apps.demo`, `packages.demo`, `checks.demo`), catalog entry for `vite`, workspace discovery in `modules/typescript/default.nix` and regenerated `pnpm-workspace.yaml`.
 
 The page: a textarea attached to the router with Hangul selected, an on/off switch (the Hangul key also
 toggles Hangul/Latin inside the engine), the current preedit shown on a line under the textarea, the
@@ -375,8 +375,8 @@ symbol) printed in a side list, the engine state (`starting`, `ready`, `restarti
 storage state, a "crash the engine" button available in the demo build only when a test engine is
 present (omit it otherwise), and a short how-to (the Hangul key or Shift+Space toggles Hangul input, F9 converts to Hanja).
 
-- [ ] **Step 1:** Vite config: COOP/COEP headers on every response; a middleware serving the runtime, host Worker scripts and Hangul distribution from paths given in the environment (`IBUS_WEB_DEMO_RUNTIME`, `IBUS_WEB_DEMO_HOST`, `IBUS_WEB_DEMO_HANGUL`), as plain bytes (no `Content-Encoding` on `.tar.br`).
-- [ ] **Step 2:** `apps.demo` (`nix run .#demo`): a `writeShellApplication` that requires being run inside the checkout (finds the flake root), sets the three variables to Nix store paths, runs `pnpm install --frozen-lockfile` when `node_modules` is missing, builds the workspace packages the demo depends on (`pnpm --filter demo... --filter '!demo' run build`), and runs `pnpm --dir packages/demo exec vite` (dev server, hot reload) on `127.0.0.1:5173`. The dev shell exports the same variables so `pnpm --dir packages/demo dev` works there too. `packages.demo` is `vite build` of the page with the three directories copied in, for tests.
+- [ ] **Step 1:** Register `examples/*` in the Nix-owned workspace globs and regenerate `pnpm-workspace.yaml`; include the example in workspace discovery and build inputs. Vite config: COOP/COEP headers on every response; a middleware serving the runtime, host Worker scripts and Hangul distribution from paths given in the environment (`IBUS_WEB_DEMO_RUNTIME`, `IBUS_WEB_DEMO_HOST`, `IBUS_WEB_DEMO_HANGUL`), as plain bytes (no `Content-Encoding` on `.tar.br`).
+- [ ] **Step 2:** `apps.demo` (`nix run .#demo`): a `writeShellApplication` that requires being run inside the checkout (finds the flake root), sets the three variables to Nix store paths, runs `pnpm install --frozen-lockfile` when `node_modules` is missing, builds the workspace packages the demo depends on (`pnpm --filter demo... --filter '!demo' run build`), and runs `pnpm --dir examples/hangul exec vite` (dev server, hot reload) on `127.0.0.1:5173`. The dev shell exports the same variables so `pnpm --dir examples/hangul dev` works there too. `packages.demo` is `vite build` of the page with the three directories copied in, for tests.
 - [ ] **Step 3:** `checks.demo`: builds the demo, starts its server in the build, loads the page in Playwright's Chromium (the `ibusWeb.testing.playwright` environment), types 한 with synthetic events through the page and asserts the textarea's value — a smoke test, not the Playwright suite of M1.4b.
 - [ ] **Step 4:** run `nix run .#demo` yourself and type in it; record in the task report what you saw.
 - [ ] **Step 5: Commit** `feat(demo): a demo page for typing Korean through ibus-web`.

@@ -133,7 +133,7 @@ outcome is recorded in `docs/testing.md`.
 | `packages/core/src/adapters/{textarea,overlay,mirror,undo}.ts`, tests                                            | the full textarea/input adapter                         | 4    |
 | `packages/panel/**`                                                                                              | the panel                                               | 5    |
 | `packages/ibus-web/**`                                                                                           | the facade and subpaths                                 | 6    |
-| `packages/demo/**`, `modules/demo.nix`                                                                           | the full demo                                           | 7    |
+| `examples/hangul/**`, `modules/demo.nix`                                                                         | the full demo                                           | 7    |
 | `tests/playwright/**`, `modules/testing/default.nix`, `modules/playwright.nix`, `tools/bundle-scan/*`            | Playwright suites, keystroke bench, WebKit, bundle scan | 8    |
 | `docs/*`, spec                                                                                                   | docs                                                    | 9    |
 
@@ -206,7 +206,7 @@ outcome is recorded in `docs/testing.md`.
 
 ### Task 7: The full demo
 
-**Files:** `packages/demo/**`, `modules/demo.nix`.
+**Files:** `examples/hangul/**`, `modules/demo.nix`.
 
 The demo uses only `ibus-web` and `ibus-web/panel`, as a host would. It shows: a textarea and a
 single-line input attached; the panel; the engine's state and storage state; a settings form generated
