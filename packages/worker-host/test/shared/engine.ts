@@ -19,6 +19,7 @@ import type { Harness, RuntimeBuild, RunningHost } from "./harness.ts";
 import { HostOp } from "./testing.ts";
 import { opsOf } from "./scenarios.ts";
 import { replyFile } from "./storage.ts";
+import { engineDir } from "../../src/shared/naming.ts";
 
 const call = async (host: RunningHost, ic: number, request: Request): Promise<number> => {
   host.client.page.post(encodeRequest(ic, request), ReqMode.sync);
@@ -127,7 +128,7 @@ export const storeBeforeInit = async (h: Harness, runtime: RuntimeBuild, memory:
     const read = async (path: string) =>
       replyFile(await host.client.call(opsOf(h).readFile, new TextEncoder().encode(path)));
     expect((await read(h.data.echoData)).text).toBe("echo store data\n");
-    expect((await read(`/engines/${engine.name}/data`)).status).toBe(-h.data.errno["ENOENT"]!);
+    expect((await read(`${engineDir(engine)}/data`)).status).toBe(-h.data.errno["ENOENT"]!);
   } finally {
     await host.terminate();
   }
