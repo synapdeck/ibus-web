@@ -37,6 +37,8 @@ export interface ConnectionOptions {
   budgetMs: number;
   hangMs: number;
   worker?: (url: URL) => Worker;
+  /** Cancels startup only; an established connection is owned by its caller. */
+  signal?: AbortSignal;
   /** Throw malformed-record diagnostics instead of logging and dropping them. */
   development?: boolean;
 }
@@ -57,6 +59,25 @@ function compile(runtimeUrl: URL): Promise<WebAssembly.Module> {
   }
   return pending;
 }
+/** Cancel this caller's wait without interrupting the shared compilation. */
+function waitForCompilation(pending: Promise<WebAssembly.Module>, signal?: AbortSignal): Promise<WebAssembly.Module> {
+  if (!signal) return pending;
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    void pending.then(
+      (module) => {
+        signal.removeEventListener("abort", abort);
+        resolve(module);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
 export class Connection {
   private readonly reader: RingReader;
   private readonly output: DecodedRecord[] = [];
@@ -75,7 +96,7 @@ export class Connection {
   private deferred: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
   private resolveStart: (() => void) | undefined;
-  private rejectStart: ((error: Error) => void) | undefined;
+  private rejectStart: ((error: unknown) => void) | undefined;
   private readonly options: ConnectionOptions;
   private readonly worker: Worker;
   private readonly control: ControlViews;
@@ -96,7 +117,9 @@ export class Connection {
       options.hangMs <= 0
     )
       throw new RangeError("budgetMs must be nonnegative and hangMs must be positive");
-    const wasm = await compile(options.runtimeUrl);
+    options.signal?.throwIfAborted();
+    const wasm = await waitForCompilation(compile(options.runtimeUrl), options.signal);
+    options.signal?.throwIfAborted();
     const layout = options.layout ?? transportLayout();
     const buffer = createControl(layout);
     const worker = options.worker?.(options.hostUrl) ?? new Worker(options.hostUrl, { type: "module" });
@@ -113,13 +136,28 @@ export class Connection {
       layout,
       storage: { kind: options.storage },
     };
+    const abort = () => {
+      connection.rejectStart?.(options.signal!.reason);
+      connection.rejectStart = undefined;
+      connection.resolveStart = undefined;
+      connection.terminate({ reason: "load", message: "Connection startup aborted" });
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
     try {
-      worker.postMessage(init);
-    } catch (error) {
-      connection.fail({ reason: "load", message: String(error) });
+      if (options.signal?.aborted) abort();
+      else {
+        try {
+          worker.postMessage(init);
+        } catch (error) {
+          connection.fail({ reason: "load", message: String(error) });
+        }
+      }
+      await started;
+      options.signal?.throwIfAborted();
+      return connection;
+    } finally {
+      options.signal?.removeEventListener("abort", abort);
     }
-    await started;
-    return connection;
   }
   get busy(): boolean {
     return this.inFlight || this.queue.length > 0;

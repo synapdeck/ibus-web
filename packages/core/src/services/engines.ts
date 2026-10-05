@@ -24,6 +24,7 @@ export interface EngineRegistryOptions {
   /** Public registry keys may differ from both manifest.name and manifest.engines. */
   readonly engines: Readonly<Record<string, URL>>;
   readonly storage?: "browser" | "none";
+  /** Honor options.signal for partial resources; late returned connections are terminated by the registry. */
   readonly start?: (options: ConnectionOptions) => Promise<KeyConnection>;
   readonly loadManifest?: (url: URL) => Promise<unknown>;
   readonly waitForWriter?: WaitForWriter;
@@ -119,9 +120,9 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
         }
         const manifest = entry.snapshot.manifest;
         const connection = yield* Effect.acquireRelease(
-          Effect.tryPromise({
-            try: () =>
-              (options.start ?? Connection.start)({
+          Effect.callback<KeyConnection, Error>((resume, signal) => {
+            try {
+              void (options.start ?? Connection.start)({
                 hostUrl: options.hostUrl,
                 runtimeUrl: options.runtimeUrl,
                 manifestUrl: options.engines[name]!,
@@ -129,14 +130,25 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
                 budgetMs: config.budgetMs,
                 hangMs: config.hangMs,
                 layout: transportLayout({ ringBytes: config.ringBytes, slotBytes: config.slotBytes }),
-              }),
-            catch: error,
+                signal,
+              }).then(
+                (connection) => {
+                  // An injected starter may ignore cancellation and resolve after scope closure.
+                  if (signal.aborted) connection.terminate();
+                  else resume(Effect.succeed(connection));
+                },
+                (cause) => resume(Effect.fail(error(cause))),
+              );
+            } catch (cause) {
+              resume(Effect.fail(error(cause)));
+            }
           }),
           (connection) =>
             Effect.sync(() => {
               if (entry.snapshot.connection === connection) entry.router.disconnect();
               connection.terminate();
             }),
+          { interruptible: true },
         ).pipe(Scope.provide(scope));
         entry.router.connect(connection);
         const initial = yield* Effect.tryPromise({

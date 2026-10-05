@@ -5,6 +5,13 @@ import { ProcessKeyEvent, ProtocolError, CrashReason, transportLayout } from "@i
 import { ReqMode, State, Word, postReply } from "@ibus-web/worker-host";
 import { Connection, type ConnectionOptions } from "../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";
+function deferred<A>() {
+  let resolve!: (value: A) => void;
+  const promise = new Promise<A>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 const key = new ProcessKeyEvent({ keyval: 97, keycode: 30, state: 0 });
 let host: FakeWorker;
 let connections: Connection[];
@@ -586,4 +593,89 @@ test("forced termination retains caller reason and last storage state exactly on
   connection.terminate({ reason: "hang", message: "overflow" });
   connection.terminate();
   expect(listener).toHaveBeenCalledExactlyOnceWith({ reason: "hang", message: "overflow", storage: "read-only" });
+});
+
+test("aborting startup terminates a Worker that has not announced ready and removes its listeners", async () => {
+  const controller = new AbortController();
+  const posted = deferred<void>();
+  vi.spyOn(host, "postMessage").mockImplementation(() => {
+    posted.resolve();
+  });
+  const removed = vi.spyOn(host, "removeEventListener");
+  const terminated = vi.spyOn(host, "terminate");
+  const pending = start({ signal: controller.signal });
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await posted.promise;
+  controller.abort();
+  expect(host.terminated).toBe(true);
+  expect(removed.mock.calls.map(([type]) => type)).toEqual(["message", "error", "messageerror"]);
+  await rejected;
+  host.message({ type: "ready", startupMs: 0 });
+  expect(terminated).toHaveBeenCalledTimes(1);
+});
+
+test("aborting during shared compilation rejects promptly and cannot create a Worker later", async () => {
+  const controller = new AbortController();
+  const compilation = deferred<WebAssembly.Module>();
+  const compiled = deferred<void>();
+  vi.mocked(WebAssembly.compileStreaming).mockImplementationOnce(() => {
+    compiled.resolve();
+    return compilation.promise;
+  });
+  const worker = vi.fn(() => host.asWorker());
+  const runtimeUrl = new URL("https://example.test/canceled-compile/runtime.js");
+  const pending = start({ runtimeUrl, signal: controller.signal, worker });
+  const otherWorker = vi.fn(() => host.asWorker());
+  const other = start({ runtimeUrl, worker: otherWorker });
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await compiled.promise;
+  controller.abort();
+  try {
+    await rejected;
+    expect(worker).not.toHaveBeenCalled();
+    expect(otherWorker).not.toHaveBeenCalled();
+  } finally {
+    compilation.resolve(module);
+  }
+  await other;
+  expect(worker).not.toHaveBeenCalled();
+  expect(otherWorker).toHaveBeenCalledTimes(1);
+  expect(WebAssembly.compileStreaming).toHaveBeenCalledTimes(1);
+});
+
+test("an already-aborted startup cannot compile or create a Worker", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const worker = vi.fn(() => host.asWorker());
+  await expect(
+    start({
+      runtimeUrl: new URL("https://example.test/already-aborted/runtime.js"),
+      signal: controller.signal,
+      worker,
+    }),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(worker).not.toHaveBeenCalled();
+});
+
+test("aborting after ready but before startup hands off terminates the Worker", async () => {
+  const controller = new AbortController();
+  const post = host.postMessage.bind(host);
+  vi.spyOn(host, "postMessage").mockImplementation((init) => {
+    post(init);
+    controller.abort();
+  });
+  await expect(start({ signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  expect(host.terminated).toBe(true);
+});
+
+test("startup signal no longer owns an established connection", async () => {
+  const controller = new AbortController();
+  const removed = vi.spyOn(controller.signal, "removeEventListener");
+  const connection = await start({ signal: controller.signal });
+  controller.abort();
+  expect(host.terminated).toBe(false);
+  expect(removed.mock.calls.filter(([type]) => type === "abort")).toHaveLength(2);
+  host.scripts.push({ records: [] });
+  expect(connection.requestSync(key, 1)).toMatchObject({ _tag: "reply" });
 });

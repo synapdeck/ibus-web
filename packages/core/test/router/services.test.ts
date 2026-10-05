@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Layer, Logger as EffectLogger, References, Stream } from "effect";
+import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { CreateEngine, type EngineManifest, type Request } from "@ibus-web/protocol";
 import { makeEngineRegistry } from "../../src/services/engines.ts";
@@ -387,3 +387,51 @@ it.effect("read-only queue overflow restarts without waiting for a writer lock",
     expect(f.calls.filter((c) => c === "clear")).toHaveLength(1);
   }).pipe(Effect.provide(services)),
 );
+
+for (const phase of ["initial", "restart"] as const) {
+  it.effect(`scope closure cancels ${phase} startup and cleans up an injected late connection`, () => {
+    const late = new FakeConnection();
+    let resolveStart: ((connection: FakeConnection) => void) | undefined;
+    let signal: AbortSignal | undefined;
+    const pending = new Promise<FakeConnection>((resolve) => {
+      resolveStart = resolve;
+    });
+    return Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+      const entered = yield* Deferred.make<void>();
+      const first = new FakeConnection();
+      first.requestAsync = async () => emptyReply;
+      let attempts = 0;
+      const registry = yield* makeEngineRegistry({
+        hostUrl: url,
+        runtimeUrl: url,
+        engines: { test: url },
+        loadManifest: async () => manifest,
+        waitForWriter: () => Effect.void,
+        start: (options) => {
+          if (phase === "restart" && attempts++ === 0) return Promise.resolve(first);
+          signal = options.signal;
+          Deferred.doneUnsafe(entered, Effect.void);
+          return pending;
+        },
+      }).pipe(Scope.provide(scope));
+      if (phase === "restart") {
+        yield* registry.select("test");
+        first.crash({ reason: "worker", message: "restart", storage: "read-only" });
+      } else yield* registry.select("test").pipe(Effect.forkIn(scope));
+      yield* Deferred.await(entered);
+      const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkScoped);
+      yield* TestClock.adjust(0);
+      expect(closing.pollUnsafe()).toMatchObject({ _tag: "Success" });
+      expect(signal?.aborted).toBe(true);
+      expect(late.terminated).toBe(false);
+      resolveStart!(late);
+      yield* Effect.promise(() => pending);
+      expect(late.terminated).toBe(true);
+      expect(late.sent).toEqual([]);
+      expect(registry.snapshot("test")!.connection).toBeUndefined();
+      expect(registry.state("test")).toBe("failed");
+    }).pipe(Effect.ensuring(Effect.sync(() => resolveStart?.(late))), Effect.provide(services));
+  });
+}
