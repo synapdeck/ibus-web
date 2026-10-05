@@ -130,6 +130,9 @@ export const storeBeforeInit = async (h: Harness, runtime: RuntimeBuild, memory:
   }
 };
 
+// The faulting request still completes as an asynchronous one does, with a
+// doorbell, and the Crashed record is in the ring by the time the page can
+// see CRASHED, so one drain then finds it.
 export const engineFault = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
   const callsAfterFault = new SharedArrayBuffer(4);
   const host = await h.start({
@@ -140,15 +143,25 @@ export const engineFault = async (h: Harness, runtime: RuntimeBuild): Promise<vo
   try {
     expect(await call(host, 0, init())).toBe(0);
     expect(await call(host, 1, new CreateEngine({ name: "thrower" }))).toBe(0);
-    host.client.page.records();
-    await call(host, 1, key("a")).catch(() => {});
-    expect(await host.client.crashReport(20_000)).toContain("-ECANCELED");
-    const words = host.client.page.views.words;
-    expect(Atomics.load(words, Word.replyRet)).toBe(h.data.constants.canceled);
+    const page = host.client.page;
+    const words = page.views.words;
+    page.records();
+    const since = host.messages.length;
+    page.post(encodeRequest(1, key("a")), ReqMode.async);
+    const deadline = h.now() + 20_000;
+    while (Atomics.load(words, Word.state) !== State.crashed && h.now() < deadline) {
+      // Holds the thread, so the drain below is the first one since CRASHED.
+    }
     expect(Atomics.load(words, Word.state)).toBe(State.crashed);
-    const records = host.client.page.records();
-    expect(records[0]?.record).toMatchObject({ _tag: "CommitText", text: { text: "before fault" } });
+    const records = page.records();
     expect(records.at(-1)).toMatchObject({ seq: 0, ic: 0, record: { _tag: "Crashed", reason: CrashReason.fault } });
+    expect(records[0]?.record).toMatchObject({ _tag: "CommitText", text: { text: "before fault" } });
+    expect(Atomics.load(words, Word.replyRet)).toBe(h.data.constants.canceled);
+    expect(Atomics.load(words, Word.replyOutSeq) >>> 0).toBe(records.at(-2)?.seq);
+    expect(await host.client.crashReport(20_000)).toContain("-ECANCELED");
+    const types = host.messages.slice(since).map(({ type }) => type);
+    expect(types.indexOf("doorbell"), "a doorbell before the crash report").toBeGreaterThanOrEqual(0);
+    expect(types.indexOf("doorbell")).toBeLessThan(types.indexOf("crashed"));
     await h.sleep(100);
     expect(Atomics.load(new Int32Array(callsAfterFault), 0)).toBe(0);
   } finally {

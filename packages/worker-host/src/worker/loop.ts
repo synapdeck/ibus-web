@@ -76,14 +76,20 @@ export const ringDoorbell = (ctx: LoopContext): void => {
   if (Atomics.exchange(ctx.control.words, Word.doorbell, 1) === 0) ctx.postDoorbell();
 };
 
+// Called only once the request's records are in the ring, so a reply never
+// lands ahead of them.
+const publishReply = (ctx: LoopContext, ret: number): void => {
+  const published = postReply(ctx.control, ret, ctx.lastSeq);
+  if (published && Atomics.load(ctx.control.words, Word.reqMode) !== ReqMode.sync) ringDoorbell(ctx);
+};
+
 // Both dispatch paths finish through the same publication and notification rules.
 export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
   if (reply.stop === true) ctx.stopping = true;
   if (reply.bytes !== undefined) ctx.control.slot.set(reply.bytes);
   pump(ctx.handle.rt, ctx.constants);
   drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength, ctx);
-  const published = postReply(ctx.control, reply.ret, ctx.lastSeq);
-  if (published && Atomics.load(ctx.control.words, Word.reqMode) !== ReqMode.sync) ringDoorbell(ctx);
+  publishReply(ctx, reply.ret);
 };
 
 const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined => {
@@ -101,14 +107,16 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
   }
   handle.bytes.set(request, buffers.request);
   const ret = handle.rt._ibusweb_dispatch(buffers.request, request.length);
+  // Output still drains after a fault; pumping doesn't. The crash that
+  // follows writes its Crashed record behind the reply.
   if (ret === ctx.constants.canceled) {
-    postReply(control, ret, ctx.lastSeq);
     let message = "ibusweb_dispatch returned -ECANCELED";
     try {
       drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx);
     } catch (error) {
       message += `; output drain failed: ${describe(error)}`;
     }
+    publishReply(ctx, ret);
     throw new RuntimeStopped({ error: message, reason: CrashReason.fault });
   }
   if (ret === 0 && request.length >= 8) {
