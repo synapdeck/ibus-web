@@ -76,3 +76,9 @@ export { RingWriter, RingReader, type WriteResult } from "./transport/ring.ts";
 export { EngineManifest, decodeEngineManifest } from "./manifest.ts";
 
 export { IBusCapability, IBusModifier, IBusInputPurpose, IBusInputHints } from "./ibus/flags.ts";
+export {
+  SettingsMetadata,
+  decodeSettingsMetadata,
+  encodeSettingsMetadata,
+  type SettingsMetadataJson,
+} from "./settings.ts";

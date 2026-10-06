@@ -88,3 +88,13 @@ describe("engine manifests", () => {
     (settingsSchemaDir) => expect(() => decodeEngineManifest({ ...valid, settingsSchemaDir }, bounds)).toThrow(),
   );
 });
+
+it("accepts an optional settings metadata asset and validates its size and URL", () => {
+  const settingsMetadata = { url: "./settings.json", size: 200 };
+  expect(decodeEngineManifest({ ...valid, settingsMetadata }, bounds).settingsMetadata).toEqual(settingsMetadata);
+  for (const asset of [
+    { url: "", size: 200 },
+    { url: "./settings.json", size: -1 },
+  ])
+    expect(() => decodeEngineManifest({ ...valid, settingsMetadata: asset }, bounds)).toThrow();
+});

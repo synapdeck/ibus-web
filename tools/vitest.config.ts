@@ -11,6 +11,7 @@ export default defineConfig({
       "cast-audit/**/*.test.ts",
       "keysyms/**/*.test.ts",
       "engine-manifest/**/*.test.ts",
+      "gschema/**/*.test.ts",
       "ibus-test/**/*.test.ts",
       "vendor-inventory/**/*.test.ts",
     ],

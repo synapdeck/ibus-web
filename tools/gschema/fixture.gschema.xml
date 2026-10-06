@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<schemalist>
+  <enum id="org.test.Mode"><value nick="first" value="0"/><value nick="second" value="1"/></enum>
+  <schema id="org.test.Metadata" path="/org/test/metadata/">
+    <key name="text" type="s"><default>'한글'</default><summary>Keyboard name</summary><description>A Unicode keyboard name.</description></key>
+    <key name="enabled" type="b"><default>true</default></key>
+    <key name="count" type="i"><range min="-2" max="12"/><default>3</default></key>
+    <key name="choice" type="s"><choices><choice value="two"/><choice value="three"/></choices><default>'two'</default></key>
+    <key name="mode" enum="org.test.Mode"><default>'second'</default></key>
+    <key name="signed" type="x"><default>-9223372036854775808</default></key>
+    <key name="unsigned" type="t"><default>18446744073709551615</default></key>
+    <key name="bytes" type="ay"><default>[byte 0, 255]</default></key>
+    <key name="negative-zero" type="d"><default>-0.0</default></key>
+    <key name="infinity" type="d"><default>inf</default></key>
+  </schema>
+  <schema id="org.test.Relocatable"><key name="text" type="s"><default>''</default></key></schema>
+</schemalist>

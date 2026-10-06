@@ -30,6 +30,9 @@
         }:
         let
           closure = pkgs.closureInfo { rootPaths = [ package ]; };
+          settingsMetadata = config.ibusWeb.engines.mkSettingsMetadata {
+            inherit settingsSchemaDir settingsSchemas;
+          };
           licenses = lib.toList package.meta.license;
           description = pkgs.writeText "${name}-manifest-fields.json" (
             builtins.toJSON {
@@ -62,6 +65,7 @@
           ''
             mkdir -p $out/data
             cp ${package}/${name}.wasm $out/${name}.wasm
+            cp ${settingsMetadata} $out/settings.json
             node ${../../tools/engine-manifest/symlinks.ts} ${closure}/store-paths ${package}
             : > data.jsonl
             while IFS= read -r storePath; do
@@ -96,8 +100,9 @@
             identity="''${identity%%-*}"
             jq --arg identity "$identity" --argjson runtimeAbi "$abi" --argjson protocol "$protocol" --argjson memory "$memory" \
               --arg url './${name}.wasm' --argjson size "$(stat -c%s $out/${name}.wasm)" \
+              --argjson settingsMetadata "$(jq -nc --arg url ./settings.json --argjson size "$(stat -c%s $out/settings.json)" '{ $url, $size }')" \
               --slurpfile data data.jsonl \
-              '.version += "+nix." + $identity | . + { $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data }' \
+              '.version += "+nix." + $identity | . + { $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, $settingsMetadata }' \
               ${description} > $out/manifest.json
             node ${../../tools/engine-manifest/protocol.ts} check ${
               typescript.workspaceFor [ "packages/protocol" ]

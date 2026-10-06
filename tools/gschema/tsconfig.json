@@ -1,0 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "extends": "../../tsconfig.node-scripts.json",
+  "compilerOptions": { "types": ["node"], "lib": ["es2023", "dom"] },
+  "include": ["*.ts"]
+}

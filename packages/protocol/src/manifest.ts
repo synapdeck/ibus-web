@@ -32,6 +32,7 @@ export const EngineManifest = Schema.Struct({
   settingsSchemaDir: Schema.String,
   engines: Schema.Array(nonEmpty).check(Schema.isNonEmpty()),
   settingsSchemas: Schema.Array(Schema.String),
+  settingsMetadata: Schema.optionalKey(Schema.Struct({ url: nonEmpty, size: count })),
 }).check(
   Schema.makeFilter((manifest) => {
     const paths = manifest.data.map((entry) => entry.storePath);
