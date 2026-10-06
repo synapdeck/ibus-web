@@ -143,7 +143,7 @@ outcome is recorded in `docs/testing.md`.
 
 **Files:** `tools/gschema/{metadata.c,metadata.ts,metadata.test.ts,tsconfig.json}`, `modules/engines/settings-metadata.nix`, `modules/engines/manifest.nix` (`settingsMetadata`), `packages/protocol/src/{settings,manifest}.ts` and tests, `engines/hangul/package.nix`.
 
-- [x] **Step 1: Failing tests:** on a fixture schema (compiled with `pkgsWasm.glib`'s `glib-compile-schemas`) with string, boolean, integer-with-range, enum-like `choices` and a summary/description, `settings.json` decodes with `SettingsMetadata` and every default equals GLib's (round-tripped through `decodeValue`); a relocatable schema fails the build; Hangul's metadata lists `org.freedesktop.ibus.engine.hangul` (path `/org/freedesktop/ibus/engine/hangul/`) with `hangul-keyboard` (`s`, default `'2'`, its choices), `hanja-keys`, `initial-input-mode`, `auto-reorder`, `preedit-mode`, and `org.freedesktop.ibus.panel` with `lookup-table-orientation` (`i`, default 1).
+- [x] **Step 1: Failing tests:** on a fixture schema (compiled with `pkgsWasm.glib`'s `glib-compile-schemas`) with string, boolean, integer-with-range, enum-like `choices` and a summary/description, `settings.json` decodes with `SettingsMetadata` and every default equals GLib's (round-tripped through `decodeValue`); a relocatable schema fails the build; Hangul's metadata lists `org.freedesktop.ibus.engine.hangul` (path `/org/freedesktop/ibus/engine/hangul/`) with `hangul-keyboard` (`s`, default `'2'`, no choices in pinned GLib output), `hanja-keys`, `initial-input-mode`, `auto-reorder`, `preedit-mode`, and `org.freedesktop.ibus.panel` with `lookup-table-orientation` (`i`, default 1). The generated metadata follows GLib rather than inventing Hangul keyboard enum choices.
 - [x] **Step 2: Run them; they fail.**
 - [x] **Step 3: Implement** per the Decisions: `metadata.c` (built like the worker-host constants program, linked with `pkgsWasm.glib` and json-glib, run under Node on the compiled schemas directory) and `metadata.ts`.
 - [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{protocol,engine-manifest,hangul-host,hk}` and the Hangul distribution (read its `settings.json`).
@@ -210,7 +210,8 @@ outcome is recorded in `docs/testing.md`.
 
 The demo uses only `ibus-web` and `ibus-web/panel`, as a host would. It shows: a textarea and a
 single-line input attached; the panel; the engine's state and storage state; a settings form generated
-from the metadata (keyboard layout from `hangul-keyboard`'s choices, Hanja keys, initial input mode,
+from the metadata (`hangul-keyboard` as an unrestricted string because pinned GLib supplies no choices,
+Hanja keys, initial input mode,
 auto-reorder, preedit mode, lookup-table orientation) whose changes apply live and persist across
 reloads and tabs; a log pane fed by the facade's `logger`; a "restart engine" control calling a debug
 API that terminates the Worker (exercising crash handling without a test engine); and a short how-to
@@ -231,7 +232,7 @@ checkout); `packages.demo` is the production build the Playwright suites serve.
 - [x] **Step 2: Write the suites** against `packages.demo` served by the same Vite configuration in preview mode with COOP/COEP, using `page.keyboard` (trusted events):
   - typing: Shift+Space, then g k s r m f, Space → `한글 ` in the textarea; no stray Latin letters (real `preventDefault`); `input` events only for commits;
   - preedit: visible in the overlay at the caret mid-composition, absent from `value`;
-  - undo: Ctrl+Z (Meta+Z on WebKit) removes the last commit as one step;
+  - undo: the OS shortcut (Control+Z on Linux, including Linux WebKit; Meta+Z on macOS) removes the last focused commit as one step;
   - blur mid-composition commits the syllable;
   - Hanja: 한, F9 → the panel shows candidates; clicking one on page 2 (after PageDown) commits that candidate; digits pick on the current page;
   - settings: switching `hangul-keyboard` to 3-set changes composition at once; after a reload it persists; a second tab receives the change live;
