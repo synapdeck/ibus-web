@@ -143,11 +143,11 @@ outcome is recorded in `docs/testing.md`.
 
 **Files:** `tools/gschema/{metadata.c,metadata.ts,metadata.test.ts,tsconfig.json}`, `modules/engines/settings-metadata.nix`, `modules/engines/manifest.nix` (`settingsMetadata`), `packages/protocol/src/{settings,manifest}.ts` and tests, `engines/hangul/package.nix`.
 
-- [ ] **Step 1: Failing tests:** on a fixture schema (compiled with `pkgsWasm.glib`'s `glib-compile-schemas`) with string, boolean, integer-with-range, enum-like `choices` and a summary/description, `settings.json` decodes with `SettingsMetadata` and every default equals GLib's (round-tripped through `decodeValue`); a relocatable schema fails the build; Hangul's metadata lists `org.freedesktop.ibus.engine.hangul` (path `/org/freedesktop/ibus/engine/hangul/`) with `hangul-keyboard` (`s`, default `'2'`, its choices), `hanja-keys`, `initial-input-mode`, `auto-reorder`, `preedit-mode`, and `org.freedesktop.ibus.panel` with `lookup-table-orientation` (`i`, default 1).
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement** per the Decisions: `metadata.c` (built like the worker-host constants program, linked with `pkgsWasm.glib` and json-glib, run under Node on the compiled schemas directory) and `metadata.ts`.
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{protocol,engine-manifest,hangul-host,hk}` and the Hangul distribution (read its `settings.json`).
-- [ ] **Step 5: Commit** `feat: generate settings metadata from engines' GSettings schemas`.
+- [x] **Step 1: Failing tests:** on a fixture schema (compiled with `pkgsWasm.glib`'s `glib-compile-schemas`) with string, boolean, integer-with-range, enum-like `choices` and a summary/description, `settings.json` decodes with `SettingsMetadata` and every default equals GLib's (round-tripped through `decodeValue`); a relocatable schema fails the build; Hangul's metadata lists `org.freedesktop.ibus.engine.hangul` (path `/org/freedesktop/ibus/engine/hangul/`) with `hangul-keyboard` (`s`, default `'2'`, its choices), `hanja-keys`, `initial-input-mode`, `auto-reorder`, `preedit-mode`, and `org.freedesktop.ibus.panel` with `lookup-table-orientation` (`i`, default 1).
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement** per the Decisions: `metadata.c` (built like the worker-host constants program, linked with `pkgsWasm.glib` and json-glib, run under Node on the compiled schemas directory) and `metadata.ts`.
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{protocol,engine-manifest,hangul-host,hk}` and the Hangul distribution (read its `settings.json`).
+- [x] **Step 5: Commit** `feat: generate settings metadata from engines' GSettings schemas`.
 
 ### Task 2: The settings persister
 
@@ -155,41 +155,41 @@ outcome is recorded in `docs/testing.md`.
 
 **Interfaces (produced):** `indexedDbSettings(): Layer<SettingsSource>`; `SettingsApi` with `schemas(engine)`, `get(engine, schemaId, key)`, `set(engine, schemaId, key, value)`, `reset(...)`, `changes: Stream<SettingChange>` (includes engine-written values).
 
-- [ ] **Step 1: Failing tests** (browser mode, real IndexedDB, the fake Worker from M1.4a and the real host for one case): `Init`'s snapshot holds exactly the stored keys; a `SettingWritten` is stored and sent as `SettingChanged` to a second live Worker using the schema, and not echoed to its writer; a value equal to the default deletes the record; a second page context (another `BroadcastChannel` on the same origin, in the same test) receives the change and forwards it to its Worker without writing; values are stored as `ArrayBuffer`s; the API's `changes` stream sees both API and engine writes; a host-supplied `SettingsSource` layer replaces the persister entirely (the database is never opened).
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,core-browser,hk}`.
-- [ ] **Step 5: Commit** `feat(core): persist settings in IndexedDB and share them across Workers and tabs`.
+- [x] **Step 1: Failing tests** (browser mode, real IndexedDB, the fake Worker from M1.4a and the real host for one case): `Init`'s snapshot holds exactly the stored keys; a `SettingWritten` is stored and sent as `SettingChanged` to a second live Worker using the schema, and not echoed to its writer; a value equal to the default deletes the record; a second page context (another `BroadcastChannel` on the same origin, in the same test) receives the change and forwards it to its Worker without writing; values are stored as `ArrayBuffer`s; the API's `changes` stream sees both API and engine writes; a host-supplied `SettingsSource` layer replaces the persister entirely (the database is never opened).
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,core-browser,hk}`.
+- [x] **Step 5: Commit** `feat(core): persist settings in IndexedDB and share them across Workers and tabs`.
 
 ### Task 3: Lazy lookup tables
 
 **Files:** `packages/protocol/src/messages/lookup.ts`, `src/index.ts`, `test/messages/lookup.test.ts`, `test/bench/lookup-table.test.ts`.
 
-- [ ] **Step 1: Failing tests:** for random tables (`it.prop`, fixed seed; up to 600 candidates, page sizes 1–16, cursor anywhere) every `page(i)` equals the corresponding slice of `decodeRecord`'s full table; malformed framing in a candidate not yet decoded is reported when that page is decoded (and the eager part still validates the `av`'s framing); the bench prints framed-record → visible-page medians next to the full decode's.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.** The GVariant layer gains a function returning an array's element boundaries without decoding elements.
-- [ ] **Step 4:** `nix run .#protocol-bench`: record the visible-page median and p99; the target is under 0.5 ms for 500 candidates. `nix build -L .#checks.x86_64-linux.{protocol,protocol-parity,hk}`.
-- [ ] **Step 5: Commit** `feat(protocol): decode lookup tables a page at a time`.
+- [x] **Step 1: Failing tests:** for random tables (`it.prop`, fixed seed; up to 600 candidates, page sizes 1–16, cursor anywhere) every `page(i)` equals the corresponding slice of `decodeRecord`'s full table; malformed framing in a candidate not yet decoded is reported when that page is decoded (and the eager part still validates the `av`'s framing); the bench prints framed-record → visible-page medians next to the full decode's.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.** The GVariant layer gains a function returning an array's element boundaries without decoding elements.
+- [x] **Step 4:** `nix run .#protocol-bench`: record the visible-page median and p99; the target is under 0.5 ms for 500 candidates. `nix build -L .#checks.x86_64-linux.{protocol,protocol-parity,hk}`.
+- [x] **Step 5: Commit** `feat(protocol): decode lookup tables a page at a time`.
 
 ### Task 4: The textarea and input adapter
 
 **Files:** `packages/core/src/adapters/{textarea,overlay,mirror,undo}.ts`, `test/browser/adapter*.test.ts`.
 
-- [ ] **Step 1: Failing tests** (browser mode): a preedit renders in the overlay at the caret (its rectangle within a few pixels of a mirror-measured caret, for single-line input, multi-line textarea, scrolled textarea and right-to-left text) and never appears in `value`; attributes render (underline; white-on-black current syllable); commits fire one `input` event each with `inputType` `insertText`; a batch with `DeleteSurroundingText` then `CommitText` is one undo step (`document.execCommand("undo")` restores the text before the batch); the fallback path without focus uses `setRangeText`; `replayKey` for Backspace, Delete, Enter (textarea only), arrows and printable keys edits as the browser would; resets fire on caret moves by pointer and on external `value` changes.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core-browser,hk}`.
-- [ ] **Step 5: Commit** `feat(core): render preedit in an overlay and commit as single undo steps`.
+- [x] **Step 1: Failing tests** (browser mode): a preedit renders in the overlay at the caret (its rectangle within a few pixels of a mirror-measured caret, for single-line input, multi-line textarea, scrolled textarea and right-to-left text) and never appears in `value`; attributes render (underline; white-on-black current syllable); commits fire one `input` event each with `inputType` `insertText`; a batch with `DeleteSurroundingText` then `CommitText` is one undo step (`document.execCommand("undo")` restores the text before the batch); the fallback path without focus uses `setRangeText`; `replayKey` for Backspace, Delete, Enter (textarea only), arrows and printable keys edits as the browser would; resets fire on caret moves by pointer and on external `value` changes.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{core-browser,hk}`.
+- [x] **Step 5: Commit** `feat(core): render preedit in an overlay and commit as single undo steps`.
 
 ### Task 5: The panel
 
 **Files:** `packages/panel/{package.json,tsconfig*.json,tsdown.config.ts,src/*,test/browser/*}`, `module.nix` (`checks.panel`).
 
-- [ ] **Step 1: Failing tests** (browser mode, a facade stub emitting panel events): the candidate window shows the visible page with labels, highlights the cursor's candidate only when `cursorVisible`, follows orientation (table, or the panel schema's setting for `System`), sits below the caret or above it when there is no room; clicking the third candidate on page 2 sends `CandidateClicked(2, 1, 0)`; previous/next send `PageUp`/`PageDown`; the wheel sends `CursorUp`/`CursorDown`; auxiliary text renders in its row; the property menu lists visible properties, toggles send `PropertyActivate` only on change, and the indicator shows the symbol of the first visible `Toggle` or `Radio` property that has one, so no engine's property names are special-cased; everything hides on `FocusOut` and crash events; pages beyond the visible one are decoded only when shown (spy on the lazy decoder).
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement** with the DOM only (no framework), styles in a stylesheet the host can override (CSS custom properties).
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{panel,hk}`.
-- [ ] **Step 5: Commit** `feat(panel): the candidate window, auxiliary text and property menu`.
+- [x] **Step 1: Failing tests** (browser mode, a facade stub emitting panel events): the candidate window shows the visible page with labels, highlights the cursor's candidate only when `cursorVisible`, follows orientation (table, or the panel schema's setting for `System`), sits below the caret or above it when there is no room; clicking the third candidate on page 2 sends `CandidateClicked(2, 1, 0)`; previous/next send `PageUp`/`PageDown`; the wheel sends `CursorUp`/`CursorDown`; auxiliary text renders in its row; the property menu lists visible properties, toggles send `PropertyActivate` only on change, and the indicator shows the symbol of the first visible `Toggle` or `Radio` property that has one, so no engine's property names are special-cased; everything hides on `FocusOut` and crash events; pages beyond the visible one are decoded only when shown (spy on the lazy decoder).
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement** with the DOM only (no framework), styles in a stylesheet the host can override (CSS custom properties).
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{panel,hk}`.
+- [x] **Step 5: Commit** `feat(panel): the candidate window, auxiliary text and property menu`.
 
 ### Task 6: The `ibus-web` facade
 
@@ -197,12 +197,12 @@ outcome is recorded in `docs/testing.md`.
 
 **Mixed-surface integration:** Consume M1.4a Task 6b's editor-neutral asynchronous interface. Expose `attachAdapter(adapter, options?: { keyMode?: "sync" | "async" | "manual" }): () => void` and `keyAsync(adapter, event): Promise<AsyncKeyResult>` alongside native `attach(element)`. One facade instance must support normal inputs and asynchronous editor adapters on the same page, including sharing an engine. Preserve core's output ordering and fallback/cancellation ownership; do not add a page-global input mode or a CodeMirror dependency.
 
-- [ ] **Step 1: Failing tests:** `createIbusWeb` starts nothing until `select`; `attach` returns a detach function; events fire as `CustomEvent`s with typed `detail`; `logger` receives entries at or above `logLevel`; `dispose()` terminates every Worker and detaches every surface; `ibus-web/effect` exports core's services and tagged errors and protocol's public schemas; `ibus-web/worker` exports a URL and its module graph contains no worker-host code (checked by bundling it with tsdown in the test and inspecting the output).
+- [x] **Step 1: Failing tests:** `createIbusWeb` starts nothing until `select`; `attach` returns a detach function; events fire as `CustomEvent`s with typed `detail`; `logger` receives entries at or above `logLevel`; `dispose()` terminates every Worker and detaches every surface; `ibus-web/effect` exports core's services and tagged errors and protocol's public schemas; `ibus-web/worker` exports a URL and its module graph contains no worker-host code (checked by bundling it with tsdown in the test and inspecting the output).
   - native and asynchronous editor-style adapters coexist through one facade; `manual` attachments leave keyboard capture to the editor; asynchronous dispatch never invokes the synchronous path; disposal settles outstanding asynchronous calls without duplicate edits.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{ibus-web,core-browser,hk}`.
-- [ ] **Step 5: Commit** `feat: the ibus-web facade and its subpath exports`.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{ibus-web,core-browser,hk}`.
+- [x] **Step 5: Commit** `feat: the ibus-web facade and its subpath exports`.
 
 ### Task 7: The full demo
 
@@ -218,17 +218,17 @@ API that terminates the Worker (exercising crash handling without a test engine)
 a candidate). `nix run .#demo` keeps M1.4a's behaviour (Vite dev server with hot reload over the
 checkout); `packages.demo` is the production build the Playwright suites serve.
 
-- [ ] **Step 1:** Build the page and its settings form; keep it one small TypeScript module plus CSS.
-- [ ] **Step 2:** run `nix run .#demo` and go through the how-to by hand in Chromium and Firefox; record what you saw in the task report.
-- [ ] **Step 3:** `checks.demo` (from M1.4a) still passes against the new page.
-- [ ] **Step 4: Commit** `feat(demo): the full demo with the panel and persistent settings`.
+- [x] **Step 1:** Build the page and its settings form; keep it one small TypeScript module plus CSS.
+- [x] **Step 2:** run `nix run .#demo` and go through the how-to by hand in Chromium and Firefox; record what you saw in the task report.
+- [x] **Step 3:** `checks.demo` (from M1.4a) still passes against the new page.
+- [x] **Step 4: Commit** `feat(demo): the full demo with the panel and persistent settings`.
 
 ### Task 8: Playwright suites, the keystroke bench, WebKit and the bundle scan
 
 **Files:** `tests/playwright/{playwright.config.ts,demo.spec.ts,settings.spec.ts,keystroke.bench.ts,tsconfig.json}`, `modules/playwright.nix` (`packages.playwright-integration`, `apps.keystroke-bench`), `modules/testing/default.nix` (WebKit), `tools/bundle-scan/{scan.ts,scan.test.ts}` and `checks.bundle-scan`, CI generation if the WebKit fallback is needed.
 
-- [ ] **Step 1: Enable WebKit** in `ibusWeb.testing.playwright.browsers` (try `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu-24.04` if nixpkgs' note applies) and confirm a trivial page loads in the sandbox; otherwise configure the CI fallback and record it.
-- [ ] **Step 2: Write the suites** against `packages.demo` served by the same Vite configuration in preview mode with COOP/COEP, using `page.keyboard` (trusted events):
+- [x] **Step 1: Enable WebKit** in `ibusWeb.testing.playwright.browsers` (try `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu-24.04` if nixpkgs' note applies) and confirm a trivial page loads in the sandbox; otherwise configure the CI fallback and record it.
+- [x] **Step 2: Write the suites** against `packages.demo` served by the same Vite configuration in preview mode with COOP/COEP, using `page.keyboard` (trusted events):
   - typing: Shift+Space, then g k s r m f, Space → `한글 ` in the textarea; no stray Latin letters (real `preventDefault`); `input` events only for commits;
   - preedit: visible in the overlay at the caret mid-composition, absent from `value`;
   - undo: Ctrl+Z (Meta+Z on WebKit) removes the last commit as one step;
@@ -238,14 +238,14 @@ checkout); `packages.demo` is the production build the Playwright suites serve.
   - password input: Latin letters only;
   - restart control: typing works again after the engine restarts.
     Run every spec in Chromium, Firefox and WebKit (or Chromium and Firefox with the WebKit fallback).
-- [ ] **Step 3: The keystroke bench** (`nix run .#keystroke-bench`): drives 500 keystrokes through the demo in each browser and prints keydown-to-applied p50/p99 (measured in the page with `performance.now()` around the router's handling), with the machine and browser versions. No timing assertion in `packages.playwright-integration` beyond one-sided generous bounds.
-- [ ] **Step 4: The bundle scan:** `checks.bundle-scan` bundles each published page entry (`ibus-web`, `ibus-web/effect`, `ibus-web/panel`, `ibus-web/worker`, `@ibus-web/core`, `@ibus-web/panel`, `@ibus-web/protocol`) and the demo's production build, and fails on Worker, runtime or Emscripten code: WebAssembly magic bytes, Emscripten glue markers, `_ibusweb_` exports, worker-host module paths. Its test feeds it a bundle that inlines the host script and expects failure.
-- [ ] **Step 5:** Run `packages.playwright-integration` explicitly and register it in `ibusWeb.testing.extendedChecks` for CI; run the default `nix flake check` at this milestone and record the keystroke bench's figures for the docs.
-- [ ] **Step 6: Commit** `test: drive the demo with Playwright in three browsers and scan page bundles`.
+- [x] **Step 3: The keystroke bench** (`nix run .#keystroke-bench`): drives 500 measured keystrokes through the demo in each browser after 70 validated warmups and prints keydown-to-observed-editing-application p50/p99, with the machine and browser versions. Page `performance.now()` starts at pre-router keydown capture and ends at observed state application; observer/microtask overhead is included, paint is excluded. No timing assertion in `packages.playwright-integration` beyond one-sided generous bounds.
+- [x] **Step 4: The bundle scan:** `checks.bundle-scan` bundles each published page entry (`ibus-web`, `ibus-web/effect`, `ibus-web/panel`, `ibus-web/worker`, `@ibus-web/core`, `@ibus-web/panel`, `@ibus-web/protocol`) and the demo's production build, and fails on Worker, runtime or Emscripten code: WebAssembly magic bytes, Emscripten glue markers, `_ibusweb_` exports, worker-host module paths. Its test feeds it a bundle that inlines the host script and expects failure.
+- [x] **Step 5:** Run `packages.playwright-integration` explicitly and register it in `ibusWeb.testing.extendedChecks` for CI; run the default `nix flake check` at this milestone and record the keystroke bench's figures for the docs.
+- [x] **Step 6: Commit** `test: drive the demo with Playwright in three browsers and scan page bundles`.
 
 ### Task 9: Docs and spec
 
-- [ ] **Step 1:** `docs/core.md` (settings persister, adapter overlay and undo), `docs/panel.md` (new), `docs/ibus-web.md` (new: installing, serving with COOP/COEP, the Worker URL, serving `.tar.br` as opaque bytes, licences page), `docs/testing.md` (Playwright, WebKit outcome, keystroke bench, bundle scan), `docs/protocol.md` (lazy lookup tables, `SettingsMetadata`), `docs/engines.md` (`settings.json`), `docs/known-gaps.md` (remove settings persistence and lazy decoding; add the `setRangeText` fallback's undo gap and anything the suites revealed).
-- [ ] **Step 2: Spec:** §7.1.4 (metadata from `settings.json`; default values deleted; broadcast payload; last write wins), §7.2.2 (commits through `execCommand` with the fallback; overlay and mirror), §7.3 (panel behaviour), §7.4 (the facade's API and subpaths), §6.3 (lazy lookup decoding), §9.4 (bundle scan as built), §11.5 and §11.7 (suites, WebKit, keystroke figures), §12 (M1.4b done; M1 done, with its questions answered).
-- [ ] **Step 3:** `nix flake check`.
-- [ ] **Step 4: Commit** `docs: describe the panel, settings, facade and demo`.
+- [x] **Step 1:** `docs/core.md` (settings persister, adapter overlay and undo), `docs/panel.md` (new), `docs/ibus-web.md` (new: installing, serving with COOP/COEP, the Worker URL, serving `.tar.br` as opaque bytes, licences page), `docs/testing.md` (Playwright, WebKit outcome, keystroke bench, bundle scan), `docs/protocol.md` (lazy lookup tables, `SettingsMetadata`), `docs/engines.md` (`settings.json`), `docs/known-gaps.md` (remove settings persistence and lazy decoding; add the `setRangeText` fallback's undo gap and anything the suites revealed).
+- [x] **Step 2: Spec:** §7.1.4 (metadata from `settings.json`; default values deleted; broadcast payload; last write wins), §7.2.2 (commits through `execCommand` with the fallback; overlay and mirror), §7.3 (panel behaviour), §7.4 (the facade's API and subpaths), §6.3 (lazy lookup decoding), §9.4 (bundle scan as built), §11.5 and §11.7 (suites, WebKit, keystroke figures), §12 (M1.4b done; M1 done, with its questions answered).
+- [x] **Step 3:** `nix flake check`.
+- [x] **Step 4: Commit** `docs: describe the panel, settings, facade and demo`.

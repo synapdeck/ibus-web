@@ -71,6 +71,26 @@ and `SchemaError` for a request that fails its schema.
 3, `LOAD` 4 and `HOST` 5 (`CrashReason`), and any other value fails its schema.
 The control state, not the record, is authoritative for a crash.
 
+`decodeRecord` remains the fully eager API. `decodeRecordLazy` instead carries a
+`LazyLookupTable` in `UpdateLookupTable` records. The dedicated
+`decodeLookupTableRecord(bytes, offset?)` validates the envelope, fixed fields,
+metadata and candidate/label array framing immediately, and owns a byte snapshot
+so ring reuse or caller mutation cannot change later pages. `visible()` decodes
+the page containing `cursorPos`; `page(index)` decodes only that page's candidate
+texts and its page-position labels, using the same strict value decoder and
+original nesting/byte offsets. Invisible candidate payloads are checked when
+requested, not during initial framing. Empty/out-of-range pages are empty;
+invalid indices throw `RangeError`. Core's Connection uses this lazy path before
+publishing panel events. The eager decoder remains available to other callers.
+
+`SettingsMetadata` is a separate JSON codec generated from compiled GSettings
+schemas. It holds schema ID/path and each key's GVariant type, default, optional
+summary/description, numeric range and choices. `decodeSettingsMetadata` rejects
+unknown fields and validates typed defaults/ranges. Its JSON encoding preserves
+64-bit integers as decimal strings, then restores `bigint` in the decoded tree.
+Generated Hangul keyboard metadata contains no `choices`; consumers must not
+infer an enum from the settings name.
+
 ## Transport
 
 `@ibus-web/protocol/transport` exports the shared-memory layout and the ring:
@@ -191,10 +211,15 @@ Processor, Node v24.21.0, Effect 4.0.0:
 | Bytes to tree   | 0.43        | 6.95     |
 | Tree to schemas | 0.46        | 0.68     |
 
-These are single-machine Node figures, not browser or end-to-end keystroke latency.
-The framed median is twice the design's 0.5 ms target (spec §11.7), and each layer
-alone takes most of it, so M1.4 decodes the visible page eagerly and the remaining
-candidates on the panel's request; the public decoder builds the complete table.
+These are historical M1.2 single-machine Node figures, not browser or end-to-end
+keystroke latency. The eager framed median exceeded the design's 0.5 ms target.
+After the owned-byte lazy decoder repair, one isolated 2026-10-05 run on the same
+Ryzen 9 9950X3D, Linux 6.18.54-xanmod1 and Node 24.21.0 measured 500 samples of
+the 64,832-byte framed record with 500 candidates and nine visible: framed record
+to visible page median **0.085610 ms**, p99 **0.286419 ms**. This includes
+synchronous framing, payload copy, metadata validation and visible-page decode;
+it excludes browser key/Worker/ring and paint latency. The fully eager decoder
+remains public, while production core uses lazy lookup records.
 Effect's `SchemaAOTCompiler` isn't used: compiling the record and request ASTs
 didn't lower the framed median, since the bytes-to-tree transformations stay
 interpreted.

@@ -1412,13 +1412,17 @@ bytes, which GLib reads with every framing offset 0, re-encodes with those
 offsets written out (the empty `(ayay)` as `00`). Tree dictionaries preserve
 order; schema records reorder integer-like keys.
 
-Keystroke-path decoding uses `Schema.decodeUnknownSync`. If benchmarks exceed
-the budget (§11.7), candidates are decoded lazily: the visible page eagerly,
-the rest on request from the panel. The M1.2 Node benchmark
-(`nix run .#protocol-bench`) measured 1.01 ms median / 4.40 ms p99 for 64,832
-framed bytes, over the budget, so this fallback is M1.4's; the decoder eagerly
-constructs the full table. AOT compilation of the schemas did not lower the
-median and is not used. Machine, method and layer profiles are in
+The eager `decodeRecord` remains public. Production Connection uses
+`decodeRecordLazy`: for lookup records the envelope, metadata and array framing
+are checked eagerly and an owned byte snapshot backs `LazyLookupTable.visible()`
+and `page(index)`. Only the requested page's candidate/label values are decoded,
+with the same strict decoder, absolute offsets and nesting limits. The panel
+requests the visible page when it arrives and later pages only when shown.
+After the Buffer ownership repair, the isolated Node framed-record-to-visible-page
+benchmark of 500 candidates/nine visible measured 0.085610 ms median and
+0.286419 ms p99; this is not browser key, Worker/ring or paint latency.
+The older eager 1.01/4.40 ms measurement motivated the change. AOT compilation
+did not lower the eager median and is not used. Method and machine details are in
 `docs/protocol.md`.
 
 ## 7. Page side
@@ -1451,10 +1455,16 @@ median and is not used. Machine, method and layer profiles are in
 - **`state`.** Shift, CapsLock (LOCK), Control, Alt (MOD1), NumLock (MOD2),
   Meta (MOD4, SUPER and META). AltGraph sets MOD5 and clears Control/Alt.
   Releases add RELEASE and use the same attachment mode as presses.
-- **Never intercepted.** Composing events, Dead keys, disabled/private
-  surfaces, manifest pass-through keys, and keys without an enabled, ready
-  context. During startup, keys remain native until Worker ready, Init and
-  the surface's CreateEngine/focus setup succeed.
+- **Eligibility.** Disabled/private surfaces, composing events and Dead keys
+  are excluded first. Registered `keydown` hotkeys have no default bindings
+  and may run before an engine context is ready. Manifest `passThrough` and
+  unready-context exclusions apply to engine processing; they are not blanket
+  exclusions from registered hotkeys. During startup, ordinary keys remain
+  native until Worker ready, Init and CreateEngine/focus setup succeed.
+  `us` follows physical positions and `default` follows translated characters;
+  the engine's Hangul keyboard option does not detect or change the OS layout.
+  Arbitrary layouts and Dead/AltGr/shortcut/replay behavior have no system-layout
+  validation matrix. A host override/layout detection is future design advice.
 
 #### 7.1.2 Input contexts and focus
 
@@ -1498,14 +1508,17 @@ median and is not used. Machine, method and layer profiles are in
 
 #### 7.1.4 Settings API
 
-M1.4a provides the replaceable in-memory SettingsSource service: snapshot(schemas),
-written(change) and a changes Stream. The registry uses snapshots for Init and
-forwards changes to other live engines. The metadata/API and IndexedDB/BroadcastChannel
-persister below are M1.4b work.
-
-Per engine: list schemas and keys (with types, ranges, enum values and
-descriptions parsed from the shipped `.gschema.xml`), get and set values, and
-a stream of changes, including those written by the engine itself.
+The page fetches generated `settings.json` through the engine manifest's
+`settingsMetadata` descriptor. Pinned GLib reads the compiled schemas at build
+time and supplies fixed schema paths, GVariant types/defaults and available
+descriptions, ranges and choices; no browser XML/GVariant-text parser is used.
+Relocatable schemas fail the build. In particular, Hangul's keyboard key has no
+generated choices. `SettingsApi` exposes `schemas(engine)`, `get`, `set`, `reset`
+and a change Stream, including engine writes; the facade exposes the four
+Promise methods. The typed `SettingsSource` service retains the M1.4a
+`snapshot(schemas)`, `written(change)` and changes Stream contract, with optional
+`register(metadata)`, `write(change)` and `read(schemaId, key)` hooks for
+persistence. A host's earlier in-memory source remains compatible.
 
 - **Default persister.** The page keeps settings in an IndexedDB database of
   its own, `gsettings`, shared by every engine (engines share schemas such as
@@ -1518,9 +1531,14 @@ a stream of changes, including those written by the engine itself.
 - **Starting a Worker.** Before it starts a Worker, the page reads the keys of
   the engine's schemas and sends them as `Init`'s snapshot.
 - **Changes.** On a `SettingWritten` record, or a change through this API, the
-  page writes the value, sends `SettingChanged` to its other live Workers, and
-  announces the change on a `BroadcastChannel`. Other tabs forward it to their
-  own Workers as `SettingChanged`.
+  page writes the value, sends `SettingChanged` to other live Workers using the
+  schema, and announces `{ schemaPath, key, type, bytes | null }` on
+  `BroadcastChannel("ibus-web:gsettings")`. Bytes are GVariant normal form;
+  `null` means reset. A value byte-equal to the key's generated default deletes
+  its IndexedDB record, allowing a later schema default to take effect. Other
+  tabs forward received changes to their Workers without writing or
+  rebroadcasting. Concurrent writers are last write wins per record: live tabs
+  follow the last broadcast received, and the next Init reads the database.
 - **Replaceable.** The persister is a service. A host that keeps settings
   elsewhere, in its own user profile or on a server, replaces it with a layer
   (§7.4) or a facade option, and supplies the snapshot and stores changes
@@ -1585,6 +1603,14 @@ caret, selection or value changes, excluding router-owned edits.
   preserving browser undo and native input events. Unfocused controls and browsers
   without the command use `setRangeText` plus a synthetic input event; that fallback
   does not preserve native undo.
+- Blur captures identities of already accepted keys at the actual blur event
+  boundary and waits for only those owners during lifecycle reconciliation; keys
+  accepted in a later focus interval cannot extend that drain. A focused-ready
+  reset reserves the existing engine FIFO immediately. Inactive/unready resets
+  defer reservation until the context becomes eligible again, after older
+  cross-surface drains; accepted keys then wait behind Reset and snapshot refresh.
+  Programmatic host value/selection changes remain authoritative. Pointerdown
+  capture commits visible preedit before browser caret movement.
 
 #### 7.2.3 Built-in adapters
 
@@ -1614,12 +1640,19 @@ a concrete CodeMirror adapter is not shipped.
 
 ### 7.3 Default panel
 
-M1.4b's planned `@ibus-web/panel` renders the candidate window, auxiliary text, preedit styling
-for the built-in adapters and a property menu. It uses only the public facade
-API, so it is framework-free and serves as reference code for hosts that
-build their own panel. It is meant for testing and simple hosts. A click on a
-candidate sends `CandidateClicked` with the position of the clicked label on
-the visible page, as IBus's GTK panel does (§6.1.2).
+`@ibus-web/panel` is a framework-free, replaceable DOM panel using only the
+facade's public `PanelHost` contract and an explicitly imported stylesheet.
+It decodes only the visible lazy lookup page, displays engine labels or
+page-position fallback labels, and highlights the cursor when visible.
+Previous/next send PageUp/PageDown, wheel motion sends CursorUp/CursorDown, and
+a click sends `CandidateClicked` with the visible page-relative index (§6.1.2).
+The panel follows the viewport caret, placing below or above/clamping as space
+requires. It uses the table orientation or the panel schema setting for System,
+renders auxiliary text separately, and lists visible properties with toggle/radio
+state. The first visible toggle/radio symbol becomes the compact indicator;
+unchanged property states are not activated again. FocusOut and crash hide output;
+stale context events are ignored. ResizeObserver placement is coalesced on an
+owned animation frame; caret/event/scroll placement remains synchronous.
 
 ### 7.4 Effect architecture
 
@@ -1649,8 +1682,8 @@ the visible page, as IBus's GTK panel does (§6.1.2).
   anything on that path became asynchronous. Async/manual surfaces instead use
   explicit keyAsync Promises with immediate capture and the same engine FIFO.
 - **Facade.** `ibus-web` wraps core in a `ManagedRuntime`: Promise methods,
-  `EventTarget` events and a `logger: (entry) => void` option with a minimum
-  level.
+  typed `CustomEvent` events and a `logger: (entry) => void` option with a minimum
+  level. It starts no Worker/storage until selection or settings access.
 
 | Package                 | Contents                                        | Uses Effect                                             |
 | ----------------------- | ----------------------------------------------- | ------------------------------------------------------- |
@@ -1670,7 +1703,19 @@ exposes them through subpath exports:
 | `ibus-web`        | the non-Effect facade                                                                                                                                              |
 | `ibus-web/effect` | re-exports of the Effect surface: `@ibus-web/core` (services, layers, streams, tagged errors, adapters) and the public schemas and types from `@ibus-web/protocol` |
 | `ibus-web/panel`  | re-export of `@ibus-web/panel`                                                                                                                                     |
-| `ibus-web/worker` | the Worker script's URL only, for `new Worker(new URL(…, import.meta.url))`; never its code (§9.2)                                                                 |
+| `ibus-web/worker` | `workerUrl`, `relayUrl` and `brotliFallbackUrl` URL constants for deployed assets; never Worker code (§9.2)                                                        |
+
+`createIbusWeb({ hostUrl?, runtimeUrl, engines, settings?, logger?, logLevel?,
+config? })` returns `IbusWeb`. The optional `settings` value is a
+`SettingsSourceService` (including optional persistence hooks). Public methods
+are `attach(inputOrTextarea, options?)`, `attachAdapter(adapter, options?)`
+(both return detach), `keyAsync(adapter, event)` for manual/async surfaces,
+`select(engine)`, `unload(engine)`, development-only `debugRestart(engine)`,
+`settings.{schemas,get,set,reset}` and `dispose()`. PanelHost exposes caret,
+orientation, action forwarding and error reporting. Events are `enginestate`,
+`storage`, `panel` and `log`. `keyAsync` settles as consumed, replayed,
+passthrough or cancelled; replayed fallback is already applied. Native and
+editor-neutral modes coexist; no concrete CodeMirror adapter is claimed.
 
 - **`effect` is a peer dependency** of every package, so hosts and ibus-web
   share one copy. Two copies would make services and layers from one
@@ -1790,7 +1835,14 @@ release.
 
 ### 9.4 CI checks
 
-- Page bundles are scanned for Worker, runtime and Emscripten code.
+- Default `checks.bundle-scan` fully bundles all seven published page entries
+  plus the production demo and validates Vite's executable module graph,
+  imports and generated chunk hashes. It rejects Worker-host/runtime/Brotli-WASM
+  executable module paths and Emscripten/WebAssembly markers, with exact
+  allowances for shared transport ABI modules. An actual inlined-host negative
+  fixture must fail. Separately deployed Worker/relay/Brotli URL assets do not
+  become page implementation code. The deployed `workerUrl` still requires the
+  complete host asset directory.
 - The protocol specification is regenerated and must match the committed one.
 - Every engine artifact must have a source bundle.
 - `reuse lint` passes (hk's `reuse` step, in `checks.hk`).
@@ -2356,14 +2408,28 @@ rules for sequences of programs, and how to add and run a test are in
 4. **Keystroke path.** Vitest tests against an in-process fake Worker that speaks
    the ring protocol: timeouts, the replay queue, crashes, hangs, fragmented
    records, ordering with doorbell output.
-5. **Adapters and panel.** Playwright on Chromium, Firefox and WebKit against
-   a COOP/COEP server. Playwright's keyboard produces trusted events, so real
-   `preventDefault`, commit, undo and preedit rendering are tested.
+5. **Adapters and panel.** The explicit `packages.playwright-integration`
+   target serves the production COOP/COEP demo and runs eight trusted-input
+   specs per Chromium, Firefox and pinned Linux WebKit 26.6: composition,
+   preedit isolation, focused native undo, separate blur commit, Hanja paging,
+   password exclusion, actual Worker restart, reset ordering and cross-tab 3f
+   settings persistence. It passed 24/24 on the final Task 8 fix source.
+   WebKit runs in the Nix sandbox using pinned Mesa software EGL; no CI fallback
+   is required. This is not Safari 17.4/macOS browser-floor evidence.
 6. **License boundary.** The CI checks in §9.4.
-7. **Performance.** Keystroke round trip (p50, p99) in Playwright;
-   `UpdateLookupTable` decoding with 500 candidates, target under 0.5 ms,
-   timed on demand by `nix run .#protocol-bench` rather than in a check (M1.2
-   measured 1.01 ms median under Node, so M1.4 decodes candidates lazily).
+7. **Performance.** `nix run .#protocol-bench` independently measured Node
+   framed-record-to-visible-page decoding with 500 candidates/nine visible at
+   0.085610 ms median / 0.286419 ms p99 after the lazy ownership repair. The
+   separate `nix run .#keystroke-bench` measured 500 sequential trusted keys
+   per browser after 70 validated warmups on source `a174a749`:
+   Chromium 153 p50/p99/max 0.805/15.115/21.105 ms; Firefox 155
+   1.380/2.480/2.940 ms; Linux WebKit 26.6 2.180/4.140/4.900 ms.
+   Browser samples end at observed editing application, including snapshot,
+   observer and microtask overhead, but exclude paint and keyboard hardware.
+   Playwright trace scheduling and normal desktop load may affect the figures.
+   Later reviewed reset fixes through `8026169` were not benchmarked again;
+   no exact current-source latency is inferred. Method and machine details are
+   in `docs/testing.md` and `docs/protocol.md`.
 
 ## 12. Milestones
 
@@ -2376,12 +2442,12 @@ rules for sequences of programs, and how to add and run a test are in
 | ↳ M0.4  | **Done.** (`docs/runtime.md`) The `runtime/` component; GLib's wake hook; `libibus-web` skeleton (pump, `ibusweb_wait`, side-module loader, spike dispatcher; g_test under `meson test`); `ibus-runtime.wasm` with `-sMAIN_MODULE=2`, WasmFS, a fixed imported memory and a strict thread pool, and a per-library export manifest; Emscripten patches for blocked main threads' thread cleanup, reused `pthread_t`s and an imported memory's maximum; pnpm workspace built offline in Nix; spike Worker host and wake relay under Node, Chromium and Firefox; Emscripten's minimum versions from Baseline Widely available                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | R2 settled: the host sleeps in the runtime, woken by GLib's hook and a host-side relay; threads come from a pool sized from shares plus spares, strict, topped up while idle. R3 settled for `-sMAIN_MODULE=2`/WasmFS in Node, Chromium and Firefox. Memory is fixed per Worker, since V8 traps atomics on grown shared memory. OPFS is out: engine and user data go to IndexedDB (M0.5)                                                                                                                                                                                                                                    |
 | ↳ M0.5  | **Done.** (`docs/storage.md`) WasmFS IndexedDB backend (full lazy) in `runtime/wasmfs-idb/`: files as `ArrayBuffer` chunks of 16 KiB, read and written lazily on the backend's own thread, writes write-through, `fsync()` a strict commit that writes, versionchange closing, a seal and a closed flag in its API (§5.6); its JavaScript library type-checked; a reusable browser test runner; the runtime mounts it in browsers, WasmFS's Node backend under Node and the memory backend without IndexedDB; engine data in a database per version, installed from ustar archives under per-version Web Locks, sealed and marked, old versions collected; one writer per engine's user data; Emscripten patches for symlink errors and a backend thread's heartbeat; a Firefox floor of 126; upstream draft `docs/upstream/wasmfs-idb-backend.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | R2 for the IndexedDB backend: `fsync()` from a pthread completes while the host sleeps, in 4.3 ms in both browsers, within a poll step of the memory backend. A lazy 4 KiB read costs a keystroke 0.2–0.32 ms at 16 KiB chunks, and no read or write waits for the page's spin; 16 KiB is the cheapest of 16, 64 and 256 KiB for it, and chunks stay under 64 KiB, which Chromium stores as Blobs. An empty strict commit syncs nothing in either browser; a synced append costs about 0.5 ms. Chromium lets go of a terminated Worker's locks some 2 s late, so the page waits for the writer lock before a restart (§5.6) |
 | ↳ M0.6  | **Done.** (`docs/worker-host.md`, `docs/testing.md`, `docs/tooling.md`) `@ibus-web/worker-host` on Effect 4, carrying the spike host's behaviour with its scenarios as Vitest suites under Node, Chromium and Firefox; nixpkgs and flake-parts from FlakeHub; every test structured: GoogleTest for C and C++ without GLib (linked with `-sPROXY_TO_PTHREAD`, `main()` from a shared harness), GLib's g_test for C that links it, Vitest for TypeScript (`@effect/vitest` for Effect code), with the browser test runner replaced by the test-program shim, which runs each WASM program under Node or in Chromium and Firefox and reports each of its cases as a Vitest result; JavaScript that Emscripten doesn't read itself rewritten in TypeScript, the JavaScript it does read typed with JSDoc, and one TypeScript configuration and check across the repository; hk (`hk.pkl`) holding every formatter and lint step, run by the git hooks, `nix fmt` and `checks.hk`, in place of treefmt; oxfmt and oxlint in place of prettier; Claude Code's language-server plugins (clangd, TypeScript, Nix, Pkl) on the dev shell's servers; clangd's configuration following the flake; CI on GitHub Actions, written in Nix, with FlakeHub Cache and a private rolling FlakeHub publish (§10.5); the upstream drafts refreshed against Emscripten's `main`, with an order to post them in; the milestone plans and spike reports replaced by topic pages under `docs/` and `docs/known-gaps.md`, and the spike checks' coverage moved into the runtime's and the host's tests | What of M0's plans and spikes is still needed, and where it belongs: the topic pages under `docs/`, the tests that replaced the spike checks, and `docs/known-gaps.md` for what stays open                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| M1      | Hangul end to end, with M1.4 split into keystroke path and page UX/settings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Engine correctness first, then codec, transport and page integration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| M1      | **Done.** Hangul end to end through M1.1–M1.4b: engine, protocol, Worker transport, page core, persistent settings, panel, facade and production demo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Real Hangul runs in trusted Chromium, Firefox and pinned Linux WebKit 26.6 production tests. The lazy visible-page Node target was met; browser editing distributions are separately measured. Safari 17.4/macOS, physical keyboard layouts, concrete CodeMirror integration and paint latency remain unverified.                                                                                                                                                                                                                                                                                                           |
 | ↳ M1.1  | **Done.** IBus types and engine API, framed dispatcher/output, settings backend, strict cast audit, Hangul side module/data and 16 Node golden cases; runtime ABI 1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Hangul needs one cast patch (two init arity fixes and one destroy pointer type), three port fixes, and GLib listener patch 0018. No lazy arity lookup needed for Hangul; GSettings bridge works.                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ↳ M1.2  | **Done.** Strict TypeScript GVariant codec matching GLib's normal form, IBus struct and message schemas, framing, generated C header and wire reference, fixed-seed property tests and real IBus WASM C/TS parity, including exact normal-form agreement on 1000 mutated and valid encodings.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 500-candidate framed decode (`nix run .#protocol-bench`): 1.01 ms median, 4.40 ms p99 (64,832 bytes; bytes to tree 0.43 ms, tree to schemas 0.46 ms); 0.5 ms target unmet, so M1.4b owns lazy candidate decoding. AOT did not help. See `docs/protocol.md`.                                                                                                                                                                                                                                                                                                                                                                 |
 | ↳ M1.3  | **Done.** Host output ring and fragments, ordered replyOutSeq/coalesced doorbells, engine scopes, Init-then-load, store-path data closures, Brotli installation, manifest-derived pool/memory and real-engine SAB conformance                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Hangul runs through a real Node Worker/Page; ordered replies and full-ring waits are checked. Data retains Nix paths. Measured program-break peaks fit 4 MiB and Node engine-thread demand is zero; full ABI identity and shared store remain gaps                                                                                                                                                                                                                                                                                                                                                                          |
-| ↳ M1.4a | **Done.** Page core and key tables, synchronous native plus async/manual surface routing, shared replay FIFO, preedit/surrounding policy, restart/writer-lock wait, in-memory SettingsSource, runtime constants distribution and examples/hangul demo. Init-only watchdog and buffered libhangul dictionary reads. Default milestone flake gate; explicit extended matrices remain separate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Real Worker/runtime/Hangul integration in Chromium/Firefox with synthetic DOM defaults; trusted development-demo interaction separately. Native overlay/undo, full panel/facade and persistent settings remain next.                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ↳ M1.4b | Native textarea overlay/undo/full-text integration, Hanja panel, lazy lookup decoding, public facade/settings metadata and replaceable IndexedDB/BroadcastChannel settings persistence; broader trusted browser integration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Page UX, lazy decode costs and settings synchronization; no concrete CodeMirror adapter promised in M1.4a.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ↳ M1.4a | **Done.** Page core/key tables, synchronous native and async/manual routing, shared replay FIFO, preedit/surrounding policy, restart/writer-lock wait, replaceable in-memory settings source, runtime constants and the Hangul demo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Real Worker/runtime/Hangul integration in Chromium/Firefox with synthetic DOM defaults and a separate trusted development-demo walkthrough. This established the input lifecycle and editor-neutral async contract for M1.4b; a concrete CodeMirror adapter remains outside M1.                                                                                                                                                                                                                                                                                                                                             |
+| ↳ M1.4b | **Done.** Native overlay and focused undo with documented unfocused fallback; Hanja panel; lazy lookup decoding; metadata-driven public facade; replaceable IndexedDB/BroadcastChannel settings source; production trusted three-browser integration; page bundle boundary scan.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 24/24 production cases on final reviewed source; Linux WebKit sandbox needs pinned software EGL. Node visible-page median/p99 0.085610/0.286419 ms; historical pre-fix browser p50/p99 are in `docs/testing.md`. No concrete CodeMirror adapter or arbitrary OS layout support is claimed.                                                                                                                                                                                                                                                                                                                                  |
 | M2      | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M3      | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M4      | libpinyin: C++ side module against the runtime's libc++, database backend, user dictionaries in IndexedDB                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | C++ across modules; persistence; large lookup tables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -2458,8 +2524,9 @@ rules for sequences of programs, and how to add and run a test are in
   accept, shrinking the patch layers over time. Not required.
 - **R9. Toolchain fix.** If `-fwasm-fix-function-bitcasts` or a call-site
   alternative ships in Emscripten, re-evaluate §5.1.1 and remove the cast layer.
-- **R10. Decode speed.** If schema decoding exceeds the budget, lazy candidate
-  decoding (§6.3).
+- **R10. Decode speed.** Lazy candidate decoding is delivered (§6.3) and the
+  isolated Node visible-page target was met on the measured machine. Browser
+  editing latency remains a separate distribution (§11.7).
 - **R11. Legal review.** The boundary argument in §9 needs counsel before 1.0.
 - **R12. nixpkgs Emscripten's LLVM.** nixpkgs pairs Emscripten with its own
   LLVM, not the revision upstream tests with, and its package runs only a
@@ -2467,9 +2534,10 @@ rules for sequences of programs, and how to add and run a test are in
   appears, override the Emscripten or LLVM version in the flake. At
   `8ce4ef6`, nixpkgs pairs Emscripten 6.0.9 with LLVM 22.1.8; upstream
   Emscripten expects 24.
-- **R13. WebKit in the Nix sandbox.** If WebKit under Playwright is unreliable
-  in the build sandbox, that suite runs as `nix develop -c` in CI instead of
-  as a flake check.
+- **R13. WebKit in the Nix sandbox.** Pinned Linux WebKit 26.6 runs in the
+  sandbox with Mesa software EGL; the extended production Playwright target
+  includes it. Safari 17.4/macOS and the separate WasmFS IndexedDB Worker
+  matrix remain unverified.
 - **R14. First publish with trusted publishing.** Check whether npm allows
   configuring a trusted publisher before a package's first version exists. If
   not, each package's first version needs a one-time manual publish.

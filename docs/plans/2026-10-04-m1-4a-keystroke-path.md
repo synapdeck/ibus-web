@@ -172,14 +172,14 @@ suites) use `packages.demo`, a production build of the same page.
 - `@ibus-web/protocol`: `IBusCapability` (`PREEDIT_TEXT 1, AUXILIARY_TEXT 2, LOOKUP_TABLE 4, FOCUS 8, PROPERTY 16, SURROUNDING_TEXT 32, OSK 64, SYNC_PROCESS_KEY_V2 128`), `IBusModifier` (`SHIFT 1<<0 … MOD5 1<<7, BUTTON1…5, HANDLED 1<<24, IGNORED 1<<25, SUPER 1<<26, HYPER 1<<27, META 1<<28, RELEASE 1<<30`), `IBusInputPurpose`, `IBusInputHints`: `as const` objects with IBus's names and values.
 - `@ibus-web/core/keys` internals: `keysymForCodepoint(cp): number | undefined`, `codepointForKeysym(keysym): number | undefined`, `keysymByName: ReadonlyMap<string, number>`, `evdevForCode(code: string): number | undefined`.
 
-- [ ] **Step 1: Failing tests.**
+- [x] **Step 1: Failing tests.**
   - `flags.test.ts`: every value equals the vendored IBus headers' (`runtime/libibus-web/include/ibus-1.0/ibustypes.h`): a native C program, `test/ibus/flags/constants.c`, compiled in Nix against those headers, prints the values as JSON (the pattern `packages/worker-host/test/sides/constants.c` uses), and the test compares; the check passes its path in the environment.
   - `tools/keysyms/keysymdef.test.ts`: on fixture lines covering `/* U+00E9 … */`-style `// U+xxxx` mappings, `//<U+xxxx>` (keysym → character only), `(U+xxxx)` (not used for character → keysym), aliases sharing a value (first name canonical) and lines without a mapping, the generator's maps are exactly right; on the real `keysymdef.h`, `a` → 0x61, `Hangul` → 0xff31, `Hangul_Hanja` → 0xff34, U+3131 → its Korean keysym.
   - `tools/keysyms/dom-codes.test.ts`: fixture `DOM_CODE(…)` rows (including a row without an evdev value) parse; on the real file, `KeyA` → 30, `Lang1` → 122, `Lang2` → 123, `Space` → 57.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.** `flags.ts` by hand from IBus's documented values (the test guards them). Generators in `tools/keysyms/` read `${pkgs.xorgproto}/include/X11/keysymdef.h` and a single `dom_code_data.inc` fetched with `fetchurl` at the Chromium revision nixpkgs' `chromium` is built from (record the revision and hash; the GitHub mirror's raw URL serves the plain file) and print TypeScript modules with the sources' copyright notices in their headers. `modules/keys.nix` runs them and commits `packages/core/src/keys/*.generated.ts` through `files.file`. Add the three licence texts (`reuse download`), annotate the generated files in `REUSE.toml`, and ship the notices in `packages/core` (`LICENSES/` listed in `files`).
-- [ ] **Step 4:** `nix run .#write-files`; `nix build -L .#checks.x86_64-linux.{protocol,hk}` plus the new generator tests (`tools` Vitest) and `files:` checks.
-- [ ] **Step 5: Commit** `feat: generate key tables and define IBus's client flags`.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.** `flags.ts` by hand from IBus's documented values (the test guards them). Generators in `tools/keysyms/` read `${pkgs.xorgproto}/include/X11/keysymdef.h` and a single `dom_code_data.inc` fetched with `fetchurl` at the Chromium revision nixpkgs' `chromium` is built from (record the revision and hash; the GitHub mirror's raw URL serves the plain file) and print TypeScript modules with the sources' copyright notices in their headers. `modules/keys.nix` runs them and commits `packages/core/src/keys/*.generated.ts` through `files.file`. Add the three licence texts (`reuse download`), annotate the generated files in `REUSE.toml`, and ship the notices in `packages/core` (`LICENSES/` listed in `files`).
+- [x] **Step 4:** `nix run .#write-files`; `nix build -L .#checks.x86_64-linux.{protocol,hk}` plus the new generator tests (`tools` Vitest) and `files:` checks.
+- [x] **Step 5: Commit** `feat: generate key tables and define IBus's client flags`.
 
 ### Task 2: Key translation and engine keyboards
 
@@ -187,25 +187,25 @@ suites) use `packages.demo`, a production build of the same page.
 
 **Interfaces (produced):** `translateKey(event: KeyLike, layout: "us" | "default"): { keyval: number; keycode: number; state: number } | undefined` (undefined = never intercept), with `KeyLike = Pick<KeyboardEvent, "type" | "key" | "code" | "isComposing" | "repeat"> & { getModifierState(key: string): boolean }`.
 
-- [ ] **Step 1: Failing tests** (table-driven):
+- [x] **Step 1: Failing tests** (table-driven):
   - `us`: `KeyG` → `g`/30; with Shift → `G`; with CapsLock → `G`; Shift+CapsLock → `g`; `Digit1` Shift → `exclam`; `Numpad1` with and without NumLock; `Space` → `space`/57; `keyup` adds `RELEASE_MASK`; Control/Alt/Meta/AltGraph map to their masks, AltGraph clearing Control and Alt; `event.key` is ignored (`KeyQ` with `key = "a"` still gives `q`).
   - `default`: single code points (Latin-1 directly, a legacy keysym where one exists, else `0x01000000 + cp`), named keys (`Backspace`, `ArrowLeft`, `Shift`, `Enter`, `Escape`, F1–F12).
   - both: `HangulMode`/`Lang1` → 0xff31/122, `HanjaMode`/`Lang2` → 0xff34/123; `isComposing` and `key === "Dead"` → undefined.
   - manifest: `keyboard` required; `layout` one of `us`/`default`; `passThrough` names must be keysym names (checked against `keysymByName` in core's manifest use, not in protocol); the Hangul distribution's manifest carries `{ layout: "us", passThrough: [] }`.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement** the translation; the US table by hand (about fifty keys, each `code → [plain, shifted]` keysym names, letters marked as case-paired), cross-checked in a test against `codepointForKeysym`. Add `keyboard` to the schema, `mkEngineManifest` (a `keyboard` argument) and Hangul; update the worker-host test manifests.
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{protocol,worker-host-node,hangul-host,hk}` and the core package's tests.
-- [ ] **Step 5: Commit** `feat(core): translate keyboard events to IBus key events`.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement** the translation; the US table by hand (about fifty keys, each `code → [plain, shifted]` keysym names, letters marked as case-paired), cross-checked in a test against `codepointForKeysym`. Add `keyboard` to the schema, `mkEngineManifest` (a `keyboard` argument) and Hangul; update the worker-host test manifests.
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{protocol,worker-host-node,hangul-host,hk}` and the core package's tests.
+- [x] **Step 5: Commit** `feat(core): translate keyboard events to IBus key events`.
 
 ### Task 3: Runtime constants beside the runtime
 
 **Files:** `runtime/ibus-runtime/package.nix` (install `constants.json`), `runtime/ibus-runtime/checks.nix`, `packages/worker-host/src/shared/messages.ts` (`HostInit` without `constants`/`poolLowWater`), `src/worker/host.ts` (fetch and decode them), worker-host test harnesses and `module.nix`.
 
-- [ ] **Step 1: Failing tests:** a host started without `constants`/`poolLowWater` in `HostInit` starts (Node and browser suites); a runtime directory whose `constants.json` is missing or malformed fails the start with a message naming it; the built runtime's `constants.json` equals what the worker-host test derivation computed (runtime ABI, protocol, errno values, pump error, wait timeout, read-only code, memory bounds, `poolLowWater`).
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement**; the constants derivation moves from the worker-host tests into `ibus-runtime`'s package (the C program and the jq step), and the tests use the runtime's file.
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{worker-host-node,worker-host-browser,hangul-host,ibus-runtime-load,hk}`.
-- [ ] **Step 5: Commit** `feat: ship the runtime's constants with the runtime`.
+- [x] **Step 1: Failing tests:** a host started without `constants`/`poolLowWater` in `HostInit` starts (Node and browser suites); a runtime directory whose `constants.json` is missing or malformed fails the start with a message naming it; the built runtime's `constants.json` equals what the worker-host test derivation computed (runtime ABI, protocol, errno values, pump error, wait timeout, read-only code, memory bounds, `poolLowWater`).
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement**; the constants derivation moves from the worker-host tests into `ibus-runtime`'s package (the C program and the jq step), and the tests use the runtime's file.
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{worker-host-node,worker-host-browser,hangul-host,ibus-runtime-load,hk}`.
+- [x] **Step 5: Commit** `feat: ship the runtime's constants with the runtime`.
 
 ### Task 4: `@ibus-web/core` and the connection
 
@@ -250,11 +250,11 @@ The fake Worker (`test/support/fake-worker.ts`) implements the host's side in-pr
 each reply's records, return value, timing (immediate, after N ms of a fake clock, never), ring
 back-pressure, fragments, doorbells and crashes, following PROTOCOL.md's transport rules exactly.
 
-- [ ] **Step 1: Failing tests** against the fake Worker: a sync request completes within the budget and returns its records up to `replyOutSeq` (records past it stay for the next take); a reply whose records arrive after `REPLY` is still completed only once they're drained; budget exhaustion abandons (`reqMode` becomes `ABANDONED`) and returns `pending`; the reply that lands between the timeout and the compare-exchange is returned as a reply; an async request resolves on the doorbell; the doorbell word is cleared before draining (a fake that suppresses a second doorbell still has its records drained); fragments reassemble; `Crashed` record → crash with its reason; `CRASHED` without a record → crash; the `crashed` host message and a Worker `error` event → crash; seq gaps or a non-zero host record ic → `ProtocolError` logged and the record dropped (production), thrown (development flag).
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.** Start: compile the runtime once (`WebAssembly.compileStreaming`, cached per URL), `createControl(layout)`, `new Worker(hostUrl, { type: "module" })`, post one `HostInit`, wait for `ready`/`error`. No Effect inside `requestSync`.
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
-- [ ] **Step 5: Commit** `feat(core): drive a Worker host over the shared-memory transport`.
+- [x] **Step 1: Failing tests** against the fake Worker: a sync request completes within the budget and returns its records up to `replyOutSeq` (records past it stay for the next take); a reply whose records arrive after `REPLY` is still completed only once they're drained; budget exhaustion abandons (`reqMode` becomes `ABANDONED`) and returns `pending`; the reply that lands between the timeout and the compare-exchange is returned as a reply; an async request resolves on the doorbell; the doorbell word is cleared before draining (a fake that suppresses a second doorbell still has its records drained); fragments reassemble; `Crashed` record → crash with its reason; `CRASHED` without a record → crash; the `crashed` host message and a Worker `error` event → crash; seq gaps or a non-zero host record ic → `ProtocolError` logged and the record dropped (production), thrown (development flag).
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.** Start: compile the runtime once (`WebAssembly.compileStreaming`, cached per URL), `createControl(layout)`, `new Worker(hostUrl, { type: "module" })`, post one `HostInit`, wait for `ready`/`error`. No Effect inside `requestSync`.
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
+- [x] **Step 5: Commit** `feat(core): drive a Worker host over the shared-memory transport`.
 
 ### Task 5: The keystroke path, the replay queue, hangs and restarts
 
@@ -262,17 +262,17 @@ back-pressure, fragments, doorbells and crashes, following PROTOCOL.md's transpo
 
 **Interfaces (produced):** `KeySink { key(event: KeyboardEvent): KeyResult }`; `CoreConfig` (`budgetMs` 40, `hangMs` 2000, `replayLimit` 64, `surroundingWindow` 1000, `restart: Schedule`, ring and slot sizes) as a `Context.Service` with a default layer; `EngineRegistry` (`select(name)`, `state(name)`: `starting | ready | busy | restarting | failed`); `SettingsSource` (in-memory default); a `Logger` mapping `Log` records' GLib levels to Effect levels (Error, Critical → Error; Warning → Warning; Message, Info → Info; Debug → Debug), annotated with engine, input context and domain.
 
-- [ ] **Step 1: Failing tests** (fake Worker, fake clock, fake adapter recording calls):
+- [x] **Step 1: Failing tests** (fake Worker, fake clock, fake adapter recording calls):
   - a consumed key's records are applied in one `batch()` in order, and `key` returns `consumed`; a declined key returns `passthrough`;
   - a slow reply: `key` returns `consumed` after the budget, the event is queued, later keys queue and return `consumed`; on the doorbell the abandoned request completes, declined keys are replayed with `replayKey` in order, queued keys are sent `ASYNC` one at a time in order;
   - the 65th queued key → hang → crash path; no reply and no ring movement for 2 s → hang; ring movement resets the hang clock;
   - a crash with an in-flight key and queued keys: the in-flight and queued events are replayed in order, preedits cleared, panel events hidden, the restart schedule runs (immediate, then backoff), and after 3 crashes in 60 s the engine is `failed` and keys pass through;
   - a restart waits for the writer lock (fake lock that releases after 1 s), unless the last storage state was `read-only`; gives up after 10 s with the engine `failed`;
   - after a restart `Init` carries the current settings and input contexts are recreated on next focus.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement**; the keystroke path reads a snapshot object the services update; the services' fibers drain a synchronous queue of records and log lines.
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
-- [ ] **Step 5: Commit** `feat(core): serve keys synchronously with a replay queue and restart crashed engines`.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement**; the keystroke path reads a snapshot object the services update; the services' fibers drain a synchronous queue of records and log lines.
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
+- [x] **Step 5: Commit** `feat(core): serve keys synchronously with a replay queue and restart crashed engines`.
 
 ### Task 5a: Separate default checks from extended integration
 
@@ -286,11 +286,11 @@ back-pressure, fragments, doorbells and crashes, following PROTOCOL.md's transpo
 - `checks.worker-host-node` runs deterministic Node unit tests; `checks.worker-host-browser` runs a small real Worker/protocol smoke set in Chromium and Firefox. Keep tight heartbeat timing, installation/upgrade contention, and stress scenarios out of those default sets.
 - Preserve the complete current matrices as explicit `packages.worker-host-node-integration` and `packages.worker-host-browser-integration`. `packages.integration-checks` aggregates extended checks registered through `ibusWeb.testing.extendedChecks`; CI runs them separately from the default gate. Later Playwright end-to-end matrices use this extended tier. Keep the small real Hangul host conformance gate unless measurements establish it belongs in the extended tier.
 
-- [ ] **Step 1: Inspect and record** existing suite groups, their dependencies, observed timings, and exact cases selected for default smoke. No existing test may silently disappear; map every moved group to an explicit target.
-- [ ] **Step 2: Add failing verification** for default/extended separation, absence of extended matrix derivations from the default dependency graph, and selected-workspace source invalidation. A source-only core edit leaves WorkerHost check derivations unchanged; a WorkerHost source edit changes them. Restore all probe edits before validation. Default smoke asserts actual startup, request/reply and ordered protocol output with a real Worker, rather than only successful loading.
-- [ ] **Step 3: Implement** the selected-workspace builder, suite placement, explicit integration targets and generated CI jobs using repository Nix/module conventions. Keep existing test assertions intact. Do not weaken timing limits, add automatic retries or serialize every runner to make default checks pass. Report any observed flaky extended case with evidence.
-- [ ] **Step 4: Verify** affected unit/default-smoke checks, generated files/hk and the new default `nix flake check`. Run the explicit extended targets once to establish preserved coverage after changing their configuration/inputs. Record elapsed time and exact results separately for default and extended gates; cold toolchain compilation and test execution are distinct costs.
-- [ ] **Step 5: Commit** `test: separate default checks from extended integration suites`.
+- [x] **Step 1: Inspect and record** existing suite groups, their dependencies, observed timings, and exact cases selected for default smoke. No existing test may silently disappear; map every moved group to an explicit target.
+- [x] **Step 2: Add failing verification** for default/extended separation, absence of extended matrix derivations from the default dependency graph, and selected-workspace source invalidation. A source-only core edit leaves WorkerHost check derivations unchanged; a WorkerHost source edit changes them. Restore all probe edits before validation. Default smoke asserts actual startup, request/reply and ordered protocol output with a real Worker, rather than only successful loading.
+- [x] **Step 3: Implement** the selected-workspace builder, suite placement, explicit integration targets and generated CI jobs using repository Nix/module conventions. Keep existing test assertions intact. Do not weaken timing limits, add automatic retries or serialize every runner to make default checks pass. Report any observed flaky extended case with evidence.
+- [x] **Step 4: Verify** affected unit/default-smoke checks, generated files/hk and the new default `nix flake check`. Run the explicit extended targets once to establish preserved coverage after changing their configuration/inputs. Record elapsed time and exact results separately for default and extended gates; cold toolchain compilation and test execution are distinct costs.
+- [x] **Step 5: Commit** `test: separate default checks from extended integration suites`.
 
 Subsequent tasks run covering checks rather than the full matrix. Documentation must replace the current claim that every test is a flake check and list the explicit integration command and CI ownership.
 
@@ -302,11 +302,11 @@ Subsequent tasks run covering checks rather than the full matrix. Documentation 
 
 **Interfaces (produced):** One canonical central source for each shipped license/notice: SPDX texts and exact XKB COPYING in `LICENSES/`, source-specific X11/Chromium notices in `NOTICES/` (REUSE treats every nested `LICENSES/` file as a license definition). The assembled core package includes its project licenses, relevant SPDX license texts, exact X11/Chromium notices and pinned xkeyboard-config COPYING. Package-local notice copies are packaging outputs, not persistent source assets. Any source-notice extraction helper accepts pinned upstream content and returns clean plain text; generated headers and REUSE annotations retain accurate attribution.
 
-- [ ] **Step 1: Write failing tests** proving the X11 notice has no C comment wrapper, Chromium's notice has no `//` prefixes, and all substantive notice wording survives extraction. Keep xkeyboard-config COPYING byte-identical to its pinned input. Verify the actual packed core artifact contains the required notices and that pack cleanup leaves no package-local license copies in the checkout.
-- [ ] **Step 2: Run focused tests and record expected failures.**
-- [ ] **Step 3: Implement** central notice storage/generation and package-assembly copying. Standard SPDX template texts do not replace source-specific copyright notices. Remove duplicated tracked package files and their duplicate-generation/asset declarations. Supply only the canonical inputs needed by hermetic Nix builds/tests; do not bypass package-relative asset validation or introduce a general packaging framework.
-- [ ] **Step 4: Verify** focused extraction tests, an actual core package pack and content inspection, relevant generated-file checks and REUSE/hk after self-review/type/format corrections. Document source provenance and any normalization precisely; do not rerun unrelated extended integration matrices.
-- [ ] **Step 5: Commit** `fix(core): assemble clean notices from the central license store`.
+- [x] **Step 1: Write failing tests** proving the X11 notice has no C comment wrapper, Chromium's notice has no `//` prefixes, and all substantive notice wording survives extraction. Keep xkeyboard-config COPYING byte-identical to its pinned input. Verify the actual packed core artifact contains the required notices and that pack cleanup leaves no package-local license copies in the checkout.
+- [x] **Step 2: Run focused tests and record expected failures.**
+- [x] **Step 3: Implement** central notice storage/generation and package-assembly copying. Standard SPDX template texts do not replace source-specific copyright notices. Remove duplicated tracked package files and their duplicate-generation/asset declarations. Supply only the canonical inputs needed by hermetic Nix builds/tests; do not bypass package-relative asset validation or introduce a general packaging framework.
+- [x] **Step 4: Verify** focused extraction tests, an actual core package pack and content inspection, relevant generated-file checks and REUSE/hk after self-review/type/format corrections. Document source provenance and any normalization precisely; do not rerun unrelated extended integration matrices.
+- [x] **Step 5: Commit** `fix(core): assemble clean notices from the central license store`.
 
 ### Task 6: Input contexts and the client's duties
 
@@ -314,7 +314,7 @@ Subsequent tasks run covering checks rather than the full matrix. Documentation 
 
 **Interfaces (produced):** `Router` with `attach(adapter: SurfaceAdapter): () => void`, `select(engine: string)`, `override(adapter, engine | undefined)`, `hotkeys: HotkeyRegistry` (empty by default), `panel: Stream<PanelEvent>`; `textareaAdapter(element: HTMLTextAreaElement | HTMLInputElement, options?: { onPreedit?: (p: Preedit | undefined) => void }): SurfaceAdapter` — commits with `setRangeText` and an `input` event, deletes surrounding text likewise, replays keys by inserting their character or performing the editing action (Backspace, Delete, Enter in a textarea, arrows), reports preedit through `onPreedit` (no overlay; M1.4b), and reports resets on `selectionchange`/`pointerdown` moving the caret and on `value` changes it didn't make.
 
-- [ ] **Step 1: Failing tests** (fake Worker, a DOM from Vitest's browser mode or `happy-dom` if the package already allows it — prefer browser mode):
+- [x] **Step 1: Failing tests** (fake Worker, a DOM from Vitest's browser mode or `happy-dom` if the package already allows it — prefer browser mode):
   - first focus sends `CreateEngine`, `SetCapabilities` (the Decisions' bits, never `SYNC_PROCESS_KEY_V2`, `SURROUNDING_TEXT` only with an adapter that supplies it), `SetContentType`, `FocusIn`, `SetSurroundingText`; blur sends `FocusOut`; a second surface gets its own input context;
   - COMMIT-mode visible preedit on blur → one batch committing its text and clearing the preedit, then `FocusOut`; `CLEAR` mode → cleared without commit; same on a reset reported by the adapter, before `Reset`;
   - surrounding text: sent on focus, after commits, after consumed keys and on `RequireSurroundingText`, not resent when unchanged; ±1000-character window; code points vs UTF-16 with astral characters on both sides; `DeleteSurroundingText(-1, 1)` before an astral character deletes two UTF-16 units;
@@ -322,10 +322,10 @@ Subsequent tasks run covering checks rather than the full matrix. Documentation 
   - `SetCursorLocation` after a batch that moved the caret rectangle;
   - engine switch: `Disable` + `FocusOut` to the old, `Enable` + `FocusIn` to the new; detaching a surface sends `DestroyEngine` and drops its later output;
   - `ForwardKeyEvent` → `adapter.forwardKey`; `DeleteSurroundingText` before `CommitText` applied in that order.
-- [ ] **Step 2: Run them; they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
-- [ ] **Step 5: Commit** `feat(core): route input contexts and perform the client's preedit and surrounding-text duties`.
+- [x] **Step 2: Run them; they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4:** `nix build -L .#checks.x86_64-linux.{core,hk}`.
+- [x] **Step 5: Commit** `feat(core): route input contexts and perform the client's preedit and surrounding-text duties`.
 
 ### Task 6b: Fully asynchronous input alongside native synchronous surfaces
 
@@ -335,7 +335,7 @@ Subsequent tasks run covering checks rather than the full matrix. Documentation 
 
 **Interfaces (produced):** Extend `Router.attach(adapter, options?: { keyMode?: "sync" | "async" | "manual" }): () => void`, defaulting to `sync`. `async` installs asynchronous key handling; `manual` preserves context lifecycle without installing keyboard interception, for editor-owned capture. Add `Router.keyAsync(adapter, event): Promise<AsyncKeyResult>`, where `AsyncKeyResult` is `"consumed" | "replayed" | "passthrough" | "cancelled"`. `consumed` means reply records have been applied; `replayed` means the adapter has already applied the declined key exactly once; `passthrough` means the event was excluded from interception and was not replayed; `cancelled` means the owning context was detached/disposed before completion. Callers must not replay a `replayed` result. Editor-owned capture must preserve native handling for excluded composing/dead events. M1.4b Task 6 exposes this custom-adapter/manual-input path alongside native `attach(element)`.
 
-- [ ] **Step 1: Write failing tests** with deterministic fake Worker instruments and deferred replies:
+- [x] **Step 1: Write failing tests** with deterministic fake Worker instruments and deferred replies:
   - asynchronous dispatch never calls `requestSync` or spins, even with an immediately available reply;
   - a synchronous native input and asynchronous editor adapter share one Router and engine, retain distinct input contexts, and receive only their own output;
   - consumed output applies before promise settlement; declined-key fallback applies once through the adapter before the next dependent key is dispatched;
@@ -344,10 +344,10 @@ Subsequent tasks run covering checks rather than the full matrix. Documentation 
   - crashes and queue overflow settle awaiters and perform fallback exactly once; disposal settles outstanding promises without editing disposed surfaces;
   - existing keydown/keyup translation, pass-through declarations, composing/dead-key bypass, password exclusions and readiness gating remain intact;
   - `manual` attachments do not also intercept the editor's keyboard events; browser tests cover concurrent native and editor-style adapter lifecycle.
-- [ ] **Step 2: Run the focused tests and record their expected failures.**
-- [ ] **Step 3: Implement** the asynchronous entry point through the existing engine FIFO, ASYNC transport, output ring, watchdog and restart machinery. Keep fallback ownership explicit and generation/context checks intact. Do not introduce a second engine dispatcher, a CodeMirror dependency or a Markdown editor implementation.
-- [ ] **Step 4: Verify** focused tests and covering core/browser/Hangul checks after self-review/type/format corrections. Record the exact commands and results. Concrete CodeMirror integration is not established by an editor-style test adapter.
-- [ ] **Step 5: Commit** `feat(core): support asynchronous editor input alongside native surfaces`.
+- [x] **Step 2: Run the focused tests and record their expected failures.**
+- [x] **Step 3: Implement** the asynchronous entry point through the existing engine FIFO, ASYNC transport, output ring, watchdog and restart machinery. Keep fallback ownership explicit and generation/context checks intact. Do not introduce a second engine dispatcher, a CodeMirror dependency or a Markdown editor implementation.
+- [x] **Step 4: Verify** focused tests and covering core/browser/Hangul checks after self-review/type/format corrections. Record the exact commands and results. Concrete CodeMirror integration is not established by an editor-style test adapter.
+- [x] **Step 5: Commit** `feat(core): support asynchronous editor input alongside native surfaces`.
 
 Task 9 documents both modes, per-surface configuration and fallback/cancellation ownership. This user amendment extends the older spec's synchronous-only integration contract.
 
@@ -355,14 +355,14 @@ Task 9 documents both modes, per-surface configuration and fallback/cancellation
 
 **Files:** `packages/core/test/browser/{hangul,crash}.test.ts`, `packages/core/module.nix` (`checks.core-browser`: Vitest browser mode, Chromium and Firefox, serving the runtime, the host's Worker scripts and the Hangul distribution with COOP/COEP through `@ibus-web/test-programs/vitest`'s `serveDirs`/`servePlugin`).
 
-- [ ] **Step 1: Write the cases**, each typing with synthetic `KeyboardEvent`s dispatched on a real `<textarea>` with `textareaAdapter`:
+- [x] **Step 1: Write the cases**, each typing with synthetic `KeyboardEvent`s dispatched on a real `<textarea>` with `textareaAdapter`:
   - Hangul key, then ㅎ ㅏ ㄴ ㄱ ㅡ ㄹ, space → the textarea's value is `한글 ` (CapsLock state off; the US layout's keysyms), and `input` events fired for commits only;
   - blur mid-composition → the composed syllable is committed (the client's COMMIT duty);
   - a password input → typing inserts Latin letters untouched by the engine;
   - Hanja: 한, F9, a candidate chosen with a digit → the candidate replaces the syllable (DeleteSurroundingText then CommitText when surrounding text is on);
   - crash: the thrower test engine (or the host's trap side) → the in-flight key is applied by the browser, the engine restarts, typing works again.
-- [ ] **Step 2: Run** `nix build -L .#checks.x86_64-linux.core-browser`; fix core, not expectations.
-- [ ] **Step 3: Commit** `test(core): type Hangul through the real host in Chromium and Firefox`.
+- [x] **Step 2: Run** `nix build -L .#checks.x86_64-linux.core-browser`; fix core, not expectations.
+- [x] **Step 3: Commit** `test(core): type Hangul through the real host in Chromium and Firefox`.
 
 ### Task 8: The demo
 
@@ -379,15 +379,15 @@ symbol) printed in a side list, the engine state (`starting`, `ready`, `restarti
 storage state, a "crash the engine" button available in the demo build only when a test engine is
 present (omit it otherwise), and a short how-to (the Hangul key or Shift+Space toggles Hangul input, F9 converts to Hanja).
 
-- [ ] **Step 1:** Register `examples/*` in the Nix-owned workspace globs and regenerate `pnpm-workspace.yaml`; include the example in workspace discovery and build inputs. Vite config: COOP/COEP headers on every response; a middleware serving the runtime, host Worker scripts and Hangul distribution from paths given in the environment (`IBUS_WEB_DEMO_RUNTIME`, `IBUS_WEB_DEMO_HOST`, `IBUS_WEB_DEMO_HANGUL`), as plain bytes (no `Content-Encoding` on `.tar.br`).
-- [ ] **Step 2:** `apps.demo` (`nix run .#demo`): a `writeShellApplication` that requires being run inside the checkout (finds the flake root), sets the three variables to Nix store paths, runs `pnpm install --frozen-lockfile` when `node_modules` is missing, builds the workspace packages the demo depends on (`pnpm --filter demo... --filter '!demo' run build`), and runs `pnpm --dir examples/hangul exec vite` (dev server, hot reload) on `127.0.0.1:5173` by default. Forward Vite arguments so `nix run .#demo -- --port 5174` selects a custom port. The dev shell exports the same variables so `pnpm --dir examples/hangul dev` works there too. `packages.demo` is `vite build` of the page with the three directories copied in, for tests.
-- [ ] **Step 3:** `checks.demo`: builds the demo, starts its server in the build, loads the page in Playwright's Chromium (the `ibusWeb.testing.playwright` environment), types 한 with synthetic events through the page and asserts the textarea's value — a smoke test, not the Playwright suite of M1.4b.
-- [ ] **Step 4:** run `nix run .#demo` yourself and type in it; record in the task report what you saw.
-- [ ] **Step 5: Commit** `feat(demo): a demo page for typing Korean through ibus-web`.
+- [x] **Step 1:** Register `examples/*` in the Nix-owned workspace globs and regenerate `pnpm-workspace.yaml`; include the example in workspace discovery and build inputs. Vite config: COOP/COEP headers on every response; a middleware serving the runtime, host Worker scripts and Hangul distribution from paths given in the environment (`IBUS_WEB_DEMO_RUNTIME`, `IBUS_WEB_DEMO_HOST`, `IBUS_WEB_DEMO_HANGUL`), as plain bytes (no `Content-Encoding` on `.tar.br`).
+- [x] **Step 2:** `apps.demo` (`nix run .#demo`): a `writeShellApplication` that requires being run inside the checkout (finds the flake root), sets the three variables to Nix store paths, runs `pnpm install --frozen-lockfile` when `node_modules` is missing, builds the workspace packages the demo depends on (`pnpm --filter demo... --filter '!demo' run build`), and runs `pnpm --dir examples/hangul exec vite` (dev server, hot reload) on `127.0.0.1:5173` by default. Forward Vite arguments so `nix run .#demo -- --port 5174` selects a custom port. The dev shell exports the same variables so `pnpm --dir examples/hangul dev` works there too. `packages.demo` is `vite build` of the page with the three directories copied in, for tests.
+- [x] **Step 3:** `checks.demo`: builds the demo, starts its server in the build, loads the page in Playwright's Chromium (the `ibusWeb.testing.playwright` environment), types 한 with synthetic events through the page and asserts the textarea's value — a smoke test, not the Playwright suite of M1.4b.
+- [x] **Step 4:** run `nix run .#demo` yourself and type in it; record in the task report what you saw.
+- [x] **Step 5: Commit** `feat(demo): a demo page for typing Korean through ibus-web`.
 
 ### Task 9: Docs and spec
 
-- [ ] **Step 1:** `docs/core.md` (new): the package's layers, key translation and layouts, the keystroke path, the replay queue, crashes and restarts, the client's preedit and surrounding-text duties, capabilities, the adapter contract, settings source, how to run the demo. `docs/README.md` links it. `docs/worker-host.md`: `HostInit` without constants; `constants.json` beside the runtime. `docs/known-gaps.md`: remove the page router, client preedit policy, published constants and writer-lock-wait items; keep settings persistence and lazy lookup decoding for M1.4b; note that `IBusEngineSimple`'s missing compose leaves Latin mode to the browser.
-- [ ] **Step 2: Spec:** §5.4.4 (`keyboard` in manifests), §7.1.1 (`us` layout from `event.code` with IBus's Shift/Lock rule, named Hangul/Hanja keys), §7.1.2 (capabilities without `SYNC_PROCESS_KEY_V2`; the COMMIT-mode duty on blur and reset; surrounding-text triggers; password inputs never focused; keys while the engine isn't ready), §6.2.6 (keys during asynchronous requests queue), §8 (hang definition), §12 (M1.4 split into M1.4a and M1.4b; M1.4a done).
-- [ ] **Step 3:** `nix flake check`.
-- [ ] **Step 4: Commit** `docs: describe the page's keystroke path and the demo`.
+- [x] **Step 1:** `docs/core.md` (new): the package's layers, key translation and layouts, the keystroke path, the replay queue, crashes and restarts, the client's preedit and surrounding-text duties, capabilities, the adapter contract, settings source, how to run the demo. `docs/README.md` links it. `docs/worker-host.md`: `HostInit` without constants; `constants.json` beside the runtime. `docs/known-gaps.md`: remove the page router, client preedit policy, published constants and writer-lock-wait items; keep settings persistence and lazy lookup decoding for M1.4b; note that `IBusEngineSimple`'s missing compose leaves Latin mode to the browser.
+- [x] **Step 2: Spec:** §5.4.4 (`keyboard` in manifests), §7.1.1 (`us` layout from `event.code` with IBus's Shift/Lock rule, named Hangul/Hanja keys), §7.1.2 (capabilities without `SYNC_PROCESS_KEY_V2`; the COMMIT-mode duty on blur and reset; surrounding-text triggers; password inputs never focused; keys while the engine isn't ready), §6.2.6 (keys during asynchronous requests queue), §8 (hang definition), §12 (M1.4 split into M1.4a and M1.4b; M1.4a done).
+- [x] **Step 3:** `nix flake check`.
+- [x] **Step 4: Commit** `docs: describe the page's keystroke path and the demo`.

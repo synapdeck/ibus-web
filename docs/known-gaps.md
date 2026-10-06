@@ -133,14 +133,22 @@ An item leaves this page when it is fixed or decided.
 - **The pump's tuning constants** (a 10 ms cap with fd sources, 64 rounds) are unmeasured.
 - **Expected stderr noise isn't marked as such** in check output: `dlopen` errors from refusal cases, and
   Emscripten's `received "7" command from terminated worker` at an `ASSERTIONS` + `PROXY_TO_PTHREAD` exit.
-- **WebKit** wasn't run (spec R5, R13).
+- **WebKit scope.** Production Playwright integration ran pinned Linux WebKit
+  26.6 in the Nix sandbox with software EGL. Safari 17.4/macOS browser-floor
+  behavior and the separate WasmFS IndexedDB-in-Worker matrix remain unverified.
 
 ## Engines and page integration
 
-- **Native adapter (M1.4b).** The basic adapter provides callback preedit and
-  fallback editing, but no caret overlay/mirror, native undo integration, full
-  clipboard or platform-complete navigation. No concrete CodeMirror adapter or
-  full panel/settings facade ships yet. See [core.md](core.md).
+- **Native adapter limits.** Focused commits have a mirror/overlay and native undo.
+  If the field is unfocused or `execCommand` is unavailable, the `setRangeText`
+  fallback dispatches a synthetic input event and has no native undo. Trusted
+  Chromium blur commit reaches this fallback. Full clipboard and platform-complete
+  navigation remain open; a concrete CodeMirror adapter is not shipped.
+  See [core.md](core.md).
+- **System keyboard layouts.** The existing `us` translation follows physical
+  `event.code`; `default` follows translated `event.key`. Arbitrary OS layouts,
+  Dead/AltGr/shortcut behavior and fallback replay have no system-layout matrix.
+  A host override/detection mechanism is a future design recommendation.
 
 - **The memory figure counts static data twice.** `heapBytes` is the declared
   program-break peak, an address that includes the static data below the heap,
@@ -162,10 +170,6 @@ An item leaves this page when it is fixed or decided.
 - **Surrounding selection anchor.** The IBus-compatible delete operation updates
   cached text/cursor but leaves the selection anchor unchanged until the host's
   next `SetSurroundingText`; callers can observe that stale anchor.
-- **Settings persistence (M1.4b).** The page's replaceable persister must read
-  Init snapshots from the `gsettings` IndexedDB database, persist SettingWritten,
-  and deliver SettingChanged to other Workers and tabs over BroadcastChannel
-  (spec §7.1.4). The C backend is in-memory only.
 
 ## Storage
 
@@ -331,9 +335,3 @@ An item leaves this page when it is fixed or decided.
 - **Integer-like dictionary keys.** The tree layer preserves entry order; schema
   records follow JavaScript's ordering of integer-like keys. IBus attachment names
   and GSettings schema IDs and keys do not use these keys.
-- **Lazy lookup decoding (M1.4b).** A framed 500-candidate record (64,832 bytes) takes
-  1.01 ms median / 4.40 ms p99 under Node v24.21.0 on a Ryzen 9 9950X3D
-  (`nix run .#protocol-bench`), twice the 0.5 ms target. Bytes to tree (0.43 ms) and
-  tree to schemas (0.46 ms) each take most of the target alone. The panel must decode
-  the visible page eagerly and defer the rest; the decoder constructs the whole
-  table. See [protocol.md](protocol.md#lookup-decode-measurement).

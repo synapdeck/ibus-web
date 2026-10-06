@@ -1,8 +1,8 @@
 # ibus-web documentation
 
-How the parts of ibus-web built so far work, the constraints they live under, and the evidence behind each
+How ibus-web works, the constraints it lives under, and the evidence behind each
 choice. Each page keeps its reasons beside the decisions they support, with measurements summarised along
-with the conditions they were taken under. The design for what is still to come is the spec,
+with the conditions they were taken under. The design and remaining milestones are in the spec,
 [`specs/2026-09-26-ibus-web-design.md`](specs/2026-09-26-ibus-web-design.md).
 
 | Page                             | Covers                                                                                                                                                     |
@@ -14,6 +14,8 @@ with the conditions they were taken under. The design for what is still to come 
 | [storage.md](storage.md)         | The WasmFS IndexedDB backend; engine data per version, its locks and installs; the writer lock; durability and costs                                       |
 | [worker-host.md](worker-host.md) | `@ibus-web/worker-host`: the host's scopes, request loop, relay and pool top-up, failures, storage and engine data, and its test suites                    |
 | [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the Hangul demo                                                    |
+| [ibus-web.md](ibus-web.md)       | Installing and deploying the facade, its public API, Worker assets and settings                                                                            |
+| [panel.md](panel.md)             | Framework-free candidate/property panel, actions, placement and stylesheet                                                                                 |
 | [protocol.md](protocol.md)       | `@ibus-web/protocol`: strict GVariant codecs, schemas, generated artifacts, parity and decode measurements                                                 |
 | [testing.md](testing.md)         | GoogleTest, g_test and Vitest; the test-program runner; adding a test program; running tests locally                                                       |
 | [tooling.md](tooling.md)         | The dev shell, hk and its hooks, formatters and linters, TypeScript and pnpm, editor language servers, CI and the binary cache                             |

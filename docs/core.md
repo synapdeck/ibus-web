@@ -49,10 +49,20 @@ it does not change the OS keyboard layout.
 
 State carries Shift, Lock, Control, Alt/Mod1, NumLock/Mod2 and Meta/Mod4/Super/Meta.
 AltGraph sets Mod5 and clears Control and Alt. Releases carry RELEASE and use the
-same attachment mode as presses. Composing events, Dead keys, disabled/private
-surfaces, manifest pass-through keys and keys without a ready enabled context are
-excluded and retain native handling. Readiness requires Worker ready, successful
-Init and the surface's instance/focus setup; typing remains native during startup.
+same attachment mode as presses. Password/private surfaces, composing events and
+Dead keys are excluded before engine processing. Registered hotkeys have their own
+readiness policy and may run before an engine context is ready; manifest
+`passThrough` and unready-context exclusions govern engine processing, not every
+registered hotkey. Readiness requires Worker ready, successful Init and the
+surface's instance/focus setup; ordinary typing remains native during startup.
+
+The existing `us` mode follows physical `event.code` positions, useful for
+conventional Hangul, while `default` follows the translated `event.key`, useful
+for transliteration. The engine's Hangul keyboard setting is separate from the
+operating system's layout. We have not validated arbitrary AZERTY, QWERTZ,
+Dvorak, Colemak or custom layouts, nor their Dead-key, AltGr, shortcut and replay
+behavior. Detecting a host layout or offering a host override is a future design
+option, not part of this API.
 
 The tables are generated from pinned xorgproto `keysymdef.h`, Chromium
 `dom_code_data.inc` and xkeyboard-config US data. Their source licenses include
@@ -149,7 +159,14 @@ The client owns the last visible preedit. Before FocusOut on blur, detach or eng
 switch, and before Reset after an external edit, it commits visible COMMIT-mode
 text through the adapter and clears preedit in one batch. CLEAR mode only clears;
 Hangul uses it while its Hanja list is open. Preedit is decoration, never document
-content. A crash clears preedit without committing it.
+content. A crash clears preedit without committing it. Blur captures the identities
+of keys already accepted at the blur event; later keys from a new focus interval
+cannot extend that drain. A focused reset holds newly accepted keys in the same
+engine FIFO until Reset and snapshot refresh complete. A reset on an inactive or
+unready context reserves this barrier when it becomes eligible again, after older
+cross-surface work has drained. Programmatic value and selection edits are
+host-authoritative: reset uses the current host state. Pointerdown capture commits
+before a trusted click moves the browser caret.
 
 Capabilities start with PREEDIT_TEXT, AUXILIARY_TEXT, LOOKUP_TABLE, FOCUS and
 PROPERTY, with unsupported adapter text capabilities removed and SURROUNDING_TEXT
@@ -159,27 +176,42 @@ Password inputs and current-password/new-password autocomplete surfaces never
 focus their engine context; every key passes through. Other native inputs map
 type/inputmode/autocomplete to purpose and hints before FocusIn.
 
-`textareaAdapter(inputOrTextarea, { onPreedit })` implements the basic native
-adapter. It uses setRangeText and input events, callback preedit, surrounding text
-and code-point-aware fallback editing. Unsupported native selection APIs fall back
-to end-of-value insertion. `caretRect()` is currently undefined. This adapter does
-not provide a caret mirror/overlay, native undo integration, full clipboard behavior
-or platform-complete navigation. Full native-text integration, overlays and undo
-remain M1.4b work; contenteditable is later work.
+`textareaAdapter(inputOrTextarea, { onPreedit })` renders preedit in a clipped,
+aria-hidden overlay. A temporary text mirror accounts for font, box, direction,
+wrapping and scroll to locate the caret; `caretRect()` reports the native caret or
+preedit cursor for SetCursorLocation. UTF-16 attribute ranges render underline and
+foreground/background colors, including Hangul's white-on-black composition.
+The control value, native undo history and input events never contain preedit.
+Focused commits and surrounding deletions in one batch become one native
+`execCommand("insertText"/"delete")` edit with a browser input event and undo step.
+When the command is unavailable or the field has lost focus, `setRangeText` plus a
+synthetic input event applies the edit without native undo. Production Chromium
+blur commit reaches this fallback; focused native undo and blur commit were tested
+as separate behaviors. Unsupported selection APIs retain end-of-value fallback.
+The callback remains optional; full clipboard/platform navigation and a concrete
+CodeMirror adapter are not shipped.
 
 ## Settings, panel output and logging
 
 `SettingsSource` supplies `snapshot(schemas): Promise<SettingsSnapshot>`,
-`written(change)` and a `changes` Stream. Snapshot values are typed GVariant
-variants indexed by schema ID and key. `SettingsSource.layer(initial)` and
-`SettingsSource.Default` are in-memory. The registry sends snapshots on Init,
-accepts SettingWritten and forwards changes to other live engines. IndexedDB
-persistence, BroadcastChannel synchronization, schema metadata and the public
-settings UI remain M1.4b work.
+`written(change)` and a `changes` Stream. Optional `register(metadata)`,
+`write(change)` and `read(schemaId, key)` hooks support persistent sources while
+older host-provided in-memory sources remain valid. Snapshot values are typed
+GVariant variants indexed by schema ID and key. `SettingsSource.layer(initial)` is
+in-memory; `SettingsSource.Default` is a lazy `gsettings` IndexedDB source with
+`BroadcastChannel("ibus-web:gsettings")` synchronization. It stores one origin-wide
+record keyed by schema path and key, with GVariant type and normal-form
+`ArrayBuffer` bytes. Values equal to the schema default delete the record. The
+registry loads metadata and snapshots before Init, accepts SettingWritten, and
+forwards changes to other live engines. Cross-tab recipients update their live
+Workers without writing the record again. Concurrent writes are last write wins
+per record; live tabs follow the last received broadcast, while future Init reads
+the database. The Worker host never opens this database. See [ibus-web.md](ibus-web.md)
+for the public API.
 
 `router.panel` publishes tagged record/hide events with engine and context ID for
-auxiliary text, lookup tables and properties; the example prints them. The default
-panel and facade remain future work. `Logger.Default` maps GLib error/critical to
+auxiliary text, lazy lookup tables and properties. The framework-free default
+panel consumes facade events; see [panel.md](panel.md). `Logger.Default` maps GLib error/critical to
 Error, warning to Warn, message/info to Info and the remaining levels to Debug,
 annotating engine, inputContext and domain; hosts can replace the Logger service.
 
@@ -229,7 +261,7 @@ a preference; there is no additional factor-of-ten acceptance target.
 
 ## Demo and validation scope
 
-The private example is [examples/hangul](../examples/hangul/README.md). From the checkout:
+The production demo is [examples/hangul](../examples/hangul/README.md). From the checkout:
 
 ```sh
 nix run .#demo
@@ -242,18 +274,16 @@ is the production build and `checks.demo` its separate Chromium smoke. Preview
 serves copied Brotli archives as opaque bytes without Content-Encoding: br.
 
 Press Shift+Space to switch to Hangul, type gks for 한 and press F9 for Hanja
-candidates. Preedit stays in its callback display until committed (for example,
-on blur). The checkbox detaches/reattaches handling; native input remains usable
-during startup and while disabled. The page prints panel records and engine/storage
-state; it is not the full panel/settings facade. IBusEngineSimple has no compose
-implementation, so Latin mode delegates ordinary typing to the browser.
+candidates. Preedit appears over the field until committed. The page uses the
+facade, candidate/property panel and metadata-driven persistent settings form;
+its attachment control leaves native input usable while disabled or starting.
+Restart starts a fresh Worker with default EN mode, then a trusted toggle resumes
+Hangul. IBusEngineSimple has no compose implementation, so Latin mode delegates
+ordinary typing to the browser.
 
-The core Node and Chromium/Firefox browser gates cover router policy and synthetic
-DOM integration through a real Worker/runtime/Hangul engine. The browser helper
-simulates unprevented native defaults. Separate trusted Playwright interaction with
-the development demo exercised composition, blur, Hanja and the checkbox. These
-observations do not establish OS keyboard/layout, native undo, Safari, minimum-browser
-coverage or persistent-storage recovery. The production smoke uses constructed keys.
-See [testing.md](testing.md) for default versus explicit extended integrations;
-focused tasks do not repeat every host/browser matrix. The milestone uses the
-default `nix flake check`; later integration work covers broader trusted browser flows.
+Core Node and Chromium/Firefox browser gates cover router policy and synthetic DOM
+integration. The separate production Playwright suite uses trusted input in
+Chromium, Firefox and pinned Linux WebKit 26.6, including focused native undo and
+cross-tab settings. Linux WebKit is not Safari 17.4 or macOS verification; OS
+keyboard layouts, physical devices and paint latency remain unmeasured. See
+[testing.md](testing.md) for exact default and extended gates.

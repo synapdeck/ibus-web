@@ -45,7 +45,7 @@ before any Init, since GLib caches its schema source on the first lookup.
 ### Distribution manifest
 
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`,
-`heapBytes`, `settingsSchemaDir`, `engines` and `settingsSchemas`. It derives
+`heapBytes`, `settingsSchemaDir`, `engines`, `settingsSchemas` and `keyboard`. It derives
 license and the upstream version from the package, runtime ABI and protocol from the build,
 and static memory from the module's `dylink.0` section. Build:
 
@@ -53,7 +53,7 @@ and static memory from the module's `dylink.0` section. Build:
 nix build .#ibus-web-hangul-dist
 ```
 
-The output contains `manifest.json`, `hangul.wasm`, and one
+The output contains `manifest.json`, generated `settings.json`, `hangul.wasm`, and one
 `data/<hash>-<name>.tar.br` per closure store path. `EngineManifest` in
 `@ibus-web/protocol` has these fields:
 
@@ -71,8 +71,20 @@ type EngineManifest = {
   settingsSchemaDir: string;
   engines: string[];
   settingsSchemas: string[];
+  settingsMetadata?: { url: string; size: number };
+  keyboard: { layout: "us" | "default"; passThrough: string[] };
 };
 ```
+
+`settings.json` comes from the compiled schema directory via pinned GLib running
+under WebAssembly, then the strict TypeScript GVariant decoder. It records each
+listed schema's fixed path, key names/types, defaults, descriptions and any
+range/choices supplied by GLib; relocatable schemas fail the build. The page
+fetches it through `settingsMetadata` before Init, validates settings and
+constructs a metadata-driven form. Hangul's keyboard key has no generated
+choices. `keyboard.layout = "us"` translates physical `event.code` positions;
+`"default"` uses translated `event.key`. This engine keyboard preference is not
+an OS keyboard-layout detector.
 
 `version` is an immutable distribution identity: `<upstream-version>+nix.<output-hash>`.
 The hash comes from the distribution's Nix output path, covering its build

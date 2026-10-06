@@ -590,10 +590,66 @@ Safari or minimum browser versions.
 
 `packages.demo` builds examples/hangul; `checks.demo` separately loads that built
 page in fresh Chromium, checks isolation and opaque archive delivery, and verifies
-callback preedit plus blur commit with constructed keys. Trusted Playwright
-interaction with the development demo is separate observed evidence, described in
-[core.md](core.md), not a claim of full settings/panel or storage-recovery coverage.
+typing and blur commit with constructed keys. The production demo uses the facade,
+panel and metadata-driven settings form.
 
 These are default gates. `nix flake check` runs the default milestone tier; the
 explicit worker-host integration outputs and `integration-checks` aggregate above
 remain extended work, not a matrix to repeat for every focused change.
+
+### Production Playwright integration
+
+`nix build .#playwright-integration` serves the production demo through its Vite
+preview configuration with COOP/COEP and runs eight trusted-input specs in each of
+Chromium, Firefox and WebKit (24 total). It covers real Hangul composition, visible
+preedit without value/input leakage, focused native undo, separate blur commit,
+Hanja paging/click/digit selection, password exclusion, actual Worker restart,
+native Space reset ordering, and 3f settings changes across live contexts, tabs
+and reload. It fails on page errors or visible demo errors. The target belongs to
+`ibusWeb.testing.extendedChecks.playwright` and the explicit `integration-checks`
+aggregate, outside default `nix flake check`.
+
+Pinned Playwright 1.63.0 runs Linux WebKit 26.6 (revision 2359) in the Nix
+sandbox using pinned Mesa 26.2.3 software EGL and an Ubuntu 24.04 Playwright
+platform override. No CI browser fallback is needed. This is Linux WebKit
+evidence, not Safari 17.4 or macOS verification. Linux native undo uses Control+Z;
+macOS uses Meta+Z. Focused native undo and an unfocused blur commit are distinct
+assertions; the latter can use `setRangeText` without native undo.
+
+### Keystroke measurements
+
+`nix run .#keystroke-bench` runs a separate production-preview browser benchmark.
+One isolated repaired cohort on Ryzen 9 9950X3D (32 logical CPUs), Linux
+6.18.54-xanmod1, Node 24.21.0, Playwright 1.63.0 and Vite 8.3.2 used 70
+validated sequential warmup keys, then 500 sequential trusted keys per browser.
+Each sample starts at keydown capture before the router and ends when value,
+selection or preedit application is observed. The observer endpoint includes
+snapshot/observer/microtask overhead and possible reset FIFO delay; it excludes
+paint, keyboard hardware and Playwright inter-key waiting. Retain-on-failure
+tracing and normal desktop activity may affect scheduling. These results measured
+commit `a174a749`; later reset lifecycle fixes through `8026169` retained the
+focused-ready dispatch branch but were not timed again, so no exact current-source
+latency distribution is claimed.
+
+| Browser                | p50 ms | p99 ms | max ms |
+| ---------------------- | -----: | -----: | -----: |
+| Chromium 153.0.8010.12 |  0.805 | 15.115 | 21.105 |
+| Firefox 155.0          |  1.380 |  2.480 |  2.940 |
+| Linux WebKit 26.6      |  2.180 |  4.140 |  4.900 |
+
+Chromium's 72 later-observer endpoints among 500 samples are not all identified
+as transport abandonment. This browser metric is separate from the Node protocol
+framed-record-to-visible-page measurement in [protocol.md](protocol.md#lookup-decode-measurement).
+
+### Bundle boundary
+
+`checks.bundle-scan` is a default gate. It fully bundles all seven published
+page entries (`ibus-web`, its `effect`/`panel`/`worker` subpaths and the core,
+panel and protocol packages) plus the production demo. It captures Vite's
+executable module graph and emitted imports, checks dependency completeness and
+scans code/module identities for Worker host, runtime, Brotli WASM and Emscripten
+implementation markers. Its negative test really inlines host code and requires
+rejection. Named shared transport ABI modules are allowed; a separately deployed
+Worker/relay/Brotli script reached as a URL asset is not executable page code.
+The published facade's `workerUrl` still requires the complete host asset
+directory at deployment. See [ibus-web.md](ibus-web.md) for serving requirements.
