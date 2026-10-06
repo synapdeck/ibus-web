@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+import { pageBoundaryPlugin } from "../../tools/bundle-scan/scan.ts";
 import { cp } from "node:fs/promises";
 import { resolve } from "node:path";
 import { defineConfig, type PreviewServer } from "vite";
@@ -18,6 +19,7 @@ export default defineConfig(({ command, isPreview }) => {
     server: { headers: crossOriginIsolation },
     preview: { headers: crossOriginIsolation },
     plugins: [
+      ...(command === "build" ? [pageBoundaryPlugin()] : []),
       {
         ...servePlugin("ibus-web-distributions", serveDirs("/ibus-web/", directories)),
         configurePreviewServer(server: PreviewServer) {

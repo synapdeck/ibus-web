@@ -46,9 +46,17 @@ it("deletes astral code points before a commit, forwards keys in record order, a
     key(f.element);
     await select(router);
     expect(c.sent.filter((x) => x.request._tag === "SetSurroundingText")).toHaveLength(count);
+    const requestAsync = c.requestAsync.bind(c);
+    c.requestAsync = async (request, ic) => {
+      const reply = await requestAsync(request, ic);
+      // Reset now buffers the key; the async fake must consume it like the sync reply.
+      return request._tag === "ProcessKeyEvent"
+        ? { ...reply, ret: 1, records: [record({ _tag: "RequireSurroundingText" })] }
+        : reply;
+    };
     f.element.value = "new😀";
     f.element.setSelectionRange(5, 5);
-    key(f.element);
+    expect(key(f.element).defaultPrevented).toBe(true);
     await select(router);
     expect(c.sent.filter((x) => x.request._tag === "SetSurroundingText").at(-1)!.request).toMatchObject({
       text: { text: "new😀" },

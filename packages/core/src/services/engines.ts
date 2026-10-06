@@ -47,6 +47,7 @@ export interface EngineRegistryService {
   registerContext(name: string, context: KeyContext): () => void;
   drainContext(name: string, context: KeyContext): Promise<void>;
   retireContext(name: string, context: KeyContext, beforeReplay?: () => void): void;
+  holdKeys(name: string): () => void;
   keySink(name: string, context: KeyContext): KeySink;
   keyAsync(name: string, context: KeyContext, event: KeyboardEvent): Promise<AsyncKeyResult>;
   request(name: string, request: Request, ic: number): Promise<Reply>;
@@ -437,6 +438,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       registerContext: (name, context) => get(name).router.register(context),
       drainContext: (name, context) => get(name).router.drain(context),
       retireContext: (name, context, beforeReplay) => get(name).router.retire(context, beforeReplay),
+      holdKeys: (name) => get(name).router.holdKeys(),
       keySink: (name, context) => get(name).router.sink(context),
       keyAsync: (name, context, event) => get(name).router.keyAsync(context, event),
       request: (name, request, ic) => get(name).router.request(request, ic),

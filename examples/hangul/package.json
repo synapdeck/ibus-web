@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@ibus-web/test-programs": "workspace:*",
+    "@ibus-web/tools": "workspace:*",
     "@types/node": "catalog:",
     "effect": "catalog:",
     "playwright": "catalog:",

@@ -394,3 +394,40 @@ it("keeps nested radio groups independent from parent and separated nested group
   click(element, '[data-property="C"]');
   expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
 });
+it("defers resize feedback to one frame and cancels pending placement on disposal", () => {
+  let notify!: () => void;
+  vi.spyOn(globalThis, "ResizeObserver").mockImplementation(
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => callback([], this);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  let frame!: FrameRequestCallback;
+  const request = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    frame = callback;
+    return 123;
+  });
+  const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+  const { host, element, dispose: close } = setup();
+  show(host);
+  const initial = element.style.left;
+  host.rect.x = 100;
+  notify();
+  notify();
+  expect(element.style.left).toBe(initial);
+  expect(request).toHaveBeenCalledTimes(1);
+  frame(0);
+  expect(element.style.left).toBe("100px");
+  host.rect.x = 120;
+  host.notify("caret");
+  expect(element.style.left).toBe("120px");
+  notify();
+  close();
+  expect(cancel).toHaveBeenCalledWith(123);
+  frame(0);
+  expect(element.isConnected).toBe(false);
+});

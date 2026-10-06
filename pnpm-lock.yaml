@@ -188,6 +188,9 @@ importers:
       '@ibus-web/test-programs':
         specifier: workspace:*
         version: link:../../packages/test-programs
+      '@ibus-web/tools':
+        specifier: workspace:*
+        version: link:../../tools
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
@@ -419,9 +422,27 @@ importers:
         specifier: ^0.23.4
         version: 0.23.4(tree-sitter@0.25.1)
     devDependencies:
+      '@ibus-web/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      '@ibus-web/panel':
+        specifier: workspace:*
+        version: link:../packages/panel
+      '@ibus-web/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
+      '@ibus-web/worker-host':
+        specifier: workspace:*
+        version: link:../packages/worker-host
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
+      ibus-web:
+        specifier: workspace:*
+        version: link:../packages/ibus-web
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.2(@types/node@24.19.0)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))

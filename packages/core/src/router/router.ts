@@ -96,6 +96,7 @@ export const makeRouter = Effect.gen(function* () {
     Effect.tryPromise({ try: () => registry.drainContext(context.engine, context), catch: asError });
   const pendingSubmissions = new Set<() => void>();
   const pendingRefresh = new Set<InputContext>();
+  const pendingResets = new Set<() => void>();
   const enqueueRefresh = (surface: Surface, context: InputContext) => {
     if (pendingRefresh.has(context) || closed) return;
     pendingRefresh.add(context);
@@ -281,6 +282,8 @@ export const makeRouter = Effect.gen(function* () {
       const errors: unknown[] = [];
       for (const surface of surfaces.values()) errors.push(...detachSurface(surface));
       surfaces.clear();
+      for (const release of pendingResets) attempt(errors, release);
+      pendingResets.clear();
       if (errors.length) throw new AggregateError(errors, "Surface teardown failed");
     }),
   );
@@ -413,21 +416,26 @@ export const makeRouter = Effect.gen(function* () {
       const reset = () => {
         const context = surface.active;
         if (!context || !context.created || !live(context)) return;
-        surface.suspended = true;
-        context.ready = false;
-        registry.retireContext(context.engine, context, () => context.preedit.finish(context.adapter));
-        enqueueRefresh(surface, context);
-        mailbox.enqueue(() =>
-          Effect.gen(function* () {
-            if (!wants(surface, context.engine) || !live(context)) return;
-            const result = request(context, new Reset({}));
-            context.acceptOutput = true;
-            context.ready = true;
-            surface.suspended = false;
-            yield* result;
-            yield* refresh(surface, context);
-          }),
-        );
+        const resume = registry.holdKeys(context.engine);
+        const release = () => {
+          pendingResets.delete(release);
+          resume();
+        };
+        pendingResets.add(release);
+        try {
+          registry.retireContext(context.engine, context, () => context.preedit.finish(context.adapter));
+          enqueueRefresh(surface, context);
+          mailbox.enqueue(() =>
+            Effect.gen(function* () {
+              if (!wants(surface, context.engine) || !live(context)) return;
+              yield* request(context, new Reset({}));
+              yield* refresh(surface, context);
+            }).pipe(Effect.ensuring(Effect.sync(release))),
+          );
+        } catch (error) {
+          release();
+          throw error;
+        }
       };
       // Install adapter reset detection before the sink sees the same DOM event.
       const removeReset = adapter.onReset(reset);

@@ -251,6 +251,23 @@ export class KeyRouter {
     });
     return pending.retired || outcome.ret === 1 ? "consumed" : "passthrough";
   }
+  /** Reserve wire ordering before an asynchronous lifecycle operation is scheduled. */
+  holdKeys(): () => void {
+    const connection = this.snapshot.connection;
+    const generation = this.snapshot.generation;
+    this.lifecycle++;
+    this.output.changed?.();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (this.snapshot.connection !== connection || this.snapshot.generation !== generation) return;
+      this.lifecycle--;
+      this.output.changed?.();
+      this.drainUnsolicited();
+      this.next();
+    };
+  }
   /** Lifecycle requests retain ownership until their promise's records have been applied. */
   async request(request: Request, ic: number): Promise<Reply> {
     const connection = this.snapshot.connection;

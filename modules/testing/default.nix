@@ -23,7 +23,7 @@
         };
         browsers = lib.mkOption {
           type = lib.types.package;
-          description = "The browsers the workspace's playwright package drives, headless: nixpkgs' playwright-driver builds of Chromium's headless shell and Firefox.";
+          description = "The browsers the workspace's playwright package drives, headless: nixpkgs' playwright-driver builds of Chromium's headless shell, Firefox and WebKit.";
         };
         env = lib.mkOption {
           type = lib.types.attrsOf lib.types.str;
@@ -183,11 +183,10 @@
       inherit (config.ibusWeb) toolchain typescript;
       inherit (config.ibusWeb.testing) playwright;
       inherit (toolchain) emscripten pkgsWasm;
-      # Headless Chromium runs as its headless shell, so the full browser,
-      # WebKit and ffmpeg (for recording video) stay out of the closure.
+      # Headless Chromium uses its shell; the full browser and video encoder stay out.
       browsers = pkgs.playwright-driver.browsers.override {
         withChromium = false;
-        withWebkit = false;
+        withWebkit = true;
         withFfmpeg = false;
       };
 
@@ -456,6 +455,12 @@
             # browsers' libraries; Nix links them in instead.
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
             IBUS_WEB_CHROMIUM_SANDBOX = if playwright.chromiumSandbox then "1" else "0";
+          }
+          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            PLAYWRIGHT_HOST_PLATFORM_OVERRIDE = "ubuntu-24.04";
+            # WebKit needs an EGL platform even headless; the sandbox has no host GPU driver.
+            LIBGL_ALWAYS_SOFTWARE = "1";
+            __EGL_VENDOR_LIBRARY_FILENAMES = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
           };
           # Firefox writes to its XDG configuration and data directories under
           # HOME as it starts, even with the fresh profile Playwright gives

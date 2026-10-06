@@ -201,7 +201,15 @@ export function createPanel(host: PanelHost): Panel {
     { passive: false },
   );
   const relocate = () => guard(place);
-  const observer = new ResizeObserver(relocate);
+  let resizeFrame: number | undefined;
+  // Placement can change the observed box; defer writes beyond resize delivery.
+  const observer = new ResizeObserver(() => {
+    if (resizeFrame !== undefined || disposed) return;
+    resizeFrame = window.requestAnimationFrame(() => {
+      resizeFrame = undefined;
+      relocate();
+    });
+  });
   observer.observe(element);
   host.addEventListener("panel", receive);
   window.addEventListener("resize", relocate);
@@ -212,6 +220,8 @@ export function createPanel(host: PanelHost): Panel {
       if (disposed) return;
       disposed = true;
       observer.disconnect();
+      if (resizeFrame !== undefined) window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = undefined;
       host.removeEventListener("panel", receive);
       window.removeEventListener("resize", relocate);
       window.removeEventListener("scroll", relocate, true);

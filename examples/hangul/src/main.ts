@@ -39,9 +39,13 @@ const app = createIbusWeb({
 const panel = createPanel(app);
 let detaches = fields.map((field) => app.attach(field));
 let storageReported = false;
+let restarting = false;
+const updateRestart = () => {
+  restart.disabled = restarting || !["ready", "busy"].includes(state.textContent ?? "");
+};
 app.addEventListener("enginestate", ({ detail }) => {
   state.textContent = detail.state;
-  restart.disabled = detail.state !== "ready";
+  updateRestart();
   if (detail.state === "starting" || detail.state === "restarting") {
     storageReported = false;
     storage.textContent = "starting";
@@ -74,8 +78,16 @@ enabled.addEventListener("change", () => {
   }
 });
 restart.addEventListener("click", () => {
-  restart.disabled = true;
-  void app.debugRestart("hangul").catch((cause: unknown) => failure("Restart failed", cause));
+  if (restarting) return;
+  restarting = true;
+  updateRestart();
+  void app
+    .debugRestart("hangul")
+    .catch((cause: unknown) => failure("Restart failed", cause))
+    .finally(() => {
+      restarting = false;
+      updateRestart();
+    });
 });
 
 form.closest("form")!.addEventListener("submit", (event) => event.preventDefault());

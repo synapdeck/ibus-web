@@ -475,3 +475,57 @@ for (const callback of ["output", "fallback"])
         vi.unstubAllGlobals();
       }
     });
+
+test("reserved lifecycle work holds mixed native and async keys in the existing FIFO", async () => {
+  const f = fixture();
+  const release = f.router.holdKeys();
+  const nested = f.router.holdKeys();
+  expect(f.sink.key(key("a"))).toBe("consumed");
+  const b = f.router.keyAsync(f.context, event("b"));
+  expect(f.connection.sent).toEqual([]);
+  release();
+  release();
+  expect(f.connection.sent).toEqual([]);
+  nested();
+  expect(f.connection.sent.map((x) => x.request)).toMatchObject([{ keyval: 97 }]);
+  f.connection.completeAsync(1);
+  await Promise.resolve();
+  expect(f.connection.sent.map((x) => x.request)).toMatchObject([{ keyval: 97 }, { keyval: 98 }]);
+  f.connection.completeAsync(1);
+  expect(await b).toBe("consumed");
+  expect(f.router.busy).toBe(false);
+});
+for (const close of ["detach", "dispose", "crash"])
+  test(`reserved lifecycle keys are settled on ${close} and late release is harmless`, async () => {
+    const f = fixture();
+    const release = f.router.holdKeys();
+    const result = f.router.keyAsync(f.context, event());
+    if (close === "detach") f.unregister();
+    else if (close === "dispose") f.router.dispose();
+    else f.connection.crash();
+    release();
+    release();
+    expect(await result).toBe(close === "crash" ? "replayed" : "cancelled");
+    expect(f.connection.sent).toEqual([]);
+    expect(f.router.busy).toBe(false);
+  });
+
+test("a reservation from a crashed generation cannot release the replacement generation", async () => {
+  const f = fixture();
+  const oldRelease = f.router.holdKeys();
+  f.connection.crash();
+  const replacement = fixture().connection;
+  f.snapshot.status = "ready";
+  f.context.generation = f.snapshot.generation;
+  f.context.ready = true;
+  f.router.connect(replacement);
+  const release = f.router.holdKeys();
+  const result = f.router.keyAsync(f.context, event());
+  oldRelease();
+  expect(replacement.sent).toEqual([]);
+  release();
+  expect(replacement.sent).toHaveLength(1);
+  replacement.completeAsync(1);
+  expect(await result).toBe("consumed");
+  expect(f.router.busy).toBe(false);
+});

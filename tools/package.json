@@ -17,7 +17,13 @@
     "tree-sitter-cpp": "^0.23.4"
   },
   "devDependencies": {
+    "@ibus-web/core": "workspace:*",
+    "@ibus-web/panel": "workspace:*",
+    "@ibus-web/protocol": "workspace:*",
+    "@ibus-web/worker-host": "workspace:*",
     "@types/node": "catalog:",
+    "ibus-web": "workspace:*",
+    "vite": "catalog:",
     "vitest": "catalog:"
   },
   "ibusWeb": {

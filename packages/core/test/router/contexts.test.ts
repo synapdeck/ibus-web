@@ -269,8 +269,9 @@ it("new keys after retirement wait behind Reset while the retired reply retains 
     key(f.element, "a");
     c.hold = "Reset";
     f.element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    await c.untilSent("Reset");
+    // Reserve ordering on the reset event stack, before the mailbox sends Reset.
     expect(key(f.element, "b").defaultPrevented).toBe(true);
+    await c.untilSent("Reset");
     expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
     c.completeAbandoned(0, [record({ _tag: "CommitText", text: text("late") })]);
     expect(f.element.value).toBe("a");
@@ -307,4 +308,47 @@ it("replays an accepted AltGraph character exactly once when its pending request
     expect(f.element.value).toBe("€");
     expect(inputs).toEqual(["€"]);
     expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
+  }));
+
+it("native input reserves Reset before the next key can reach the wire", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const c = connections.a[0]!;
+    c.hold = "Reset";
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(f.element, "한글 ");
+    f.element.setSelectionRange(3, 3);
+    f.element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " " }));
+    expect(key(f.element, "g").defaultPrevented).toBe(true);
+    expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(0);
+    await c.untilSent("Reset");
+    expect(key(f.element, "k").defaultPrevented).toBe(true);
+    expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(0);
+    c.hold = undefined;
+    c.completeAsync();
+    await select(router);
+    expect(f.element.value).toBe("한글 gk");
+    expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent").map((x) => x.request)).toMatchObject([
+      { keyval: 103 },
+      { keyval: 107 },
+    ]);
+  }));
+
+it("a synchronous reset callback failure releases the reserved wire ordering", () =>
+  run(async ({ router, registry, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const batch = f.adapter.batch;
+    f.adapter.batch = () => {
+      throw new Error("reset callback");
+    };
+    expect(() => {
+      f.element.value = "external";
+    }).toThrow("reset callback");
+    f.adapter.batch = batch;
+    expect(registry.state("a")).toBe("ready");
+    expect(key(f.element, "g").defaultPrevented).toBe(true);
+    expect(connections.a[0]!.sent.at(-1)!.request._tag).toBe("ProcessKeyEvent");
   }));

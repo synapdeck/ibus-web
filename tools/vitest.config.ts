@@ -8,6 +8,7 @@ export default defineConfig({
   ...(cacheDir === undefined ? {} : { cacheDir }),
   test: {
     include: [
+      "bundle-scan/**/*.test.ts",
       "cast-audit/**/*.test.ts",
       "keysyms/**/*.test.ts",
       "engine-manifest/**/*.test.ts",
