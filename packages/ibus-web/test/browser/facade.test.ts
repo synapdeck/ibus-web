@@ -426,3 +426,122 @@ it("unloading an inactive engine preserves the active engine's preedit on its su
   expect(preedits).toHaveLength(before);
   expect(f.connections[1]!.terminated).toBe(false);
 });
+
+it("unload invalidates every earlier queued selection without waiting for stalled startup", async () => {
+  const f = fixture();
+  let entered!: () => void, finish!: (connection: Connection) => void;
+  let signal: AbortSignal | undefined;
+  const booting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  f.start.mockImplementationOnce((options) => {
+    signal = options.signal;
+    entered();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const first = f.app.select("test").then(
+    () => "resolved",
+    () => "rejected",
+  );
+  await booting;
+  const second = f.app.select("test").then(
+    () => "resolved",
+    () => "rejected",
+  );
+  await f.app.unload("test");
+  expect(signal?.aborted).toBe(true);
+  expect(await Promise.all([first, second])).toEqual(["rejected", "rejected"]);
+  expect(f.start).toHaveBeenCalledTimes(1);
+  const late = new DomConnection();
+  finish(late as unknown as Connection);
+  await Promise.resolve();
+  expect(late.terminated).toBe(true);
+  await f.app.select("test");
+  expect(f.start).toHaveBeenCalledTimes(2);
+});
+
+for (const callback of ["setPreedit", "batch", "reset cleanup"] as const)
+  it(`disposal releases every surface and Worker after a failing first adapter ${callback}`, async () => {
+    const f = fixture({ engines: { a: new URL("a", url), b: new URL("b", url) } });
+    vi.mocked(fetch).mockImplementation(async (input) =>
+      Response.json({ ...manifest, name: new URL(String(input)).pathname.slice(1) }),
+    );
+    const first = editor(),
+      second = editor();
+    if (callback === "reset cleanup") {
+      const subscribe = first.adapter.onReset;
+      first.adapter.onReset = (listener) => {
+        const remove = subscribe(listener);
+        return () => {
+          remove();
+          throw new Error("adapter failed");
+        };
+      };
+    }
+    f.app.attachAdapter(first.adapter, { keyMode: "manual" });
+    f.app.attachAdapter(second.adapter, { keyMode: "async" });
+    first.element.focus();
+    await f.app.select("a");
+    second.element.focus();
+    await f.app.select("b");
+    first.element.focus();
+    await f.app.select("b");
+    second.element.focus();
+    await f.app.select("b");
+    if (callback === "setPreedit")
+      first.adapter.setPreedit = () => {
+        throw new Error("adapter failed");
+      };
+    if (callback === "batch")
+      first.adapter.batch = () => {
+        throw new Error("adapter failed");
+      };
+    f.connections[1]!.hold = "ProcessKeyEvent";
+    const pending = f.app.keyAsync(
+      second.adapter,
+      new KeyboardEvent("keydown", { key: "a", code: "KeyA", cancelable: true }),
+    );
+    let disposal!: Promise<void>;
+    expect(() => {
+      disposal = f.app.dispose();
+    }).not.toThrow();
+    await expect(disposal).rejects.toThrow();
+    expect(await pending).toBe("cancelled");
+    expect(first.resets.size).toBe(0);
+    expect(second.resets.size).toBe(0);
+    expect(f.connections).toHaveLength(2);
+    expect(f.connections.every((connection) => connection.terminated)).toBe(true);
+    expect(key(second.element).defaultPrevented).toBe(false);
+    expect(f.app.dispose()).toBe(disposal);
+    await expect(f.app.dispose()).rejects.toThrow();
+    instances.splice(instances.indexOf(f.app), 1);
+  });
+
+it("unload cancels ownership and releases the engine despite a preedit callback failure", async () => {
+  const f = fixture(),
+    first = editor(),
+    second = editor();
+  f.app.attachAdapter(first.adapter, { keyMode: "manual" });
+  f.app.attachAdapter(second.adapter);
+  second.element.focus();
+  await f.app.select("test");
+  first.element.focus();
+  await f.app.select("test");
+  first.adapter.setPreedit = () => {
+    throw new Error("adapter failed");
+  };
+  f.connections[0]!.hold = "ProcessKeyEvent";
+  const pending = f.app.keyAsync(
+    first.adapter,
+    new KeyboardEvent("keydown", { key: "a", code: "KeyA", cancelable: true }),
+  );
+  await expect(f.app.unload("test")).rejects.toThrow();
+  expect(await pending).toBe("cancelled");
+  expect(f.connections[0]!.terminated).toBe(true);
+  expect(f.app.caretRect()).toBeNull();
+  first.adapter.setPreedit = () => {};
+  await f.app.select("test");
+  expect(f.start).toHaveBeenCalledTimes(2);
+});

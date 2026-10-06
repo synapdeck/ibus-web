@@ -38,6 +38,7 @@ function editor(router: RouterService, mode: "async" | "manual" = "async") {
   return {
     element,
     adapter,
+    resets,
     detach: router.attach(adapter, { keyMode: mode }),
     reset: () => {
       for (const listener of resets) listener();
@@ -248,3 +249,35 @@ for (const password of ["type", "current-password", "new-password"])
         connections.a[0]!.sent.some((x) => x.request._tag === "CreateEngine" || x.request._tag === "ProcessKeyEvent"),
       ).toBe(false);
     }));
+
+it("scope teardown visits all adapters and closes the registry after a callback failure", async () => {
+  let pending: Promise<AsyncKeyResult> | undefined;
+  let firstResets: Set<() => void> | undefined, secondResets: Set<() => void> | undefined;
+  let terminated: (() => boolean) | undefined;
+  await expect(
+    run(async ({ router, connections }) => {
+      const first = editor(router, "manual"),
+        second = editor(router, "manual");
+      firstResets = first.resets;
+      secondResets = second.resets;
+      first.element.focus();
+      await select(router);
+      second.element.focus();
+      await select(router);
+      first.adapter.setPreedit = () => {
+        throw new Error("adapter failed");
+      };
+      const c = connections.a[0]!;
+      c.hold = "ProcessKeyEvent";
+      terminated = () => c.terminated;
+      pending = router.keyAsync(
+        second.adapter,
+        new KeyboardEvent("keydown", { key: "a", code: "KeyA", cancelable: true }),
+      );
+    }),
+  ).rejects.toThrow();
+  expect(firstResets!.size).toBe(0);
+  expect(secondResets!.size).toBe(0);
+  expect(await pending).toBe("cancelled");
+  expect(terminated!()).toBe(true);
+});

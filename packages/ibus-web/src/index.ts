@@ -294,11 +294,28 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
     },
     dispose: () => {
       if (disposal) return disposal;
+      // Publish the promise before adapter callbacks can throw or reenter disposal.
+      let resolve!: () => void, reject!: (error: unknown) => void;
+      disposal = new Promise<void>((done, failed) => {
+        resolve = done;
+        reject = failed;
+      });
       closed = true;
-      for (const entry of attachments.values()) entry.detach?.();
+      const errors: unknown[] = [];
+      for (const entry of attachments.values()) {
+        try {
+          entry.detach?.();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
       attachments.clear();
       orientations.clear();
-      return (disposal = runtime.dispose());
+      void runtime.dispose().then(
+        () => (errors.length ? reject(new AggregateError(errors, "IbusWeb disposal failed")) : resolve()),
+        (error: unknown) => reject(new AggregateError([...errors, error], "IbusWeb disposal failed")),
+      );
+      return disposal;
     },
   });
   return app;

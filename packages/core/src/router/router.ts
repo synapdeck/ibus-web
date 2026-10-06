@@ -65,6 +65,8 @@ export const makeRouter = Effect.gen(function* () {
   const config = yield* CoreConfig;
   const panel = yield* PanelEvents;
   const surfaces = new Map<SurfaceAdapter, Surface>();
+  // Unload bypasses the mailbox, so queued selections must retain their original lifetime.
+  const selectionEpochs = new Map<string, number>();
   const hotkeys = new Set<{ predicate: (event: KeyboardEvent) => boolean; action: () => void }>();
   const mailbox = new SyncMailbox<() => Effect.Effect<void, Error>>();
   let selected: string | undefined,
@@ -236,6 +238,38 @@ export const makeRouter = Effect.gen(function* () {
     Effect.forever,
     Effect.forkScoped,
   );
+  const attempt = (errors: unknown[], work: () => void) => {
+    try {
+      work();
+    } catch (error) {
+      errors.push(error);
+    }
+  };
+  const detachSurface = (surface: Surface): unknown[] => {
+    if (!surface.attached) return [];
+    const errors: unknown[] = [];
+    surface.attached = false;
+    surface.focused = false;
+    attempt(errors, surface.cleanup);
+    attempt(errors, () => finish(surface));
+    surfaces.delete(surface.adapter);
+    for (const context of surface.contexts.values()) attempt(errors, context.unregister);
+    mailbox.enqueue(() =>
+      Effect.gen(function* () {
+        for (const context of surface.contexts.values())
+          if (context.created && live(context)) {
+            if (context.focused) {
+              context.focused = false;
+              yield* request(context, new FocusOut({}));
+            }
+            yield* request(context, new DestroyEngine({}));
+            context.invalidate();
+            panel.enqueue({ _tag: "hide", engine: context.engine, ic: context.ic });
+          }
+      }),
+    );
+    return errors;
+  };
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
       closed = true;
@@ -244,13 +278,10 @@ export const makeRouter = Effect.gen(function* () {
       hotkeys.clear();
       for (const cancel of pendingSubmissions) cancel();
       pendingSubmissions.clear();
-      for (const surface of surfaces.values()) {
-        surface.attached = false;
-        surface.cleanup();
-        finish(surface);
-        for (const context of surface.contexts.values()) context.unregister();
-      }
+      const errors: unknown[] = [];
+      for (const surface of surfaces.values()) errors.push(...detachSurface(surface));
       surfaces.clear();
+      if (errors.length) throw new AggregateError(errors, "Surface teardown failed");
     }),
   );
   const service: RouterService = {
@@ -267,6 +298,8 @@ export const makeRouter = Effect.gen(function* () {
       Effect.suspend(() => {
         if (closed) return Effect.fail(new Error("Router is closed"));
         if (!registry.snapshot(engine)) return Effect.fail(new Error(`Unknown engine: ${engine}`));
+        selectionEpochs.set(engine, (selectionEpochs.get(engine) ?? 0) + 1);
+        const errors: unknown[] = [];
         if (selected === engine) selected = undefined;
         for (const surface of surfaces.values()) {
           if (surface.override === engine) surface.override = undefined;
@@ -277,11 +310,17 @@ export const makeRouter = Effect.gen(function* () {
           surface.contexts.delete(engine);
           if (surface.active === context) {
             surface.active = undefined;
-            surface.adapter.setPreedit(undefined);
+            attempt(errors, () => surface.adapter.setPreedit(undefined));
           }
           panel.enqueue({ _tag: "hide", engine, ic: context.ic });
         }
-        return registry.unload(engine);
+        return registry
+          .unload(engine)
+          .pipe(
+            Effect.andThen(() =>
+              errors.length ? Effect.fail(new AggregateError(errors, "Engine surface teardown failed")) : Effect.void,
+            ),
+          );
       }),
     hotkeys: {
       add: (predicate, action) => {
@@ -296,13 +335,17 @@ export const makeRouter = Effect.gen(function* () {
       Effect.suspend(() => {
         if (closed) return Effect.fail(new Error("Router is closed"));
         if (!registry.snapshot(engine)) return Effect.fail(new Error(`Unknown engine: ${engine}`));
+        const epoch = selectionEpochs.get(engine) ?? 0;
+        const cancelled = () => epoch !== (selectionEpochs.get(engine) ?? 0);
         const previous = selected;
         selected = engine;
         if (previous !== engine)
           for (const surface of surfaces.values()) if (surface.override === undefined) surface.suspended = true;
         return submit(() =>
           Effect.gen(function* () {
+            if (cancelled()) return yield* Effect.fail(new Error(`Selection of ${engine} was cancelled by unload`));
             yield* registry.ensure(engine);
+            if (cancelled()) return yield* Effect.fail(new Error(`Selection of ${engine} was cancelled by unload`));
             for (const surface of surfaces.values()) yield* reconcile(surface);
           }),
         );
@@ -418,35 +461,19 @@ export const makeRouter = Effect.gen(function* () {
         adapter.element.addEventListener("keyup", key, true);
       }
       surface.cleanup = () => {
-        removeReset();
-        adapter.element.removeEventListener("focus", focus);
-        adapter.element.removeEventListener("blur", blur);
-        adapter.element.removeEventListener("keydown", key, true);
-        adapter.element.removeEventListener("keyup", key, true);
+        try {
+          removeReset();
+        } finally {
+          adapter.element.removeEventListener("focus", focus);
+          adapter.element.removeEventListener("blur", blur);
+          adapter.element.removeEventListener("keydown", key, true);
+          adapter.element.removeEventListener("keyup", key, true);
+        }
       };
       if (surface.focused) mailbox.enqueue(() => reconcile(surface));
       return () => {
-        if (!surface.attached) return;
-        surface.attached = false;
-        surface.focused = false;
-        surface.cleanup();
-        finish(surface);
-        surfaces.delete(adapter);
-        for (const context of surface.contexts.values()) context.unregister();
-        mailbox.enqueue(() =>
-          Effect.gen(function* () {
-            for (const context of surface.contexts.values())
-              if (context.created && live(context)) {
-                if (context.focused) {
-                  context.focused = false;
-                  yield* request(context, new FocusOut({}));
-                }
-                yield* request(context, new DestroyEngine({}));
-                context.invalidate();
-                panel.enqueue({ _tag: "hide", engine: context.engine, ic: context.ic });
-              }
-          }),
-        );
+        const errors = detachSurface(surface);
+        if (errors.length) throw new AggregateError(errors, "Surface teardown failed");
       };
     },
   };
