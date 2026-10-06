@@ -8,14 +8,23 @@ export function replaceProperty(
   update: IBusProperty,
   activate = false,
 ): readonly IBusProperty[] {
-  const selectRadio =
-    activate && update.type === 2 && update.state === 1 && properties.some((property) => property.key === update.key);
-  return properties.map((property) =>
+  const selected =
+    activate && update.type === 2 && update.state === 1
+      ? properties.findIndex((property) => property.key === update.key)
+      : -1;
+  let groupStart = selected,
+    groupEnd = selected;
+  if (selected !== -1) {
+    // Every non-radio property separates groups, regardless of its visibility.
+    while (groupStart > 0 && properties[groupStart - 1].type === 2) groupStart--;
+    while (groupEnd + 1 < properties.length && properties[groupEnd + 1].type === 2) groupEnd++;
+  }
+  return properties.map((property, index) =>
     property.key === update.key
       ? update
       : {
           ...property,
-          ...(selectRadio && property.type === 2 ? { state: 0 } : {}),
+          ...(index >= groupStart && index <= groupEnd && property.type === 2 ? { state: 0 } : {}),
           subProps: {
             ...property.subProps,
             properties: replaceProperty(property.subProps.properties, update, activate),

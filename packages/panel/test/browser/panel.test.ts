@@ -339,3 +339,58 @@ it("uses all sixteen fallback labels and shows at most one selected radio per gr
   expect(element.querySelector('[data-property="radio1"]')!.getAttribute("aria-checked")).toBe("false");
   expect(element.querySelector('[data-property="radio2"]')!.getAttribute("aria-checked")).toBe("true");
 });
+it.each([0, 1, 3, 4])("preserves separate radio groups across non-radio type %i", (type) => {
+  const { host, element } = setup();
+  host.record({
+    _tag: "RegisterProperties",
+    properties: {
+      attachments: {},
+      properties: [
+        property("A", { type: 2, state: 1 }),
+        property("B", { type: 2 }),
+        property("boundary", { type }),
+        property("C", { type: 2, state: 1 }),
+        property("D", { type: 2 }),
+      ],
+    },
+  });
+  click(element, '[data-property="B"]');
+  expect(element.querySelector('[data-property="A"]')!.getAttribute("aria-checked")).toBe("false");
+  expect(element.querySelector('[data-property="B"]')!.getAttribute("aria-checked")).toBe("true");
+  expect.soft(element.querySelector('[data-property="C"]')!.getAttribute("aria-checked")).toBe("true");
+  expect(element.querySelector('[data-property="D"]')!.getAttribute("aria-checked")).toBe("false");
+  click(element, '[data-property="C"]');
+  expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
+});
+it("keeps nested radio groups independent from parent and separated nested groups", () => {
+  const { host, element } = setup();
+  host.record({
+    _tag: "RegisterProperties",
+    properties: {
+      attachments: {},
+      properties: [
+        property("parent", { type: 2, state: 1 }),
+        property("menu", {
+          type: 3,
+          subProps: {
+            attachments: {},
+            properties: [
+              property("A", { type: 2, state: 1 }),
+              property("B", { type: 2 }),
+              property("boundary", { type: 4 }),
+              property("C", { type: 2, state: 1 }),
+              property("D", { type: 2 }),
+            ],
+          },
+        }),
+      ],
+    },
+  });
+  click(element, '[data-property="B"]');
+  expect(element.querySelector('[data-property="A"]')!.getAttribute("aria-checked")).toBe("false");
+  expect(element.querySelector('[data-property="B"]')!.getAttribute("aria-checked")).toBe("true");
+  expect(element.querySelector('[data-property="parent"]')!.getAttribute("aria-checked")).toBe("true");
+  expect.soft(element.querySelector('[data-property="C"]')!.getAttribute("aria-checked")).toBe("true");
+  click(element, '[data-property="C"]');
+  expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
+});
