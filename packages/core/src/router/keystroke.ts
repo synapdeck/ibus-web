@@ -109,13 +109,19 @@ export class KeyRouter {
         }
     };
   }
+  /** Capture boundary owners synchronously; allocate the wait only when lifecycle work runs. */
+  captureDrain(context: KeyContext): () => Promise<void> {
+    const owners = [...this.accepted].filter((key) => key.context === context);
+    return () =>
+      new Promise((resolve) => {
+        const keys = new Set(owners.filter((key) => this.accepted.has(key)));
+        if (keys.size === 0) resolve();
+        else this.drains.add({ keys, resolve });
+      });
+  }
   /** Wait only for keys already accepted for this context, not for global idleness. */
   drain(context: KeyContext): Promise<void> {
-    const keys = new Set([...this.accepted].filter((key) => key.context === context));
-    return new Promise((resolve) => {
-      if (keys.size === 0) resolve();
-      else this.drains.add({ keys, resolve });
-    });
+    return this.captureDrain(context)();
   }
   /** Replay before a synchronous caret/reset boundary while retaining wire ownership. */
   retire(context: KeyContext, beforeReplay?: () => void): void {

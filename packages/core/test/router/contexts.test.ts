@@ -407,39 +407,46 @@ for (const ownership of ["native", "async"] as const)
       }));
 
 for (const ownership of ["native", "async"] as const)
-  it(`${ownership} key accepted during refocus refresh stays behind its pending Reset`, () =>
-    run(async ({ router, connections, field }) => {
-      const f = field();
-      f.element.focus();
-      await select(router);
-      const c = connections.a[0]!;
-      c.sent.length = 0;
-      c.hold = "SetSurroundingText";
-      f.element.blur();
-      f.element.focus();
-      f.element.value = "external";
-      await c.untilSent("SetSurroundingText");
-      let accepted: Promise<unknown> | undefined;
-      if (ownership === "native") expect(key(f.element, "g").defaultPrevented).toBe(true);
-      else {
-        const event = new KeyboardEvent("keydown", { key: "g", code: "KeyG", cancelable: true });
-        accepted = router.keyAsync(f.adapter, event);
-        expect(event.defaultPrevented).toBe(true);
-      }
-      expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(0);
-      c.hold = "Reset";
-      c.completeAsync();
-      await c.untilSent("Reset");
-      // Completing refocus refresh must not dispatch the key ahead of the reset
-      // that was requested while this surface was still unready.
-      expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(0);
-      c.hold = undefined;
-      c.completeAsync();
-      await accepted;
-      await select(router);
-      expect(f.element.value).toBe("externalg");
-      expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
-      expect(c.sent.findIndex((x) => x.request._tag === "Reset")).toBeLessThan(
-        c.sent.findIndex((x) => x.request._tag === "ProcessKeyEvent"),
-      );
-    }));
+  for (const boundaries of [1, 2])
+    it(
+      `${ownership} key accepted during refocus refresh after ${boundaries} boundaries stays behind its pending Reset`,
+      () =>
+        run(async ({ router, connections, field }) => {
+          const f = field();
+          f.element.focus();
+          await select(router);
+          const c = connections.a[0]!;
+          c.sent.length = 0;
+          c.hold = "SetSurroundingText";
+          for (let index = 0; index < boundaries; index++) {
+            f.element.blur();
+            f.element.focus();
+          }
+          f.element.value = "external";
+          await c.untilSent("SetSurroundingText");
+          let accepted: Promise<unknown> | undefined;
+          if (ownership === "native") expect(key(f.element, "g").defaultPrevented).toBe(true);
+          else {
+            const event = new KeyboardEvent("keydown", { key: "g", code: "KeyG", cancelable: true });
+            accepted = router.keyAsync(f.adapter, event);
+            expect(event.defaultPrevented).toBe(true);
+          }
+          expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(0);
+          c.hold = "Reset";
+          c.completeAsync();
+          await c.untilSent("Reset");
+          // Completing refocus refresh must not dispatch the key ahead of the reset
+          // that was requested while this surface was still unready.
+          expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(0);
+          c.hold = undefined;
+          c.completeAsync();
+          await accepted;
+          await select(router);
+          expect(f.element.value).toBe("externalg");
+          expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
+          expect(c.sent.findIndex((x) => x.request._tag === "Reset")).toBeLessThan(
+            c.sent.findIndex((x) => x.request._tag === "ProcessKeyEvent"),
+          );
+        }),
+      5_000,
+    );

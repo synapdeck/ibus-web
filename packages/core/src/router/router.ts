@@ -403,13 +403,15 @@ export const makeRouter = Effect.gen(function* () {
       };
       const blur = () => {
         const context = surface.active;
+        const waitForBoundary = context && registry.captureDrainContext(context.engine, context);
         surface.focused = false;
         surface.suspended = true;
         mailbox.enqueue(() =>
           Effect.gen(function* () {
-            // Preserve the blur boundary even if another focus arrived before the queue drained.
-            if (context) {
-              yield* drain(context);
+            // Later focus intervals can accept keys before this mailbox item runs.
+            // This blur waits only for owners captured at its actual event boundary.
+            if (context && waitForBoundary) {
+              yield* Effect.tryPromise({ try: waitForBoundary, catch: asError });
               context.finish();
               context.ready = false;
               context.acceptOutput = false;

@@ -46,6 +46,7 @@ export interface EngineRegistryService {
   snapshot(name: string): EngineSnapshot | undefined;
   registerContext(name: string, context: KeyContext): () => void;
   drainContext(name: string, context: KeyContext): Promise<void>;
+  captureDrainContext(name: string, context: KeyContext): () => Promise<void>;
   retireContext(name: string, context: KeyContext, beforeReplay?: () => void): void;
   holdKeys(name: string): () => void;
   keySink(name: string, context: KeyContext): KeySink;
@@ -437,6 +438,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       snapshot: (name) => entries.get(name)?.snapshot,
       registerContext: (name, context) => get(name).router.register(context),
       drainContext: (name, context) => get(name).router.drain(context),
+      captureDrainContext: (name, context) => get(name).router.captureDrain(context),
       retireContext: (name, context, beforeReplay) => get(name).router.retire(context, beforeReplay),
       holdKeys: (name) => get(name).router.holdKeys(),
       keySink: (name, context) => get(name).router.sink(context),

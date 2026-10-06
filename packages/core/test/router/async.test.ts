@@ -529,3 +529,22 @@ test("a reservation from a crashed generation cannot release the replacement gen
   expect(await result).toBe("consumed");
   expect(f.router.busy).toBe(false);
 });
+
+for (const completion of ["before waiting", "after waiting"])
+  test(`a captured drain excludes later owners when its owner completes ${completion}`, async () => {
+    const f = fixture();
+    f.connection.outcome = { _tag: "pending" };
+    expect(f.sink.key(key("a"))).toBe("consumed");
+    const waitForBoundary = f.router.captureDrain(f.context);
+    const later = f.router.keyAsync(f.context, event("b"));
+    if (completion === "before waiting") f.connection.completeAbandoned(0);
+    const drained = waitForBoundary();
+    if (completion === "after waiting") f.connection.completeAbandoned(0);
+    await drained;
+    // The later owner is still awaiting its reply when the earlier boundary settles.
+    expect(f.connection.pending).toHaveLength(1);
+    expect(f.connection.sent.map((x) => x.request)).toMatchObject([{ keyval: 97 }, { keyval: 98 }]);
+    f.connection.completeAsync(0);
+    expect(await later).toBe("replayed");
+    expect(f.calls.filter((call) => call.startsWith("replay:"))).toEqual(["replay:a", "replay:b"]);
+  });
