@@ -181,9 +181,9 @@ importers:
 
   examples/hangul:
     dependencies:
-      '@ibus-web/core':
+      ibus-web:
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../../packages/ibus-web
     devDependencies:
       '@ibus-web/test-programs':
         specifier: workspace:*

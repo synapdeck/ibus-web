@@ -8,7 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
   },
   "dependencies": {
-    "@ibus-web/core": "workspace:*"
+    "ibus-web": "workspace:*"
   },
   "devDependencies": {
     "@ibus-web/test-programs": "workspace:*",

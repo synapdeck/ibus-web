@@ -9,8 +9,25 @@ import {
   type AsyncKeyResult,
   type ConnectionOptions,
 } from "@ibus-web/core";
-import { encodeSettingsMetadata, type SettingsMetadata, type LazyLookupTable } from "@ibus-web/protocol";
-import { createIbusWeb, type IbusWebOptions, type IbusWebEventMap, type IbusWeb } from "../../src/index.ts";
+import {
+  encodeRequest,
+  CandidateClicked,
+  PageUp,
+  PageDown,
+  CursorUp,
+  CursorDown,
+  PropertyActivate,
+  encodeSettingsMetadata,
+  type SettingsMetadata,
+  type LazyLookupTable,
+} from "@ibus-web/protocol";
+import {
+  createIbusWeb,
+  type IbusWebOptions,
+  type IbusWebEventMap,
+  type IbusWeb,
+  type PanelAction,
+} from "../../src/index.ts";
 import { DomConnection, key, record, text } from "../../../core/test/router/dom-support.ts";
 const url = new URL("https://example.test/");
 const manifest = {
@@ -224,6 +241,43 @@ it("forwards lazy panel records and focused geometry without decoding candidates
   edit.element.blur();
   await hide;
   expect(f.app.caretRect()).toBeNull();
+});
+it("encodes every structural public panel action through the actual protocol boundary", async () => {
+  const f = fixture();
+  f.app.attach(f.native);
+  f.native.focus();
+  await f.app.select("test");
+  const connection = f.connections[0]!;
+  const request = connection.requestAsync.bind(connection);
+  const encoded: Uint8Array[] = [];
+  connection.requestAsync = async (action, ic) => {
+    encoded.push(encodeRequest(ic, action));
+    return request(action, ic);
+  };
+  const actions: PanelAction[] = [
+    { _tag: "CandidateClicked", index: 2, button: 1, state: 0 },
+    { _tag: "PageUp" },
+    { _tag: "PageDown" },
+    { _tag: "CursorUp" },
+    { _tag: "CursorDown" },
+    { _tag: "PropertyActivate", name: "InputMode", state: 1 },
+  ];
+  const requests = [
+    new CandidateClicked({ index: 2, button: 1, state: 0 }),
+    new PageUp(),
+    new PageDown(),
+    new CursorUp(),
+    new CursorDown(),
+    new PropertyActivate({ name: "InputMode", state: 1 }),
+  ];
+  for (const action of actions) f.app.sendPanelAction("test", 1, action);
+  expect(encoded).toEqual(requests.map((request) => encodeRequest(1, request)));
+  const failed = nextEvent(f.app, "log", (entry) => entry.domain === "panel" && entry.level === "error");
+  expect(() =>
+    f.app.sendPanelAction("test", 1, { _tag: "CandidateClicked", index: -1, button: 1, state: 0 }),
+  ).not.toThrow();
+  expect((await failed).detail.message).toMatch(/index|Uint32|greater|negative/);
+  expect(encoded).toHaveLength(6);
 });
 it("publishes state and storage CustomEvents from actual core lifecycle, including restart and unload", async () => {
   const f = fixture();

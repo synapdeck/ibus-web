@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { chromium } from "playwright";
 
+const port = process.env["IBUS_WEB_DEMO_PORT"] ?? "5187";
 const server = spawn(
   process.execPath,
   [
@@ -13,7 +14,7 @@ const server = spawn(
     "--host",
     "127.0.0.1",
     "--port",
-    "5173",
+    port,
     "--strictPort",
     "--outDir",
     process.env["IBUS_WEB_DEMO_PAGE"]!,
@@ -23,7 +24,7 @@ const server = spawn(
 try {
   await new Promise<void>((resolve, reject) => {
     server.stdout.on("data", (chunk: Buffer) => {
-      if (chunk.toString().includes("127.0.0.1:5173")) resolve();
+      if (chunk.toString().includes(`127.0.0.1:${port}`)) resolve();
     });
     server.once("exit", (code) => reject(new Error(`Preview exited: ${code}`)));
     server.once("error", reject);
@@ -42,7 +43,7 @@ try {
     });
     page.on("pageerror", (error) => errors.push(error.message));
     const openedAt = performance.now();
-    await page.goto("http://127.0.0.1:5173");
+    await page.goto(`http://127.0.0.1:${port}`);
     try {
       await page.getByText("ready", { exact: true }).waitFor();
     } catch (cause) {
@@ -54,20 +55,12 @@ try {
     const field = page.getByRole("textbox", { name: "Type here" });
     await field.focus();
     await page.waitForFunction(() => document.querySelector("#mode")?.textContent === "EN");
-    await field.evaluate((element) => {
-      for (const [key, code] of [
-        ["HangulMode", "Lang1"],
-        ["g", "KeyG"],
-        ["k", "KeyK"],
-        ["s", "KeyS"],
-      ]) {
-        for (const type of ["keydown", "keyup"])
-          element.dispatchEvent(new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true }));
-      }
-    });
-    await page.waitForFunction(() => document.querySelector("#preedit")?.textContent === "한");
+    await field.press("Shift+Space");
+    await page.waitForFunction(() => document.querySelector("#mode")?.textContent === "한");
+    await field.pressSequentially("gks");
+    await page.waitForFunction(() => document.querySelector("[data-ibus-preedit]")?.textContent?.includes("한"));
     assert.equal(await field.inputValue(), "");
-    await field.evaluate((element: HTMLTextAreaElement) => element.blur());
+    await page.getByRole("textbox", { name: "Single-line input" }).click();
     await page.waitForFunction(() => (document.querySelector("#input") as HTMLTextAreaElement).value === "한");
     assert.equal(await field.inputValue(), "한");
     assert.ok(archives.length > 0);
@@ -77,7 +70,7 @@ try {
     }
     assert.deepEqual(errors, []);
     console.log(
-      "Demo smoke passed: isolated page, actual Worker/runtime/Hangul, synthetic composition and blur commit 한.",
+      "Demo smoke passed: isolated page, actual Worker/runtime/Hangul, trusted typing, isolated preedit and focus commit 한.",
     );
   } finally {
     await browser.close();

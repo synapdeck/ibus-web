@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { Context, Effect, Layer, Logger as EffectLogger, ManagedRuntime, References, Stream } from "effect";
+import { Context, Effect, Layer, Logger as EffectLogger, ManagedRuntime, References, Schema, Stream } from "effect";
 import {
   CoreConfig,
   EngineRegistry,
@@ -21,6 +21,7 @@ import {
   type SettingsSourceService,
   type SurfaceAdapter,
 } from "@ibus-web/core";
+import { CandidateClicked, PageUp, PageDown, CursorUp, CursorDown, PropertyActivate } from "@ibus-web/protocol";
 import type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
@@ -85,6 +86,9 @@ const messageOf = (error: unknown): string => {
     return "Unprintable host error";
   }
 };
+const decodePanelAction = Schema.decodeUnknownSync(
+  Schema.Union([CandidateClicked, PageUp, PageDown, CursorUp, CursorDown, PropertyActivate]),
+);
 const levels: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 /** No services, storage or Workers are acquired until selection or a settings operation. */
@@ -287,7 +291,13 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       alive();
       const context = services?.router.activeContext();
       if (!context || context.engine !== engine || context.ic !== ic) return;
-      void services!.registry.request(engine, action, ic).catch((error: unknown) => app.reportPanelError(error));
+      try {
+        // Public structural actions cross into the protocol's validated request classes here.
+        const request = decodePanelAction(action);
+        void services!.registry.request(engine, request, ic).catch((error: unknown) => app.reportPanelError(error));
+      } catch (error) {
+        app.reportPanelError(error);
+      }
     },
     reportPanelError: (error: unknown) => {
       log({ level: "error", domain: "panel", message: messageOf(error) });

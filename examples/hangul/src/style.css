@@ -7,23 +7,31 @@
   line-height: 1.6;
 }
 main {
-  max-width: 960px;
-  margin: 3rem auto;
+  max-width: 1000px;
+  margin: 2rem auto;
   padding: 0 1.5rem;
 }
 h1 {
   line-height: 1.2;
 }
-h2 {
+h2,
+legend {
   font-size: 1.1rem;
-  margin-top: 0;
+  font-weight: 600;
 }
 .columns {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
+  margin-top: 1.5rem;
 }
-textarea {
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+textarea,
+#single-line {
   box-sizing: border-box;
   display: block;
   width: 100%;
@@ -32,17 +40,57 @@ textarea {
   font-size: 1.25rem;
   border: 1px solid #8795a5;
   border-radius: 0.5rem;
+  margin: 0.4rem 0 1rem;
+  background: white;
 }
-aside {
+fieldset {
   background: white;
   border: 1px solid #dce2e8;
   border-radius: 0.5rem;
   padding: 1rem;
 }
-ul {
-  padding-left: 1.3rem;
-  max-height: 18rem;
+.setting {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 1rem;
+}
+.setting small {
+  grid-column: 1 / -1;
+  color: #536274;
+}
+.setting input,
+.setting select,
+button {
+  font: inherit;
+}
+.setting input:not([type="checkbox"]),
+.setting select {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.setting input[type="checkbox"] {
+  justify-self: start;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: wait;
+}
+:focus-visible {
+  outline: 2px solid #125ed0;
+  outline-offset: 3px;
+}
+#log {
+  padding: 0.75rem 0.75rem 0.75rem 2rem;
+  max-height: 22rem;
   overflow: auto;
+  background: white;
+  border: 1px solid #dce2e8;
+  font-family: monospace;
+  overflow-wrap: anywhere;
 }
 output {
   font-weight: 600;

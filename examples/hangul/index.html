@@ -11,25 +11,41 @@
     <main>
       <h1>Type Korean with ibus-web</h1>
       <p>Hangul runs in your browser. Use a US keyboard layout to try it.</p>
-      <label class="switch"><input id="enabled" type="checkbox" checked disabled /> Enable ibus-web</label>
-      <p>Engine: <output id="engine">starting</output> · Storage: <output id="storage">starting</output></p>
+      <p id="how-to">
+        Press the Hangul key or <kbd>Shift+Space</kbd> to toggle Hangul/Latin input. Type <kbd>gks</kbd> for 한. Press
+        <kbd>F9</kbd> to convert to Hanja, then use digits, click a candidate, or use arrows and Enter. Click outside a
+        field to commit its preedit.
+      </p>
+      <div class="toolbar">
+        <label><input id="enabled" type="checkbox" checked disabled /> Enable ibus-web</label>
+        <button id="restart" type="button" disabled>Restart engine</button>
+      </div>
+      <p role="status">
+        Engine: <output id="engine">starting</output> · Storage: <output id="storage">starting</output> · Input mode:
+        <output id="mode">—</output>
+      </p>
+      <p id="error" role="alert"></p>
+      <section aria-label="Typing surfaces">
+        <label for="input">Type here</label>
+        <textarea id="input" rows="5" spellcheck="false" autocomplete="off" aria-describedby="how-to"></textarea>
+        <label for="single-line">Single-line input</label>
+        <input id="single-line" type="text" spellcheck="false" autocomplete="off" aria-describedby="how-to" />
+        <p>
+          Underlined preedit stays outside the field value until committed. The input method panel appears at the caret.
+        </p>
+      </section>
       <div class="columns">
         <section>
-          <label for="input">Type here</label
-          ><textarea id="input" rows="8" spellcheck="false" autocomplete="off"></textarea>
-          <p>Preedit: <output id="preedit" aria-live="polite"></output></p>
+          <form>
+            <fieldset id="settings" disabled><legend>Persistent settings</legend></fieldset>
+          </form>
+          <p><output id="settings-state" role="status">Loading settings…</output></p>
         </section>
-        <aside>
-          <h2>Panel events</h2>
-          <p>InputMode: <output id="mode">—</output></p>
-          <ul id="panel"></ul>
-        </aside>
+        <section aria-labelledby="log-title">
+          <h2 id="log-title">Engine log</h2>
+          <ul id="log" aria-label="Engine log entries"></ul>
+        </section>
       </div>
-      <p id="error" role="alert"></p>
-      <p>
-        Press the Hangul key or Shift+Space to toggle Hangul/Latin input. Type <kbd>gks</kbd> for 한. Press F9 to
-        convert to Hanja, then choose a numbered candidate. Click outside the textarea to commit the preedit.
-      </p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
