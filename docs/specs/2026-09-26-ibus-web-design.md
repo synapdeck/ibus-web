@@ -2513,15 +2513,15 @@ rules for sequences of programs, and how to add and run a test are in
      against the production demo, from capture to the edit appearing,
      after 70 warm-up keys. Paint and keyboard hardware are not included.
 
-     | Browser           | p50 ms | p99 ms | max ms |
-     | ----------------- | -----: | -----: | -----: |
-     | Chromium 153      |  0.805 | 15.115 | 21.105 |
-     | Firefox 155       |  1.380 |  2.480 |  2.940 |
-     | Linux WebKit 26.6 |  2.180 |  4.140 |  4.900 |
+| Browser           | p50 ms | p99 ms | max ms |
+| ----------------- | -----: | -----: | -----: |
+| Chromium 153      |  0.805 | 15.115 | 21.105 |
+| Firefox 155       |  1.380 |  2.480 |  2.940 |
+| Linux WebKit 26.6 |  2.180 |  4.140 |  4.900 |
 
-     These were measured at `a174a74`, before the reset-ordering fixes,
-     which were not timed again. Machine and method are in
-     `docs/testing.md` and `docs/protocol.md`.
+The keystroke figures were measured at `a174a74`, before the reset-ordering
+fixes, which were not timed again. Machine and method are in
+`docs/testing.md` and `docs/protocol.md`.
 
 ## 12. Milestones
 
