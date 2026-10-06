@@ -13,6 +13,7 @@ with the conditions they were taken under. The design for what is still to come 
 | [engines.md](engines.md)         | Engine recipe overrides, FHS data, patch layers, callback audits and Hangul golden tests                                                                   |
 | [storage.md](storage.md)         | The WasmFS IndexedDB backend; engine data per version, its locks and installs; the writer lock; durability and costs                                       |
 | [worker-host.md](worker-host.md) | `@ibus-web/worker-host`: the host's scopes, request loop, relay and pool top-up, failures, storage and engine data, and its test suites                    |
+| [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the Hangul demo                                                    |
 | [protocol.md](protocol.md)       | `@ibus-web/protocol`: strict GVariant codecs, schemas, generated artifacts, parity and decode measurements                                                 |
 | [testing.md](testing.md)         | GoogleTest, g_test and Vitest; the test-program runner; adding a test program; running tests locally                                                       |
 | [tooling.md](tooling.md)         | The dev shell, hk and its hooks, formatters and linters, TypeScript and pnpm, editor language servers, CI and the binary cache                             |

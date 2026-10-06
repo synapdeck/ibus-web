@@ -11,7 +11,8 @@ the production request loop is synchronous TypeScript. The first successful
 pumps and drains its output, and publishes the reply.
 
 The host implements the output ring and ordered replies. The production
-page-side router remains M1.4 work; the test Page exercises the transport.
+[page core](core.md) owns key capture, replay and client preedit policy; the test
+Page separately exercises the transport.
 
 ## Package and bundles
 
@@ -81,10 +82,12 @@ runtime's memory, and no message carries a pointer into it. What else the
 page owes its hosts:
 
 - **Spin, then let go.** The page's main thread can't `Atomics.wait()`, so it
-  spins on `state` for a reply, for at most its budget (40 ms in the design,
+  spins on `state` for a reply, for at most its budget (40 ms by default,
   spec §6.2.6), then waits asynchronously and replays.
 - **A reply timeout.** A relay killed without running its own code is silent
-  to a sleeping host; only the page's hang detection catches it (spec §8).
+  to a sleeping host; only the page's hang detection catches it (spec §8). Ordinary requests use
+  a 2,000 ms inactivity budget; Init alone defaults to 30,000 ms. Both require
+  no reply and no ring movement; this does not promise a startup deadline.
 - **The writer lock after a terminate.** Chromium lets go of the locks of a
   Worker terminated while it sleeps in `Atomics.wait()` only some 2 s after
   `terminate()`. Having terminated a host that didn't report

@@ -90,7 +90,8 @@ An item leaves this page when it is fixed or decided.
 
 - **IBus API scope.** M1.1 supplies engine/data types, emitters, the framed dispatcher
   and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji;
-  unused bus/config/component APIs remain absent. Keymap lookup uses page-provided keysyms.
+  unused bus/config/component APIs remain absent. Latin mode therefore leaves ordinary typing
+  to the browser. Keymap lookup uses page-provided keysyms.
 - **Native parity scope.** `checks.hangul-differential` compares ten traces at
   the engine boundary against the pinned stock native engine. It does not test
   browser host/router behavior or live settings. The stock engine's invalid
@@ -136,8 +137,10 @@ An item leaves this page when it is fixed or decided.
 
 ## Engines and page integration
 
-- **Page router (M1.4).** Transport integration currently lives in the test Page;
-  the production router, replay queue and adapters remain to be implemented.
+- **Native adapter (M1.4b).** The basic adapter provides callback preedit and
+  fallback editing, but no caret overlay/mirror, native undo integration, full
+  clipboard or platform-complete navigation. No concrete CodeMirror adapter or
+  full panel/settings facade ships yet. See [core.md](core.md).
 
 - **The memory figure counts static data twice.** `heapBytes` is the declared
   program-break peak, an address that includes the static data below the heap,
@@ -159,13 +162,7 @@ An item leaves this page when it is fixed or decided.
 - **Surrounding selection anchor.** The IBus-compatible delete operation updates
   cached text/cursor but leaves the selection anchor unchanged until the host's
   next `SetSurroundingText`; callers can observe that stale anchor.
-- **Client preedit policy (M1.4).** Commit the last COMMIT-mode preedit on blur
-  and reset; Hangul clears its own composition and relies on the client. A Hanja
-  list instead uses CLEAR mode. The router should omit
-  `IBUS_CAP_SYNC_PROCESS_KEY_V2`: the reply already orders output, and an
-  unconsumed key can be applied by the browser. Advertising it makes Hangul
-  consume and forward that key explicitly.
-- **Settings persistence (M1.4).** The page's replaceable persister must read
+- **Settings persistence (M1.4b).** The page's replaceable persister must read
   Init snapshots from the `gsettings` IndexedDB database, persist SettingWritten,
   and deliver SettingChanged to other Workers and tabs over BroadcastChannel
   (spec §7.1.4). The C backend is in-memory only.
@@ -199,9 +196,7 @@ An item leaves this page when it is fixed or decided.
 - **A writer that unlinks a file another tab has open** deletes its inode at once: open counts are per
   connection, so the reader's next read fails with `ENOENT`. Harmless for engine data, which nobody
   unlinks; user data that readers in other tabs keep open needs a rule before user dictionaries (M4).
-- **Restarts in Chromium.** A host that dies without the page terminating it gets no wait for its writer
-  lock, so a restart within about 2 s may come up read-only for the Worker's life. The page's bounded wait
-  for a terminated writer's lock lives in the test harness until a page package owns it.
+
 - **The backend's internals are runtime exports.** `_wasmfs_idb_record_entry` and
   `_wasmfs_idb_set_string` are `EMSCRIPTEN_KEEPALIVE`; only the export manifest keeps side modules off them.
 - **Node.** The Node backend has no read-only mode, so a read-only mount and a seal are conventions there;
@@ -234,9 +229,6 @@ An item leaves this page when it is fixed or decided.
   started together can both become writer or both install one version. Node suites start hosts that share
   storage one at a time; a Node store that needs real exclusion would take an `O_EXCL` lock file or an
   `Atomics` lock. [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **A page has no published source for the host's constants.** `HostInit.constants` (the pump's error
-  code, the wait's timeout, the backend's read-only flag, the memory bounds) and `poolLowWater` come from
-  derivations only the tests use; `packages.ibus-runtime` ships none of them.
 - **Collection failures are silent but for `CollectReport.error`**; nothing is logged.
 - **`@ibus-web/worker-host` is publishable but not released.** Its version stays `0.0.0` and nothing
   publishes it. Releases are to be versioned with Changesets, with a CI workflow that bumps versions and
@@ -339,7 +331,7 @@ An item leaves this page when it is fixed or decided.
 - **Integer-like dictionary keys.** The tree layer preserves entry order; schema
   records follow JavaScript's ordering of integer-like keys. IBus attachment names
   and GSettings schema IDs and keys do not use these keys.
-- **Lazy lookup decoding (M1.4).** A framed 500-candidate record (64,832 bytes) takes
+- **Lazy lookup decoding (M1.4b).** A framed 500-candidate record (64,832 bytes) takes
   1.01 ms median / 4.40 ms p99 under Node v24.21.0 on a Ryzen 9 9950X3D
   (`nix run .#protocol-bench`), twice the 0.5 ms target. Bytes to tree (0.43 ms) and
   tree to schemas (0.46 ms) each take most of the target alone. The panel must decode

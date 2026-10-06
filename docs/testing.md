@@ -578,3 +578,22 @@ node test/node/saturate.ts 50 pnpm exec vitest run --configLoader native \
 
 Its results are observations under one load, not a timer deadline under
 arbitrary starvation.
+
+## Page core and demo
+
+`checks.core` runs deterministic Node tests for translation, connection budgets,
+key ownership, mixed sync/async/manual modes, context policy and recovery.
+`checks.core-browser` exercises real Worker/runtime/Hangul integration in Chromium
+and Firefox. Its synthetic DOM events use a helper that simulates unprevented
+native defaults; this does not prove trusted input, native undo, OS keyboard/layout,
+Safari or minimum browser versions.
+
+`packages.demo` builds examples/hangul; `checks.demo` separately loads that built
+page in fresh Chromium, checks isolation and opaque archive delivery, and verifies
+callback preedit plus blur commit with constructed keys. Trusted Playwright
+interaction with the development demo is separate observed evidence, described in
+[core.md](core.md), not a claim of full settings/panel or storage-recovery coverage.
+
+These are default gates. `nix flake check` runs the default milestone tier; the
+explicit worker-host integration outputs and `integration-checks` aggregate above
+remain extended work, not a matrix to repeat for every focused change.
