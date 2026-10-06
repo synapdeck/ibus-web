@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ibus-web Hangul</title>
+  </head>
+  <body>
+    <main>
+      <h1>Type Korean with ibus-web</h1>
+      <p>Hangul runs in your browser. Use a US keyboard layout to try it.</p>
+      <label class="switch"><input id="enabled" type="checkbox" checked disabled /> Enable ibus-web</label>
+      <p>Engine: <output id="engine">starting</output> · Storage: <output id="storage">starting</output></p>
+      <div class="columns">
+        <section>
+          <label for="input">Type here</label
+          ><textarea id="input" rows="8" spellcheck="false" autocomplete="off"></textarea>
+          <p>Preedit: <output id="preedit" aria-live="polite"></output></p>
+        </section>
+        <aside>
+          <h2>Panel events</h2>
+          <p>InputMode: <output id="mode">—</output></p>
+          <ul id="panel"></ul>
+        </aside>
+      </div>
+      <p id="error" role="alert"></p>
+      <p>
+        Press the Hangul key or Shift+Space to toggle Hangul/Latin input. Type <kbd>gks</kbd> for 한. Press F9 to
+        convert to Hanja, then choose a numbered candidate. Click outside the textarea to commit the preedit.
+      </p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

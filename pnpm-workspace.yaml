@@ -18,9 +18,11 @@ catalog:
   smol-toml: ^1.9.0
   tsdown: ^0.23.0
   typescript: ^7.0.2
+  vite: ^8.0.0
   vitest: ^5.0.3
 packages:
 - runtime/wasmfs-idb
 - modules/glib/checks/tests
 - tools
 - packages/*
+- examples/*

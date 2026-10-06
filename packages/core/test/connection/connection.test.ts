@@ -1,7 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ProcessKeyEvent, ProtocolError, CrashReason, transportLayout } from "@ibus-web/protocol";
+import {
+  Init,
+  PROTOCOL_VERSION,
+  ProcessKeyEvent,
+  ProtocolError,
+  CrashReason,
+  transportLayout,
+} from "@ibus-web/protocol";
 import { ReqMode, State, Word, postReply } from "@ibus-web/worker-host";
 import { Connection, type ConnectionOptions } from "../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";
@@ -679,3 +686,63 @@ test("startup signal no longer owns an established connection", async () => {
   host.scripts.push({ records: [] });
   expect(connection.requestSync(key, 1)).toMatchObject({ _tag: "reply" });
 });
+
+test("Init may finish after the interactive watchdog budget, then a queued key uses its own budget", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const connection = await start();
+  host.scripts.push({ after: 8000, ret: 0 }, { after: "never" });
+  const initial = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: {} }), 0);
+  const first = initial.catch((cause: unknown) => cause);
+  const queued = connection.requestAsync(key, 1);
+  const rejected = expect(queued).rejects.toMatchObject({ reason: "hang" });
+  host.now += 7999;
+  vi.advanceTimersByTime(7999);
+  expect(host.terminated).toBe(false);
+  host.tick();
+  host.deliver();
+  expect(await first).toMatchObject({ ret: 0, records: [] });
+  host.now += 2000;
+  vi.advanceTimersByTime(2000);
+  await rejected;
+  expect(host.terminated).toBe(true);
+});
+
+test.each([undefined, 5000])("Init without progress eventually hangs with budget %s", async (initHangMs) => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const connection = await start(initHangMs === undefined ? {} : { initHangMs });
+  host.scripts.push({ after: "never" });
+  const pending = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: {} }), 0);
+  const rejected = expect(pending).rejects.toMatchObject({ reason: "hang" });
+  const budget = initHangMs ?? 30000;
+  host.now += budget - 1;
+  vi.advanceTimersByTime(budget - 1);
+  expect(host.terminated).toBe(false);
+  host.now += 1;
+  vi.advanceTimersByTime(1);
+  await rejected;
+  expect(host.terminated).toBe(true);
+});
+
+test("Init ring movement refreshes only its bounded progress watchdog", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const connection = await start({ initHangMs: 5000 });
+  host.scripts.push({ after: "never" });
+  const pending = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: {} }), 0);
+  const rejected = expect(pending).rejects.toMatchObject({ reason: "hang" });
+  host.now += 4000;
+  host.write(record(1));
+  vi.advanceTimersByTime(5000);
+  expect(host.terminated).toBe(false);
+  host.now += 5001;
+  vi.advanceTimersByTime(5000);
+  await rejected;
+});
+
+test.each([0, -1, Infinity, NaN])(
+  "invalid Init watchdog budget %s fails before creating a Worker",
+  async (initHangMs) => {
+    const worker = vi.fn(() => host.asWorker());
+    await expect(start({ initHangMs, worker })).rejects.toThrow(RangeError);
+    expect(worker).not.toHaveBeenCalled();
+  },
+);

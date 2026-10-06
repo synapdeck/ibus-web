@@ -23,6 +23,7 @@ path = [
   "README.md",
   "modules/**/README.md",
   "packages/**/README.md",
+  "examples/**/README.md",
   "runtime/**/README.md",
   "tools/**/README.md",
   ".clang-format",
@@ -123,3 +124,8 @@ path = "packages/core/src/keys/us.generated.ts"
 SPDX-FileCopyrightText = "The xkeyboard-config contributors"
 SPDX-License-Identifier = "LicenseRef-xkeyboard-config"
 precedence = "override"
+
+[[annotations]]
+path = "modules/libhangul/patches/*.patch"
+SPDX-FileCopyrightText = ["2005-2009 Choe Hwanjin", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "LGPL-2.1-or-later"

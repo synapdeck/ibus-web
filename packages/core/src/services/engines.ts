@@ -133,6 +133,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
                 storage: options.storage ?? "browser",
                 budgetMs: config.budgetMs,
                 hangMs: config.hangMs,
+                initHangMs: config.initHangMs,
                 layout: transportLayout({ ringBytes: config.ringBytes, slotBytes: config.slotBytes }),
                 signal,
               }).then(

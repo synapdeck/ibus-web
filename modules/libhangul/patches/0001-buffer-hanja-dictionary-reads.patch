@@ -1,0 +1,71 @@
+Buffer Hanja dictionary scans before crossing the filesystem boundary
+
+The loader scans the dictionary twice to build its index. An explicitly
+owned 64 KiB stdio buffer batches those reads on storage backends whose
+calls cross a thread and database transaction boundary. Keep it alive for
+lookups and release it after fclose; failed allocation or setvbuf closes
+the stream and fails the load without retaining a buffer.
+
+--- a/hangul/hanja.c
++++ b/hangul/hanja.c
+@@ -179,6 +179,7 @@
+     unsigned       nkeys;
+     unsigned       key_size;
+     FILE*          file;
++    char*          read_buffer;
+ };
+ 
+ struct _HanjaPair {
+@@ -491,6 +492,7 @@
+     long offset;
+     unsigned i;
+     FILE* file;
++    char* read_buffer;
+     HanjaIndex* keytable;
+     HanjaTable* table;
+ 
+@@ -503,6 +505,20 @@
+ 
+     file = fopen(filename, "r");
+     if (file == NULL) {
++	return NULL;
++    }
++
++    /* Each stdio refill crosses into persistent storage. Keep the two
++     * index-building scans in bounded batches, and retain the buffer for
++     * lookups until the table closes its stream. */
++    read_buffer = malloc(64 * 1024);
++    if (read_buffer == NULL) {
++	fclose(file);
++	return NULL;
++    }
++    if (setvbuf(file, read_buffer, _IOFBF, 64 * 1024) != 0) {
++	fclose(file);
++	free(read_buffer);
+ 	return NULL;
+     }
+ 
+@@ -554,6 +570,7 @@
+     if (table == NULL) {
+ 	free(keytable);
+ 	fclose(file);
++	free(read_buffer);
+ 	return NULL;
+     }
+ 
+@@ -561,6 +578,7 @@
+     table->nkeys = nkeys;
+     table->key_size = key_size;
+     table->file = file;
++    table->read_buffer = read_buffer;
+ 
+     return table;
+ }
+@@ -576,6 +594,7 @@
+     if (table != NULL) {
+ 	free(table->keytable);
+ 	fclose(table->file);
++	free(table->read_buffer);
+ 	free(table);
+     }
+ }

@@ -1,0 +1,30 @@
+{
+  "name": "demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "bundle": "vite build",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
+  },
+  "dependencies": {
+    "@ibus-web/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@ibus-web/test-programs": "workspace:*",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "playwright": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "ibusWeb": {
+    "assets": [
+      "index.html",
+      "src/style.css"
+    ]
+  }
+}

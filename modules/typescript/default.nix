@@ -22,6 +22,7 @@
           "modules/glib/checks/tests"
           "tools"
           "packages/*"
+          "examples/*"
         ];
         # These packages ship N-API binaries for every supported build platform.
         allowBuilds = {
@@ -40,6 +41,7 @@
           playwright = pkgs.playwright-driver.version;
           typescript = "^7.0.2";
           vitest = "^5.0.3";
+          vite = "^8.0.0";
           "@vitest/browser" = "^5.0.3";
           "@vitest/browser-playwright" = "^5.0.3";
           ajv = "^8.20.0";

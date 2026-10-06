@@ -6,6 +6,7 @@ import { transportLayout } from "@ibus-web/worker-host";
 export interface CoreConfigValues {
   readonly budgetMs: number;
   readonly hangMs: number;
+  readonly initHangMs: number;
   readonly replayLimit: number;
   readonly surroundingWindow: number;
   readonly restart: Schedule.Schedule<unknown>;
@@ -19,6 +20,7 @@ export class CoreConfig extends Context.Service<CoreConfig, CoreConfigValues>()(
   static readonly defaults: CoreConfigValues = {
     budgetMs: 40,
     hangMs: 2000,
+    initHangMs: 30000,
     replayLimit: 64,
     surroundingWindow: 1000,
     restart: Schedule.concat(Schedule.recurs(1), Schedule.exponential(250)),

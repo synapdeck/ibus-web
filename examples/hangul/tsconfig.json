@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "lib": ["es2023", "dom"],
+    "types": ["node", "vite/client"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"]
+}

@@ -4,6 +4,7 @@ import {
   decodeRecord,
   encodeRequest,
   ProtocolError,
+  requestKinds,
   RingReader,
   type DecodedRecord,
   type Request,
@@ -36,6 +37,8 @@ export interface ConnectionOptions {
   layout?: TransportLayout;
   budgetMs: number;
   hangMs: number;
+  /** Init may load persistent engine data before producing output; defaults to 30 seconds. */
+  initHangMs?: number;
   worker?: (url: URL) => Worker;
   /** Cancels startup only; an established connection is owned by its caller. */
   signal?: AbortSignal;
@@ -91,6 +94,7 @@ export class Connection {
   private storage: StorageState | undefined;
   private seq = 0;
   private movedAt = 0;
+  private requestHangMs = 0;
   private ringWrite = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private deferred: ReturnType<typeof setTimeout> | undefined;
@@ -114,9 +118,11 @@ export class Connection {
       !Number.isFinite(options.budgetMs) ||
       options.budgetMs < 0 ||
       !Number.isFinite(options.hangMs) ||
-      options.hangMs <= 0
+      options.hangMs <= 0 ||
+      !Number.isFinite(options.initHangMs ?? 30000) ||
+      (options.initHangMs ?? 30000) <= 0
     )
-      throw new RangeError("budgetMs must be nonnegative and hangMs must be positive");
+      throw new RangeError("budgetMs must be nonnegative; hangMs and initHangMs must be finite and positive");
     options.signal?.throwIfAborted();
     const wasm = await waitForCompilation(compile(options.runtimeUrl), options.signal);
     options.signal?.throwIfAborted();
@@ -248,6 +254,10 @@ export class Connection {
       if (this.crash) return false;
       throw error;
     }
+    this.requestHangMs =
+      new DataView(bytes.buffer, bytes.byteOffset, 2).getUint16(0, true) === requestKinds.get("Init")
+        ? (this.options.initHangMs ?? 30000)
+        : this.options.hangMs;
     this.inFlight = true;
     this.movedAt = performance.now();
     this.ringWrite = Atomics.load(this.control.words, Word.ringWrite);
@@ -387,10 +397,10 @@ export class Connection {
       this.drain();
       this.checkCrash();
       if (this.crash || !this.inFlight) return;
-      if (performance.now() - this.movedAt >= this.options.hangMs)
+      if (performance.now() - this.movedAt >= this.requestHangMs)
         this.fail({ reason: "hang", message: "Worker request stopped making progress" });
       else this.watch();
-    }, this.options.hangMs);
+    }, this.requestHangMs);
   }
   private fail(crash: CrashInfo): void {
     if (this.crash) return;

@@ -143,6 +143,9 @@ catalogs:
     typescript:
       specifier: ^7.0.2
       version: 7.0.2
+    vite:
+      specifier: ^8.0.0
+      version: 8.3.2
     vitest:
       specifier: ^5.0.3
       version: 5.0.3
@@ -175,6 +178,31 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
+
+  examples/hangul:
+    dependencies:
+      '@ibus-web/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@ibus-web/test-programs':
+        specifier: workspace:*
+        version: link:../../packages/test-programs
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0
+      playwright:
+        specifier: 'catalog:'
+        version: 1.63.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.2(@types/node@24.19.0)(yaml@2.9.1)
 
   modules/glib/checks/tests:
     dependencies:

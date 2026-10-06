@@ -89,7 +89,7 @@ asynchronously (`ASYNC`, each completed by a doorbell), replaying declined ones.
 stored 0 **before** draining.
 
 **Hangs and crashes** (spec §8). A hang is a request (sync after abandonment, or async) with no reply and
-no ring movement for 2 s (configurable), or a replay queue that would exceed 64: the router terminates the
+no ring movement for 2 s (configurable; `Init` has a separate 30 s initialization allowance), or a replay queue that would exceed 64: the router terminates the
 Worker and treats it as a crash. On a crash (`CRASHED`, the `crashed` host message, a Worker `error`
 event, or a hang): the in-flight key passes through (`replayKey`), queued keys are replayed in order,
 every input context of that engine has its preedit cleared and panel output hidden, and the restart
@@ -366,6 +366,10 @@ Task 9 documents both modes, per-surface configuration and fallback/cancellation
 
 ### Task 8: The demo
 
+User performance amendment (2026-10-05): the measured eight-second persistent initialization is unusable. Measure the IndexedDB read/transaction pattern and cold/warm initialization against ephemeral storage, then repair the smallest proven source of repeated I/O overhead while preserving sealed-data integrity, writable-file semantics, thread safety and bounded memory. Demonstrate actual persistent Hangul startup and composition after the repair, report timings and evidence limits, and add focused regression coverage. A larger Init watchdog alone does not satisfy this task.
+
+Persistent initialization amendment (2026-10-05): real Hangul IndexedDB-backed module/data initialization measured 7.8 s without ring output. Add `CoreConfig.initHangMs` (default 30,000 ms), optional `ConnectionOptions.initHangMs` with that default, and registry forwarding. Use this inactivity budget only for protocol `Init`; ordinary requests retain the 2,000 ms `hangMs` budget. Both must be finite and positive. Cover Init grace and eventual hang plus unchanged ordinary-request timeout with deterministic clocks, and verify real persistent Hangul startup/composition in the example. Document the separate initialization allowance in Task 9; no global watchdog relaxation.
+
 **Files:** `examples/hangul/{package.json,index.html,src/main.ts,src/style.css,vite.config.ts,tsconfig.json}`, `modules/demo.nix` (`apps.demo`, `packages.demo`, `checks.demo`), catalog entry for `vite`, workspace discovery in `modules/typescript/default.nix` and regenerated `pnpm-workspace.yaml`.
 
 The page: a textarea attached to the router with Hangul selected, an on/off switch (the Hangul key also
@@ -376,7 +380,7 @@ storage state, a "crash the engine" button available in the demo build only when
 present (omit it otherwise), and a short how-to (the Hangul key or Shift+Space toggles Hangul input, F9 converts to Hanja).
 
 - [ ] **Step 1:** Register `examples/*` in the Nix-owned workspace globs and regenerate `pnpm-workspace.yaml`; include the example in workspace discovery and build inputs. Vite config: COOP/COEP headers on every response; a middleware serving the runtime, host Worker scripts and Hangul distribution from paths given in the environment (`IBUS_WEB_DEMO_RUNTIME`, `IBUS_WEB_DEMO_HOST`, `IBUS_WEB_DEMO_HANGUL`), as plain bytes (no `Content-Encoding` on `.tar.br`).
-- [ ] **Step 2:** `apps.demo` (`nix run .#demo`): a `writeShellApplication` that requires being run inside the checkout (finds the flake root), sets the three variables to Nix store paths, runs `pnpm install --frozen-lockfile` when `node_modules` is missing, builds the workspace packages the demo depends on (`pnpm --filter demo... --filter '!demo' run build`), and runs `pnpm --dir examples/hangul exec vite` (dev server, hot reload) on `127.0.0.1:5173`. The dev shell exports the same variables so `pnpm --dir examples/hangul dev` works there too. `packages.demo` is `vite build` of the page with the three directories copied in, for tests.
+- [ ] **Step 2:** `apps.demo` (`nix run .#demo`): a `writeShellApplication` that requires being run inside the checkout (finds the flake root), sets the three variables to Nix store paths, runs `pnpm install --frozen-lockfile` when `node_modules` is missing, builds the workspace packages the demo depends on (`pnpm --filter demo... --filter '!demo' run build`), and runs `pnpm --dir examples/hangul exec vite` (dev server, hot reload) on `127.0.0.1:5173` by default. Forward Vite arguments so `nix run .#demo -- --port 5174` selects a custom port. The dev shell exports the same variables so `pnpm --dir examples/hangul dev` works there too. `packages.demo` is `vite build` of the page with the three directories copied in, for tests.
 - [ ] **Step 3:** `checks.demo`: builds the demo, starts its server in the build, loads the page in Playwright's Chromium (the `ibusWeb.testing.playwright` environment), types 한 with synthetic events through the page and asserts the textarea's value — a smoke test, not the Playwright suite of M1.4b.
 - [ ] **Step 4:** run `nix run .#demo` yourself and type in it; record in the task report what you saw.
 - [ ] **Step 5: Commit** `feat(demo): a demo page for typing Korean through ibus-web`.

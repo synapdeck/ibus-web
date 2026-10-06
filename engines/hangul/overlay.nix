@@ -13,6 +13,9 @@
             let
               inherit (config.ibusWeb) runtime toolchain;
               libhangul = final.libhangul.overrideAttrs (old: {
+                patches = (old.patches or [ ]) ++ [
+                  ../../modules/libhangul/patches/0001-buffer-hanja-dictionary-reads.patch
+                ];
                 outputs = (old.outputs or [ "out" ]) ++ [ "data" ];
                 configureFlags = (old.configureFlags or [ ]) ++ [
                   "--datadir=${placeholder "data"}/share"
