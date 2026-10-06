@@ -145,6 +145,11 @@ An item leaves this page when it is fixed or decided.
   Chromium blur commit reaches this fallback. Full clipboard and platform-complete
   navigation remain open; a concrete CodeMirror adapter is not shipped.
   See [core.md](core.md).
+- **Engine errors reach the host only as state.** A crash, hang or load failure
+  shows as an `enginestate` change (`restarting`, `ready`, `failed`), and `select`
+  rejects with a plain `Error`. The crash reason and the Worker's diagnostic are
+  dropped, and the spec's tagged errors (`EngineCrashed`, `EngineHung`,
+  `EngineLoadFailed` and the rest) aren't defined.
 - **System keyboard layouts.** The existing `us` translation follows physical
   `event.code`; `default` follows translated `event.key`. Arbitrary OS layouts,
   Dead/AltGr/shortcut behavior and fallback replay have no system-layout matrix.

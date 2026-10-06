@@ -140,11 +140,12 @@ of in engine code, fix it there.
 
 ### 4.2 One keystroke, end to end
 
-1. The surface adapter's capture-phase `keydown` listener calls
-   `KeySink.key(event)`.
+1. The router's capture-phase `keydown` listener on the attached element
+   hands the event to the active engine's keystroke path.
 2. The keystroke path translates the event into `(keyval, keycode, state)`
-   (§7.1.1). If no engine is enabled, or the key is on the active engine's
-   declared pass-through list, it returns `passthrough` immediately.
+   (§7.1.1). If the engine or the input context isn't ready, the surface is
+   disabled (a password field, for one), or the key is on the engine's
+   declared pass-through list, it returns `passthrough` at once.
 3. It encodes `ProcessKeyEvent` into the request slot and signals the Worker.
 4. The Worker host wakes, calls `ibusweb_dispatch`, which calls the engine's
    `process_key_event` vfunc. Engine output (`CommitText`,
@@ -154,10 +155,14 @@ of in engine code, fix it there.
    sequence number.
 6. The main thread, spinning, drains the ring as records arrive and sees the
    reply.
-7. It applies the decoded records to the surface inside one `batch()`, pushes
-   panel events and returns `consumed` or `passthrough`.
-8. The adapter calls `preventDefault()` and `stopPropagation()` when the key
-   was consumed.
+7. It applies the decoded records to the surface inside the adapter's
+   `batch()`, pushes panel events and returns `consumed` or `passthrough`.
+8. The router calls `preventDefault()` and `stopPropagation()` when the key
+   was consumed. A declined key keeps its browser default.
+
+Editors that own their own key handling attach in async or manual mode
+instead and call `keyAsync` during the event's dispatch; the same engine
+queue serves both (§7.2.2).
 
 ## 5. Worker side
 
@@ -731,9 +736,11 @@ bytes. Data paths are unique `/nix/store/<hash>-<name>` roots, and
 lie inside one. `heapBytes` is build/check metadata.
 Engine names and schema IDs are string arrays; richer page metadata and
 source-release assets are outside this manifest's current interface.
-`keyboard` is required: layout selects page translation, and passThrough contains
-validated keysym names that skip engine processing. Hangul declares `us` with an
-empty passThrough list.
+`keyboard` is required. Its `layout` selects how the page translates keys
+(§7.1.1), and `passThrough` lists keysym names the page never sends to the
+engine; the page rejects a manifest that names an unknown keysym. Hangul
+declares `us` with an empty list. `settingsMetadata` points to the engine's
+generated `settings.json` (§7.1.4), with its size.
 
 `HostInit` carries either `manifest` or `manifestUrl`, replacing separate
 engine, memory and side-module fields. For a fetched manifest, relative
@@ -1351,21 +1358,24 @@ Worker:
 #### 6.2.5 Asynchronous requests
 
 Same protocol with `reqMode = ASYNC`, but the page does not spin: it waits for
-the doorbell. Used
-for lifecycle/settings requests, including `Init`, `CreateEngine`, `DestroyEngine`,
-`SettingChanged`, focus and surrounding updates, and for async/manual surface keys.
-The page router serializes them with key ownership on the engine's connection.
+the doorbell. Every request other than a synchronous key uses it: `Init`,
+`CreateEngine`, `DestroyEngine`, `SettingChanged`, focus, cursor-location
+and surrounding-text updates, and the keys of async and manual surfaces
+(§7.2.2). They stay ordered with keys because the router sends them through
+the same per-engine queue.
 
 #### 6.2.6 Timeouts and the replay queue
 
 - **Budget.** The page spins for at most 40 ms by default (configurable).
 - **On timeout.** The Worker is marked busy. The timed-out key is consumed
-  and retained with its original event, and so are later keys, up to 64
-  including the in-flight key. The request still completes.
-- **While an async request is pending.** Eligible keys on a ready context are
-  captured and queued while another surface's CreateEngine, SettingChanged or
-  DestroyEngine occupies the connection. Keys before their own context is ready
-  remain native. Sync, async and manual attachments share one per-engine FIFO.
+  and kept with its original event, and so are later keys; the queue holds
+  64, the in-flight key included. The request still completes.
+- **While an async request is pending.** Keys on a ready input context are
+  consumed and queued the same way while another request, such as another
+  surface's `CreateEngine` or a `SettingChanged`, holds the connection. Keys
+  that arrive before their own context is ready are not captured; they keep
+  their browser default. Sync, async and manual surfaces share one queue
+  per engine.
 - **Catch-up.** When the doorbell reports completion, queued keys are sent in
   order, asynchronously. Keys the engine declines are applied by the adapter's
   `replayKey` (§7.2.1).
@@ -1413,18 +1423,21 @@ bytes, which GLib reads with every framing offset 0, re-encodes with those
 offsets written out (the empty `(ayay)` as `00`). Tree dictionaries preserve
 order; schema records reorder integer-like keys.
 
-The eager `decodeRecord` remains public. Production Connection uses
-`decodeRecordLazy`: for lookup records the envelope, metadata and array framing
-are checked eagerly and an owned byte snapshot backs `LazyLookupTable.visible()`
-and `page(index)`. Only the requested page's candidate/label values are decoded,
-with the same strict decoder, absolute offsets and nesting limits. The panel
-requests the visible page when it arrives and later pages only when shown.
-After the Buffer ownership repair, the isolated Node framed-record-to-visible-page
-benchmark of 500 candidates/nine visible measured 0.085610 ms median and
-0.286419 ms p99; this is not browser key, Worker/ring or paint latency.
-The older eager 1.01/4.40 ms measurement motivated the change. AOT compilation
-did not lower the eager median and is not used. Method and machine details are in
-`docs/protocol.md`.
+Lookup tables are decoded lazily. The page's connection decodes records with
+`decodeRecordLazy`, which checks a lookup table's envelope, metadata and
+array framing at once and keeps its own copy of the bytes. The table's
+`visible()` and `page(index)` then decode only that page's candidates and
+labels, with the same strict decoder, offsets and nesting limits. The panel
+asks for the visible page when the table arrives and for other pages only
+when they are shown. The eager `decodeRecord` stays public.
+
+Eager decoding of 500 candidates measured 1.01 ms median and 4.40 ms p99
+under Node, over the budget (§11.7), which is why decoding is lazy. Lazy
+decoding of the same framed record to its visible page of nine measured
+0.086 ms median and 0.286 ms p99 (`nix run .#protocol-bench`). That figure
+leaves out the key's trip through the Worker and the ring, and painting.
+AOT compilation of the schemas did not lower the eager median and is not
+used. Method and machine details are in `docs/protocol.md`.
 
 ## 7. Page side
 
@@ -1432,69 +1445,80 @@ did not lower the eager median and is not used. Method and machine details are i
 
 #### 7.1.1 Key translation
 
-- **`keycode`.** `event.code` → evdev code, generated from pinned Chromium's
-  `dom_code_data.inc` evdev column (BSD-3-Clause; notice kept). IBus clients
-  send X keycode minus eight, which is evdev.
-- **`keyval`, layout `default`.** From `event.key`: Latin-1 directly for a
-  single code point, a legacy keysym where the generated table supplies one,
-  otherwise `0x01000000 + codepoint`. Named keys use a UI Events mapping,
-  including HangulMode/Lang1 → Hangul (0xff31) and HanjaMode/Lang2 →
-  Hangul_Hanja (0xff34).
-- **Generated tables.** Keysym values and Unicode mappings come from pinned
-  xorgproto `keysymdef.h`, not LGPL `ibuskeyuni.c`. The generator uses its
-  one-to-one Unicode annotations in both directions, more-specific aliases
-  only from keysym to character, and excludes deprecated/unclear mappings
-  from character to keysym. The first listed name is canonical for aliases.
-  The US table comes from pinned xkeyboard-config data. Canonical notices
-  and licenses live in root NOTICES and LICENSES; package prepack copies
-  the required texts, and postpack removes those generated package copies.
-- **`keyval`, layout `us`.** Computed from `event.code` with the bundled US
-  table, ignoring `event.key`. IBus's Shift/Lock rule for letters is lower,
-  Shift upper, Lock upper, Shift+Lock lower. Shift selects the second level
-  of other keys; NumLock selects the keypad's second level. This supplies
-  the keyvals Hangul's US keymap expects without changing the OS layout.
-- **`state`.** Shift, CapsLock (LOCK), Control, Alt (MOD1), NumLock (MOD2),
-  Meta (MOD4, SUPER and META). AltGraph sets MOD5 and clears Control/Alt.
-  Releases add RELEASE and use the same attachment mode as presses.
-- **Eligibility.** Disabled/private surfaces, composing events and Dead keys
-  are excluded first. Registered `keydown` hotkeys have no default bindings
-  and may run before an engine context is ready. Manifest `passThrough` and
-  unready-context exclusions apply to engine processing; they are not blanket
-  exclusions from registered hotkeys. During startup, ordinary keys remain
-  native until Worker ready, Init and CreateEngine/focus setup succeed.
-  `us` follows physical positions and `default` follows translated characters;
-  the engine's Hangul keyboard option does not detect or change the OS layout.
-  Arbitrary layouts and Dead/AltGr/shortcut/replay behavior have no system-layout
-  validation matrix. A host override/layout detection is future design advice.
+- **`keycode`.** `event.code` → evdev code, generated from the evdev column
+  of Chromium's `dom_code_data.inc` at a pinned revision (BSD-3-Clause;
+  notice kept). IBus clients send the X keycode minus eight, which is the
+  evdev code.
+- **`keyval`, layout `default`.** From `event.key`: a single code point maps
+  to itself in Latin-1, to a legacy keysym where the generated table has
+  one, and otherwise to `0x01000000 + codepoint`, the rule `keysymdef.h`
+  itself gives. Named keys go through a table from UI Events key values,
+  in which `HangulMode` and `Lang1` are `Hangul` (0xff31) and `HanjaMode`
+  and `Lang2` are `Hangul_Hanja` (0xff34).
+- **Generated tables.** Keysym values and their Unicode mappings come from
+  xorgproto's `keysymdef.h` at a pinned version, not from upstream
+  `ibuskeyuni.c` (LGPL). The generator follows the file's own annotations: a
+  one-to-one mapping is used in both directions, a more specific keysym for
+  a character that already has one (`XK_KP_Space`) only from keysym to
+  character, and a deprecated or unclear mapping never from character to
+  keysym. Where names share a value, the first listed is canonical. The US
+  table comes from xkeyboard-config. The notices live once in the
+  repository's `NOTICES/` and `LICENSES/` (`MIT-open-group`, `HPND`,
+  `BSD-3-Clause` and xkeyboard-config's own); packing a page package copies
+  in the texts it needs.
+- **`keyval`, layout `us`.** Computed from `event.code` with the US table,
+  ignoring `event.key`. Letters follow IBus's rule: plain lower case, Shift
+  or CapsLock upper case, both together lower case. For other keys Shift
+  selects the second level, and NumLock the keypad's. This gives the
+  keyvals Hangul's keyboards expect whatever the system layout is; on the
+  desktop IBus switches the system layout for such engines instead.
+- **`state`.** Shift, CapsLock (`LOCK_MASK`), Control, Alt (`MOD1_MASK`),
+  NumLock (`MOD2_MASK`), Meta (`MOD4_MASK`, `SUPER_MASK` and `META_MASK`).
+  `getModifierState("AltGraph")` sets `MOD5_MASK` and clears Control and
+  Alt, which fixes AltGr on Windows. Releases add `RELEASE_MASK` and take
+  the same path as presses (Rime's Shift toggle acts on release).
+- **Never sent to the engine.** Keys on disabled surfaces, events with
+  `isComposing` or `key === "Dead"` (the OS input method owns them), keys on
+  the manifest's `passThrough` list, and every key until the Worker is ready
+  and the input context's `CreateEngine` and `FocusIn` have succeeded.
+  Registered hotkeys see every `keydown` except those on disabled surfaces,
+  composing events and dead keys, so a hotkey works while an engine starts.
+- **Layouts.** `us` follows physical key positions and `default` follows the
+  characters the system layout produces. Neither detects the system layout.
+  Other layouts, and dead keys, AltGr and shortcuts under them, are not
+  tested (`docs/known-gaps.md`).
 
 #### 7.1.2 Input contexts and focus
 
-- Each attachment has one router-assigned input context ID. An instance for
-  the selected engine is created lazily on focus with CreateEngine.
-- DOM focus/blur become FocusIn/FocusOut. Before FocusOut (blur, detach,
-  engine switch) and Reset (external caret/selection/value changes reported
-  by the adapter), the client commits visible COMMIT-mode preedit and clears
-  it in one adapter batch. CLEAR mode only clears. Hangul discards its own
-  composition on these boundaries and relies on this client duty; Hanja
-  uses CLEAR mode. Preedit is never document content.
-- Capabilities are PREEDIT_TEXT, AUXILIARY_TEXT, LOOKUP_TABLE, FOCUS and
-  PROPERTY, with unsupported adapter text capabilities removed and
-  SURROUNDING_TEXT added when the adapter supplies it. SYNC_PROCESS_KEY_V2
-  is never set: reply ordering is sufficient, and declined synchronous keys
-  keep their browser default. Advertising that bit makes Hangul consume
-  and explicitly forward otherwise unused keys.
-- Native type/inputmode/autocomplete map to IBus purpose/hints before FocusIn.
-  Password inputs and current-password/new-password autocomplete surfaces
-  never focus their engine context and pass every key through.
-- Changed viewport caret rectangles become SetCursorLocation requests.
-- Surrounding text is sent on FocusIn, after commits and consumed keys, and
-  on RequireSurroundingText, only when its text/cursor/anchor snapshot changed.
-  The default window is ±1000 Unicode code points, configurable. Cursor,
-  anchor and DeleteSurroundingText offset/count use code points in IBus and
-  are converted to UTF-16 at the adapter boundary.
-- Async requests for other contexts/settings hold eligible keys in the same
-  per-engine FIFO (§6.2.6); this differs from keys before their own context
-  becomes ready, which are not captured.
+- Each attached surface is one input context with a router-assigned ID. An
+  instance of the selected engine is created for it lazily, on first focus
+  (`CreateEngine`).
+- DOM `focus` and `blur` become `FocusIn` and `FocusOut`.
+- **Preedit on boundaries.** Before `FocusOut` (blur, detach or an engine
+  switch) and before `Reset` (a caret, selection or value change the page
+  made, which the adapter reports), the router commits a visible preedit
+  whose mode is `COMMIT` and clears it, in one adapter batch; a `CLEAR`
+  preedit is only cleared. Native IBus clients do this, and engines rely
+  on it: Hangul drops its composition on these boundaries without
+  committing it, and sends Hanja candidates' preedit in `CLEAR` mode.
+- **Capabilities.** `PREEDIT_TEXT`, `AUXILIARY_TEXT`, `LOOKUP_TABLE`,
+  `FOCUS` and `PROPERTY`, less any text capability the adapter lacks, plus
+  `SURROUNDING_TEXT` when the adapter supplies it. `SYNC_PROCESS_KEY_V2` is
+  never set: replies are already ordered, and with it Hangul would consume
+  every key and forward the ones it doesn't use, where now a declined key
+  simply keeps its browser default.
+- **Content type.** `type`, `inputmode` and `autocomplete` map to IBus
+  purposes and hints, sent before `FocusIn`. Password inputs, and surfaces
+  with `autocomplete` `current-password` or `new-password`, never focus
+  their engine instance, so every key passes through.
+- The caret rectangle, in viewport coordinates, is sent as
+  `SetCursorLocation` whenever it changes.
+- **Surrounding text** is sent on `FocusIn`, after commits and consumed keys,
+  and on `RequireSurroundingText`, each time only if text, cursor or anchor
+  changed. The window is ±1000 code points by default (configurable).
+  Offsets are in code points on the IBus side, including
+  `DeleteSurroundingText`'s, and converted to the adapters' UTF-16 units at
+  the boundary.
 
 #### 7.1.3 Engine selection
 
@@ -1504,22 +1528,30 @@ did not lower the eager median and is not used. Method and machine details are i
 - Switching sends `Disable` and `FocusOut` to the old instance, then creates
   or reuses the new one and sends `Enable` and `FocusIn`.
 - A hotkey registry exists with no default bindings.
-- A Worker starts when its engine is first selected and lives within the
-  registry scope; closing that scope terminates it.
+- A Worker starts when its engine is first selected and stays loaded until
+  the host calls `unload(name)` or disposes the library.
 
 #### 7.1.4 Settings API
 
-The page fetches generated `settings.json` through the engine manifest's
-`settingsMetadata` descriptor. Pinned GLib reads the compiled schemas at build
-time and supplies fixed schema paths, GVariant types/defaults and available
-descriptions, ranges and choices; no browser XML/GVariant-text parser is used.
-Relocatable schemas fail the build. In particular, Hangul's keyboard key has no
-generated choices. `SettingsApi` exposes `schemas(engine)`, `get`, `set`, `reset`
-and a change Stream, including engine writes; the facade exposes the four
-Promise methods. The typed `SettingsSource` service retains the M1.4a
-`snapshot(schemas)`, `written(change)` and changes Stream contract, with optional
-`register(metadata)`, `write(change)` and `read(schemaId, key)` hooks for
-persistence. A host's earlier in-memory source remains compatible.
+Per engine: list its schemas and keys, get, set and reset values, and a
+stream of changes, including those the engine writes itself. `SettingsApi`
+offers `schemas(engine)`, `get`, `set`, `reset` and the `changes` stream;
+the facade offers the first four as Promise methods.
+
+- **Metadata.** Each key's schema path, GVariant type, default, description,
+  range and choices come from the engine's `settings.json`, which the page
+  fetches through the manifest's `settingsMetadata` (§5.4.4). A build-time
+  tool, compiled to WASM against `pkgsWasm.glib`, writes it by asking
+  GLib about the compiled schemas, so nothing parses schema XML or GVariant
+  text, at build time or in the browser. A relocatable schema fails the
+  build, since it has no fixed path. A key carries only what its schema
+  declares: Hangul's `keyboard` is a plain string, so it has no choices.
+- **The source service.** Storage sits behind `SettingsSource`: `snapshot`
+  supplies `Init`'s values, `written` receives the engine's writes, and a
+  stream carries outside changes to live Workers. Optional `register`,
+  `write` and `read` hooks give a persistent source the metadata, the
+  page's own changes and single-key reads. A source with only the first
+  three is an in-memory one.
 
 - **Default persister.** The page keeps settings in an IndexedDB database of
   its own, `gsettings`, shared by every engine (engines share schemas such as
@@ -1531,15 +1563,19 @@ persistence. A host's earlier in-memory source remains compatible.
   never returns to, and the settings UI needs values while no engine runs.
 - **Starting a Worker.** Before it starts a Worker, the page reads the keys of
   the engine's schemas and sends them as `Init`'s snapshot.
-- **Changes.** On a `SettingWritten` record, or a change through this API, the
-  page writes the value, sends `SettingChanged` to other live Workers using the
-  schema, and announces `{ schemaPath, key, type, bytes | null }` on
-  `BroadcastChannel("ibus-web:gsettings")`. Bytes are GVariant normal form;
-  `null` means reset. A value byte-equal to the key's generated default deletes
-  its IndexedDB record, allowing a later schema default to take effect. Other
-  tabs forward received changes to their Workers without writing or
-  rebroadcasting. Concurrent writers are last write wins per record: live tabs
-  follow the last broadcast received, and the next Init reads the database.
+- **Changes.** On a `SettingWritten` record, or a change through this API,
+  the page writes the value, sends `SettingChanged` to its other live
+  Workers whose engines use the schema, and announces
+  `{ schemaPath, key, type, bytes }` on
+  `BroadcastChannel("ibus-web:gsettings")`, with the bytes in GVariant
+  normal form, or `null` for a reset. Other tabs forward the change to their
+  own Workers without writing or announcing it again.
+- **Defaults aren't stored.** A value byte-equal to the key's default
+  deletes its record, as a reset does, so a later release that changes the
+  default reaches users who never chose otherwise.
+- **Concurrent writers.** The last write to a record wins. Live tabs follow
+  the last announcement they received, and the next `Init` reads the
+  database.
 - **Replaceable.** The persister is a service. A host that keeps settings
   elsewhere, in its own user profile or on a server, replaces it with a layer
   (§7.4) or a facade option, and supplies the snapshot and stores changes
@@ -1573,61 +1609,79 @@ type KeyResult = "consumed" | "passthrough";
 type AsyncKeyResult = "consumed" | "replayed" | "passthrough" | "cancelled";
 ```
 
-Adapter offsets are UTF-16 units. Batch/apply callbacks are synchronous; custom
-editors map a batch to their own transaction/undo step. onReset reports external
-caret, selection or value changes, excluding router-owned edits.
+Offsets are UTF-16 code units. `batch` runs its callback synchronously; an
+editor maps a batch to one transaction, and so one undo step. `onReset`
+reports caret, selection and value changes the router didn't make.
+`forwardKey` performs a key an engine forwards (`ForwardKeyEvent`), where
+`replayKey` performs one the engine declined.
 
 #### 7.2.2 Rules and attachment modes
 
-- `router.attach(adapter, { keyMode })` returns detach; keyMode is sync by
-  default, or async/manual per surface. Modes coexist on one Router and share
-  one FIFO per engine. Automatic sync/async attachments install capture-phase
-  keydown/keyup and hotkey handling; ancestor capture listeners run first.
-  Manual attachments install focus/blur/reset only, leaving keyboard/hotkey
-  capture to the editor.
-- Sync consumed keys are prevented and propagation stopped before the handler
-  returns; immediate declined keys retain native defaults. Async/manual callers
-  invoke `router.keyAsync(adapter, event)` during original event dispatch, before
-  awaiting. Accepted events are prevented immediately, before its Promise settles;
-  excluded events remain untouched. Callers must not prevent excluded events.
-- Async consumed means reply records already applied. Replayed means the router
-  already applied declined/crash fallback exactly once; never apply it again.
-  Passthrough means excluded and never captured. Cancelled means the pending owner
-  detached/disposed, with no pending key edit applied to that removed surface.
-- Adapter apply/replay failures reject explicit async calls; background failures
-  and automatic async capture rejections are logged. They are page callback errors,
-  not engine crashes.
-- Preedit is decoration, never document content. Each reply's records are applied
-  in order inside adapter batches. Registry request already applies reply records;
-  callers must not reapply them. Native controls apply the net deletion/commit
-  change of a batch as one focused `execCommand("insertText"/"delete")` edit,
-  preserving browser undo and native input events. Unfocused controls and browsers
-  without the command use `setRangeText` plus a synthetic input event; that fallback
-  does not preserve native undo.
-- Blur captures identities of already accepted keys at the actual blur event
-  boundary and waits for only those owners during lifecycle reconciliation; keys
-  accepted in a later focus interval cannot extend that drain. A focused-ready
-  reset reserves the existing engine FIFO immediately. Inactive/unready resets
-  defer reservation until the context becomes eligible again, after older
-  cross-surface drains; accepted keys then wait behind Reset and snapshot refresh.
-  Programmatic host value/selection changes remain authoritative. Pointerdown
-  capture commits visible preedit before browser caret movement.
+- **Attaching.** `attach(adapter, { keyMode })` returns a detach function.
+  `keyMode` is chosen per surface, and the three modes share one router and
+  one key queue per engine:
+  - `sync`, the default: the router listens for `keydown` and `keyup` in the
+    capture phase on the adapter's element and runs the keystroke path
+    synchronously (§4.2). Capture-phase listeners on ancestors still run
+    first.
+  - `async`: the router listens the same way but sends keys with
+    `keyAsync`.
+  - `manual`: the router handles only focus, blur and resets, and the
+    editor captures keys itself and calls `keyAsync`.
+- **Consuming a key.** A consumed synchronous key gets `preventDefault()`
+  and `stopPropagation()` before the listener returns; a declined one keeps
+  its browser default. `keyAsync(adapter, event)` must be called while the
+  event is being dispatched, before any `await`: a key it accepts is
+  prevented and stopped at once, before its Promise settles, and a key it
+  excludes is left alone, and the caller must leave it alone too.
+- **What `keyAsync` returns.**
+  - `consumed`: the reply's records have been applied.
+  - `replayed`: the engine declined the key, or crashed, and the router has
+    already applied the key through `replayKey`; applying it again would
+    double it.
+  - `passthrough`: the key was excluded (§7.1.1) and never captured.
+  - `cancelled`: the surface was detached or the library disposed while
+    the key waited, and none of its edits were applied.
+- **Adapter errors.** An exception from an adapter rejects the `keyAsync`
+  call that caused it; one with no caller to reject is logged. Either way
+  it is the page's error, not an engine crash.
+- **Applying replies.** Preedit is decoration, never document content: host
+  values, undo history and `input` events never contain it. A reply's
+  records are applied in order inside the adapter's batches, and
+  `request` applies them itself, so its callers must not.
+- **Undo.** The built-in adapter applies a batch's net deletion and commit
+  as one `execCommand("insertText")` or `execCommand("delete")` on the
+  focused control, so the browser records one undo step and fires its own
+  `input` events. Without focus, or without the command, it uses
+  `setRangeText` and dispatches a synthetic `input` event, and that edit
+  can't be undone natively (`docs/known-gaps.md`).
+- **Blur and reset ordering.** A blur waits only for the keys accepted
+  before it, so keys typed after focus returns can't hold it open. A reset
+  on a focused, ready surface takes its place in the engine's queue at
+  once; on any other surface it waits until the surface is focused and
+  ready again, behind any other surface's pending work, and keys accepted
+  after it wait for `Reset` and the refreshed surrounding text. The host's
+  own value and selection changes always win. A `pointerdown`, caught in
+  the capture phase, commits a visible preedit before the browser moves
+  the caret.
 
 #### 7.2.3 Built-in adapters
 
-`textareaAdapter(inputOrTextarea, { onPreedit })` provides native commits,
-surrounding text, focus/reset observation and code-point-aware fallback edits.
-A styled text mirror measures the caret with the control's font, box, direction,
-wrapping and scroll. Preedit is a clipped overlay with UTF-16 attribute ranges,
-underline and foreground/background colors; it never enters value or history.
-`caretRect` reports the preedit cursor when visible and the native insertion
-point otherwise, for `SetCursorLocation`. The optional onPreedit callback remains
-available. Detach removes the overlay, observers and event listeners.
+`textareaAdapter(element, { onPreedit })` serves `<input>` and `<textarea>`.
 
-External value assignment and selection changes report reset; adapter edits do not.
-Unsupported native selection APIs use end-of-value fallback. Clipboard handling
-and platform-complete navigation are not provided. Contenteditable follows in M2;
-a concrete CodeMirror adapter is not shipped.
+| Part    | How                                                                                                                                        |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Commit  | `execCommand` on the focused control, one undo step per batch; `setRangeText` and a synthetic `input` event otherwise (§7.2.2)             |
+| Preedit | a clipped overlay at the caret, with the IBus attributes as underline and colours; never in the value or the history                       |
+| Caret   | a mirror element styled like the control (font, box, direction, wrapping, scroll); `caretRect` gives the preedit cursor while one is shown |
+| Resets  | value assignments and selection changes the adapter didn't make                                                                            |
+| Replay  | the character inserted, or the editing action (Backspace, Delete, Enter, arrows, Home, End) performed                                      |
+
+`onPreedit` also receives each preedit, for hosts that show it themselves.
+Detaching removes the overlay, observers and listeners. Keys held with
+Control, Alt or Meta (clipboard keys and shortcuts) aren't replayed, nor is
+platform-specific navigation. A `contenteditable` adapter
+comes with M2. No CodeMirror adapter ships; §7.2.4 shows how one would map.
 
 #### 7.2.4 CodeMirror 6 check (not in v1)
 
@@ -1641,51 +1695,63 @@ a concrete CodeMirror adapter is not shipped.
 
 ### 7.3 Default panel
 
-`@ibus-web/panel` is a framework-free, replaceable DOM panel using only the
-facade's public `PanelHost` contract and an explicitly imported stylesheet.
-It decodes only the visible lazy lookup page, displays engine labels or
-page-position fallback labels, and highlights the cursor when visible.
-Previous/next send PageUp/PageDown, wheel motion sends CursorUp/CursorDown, and
-a click sends `CandidateClicked` with the visible page-relative index (§6.1.2).
-The panel follows the viewport caret, placing below or above/clamping as space
-requires. It uses the table orientation or the panel schema setting for System,
-renders auxiliary text separately, and lists visible properties with toggle/radio
-state. The first visible toggle/radio symbol becomes the compact indicator;
-unchanged toggle/radio states are not activated again; Normal actions activate
-every time. FocusOut and crash hide output;
-stale context events are ignored. ResizeObserver placement is coalesced on an
-owned animation frame; caret/event/scroll placement remains synchronous.
+`@ibus-web/panel` renders the candidate window, auxiliary text and a
+property menu. It uses only the facade's public `PanelHost` interface and
+its own stylesheet, which the host imports, so it is framework-free and
+serves as reference code for hosts that build their own panel. It is meant
+for testing and simple hosts.
+
+- **Candidates.** The panel decodes only the visible page of a lookup table
+  (§6.3) and shows the engine's labels, or the position on the page where
+  the engine gives none, with the cursor highlighted. Its previous and next
+  buttons send `PageUp` and `PageDown`, the mouse wheel sends `CursorUp`
+  and `CursorDown`, and a click on a candidate sends `CandidateClicked`
+  with the clicked label's position on the visible page, as IBus's GTK
+  panel does (§6.1.2).
+- **Placement.** The window sits below the caret, or above it when there is
+  no room, and is clamped to the viewport. Orientation is the table's own,
+  or for `System` the panel schema's setting. Resizes are batched into one
+  animation frame; caret, scroll and record updates move it at once.
+- **Properties.** The menu lists visible properties, toggles and radio
+  groups with their state. The first visible toggle or radio property with
+  a symbol becomes the compact mode indicator; no engine's property names
+  are special-cased. Choosing a toggle or radio item already in that state
+  sends nothing; a normal item is activated every time.
+- `FocusOut` and crashes hide everything, and records for an input context
+  that is no longer current are ignored.
 
 ### 7.4 Effect architecture
 
 - **Effect 4**, pinned to an exact release candidate until 4.0 is stable.
 - **Services and layers.** Router, engine registry, Worker pool, settings,
   storage and configuration are services. Configuration (ring and slot sizes,
-  time budget, ordinary/Init inactivity thresholds, replay limit, surrounding-text window, restart
-  schedule) is provided by layers.
+  time budget, hang thresholds, replay limit, surrounding-text window,
+  restart schedule) is provided by layers.
 - **Resources.** Workers are acquired and released within a `Scope`; engine
   instances are scoped to their input context. Disposing the library
   terminates all Workers.
 - **Restart policy.** A `Schedule` (§8), replaceable through configuration.
 - **Errors.** Tagged errors: `EngineLoadFailed`, `RuntimeAbiMismatch`,
   `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,
-  `StorageUnavailable`.
+  `StorageUnavailable`. Not yet built: M1's core fails with plain `Error`s
+  and reports engine trouble only as engine state (§8).
 - **Events.** Panel events, engine state, storage and settings changes are
   `Stream`s.
 - **Logging.** `Effect.log*` with annotations for engine, input context and
   GLib domain. GLib levels map to Effect levels. Hosts replace or merge
   loggers with `Logger.layer` and set verbosity with
   `References.MinimumLogLevel`.
-- **The synchronous surface keystroke path is plain synchronous TypeScript.** It reads a snapshot
+- **The keystroke path is plain synchronous TypeScript.** It reads a snapshot
   (active engine, Worker handles, busy flags) that services keep current, and
   hands decoded records and log lines to the streams and loggers through a
   synchronous enqueue drained by fibers. It must finish inside the event
   handler, and running a fiber per key would add overhead and fail if
-  anything on that path became asynchronous. Async/manual surfaces instead use
-  explicit keyAsync Promises with immediate capture and the same engine FIFO.
+  anything on the path became asynchronous. Async and manual surfaces use
+  `keyAsync`'s Promise instead, through the same queue (§7.2.2).
 - **Facade.** `ibus-web` wraps core in a `ManagedRuntime`: Promise methods,
-  typed `CustomEvent` events and a `logger: (entry) => void` option with a minimum
-  level. It starts no Worker/storage until selection or settings access.
+  `EventTarget` events carrying typed `CustomEvent`s, and a
+  `logger: (entry) => void` option with a minimum level. It starts no Worker
+  and opens no storage until an engine is selected or a setting read.
 
 | Package                 | Contents                                        | Uses Effect                                             |
 | ----------------------- | ----------------------------------------------- | ------------------------------------------------------- |
@@ -1707,17 +1773,32 @@ exposes them through subpath exports:
 | `ibus-web/panel`  | re-export of `@ibus-web/panel`                                                                                                                                     |
 | `ibus-web/worker` | `workerUrl`, `relayUrl` and `brotliFallbackUrl` URL constants for deployed assets; never Worker code (§9.2)                                                        |
 
-`createIbusWeb({ hostUrl?, runtimeUrl, engines, settings?, logger?, logLevel?,
-config? })` returns `IbusWeb`. The optional `settings` value is a
-`SettingsSourceService` (including optional persistence hooks). Public methods
-are `attach(inputOrTextarea, options?)`, `attachAdapter(adapter, options?)`
-(both return detach), `keyAsync(adapter, event)` for manual/async surfaces,
-`select(engine)`, `unload(engine)`, development-only `debugRestart(engine)`,
-`settings.{schemas,get,set,reset}` and `dispose()`. PanelHost exposes caret,
-orientation, action forwarding and error reporting. Events are `enginestate`,
-`storage`, `panel` and `log`. `keyAsync` settles as consumed, replayed,
-passthrough or cancelled; replayed fallback is already applied. Native and
-editor-neutral modes coexist; no concrete CodeMirror adapter is claimed.
+```ts
+createIbusWeb(options: {
+  runtimeUrl: URL;
+  engines: Record<string, URL>; // name → manifest URL
+  hostUrl?: URL; // defaults to ibus-web/worker's workerUrl
+  settings?: SettingsSourceService; // replaces the IndexedDB persister
+  logger?: (entry: LogEntry) => void;
+  logLevel?: "debug" | "info" | "warn" | "error";
+  config?: Partial<CoreConfigValues>;
+}): IbusWeb;
+```
+
+`IbusWeb` is an `EventTarget` and the panel's `PanelHost`:
+
+- `attach(element, options?)` attaches an `<input>` or `<textarea>` through
+  the built-in adapter, and `attachAdapter(adapter, options?)` any adapter;
+  both take `keyMode` and return a detach function.
+- `keyAsync(adapter, event)` for async and manual surfaces (§7.2.2).
+- `select(engine)`, `unload(engine)` and `dispose()`.
+- `debugRestart(engine)`, for development: it terminates the engine's
+  Worker and waits for the ordinary crash recovery.
+- `settings.schemas`, `get`, `set` and `reset` (§7.1.4).
+- Events `enginestate`, `storage`, `panel` and `log`.
+
+The `PanelHost` side gives a panel the caret rectangle, the orientation
+setting, a way to send its actions to the engine and to report its errors.
 
 - **`effect` is a peer dependency** of every package, so hosts and ibus-web
   share one copy. Two copies would make services and layers from one
@@ -1746,40 +1827,43 @@ written, publishes the fault reply under the `reqMode` doorbell rule
 or pump occurs. A module load failure likewise drains the runtime's output
 before its `LOAD` crash. Runtime finalizers are skipped after traps and
 faults; restart repeats bootstrap and Init-then-load.
-The page core implements key replay, preedit cleanup and bounded restart. Some
-facade/error APIs in the table remain later integration work.
+**Hangs.** A request hangs when neither a reply nor any movement of the
+output ring arrives within its window, or when more than 64 keys are held,
+the in-flight key included. The window is `hangMs`, 2 s by default, for
+every request but `Init`, which gets `initHangMs`, 30 s by default, since
+it loads the module and its dictionaries. Both are `CoreConfig` values.
+Ring movement starts the window again. The longer `Init` window is room,
+not a promise: one Hangul module load from IndexedDB was measured at 7.8 s,
+before a libhangul patch gave each Hanja table a 64 KiB stdio buffer so
+its small reads stop costing an IndexedDB transaction each (`docs/core.md`
+has the measurements).
 
-A hang is a pending request with no reply and no output-ring movement for its
-inactivity window, or a retained-key queue exceeding 64 including the in-flight key.
-CoreConfig and ConnectionOptions use hangMs 2000 for ordinary requests and
-initHangMs 30000 for protocol Init alone; initHangMs is optional on ConnectionOptions
-and the registry forwards CoreConfig's value. Both must be finite and positive.
-Ring movement refreshes the window. Later queued keys use the ordinary budget,
-not Init's. A separate Init budget accommodates dictionary/module initialization;
-it does not guarantee startup within 30 seconds. A prior persistent Hangul module
-load was measured at 7814.7 ms. The pinned-libhangul owned 64 KiB/table stdio patch
-reduces measured IndexedDB read amplification while preserving two-pass indexing;
-it is independent of the watchdog amendment. See [core.md](../core.md) for the
-machine, before/after development measurements and separate production sample.
+**What the host sees in M1.** The "Host sees" column is the design. M1's
+core reports every row as engine state, through the `enginestate` event:
+`restarting` after a crash or hang, `ready` again after recovery, and
+`failed` when a load fails, when a crash comes before the engine was ever
+ready, or after the restart limit; `select` rejects with a plain `Error`.
+The crash reason and the Worker's diagnostic don't reach the host
+(`docs/known-gaps.md`).
 
-| Failure                                                      | Detection                                                                                                                                                                                                                                                                                                  | Handling                                                                                                                                                                                                                                                                                                                                                                                                                         | Host sees                                                                                                    |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`, or a thread's error after `"unwind"` (§5.5)                                                                                                                                                                                                                            | Writes `Crashed`, then `CRASHED`, and notifies. In-flight key passes through. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                                                                                                                                                              | `EngineCrashed` with message and symbolized stack in debug builds                                            |
-| Engine C++ exception                                         | `ibusweb_dispatch` returns `-ECANCELED`: the exception unwound through GLib's signal emission                                                                                                                                                                                                              | as trap: the runtime is unusable and the Worker is discarded. Until then every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` and `ibusweb_pump` dispatches nothing, while output peek and consume still drain the records already written. Restart per policy.                                                                                                                                                                   | `EngineCrashed`                                                                                              |
-| Hang                                                         | no reply/ring movement for hangMs (2 s), Init-only initHangMs (30 s), or retained keys over 64                                                                                                                                                                                                             | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                                                                                                                                                                                    | `EngineHung`                                                                                                 |
-| Restart                                                      | policy `Schedule`                                                                                                                                                                                                                                                                                          | Immediate retry, then exponential backoff; after 3 crashes in 60 s the module is failed and the router returns to direct input. A Worker the page terminated may hold the engine's writer lock for some 2 s more in Chromium, so the page first waits, up to 10 s, for that lock (§5.6). On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and stored data are not. | engine state `failed` after the limit                                                                        |
-| Load failure                                                 | fetch, compile, manifest `memory` check (a memory the in-memory fallback takes past the runtime's maximum included), instantiate, the storage mount (the backend fails to open although the probe found IndexedDB), a storage lock not granted within 120 s of the last word from its holder, data install | Engine never enabled; router stays in direct input; every lock the host took is let go (§5.6)                                                                                                                                                                                                                                                                                                                                    | `EngineLoadFailed`                                                                                           |
-| Old versions not collected                                   | listing the engine's other versions (`indexedDB.databases()`) or deleting one's database fails                                                                                                                                                                                                             | the start goes on; the data stays until a later host collects it (§5.6)                                                                                                                                                                                                                                                                                                                                                          | `collect` with `error`                                                                                       |
-| Relay failure                                                | the relay writes `CRASHED` and wakes the host; a relay killed outright is a hang                                                                                                                                                                                                                           | as trap                                                                                                                                                                                                                                                                                                                                                                                                                          | `EngineCrashed`                                                                                              |
-| Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                                                                                                                                                                                                                                                       | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap; a `GTask` whose worker can't start stays queued, silently, until a worker is free                                                                                                                                                                                                                                                                       | engine-specific, or as trap; nothing for a queued `GTask`                                                    |
-| ABI or protocol mismatch                                     | manifest check; `Init` version check                                                                                                                                                                                                                                                                       | as load failure                                                                                                                                                                                                                                                                                                                                                                                                                  | `RuntimeAbiMismatch`, `ProtocolMismatch`                                                                     |
-| No IndexedDB                                                 | the host's probe of IndexedDB fails at startup, before the runtime's memory is made (an opaque origin, blocked site data, a third-party iframe denied storage; never Node, which mounts a Node-side backend)                                                                                               | in-memory mount, with the runtime's memory made larger by the data's size from the manifest, and the data installed at every start (§5.6); user data lasts as long as the Worker                                                                                                                                                                                                                                                 | `storage: ephemeral`                                                                                         |
-| Not the writer                                               | another instance holds the engine's writer lock (§5.6)                                                                                                                                                                                                                                                     | the engine's own files mounted read-only for the Worker's life; changes fail with `EROFS`, which the engine sees; the page restarts the Worker to get a writer. Under Node the state is reported but not enforced                                                                                                                                                                                                                | `storage: read-only`                                                                                         |
-| Quota                                                        | IndexedDB's `QuotaExceededError`; the write fails with `ENOSPC`, nothing changed                                                                                                                                                                                                                           | engine-specific                                                                                                                                                                                                                                                                                                                                                                                                                  | `storage` usage events, logs                                                                                 |
-| Storage closed                                               | the backend's IndexedDB connection closes: another connection asked for a newer version of the database, or the browser closed it (§5.6); the host checks both mounts whenever it wakes                                                                                                                    | every later storage call fails with `EIO`, which the engine sees, and nothing reopens the connection; the page restarts the Worker per policy                                                                                                                                                                                                                                                                                    | `storage: closed`, when the host next wakes for a request or a GLib source; the close itself doesn't wake it |
-| Undecodable record                                           | protocol decode                                                                                                                                                                                                                                                                                            | dev builds throw; production drops and logs                                                                                                                                                                                                                                                                                                                                                                                      | `ProtocolError` log                                                                                          |
-| GLib warnings and criticals                                  | GLib log handler                                                                                                                                                                                                                                                                                           | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                                                                                                                                                                            | log entries                                                                                                  |
-| Detached surface                                             | adapter detach                                                                                                                                                                                                                                                                                             | `DestroyEngine`; later output for the context dropped                                                                                                                                                                                                                                                                                                                                                                            | nothing                                                                                                      |
+| Failure                                                      | Detection                                                                                                                                                                                                                                                                                                  | Handling                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Host sees                                                                                                    |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Trap (signature mismatch, `abort`, `g_error`, out of bounds) | Worker host catches `RuntimeError`, or a thread's error after `"unwind"` (§5.5)                                                                                                                                                                                                                            | Writes `Crashed`, then `CRASHED`, and notifies. The in-flight key and queued keys are replayed through the adapter. Preedit cleared and panel hidden for the module's input contexts. Restart per policy.                                                                                                                                                                                                                                                                       | `EngineCrashed` with message and symbolized stack in debug builds                                            |
+| Engine C++ exception                                         | `ibusweb_dispatch` returns `-ECANCELED`: the exception unwound through GLib's signal emission                                                                                                                                                                                                              | as trap: the runtime is unusable and the Worker is discarded. Until then every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` and `ibusweb_pump` dispatches nothing, while output peek and consume still drain the records already written. Restart per policy.                                                                                                                                                                                                                  | `EngineCrashed`                                                                                              |
+| Hang                                                         | no reply or ring movement for 2 s (30 s for `Init`), or more than 64 keys held                                                                                                                                                                                                                             | `worker.terminate()`, then treated as a crash                                                                                                                                                                                                                                                                                                                                                                                                                                   | `EngineHung`                                                                                                 |
+| Restart                                                      | policy `Schedule`                                                                                                                                                                                                                                                                                          | Immediate retry, then exponential backoff; after 3 crashes in 60 s, or a crash before the engine was first ready, the module is failed and the router returns to direct input. A Worker the page terminated may hold the engine's writer lock for some 2 s more in Chromium, so the page first waits, up to 10 s, for that lock (§5.6). On restart, `Init` with the current settings and lazy instance recreation. Composition is lost; committed text and stored data are not. | engine state `failed` after the limit                                                                        |
+| Load failure                                                 | fetch, compile, manifest `memory` check (a memory the in-memory fallback takes past the runtime's maximum included), instantiate, the storage mount (the backend fails to open although the probe found IndexedDB), a storage lock not granted within 120 s of the last word from its holder, data install | Engine never enabled; router stays in direct input; every lock the host took is let go (§5.6)                                                                                                                                                                                                                                                                                                                                                                                   | `EngineLoadFailed`                                                                                           |
+| Old versions not collected                                   | listing the engine's other versions (`indexedDB.databases()`) or deleting one's database fails                                                                                                                                                                                                             | the start goes on; the data stays until a later host collects it (§5.6)                                                                                                                                                                                                                                                                                                                                                                                                         | `collect` with `error`                                                                                       |
+| Relay failure                                                | the relay writes `CRASHED` and wakes the host; a relay killed outright is a hang                                                                                                                                                                                                                           | as trap                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `EngineCrashed`                                                                                              |
+| Thread pool exhausted                                        | `pthread_create` fails with `EAGAIN`                                                                                                                                                                                                                                                                       | `g_thread_try_new` callers get the error; `g_thread_new` aborts, a trap; a `GTask` whose worker can't start stays queued, silently, until a worker is free                                                                                                                                                                                                                                                                                                                      | engine-specific, or as trap; nothing for a queued `GTask`                                                    |
+| ABI or protocol mismatch                                     | manifest check; `Init` version check                                                                                                                                                                                                                                                                       | as load failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `RuntimeAbiMismatch`, `ProtocolMismatch`                                                                     |
+| No IndexedDB                                                 | the host's probe of IndexedDB fails at startup, before the runtime's memory is made (an opaque origin, blocked site data, a third-party iframe denied storage; never Node, which mounts a Node-side backend)                                                                                               | in-memory mount, with the runtime's memory made larger by the data's size from the manifest, and the data installed at every start (§5.6); user data lasts as long as the Worker                                                                                                                                                                                                                                                                                                | `storage: ephemeral`                                                                                         |
+| Not the writer                                               | another instance holds the engine's writer lock (§5.6)                                                                                                                                                                                                                                                     | the engine's own files mounted read-only for the Worker's life; changes fail with `EROFS`, which the engine sees; the page restarts the Worker to get a writer. Under Node the state is reported but not enforced                                                                                                                                                                                                                                                               | `storage: read-only`                                                                                         |
+| Quota                                                        | IndexedDB's `QuotaExceededError`; the write fails with `ENOSPC`, nothing changed                                                                                                                                                                                                                           | engine-specific                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `storage` usage events, logs                                                                                 |
+| Storage closed                                               | the backend's IndexedDB connection closes: another connection asked for a newer version of the database, or the browser closed it (§5.6); the host checks both mounts whenever it wakes                                                                                                                    | every later storage call fails with `EIO`, which the engine sees, and nothing reopens the connection; the page restarts the Worker per policy                                                                                                                                                                                                                                                                                                                                   | `storage: closed`, when the host next wakes for a request or a GLib source; the close itself doesn't wake it |
+| Undecodable record                                           | protocol decode                                                                                                                                                                                                                                                                                            | dev builds throw; production drops and logs                                                                                                                                                                                                                                                                                                                                                                                                                                     | `ProtocolError` log                                                                                          |
+| GLib warnings and criticals                                  | GLib log handler                                                                                                                                                                                                                                                                                           | forwarded as `Log` records; test builds use `G_DEBUG=fatal-criticals`                                                                                                                                                                                                                                                                                                                                                                                                           | log entries                                                                                                  |
+| Detached surface                                             | adapter detach                                                                                                                                                                                                                                                                                             | `DestroyEngine`; later output for the context dropped                                                                                                                                                                                                                                                                                                                                                                                                                           | nothing                                                                                                      |
 
 ## 9. Licensing
 
@@ -1837,14 +1921,13 @@ release.
 
 ### 9.4 CI checks
 
-- Default `checks.bundle-scan` fully bundles all seven published page entries
-  plus the production demo and validates Vite's executable module graph,
-  imports and generated chunk hashes. It rejects Worker-host/runtime/Brotli-WASM
-  executable module paths and Emscripten/WebAssembly markers, with exact
-  allowances for shared transport ABI modules. An actual inlined-host negative
-  fixture must fail. Separately deployed Worker/relay/Brotli URL assets do not
-  become page implementation code. The deployed `workerUrl` still requires the
-  complete host asset directory.
+- `checks.bundle-scan` bundles each of the seven published page entry
+  points, and the production demo, and walks the module graph Vite actually
+  emits. It fails on any module from the Worker host, the runtime or the
+  Brotli WASM decoder, and on Emscripten or WebAssembly markers, allowing
+  by name only the transport-layout modules the page shares with the host.
+  A fixture that inlines the host must fail it. The Worker, relay and
+  Brotli fallback reach the page only as URLs to separately deployed files.
 - The protocol specification is regenerated and must match the committed one.
 - Every engine artifact must have a source bundle.
 - `reuse lint` passes (hk's `reuse` step, in `checks.hk`).
@@ -2410,28 +2493,35 @@ rules for sequences of programs, and how to add and run a test are in
 4. **Keystroke path.** Vitest tests against an in-process fake Worker that speaks
    the ring protocol: timeouts, the replay queue, crashes, hangs, fragmented
    records, ordering with doorbell output.
-5. **Adapters and panel.** The explicit `packages.playwright-integration`
-   target serves the production COOP/COEP demo and runs eight trusted-input
-   specs per Chromium, Firefox and pinned Linux WebKit 26.6: composition,
-   preedit isolation, focused native undo, separate blur commit, Hanja paging,
-   password exclusion, actual Worker restart, reset ordering and cross-tab 3f
-   settings persistence. It passed 24/24 on the final Task 8 fix source.
-   WebKit runs in the Nix sandbox using pinned Mesa software EGL; no CI fallback
-   is required. This is not Safari 17.4/macOS browser-floor evidence.
+5. **Adapters and panel.** `packages.playwright-integration` serves the
+   production demo with COOP and COEP and runs eight cases in each of
+   Chromium, Firefox and Linux WebKit 26.6, with Playwright's trusted key
+   events: composition with the preedit kept out of the value and out of
+   `input` events, commit on blur, one native undo per commit, Hanja paging
+   and selection by click and digit, a password field left to native input,
+   recovery after the Worker is really terminated, words separated by native
+   Space resets, and a change to the 3-set keyboard that persists across a
+   reload and reaches another tab. All 24 pass. WebKit runs in the Nix
+   sandbox on Mesa's software EGL, so it needs no CI fallback (R13); it is
+   not Safari, and says nothing about the Safari 17.4 floor.
 6. **License boundary.** The CI checks in §9.4.
-7. **Performance.** `nix run .#protocol-bench` independently measured Node
-   framed-record-to-visible-page decoding with 500 candidates/nine visible at
-   0.085610 ms median / 0.286419 ms p99 after the lazy ownership repair. The
-   separate `nix run .#keystroke-bench` measured 500 sequential trusted keys
-   per browser after 70 validated warmups on source `a174a749`:
-   Chromium 153 p50/p99/max 0.805/15.115/21.105 ms; Firefox 155
-   1.380/2.480/2.940 ms; Linux WebKit 26.6 2.180/4.140/4.900 ms.
-   Browser samples end at observed editing application, including snapshot,
-   observer and microtask overhead, but exclude paint and keyboard hardware.
-   Playwright trace scheduling and normal desktop load may affect the figures.
-   Later reviewed reset fixes through `8026169` were not benchmarked again;
-   no exact current-source latency is inferred. Method and machine details are
-   in `docs/testing.md` and `docs/protocol.md`.
+7. **Performance.** Both benchmarks run on demand, not as checks.
+   - `nix run .#protocol-bench` times decoding a framed `UpdateLookupTable`
+     of 500 candidates to its visible page of nine, against a 0.5 ms
+     target: 0.086 ms median, 0.286 ms p99 under Node (§6.3).
+   - `nix run .#keystroke-bench` times 500 trusted keys in each browser
+     against the production demo, from capture to the edit appearing,
+     after 70 warm-up keys. Paint and keyboard hardware are not included.
+
+     | Browser           | p50 ms | p99 ms | max ms |
+     | ----------------- | -----: | -----: | -----: |
+     | Chromium 153      |  0.805 | 15.115 | 21.105 |
+     | Firefox 155       |  1.380 |  2.480 |  2.940 |
+     | Linux WebKit 26.6 |  2.180 |  4.140 |  4.900 |
+
+     These were measured at `a174a74`, before the reset-ordering fixes,
+     which were not timed again. Machine and method are in
+     `docs/testing.md` and `docs/protocol.md`.
 
 ## 12. Milestones
 
@@ -2444,12 +2534,12 @@ rules for sequences of programs, and how to add and run a test are in
 | ↳ M0.4  | **Done.** (`docs/runtime.md`) The `runtime/` component; GLib's wake hook; `libibus-web` skeleton (pump, `ibusweb_wait`, side-module loader, spike dispatcher; g_test under `meson test`); `ibus-runtime.wasm` with `-sMAIN_MODULE=2`, WasmFS, a fixed imported memory and a strict thread pool, and a per-library export manifest; Emscripten patches for blocked main threads' thread cleanup, reused `pthread_t`s and an imported memory's maximum; pnpm workspace built offline in Nix; spike Worker host and wake relay under Node, Chromium and Firefox; Emscripten's minimum versions from Baseline Widely available                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | R2 settled: the host sleeps in the runtime, woken by GLib's hook and a host-side relay; threads come from a pool sized from shares plus spares, strict, topped up while idle. R3 settled for `-sMAIN_MODULE=2`/WasmFS in Node, Chromium and Firefox. Memory is fixed per Worker, since V8 traps atomics on grown shared memory. OPFS is out: engine and user data go to IndexedDB (M0.5)                                                                                                                                                                                                                                    |
 | ↳ M0.5  | **Done.** (`docs/storage.md`) WasmFS IndexedDB backend (full lazy) in `runtime/wasmfs-idb/`: files as `ArrayBuffer` chunks of 16 KiB, read and written lazily on the backend's own thread, writes write-through, `fsync()` a strict commit that writes, versionchange closing, a seal and a closed flag in its API (§5.6); its JavaScript library type-checked; a reusable browser test runner; the runtime mounts it in browsers, WasmFS's Node backend under Node and the memory backend without IndexedDB; engine data in a database per version, installed from ustar archives under per-version Web Locks, sealed and marked, old versions collected; one writer per engine's user data; Emscripten patches for symlink errors and a backend thread's heartbeat; a Firefox floor of 126; upstream draft `docs/upstream/wasmfs-idb-backend.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | R2 for the IndexedDB backend: `fsync()` from a pthread completes while the host sleeps, in 4.3 ms in both browsers, within a poll step of the memory backend. A lazy 4 KiB read costs a keystroke 0.2–0.32 ms at 16 KiB chunks, and no read or write waits for the page's spin; 16 KiB is the cheapest of 16, 64 and 256 KiB for it, and chunks stay under 64 KiB, which Chromium stores as Blobs. An empty strict commit syncs nothing in either browser; a synced append costs about 0.5 ms. Chromium lets go of a terminated Worker's locks some 2 s late, so the page waits for the writer lock before a restart (§5.6) |
 | ↳ M0.6  | **Done.** (`docs/worker-host.md`, `docs/testing.md`, `docs/tooling.md`) `@ibus-web/worker-host` on Effect 4, carrying the spike host's behaviour with its scenarios as Vitest suites under Node, Chromium and Firefox; nixpkgs and flake-parts from FlakeHub; every test structured: GoogleTest for C and C++ without GLib (linked with `-sPROXY_TO_PTHREAD`, `main()` from a shared harness), GLib's g_test for C that links it, Vitest for TypeScript (`@effect/vitest` for Effect code), with the browser test runner replaced by the test-program shim, which runs each WASM program under Node or in Chromium and Firefox and reports each of its cases as a Vitest result; JavaScript that Emscripten doesn't read itself rewritten in TypeScript, the JavaScript it does read typed with JSDoc, and one TypeScript configuration and check across the repository; hk (`hk.pkl`) holding every formatter and lint step, run by the git hooks, `nix fmt` and `checks.hk`, in place of treefmt; oxfmt and oxlint in place of prettier; Claude Code's language-server plugins (clangd, TypeScript, Nix, Pkl) on the dev shell's servers; clangd's configuration following the flake; CI on GitHub Actions, written in Nix, with FlakeHub Cache and a private rolling FlakeHub publish (§10.5); the upstream drafts refreshed against Emscripten's `main`, with an order to post them in; the milestone plans and spike reports replaced by topic pages under `docs/` and `docs/known-gaps.md`, and the spike checks' coverage moved into the runtime's and the host's tests | What of M0's plans and spikes is still needed, and where it belongs: the topic pages under `docs/`, the tests that replaced the spike checks, and `docs/known-gaps.md` for what stays open                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| M1      | **Done.** Hangul end to end through M1.1–M1.4b: engine, protocol, Worker transport, page core, persistent settings, panel, facade and production demo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Real Hangul runs in trusted Chromium, Firefox and pinned Linux WebKit 26.6 production tests. The lazy visible-page Node target was met; browser editing distributions are separately measured. Safari 17.4/macOS, physical keyboard layouts, concrete CodeMirror integration and paint latency remain unverified.                                                                                                                                                                                                                                                                                                           |
+| M1      | **Done.** Hangul end to end, in M1.1–M1.4b: engine, protocol, Worker transport, page core, persistent settings, panel, facade and demo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Hangul types correctly through the whole stack in Chromium, Firefox and Linux WebKit with trusted key events, and the candidate decode target is met. Unverified: Safari 17.4 on macOS, system layouts other than US, a real CodeMirror integration and paint latency                                                                                                                                                                                                                                                                                                                                                       |
 | ↳ M1.1  | **Done.** IBus types and engine API, framed dispatcher/output, settings backend, strict cast audit, Hangul side module/data and 16 Node golden cases; runtime ABI 1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Hangul needs one cast patch (two init arity fixes and one destroy pointer type), three port fixes, and GLib listener patch 0018. No lazy arity lookup needed for Hangul; GSettings bridge works.                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ↳ M1.2  | **Done.** Strict TypeScript GVariant codec matching GLib's normal form, IBus struct and message schemas, framing, generated C header and wire reference, fixed-seed property tests and real IBus WASM C/TS parity, including exact normal-form agreement on 1000 mutated and valid encodings.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 500-candidate framed decode (`nix run .#protocol-bench`): 1.01 ms median, 4.40 ms p99 (64,832 bytes; bytes to tree 0.43 ms, tree to schemas 0.46 ms); 0.5 ms target unmet, so M1.4b owns lazy candidate decoding. AOT did not help. See `docs/protocol.md`.                                                                                                                                                                                                                                                                                                                                                                 |
 | ↳ M1.3  | **Done.** Host output ring and fragments, ordered replyOutSeq/coalesced doorbells, engine scopes, Init-then-load, store-path data closures, Brotli installation, manifest-derived pool/memory and real-engine SAB conformance                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Hangul runs through a real Node Worker/Page; ordered replies and full-ring waits are checked. Data retains Nix paths. Measured program-break peaks fit 4 MiB and Node engine-thread demand is zero; full ABI identity and shared store remain gaps                                                                                                                                                                                                                                                                                                                                                                          |
-| ↳ M1.4a | **Done.** Page core/key tables, synchronous native and async/manual routing, shared replay FIFO, preedit/surrounding policy, restart/writer-lock wait, replaceable in-memory settings source, runtime constants and the Hangul demo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Real Worker/runtime/Hangul integration in Chromium/Firefox with synthetic DOM defaults and a separate trusted development-demo walkthrough. This established the input lifecycle and editor-neutral async contract for M1.4b; a concrete CodeMirror adapter remains outside M1.                                                                                                                                                                                                                                                                                                                                             |
-| ↳ M1.4b | **Done.** Native overlay and focused undo with documented unfocused fallback; Hanja panel; lazy lookup decoding; metadata-driven public facade; replaceable IndexedDB/BroadcastChannel settings source; production trusted three-browser integration; page bundle boundary scan.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 24/24 production cases on final reviewed source; Linux WebKit sandbox needs pinned software EGL. Node visible-page median/p99 0.085610/0.286419 ms; historical pre-fix browser p50/p99 are in `docs/testing.md`. No concrete CodeMirror adapter or arbitrary OS layout support is claimed.                                                                                                                                                                                                                                                                                                                                  |
+| ↳ M1.4a | **Done.** (`docs/core.md`) `@ibus-web/core`: generated key tables and translation, the Worker connection, sync, async and manual surfaces sharing one replay queue per engine, the client's preedit and surrounding-text duties, hang detection and restart with the writer-lock wait, an in-memory settings source, runtime constants shipped with the runtime, and a first Hangul demo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Hangul types through the real host and runtime in Chromium and Firefox. Engines need the client to commit a COMMIT-mode preedit on blur and reset, and Hangul must not see `SYNC_PROCESS_KEY_V2`. Editors that own their keys can share the queue through `keyAsync`                                                                                                                                                                                                                                                                                                                                                        |
+| ↳ M1.4b | **Done.** (`docs/panel.md`, `docs/ibus-web.md`) Settings metadata generated through GLib; the IndexedDB and `BroadcastChannel` persister; lazy lookup-table decoding; the textarea adapter's preedit overlay and single-step undo; `@ibus-web/panel`; the `ibus-web` facade; the full demo; Playwright in three browsers; the keystroke benchmark and the bundle scan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | All 24 trusted-input cases pass; WebKit runs in the Nix sandbox on software EGL. Visible-page decode is 0.086 ms median, under the 0.5 ms target. Undo is native only for focused commits; an unfocused commit falls back to `setRangeText`. Typed errors and crash diagnostics don't reach the host yet                                                                                                                                                                                                                                                                                                                    |
 | M2      | Custom table engine (MIT), layout `default`; `contenteditable` adapter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Router generality; non-GPL engine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M3      | m17n: m17n-lib, ibus-m17n, m17n-db delivery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Surrounding text; large data sets                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | M4      | libpinyin: C++ side module against the runtime's libc++, database backend, user dictionaries in IndexedDB                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | C++ across modules; persistence; large lookup tables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -2526,9 +2616,9 @@ rules for sequences of programs, and how to add and run a test are in
   accept, shrinking the patch layers over time. Not required.
 - **R9. Toolchain fix.** If `-fwasm-fix-function-bitcasts` or a call-site
   alternative ships in Emscripten, re-evaluate §5.1.1 and remove the cast layer.
-- **R10. Decode speed.** Lazy candidate decoding is delivered (§6.3) and the
-  isolated Node visible-page target was met on the measured machine. Browser
-  editing latency remains a separate distribution (§11.7).
+- **R10. Decode speed. Resolved.** Candidates are decoded lazily (§6.3),
+  well inside the budget under Node. Browser keystroke latency is measured
+  separately (§11.7).
 - **R11. Legal review.** The boundary argument in §9 needs counsel before 1.0.
 - **R12. nixpkgs Emscripten's LLVM.** nixpkgs pairs Emscripten with its own
   LLVM, not the revision upstream tests with, and its package runs only a
@@ -2536,10 +2626,10 @@ rules for sequences of programs, and how to add and run a test are in
   appears, override the Emscripten or LLVM version in the flake. At
   `8ce4ef6`, nixpkgs pairs Emscripten 6.0.9 with LLVM 22.1.8; upstream
   Emscripten expects 24.
-- **R13. WebKit in the Nix sandbox.** Pinned Linux WebKit 26.6 runs in the
-  sandbox with Mesa software EGL; the extended production Playwright target
-  includes it. Safari 17.4/macOS and the separate WasmFS IndexedDB Worker
-  matrix remain unverified.
+- **R13. WebKit in the Nix sandbox. Resolved for Playwright.** Linux WebKit
+  26.6 runs in the sandbox on Mesa's software EGL, and the Playwright suite
+  includes it. Still unchecked: Safari on macOS, and the WasmFS IndexedDB
+  backend's tests in WebKit.
 - **R14. First publish with trusted publishing.** Check whether npm allows
   configuring a trusted publisher before a package's first version exists. If
   not, each package's first version needs a one-time manual publish.
