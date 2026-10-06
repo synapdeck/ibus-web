@@ -95,20 +95,33 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
       const remember = (change: SettingsChange) => {
         current.set(`${change.schemaId}\0${change.key}`, change.value);
       };
-      const remote = async (input: unknown): Promise<SettingsChange[]> => {
-        const message = decodeSettingsBroadcast(input);
+      const destinations = (message: SettingsBroadcast, origin?: symbol): SettingsChange[] => {
+        const supplied: SettingValue | undefined =
+          message.bytes === null
+            ? undefined
+            : {
+                _tag: "v",
+                type: message.type,
+                value: decodeValue(message.type, new Uint8Array(message.bytes)),
+              };
         const changes: SettingsChange[] = [];
         for (const schema of schemas.values()) {
           if (schema.path !== message.schemaPath) continue;
-          const { key } = setting(schema.id, message.key);
-          const value: SettingValue = {
-            _tag: "v",
-            type: message.type,
-            value: message.bytes === null ? key.default : decodeValue(message.type, new Uint8Array(message.bytes)),
-          };
-          validateSetting(key, value);
-          changes.push({ schemaId: schema.id, key: key.name, value });
+          const key = schema.keys.find((key) => key.name === message.key);
+          if (!key) continue;
+          const value: SettingValue = supplied ?? { _tag: "v", type: key.type, value: key.default };
+          try {
+            validateSetting(key, value);
+          } catch {
+            // Shared storage does not make a value valid for every schema using that path.
+            continue;
+          }
+          changes.push({ schemaId: schema.id, key: key.name, value, ...(origin === undefined ? {} : { origin }) });
         }
+        return changes;
+      };
+      const remote = async (input: unknown): Promise<SettingsChange[]> => {
+        const changes = destinations(decodeSettingsBroadcast(input));
         for (const change of changes) remember(change);
         return changes;
       };
@@ -131,9 +144,7 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
           return () => undefined;
         });
         alive();
-        const changes = [...schemas.values()]
-          .filter((other) => other.path === schema.path)
-          .map((other) => ({ ...change, schemaId: other.id }));
+        const changes = destinations(message, change.origin);
         for (const item of changes) remember(item);
         broadcast.post(message);
         return changes;

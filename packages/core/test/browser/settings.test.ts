@@ -352,3 +352,176 @@ it("synchronous engine writes report asynchronous storage errors and keep proces
     put.mockRestore();
   }, source);
 });
+const sharedPathSchemas: SettingsMetadata = {
+  schemas: [
+    ...metadata.schemas,
+    { id: "test.barrier", path: "/test/barrier/", keys: [metadata.schemas[0]!.keys[1]!] },
+    { id: "test.disjoint", path: "/test/settings/", keys: [metadata.schemas[0]!.keys[1]!] },
+    {
+      id: "test.alias",
+      path: "/test/settings/",
+      keys: [{ ...metadata.schemas[0]!.keys[0]!, default: { _tag: "s", value: "remote" } }],
+    },
+    {
+      id: "test.incompatible",
+      path: "/test/settings/",
+      keys: [{ name: "mode", type: "i", default: { _tag: "i", value: 2 } }],
+    },
+    {
+      id: "test.restricted",
+      path: "/test/settings/",
+      keys: [{ name: "mode", type: "s", default: { _tag: "s", value: "default" }, choices: ["default"] }],
+    },
+  ],
+};
+for (const origin of ["local", "remote"] as const) {
+  it(`shared-path ${origin} changes skip disjoint and incompatible keys without losing valid recipients`, () =>
+    run(async (api, source) => {
+      await api.schemas("a");
+      await source.register!(sharedPathSchemas);
+      const changes: import("../../src/services/settings.ts").SettingsChange[] = [];
+      const abort = new AbortController();
+      const watching = Effect.runPromise(
+        source.changes.pipe(
+          Stream.runForEach((change) =>
+            Effect.sync(() => {
+              changes.push(change);
+            }),
+          ),
+        ),
+        { signal: abort.signal },
+      );
+      const other = new BroadcastChannel("ibus-web:gsettings");
+      const token = Symbol("writer");
+      const put = vi.spyOn(IDBObjectStore.prototype, "put");
+      const post = vi.spyOn(BroadcastChannel.prototype, "postMessage");
+      try {
+        if (origin === "local") {
+          await source.write!({ schemaId: "test.settings", key: "mode", value: variant("chosen"), origin: token });
+        } else {
+          // A valid following message is a processing barrier even if the preceding change is dropped.
+          const done = Effect.runPromise(
+            source.changes.pipe(
+              Stream.filter((change) => change.schemaId === "test.barrier" && change.key === "count"),
+              Stream.take(1),
+              Stream.runCollect,
+            ),
+            { signal: abort.signal },
+          );
+          other.postMessage({
+            schemaPath: "/test/settings/",
+            key: "mode",
+            type: "s",
+            bytes: encodeValue("s", { _tag: "s", value: "chosen" }).buffer,
+          });
+          other.postMessage({
+            schemaPath: "/test/barrier/",
+            key: "count",
+            type: "i",
+            bytes: encodeValue("i", { _tag: "i", value: 2 }).buffer,
+          });
+          await done;
+        }
+        const snapshot = await source.snapshot(["test.settings", "test.alias", "test.disjoint"]);
+        expect(
+          changes
+            .filter((change) => change.key === "mode")
+            .map(({ schemaId, value, origin }) => ({ schemaId, value, origin })),
+        ).toEqual([
+          { schemaId: "test.settings", value: variant("chosen"), origin: origin === "local" ? token : undefined },
+          { schemaId: "test.alias", value: variant("chosen"), origin: origin === "local" ? token : undefined },
+        ]);
+        if (origin === "local") {
+          expect(snapshot).toEqual({
+            "test.settings": { mode: variant("chosen") },
+            "test.alias": { mode: variant("chosen") },
+            "test.disjoint": {},
+          });
+          await expect(source.snapshot(["test.incompatible"])).rejects.toThrow("Invalid stored setting");
+          await expect(source.snapshot(["test.restricted"])).rejects.toThrow("Invalid choice");
+          expect(put).toHaveBeenCalledTimes(1);
+          expect(post).toHaveBeenCalledTimes(1);
+        } else {
+          expect(snapshot).toEqual({ "test.settings": {}, "test.alias": {}, "test.disjoint": {} });
+          expect(put).not.toHaveBeenCalled();
+          expect(post).toHaveBeenCalledTimes(2);
+        }
+      } finally {
+        other.close();
+        abort.abort();
+        await watching.catch(() => {});
+      }
+    }));
+}
+it("shared-path deletion notifies each local and remote alias with its own default and leaves the next snapshot empty", () =>
+  run(async (api, source) => {
+    await api.schemas("a");
+    await source.register!(sharedPathSchemas);
+    await source.write!({ schemaId: "test.settings", key: "mode", value: variant("chosen") });
+    await run(async (remoteApi, receiver) => {
+      await remoteApi.schemas("a");
+      await receiver.register!(sharedPathSchemas);
+      const token = Symbol("writer");
+      const localChanges: import("../../src/services/settings.ts").SettingsChange[] = [];
+      const remoteChanges: import("../../src/services/settings.ts").SettingsChange[] = [];
+      const abort = new AbortController();
+      const localWatching = Effect.runPromise(
+        source.changes.pipe(
+          Stream.runForEach((change) =>
+            Effect.sync(() => {
+              localChanges.push(change);
+            }),
+          ),
+        ),
+        { signal: abort.signal },
+      );
+      const remoteWatching = Effect.runPromise(
+        receiver.changes.pipe(
+          Stream.take(4),
+          Stream.runForEach((change) =>
+            Effect.sync(() => {
+              remoteChanges.push(change);
+            }),
+          ),
+        ),
+        { signal: abort.signal },
+      );
+      const put = vi.spyOn(IDBObjectStore.prototype, "put");
+      const remove = vi.spyOn(IDBObjectStore.prototype, "delete");
+      const post = vi.spyOn(BroadcastChannel.prototype, "postMessage");
+      try {
+        await source.write!({ schemaId: "test.settings", key: "mode", value: variant("default"), origin: token });
+        const expected = [
+          { schemaId: "test.settings", key: "mode", value: variant("default") },
+          { schemaId: "test.alias", key: "mode", value: variant("remote") },
+          {
+            schemaId: "test.incompatible",
+            key: "mode",
+            value: { _tag: "v", type: "i", value: { _tag: "i", value: 2 } },
+          },
+          { schemaId: "test.restricted", key: "mode", value: variant("default") },
+        ];
+        expect(localChanges).toEqual(expected.map((change) => ({ ...change, origin: token })));
+        await remoteWatching;
+        expect(remoteChanges).toEqual(expected);
+        for (const page of [source, receiver]) {
+          for (const change of expected) expect(await page.read!(change.schemaId, "mode")).toEqual(change.value);
+          expect(await page.snapshot(sharedPathSchemas.schemas.map((schema) => schema.id))).toEqual(
+            Object.fromEntries(sharedPathSchemas.schemas.map((schema) => [schema.id, {}])),
+          );
+        }
+        expect(await stored()).toEqual([]);
+        expect(put).not.toHaveBeenCalled();
+        expect(remove).toHaveBeenCalledTimes(1);
+        expect(post).toHaveBeenCalledExactlyOnceWith({
+          schemaPath: "/test/settings/",
+          key: "mode",
+          type: "s",
+          bytes: null,
+        });
+      } finally {
+        abort.abort();
+        await Promise.all([localWatching.catch(() => {}), remoteWatching.catch(() => {})]);
+      }
+    });
+  }));
