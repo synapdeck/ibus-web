@@ -36,6 +36,8 @@ export interface RouterService {
    */
   keyAsync(adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult>;
   select(engine: string): Effect.Effect<void, Error>;
+  unload(engine: string): Effect.Effect<void, Error>;
+  activeContext(): { engine: string; ic: number; adapter: SurfaceAdapter } | undefined;
   override(adapter: SurfaceAdapter, engine: string | undefined): Effect.Effect<void, Error>;
   readonly hotkeys: HotkeyRegistry;
   readonly panel: Stream.Stream<PanelEvent>;
@@ -253,6 +255,34 @@ export const makeRouter = Effect.gen(function* () {
   );
   const service: RouterService = {
     panel: panel.events,
+    activeContext: () => {
+      for (const surface of surfaces.values()) {
+        const context = surface.active;
+        if (context && surface.focused && surface.attached && context.ready && wants(surface, context.engine))
+          return { engine: context.engine, ic: context.ic, adapter: surface.adapter };
+      }
+      return undefined;
+    },
+    unload: (engine) =>
+      Effect.suspend(() => {
+        if (closed) return Effect.fail(new Error("Router is closed"));
+        if (!registry.snapshot(engine)) return Effect.fail(new Error(`Unknown engine: ${engine}`));
+        if (selected === engine) selected = undefined;
+        for (const surface of surfaces.values()) {
+          if (surface.override === engine) surface.override = undefined;
+          const context = surface.contexts.get(engine);
+          if (!context) continue;
+          context.unregister();
+          context.invalidate();
+          surface.contexts.delete(engine);
+          if (surface.active === context) {
+            surface.active = undefined;
+            surface.adapter.setPreedit(undefined);
+          }
+          panel.enqueue({ _tag: "hide", engine, ic: context.ic });
+        }
+        return registry.unload(engine);
+      }),
     hotkeys: {
       add: (predicate, action) => {
         const entry = { predicate, action };

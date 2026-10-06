@@ -822,3 +822,10 @@ test.each([false, true])(
     else expect(lazy.page(1).candidates.map((item) => item.text)).toEqual(["invisible"]);
   },
 );
+
+test("storage callbacks expose Worker messages without waiting for a crash", async () => {
+  const states: unknown[] = [];
+  await start({ onStorage: (message) => states.push(message) });
+  host.message({ type: "storage", state: "read-only", message: "writer elsewhere" });
+  expect(states).toEqual([{ state: "read-only", message: "writer elsewhere" }]);
+});

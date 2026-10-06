@@ -44,6 +44,8 @@ export interface ConnectionOptions {
   signal?: AbortSignal;
   /** Throw malformed-record diagnostics instead of logging and dropping them. */
   development?: boolean;
+  /** Storage status arrives before startup completes as well as during operation. */
+  onStorage?: (message: { state: StorageState; message: string }) => void;
 }
 export type SyncOutcome =
   | { _tag: "reply"; ret: number; records: DecodedLazyRecord[] }
@@ -354,6 +356,7 @@ export class Connection {
         break;
       case "storage":
         this.storage = message.state;
+        this.options.onStorage?.({ state: message.state, message: message.message });
         break;
       case "error":
         this.fail({ reason: "load", message: message.message });

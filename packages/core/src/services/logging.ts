@@ -90,7 +90,7 @@ export type PanelRecord = Extract<
 
 export type PanelEvent = { readonly engine: string; readonly ic: number } & (
   | { readonly _tag: "record"; readonly record: PanelRecord }
-  | { readonly _tag: "hide" }
+  | { readonly _tag: "hide" | "caret" }
 );
 
 export class PanelEvents extends Context.Service<

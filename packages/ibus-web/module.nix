@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  perSystem =
+    { config, pkgs, ... }:
+    let
+      workspace = config.ibusWeb.typescript.workspaceFor [ "packages/ibus-web" ];
+    in
+    {
+      checks.ibus-web = config.ibusWeb.testing.vitestCheck {
+        name = "ibus-web";
+        packageDir = "${workspace}/packages/ibus-web";
+        env.FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
+        inBrowsers = true;
+        limit = 120;
+      };
+    };
+}

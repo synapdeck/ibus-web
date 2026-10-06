@@ -463,3 +463,99 @@ it.effect(
       expect(registry.snapshot("b")!.enabled).toBe(false);
     }).pipe(Effect.provide(services)),
 );
+
+it.effect("unload cancels a pending boot, rejects its waiter and permits a fresh selection", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    let resolve!: (c: FakeConnection) => void;
+    let signal: AbortSignal | undefined;
+    const late = new FakeConnection();
+    const fresh = new FakeConnection();
+    fresh.requestAsync = async () => emptyReply;
+    let starts = 0;
+    const registry = yield* makeEngineRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      engines: { test: url },
+      loadManifest: async () => manifest,
+      start: (options) => {
+        if (++starts > 1) return Promise.resolve(fresh);
+        signal = options.signal;
+        Deferred.doneUnsafe(entered, Effect.void);
+        return new Promise<FakeConnection>((done) => {
+          resolve = done;
+        });
+      },
+    });
+    const selecting = yield* registry.select("test").pipe(Effect.exit, Effect.forkScoped);
+    yield* Deferred.await(entered);
+    yield* registry.unload("test");
+    expect(signal?.aborted).toBe(true);
+    expect((yield* Fiber.join(selecting))._tag).toBe("Failure");
+    expect(registry.state("test")).toBe("unloaded");
+    resolve(late);
+    yield* Effect.promise(() => Promise.resolve());
+    expect(late.terminated).toBe(true);
+    yield* registry.select("test");
+    expect(starts).toBe(2);
+    expect(registry.snapshot("test")!.connection).toBe(fresh);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("unload cancels pending async owners without replay and stops scheduled restart", () =>
+  Effect.gen(function* () {
+    let starts = 0;
+    const connection = new FakeConnection();
+    connection.requestAsync = async () => emptyReply;
+    const registry = yield* makeEngineRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      engines: { test: url },
+      loadManifest: async () => manifest,
+      start: async () => {
+        starts++;
+        return connection;
+      },
+      waitForWriter: () => Effect.never,
+    });
+    yield* registry.select("test");
+    const f = fixture();
+    registry.registerContext("test", f.context);
+    connection.requestAsync = FakeConnection.prototype.requestAsync.bind(connection);
+    const event = Object.assign(key("a"), { preventDefault() {}, stopPropagation() {} });
+    const pending = registry.keyAsync("test", f.context, event);
+    yield* registry.unload("test");
+    expect(yield* Effect.promise(() => pending)).toBe("cancelled");
+    expect(f.calls.some((value) => value.startsWith("replay:"))).toBe(false);
+    yield* TestClock.adjust(10000);
+    expect(starts).toBe(1);
+    expect(connection.terminated).toBe(true);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("unload interrupts a restart wait without resurrecting the engine", () =>
+  Effect.gen(function* () {
+    let starts = 0;
+    const waiting = yield* Deferred.make<void>();
+    const connection = new FakeConnection();
+    connection.requestAsync = async () => emptyReply;
+    const registry = yield* makeEngineRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      engines: { test: url },
+      loadManifest: async () => manifest,
+      start: async () => {
+        starts++;
+        return connection;
+      },
+      waitForWriter: () => Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Effect.never)),
+    });
+    yield* registry.select("test");
+    connection.crash();
+    yield* Deferred.await(waiting);
+    yield* registry.unload("test");
+    yield* TestClock.adjust(10000);
+    expect(starts).toBe(1);
+    expect(registry.state("test")).toBe("unloaded");
+  }).pipe(Effect.provide(services)),
+);

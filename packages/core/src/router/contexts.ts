@@ -127,6 +127,7 @@ export class InputContext implements KeyContext {
       const key = JSON.stringify(value);
       if (key !== this.rect) {
         this.rect = key;
+        this.panel({ _tag: "caret", engine: this.engine, ic: this.ic });
         requests.push(new SetCursorLocation(value));
       }
     }

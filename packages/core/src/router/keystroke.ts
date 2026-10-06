@@ -4,7 +4,7 @@ import { ProcessKeyEvent, type DecodedLazyRecord, type EngineManifest, type Requ
 import type { Connection, CrashInfo, Reply } from "../connection/connection.ts";
 import { translateKey } from "../keys/translate.ts";
 import { ReplayQueue, type KeySink, type KeyResult, type AsyncKeyResult, type SurfaceAdapter } from "./replay.ts";
-export type EngineState = "starting" | "ready" | "busy" | "restarting" | "failed";
+export type EngineState = "starting" | "ready" | "busy" | "restarting" | "failed" | "unloaded";
 export type KeyConnection = Pick<
   Connection,
   "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate"
@@ -39,6 +39,8 @@ interface PendingKey {
 }
 export interface RouterOutput {
   readonly replayLimit: number;
+  /** Enqueue-only observer; never run an Effect on the key stack. */
+  changed?(): void;
   enqueue(record: DecodedLazyRecord): void;
   hide(ic: number): void;
   crashed(crash: CrashInfo): void;
@@ -227,6 +229,7 @@ export class KeyRouter {
     }
     if (outcome._tag === "pending") {
       this.activeMode = "abandoned";
+      this.output.changed?.();
       return "consumed";
     }
     this.active = undefined;
@@ -255,6 +258,7 @@ export class KeyRouter {
     const generation = this.snapshot.generation;
     const owner = this.contexts.get(ic);
     this.lifecycle++;
+    this.output.changed?.();
     try {
       const reply = await connection.requestAsync(request, ic);
       if (this.snapshot.generation === generation)
@@ -263,6 +267,7 @@ export class KeyRouter {
     } finally {
       if (this.snapshot.generation === generation) {
         this.lifecycle--;
+        this.output.changed?.();
         this.drainUnsolicited();
         this.next();
       }
@@ -324,6 +329,7 @@ export class KeyRouter {
       if (!pending.completion) throw error;
     } finally {
       this.finished(pending);
+      this.output.changed?.();
     }
   }
   private drainUnsolicited(): void {
@@ -342,6 +348,7 @@ export class KeyRouter {
     if (!pending) return;
     this.active = pending;
     this.activeMode = "async";
+    this.output.changed?.();
     const owner = pending;
     const failed = () => {
       if (this.active === owner && this.snapshot.connection === connection)
@@ -414,6 +421,8 @@ export class KeyRouter {
     this.snapshot.connection?.terminate();
     this.snapshot.connection = undefined;
     this.snapshot.status = "failed";
+    this.activeMode = undefined;
+    this.lifecycle = 0;
     this.contexts.clear();
     this.active = undefined;
     this.replay.take();

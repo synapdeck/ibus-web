@@ -1,0 +1,65 @@
+{
+  "name": "ibus-web",
+  "version": "0.0.0",
+  "description": "Browser IBus facade for native and custom editor surfaces.",
+  "homepage": "https://github.com/synapdeck/ibus-web",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/ibus-web"
+  },
+  "files": [
+    "dist",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./effect": {
+      "types": "./dist/effect.d.ts",
+      "default": "./dist/effect.js"
+    },
+    "./panel": {
+      "types": "./dist/panel.d.ts",
+      "default": "./dist/panel.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
+    },
+    "./panel/style.css": "./dist/style.css",
+    "./host/*": "./dist/host/*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsdown && cp ../panel/dist/style.css dist/style.css && cp -R ../worker-host/dist/worker dist/host",
+    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
+    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "@ibus-web/core": "workspace:*",
+    "@ibus-web/panel": "workspace:*",
+    "@ibus-web/protocol": "workspace:*",
+    "@ibus-web/worker-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@ibus-web/test-programs": "workspace:*",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

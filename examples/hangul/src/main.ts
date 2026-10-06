@@ -28,6 +28,7 @@ const showPanel = (event: PanelEvent) => {
     mode.textContent = "—";
     return;
   }
+  if (event._tag !== "record") return;
   const record = event.record;
   let text: string;
   switch (record._tag) {
