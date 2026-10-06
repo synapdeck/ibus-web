@@ -83,7 +83,7 @@ function lookupPayload(payload: Uint8Array): Extract<LazyOutputRecord, { _tag: "
 export function decodeLookupTableRecord(bytes: Uint8Array, offset = 0): LazyLookupTable {
   const envelope = readRecordEnvelope(bytes, offset);
   if (envelope.kind !== lookupKind) throw new ProtocolError({ message: "Expected UpdateLookupTable record" });
-  return lookupPayload(envelope.payload.slice()).table;
+  return lookupPayload(new Uint8Array(envelope.payload)).table;
 }
 
 /** Decodes all records strictly, deferring lookup candidates and labels until a page is requested. */
@@ -91,5 +91,5 @@ export function decodeRecordLazy(bytes: Uint8Array, offset = 0): DecodedLazyReco
   const { seq, ic, flags, size, kind, payload } = readRecordEnvelope(bytes, offset);
   if (kind !== lookupKind)
     return decodeRecord(bytes, offset) as DecodedRecord<Exclude<OutputRecord, UpdateLookupTable>>;
-  return { seq, ic, flags, size, record: lookupPayload(payload.slice()) };
+  return { seq, ic, flags, size, record: lookupPayload(new Uint8Array(payload)) };
 }

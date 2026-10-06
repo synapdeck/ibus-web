@@ -99,6 +99,28 @@ it("retains an immutable snapshot of caller bytes", () => {
   expect(lazy.page(2).candidates).toEqual(record.table.candidates.slice(18));
 });
 
+it("retains an immutable Buffer snapshot through decodeLookupTableRecord", () => {
+  const { bytes, record } = fixture();
+  const buffer = Buffer.from(bytes);
+  const lazy = decodeLookupTableRecord(buffer);
+  buffer.fill(0);
+  expect(lazy.visible().candidates).toEqual(record.table.candidates.slice(9, 18));
+  expect(lazy.page(2).candidates).toEqual(record.table.candidates.slice(18));
+  expect(lazy.visible().labels).toEqual(record.table.labels.slice(0, 9));
+});
+
+it("retains an immutable Buffer snapshot through decodeRecordLazy", () => {
+  const { bytes, record } = fixture();
+  const buffer = Buffer.from(bytes);
+  const decoded = decodeRecordLazy(buffer);
+  if (decoded.record._tag !== "UpdateLookupTable") throw new Error("wrong fixture");
+  const lazy = decoded.record.table;
+  buffer.fill(0);
+  expect(lazy.visible().candidates).toEqual(record.table.candidates.slice(9, 18));
+  expect(lazy.page(2).candidates).toEqual(record.table.candidates.slice(18));
+  expect(lazy.visible().labels).toEqual(record.table.labels.slice(0, 9));
+});
+
 it("validates candidate av framing before any page is requested", () => {
   const { bytes, tree } = fixture();
   const table = (tree as Extract<GVariantValue, { _tag: "()" }>).items[0]! as Extract<GVariantValue, { _tag: "v" }>;
