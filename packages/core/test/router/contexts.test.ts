@@ -18,10 +18,15 @@ it("creates distinct contexts on focus, with capabilities, content type and surr
       "Enable",
       "FocusIn",
       "SetSurroundingText",
+      "SetCursorLocation",
     ]);
     expect(sent[0]).toMatchObject({ name: "factory" });
     expect(sent[1]).toMatchObject({ capabilities: 63 });
-    expect(sent.at(-1)).toMatchObject({ text: { text: "😀a" }, cursor: 2, anchor: 2 });
+    expect(sent.find((request) => request._tag === "SetSurroundingText")).toMatchObject({
+      text: { text: "😀a" },
+      cursor: 2,
+      anchor: 2,
+    });
     expect(key(a.element).defaultPrevented).toBe(true);
     const b = field();
     b.element.focus();

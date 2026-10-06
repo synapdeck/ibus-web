@@ -4,6 +4,8 @@ import { IBusInputHints as Hints, IBusInputPurpose as Purpose, IBusModifier } fr
 import { codepointForKeysym } from "../keys/keysyms.generated.ts";
 import { surroundingWindow, toUtf16 } from "../router/surrounding.ts";
 import type { Preedit, SurfaceAdapter } from "../router/replay.ts";
+import { nativeEdits } from "./undo.ts";
+import { preeditOverlay } from "./overlay.ts";
 
 type Input = HTMLTextAreaElement | HTMLInputElement;
 const isTextarea = (element: Input) => element.localName === "textarea";
@@ -20,6 +22,14 @@ export function textareaAdapter(
   element: Input,
   options: { onPreedit?: (preedit: Preedit | undefined) => void } = {},
 ): SurfaceAdapter {
+  const edits = nativeEdits(element);
+  const editingPosition = () => {
+    const state = edits.current();
+    return state.direction === "backward"
+      ? { cursor: state.start, anchor: state.end }
+      : { cursor: state.end, anchor: state.start };
+  };
+  const overlay = preeditOverlay(element, () => position(element).cursor);
   let ownEdit = 0;
   let lastValue = element.value;
   let lastSelection = position(element);
@@ -30,53 +40,42 @@ export function textareaAdapter(
   const replace = (text: string, start: number, end: number, selection: SelectionMode = "end") => {
     ownEdit++;
     try {
-      if (element.selectionStart === null)
-        element.value = element.value.slice(0, start) + text + element.value.slice(end);
-      else element.setRangeText(text, start, end, selection);
+      edits.replace(text, start, end, selection === "preserve");
       remember();
-      element.dispatchEvent(
-        new InputEvent("input", {
-          bubbles: true,
-          composed: true,
-          inputType: text ? "insertText" : "deleteContentBackward",
-          data: text || null,
-        }),
-      );
     } finally {
       ownEdit--;
     }
   };
   const replay = (key: string, shift = false, modified = false) => {
     if (modified || element.disabled || element.readOnly) return;
-    const start = element.selectionStart ?? element.value.length,
-      end = element.selectionEnd ?? start;
-    const { cursor, anchor } = position(element);
-    if (key === "Backspace") replace("", start === end ? boundary(element.value, start, -1) : start, end);
-    else if (key === "Delete") replace("", start, start === end ? boundary(element.value, end, 1) : end);
+    const { start, end, value } = edits.current();
+    const { cursor, anchor } = editingPosition();
+    if (key === "Backspace") replace("", start === end ? boundary(value, start, -1) : start, end);
+    else if (key === "Delete") replace("", start, start === end ? boundary(value, end, 1) : end);
     else if (key === "Enter") {
       if (isTextarea(element)) replace("\n", start, end);
     } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(key)) {
       let next = cursor;
-      if (key === "ArrowLeft") next = !shift && start !== end ? start : boundary(element.value, cursor, -1);
-      if (key === "ArrowRight") next = !shift && start !== end ? end : boundary(element.value, cursor, 1);
-      const lineStart = element.value.lastIndexOf("\n", cursor - 1) + 1;
-      const lineEndIndex = element.value.indexOf("\n", cursor);
-      const lineEnd = lineEndIndex < 0 ? element.value.length : lineEndIndex;
+      if (key === "ArrowLeft") next = !shift && start !== end ? start : boundary(value, cursor, -1);
+      if (key === "ArrowRight") next = !shift && start !== end ? end : boundary(value, cursor, 1);
+      const lineStart = value.lastIndexOf("\n", cursor - 1) + 1;
+      const lineEndIndex = value.indexOf("\n", cursor);
+      const lineEnd = lineEndIndex < 0 ? value.length : lineEndIndex;
       if (key === "Home") next = lineStart;
       if (key === "End") next = lineEnd;
       if (key === "ArrowUp") {
-        const previousStart = element.value.lastIndexOf("\n", lineStart - 2) + 1;
+        const previousStart = value.lastIndexOf("\n", lineStart - 2) + 1;
         next = lineStart === 0 ? 0 : Math.min(lineStart - 1, previousStart + cursor - lineStart);
       }
       if (key === "ArrowDown") {
-        const nextEnd = element.value.indexOf("\n", lineEnd + 1);
+        const nextEnd = value.indexOf("\n", lineEnd + 1);
         next =
-          lineEnd === element.value.length
+          lineEnd === value.length
             ? lineEnd
-            : Math.min(nextEnd < 0 ? element.value.length : nextEnd, lineEnd + 1 + cursor - lineStart);
+            : Math.min(nextEnd < 0 ? value.length : nextEnd, lineEnd + 1 + cursor - lineStart);
       }
       if (element.selectionStart === null) return;
-      element.setSelectionRange(
+      edits.select(
         shift ? Math.min(anchor, next) : next,
         shift ? Math.max(anchor, next) : next,
         shift && next < anchor ? "backward" : "forward",
@@ -125,27 +124,28 @@ export function textareaAdapter(
       return { purpose, hints, disabled: password || element.disabled || element.readOnly };
     },
     surrounding: (window) => {
-      const value = surroundingWindow({ text: element.value, ...position(element) }, window);
+      const value = surroundingWindow({ text: edits.current().value, ...editingPosition() }, window);
       return { ...value, cursor: toUtf16(value.text, value.cursor), anchor: toUtf16(value.text, value.anchor) };
     },
-    // Native controls do not expose a caret rectangle. The overlay adapter supplies one.
-    caretRect: () => undefined,
+    caretRect: () => overlay.caretRect(),
     batch: (apply) => {
       ownEdit++;
       try {
-        apply();
+        edits.batch(apply);
       } finally {
         ownEdit--;
         remember();
       }
     },
-    commit: (text) =>
-      replace(text, element.selectionStart ?? element.value.length, element.selectionEnd ?? element.value.length),
+    commit: (text) => replace(text, edits.current().start, edits.current().end),
     deleteSurrounding: (offset, count) => {
-      const start = Math.max(0, Math.min(element.value.length, position(element).cursor + offset));
-      replace("", start, Math.min(element.value.length, start + count), "preserve");
+      const start = Math.max(0, Math.min(edits.current().value.length, editingPosition().cursor + offset));
+      replace("", start, Math.min(edits.current().value.length, start + count), "preserve");
     },
-    setPreedit: (preedit) => options.onPreedit?.(preedit),
+    setPreedit: (preedit) => {
+      overlay.set(preedit);
+      options.onPreedit?.(preedit);
+    },
     replayKey: (event) => {
       if (event.type !== "keyup")
         replay(
@@ -195,6 +195,25 @@ export function textareaAdapter(
           listener();
         }
       };
+      // Observe assignment without polling; preserve a host framework's own accessor.
+      const ownValue = Object.getOwnPropertyDescriptor(element, "value");
+      const nativeValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
+      const descriptor = ownValue ?? nativeValue;
+      let setter: ((value: string) => void) | undefined;
+      if (descriptor?.get && descriptor.set && descriptor.configurable !== false) {
+        const get = descriptor.get,
+          set = descriptor.set;
+        setter = (value) => {
+          set.call(element, value);
+          check();
+        };
+        Object.defineProperty(element, "value", {
+          configurable: true,
+          enumerable: descriptor.enumerable ?? true,
+          get: () => get.call(element),
+          set: setter,
+        });
+      }
       const selection = () => {
         if (element.ownerDocument.activeElement === element) check();
       };
@@ -209,6 +228,11 @@ export function textareaAdapter(
       for (const event of events) element.addEventListener(event, check, true);
       element.ownerDocument.addEventListener("selectionchange", selection);
       return () => {
+        overlay.dispose();
+        if (setter && Object.getOwnPropertyDescriptor(element, "value")?.set === setter) {
+          if (ownValue) Object.defineProperty(element, "value", ownValue);
+          else Reflect.deleteProperty(element, "value");
+        }
         element.removeEventListener("pointerdown", pointer, true);
         for (const event of events) element.removeEventListener(event, check, true);
         element.ownerDocument.removeEventListener("selectionchange", selection);

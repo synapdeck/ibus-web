@@ -88,6 +88,6 @@ describe.each(data.runtimes)("synthetic DOM Hangul through $name host", (runtime
         { _tag: "DeleteSurroundingText", offset: -1, count: 1 },
         { _tag: "CommitText", text: { text: "韓" } },
       ]);
-      expect(field.inputs.map((input) => input.value)).toEqual(["한", "", "韓"]);
+      expect(field.inputs.map((input) => input.value)).toEqual(["한", "韓"]);
     }));
 });

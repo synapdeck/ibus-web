@@ -1580,17 +1580,27 @@ caret, selection or value changes, excluding router-owned edits.
   not engine crashes.
 - Preedit is decoration, never document content. Each reply's records are applied
   in order inside adapter batches. Registry request already applies reply records;
-  callers must not reapply them.
+  callers must not reapply them. Native controls apply the net deletion/commit
+  change of a batch as one focused `execCommand("insertText"/"delete")` edit,
+  preserving browser undo and native input events. Unfocused controls and browsers
+  without the command use `setRangeText` plus a synthetic input event; that fallback
+  does not preserve native undo.
 
 #### 7.2.3 Built-in adapters
 
-M1.4a's `textareaAdapter(inputOrTextarea, { onPreedit })` provides focus/reset,
-setRangeText commits with input events, callback preedit, surrounding text and
-code-point-aware fallback edits. Unsupported native selection APIs use end-of-value
-fallback. It returns undefined for caretRect. It does not yet provide a caret
-mirror/overlay, native undo integration, full clipboard or platform-complete navigation.
-M1.4b supplies the native overlay/undo/full-text integration; contenteditable follows
-in M2. A concrete CodeMirror adapter is not shipped.
+`textareaAdapter(inputOrTextarea, { onPreedit })` provides native commits,
+surrounding text, focus/reset observation and code-point-aware fallback edits.
+A styled text mirror measures the caret with the control's font, box, direction,
+wrapping and scroll. Preedit is a clipped overlay with UTF-16 attribute ranges,
+underline and foreground/background colors; it never enters value or history.
+`caretRect` reports the preedit cursor when visible and the native insertion
+point otherwise, for `SetCursorLocation`. The optional onPreedit callback remains
+available. Detach removes the overlay, observers and event listeners.
+
+External value assignment and selection changes report reset; adapter edits do not.
+Unsupported native selection APIs use end-of-value fallback. Clipboard handling
+and platform-complete navigation are not provided. Contenteditable follows in M2;
+a concrete CodeMirror adapter is not shipped.
 
 #### 7.2.4 CodeMirror 6 check (not in v1)
 

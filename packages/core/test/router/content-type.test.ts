@@ -41,7 +41,7 @@ it("commits and deletes with input events, without resetting its own edits", () 
     adapter.commit("X");
   });
   expect(element.value).toBe("aXb");
-  expect(inputs).toEqual(["ab", "aXb"]);
+  expect(inputs).toEqual(["aXb"]);
   expect(resets).toEqual([]);
   element.value = "external";
   element.dispatchEvent(new Event("input"));
