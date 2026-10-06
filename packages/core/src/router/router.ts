@@ -59,6 +59,12 @@ interface Surface {
   active: InputContext | undefined;
   cleanup: () => void;
 }
+interface PendingReset {
+  readonly context: InputContext;
+  readonly generation: number;
+  reserve(): void;
+  release(): void;
+}
 const asError = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)));
 export const makeRouter = Effect.gen(function* () {
   const registry = yield* EngineRegistry;
@@ -96,7 +102,7 @@ export const makeRouter = Effect.gen(function* () {
     Effect.tryPromise({ try: () => registry.drainContext(context.engine, context), catch: asError });
   const pendingSubmissions = new Set<() => void>();
   const pendingRefresh = new Set<InputContext>();
-  const pendingResets = new Set<() => void>();
+  const pendingResets = new Set<PendingReset>();
   const enqueueRefresh = (surface: Surface, context: InputContext) => {
     if (pendingRefresh.has(context) || closed) return;
     pendingRefresh.add(context);
@@ -202,6 +208,10 @@ export const makeRouter = Effect.gen(function* () {
         context.focused = true;
         if (!current()) return;
       }
+      // Earlier blur owners have drained. Reserve deferred resets before this
+      // context accepts keys that could otherwise overtake them during refresh.
+      for (const pending of pendingResets)
+        if (pending.context === context && pending.generation === generation) pending.reserve();
       context.ready = true;
       surface.suspended = false;
       yield* refresh(surface, context);
@@ -282,7 +292,7 @@ export const makeRouter = Effect.gen(function* () {
       const errors: unknown[] = [];
       for (const surface of surfaces.values()) errors.push(...detachSurface(surface));
       surfaces.clear();
-      for (const release of pendingResets) attempt(errors, release);
+      for (const pending of pendingResets) attempt(errors, pending.release);
       pendingResets.clear();
       if (errors.length) throw new AggregateError(errors, "Surface teardown failed");
     }),
@@ -416,29 +426,38 @@ export const makeRouter = Effect.gen(function* () {
       const reset = () => {
         const context = surface.active;
         if (!context || !context.created || !live(context)) return;
-        // Only a context that can accept new keys needs a reservation. An inactive
-        // reset must not block older owners whose blur drain precedes this mailbox work.
-        const resume =
-          context.ready && !surface.suspended && wants(surface, context.engine)
-            ? registry.holdKeys(context.engine)
-            : undefined;
-        const release = () => {
-          pendingResets.delete(release);
-          resume?.();
+        const generation = context.generation;
+        let resume: (() => void) | undefined;
+        let released = false;
+        const pending: PendingReset = {
+          context,
+          generation,
+          reserve: () => {
+            if (!released && context.generation === generation && live(context))
+              resume ??= registry.holdKeys(context.engine);
+          },
+          release: () => {
+            released = true;
+            pendingResets.delete(pending);
+            resume?.();
+          },
         };
-        pendingResets.add(release);
+        pendingResets.add(pending);
         try {
+          // Inactive contexts defer their reservation until reconciliation makes
+          // them eligible, leaving older blur owners free to drain first.
+          if (context.ready && !surface.suspended && wants(surface, context.engine)) pending.reserve();
           registry.retireContext(context.engine, context, () => context.preedit.finish(context.adapter));
           enqueueRefresh(surface, context);
           mailbox.enqueue(() =>
             Effect.gen(function* () {
-              if (!wants(surface, context.engine) || !live(context)) return;
+              if (!wants(surface, context.engine) || !live(context) || context.generation !== generation) return;
               yield* request(context, new Reset({}));
               yield* refresh(surface, context);
-            }).pipe(Effect.ensuring(Effect.sync(release))),
+            }).pipe(Effect.ensuring(Effect.sync(pending.release))),
           );
         } catch (error) {
-          release();
+          pending.release();
           throw error;
         }
       };
