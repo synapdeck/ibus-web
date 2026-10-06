@@ -352,3 +352,56 @@ it("a synchronous reset callback failure releases the reserved wire ordering", (
     expect(key(f.element, "g").defaultPrevented).toBe(true);
     expect(connections.a[0]!.sent.at(-1)!.request._tag).toBe("ProcessKeyEvent");
   }));
+
+for (const ownership of ["native", "async"] as const)
+  for (const refocus of [false, true])
+    it(`${ownership} blur drain progresses past a reset on ${refocus ? "refocusing" : "inactive"} second surface`, () =>
+      run(async ({ router, connections, field }) => {
+        const b = field();
+        b.element.focus();
+        await select(router);
+        const a = field();
+        a.element.focus();
+        await select(router);
+        const c = connections.a[0]!;
+        c.hold = "ProcessKeyEvent";
+        const accepted: Promise<unknown>[] = [];
+        if (ownership === "native") {
+          c.outcome = { _tag: "pending" };
+          expect(key(a.element, "g").defaultPrevented).toBe(true);
+          expect(key(a.element, "k").defaultPrevented).toBe(true);
+        } else {
+          for (const value of ["g", "k"]) {
+            const event = new KeyboardEvent("keydown", {
+              key: value,
+              code: `Key${value.toUpperCase()}`,
+              cancelable: true,
+            });
+            accepted.push(router.keyAsync(a.adapter, event));
+            expect(event.defaultPrevented).toBe(true);
+          }
+        }
+        a.element.blur();
+        if (refocus) b.element.focus();
+        b.element.value = "external";
+        const selecting = select(router);
+        selecting.catch(() => {});
+        // Completing the older owner must start its queued successor even though
+        // the later reset cannot run until this blur's captured drain settles.
+        if (ownership === "native") c.completeAbandoned(0);
+        else c.completeAsync(0);
+        await Promise.resolve();
+        expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(2);
+        c.hold = undefined;
+        c.completeAsync(0);
+        await Promise.all(accepted);
+        await selecting;
+        expect(a.element.value).toBe("gk");
+        expect(b.element.value).toBe("external");
+        if (!refocus) b.element.focus();
+        await select(router);
+        expect(router.activeContext()?.adapter).toBe(b.adapter);
+        if (refocus) expect(c.sent.some((x) => x.ic === 1 && x.request._tag === "Reset")).toBe(true);
+        c.outcome = { _tag: "reply", ret: 1, records: [] };
+        expect(key(b.element, "g").defaultPrevented).toBe(true);
+      }));

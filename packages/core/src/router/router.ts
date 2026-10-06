@@ -416,10 +416,15 @@ export const makeRouter = Effect.gen(function* () {
       const reset = () => {
         const context = surface.active;
         if (!context || !context.created || !live(context)) return;
-        const resume = registry.holdKeys(context.engine);
+        // Only a context that can accept new keys needs a reservation. An inactive
+        // reset must not block older owners whose blur drain precedes this mailbox work.
+        const resume =
+          context.ready && !surface.suspended && wants(surface, context.engine)
+            ? registry.holdKeys(context.engine)
+            : undefined;
         const release = () => {
           pendingResets.delete(release);
-          resume();
+          resume?.();
         };
         pendingResets.add(release);
         try {
