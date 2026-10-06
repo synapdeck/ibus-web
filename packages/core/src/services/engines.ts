@@ -15,6 +15,7 @@ import {
 } from "../router/keystroke.ts";
 import type { AsyncKeyResult, KeySink } from "../router/replay.ts";
 import { makeRestarter, type WaitForWriter } from "../router/restart.ts";
+import { loadSettingsMetadata } from "../settings/api.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
@@ -27,6 +28,7 @@ export interface EngineRegistryOptions {
   /** Honor options.signal for partial resources; late returned connections are terminated by the registry. */
   readonly start?: (options: ConnectionOptions) => Promise<KeyConnection>;
   readonly loadManifest?: (url: URL) => Promise<unknown>;
+  readonly loadMetadata?: (url: URL, signal?: AbortSignal) => Promise<unknown>;
   readonly waitForWriter?: WaitForWriter;
 }
 export interface EngineRegistryService {
@@ -55,6 +57,7 @@ interface Entry {
   readonly changes: Map<string, SettingsChange>;
   readonly watchers: Set<() => void>;
   readonly crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
+  origin: symbol;
   started: boolean;
   hasReady: boolean;
 }
@@ -89,7 +92,14 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           const changes = [...entry.changes.values()];
           entry.changes.clear();
           for (const change of changes)
-            yield* Effect.tryPromise({ try: () => entry.router.request(new SettingChanged(change), 0), catch: error });
+            yield* Effect.tryPromise({
+              try: () =>
+                entry.router.request(
+                  new SettingChanged({ schemaId: change.schemaId, key: change.key, value: change.value }),
+                  0,
+                ),
+              catch: error,
+            });
         }
       });
     const boot = (name: string, entry: Entry) =>
@@ -123,6 +133,22 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           entry.snapshot.passThrough = new Set(manifest.keyboard.passThrough.map((key) => keysymByName.get(key)!));
         }
         const manifest = entry.snapshot.manifest;
+        if (settings.register) {
+          const metadata = yield* Effect.tryPromise({
+            try: (signal) => loadSettingsMetadata(manifest, options.engines[name]!, options, signal),
+            catch: error,
+          });
+          yield* Effect.tryPromise({
+            try: async () => {
+              await settings.register!(metadata);
+            },
+            catch: error,
+          });
+        }
+        const initial = yield* Effect.tryPromise({
+          try: () => settings.snapshot(manifest.settingsSchemas),
+          catch: error,
+        });
         const connection = yield* Effect.acquireRelease(
           Effect.callback<KeyConnection, Error>((resume, signal) => {
             try {
@@ -155,11 +181,8 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
             }),
           { interruptible: true },
         ).pipe(Scope.provide(scope));
+        entry.origin = Symbol();
         entry.router.connect(connection);
-        const initial = yield* Effect.tryPromise({
-          try: () => settings.snapshot(manifest.settingsSchemas),
-          catch: error,
-        });
         const reply = yield* Effect.tryPromise({
           try: () => entry.router.request(new Init({ version: PROTOCOL_VERSION, settings: initial }), 0),
           catch: error,
@@ -206,6 +229,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       const entry: Entry = {
         snapshot,
         crashes,
+        origin: Symbol(),
         started: false,
         hasReady: false,
         changes: new Map(),
@@ -214,7 +238,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           replayLimit: config.replayLimit,
           enqueue: ({ ic, record }) => {
             if (record._tag === "Log") logger.enqueue({ engine: name, ic, record });
-            else if (record._tag === "SettingWritten") settings.written(record);
+            else if (record._tag === "SettingWritten") settings.written({ ...record, origin: entry.origin });
           },
           hide: (ic) => panel.enqueue({ _tag: "hide", engine: name, ic }),
           error: (cause, ic) =>
@@ -265,7 +289,8 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           for (const entry of entries.values()) {
             if (
               !entry.snapshot.manifest?.settingsSchemas.includes(change.schemaId) ||
-              entry.snapshot.status === "failed"
+              entry.snapshot.status === "failed" ||
+              change.origin === entry.origin
             )
               continue;
             entry.changes.set(`${change.schemaId}\0${change.key}`, change);

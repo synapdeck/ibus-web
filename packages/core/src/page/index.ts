@@ -17,3 +17,13 @@ export {
 } from "../services/logging.ts";
 export * from "../router/router.ts";
 export * from "../adapters/textarea.ts";
+
+export {
+  SettingsApi,
+  type SettingsApiService,
+  type SettingsOptions,
+  type SettingsSchema,
+  type SettingsKey,
+  type SettingValue,
+} from "../settings/api.ts";
+export { indexedDbSettings } from "../settings/persister.ts";

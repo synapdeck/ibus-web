@@ -26,7 +26,7 @@ const manifest: EngineManifest = {
   settingsSchemas: ["settings"],
 };
 const url = new URL("https://example.test/");
-const services = Layer.mergeAll(CoreConfig.Default, SettingsSource.Default, Logger.Default, PanelEvents.Default);
+const services = Layer.mergeAll(CoreConfig.Default, SettingsSource.layer(), Logger.Default, PanelEvents.Default);
 const emptyReply = { ret: 0, outSeq: 0, records: [] };
 
 it.effect("registry restarts with current settings and leaves contexts uncreated until next focus", () =>

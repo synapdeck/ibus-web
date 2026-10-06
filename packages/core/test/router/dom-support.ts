@@ -109,7 +109,7 @@ export const run = (
         yield* Effect.promise(() => test({ router, registry, connections, field }));
       }),
     ).pipe(
-      Effect.provide(Layer.mergeAll(CoreConfig.Default, SettingsSource.Default, Logger.Default, PanelEvents.Default)),
+      Effect.provide(Layer.mergeAll(CoreConfig.Default, SettingsSource.layer(), Logger.Default, PanelEvents.Default)),
     ),
   );
 export const select = (router: Effect.Success<typeof makeRouter>, name = "a") => Effect.runPromise(router.select(name));

@@ -1,13 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Context, Effect, Layer, PubSub, Stream } from "effect";
-import type { GVariantVariant, SettingWritten } from "@ibus-web/protocol";
+import type { GVariantVariant, SettingWritten, SettingsMetadata } from "@ibus-web/protocol";
+import { indexedDbSettings } from "../settings/persister.ts";
 import { SyncMailbox } from "./logging.ts";
 
 export type SettingsSnapshot = Record<string, Record<string, typeof GVariantVariant.Type>>;
-export type SettingsChange = Pick<SettingWritten, "schemaId" | "key" | "value">;
+export type SettingsChange = Pick<SettingWritten, "schemaId" | "key" | "value"> & { readonly origin?: symbol };
 export interface SettingsSourceService {
+  /** Optional persistence hooks keep host-provided in-memory sources compatible. */
+  register?(metadata: SettingsMetadata): void | Promise<void>;
+  write?(record: SettingsChange): Promise<void>;
+  read?(schemaId: string, key: string): Promise<typeof GVariantVariant.Type | undefined>;
   snapshot(schemas: readonly string[]): Promise<SettingsSnapshot>;
+  /** Enqueue only; the default source reports asynchronous write failures through Effect logging. */
   written(record: SettingsChange): void;
   readonly changes: Stream.Stream<SettingsChange>;
 }
@@ -52,5 +58,8 @@ export class SettingsSource extends Context.Service<SettingsSource, SettingsSour
     );
   }
 
-  static readonly Default = SettingsSource.layer();
+  private static defaultLayer: Layer.Layer<SettingsSource> | undefined;
+  static get Default(): Layer.Layer<SettingsSource> {
+    return (this.defaultLayer ??= indexedDbSettings());
+  }
 }
