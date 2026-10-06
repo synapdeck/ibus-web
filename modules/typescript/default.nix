@@ -63,7 +63,7 @@
             {
               echo "# Generated from modules/typescript/default.nix by \`nix run .#write-files\`."
               cat "$yaml"
-            } > $out
+            } | ${pkgs.oxfmt}/bin/oxfmt -c ${../../.oxfmtrc.jsonc} --stdin-filepath pnpm-workspace.yaml > $out
           '';
 
       # Repository-relative directories of the workspace's packages.

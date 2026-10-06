@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,7 +61,9 @@ test("core pack ships clean complete notices and cleans package-local copies", (
     }
     cpSync(join(root, "packages/core/dist"), join(core, "dist"), { recursive: true });
     execFileSync("pnpm", ["pack", "--pack-destination", directory], { cwd: core, stdio: "pipe" });
-    const archive = join(directory, "ibus-web-core-0.0.0.tgz");
+    const archives = readdirSync(directory).filter((name) => name.endsWith(".tgz"));
+    expect(archives).toHaveLength(1);
+    const archive = join(directory, archives[0]!);
     const unpack = (file: string) => execFileSync("tar", ["-xOf", archive, `package/${file}`], { encoding: "utf8" });
     const files = execFileSync("tar", ["-tf", archive], { encoding: "utf8" }).split("\n");
     expect(files).toContain("package/dist/page/index.js");

@@ -106,8 +106,9 @@ rectangle, vertical or horizontal per the engine's table orientation, falling ba
 "0.", "a." … "f."; the cursor's candidate highlighted when the cursor is visible; the auxiliary text as a
 row; previous/next buttons sending `PageUp`/`PageDown`; wheel sending `CursorUp`/`CursorDown`; a click
 sending `CandidateClicked` with the page-relative index; a property menu listing registered properties
-(visible ones; toggles show their state; activating sends `PropertyActivate(key, newState)` only when
-the state changes) and, as a compact indicator, the symbol of the first visible toggle or radio property that has one (ibus-hangul's 한/EN). Output is hidden on
+(visible ones; toggles show their state; toggle/radio activation sends
+`PropertyActivate(key, newState)` only when the state changes, while Normal actions
+activate every time) and, as a compact indicator, the symbol of the first visible toggle or radio property that has one (ibus-hangul's 한/EN). Output is hidden on
 `FocusOut` and on crashes (core's events).
 
 **The facade** (`ibus-web`): `createIbusWeb(options) => IbusWeb` with `options = { hostUrl?, runtimeUrl,

@@ -702,6 +702,7 @@ type EngineManifest = {
   settingsSchemaDir: string;
   engines: string[];
   settingsSchemas: string[];
+  settingsMetadata?: { url: string; size: number };
   keyboard: { layout: "us" | "default"; passThrough: string[] };
 };
 ```
@@ -1650,7 +1651,8 @@ The panel follows the viewport caret, placing below or above/clamping as space
 requires. It uses the table orientation or the panel schema setting for System,
 renders auxiliary text separately, and lists visible properties with toggle/radio
 state. The first visible toggle/radio symbol becomes the compact indicator;
-unchanged property states are not activated again. FocusOut and crash hide output;
+unchanged toggle/radio states are not activated again; Normal actions activate
+every time. FocusOut and crash hide output;
 stale context events are ignored. ResizeObserver placement is coalesced on an
 owned animation frame; caret/event/scroll placement remains synchronous.
 

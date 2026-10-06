@@ -1,8 +1,8 @@
 # Default panel
 
-`@ibus-web/panel` exports `createPanel(host)` and a disposable `Panel` with an
-`element` to place in the document. The panel uses DOM APIs and only the public
-`PanelHost` facade contract; hosts may replace it. Import its stylesheet separately:
+`@ibus-web/panel` exports `createPanel(host)` and a disposable `Panel`. Creation
+appends its `element` to `document.body`. The panel uses DOM APIs and only the
+public `PanelHost` facade contract; hosts may replace it. Import its stylesheet separately:
 
 ```ts
 import { createIbusWeb } from "ibus-web";
@@ -14,7 +14,6 @@ const ibus = createIbusWeb({
   engines: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
 });
 const panel = createPanel(ibus);
-document.body.append(panel.element);
 // Later: panel.dispose(); await ibus.dispose();
 ```
 
@@ -32,9 +31,10 @@ below and moving above when space is short. It honors horizontal or vertical
 table orientation; `System` reads the panel schema's
 `lookup-table-orientation` setting. Auxiliary text has its own row. Visible
 properties form a menu with toggle/radio state and disabled groups; the compact
-indicator uses the first visible toggle/radio symbol. Activations send
-`PropertyActivate` only when state changes. Pointer interaction keeps focus in
-the composing field. The stylesheet exposes `--ibus-panel-*` theme variables;
+indicator uses the first visible toggle/radio symbol. Toggle and radio properties
+send `PropertyActivate` only when state changes; Normal actions activate every time.
+Pointer interaction keeps focus in the composing field. The stylesheet exposes
+`--ibus-panel-*` theme variables;
 the panel module itself does not inject CSS. ResizeObserver placement is
 coalesced on an owned animation frame to avoid observed WebKit resize feedback;
 caret, panel and scroll/viewport event placement remains synchronous.
