@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import type { Request, DecodedRecord } from "@ibus-web/protocol";
+import type { Request, DecodedLazyRecord } from "@ibus-web/protocol";
 import type { Reply, SyncOutcome, CrashInfo } from "../../src/connection/connection.ts";
 import { KeyRouter, type EngineSnapshot, type KeyContext, type KeyConnection } from "../../src/router/keystroke.ts";
 import type { SurfaceAdapter } from "../../src/router/replay.ts";
@@ -13,7 +13,7 @@ export const key = (value: string): KeyboardEvent =>
     repeat: false,
     getModifierState: () => false,
   }) as unknown as KeyboardEvent;
-export const output = (seq: number): DecodedRecord => ({
+export const output = (seq: number): DecodedLazyRecord => ({
   seq,
   ic: 1,
   flags: 0,
@@ -56,12 +56,12 @@ export class FakeConnection implements KeyConnection {
     this.busy = true;
     return new Promise((resolve, reject) => this.pending.push({ resolve, reject }));
   }
-  completeAsync(ret = 1, records: DecodedRecord[] = []) {
+  completeAsync(ret = 1, records: DecodedLazyRecord[] = []) {
     this.busy = false;
     this.pending.shift()!.resolve({ ret, records, outSeq: records.at(-1)?.seq ?? 0 });
     this.bell();
   }
-  completeAbandoned(ret: number, records: DecodedRecord[] = []) {
+  completeAbandoned(ret: number, records: DecodedLazyRecord[] = []) {
     this.busy = false;
     this.abandoned.push({ ret, records, outSeq: records.at(-1)?.seq ?? 0 });
     this.bell();

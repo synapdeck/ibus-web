@@ -10,6 +10,7 @@ import {
   IBusLookupTable,
   UpdateLookupTable,
   decodeRecord,
+  decodeLookupTableRecord,
   decodeValue,
   encodeValue,
   recordKinds,
@@ -78,6 +79,8 @@ it("times decoding a framed 500-candidate lookup table", () => {
       cpu: cpus()[0]?.model,
     }),
   );
+  expect(decodeLookupTableRecord(framed).visible().candidates).toEqual(record.table.candidates.slice(0, 9));
+  measure("framed record to visible page", () => decodeLookupTableRecord(framed).visible());
   measure("framed decode", () => decodeRecord(framed));
   measure("bytes to tree", () => decodeValue(signature, payload));
   const tree = decodeValue(signature, payload);

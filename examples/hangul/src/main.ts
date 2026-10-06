@@ -31,13 +31,15 @@ const showPanel = (event: PanelEvent) => {
   const record = event.record;
   let text: string;
   switch (record._tag) {
-    case "UpdateLookupTable":
+    case "UpdateLookupTable": {
+      const page = record.table.visible();
       text = record.visible
-        ? record.table.candidates
-            .map((candidate, index) => `${record.table.labels[index]?.text ?? index + 1}: ${candidate.text}`)
+        ? page.candidates
+            .map((candidate, index) => `${page.labels[index]?.text ?? index + 1}: ${candidate.text}`)
             .join(" · ")
         : "Lookup table hidden";
       break;
+    }
     case "UpdateAuxiliaryText":
       text = record.visible ? `Auxiliary: ${record.text.text}` : "Auxiliary text hidden";
       break;

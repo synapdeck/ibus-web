@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import {
-  decodeRecord,
+  decodeRecordLazy,
   encodeRequest,
   ProtocolError,
   requestKinds,
   RingReader,
-  type DecodedRecord,
+  type DecodedLazyRecord,
   type Request,
 } from "@ibus-web/protocol";
 import {
@@ -46,7 +46,7 @@ export interface ConnectionOptions {
   development?: boolean;
 }
 export type SyncOutcome =
-  | { _tag: "reply"; ret: number; records: DecodedRecord[] }
+  | { _tag: "reply"; ret: number; records: DecodedLazyRecord[] }
   | { _tag: "pending" }
   | { _tag: "crashed"; crash: CrashInfo };
 const modules = new Map<string, Promise<WebAssembly.Module>>();
@@ -83,7 +83,7 @@ function waitForCompilation(pending: Promise<WebAssembly.Module>, signal?: Abort
 }
 export class Connection {
   private readonly reader: RingReader;
-  private readonly output: DecodedRecord[] = [];
+  private readonly output: DecodedLazyRecord[] = [];
   private readonly abandoned: Reply[] = [];
   private readonly doorbells = new Set<() => void>();
   private readonly crashes = new Set<(crash: CrashInfo) => void>();
@@ -172,11 +172,11 @@ export class Connection {
   readonly replies = { take: (): Reply[] => this.abandoned.splice(0) };
   readonly records = {
     /** Only decoded output; a deferred sync tail must not chase a live producer. */
-    takeBuffered: (): DecodedRecord[] => {
+    takeBuffered: (): DecodedLazyRecord[] => {
       this.checkCrash();
       return this.crash || this.inFlight ? [] : this.output.splice(0);
     },
-    take: (): DecodedRecord[] => {
+    take: (): DecodedLazyRecord[] => {
       this.drain();
       this.checkCrash();
       return this.inFlight ? [] : this.output.splice(0);
@@ -288,7 +288,7 @@ export class Connection {
     this.timer = undefined;
     return { ...reply, records: this.through(reply.outSeq) };
   }
-  private through(outSeq: number): DecodedRecord[] {
+  private through(outSeq: number): DecodedLazyRecord[] {
     const after = this.output.findIndex(
       (record) =>
         record.seq !== 0 &&
@@ -322,7 +322,7 @@ export class Connection {
           throw new ProtocolError({ message: `Expected record sequence ${expected}, received ${seq}` });
         if (seq === 0 && header.getUint32(4, true) !== 0)
           throw new ProtocolError({ message: "Host records must carry ic 0" });
-        const decoded = decodeRecord(bytes);
+        const decoded = decodeRecordLazy(bytes);
         if (decoded.record._tag === "Crashed") {
           this.fail(crashFromRecord(decoded.record));
           return;

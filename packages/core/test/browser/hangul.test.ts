@@ -73,7 +73,7 @@ describe.each(data.runtimes)("synthetic DOM Hangul through $name host", (runtime
       const table = h.records.filter(({ record }) => record._tag === "UpdateLookupTable").at(-1)?.record;
       expect(table?._tag).toBe("UpdateLookupTable");
       if (table?._tag !== "UpdateLookupTable") throw new Error("No Hanja table");
-      const index = table.table.candidates.findIndex((candidate) => candidate.text === "韓");
+      const index = table.table.visible().candidates.findIndex((candidate) => candidate.text === "韓");
       expect(index).toBeGreaterThanOrEqual(0);
       expect(index).toBeLessThan(9);
       const before = h.records.length;

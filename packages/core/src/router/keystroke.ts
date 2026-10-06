@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { ProcessKeyEvent, type DecodedRecord, type EngineManifest, type Request } from "@ibus-web/protocol";
+import { ProcessKeyEvent, type DecodedLazyRecord, type EngineManifest, type Request } from "@ibus-web/protocol";
 import type { Connection, CrashInfo, Reply } from "../connection/connection.ts";
 import { translateKey } from "../keys/translate.ts";
 import { ReplayQueue, type KeySink, type KeyResult, type AsyncKeyResult, type SurfaceAdapter } from "./replay.ts";
@@ -25,7 +25,7 @@ export interface KeyContext {
   generation: number;
   ready: boolean;
   readonly adapter: SurfaceAdapter;
-  apply(record: DecodedRecord): void;
+  apply(record: DecodedLazyRecord): void;
   consumed(): void;
   invalidate(): void;
 }
@@ -39,7 +39,7 @@ interface PendingKey {
 }
 export interface RouterOutput {
   readonly replayLimit: number;
-  enqueue(record: DecodedRecord): void;
+  enqueue(record: DecodedLazyRecord): void;
   hide(ic: number): void;
   crashed(crash: CrashInfo): void;
   /** Reports page callback errors from background work without restarting the engine. */
@@ -152,7 +152,7 @@ export class KeyRouter {
       }
     }
   }
-  private ownedRecords(records: readonly DecodedRecord[], key: PendingKey): DecodedRecord[] {
+  private ownedRecords(records: readonly DecodedLazyRecord[], key: PendingKey): DecodedLazyRecord[] {
     return records.filter(
       (record) =>
         record.record._tag === "Log" ||
@@ -268,7 +268,7 @@ export class KeyRouter {
       }
     }
   }
-  apply(records: readonly DecodedRecord[], consumed?: KeyContext): void {
+  apply(records: readonly DecodedLazyRecord[], consumed?: KeyContext): void {
     const targets = new Set<KeyContext>();
     for (const record of records) {
       const context = this.contexts.get(record.ic);

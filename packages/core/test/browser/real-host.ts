@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Effect, Layer, Logger as EffectLogger } from "effect";
 import { expect, inject } from "vitest";
-import type { DecodedRecord, Request } from "@ibus-web/protocol";
+import type { DecodedLazyRecord, Request } from "@ibus-web/protocol";
 import {
   Connection,
   CoreConfig,
@@ -48,7 +48,7 @@ export const runHost = (
     router: Router["Service"];
     registry: EngineRegistry["Service"];
     contexts: Map<HTMLElement, KeyContext>;
-    records: DecodedRecord[];
+    records: DecodedLazyRecord[];
     requests: { request: Request; ic: number; generation: number }[];
     connections: Connection[];
     crashes: CrashInfo[];
@@ -96,7 +96,7 @@ export const runHost = (
         const alias = "selected-engine";
         const connections: Connection[] = [];
         const contexts = new Map<HTMLElement, KeyContext>();
-        const records: DecodedRecord[] = [];
+        const records: DecodedLazyRecord[] = [];
         const requests: { request: Request; ic: number; generation: number }[] = [];
         const crashWaiters: ((crash: CrashInfo) => void)[] = [];
         const registry = yield* makeEngineRegistry({

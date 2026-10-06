@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Effect, Layer } from "effect";
-import type { DecodedRecord, EngineManifest, OutputRecord, Request } from "@ibus-web/protocol";
+import type { DecodedLazyRecord, EngineManifest, LazyOutputRecord, Request } from "@ibus-web/protocol";
 import { makeRouter } from "../../src/router/router.ts";
 import { makeEngineRegistry, EngineRegistry } from "../../src/services/engines.ts";
 import { CoreConfig } from "../../src/services/config.ts";
@@ -10,7 +10,7 @@ import { SettingsSource } from "../../src/services/settings.ts";
 import { textareaAdapter } from "../../src/adapters/textarea.ts";
 import { FakeConnection } from "./support.ts";
 export const text = (value: string) => ({ attachments: {}, text: value, attrs: { attachments: {}, attributes: [] } });
-export const record = (value: OutputRecord, ic = 1): DecodedRecord => ({
+export const record = (value: LazyOutputRecord, ic = 1): DecodedLazyRecord => ({
   record: value,
   ic,
   seq: 1,

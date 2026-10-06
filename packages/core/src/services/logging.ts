@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Context, Effect, Layer, PubSub, Stream } from "effect";
-import type { Log, OutputRecord } from "@ibus-web/protocol";
+import type { Log, LazyOutputRecord } from "@ibus-web/protocol";
 
 /** Waking a service is deferred so an enqueue cannot run its fiber on the key stack. */
 export class SyncMailbox<A> {
@@ -74,7 +74,7 @@ export class Logger extends Context.Service<Logger, { enqueue(line: LogLine): vo
 }
 
 export type PanelRecord = Extract<
-  OutputRecord,
+  LazyOutputRecord,
   {
     _tag:
       | "UpdateAuxiliaryText"

@@ -90,12 +90,22 @@ function decodeShortUtf8(bytes: Uint8Array, start: number, end: number): string 
   return text;
 }
 
+export interface ElementBoundary {
+  readonly start: number;
+  readonly end: number;
+}
+
+type DeferArray = (element: GVariantType, depth: number, boundaries: readonly ElementBoundary[]) => boolean;
+
 class Decoder {
   private readonly view: DataView;
 
   private readonly bytes: Uint8Array;
 
-  constructor(bytes: Uint8Array) {
+  private readonly deferArray: DeferArray | undefined;
+
+  constructor(bytes: Uint8Array, deferArray?: DeferArray) {
+    this.deferArray = deferArray;
     this.bytes = bytes;
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
@@ -198,18 +208,18 @@ class Decoder {
     return value;
   }
 
-  private array(element: GVariantType, start: number, end: number, depth: number): GVariantValue {
+  arrayBoundaries(element: GVariantType, start: number, end: number): ElementBoundary[] {
     const size = end - start;
-    const items: GVariantValue[] = [];
+    const boundaries: ElementBoundary[] = [];
     const fixedSize = element.fixedSize;
     if (fixedSize !== undefined) {
       if (size % fixedSize !== 0) fail(start, "wrong array size");
       for (let position = start; position < end; position += fixedSize) {
-        items.push(this.read(element, position, position + fixedSize, depth + 1));
+        boundaries.push({ start: position, end: position + fixedSize });
       }
-      return { _tag: "a", items };
+      return boundaries;
     }
-    if (size === 0) return { _tag: "a", items };
+    if (size === 0) return boundaries;
 
     const width = offsetWidth(size);
     const dataEnd = this.offset(end - width, width, start, end);
@@ -225,9 +235,17 @@ class Decoder {
       const position = align(cursor, element.alignment);
       if (limit < position || limit > dataEnd) fail(offsetPosition, "framing offsets out of order or bounds");
       this.padding(start + cursor, start + position);
-      items.push(this.read(element, start + position, start + limit, depth + 1));
+      boundaries.push({ start: start + position, end: start + limit });
       cursor = limit;
     }
+    return boundaries;
+  }
+
+  private array(element: GVariantType, start: number, end: number, depth: number): GVariantValue {
+    const boundaries = this.arrayBoundaries(element, start, end);
+    const items = this.deferArray?.(element, depth, boundaries)
+      ? []
+      : boundaries.map(({ start, end }) => this.read(element, start, end, depth + 1));
     return { _tag: "a", items };
   }
 
@@ -311,4 +329,31 @@ class Decoder {
 
 export function decodeValue(signature: string, bytes: Uint8Array): GVariantValue {
   return new Decoder(bytes).read(readType(signature, 0), 0, bytes.length, 0);
+}
+
+/** Validates the complete array framing and alignment, leaving element payloads unread. */
+export function decodeArrayBoundaries(signature: string, bytes: Uint8Array): readonly ElementBoundary[] {
+  const type = readType(signature, 0);
+  if (type._tag !== "a") fail(0, "expected array type");
+  return new Decoder(bytes).arrayBoundaries(type.element, 0, bytes.length);
+}
+
+/** Internal traversal hook: deferred arrays are represented by empty arrays in the tree. */
+export function decodeValueWithDeferredArrays(
+  signature: string,
+  bytes: Uint8Array,
+  deferArray: DeferArray,
+): GVariantValue {
+  return new Decoder(bytes, deferArray).read(readType(signature, 0), 0, bytes.length, 0);
+}
+
+/** Retains the enclosing container depth and byte offsets for deferred child validation. */
+export function decodeValueRange(
+  signature: string,
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+  depth: number,
+): GVariantValue {
+  return new Decoder(bytes).read(readType(signature, start), start, end, depth);
 }

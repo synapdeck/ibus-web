@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  IBusLookupTable,
+  UpdateLookupTable,
+  encodeValue,
+  signatureOf,
   Init,
   PROTOCOL_VERSION,
   ProcessKeyEvent,
@@ -9,6 +13,11 @@ import {
   CrashReason,
   transportLayout,
 } from "@ibus-web/protocol";
+import { Schema } from "effect";
+import { toTree } from "../../../protocol/src/ibus/walk.ts";
+import { InputContext } from "../../src/router/contexts.ts";
+import { fixture as routerFixture } from "../router/support.ts";
+import type { PanelEvent } from "../../src/services/logging.ts";
 import { ReqMode, State, Word, postReply } from "@ibus-web/worker-host";
 import { Connection, type ConnectionOptions } from "../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";
@@ -744,5 +753,72 @@ test.each([0, -1, Infinity, NaN])(
     const worker = vi.fn(() => host.asWorker());
     await expect(start({ initHangMs, worker })).rejects.toThrow(RangeError);
     expect(worker).not.toHaveBeenCalled();
+  },
+);
+
+function lookupRecord(corrupt = false) {
+  const text = (text: string) => ({ attachments: {}, text, attrs: { attachments: {}, attributes: [] } });
+  const value = new UpdateLookupTable({
+    visible: true,
+    table: IBusLookupTable.make({
+      attachments: {},
+      pageSize: 2,
+      cursorPos: 0,
+      cursorVisible: true,
+      round: false,
+      orientation: 0,
+      candidates: [text("first"), text("second"), text("invisible")],
+      labels: [text("1"), text("2")],
+    }),
+  });
+  const payload = encodeValue(
+    signatureOf(UpdateLookupTable),
+    toTree(UpdateLookupTable)(Schema.encodeSync(UpdateLookupTable)(value)),
+  );
+  const bytes = new Uint8Array(Math.ceil((16 + payload.length) / 8) * 8);
+  const header = new DataView(bytes.buffer);
+  header.setUint32(0, 1, true);
+  header.setUint32(4, 7, true);
+  header.setUint16(8, 4, true);
+  header.setUint32(12, payload.length, true);
+  bytes.set(payload, 16);
+  if (corrupt) bytes[Buffer.from(bytes).indexOf("invisible")] = 0xff;
+  return bytes;
+}
+test.each([false, true])(
+  "production reply delivers lazy lookup to the panel and retains bytes after ring reuse (corrupt=%s)",
+  async (corrupt) => {
+    const connection = await start({ layout: transportLayout({ ringBytes: 1024 }), development: true });
+    host.scripts.push({ records: [lookupRecord(corrupt)] });
+    const outcome = connection.requestSync(key, 7);
+    expect(outcome._tag).toBe("reply");
+    if (outcome._tag !== "reply") throw new Error("missing reply");
+    const decoded = outcome.records[0]!;
+    const events: PanelEvent[] = [];
+    const {
+      context: { adapter },
+    } = routerFixture();
+    const context = new InputContext({
+      ic: 7,
+      engine: "test",
+      generation: 1,
+      adapter,
+      current: () => true,
+      refresh: () => {},
+      panel: (event) => events.push(event),
+    });
+    context.apply(decoded);
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event._tag !== "record" || event.record._tag !== "UpdateLookupTable") throw new Error("missing table");
+    const lazy = event.record.table;
+    expect(lazy.visible().candidates.map((item) => item.text)).toEqual(["first", "second"]);
+    for (let seq = 2; seq < 100; seq++) {
+      expect(host.write(record(seq))).toBe(true);
+      connection.records.take();
+    }
+    expect(Atomics.load(host.views.words, Word.ringWrite)).toBeGreaterThan(1024);
+    if (corrupt) expect(() => lazy.page(1)).toThrow();
+    else expect(lazy.page(1).candidates.map((item) => item.text)).toEqual(["invisible"]);
   },
 );

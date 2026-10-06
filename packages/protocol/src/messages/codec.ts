@@ -60,20 +60,16 @@ export function encodeRequest(ic: number, request: Request): Uint8Array {
   return bytes;
 }
 
-export interface DecodedRecord {
+export interface DecodedRecord<Record = OutputRecord> {
   readonly seq: number;
   readonly ic: number;
   readonly flags: number;
   readonly size: number;
-  readonly record: OutputRecord;
+  readonly record: Record;
 }
 
-/**
- * Decodes the record at `offset`. Framing errors (a truncated header, an unknown kind, flags it
- * cannot handle, padding, a Crashed record the host didn't write) throw `ProtocolError`; a payload
- * that doesn't match its kind's schema throws `SchemaError`.
- */
-export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
+/** Validates the complete record envelope before any payload is decoded. */
+export function readRecordEnvelope(bytes: Uint8Array, offset = 0) {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > bytes.length - 16) {
     throw new ProtocolError({ message: "Record offset is invalid or the header is truncated" });
   }
@@ -107,6 +103,15 @@ export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
       throw new ProtocolError({ message: `Nonzero record padding at byte ${index}` });
     }
   }
-  const record = decode(bytes.subarray(offset + 16, payloadEnd));
-  return { seq, ic, flags, size, record };
+  return { seq, ic, flags, size, kind, payload: bytes.subarray(offset + 16, payloadEnd) };
+}
+
+/**
+ * Decodes the record at `offset`. Framing errors (a truncated header, an unknown kind, flags it
+ * cannot handle, padding, a Crashed record the host didn't write) throw `ProtocolError`; a payload
+ * that doesn't match its kind's schema throws `SchemaError`.
+ */
+export function decodeRecord(bytes: Uint8Array, offset = 0): DecodedRecord {
+  const { seq, ic, flags, size, kind, payload } = readRecordEnvelope(bytes, offset);
+  return { seq, ic, flags, size, record: recordDecoders.get(kind)!(payload) };
 }

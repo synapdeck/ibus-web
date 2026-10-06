@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { SetCursorLocation, SetSurroundingText, type DecodedRecord, type Request } from "@ibus-web/protocol";
+import { SetCursorLocation, SetSurroundingText, type DecodedLazyRecord, type Request } from "@ibus-web/protocol";
 import type { KeyContext } from "./keystroke.ts";
 import type { SurfaceAdapter } from "./replay.ts";
 import type { PanelEvent } from "../services/logging.ts";
@@ -40,7 +40,7 @@ export class InputContext implements KeyContext {
     this.panel = options.panel;
     this.adapter = options.adapter;
   }
-  apply({ record }: DecodedRecord): void {
+  apply({ record }: DecodedLazyRecord): void {
     if (!this.current()) return;
     switch (record._tag) {
       case "CommitText":
