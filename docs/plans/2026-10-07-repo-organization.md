@@ -12325,9 +12325,9 @@ Typical cases, after Phases A–C:
 | `modules/keys.nix`                                                        | `tools/keysyms/module.nix`                                                                        |
 | `modules/typescript/default.nix`                                          | `modules/typescript/workspace.nix` or `files.nix`, whichever holds the thing named                |
 | `modules/testing/default.nix`                                             | the `modules/testing/` file holding the thing named (`gtest.nix`, `programs.nix`, `vitest.nix`, `playwright.nix`) |
-| `docs/plans/…`                                                            | drop the reference (Task F9 deletes the plans)                                                    |
+| `docs/plans/…`                                                            | drop the reference (Task F10 deletes the plans)                                                    |
 
-Run the script again without `--write`. Expected: no `still names` lines, except mentions of `docs/plans/` that Task F9 handles.
+Run the script again without `--write`. Expected: no `still names` lines, except mentions of `docs/plans/` that Task F10 handles.
 
 - [ ] **Step 4: Rename checks in the docs**
 
@@ -13396,7 +13396,6 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 | Spec                                                                                         | Covers                                                                                   |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | [The design](specs/2026-09-26-ibus-web-design.md)                                            | Goals, architecture, protocol, licensing, build and the remaining milestones             |
-| [Native IBus differential testing](specs/2026-10-03-native-ibus-differential-testing.md)     | Running engines under native IBus and the wasm runtime and comparing their traces        |
 | [Repository organization](specs/2026-10-07-repo-organization.md)                             | The package, tsconfig, Nix and documentation layout                                      |
 
 ## Beside the code
@@ -13431,7 +13430,74 @@ nix develop -c git add docs/README.md
 nix develop -c git commit -m "docs: index every page, spec and in-tree README" -- docs/README.md
 ```
 
-### Task F9: Delete the finished plans
+### Task F9: Retire the differential-testing spec
+
+`docs/specs/2026-10-03-native-ibus-differential-testing.md` designed a feature that is finished. `tools/ibus-test/README.md` documents its contract and `docs/known-gaps.md` its open scope. The spec's design rules and its one note on future work appear nowhere else, so they move first and the spec is deleted.
+
+**Files:**
+
+- Modify: `tools/ibus-test/README.md` (a "Design rules" section after the opening paragraph)
+- Modify: `docs/known-gaps.md` (the "Native parity scope" item)
+- Delete: `docs/specs/2026-10-03-native-ibus-differential-testing.md`
+
+**Interfaces:** none.
+
+- [ ] **Step 1: Add the design rules to the adapter README**
+
+In `tools/ibus-test/README.md`, insert after the opening paragraph (the one ending "contexts are symbolic names.") and before the next heading or paragraph:
+
+```markdown
+## Design rules
+
+- The native engine is the reference and runs unpatched. Where the port deliberately fixes an upstream bug, the
+  difference is declared narrowly in `expectedDifferences`. It is never hidden by patching the native side, skipping
+  the scenario or loosening the comparison.
+- Only transport identity is normalized: native object paths, runtime context numbers and sequence counters map to
+  the trace's symbolic names. Events are never dropped, reordered or merged, and empty updates count.
+- A reply or an explicit checkpoint proves that output is complete. An idle event loop or a sleep never does.
+- An engine is added by configuration alone: its executable, service and factory identity, engine name, schemas, data
+  and traces. Adding one changes neither the driver nor the comparison.
+```
+
+Then run `nix develop -c oxfmt tools/ibus-test/README.md`.
+
+- [ ] **Step 2: Repoint known-gaps and record the future adapter**
+
+In `docs/known-gaps.md`, in the "Native parity scope" item, replace the line
+
+```markdown
+  See [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
+```
+
+with
+
+```markdown
+  Comparing what `ibus-daemon` and a toolkit client do on top of the engine needs a separate input-context adapter,
+  which must set client-side preedit commits and capabilities explicitly, since both change the observable output.
+  See [the test adapter](../tools/ibus-test/README.md).
+```
+
+Then run `nix develop -c oxfmt docs/known-gaps.md`.
+
+- [ ] **Step 3: Delete the spec and check for references**
+
+```sh
+git rm docs/specs/2026-10-03-native-ibus-differential-testing.md
+git grep -n '2026-10-03-native-ibus-differential-testing' -- ':!docs/plans'
+```
+
+Expected: no output from `git grep`. For any hit, point it at `tools/ibus-test/README.md`.
+
+- [ ] **Step 4: Verify and commit**
+
+Run the four Global Constraints commands; `nix develop -c hk check -S links` must pass.
+
+```bash
+nix develop -c git add tools/ibus-test/README.md docs/known-gaps.md
+nix develop -c git commit -m "docs: fold the differential-testing spec into the adapter README" -- tools/ibus-test/README.md docs/known-gaps.md docs/specs/2026-10-03-native-ibus-differential-testing.md
+```
+
+### Task F10: Delete the finished plans
 
 This is the branch's last commit. It deletes `docs/plans/`, including this plan.
 

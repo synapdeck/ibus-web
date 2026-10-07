@@ -296,13 +296,15 @@ package depends on. Check names are `<area>-<what>`, where the area is the direc
   `known-gaps.md`; `tooling.md`'s CI section, which omits the integration job, and its list of what `write-files`
   writes. `ibus-web.md`'s install instructions say the packages are not published yet.
 - The spec's repository layout (§10.1) is redrawn from the tree this document produces.
-- `docs/README.md` indexes every page, the differential-testing spec, `PROTOCOL.md`, the example and tools READMEs and
+- `docs/README.md` indexes every page and spec, `PROTOCOL.md`, the example and tools READMEs and
   each patch README.
 - hk gains a link check over Markdown, so the links that all resolve today keep resolving.
 
 ### Historical material
 
 - The six implementation plans in `docs/plans/` are deleted. Their milestones are done, and git history keeps them.
+- The native differential-testing spec is deleted. `tools/ibus-test/README.md` already documents its contract; its
+  design rules join that README, and its note on a future input-context adapter joins `known-gaps.md`.
 - `docs/upstream/` keeps the drafts, which record why each Emscripten patch exists. The posting queue in its README
   becomes a status table, the drafts' "Notes for the user" sections become "Evidence", and
   `docs/upstream/evidence/idb-sync-calls/` leaves the repository; its README's summary of the measurements stays in
