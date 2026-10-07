@@ -7,7 +7,7 @@
 // Emscripten, from a link of the library.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../../tsconfig.emscripten-js.json",
+  "extends": "@ibus-web/tsconfig/emscripten-js.json",
   "files": [
     "report.js",
     "report.d.ts",

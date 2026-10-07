@@ -62,8 +62,6 @@
         fileset = lib.fileset.unions (
           runtime.wasmfsIdbTestLibraries
           ++ [
-            ../../tsconfig.base.json
-            ../../tsconfig.emscripten-js.json
             ./src/tsconfig.json
             ./src/libwasmfs_idb.js
             ./src/emscripten-library.d.ts
@@ -111,6 +109,8 @@
           ''
             cp -r --no-preserve=mode ${sources} source
             cd source
+            mkdir -p node_modules/@ibus-web
+            cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
             node ${libraryDeps} check ${sourcePath ./src/libwasmfs_idb.js} ${emscripten}/share/emscripten
             for library in ${lib.concatMapStringsSep " " sourcePath runtime.wasmfsIdbTestLibraries}; do
               node ${libraryDeps} check "$library" ${emscripten}/share/emscripten

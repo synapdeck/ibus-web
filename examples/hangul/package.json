@@ -13,6 +13,7 @@
   "devDependencies": {
     "@ibus-web/test-programs": "workspace:*",
     "@ibus-web/tools": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "effect": "catalog:",
     "playwright": "catalog:",

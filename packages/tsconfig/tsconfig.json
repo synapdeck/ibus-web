@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Type-checks the declarations on their own. They are included by path:
+// a package's node_modules doesn't link the package itself, so node.json's
+// name for them doesn't resolve here.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./node.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["types"]
+}

@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Code that runs in a dedicated Worker. A config whose code waits on shared
+// memory adds es2024.sharedmemory to lib.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "webworker"],
+    "types": []
+  }
+}

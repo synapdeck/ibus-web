@@ -22,14 +22,15 @@
           ../../tools/vitest.config.ts
           ../../tools/tsconfig.json
           ../../tools/ibus-test
-          ../../tsconfig.base.json
-          ../../tsconfig.node-scripts.json
         ];
       };
       testTools = pkgs.runCommand "ibus-web-ibus-test-tools" { } ''
         cp -R ${toolsSource} $out
         chmod u+w $out/tools
         ln -s ${typescript.packageNodeModules ../../tools} $out/tools/node_modules
+        chmod u+w $out
+        mkdir -p $out/node_modules/@ibus-web
+        cp -R ${typescript.presets} $out/node_modules/@ibus-web/tsconfig
       '';
       native = pkgs.stdenv.mkDerivation {
         pname = "ibus-test-native";

@@ -5,8 +5,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2023", "es2024.sharedmemory", "webworker"],
-    "typeRoots": ["../../../../node_modules/@types", "../../../../types"],
-    "types": ["node", "webassembly"]
+    "types": ["node", "@ibus-web/tsconfig/types/webassembly"]
   },
   "include": [".", "../engines", "../shared", "../../src/shared"]
 }

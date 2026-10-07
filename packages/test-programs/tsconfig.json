@@ -4,7 +4,7 @@
 // Type-checks Vitest's configuration, which Vitest loads from source.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.node-scripts.json",
+  "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
     "skipLibCheck": true
   },

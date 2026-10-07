@@ -121,6 +121,11 @@
 
       rootManifest = lib.importJSON (root + "/package.json");
 
+      presets = lib.fileset.toSource {
+        root = root + "/packages/tsconfig";
+        fileset = root + "/packages/tsconfig";
+      };
+
       # pnpm compares itself with `packageManager` and, offline, can't fetch a
       # different version, so it has to name the pnpm nixpkgs provides.
       workspaceFiles =
@@ -300,13 +305,8 @@
           src = withWorkspaceFile (
             lib.fileset.toSource {
               inherit root;
-              # Every package's tsconfig extends the repository's base.
               fileset = lib.fileset.unions (
                 workspaceFiles
-                ++ [
-                  (root + "/tsconfig.base.json")
-                  (root + "/tsconfig.node-scripts.json")
-                ]
                 # pnpm validates every workspace dependency in the root manifest and lockfile.
                 ++ map (dir: root + "/${dir}/package.json") packageDirs
                 ++ map (file: root + "/${file}") noticeInputs
@@ -346,7 +346,7 @@
             # Keep manifest-only directories too: the shared install links to
             # every workspace package. Only selected packages contain sources
             # and compiled output.
-            cp -R package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node-scripts.json node_modules $out/
+            cp -R package.json pnpm-workspace.yaml node_modules $out/
             ${lib.concatMapStrings (dir: ''
               mkdir -p $out/${dirOf dir}
               cp -R ${dir} $out/${dir}
@@ -380,6 +380,7 @@
           workspaceFor
           nodeModules
           tsc
+          presets
           ;
         packageNodeModules =
           dir:

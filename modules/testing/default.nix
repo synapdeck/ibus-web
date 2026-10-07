@@ -508,8 +508,6 @@
           sources = lib.fileset.toSource {
             inherit root;
             fileset = lib.fileset.unions [
-              ../../tsconfig.base.json
-              ../../tsconfig.emscripten-js.json
               ../../runtime/wasmfs-idb/src/emscripten-library.d.ts
               ./gtest-main/tsconfig.json
               ./gtest-main/report.js
@@ -527,6 +525,8 @@
           ''
             cp -r --no-preserve=mode ${sources} source
             cd source
+            mkdir -p node_modules/@ibus-web
+            cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
             node ${libraryDeps} check modules/testing/gtest-main/report.js ${emscripten}/share/emscripten
             # The library's declarations read Emscripten's decorators from
             # the types beside them, which any library's link writes alike.

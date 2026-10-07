@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "effect": "catalog:",
     "tsdown": "catalog:",

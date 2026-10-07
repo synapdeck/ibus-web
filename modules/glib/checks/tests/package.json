@@ -4,5 +4,8 @@
   "type": "module",
   "dependencies": {
     "smol-toml": "catalog:"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*"
   }
 }

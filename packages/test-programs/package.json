@@ -21,6 +21,7 @@
     "tap-parser": "^18.3.4"
   },
   "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/browser": "catalog:",
     "@vitest/browser-playwright": "catalog:",

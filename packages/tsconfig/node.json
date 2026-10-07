@@ -1,0 +1,17 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Code Node runs with its types stripped: tools, Node tests, and build and
+// test configuration.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./base.json",
+  "compilerOptions": {
+    // Explicit, because the default for the target includes DOM.
+    "lib": ["es2023"],
+    // The WebAssembly declarations are what Node has but @types/node doesn't
+    // declare. The name resolves from the project's node_modules, so every
+    // package extending this lists @ibus-web/tsconfig as a dependency.
+    "types": ["node", "@ibus-web/tsconfig/types/webassembly"]
+  }
+}

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "@ibus-web/tsconfig/base.json",
   "compilerOptions": {
     "noEmit": true,
     "allowImportingTsExtensions": true,

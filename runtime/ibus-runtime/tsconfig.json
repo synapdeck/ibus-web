@@ -5,6 +5,6 @@
 // runtime as written, as a script. The runtime runs in Workers.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.emscripten-js.json",
+  "extends": "@ibus-web/tsconfig/emscripten-js.json",
   "files": ["host-memory.js", "pre-js.d.ts"]
 }

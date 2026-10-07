@@ -6,6 +6,6 @@
 // of what the library uses from Emscripten, from a link of the library.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../../tsconfig.emscripten-js.json",
+  "extends": "@ibus-web/tsconfig/emscripten-js.json",
   "files": ["libwasmfs_idb.js", "emscripten-library.d.ts", "emscripten-types/globals.d.ts"]
 }

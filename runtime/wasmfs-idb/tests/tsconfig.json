@@ -5,6 +5,6 @@
 // every thread of a test program, the backend's Worker among them.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../../tsconfig.emscripten-js.json",
+  "extends": "@ibus-web/tsconfig/emscripten-js.json",
   "include": ["*.js", "*.d.ts", "../src/emscripten-library.d.ts"]
 }

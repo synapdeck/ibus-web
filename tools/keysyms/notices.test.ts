@@ -49,14 +49,14 @@ test("core pack ships clean complete notices and cleans package-local copies", (
       cpSync(join(root, file), join(directory, file), { recursive: true });
     }
     cpSync(join(root, "NOTICES"), join(directory, "NOTICES"), { recursive: true });
-    for (const name of ["core", "protocol", "worker-host"]) {
+    for (const name of ["core", "protocol", "tsconfig", "worker-host"]) {
       const target = join(directory, "packages", name);
       mkdirSync(target, { recursive: true });
       cpSync(join(root, "packages", name, "package.json"), join(target, "package.json"));
     }
     const core = join(directory, "packages/core");
     mkdirSync(join(core, "node_modules/@ibus-web"), { recursive: true });
-    for (const name of ["protocol", "worker-host"]) {
+    for (const name of ["protocol", "tsconfig", "worker-host"]) {
       symlinkSync(join(directory, "packages", name), join(core, "node_modules/@ibus-web", name));
     }
     cpSync(join(root, "packages/core/dist"), join(core, "dist"), { recursive: true });

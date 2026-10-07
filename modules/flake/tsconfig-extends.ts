@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Fails unless every tsconfig*.json git tracks, but the repository's base,
-// reaches the base through `extends`, so every config shares its options.
+// Fails unless every tsconfig*.json git tracks reaches one of
+// @ibus-web/tsconfig's presets through `extends`, so every config shares
+// the repository's standard options. The presets, which aren't named
+// tsconfig*.json, are the roots.
 //
 //   tsconfig-extends.ts
 //     Run from the repository root.
@@ -12,7 +14,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { type ParseError, parse, printParseErrorCode } from "jsonc-parser";
 
-const base = path.resolve("tsconfig.base.json");
+const presetPackage = "@ibus-web/tsconfig";
+const presetDirectory = path.resolve("packages/tsconfig");
 
 // tsconfig files are JSON with comments and trailing commas.
 const parseJsonc = (text: string): unknown => {
@@ -43,25 +46,28 @@ const extendsOf = (file: string): string[] => {
   );
 };
 
-const reachesBase = (file: string, seen = new Set<string>()): boolean => {
+const isPreset = (parent: string) =>
+  parent.startsWith(`${presetPackage}/`) || (path.isAbsolute(parent) && path.dirname(parent) === presetDirectory);
+
+const reachesPreset = (file: string, seen = new Set<string>()): boolean => {
   if (seen.has(file)) return false;
   seen.add(file);
-  return extendsOf(file).some((parent) => parent === base || (path.isAbsolute(parent) && reachesBase(parent, seen)));
+  return extendsOf(file).some((parent) => isPreset(parent) || (path.isAbsolute(parent) && reachesPreset(parent, seen)));
 };
 
-const files = execFileSync("git", ["ls-files", "-z", "--", "*tsconfig*.json"], { encoding: "utf8" })
+const files = execFileSync("git", ["ls-files", "-z", "--", ":(glob)**/tsconfig*.json"], { encoding: "utf8" })
   .split("\0")
-  .filter((file) => file !== "" && path.resolve(file) !== base);
+  .filter((file) => file !== "");
 
 const failures = files.filter((file) => {
   try {
-    return !reachesBase(path.resolve(file));
+    return !reachesPreset(path.resolve(file));
   } catch (error) {
     console.error(`${file}: ${error instanceof Error ? error.message : String(error)}`);
     return true;
   }
 });
 for (const file of failures) {
-  console.error(`${file}: doesn't extend tsconfig.base.json, directly or through another config`);
+  console.error(`${file}: doesn't extend an ${presetPackage} preset, directly or through another config`);
 }
 if (failures.length > 0) process.exit(1);

@@ -13,6 +13,15 @@
         type = lib.types.package;
         description = "The workspace's TypeScript compiler, as bin/tsc, for type checks outside the workspace's packages.";
       };
+      presets = lib.mkOption {
+        type = lib.types.package;
+        description = ''
+          @ibus-web/tsconfig's presets, for a build that type-checks or compiles
+          sources outside the pnpm workspace: it copies this to
+          node_modules/@ibus-web/tsconfig at the root of its tree, where every
+          config's `extends` finds it.
+        '';
+      };
       assertDependency = lib.mkOption {
         type = lib.types.path;
         description = "A Node script, run as `node <it> [--locked] <package> <version> <why> <package directory>...`, that fails unless each directory resolves the package at exactly that version; for dependencies whose version something outside the lockfile fixes. --locked says the manifests name a range, which the lockfile holds at that version.";

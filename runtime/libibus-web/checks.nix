@@ -22,8 +22,6 @@
               ../../tools/vitest.config.ts
               ../../tools/tsconfig.json
               ../../tools/vendor-inventory
-              ../../tsconfig.base.json
-              ../../tsconfig.node-scripts.json
             ];
           };
         in
@@ -31,6 +29,9 @@
           cp -R ${source} $out
           chmod u+w $out/tools
           ln -s ${config.ibusWeb.typescript.packageNodeModules ../../tools} $out/tools/node_modules
+          chmod u+w $out
+          mkdir -p $out/node_modules/@ibus-web
+          cp -R ${config.ibusWeb.typescript.presets} $out/node_modules/@ibus-web/tsconfig
         '';
     in
     {

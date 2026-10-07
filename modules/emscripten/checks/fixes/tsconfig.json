@@ -5,12 +5,11 @@
 // run under Node, as written, as a script, and their Vitest test file.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../../../tsconfig.emscripten-js.json",
+  "extends": "@ibus-web/tsconfig/emscripten-js.json",
   "compilerOptions": {
     // Node's, not a Worker's.
     "lib": ["es2023"],
-    "typeRoots": ["../../../../node_modules/@types", "../../../../types"],
-    "types": ["node", "webassembly"]
+    "types": ["node", "@ibus-web/tsconfig/types/webassembly"]
   },
   "files": ["size-pre.js", "pre-js.d.ts", "fixes.test.ts"]
 }
