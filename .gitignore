@@ -8,6 +8,8 @@ result-*
 # Without a trailing slash, so a link to one is ignored too.
 node_modules
 dist/
+# Written by `tsc -b`, even with --noEmit.
+*.tsbuildinfo
 /runtime/wasmfs-idb/src/emscripten-types
 /modules/testing/gtest-main/emscripten-types
 /.hk

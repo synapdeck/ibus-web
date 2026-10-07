@@ -92,7 +92,9 @@ local linters = new Mapping<String, Step> {
     glob = List("**/*.ts", "**/*.mts", "**/*.cts", "**/*.js", "**/*.mjs", "**/*.cjs")
   }
   // One job per directory holding a tsconfig.json, over the files it owns;
-  // a JavaScript file or the config itself changing re-checks it too.
+  // a JavaScript file or any of the directory's configs changing re-checks
+  // it too. Build mode, because a package's tsconfig.json lists its other
+  // configs as references and holds no files itself.
   ["tsc"] = (Builtins.tsc) {
     glob =
       List(
@@ -102,7 +104,7 @@ local linters = new Mapping<String, Step> {
         "**/*.js",
         "**/*.mjs",
         "**/*.cjs",
-        "**/tsconfig.json",
+        "**/tsconfig*.json",
       )
     // A negative test: its check must fail, which the Nix check asserts.
     exclude = "**/runtime/wasmfs-idb/tests/library-types/**"
@@ -121,7 +123,7 @@ local linters = new Mapping<String, Step> {
               ;;
             esac
           done
-          tsc --noEmit -p {{workspace_indicator}}
+          tsc -b --noEmit {{workspace_indicator}}
           """
       effect = "read"
     }
