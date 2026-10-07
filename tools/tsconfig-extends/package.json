@@ -1,0 +1,12 @@
+{
+  "name": "@ibus-web/tsconfig-extends",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "jsonc-parser": "catalog:"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:"
+  }
+}

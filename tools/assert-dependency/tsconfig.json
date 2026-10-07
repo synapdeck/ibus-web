@@ -3,5 +3,5 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/node.json",
-  "files": ["expect-results.ts"]
+  "include": ["*.ts"]
 }

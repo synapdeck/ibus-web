@@ -429,6 +429,15 @@ importers:
         specifier: ^8.18.0
         version: 8.18.0
 
+  tools/assert-dependency:
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+
   tools/bundle-scan:
     dependencies:
       '@ibus-web/core':
@@ -503,6 +512,15 @@ importers:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
 
+  tools/expect-results:
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+
   tools/gschema:
     devDependencies:
       '@ibus-web/protocol':
@@ -544,6 +562,28 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
+
+  tools/toolchain-probes:
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+
+  tools/tsconfig-extends:
+    dependencies:
+      jsonc-parser:
+        specifier: 'catalog:'
+        version: 3.3.1
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
 
   tools/vendor-inventory:
     dependencies:

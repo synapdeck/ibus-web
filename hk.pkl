@@ -134,7 +134,7 @@ local linters = new Mapping<String, Step> {
   ["tsconfig-extends"] {
     glob = List("**/tsconfig*.json", "packages/tsconfig/*.json")
     check = new CommandSpec {
-      command = "node modules/flake/tsconfig-extends.ts"
+      command = "node tools/tsconfig-extends/tsconfig-extends.ts"
       effect = "read"
     }
   }

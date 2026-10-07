@@ -361,7 +361,7 @@
                 ''exit "$status"''
               else
                 ''
-                  node ${./expect-results.ts} $out/results.json ${pkgs.writeText "expected-results.json" (builtins.toJSON expectedResults)}
+                  node ${../../tools/expect-results/expect-results.ts} $out/results.json ${pkgs.writeText "expected-results.json" (builtins.toJSON expectedResults)}
                 ''
             }
           '';

@@ -1,0 +1,9 @@
+{
+  "name": "@ibus-web/toolchain-probes",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:"
+  }
+}

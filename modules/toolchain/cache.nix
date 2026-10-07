@@ -233,10 +233,10 @@
             for assertions in 0 1; do
               em++ ${toolchain.commonFlags} ${minimumFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 probe.o -o probe-runtime.js
-              test "$(node ${./instantiate.ts} $pages ./probe-runtime.js)" = "probe 7"
+              test "$(node ${../../tools/toolchain-probes/instantiate.ts} $pages ./probe-runtime.js)" = "probe 7"
               em++ ${toolchain.commonFlags} ${minimumFlags} ${runtime.linkFlags} -sASSERTIONS=$assertions \
                 probe.cpp -o probe-runtime-cpp.js
-              test "$(node ${./instantiate.ts} $pages ./probe-runtime-cpp.js)" = "probe 2"
+              test "$(node ${../../tools/toolchain-probes/instantiate.ts} $pages ./probe-runtime-cpp.js)" = "probe 2"
             done
 
             # What the minimum versions alone switch on, with nothing forcing
@@ -250,7 +250,7 @@
               local settings
               settings=$(find "dbg-$name" -name 'emcc-*-settings.json' | sort | tail -n 1)
               echo "== $name"
-              node ${./probe-features.ts} "$name.log" $settings
+              node ${../../tools/toolchain-probes/probe-features.ts} "$name.log" $settings
             }
             {
               probe_features main em++ ${probeFlags} ${minimumFlags} ${runtime.linkFlags} probe.cpp -o features-main.js

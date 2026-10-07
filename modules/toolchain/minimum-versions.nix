@@ -50,9 +50,9 @@
           }
           ''
             mkdir $out
-            node ${./minimum-versions.ts} date "$timeline" > $out/date
+            node ${../../tools/toolchain-probes/minimum-versions.ts} date "$timeline" > $out/date
             baseline-browser-mapping --suppress-warnings --widely-available-on-date "$(< $out/date)" |
-              node ${./minimum-versions.ts} versions $out/versions.json $out/link-flags
+              node ${../../tools/toolchain-probes/minimum-versions.ts} versions $out/versions.json $out/link-flags
           '';
     in
     {

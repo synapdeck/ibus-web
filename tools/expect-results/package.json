@@ -1,0 +1,9 @@
+{
+  "name": "@ibus-web/expect-results",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:"
+  }
+}

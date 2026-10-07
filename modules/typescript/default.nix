@@ -179,7 +179,7 @@
           ]
       ) ([ "." ] ++ packageDirs);
       assertPlaywrightVersion = ''
-        node ${./assert-dependency.ts} playwright ${
+        node ${../../tools/assert-dependency/assert-dependency.ts} playwright ${
           lib.escapeShellArgs (
             [
               pkgs.playwright-driver.version
@@ -390,7 +390,7 @@
           lib.throwIfNot (lib.elem (lib.removePrefix "./" relative) packageDirs)
             "packageNodeModules: ${relative} isn't a package of the workspace"
             "${nodeModules}/${relative}/node_modules";
-        assertDependency = ./assert-dependency.ts;
+        assertDependency = ../../tools/assert-dependency/assert-dependency.ts;
       };
 
       files.file."pnpm-workspace.yaml".source = pnpmWorkspaceFile;
