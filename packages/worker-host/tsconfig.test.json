@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Node runs the tests with worker_threads standing in for Workers, so they
+// see Node's globals beside a Worker's.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/worker.json",
+  "compilerOptions": {
+    "lib": ["es2023", "es2024.sharedmemory", "webworker"],
+    "types": ["node", "@ibus-web/tsconfig/types/webassembly"],
+    "skipLibCheck": true
+  },
+  "include": ["test/node", "test/engines", "test/shared", "src/shared"]
+}

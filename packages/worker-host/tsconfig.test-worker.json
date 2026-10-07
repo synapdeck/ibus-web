@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.base.json",
+  "extends": "@ibus-web/tsconfig/worker.json",
   "compilerOptions": {
     "lib": ["es2023", "es2024.sharedmemory", "webworker"],
-    "types": []
+    "skipLibCheck": true
   },
-  "include": [".", "../shared", "../../src/worker", "../../src/shared"]
+  "include": ["test/worker", "test/shared", "src/worker", "src/shared"]
 }

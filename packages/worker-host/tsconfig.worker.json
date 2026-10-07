@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.base.json",
+  "extends": "@ibus-web/tsconfig/worker.json",
   "compilerOptions": {
+    // The host waits on the control buffer with Atomics.waitAsync().
     "lib": ["es2023", "es2024.sharedmemory", "webworker"],
-    "types": ["node", "@ibus-web/tsconfig/types/webassembly"]
+    "skipLibCheck": true
   },
-  "include": [".", "../engines", "../shared", "../../src/shared"]
+  "include": ["src/worker", "src/shared"]
 }

@@ -1,13 +1,39 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Type-checks the build's and Vitest's configurations, which load from
-// source.
+// Sources are split by the environment they run in, and each environment
+// has its own config, so no file sees another environment's globals:
+//
+//   tsconfig.shared.json       src/shared/: no environment's globals: what
+//                              the page and the host share.
+//   tsconfig.worker.json       src/worker/: WebWorker globals: the host's
+//                              and the relay's Workers.
+//   tsconfig.test-worker.json  test/worker/: WebWorker globals: the host's
+//                              test build, instrumented.
+//   tsconfig.test-shared.json  test/shared/: no environment's globals: the
+//                              scenarios and the page's side of the control
+//                              buffer, for either test environment.
+//   tsconfig.test.json         test/node/ and test/engines/: Node globals:
+//                              the tests under Node, Vitest's
+//                              configuration's helpers, and the
+//                              worker_threads adapter.
+//   tsconfig.test-browser.json test/browser/: DOM globals: the tests in a
+//                              browser.
+//   tsconfig.config.json       the build's and Vitest's configurations.
+//
+// tsdown bundles what runs; these configs only check it. tsconfig.types.json
+// checks the published declarations against dist/ after a build, so it
+// isn't listed here.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ibus-web/tsconfig/node.json",
-  "compilerOptions": {
-    "skipLibCheck": true
-  },
-  "files": ["tsdown.config.ts", "vitest.config.ts", "vitest.unit.config.ts"]
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.shared.json" },
+    { "path": "./tsconfig.worker.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.test-browser.json" },
+    { "path": "./tsconfig.test-shared.json" },
+    { "path": "./tsconfig.test-worker.json" },
+    { "path": "./tsconfig.config.json" }
+  ]
 }

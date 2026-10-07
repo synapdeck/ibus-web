@@ -8,8 +8,7 @@
   "extends": "@ibus-web/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["es2023", "esnext.disposable", "dom"],
-    "types": [],
-    "noEmit": true
+    "types": []
   },
-  "files": ["worker.d.ts", "relay.d.ts", "usage.ts"]
+  "files": ["types/worker.d.ts", "types/relay.d.ts", "types/usage.ts"]
 }

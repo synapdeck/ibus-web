@@ -50,18 +50,18 @@ export default defineConfig([
     ...common,
     clean: true,
     entry: { "shared/index": "src/shared/index.ts" },
-    tsconfig: "src/shared/tsconfig.json",
+    tsconfig: "tsconfig.shared.json",
     dts: { generator: "oxc" },
     deps: { neverBundle: ["effect", /^effect\//] },
   },
   ...["worker", "test/worker"].map((directory): UserConfig => ({
-    ...worker(`${directory}/brotli-fallback`, "src/worker/brotli-fallback.ts", "src/worker/tsconfig.json"),
+    ...worker(`${directory}/brotli-fallback`, "src/worker/brotli-fallback.ts", "tsconfig.worker.json"),
     // The web bindings accept bytes directly; embedding them keeps each
     // lazily loaded fallback self-contained in both Node and browsers.
     loader: { ".wasm": "binary" },
   })),
-  worker("worker/index", "src/worker/index.ts", "src/worker/tsconfig.json"),
-  worker("worker/relay", "src/worker/relay.ts", "src/worker/tsconfig.json"),
-  worker("test/worker/host", "test/worker/host.ts", "test/worker/tsconfig.json"),
-  worker("test/worker/failing-relay", "test/worker/failing-relay.ts", "test/worker/tsconfig.json"),
+  worker("worker/index", "src/worker/index.ts", "tsconfig.worker.json"),
+  worker("worker/relay", "src/worker/relay.ts", "tsconfig.worker.json"),
+  worker("test/worker/host", "test/worker/host.ts", "tsconfig.test-worker.json"),
+  worker("test/worker/failing-relay", "test/worker/failing-relay.ts", "tsconfig.test-worker.json"),
 ]);

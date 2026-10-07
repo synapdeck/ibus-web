@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.base.json",
+  "extends": "@ibus-web/tsconfig/dom.json",
   "compilerOptions": {
     "lib": ["es2023", "es2024.sharedmemory", "dom"],
-    "types": []
+    "skipLibCheck": true
   },
-  "include": [".", "../shared", "../../src/shared"]
+  "include": ["test/browser", "test/shared", "src/shared"]
 }
