@@ -1,0 +1,14 @@
+{
+  "name": "@ibus-web/glib-test-gate",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "smol-toml": "catalog:"
+  },
+  "devDependencies": {
+    "@ibus-web/test-programs": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

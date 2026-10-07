@@ -1,0 +1,14 @@
+{
+  "name": "@ibus-web/emscripten-library-deps",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "acorn": "^8.18.0"
+  },
+  "devDependencies": {
+    "@ibus-web/test-programs": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

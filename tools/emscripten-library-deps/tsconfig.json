@@ -3,5 +3,5 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/node.json",
-  "files": ["library-deps.ts", "library-deps.test.ts"]
+  "include": ["*.ts"]
 }

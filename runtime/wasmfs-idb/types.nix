@@ -19,9 +19,9 @@
       # the dependencies it imports.
       libraryDepsDir = pkgs.runCommand "ibus-web-library-deps" { } ''
         mkdir $out
-        cp ${./library-deps.ts} $out/library-deps.ts
-        cp ${./package.json} $out/package.json
-        ln -s ${typescript.packageNodeModules ./.} $out/node_modules
+        cp ${../../tools/emscripten-library-deps/library-deps.ts} $out/library-deps.ts
+        cp ${../../tools/emscripten-library-deps/package.json} $out/package.json
+        ln -s ${typescript.packageNodeModules ../../tools/emscripten-library-deps} $out/node_modules
       '';
       libraryDeps = "${libraryDepsDir}/library-deps.ts";
 
@@ -94,7 +94,7 @@
             expected=$(jq -r .version ${emscripten}/share/emscripten/node_modules/acorn/package.json)
             cd ${typescript.workspace}
             node ${typescript.assertDependency} --locked acorn "$expected" \
-              "Emscripten ${emscripten.version} parses libraries with acorn" runtime/wasmfs-idb
+              "Emscripten ${emscripten.version} parses libraries with acorn" tools/emscripten-library-deps
             touch $out
           '';
 
@@ -150,7 +150,7 @@
         name = "wasmfs-idb-library-deps";
         environments = [ "node" ];
         programs = [ ];
-        nodeTests = ./.;
+        nodeTests = ../../tools/emscripten-library-deps;
         nodeTestData = {
           inherit libraryDeps;
           emscripten = "${emscripten}/share/emscripten";

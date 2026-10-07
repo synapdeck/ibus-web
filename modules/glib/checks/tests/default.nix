@@ -18,8 +18,8 @@
       # tests.
       gate = pkgs.runCommand "ibus-web-glib-tests-gate-script" { } ''
         mkdir $out
-        cp ${./gate.ts} $out/gate.ts
-        ln -s ${typescript.packageNodeModules ./.} $out/node_modules
+        cp ${../../../../tools/glib-test-gate/gate.ts} $out/gate.ts
+        ln -s ${typescript.packageNodeModules ../../../../tools/glib-test-gate} $out/node_modules
       '';
       setupExcludes = ./setup-excludes.py;
 
@@ -148,7 +148,7 @@
         name = "glib-tests-gate";
         environments = [ "node" ];
         programs = [ ];
-        nodeTests = ./.;
+        nodeTests = ../../../../tools/glib-test-gate;
         nodeTestData = {
           gate = "${gate}/gate.ts";
           inherit setupExcludes;

@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@ibus-web/tsconfig": "workspace:*",
-    "acorn": "^8.18.0"
+    "@ibus-web/tsconfig": "workspace:*"
   }
 }

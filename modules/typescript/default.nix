@@ -19,7 +19,6 @@
       pnpmWorkspace = {
         packages = [
           "runtime/wasmfs-idb"
-          "modules/glib/checks/tests"
           "tools/*"
           "packages/*"
           "examples/*"
