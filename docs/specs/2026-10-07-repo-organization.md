@@ -142,9 +142,29 @@ The five publishable packages (protocol, worker-host, core, panel, ibus-web) all
 - a README of a few paragraphs linking to their page under `docs/`
 - `homepage` pointing at that docs page
 - `sideEffects`, `engines.node` and `keywords`
-- `LICENSES/` with third-party notices whenever they bundle third-party code: core, worker-host and ibus-web
+- `prepack` and `postpack` scripts that run `tools/pack-licenses`, and sourcemaps enabled in their tsdown config
 
-Panel drops `effect`, which it never imports. The files `prepack` copies are ignored by the root `.gitignore`.
+Panel drops `effect`, which it never imports.
+
+### Licences in packed packages
+
+A package's tarball must carry the licence of everything bundled into it. Worker-host bundles `effect` and
+`brotli-dec-wasm` into `dist/worker`, which ibus-web copies into `dist/host`, and today neither ships those licences;
+core's are copied by a hand-written `cp` list. No package keeps a `LICENSES/` directory in the tree.
+
+`tools/pack-licenses` (`ibus-web-pack-licenses`) derives the licences from what the build bundled:
+
+- `prepack` reads the `sources` of every sourcemap under the package's `dist/`. For each file from the repository, it
+  takes the SPDX licence from REUSE's data (the file's header or its `REUSE.toml` annotation) and copies
+  `LICENSES/<id>.txt`. For each file from `node_modules`, it copies that dependency's own licence file to
+  `LICENSES/<package>.txt`. It copies a `NOTICES/*.txt` file when a bundled file is one the notice covers, from a small
+  map in the tool, and always copies `LICENSE-MIT` and `LICENSE-APACHE`. It records what it wrote in a manifest.
+- `postpack` deletes exactly the files the manifest lists, and the manifest.
+- `--check` runs the same derivation against a built package without writing, and fails when a bundled source has no
+  licence it can find. A Nix check runs it on every publishable package, so a new bundled dependency without a licence
+  fails CI instead of shipping silently.
+
+A package with sourcemaps turned off fails `--check`. The files `prepack` writes are ignored by the root `.gitignore`.
 
 ## Nix
 
@@ -280,7 +300,7 @@ The work lands on one branch as a sequence of commits, each of which passes `nix
 4. Nix file roles and moves
 5. Nix shared helpers, module splits, dead options and naming
 6. Package internals: test layout, deduplication, exports, the `host.ts` split
-7. Package metadata
+7. Package metadata and `tools/pack-licenses`
 8. Repository hygiene
 9. The front door and documentation, written against the final layout
 
