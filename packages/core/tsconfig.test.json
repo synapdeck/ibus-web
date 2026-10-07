@@ -1,0 +1,20 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/dom.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "declaration": true,
+    "skipLibCheck": true
+  },
+  "include": ["test/keys", "test/connection", "test/router", "test/support"],
+  "exclude": [
+    "test/router/contexts.test.ts",
+    "test/router/preedit.test.ts",
+    "test/router/surrounding.test.ts",
+    "test/router/content-type.test.ts",
+    "test/router/switching.test.ts",
+    "test/router/dom-support.ts"
+  ]
+}

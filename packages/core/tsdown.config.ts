@@ -7,13 +7,13 @@ export default defineConfig([
     platform: "neutral",
     dts: { generator: "tsgo" },
     deps: { neverBundle: ["effect", /^effect\//, /^@ibus-web\//] },
-    tsconfig: "src/tsconfig.shared.json",
+    tsconfig: "tsconfig.shared.json",
   },
   {
     entry: { "page/index": "src/page/index.ts" },
     platform: "browser",
     dts: { generator: "tsgo" },
     deps: { neverBundle: ["effect", /^effect\//, /^@ibus-web\//] },
-    tsconfig: "src/tsconfig.page.json",
+    tsconfig: "tsconfig.page.json",
   },
 ]);
