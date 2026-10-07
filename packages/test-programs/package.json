@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "status=0; for env in shared node browser worker; do tsc -p src/$env || status=1; done; exit $status",
+    "build": "status=0; for env in shared node browser worker; do tsc -p tsconfig.$env.json || status=1; done; exit $status",
     "test": "vitest run --configLoader native"
   },
   "dependencies": {

@@ -1,12 +1,31 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Type-checks Vitest's configuration, which Vitest loads from source.
+// Sources are split by the environment they run in, and each environment
+// has its own config, so no file sees another environment's globals:
+//
+//   tsconfig.node.json     src/node/: Node globals: Vitest's runner, the
+//                          browser commands and the test file that runs
+//                          programs under Node.
+//   tsconfig.browser.json  src/browser/: DOM globals: the test file that
+//                          runs programs in a browser.
+//   tsconfig.worker.json   src/worker/: WebWorker globals: the Worker a
+//                          program runs in.
+//   tsconfig.shared.json   src/shared/: no environment's globals, only the
+//                          language. The others include it too, so their
+//                          imports of it resolve.
+//
+// An environment statically imports only its own directory and src/shared/;
+// the Worker is reached at run time by URL. Each emits to dist/ with the
+// layout of src/.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ibus-web/tsconfig/node.json",
-  "compilerOptions": {
-    "skipLibCheck": true
-  },
-  "files": ["vitest.config.ts"]
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.shared.json" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.browser.json" },
+    { "path": "./tsconfig.worker.json" },
+    { "path": "./tsconfig.config.json" }
+  ]
 }

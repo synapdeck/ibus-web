@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Vitest's configuration, which Vitest loads from source.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.base.json",
+  "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
-    "lib": ["es2023", "dom"],
-    "types": []
+    "skipLibCheck": true
   },
-  "include": [".", "../shared"]
+  "files": ["vitest.config.ts"]
 }
