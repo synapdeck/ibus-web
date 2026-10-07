@@ -140,6 +140,9 @@ local linters = new Mapping<String, Step> {
   }
   // Every file needs its licence, so this lints the whole tree each time.
   ["reuse"] {
+    // tsc -b writes .tsbuildinfo files while it runs, and reuse lint can find
+    // one mid-scan, before it matches git's ignore rules.
+    depends = List("tsc")
     check = new CommandSpec {
       command = "reuse lint"
       effect = "read"
