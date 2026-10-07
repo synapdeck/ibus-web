@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Node code that runs at build time: the build's and Vitest's
+// configurations, which load from source, and the scripts that generate
+// protocol.h and PROTOCOL.md.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/node.json",
+  "compilerOptions": {
+    "skipLibCheck": true
+  },
+  "include": ["scripts", "tsdown.config.ts", "vitest.config.ts", "vitest.bench.config.ts", "vitest.parity.config.ts"]
+}

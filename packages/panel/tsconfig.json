@@ -1,9 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Each config checks the files of one environment: the panel, its browser
+// tests, and the build's and Vitest's configurations.
 {
-  "extends": "@ibus-web/tsconfig/node.json",
-  "compilerOptions": {
-    "skipLibCheck": true
-  },
-  "files": ["tsdown.config.ts", "vitest.config.ts"]
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.page.json" },
+    { "path": "./tsconfig.test-browser.json" },
+    { "path": "./tsconfig.config.json" }
+  ]
 }

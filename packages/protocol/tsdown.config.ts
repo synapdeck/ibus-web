@@ -7,5 +7,5 @@ export default defineConfig({
   platform: "neutral",
   dts: { generator: "tsgo" },
   deps: { neverBundle: ["effect", /^effect\//] },
-  tsconfig: "src/tsconfig.json",
+  tsconfig: "tsconfig.shared.json",
 });

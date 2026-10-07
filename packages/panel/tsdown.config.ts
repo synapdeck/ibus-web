@@ -7,5 +7,5 @@ export default defineConfig({
   platform: "browser",
   dts: { generator: "tsgo" },
   deps: { neverBundle: ["effect", /^effect\//, /^@ibus-web\//] },
-  tsconfig: "src/tsconfig.json",
+  tsconfig: "tsconfig.page.json",
 });
