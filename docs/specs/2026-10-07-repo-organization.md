@@ -49,21 +49,27 @@ per-package `tsconfig.base.json` are deleted.
 
 A package has one tsconfig for each distinct compile configuration, all beside its `package.json`:
 
-- `tsconfig.json`, which references the others and is what editors open
+- `tsconfig.json`, a solution file (`"files": []`) that references the others, which editors open and hk's `tsc -b`
+  step builds
 - one per build target the package has, named for it: `tsconfig.page.json`, `tsconfig.worker.json`,
   `tsconfig.shared.json`
 - `tsconfig.test.json` for Node tests, `tsconfig.test-browser.json` for browser tests
 - `tsconfig.config.json` for `tsdown.config.ts` and `vitest*.config.ts`
 
-A package with one configuration has only `tsconfig.json`. No tsconfig sits in a subfolder, and none exists only to
+A package with one configuration has only `tsconfig.json`. A test configuration includes the source folders it checks
+rather than referencing their configuration, because one `noEmit` project can't reference another. `base.json` sets
+`noEmit` and `allowImportingTsExtensions`, which a package that emits turns back off. No tsconfig sits in a subfolder, and none exists only to
 re-extend another. The `tsconfig-extends` check enforces the rule: every tsconfig extends an `@ibus-web/tsconfig` preset
 or its own package's `tsconfig.json`, and sits at a package root.
 
 ### Tools: one package per tool
 
 `tools/package.json` and `tools/vitest.config.ts` are deleted. Each `tools/<name>/` is a private package
-`@ibus-web/<name>` with its own `package.json`, tsconfig, vitest config and `module.nix`. Its dependencies are the ones
-it imports: tree-sitter and SARIF belong to `cast-audit` alone, the mdast libraries to the tool that reads Markdown.
+`@ibus-web/<name>` with its own `package.json`, tsconfigs, vitest config and Nix: `checks.nix` for a tool that only has checks, `module.nix`
+for one that also provides something. Its dependencies are the ones
+it imports: tree-sitter and SARIF belong to `cast-audit` alone, the mdast libraries to the tool that reads Markdown. A
+tool that imports another workspace package's TypeScript source lists that package as a devDependency but imports it by
+relative path, because Node strips types only from files outside `node_modules`.
 
 Scripts that Nix or hk run as programs move out of the module directories into tools:
 
@@ -110,29 +116,32 @@ Specific moves:
 
 - Core's five DOM router tests (`contexts`, `preedit`, `surrounding`, `content-type`, `switching`) move into
   `test/browser/`. This removes the four lists that name them in vitest and tsconfig files.
-- `packages/test-programs/src/*.test.ts` move to `test/`; protocol's loose `manifest.test.ts` and `settings.test.ts` move
-  into an area folder.
+- Protocol's loose `manifest.test.ts` and `settings.test.ts` move into an area folder. `packages/test-programs/src/*/
+programs.test.ts` stay: they are the runner's entry points, compiled into `dist/`, not tests of the package.
 
 Code that is copied between packages exists once:
 
 - The panel's record and event types (`PanelRecord`, `PanelEvent`/`PanelUpdate`, `PanelAction`) are defined in
   `@ibus-web/protocol`. Core and panel import them; `ibus-web` builds its `PanelAction` schema from the same definition.
-- One helper turns an unknown thrown value into a message, in protocol, replacing `asError`, `error`, `messageOf` (twice),
-  `briefly` (twice) and the two `describe`s.
-- `align`, `alignedSize`, `nonEmpty`, `nodeFs` and `INSTALL_PIECE` each have one definition, imported where used.
-- Worker-host's browser and Node harnesses share `test/shared/harness.ts`. Test fixtures copied between packages
-  (`HANGUL_SCHEMA`, `stringValue`, `emptyReply`) move to the package that owns the data and are imported from there.
-  Magic capability numbers use `IBusCapability`.
+- Protocol's `asError` and `errorMessage` replace core's `asError` and `error` and the two `messageOf`s. Worker-host's
+  two identical `briefly`s, which also name the error, become one in `failure.ts`. The two `describe`s behave
+  differently and stay.
+- `align`, `alignedSize`, `nonEmpty` and `nodeFs` each have one definition, imported where used.
+- Worker-host's browser and Node harnesses share a generic launcher in `test/shared/harness.ts`. The clock, Web Locks
+  and the `record` reporter stay per environment, because `test/shared` sees no environment's globals; for the same
+  reason the test copy of `INSTALL_PIECE` stays. Magic capability numbers use `IBusCapability`.
 
 Each package exports exactly what consumers import:
 
-- Barrel files list their exports instead of `export *`.
+- Barrel files list their exports instead of `export *`, except `ibus-web`'s `effect` and `panel` subpaths, which are
+  defined as everything their package exports.
 - Worker-host stops re-exporting protocol's transport; core imports `transportLayout` from protocol.
 - Exports used nowhere, or only in their own file, stop being exported.
 
-`packages/worker-host/src/worker/host.ts` splits along its seams. Crash and log formatting joins `failure.ts`, each layer
-gets its own file, the request loop moves to `serve.ts`, and `host.ts` keeps the composition. `worker/store.ts` is
-renamed so it no longer shares a name with `install/store.ts`. `core/test/connection/connection.test.ts` gains
+`packages/worker-host/src/worker/host.ts` splits along its seams. Crash formatting joins `failure.ts`, each layer gets its
+own file under `layers/`, the request loop moves to `serve.ts`, and `host.ts` keeps the composition. The host logger
+stays with the Worker layer, since `failure.ts` can't import the output module that imports it. `worker/store.ts`
+becomes `schema-dir.ts`, so it no longer shares a name with `install/store.ts`. `core/test/connection/connection.test.ts` gains
 `describe` groups. Ad hoc `console.log` measurements in tests use the harness's `record` reporter.
 
 ### Package metadata
@@ -141,7 +150,7 @@ The five publishable packages (protocol, worker-host, core, panel, ibus-web) all
 
 - a README of a few paragraphs linking to their page under `docs/`
 - `homepage` pointing at that docs page
-- `sideEffects`, `engines.node` and `keywords`
+- `sideEffects`, `keywords`, and `engines.node` set to the workspace Node's major version as a floor (`>=24`)
 - `prepack` and `postpack` scripts that run `tools/pack-licenses`, and sourcemaps enabled in their tsdown config
 
 Panel drops `effect`, which it never imports.
@@ -157,7 +166,7 @@ core's are copied by a hand-written `cp` list. No package keeps a `LICENSES/` di
 - `prepack` reads the `sources` of every sourcemap under the package's `dist/`. For each file from the repository, it
   takes the SPDX licence from REUSE's data (the file's header or its `REUSE.toml` annotation) and copies
   `LICENSES/<id>.txt`. For each file from `node_modules`, it copies that dependency's own licence file to
-  `LICENSES/<package>.txt`. It copies a `NOTICES/*.txt` file when a bundled file is one the notice covers, from a small
+  `LICENSES/<package>/`, keeping its file names, since a dependency can ship several. It copies a `NOTICES/*.txt` file when a bundled file is one the notice covers, from a small
   map in the tool, and always copies `LICENSE-MIT` and `LICENSE-APACHE`. It records what it wrote in a manifest.
 - `postpack` deletes exactly the files the manifest lists, and the manifest.
 - `--check` runs the same derivation against a built package without writing, and fails when a bundled source has no
@@ -187,7 +196,12 @@ Moves:
 - `ibusWeb.engines.hangul` moves from `modules/engines/options.nix` to `engines/hangul/options.nix`. The generic engine
   modules (`cast-audit`, `ibus-test`, `manifest`, `settings-metadata`) stay in `modules/engines/`.
 - The library checker and type generator in `runtime/wasmfs-idb/types.nix` move with their script to
-  `tools/emscripten-library-deps/module.nix`.
+  `tools/emscripten-library-deps/`.
+- A tool's own test suite moves to `tools/<name>/checks.nix`. Where a tool's Nix is an API other modules call
+  (`castAudit`, `ibusTest`, `mkEngineManifest`, `mkSettingsMetadata`), that stays in `modules/engines/`, and where a
+  suite's fixtures are built by a module (`gschema`, `glib-test-gate`), the suite stays with that module.
+- The libhangul link check's files take the GPL-2.0-or-later licence of the rest of `engines/hangul/`. Its patch keeps
+  its LGPL-2.1-or-later annotation in `REUSE.toml`.
 
 ### File roles
 
@@ -203,11 +217,14 @@ Every directory names its files by role:
 
 A module with more than one job splits into further modules named for each job (`archives.nix`, `exports.nix`). A check
 with its own fixtures gets a directory holding a `checks.nix`, as in `engines/hangul/checks/golden/checks.nix`. No file
-is named `default.nix`, and none named `package.nix` is a flake-parts module.
+is named `default.nix`, and none named `package.nix` is a flake-parts module. A module named for its job keeps the checks that
+need its private bindings, as `cache.nix` and `dev-shell.nix` do.
 
 ### Shared helpers
 
-`modules/flake/lib.nix` declares `ibusWeb.lib`, the helpers each copied today:
+`modules/flake/lib.nix` declares `ibusWeb.lib`, the helpers each copied today. Helpers whose subject belongs to another
+module are defined there: `nativeIbusConfig` in `modules/engines/`, `emscriptenTypes` and `libraryDeps` with
+`tools/emscripten-library-deps`.
 
 - `patchesIn dir`: the `.patch` files under a directory, in order
 - `isEmscriptenWasm platform`: the overlay guard
@@ -216,7 +233,9 @@ is named `default.nix`, and none named `package.nix` is a flake-parts module.
 - `emscriptenRoot` and `wasmfsIncludeFlag`
 - the test link flags without the Node host filesystem
 - `emscriptenTypes`: a `.d.ts` emitted from a JavaScript library, with its devshell out-link. It replaces two copies of
-  the recipe and four hardcoded `emscripten-types` paths.
+  the recipe. hk can't read Nix, so `hk.pkl` keeps a list of the type links, and an hk check fails when it disagrees
+  with the registry.
+- `libraryDeps`: the Emscripten JavaScript library checker, as a script path
 
 The three hand-built "tools tree plus `node_modules`" derivations become `typescript.workspaceFor [ "tools/<name>" ]`.
 
@@ -239,7 +258,9 @@ The three hand-built "tools tree plus `node_modules`" derivations become `typesc
 
 ### Naming
 
-Every derivation name starts `ibus-web-`. Check names are `<area>-<what>`, where the area is the directory's component:
+Every derivation the project makes starts `ibus-web-`, except its own artifacts (`libibus-web`, `wasmfs-idb`,
+`ibus-runtime`), upstream packages and command wrappers, and the cross stdenv's derivations, which every WebAssembly
+package depends on. Check names are `<area>-<what>`, where the area is the directory's component:
 `hangul-golden`, `tools-cast-audit`, `glib-settings-listeners`.
 
 ## Repository hygiene
@@ -286,7 +307,7 @@ Every derivation name starts `ibus-web-`. Check names are `<area>-<what>`, where
   becomes a status table, the drafts' "Notes for the user" sections become "Evidence", and
   `docs/upstream/evidence/idb-sync-calls/` leaves the repository; its README's summary of the measurements stays in
   `storage.md`.
-- The Emscripten patch README's row for 0008 names its own draft.
+- The Emscripten patch README's row for 0008 says that its draft is the closing section of the chmod draft.
 
 ## Order of work
 
