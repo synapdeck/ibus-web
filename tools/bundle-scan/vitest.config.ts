@@ -2,19 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { defineConfig } from "vitest/config";
 
+// A Nix build's tree is read-only, so checks point Vite's cache elsewhere.
 const cacheDir = process.env["IBUS_WEB_TEST_CACHE_DIR"];
 
 export default defineConfig({
   ...(cacheDir === undefined ? {} : { cacheDir }),
-  test: {
-    include: [
-      "bundle-scan/**/*.test.ts",
-      "cast-audit/**/*.test.ts",
-      "keysyms/**/*.test.ts",
-      "engine-manifest/**/*.test.ts",
-      "gschema/**/*.test.ts",
-      "ibus-test/**/*.test.ts",
-      "vendor-inventory/**/*.test.ts",
-    ],
-  },
+  test: { include: ["*.test.ts"] },
 });

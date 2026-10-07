@@ -78,11 +78,10 @@
       ];
       checks.settings-metadata = testing.vitestCheck {
         name = "settings-metadata";
-        packageDir = "${typescript.workspace}/tools";
+        packageDir = "${typescript.workspaceFor [ "tools/gschema" ]}/tools/gschema";
         env.IBUS_WEB_SETTINGS_FIXTURE = fixture;
         inBrowsers = false;
         limit = 60;
-        vitestArgs = [ "gschema/metadata.test.ts" ];
       };
     };
 }

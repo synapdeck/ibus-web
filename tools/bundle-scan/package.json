@@ -1,0 +1,21 @@
+{
+  "name": "@ibus-web/bundle-scan",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "@ibus-web/core": "workspace:*",
+    "@ibus-web/panel": "workspace:*",
+    "@ibus-web/protocol": "workspace:*",
+    "@ibus-web/worker-host": "workspace:*",
+    "ibus-web": "workspace:*",
+    "vite": "catalog:"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

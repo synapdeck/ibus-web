@@ -11,8 +11,8 @@
     "ibus-web": "workspace:*"
   },
   "devDependencies": {
+    "@ibus-web/bundle-scan": "workspace:*",
     "@ibus-web/test-programs": "workspace:*",
-    "@ibus-web/tools": "workspace:*",
     "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "effect": "catalog:",

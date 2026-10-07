@@ -84,8 +84,8 @@ const entries = [
   "@ibus-web/protocol",
 ];
 async function main() {
-  const tools = resolve(import.meta.dirname, "..");
-  const temp = await mkdtemp(resolve(tools, ".bundle-scan-"));
+  const root = import.meta.dirname;
+  const temp = await mkdtemp(resolve(root, ".bundle-scan-"));
   try {
     for (const [index, entry] of entries.entries()) {
       const source = resolve(temp, `entry-${index}.ts`);
@@ -93,7 +93,7 @@ async function main() {
       const outDir = resolve(process.env["IBUS_WEB_SCAN_OUTPUT"] ?? temp, `entry-${index}`);
       await build({
         configFile: false,
-        root: tools,
+        root,
         logLevel: "warn",
         plugins: [pageBoundaryPlugin()],
         build: {

@@ -1,0 +1,14 @@
+{
+  "name": "@ibus-web/keysyms",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "devDependencies": {
+    "@ibus-web/core": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@ibus-web/engine-manifest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

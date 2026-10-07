@@ -13,26 +13,7 @@
       # Array options take a Python list literal, since flags such as
       # -Wl,... rule out Meson's comma-separated form.
       mesonArray = flags: builtins.toJSON (lib.filter (flag: flag != "") (lib.splitString " " flags));
-      inventoryTools =
-        let
-          source = lib.fileset.toSource {
-            root = ../..;
-            fileset = lib.fileset.unions [
-              ../../tools/package.json
-              ../../tools/vitest.config.ts
-              ../../tools/tsconfig.json
-              ../../tools/vendor-inventory
-            ];
-          };
-        in
-        pkgs.runCommand "ibus-web-vendor-inventory-tools" { } ''
-          cp -R ${source} $out
-          chmod u+w $out/tools
-          ln -s ${config.ibusWeb.typescript.packageNodeModules ../../tools} $out/tools/node_modules
-          chmod u+w $out
-          mkdir -p $out/node_modules/@ibus-web
-          cp -R ${config.ibusWeb.typescript.presets} $out/node_modules/@ibus-web/tsconfig
-        '';
+      inventoryTools = config.ibusWeb.typescript.workspaceFor [ "tools/vendor-inventory" ];
     in
     {
       checks.libibus-web-vendored = pkgs.runCommand "libibus-web-vendored" { } ''
@@ -45,11 +26,10 @@
 
       checks.libibus-web-vendored-script = config.ibusWeb.testing.vitestCheck {
         name = "libibus-web-vendored-script";
-        packageDir = "${inventoryTools}/tools";
+        packageDir = "${inventoryTools}/tools/vendor-inventory";
         env = { };
         inBrowsers = false;
         limit = 60;
-        vitestArgs = [ "vendor-inventory" ];
       };
 
       checks.libibus-web-cast-audit =

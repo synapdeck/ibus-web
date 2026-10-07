@@ -61,7 +61,7 @@
             ${prepare}
             mkdir -p "$out"
             set -o pipefail
-            node tools/node_modules/vitest/vitest.mjs run --root tools --configLoader native bundle-scan/scan.test.ts 2>&1 | tee "$out/tests.txt"
+            node tools/bundle-scan/node_modules/vitest/vitest.mjs run --root tools/bundle-scan --configLoader native scan.test.ts 2>&1 | tee "$out/tests.txt"
             export IBUS_WEB_SCAN_OUTPUT=$out
             node tools/bundle-scan/scan.ts 2>&1 | tee "$out/scan.txt"
             cp ${config.packages.demo}/page-bundle-graph.json "$out/demo-graph.json"

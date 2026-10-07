@@ -112,15 +112,10 @@
       checks.engine-manifest =
         (testing.vitestCheck {
           name = "engine-manifest";
-          packageDir = "${typescript.workspace}/tools";
+          packageDir = "${typescript.workspaceFor [ "tools/engine-manifest" ]}/tools/engine-manifest";
           env.IBUS_WEB_DYLINK_FIXTURE = fixture.wasm;
           inBrowsers = false;
           limit = 60;
-          vitestArgs = [
-            "engine-manifest/dylink.test.ts"
-            "engine-manifest/symlinks.test.ts"
-            "engine-manifest/protocol.test.ts"
-          ];
         }).overrideAttrs
           (old: {
             nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.wabt ];

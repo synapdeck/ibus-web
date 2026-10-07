@@ -11,23 +11,7 @@
     let
       inherit (config.ibusWeb) testing toolchain typescript;
       inherit (toolchain) pkgsWasm;
-      toolsSource = lib.fileset.toSource {
-        root = ../..;
-        fileset = lib.fileset.unions [
-          ../../tools/package.json
-          ../../tools/vitest.config.ts
-          ../../tools/tsconfig.json
-          ../../tools/cast-audit
-        ];
-      };
-      auditTools = pkgs.runCommand "ibus-web-cast-audit-tools" { } ''
-        cp -R ${toolsSource} $out
-        chmod u+w $out/tools
-        ln -s ${typescript.packageNodeModules ../../tools} $out/tools/node_modules
-        chmod u+w $out
-        mkdir -p $out/node_modules/@ibus-web
-        cp -R ${typescript.presets} $out/node_modules/@ibus-web/tsconfig
-      '';
+      auditTools = typescript.workspaceFor [ "tools/cast-audit" ];
       script = "${auditTools}/tools/cast-audit/cast-audit.ts";
       castAudit =
         {
@@ -89,7 +73,7 @@
       ibusWeb.engines.castAudit = castAudit;
       checks.engines-cast-audit-script = testing.vitestCheck {
         name = "engines-cast-audit-script";
-        packageDir = "${auditTools}/tools";
+        packageDir = "${auditTools}/tools/cast-audit";
         env = { };
         inBrowsers = false;
         limit = 60;

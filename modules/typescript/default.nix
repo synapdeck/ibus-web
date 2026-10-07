@@ -20,7 +20,7 @@
         packages = [
           "runtime/wasmfs-idb"
           "modules/glib/checks/tests"
-          "tools"
+          "tools/*"
           "packages/*"
           "examples/*"
         ];
@@ -297,7 +297,7 @@
         selectedDirs:
         let
           noticeInputs = lib.optionals (
-            lib.elem "packages/core" selectedDirs || lib.elem "tools" selectedDirs
+            lib.elem "packages/core" selectedDirs || lib.elem "tools/keysyms" selectedDirs
           ) coreNoticeInputs;
         in
         pkgs.stdenvNoCC.mkDerivation {
@@ -337,7 +337,7 @@
                   ]) selectedDirs
                 )
               )
-            } run build
+            } run --if-present build
             runHook postBuild
           '';
           installPhase = ''

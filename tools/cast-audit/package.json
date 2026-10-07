@@ -1,0 +1,26 @@
+{
+  "name": "@ibus-web/cast-audit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "@microsoft/sarif": "^5.7.0",
+    "ajv": "catalog:",
+    "jsonc-parser": "catalog:",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-cpp": "^0.23.4"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  },
+  "ibusWeb": {
+    "assets": [
+      "fixtures"
+    ]
+  }
+}

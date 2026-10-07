@@ -15,23 +15,7 @@
         toolchain
         runtime
         ;
-      toolsSource = lib.fileset.toSource {
-        root = ../..;
-        fileset = lib.fileset.unions [
-          ../../tools/package.json
-          ../../tools/vitest.config.ts
-          ../../tools/tsconfig.json
-          ../../tools/ibus-test
-        ];
-      };
-      testTools = pkgs.runCommand "ibus-web-ibus-test-tools" { } ''
-        cp -R ${toolsSource} $out
-        chmod u+w $out/tools
-        ln -s ${typescript.packageNodeModules ../../tools} $out/tools/node_modules
-        chmod u+w $out
-        mkdir -p $out/node_modules/@ibus-web
-        cp -R ${typescript.presets} $out/node_modules/@ibus-web/tsconfig
-      '';
+      testTools = typescript.workspaceFor [ "tools/ibus-test" ];
       native = pkgs.stdenv.mkDerivation {
         pname = "ibus-test-native";
         version = "0.1.0";
@@ -195,12 +179,12 @@
                 export XDG_DATA_HOME=$TMPDIR/vitest-data
                 status=0
                 (
-                  cd ${testTools}/tools
+                  cd ${testTools}/tools/ibus-test
                   timeout --kill-after=10 ${
                     toString (90 + 15 * builtins.length traces)
                   } node node_modules/vitest/vitest.mjs run \
                     --configLoader native --reporter=default --reporter=json \
-                    --outputFile.json=$out/results.json ibus-test/conformance.test.ts
+                    --outputFile.json=$out/results.json conformance.test.ts
                 ) > $out/output.txt 2>&1 || status=$?
                 cat $out/output.txt
                 printf '%s\n' "$status" > $out/status
@@ -265,11 +249,10 @@
       checks = {
         engines-ibus-test-script = testing.vitestCheck {
           name = "engines-ibus-test-script";
-          packageDir = "${testTools}/tools";
+          packageDir = "${testTools}/tools/ibus-test";
           env = { };
           inBrowsers = false;
           limit = 60;
-          vitestArgs = [ "ibus-test" ];
         };
       }
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

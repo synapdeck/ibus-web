@@ -89,14 +89,14 @@
         };
         hangul-native-session = config.ibusWeb.testing.vitestCheck {
           name = "hangul-native-session";
-          packageDir = "${config.packages.ibus-test-tools}/tools";
+          packageDir = "${config.packages.ibus-test-tools}/tools/ibus-test";
           env = {
             IBUS_TEST_NATIVE_CONFIG = nativeConfig;
             IBUS_TEST_FIXTURE_COMMAND = builtins.toJSON [ "${native}/libexec/test-engine" ];
           };
           inBrowsers = false;
           limit = 60;
-          vitestArgs = [ "ibus-test/session.test.ts" ];
+          vitestArgs = [ "session.test.ts" ];
         };
       };
     };

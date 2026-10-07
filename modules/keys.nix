@@ -110,12 +110,7 @@
       checks.keys-generators =
         (testing.vitestCheck {
           name = "keys-generators";
-          packageDir = "${
-            typescript.workspaceFor [
-              "tools"
-              "packages/core"
-            ]
-          }/tools";
+          packageDir = "${typescript.workspaceFor [ "tools/keysyms" ]}/tools/keysyms";
           limit = 120;
           inBrowsers = false;
           env = {
@@ -127,7 +122,6 @@
             IBUS_WEB_XKB_NOTICE = xkbNotice;
             IBUS_WEB_DOM_CODES = domCodes;
           };
-          vitestArgs = [ "keysyms" ];
         }).overrideAttrs
           (old: {
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.pnpm ];

@@ -2,5 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ibus-web/tsconfig/node.json"
+  "extends": "@ibus-web/tsconfig/node.json",
+  "compilerOptions": {
+    // Vitest's declarations name DOM types, which Node code doesn't have.
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
 }

@@ -23,6 +23,6 @@ catalog:
 packages:
   - runtime/wasmfs-idb
   - modules/glib/checks/tests
-  - tools
+  - tools/*
   - packages/*
   - examples/*
