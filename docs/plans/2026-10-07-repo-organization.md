@@ -6938,8 +6938,9 @@ nix develop -c git commit -m "docs(toolchain): describe the Nix layout" -- docs/
 ## Phase D: Package internals
 
 Phase D reorganizes code inside the workspace packages without changing what they do: one test layout, `test` instead
-of `it`, one definition of each helper that was copied, panel types owned by `@ibus-web/protocol`, barrels that list
-their exports, and `worker-host`'s `host.ts` split along its seams.
+of `it`, one definition of each helper that was copied (error formatting, alignment, `nodeFs`, `INSTALL_PIECE`), panel
+types owned by `@ibus-web/protocol`, barrels that list their exports, `worker-host`'s `host.ts` split along its seams,
+one browser console capture shared by both browser suites, and GVariant variants built by protocol's constructors.
 
 It assumes Phases A–C have run:
 
@@ -7256,12 +7257,15 @@ nix develop -c git commit -m "test: call Vitest's test everywhere" -- $(git diff
 
 ### Task D3: One definition of each small helper in protocol
 
-`asError` and `errorMessage` replace four copies across core, ibus-web and worker-host; `align`, `alignedSize` and
-`nonEmpty` each get one definition inside protocol.
+Protocol gets one module that turns whatever was thrown into an `Error` or into text at three levels of detail:
+`errorMessage` (the message alone), `errorSummary` (`Name: message`) and `errorReport` (the summary and the stack). This
+task writes it and replaces core's `asError` and `error` and the two `messageOf`s; Task D5 replaces worker-host's two
+`briefly`s with `errorSummary` and its `describe` with `errorReport`. `align`, `alignedSize` and `nonEmpty` each get
+one definition inside protocol.
 
-The two `briefly`s and the two `describe`s are different helpers, not copies of these: `briefly` keeps the error's name
-(`TypeError: …`) for storage reports, and each `describe` keeps a stack. Task D5 merges the two identical `briefly`s;
-the `describe`s stay.
+`packages/test-programs/src/worker/program.ts` keeps its own `describe`. Its `dist/worker/program.js` is served to the
+browser as written, not through Vite, so it can import nothing outside `dist/`: a bare `@ibus-web/protocol` specifier
+doesn't resolve there, and protocol's barrel would pull in Effect. `errorReport` uses the same stack logic.
 
 **Files:**
 
@@ -7279,6 +7283,11 @@ the `describe`s stay.
   - `asError(cause: unknown): Error`: the value if it is an `Error`, else `new Error(String(cause))`
   - `errorMessage(cause: unknown): string`: an `Error`'s `message`, else `String(cause)`, else
     `"Unprintable host error"` when `String` throws
+  - `errorSummary(cause: unknown): string`: `Name: message` for an `Error` or `DOMException`,
+    `message (filename:lineno)` for an `ErrorEvent`, else `String(cause)`, else `"Unprintable host error"`
+  - `errorReport(cause: unknown): string`: `errorSummary(cause)`, followed by the `Error`'s stack when it has one; a
+    stack that already starts with the summary (Chromium's) is returned as it is, one that doesn't (Firefox's) goes on
+    the line after the summary
 - Produces, inside protocol only: `align(size: number, alignment: number): number` exported from
   `src/gvariant/type.ts`; `alignedSize(payloadBytes: number): number` exported from `src/transport/ring.ts` (not from
   any barrel); `nonEmpty` exported from `src/schemas.ts`.
@@ -7290,8 +7299,35 @@ Create `packages/protocol/test/errors/errors.test.ts`:
 ```ts
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, test } from "vitest";
-import { asError, errorMessage } from "../../src/errors.ts";
+import { afterEach, expect, test, vi } from "vitest";
+import { asError, errorMessage, errorReport, errorSummary } from "../../src/errors.ts";
+
+const unprintable = {
+  toString: () => {
+    throw new Error("no");
+  },
+};
+
+// Node has no ErrorEvent; a Worker's error event is one.
+class FakeErrorEvent {
+  readonly message: string;
+  readonly filename: string;
+  readonly lineno: number;
+  constructor(message: string, filename: string, lineno: number) {
+    this.message = message;
+    this.filename = filename;
+    this.lineno = lineno;
+  }
+}
+
+const withStack = (error: Error, stack: string | undefined): Error => {
+  Object.defineProperty(error, "stack", { value: stack });
+  return error;
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 test("asError keeps an Error and wraps anything else", () => {
   const error = new TypeError("bad input");
@@ -7308,12 +7344,38 @@ test("errorMessage reads an Error's message and prints anything else", () => {
 });
 
 test("errorMessage still returns text for a value that can't be printed", () => {
-  const unprintable = {
-    toString: () => {
-      throw new Error("no");
-    },
-  };
   expect(errorMessage(unprintable)).toBe("Unprintable host error");
+});
+
+test("errorSummary names the error", () => {
+  expect(errorSummary(new TypeError("bad input"))).toBe("TypeError: bad input");
+  expect(errorSummary(new DOMException("gone", "AbortError"))).toBe("AbortError: gone");
+  expect(errorSummary("text")).toBe("text");
+  expect(errorSummary(7)).toBe("7");
+  expect(errorSummary(unprintable)).toBe("Unprintable host error");
+});
+
+test("errorSummary places an ErrorEvent in its script", () => {
+  vi.stubGlobal("ErrorEvent", FakeErrorEvent);
+  expect(errorSummary(new FakeErrorEvent("boom", "worker.js", 12))).toBe("boom (worker.js:12)");
+});
+
+test("errorReport keeps a Chromium stack, which starts with the summary", () => {
+  const stack = "TypeError: bad input\n    at run (worker.js:3:9)";
+  expect(errorReport(withStack(new TypeError("bad input"), stack))).toBe(stack);
+});
+
+test("errorReport puts the summary above a Firefox stack, which leaves it out", () => {
+  const stack = "run@worker.js:3:9\n";
+  expect(errorReport(withStack(new TypeError("bad input"), stack))).toBe(`TypeError: bad input\n${stack}`);
+});
+
+test("errorReport is the summary when there is no stack", () => {
+  expect(errorReport(withStack(new TypeError("bad input"), undefined))).toBe("TypeError: bad input");
+  expect(errorReport(withStack(new TypeError("bad input"), ""))).toBe("TypeError: bad input");
+  expect(errorReport("text")).toBe("text");
+  vi.stubGlobal("ErrorEvent", FakeErrorEvent);
+  expect(errorReport(new FakeErrorEvent("boom", "worker.js", 12))).toBe("boom (worker.js:12)");
 });
 ```
 
@@ -7336,14 +7398,43 @@ Create `packages/protocol/src/errors.ts`:
 // Whatever was thrown, as an Error.
 export const asError = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)));
 
-// Whatever was thrown, as text. A value whose own toString() throws still
-// yields some.
-export const errorMessage = (cause: unknown): string => {
+// Each formatter below yields text even for a value whose own toString()
+// throws.
+const printed = (cause: unknown): string => {
   try {
-    return cause instanceof Error ? cause.message : String(cause);
+    return String(cause);
   } catch {
     return "Unprintable host error";
   }
+};
+
+// Whatever was thrown, as its message alone.
+export const errorMessage = (cause: unknown): string => (cause instanceof Error ? cause.message : printed(cause));
+
+// What this file reads of an ErrorEvent. It is looked up at each call:
+// Node has none, and its typings declare none.
+type ErrorEventLike = new (...args: never[]) => { message: string; filename: string; lineno: number };
+
+// Whatever was thrown, on one line. A thread's uncaught error reaches the
+// thread that started it as the ErrorEvent its Worker fired, which carries
+// no error to name, only where it was thrown.
+export const errorSummary = (cause: unknown): string => {
+  if (cause instanceof Error || (typeof DOMException === "function" && cause instanceof DOMException))
+    return `${cause.name}: ${cause.message}`;
+  const errorEvent = (globalThis as { ErrorEvent?: ErrorEventLike }).ErrorEvent;
+  if (typeof errorEvent === "function" && cause instanceof errorEvent)
+    return `${cause.message} (${cause.filename}:${cause.lineno})`;
+  return printed(cause);
+};
+
+// Whatever was thrown, with its stack when it has one. Chromium's stacks
+// start with the summary and Firefox's leave it out, so the summary is added
+// only when the stack doesn't already open with it.
+export const errorReport = (cause: unknown): string => {
+  const summary = errorSummary(cause);
+  const stack = cause instanceof Error ? (cause.stack ?? "") : "";
+  if (stack === "") return summary;
+  return stack.startsWith(summary) ? stack : `${summary}\n${stack}`;
 };
 ```
 
@@ -7356,7 +7447,7 @@ export { encodeRequest, decodeRecord, type DecodedRecord } from "./messages/code
 add
 
 ```ts
-export { asError, errorMessage } from "./errors.ts";
+export { asError, errorMessage, errorReport, errorSummary } from "./errors.ts";
 ```
 
 - [ ] **Step 4: Run the test to see it pass**
@@ -7365,7 +7456,7 @@ export { asError, errorMessage } from "./errors.ts";
 nix develop -c pnpm --dir packages/protocol exec vitest run --configLoader native test/errors
 ```
 
-Expected: PASS, 3 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Use the helpers in core**
 
@@ -7688,7 +7779,7 @@ export type PanelEvent = PanelContext & (PanelDraw | { readonly _tag: "hide" | "
 export type PanelUpdate = PanelContext & (PanelDraw | { readonly _tag: "hide" | "caret" | "orientation" });
 ```
 
-In `packages/protocol/src/index.ts`, after the `export { asError, errorMessage } from "./errors.ts";` line Task D3
+In `packages/protocol/src/index.ts`, after the `export { asError, errorMessage, errorReport, errorSummary } from "./errors.ts";` line Task D3
 added, add
 
 ```ts
@@ -7914,12 +8005,15 @@ nix develop -c git commit -m "refactor: define the panel's types once, in protoc
 
 ### Task D5: Worker-host's copied helpers
 
-`nodeFs` and its interface, and the two identical `briefly`s, each get one definition. `worker/store.ts`, which shares a
-name with `worker/install/store.ts` but only sets an environment variable, becomes `worker/schema-dir.ts`. The test
-build's two identical timer promises become one.
+`nodeFs` and its interface get one definition. The two identical `briefly`s give way to protocol's `errorSummary`, and
+`failure.ts`'s `describe` to protocol's `errorReport`, both from Task D3. `INSTALL_PIECE` moves to
+`src/shared/config.ts`, which uses no environment's globals, so the archive code and `test/shared/install.ts` (which
+can't import `src/worker/`) share it. `worker/store.ts`, which shares a name with `worker/install/store.ts` but only sets
+an environment variable, becomes `worker/schema-dir.ts`. The test build's two identical timer promises become one.
 
-`INSTALL_PIECE` keeps its copy in `test/shared/install.ts`: `test/shared/` compiles without any environment's globals
-and so can't import `src/worker/install/archive.ts`, which uses `fetch` and the Worker's globals.
+`errorReport` no longer repeats a Chromium stack's first line, which `describe` printed twice (once as the summary,
+once as the stack's head), and drops the trailing newline `describe` left after an error without a stack. Nothing
+else about the reported text changes.
 
 **Files:**
 
@@ -7928,14 +8022,18 @@ and so can't import `src/worker/install/archive.ts`, which uses `fetch` and the 
 - Modify: `packages/worker-host/src/worker/install/store.ts`, `packages/worker-host/src/worker/storage/mount.ts`,
   `packages/worker-host/src/worker/storage/plan.ts`, `packages/worker-host/src/worker/install/provide.ts`,
   `packages/worker-host/src/worker/failure.ts`, `packages/worker-host/src/worker/host.ts`,
+  `packages/worker-host/src/worker/loop.ts`, `packages/worker-host/src/shared/config.ts`,
+  `packages/worker-host/src/worker/install/archive.ts`, `packages/worker-host/test/shared/install.ts`,
   `packages/worker-host/test/worker/instruments.ts`
 
 **Interfaces:**
 
+- Consumes: `errorSummary` and `errorReport` from `@ibus-web/protocol` (Task D3).
 - Produces: `nodeFs(): Promise<NodeFs>` and `interface NodeFs` from `src/worker/node-fs.ts`;
-  `briefly(error: unknown): string` from `src/worker/failure.ts`;
+  `INSTALL_PIECE` from `src/shared/config.ts` (exported from the file, not added to any barrel's list in Task D7);
   `setSchemaDir(handle: RuntimeHandle, manifest: EngineManifest): void` from `src/worker/schema-dir.ts` (was
   `mountStore` in `store.ts`).
+- Removed: `describe` from `src/worker/failure.ts`.
 
 - [ ] **Step 1: One `nodeFs`**
 
@@ -7994,18 +8092,7 @@ and add above `import { check, RuntimeRefused, withString, type RuntimeHandle } 
 import { nodeFs } from "../node-fs.ts";
 ```
 
-- [ ] **Step 2: One `briefly`**
-
-In `packages/worker-host/src/worker/failure.ts`, insert above the comment `// A failure in a step that calls nothing in a
-runtime the host keeps:`
-
-```ts
-// An error's name and message on one line, for a report that has no room
-// for its stack.
-export const briefly = (error: unknown): string =>
-  error instanceof Error || error instanceof DOMException ? `${error.name}: ${error.message}` : String(error);
-
-```
+- [ ] **Step 2: Protocol's error formats replace `briefly` and `describe`**
 
 In both `packages/worker-host/src/worker/storage/plan.ts` and `packages/worker-host/src/worker/install/provide.ts`,
 delete
@@ -8016,25 +8103,127 @@ const briefly = (error: unknown): string =>
 
 ```
 
-In `plan.ts`, add after `import { requestLock } from "./locks.ts";`:
+and replace each call `briefly(error)` with `errorSummary(error)` (one in each file). In `plan.ts`, add above
+`import { memoryWithData, type EngineManifest, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";`:
 
 ```ts
-import { briefly } from "../failure.ts";
+import { errorSummary } from "@ibus-web/protocol";
 ```
 
-In `provide.ts`, change
+In `provide.ts`, add above `import { Effect, type Scope } from "effect";`:
 
 ```ts
-import { runtimeCallFailed, runtimeFinalizer, startupFailed, StartupFailed } from "../failure.ts";
+import { errorSummary } from "@ibus-web/protocol";
 ```
 
-to
+In `packages/worker-host/src/worker/failure.ts`, delete
 
 ```ts
-import { briefly, runtimeCallFailed, runtimeFinalizer, startupFailed, StartupFailed } from "../failure.ts";
+// In a browser, a thread's uncaught error reaches this thread as the
+// ErrorEvent its Worker fired, which Emscripten rethrows.
+export const describe = (error: unknown): string => {
+  if (error instanceof Error) return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
+  const errorEvent = (
+    globalThis as { ErrorEvent?: new (...args: never[]) => { message: string; filename: string; lineno: number } }
+  ).ErrorEvent;
+  if (typeof errorEvent === "function" && error instanceof errorEvent)
+    return `${error.message} (${error.filename}:${error.lineno})`;
+  return String(error);
+};
+
 ```
 
-- [ ] **Step 3: Rename `store.ts`**
+replace its two calls `describe(error)` (in `startupFailed` and `runtimeCallFailed`) with `errorReport(error)`, and
+replace
+
+```ts
+import { Cause, Data, Effect, Exit, type Scope } from "effect";
+```
+
+with
+
+```ts
+import { errorReport } from "@ibus-web/protocol";
+import { Cause, Data, Effect, Exit, type Scope } from "effect";
+```
+
+In `packages/worker-host/src/worker/loop.ts`, replace
+
+```ts
+import { CrashReason, requestKinds } from "@ibus-web/protocol";
+import { describe, RuntimeStopped } from "./failure.ts";
+```
+
+with
+
+```ts
+import { CrashReason, errorReport, requestKinds } from "@ibus-web/protocol";
+import { RuntimeStopped } from "./failure.ts";
+```
+
+and `${describe(error)}` with `${errorReport(error)}` (one call, in the output-drain message).
+
+In `packages/worker-host/src/worker/host.ts`, replace
+
+```ts
+import { CrashReason, encodeValue, type EngineManifest } from "@ibus-web/protocol";
+```
+
+with
+
+```ts
+import { CrashReason, encodeValue, errorReport, type EngineManifest } from "@ibus-web/protocol";
+```
+
+delete the line `  describe,` from the `import { … } from "./failure.ts";` list, and replace every `describe(` with
+`errorReport(`:
+
+```bash
+perl -pi -e 's/\bdescribe\(/errorReport(/g' packages/worker-host/src/worker/host.ts
+rg -c "errorReport\(" packages/worker-host/src/worker/host.ts
+```
+
+Expected: `6` (the log formatter, `stoppedRecord`, `crashMessage`, the uncaught-error listener, the sealing warning
+and the request loop's error log).
+
+- [ ] **Step 3: One `INSTALL_PIECE`**
+
+Append to `packages/worker-host/src/shared/config.ts`:
+
+```ts
+
+// The response body reaches the extractor through a buffer of this size in
+// the runtime's memory, which also bounds each of the extractor's writes.
+export const INSTALL_PIECE = 65536;
+```
+
+In `packages/worker-host/src/worker/install/archive.ts`, delete
+
+```ts
+// The response body reaches the extractor through a buffer of this size in
+// the runtime's memory, which also bounds each of the extractor's writes.
+const INSTALL_PIECE = 65536;
+
+```
+
+and add after `import { engineDataRoot } from "../../shared/naming.ts";`:
+
+```ts
+import { INSTALL_PIECE } from "../../shared/config.ts";
+```
+
+In `packages/worker-host/test/shared/install.ts`, delete the line `const INSTALL_PIECE = 65536;` (and the blank line
+after it, if the next line is blank), and add above
+`import type { CollectReport, EngineManifest, InstallReport } from "../../src/shared/messages.ts";`:
+
+```ts
+import { INSTALL_PIECE } from "../../src/shared/config.ts";
+```
+
+Until Task D7 lists `src/shared/index.ts`'s exports by name, its `export * from "./config.ts"` makes `INSTALL_PIECE`
+public; D7's list leaves it out.
+
+- [ ] **Step 4: Rename `store.ts`**
 
 ```bash
 git mv packages/worker-host/src/worker/store.ts packages/worker-host/src/worker/schema-dir.ts
@@ -8065,7 +8254,7 @@ In `packages/worker-host/src/worker/host.ts`, change `import { mountStore } from
 `yield* Effect.try({ try: () => mountStore(handle, manifest), catch: runtimeCallFailed });` to
 `yield* Effect.try({ try: () => setSchemaDir(handle, manifest), catch: runtimeCallFailed });`.
 
-- [ ] **Step 4: One timer promise in the test build**
+- [ ] **Step 5: One timer promise in the test build**
 
 In `packages/worker-host/test/worker/instruments.ts`, delete
 
@@ -8092,16 +8281,18 @@ with
           return sleep(arg(10)).then(() => ({ ret: 0 }));
 ```
 
-- [ ] **Step 5: Confirm the copies are gone**
+- [ ] **Step 6: Confirm the copies are gone**
 
 ```bash
-rg -n "interface NodeFs|const nodeFs|const briefly|yieldToEventLoop|mountStore" packages/worker-host
+rg -n "interface NodeFs|const nodeFs|const briefly|const describe|yieldToEventLoop|mountStore|const INSTALL_PIECE" packages/worker-host packages/test-programs packages/core/src packages/ibus-web/src -g '!**/dist/**'
+rg -n "\bdescribe\(|\bbriefly\(" packages/worker-host/src
 ```
 
-Expected: exactly `src/worker/node-fs.ts` (`interface NodeFs`, `const nodeFs`) and `src/worker/failure.ts`
-(`const briefly`).
+Expected from the second: no output. Expected from the first: exactly `packages/worker-host/src/worker/node-fs.ts` (`interface NodeFs`, `const nodeFs`),
+`packages/worker-host/src/shared/config.ts` (`const INSTALL_PIECE`) and `packages/test-programs/src/worker/program.ts`
+(`const describe`, kept: see Task D3).
 
-- [ ] **Step 6: Run the affected checks**
+- [ ] **Step 7: Run the affected checks**
 
 ```bash
 nix develop -c hk check --all
@@ -8110,7 +8301,7 @@ nix build .#checks.x86_64-linux.worker-host-node .#checks.x86_64-linux.worker-ho
 
 Expected: all pass.
 
-- [ ] **Step 7: Run the gate and commit**
+- [ ] **Step 8: Run the gate and commit**
 
 ```bash
 nix develop -c git add packages/worker-host
@@ -8862,26 +9053,38 @@ import { controlViews, postCrash, type ControlViews } from "../shared/control.ts
 `src/worker/install/provide.ts`: replace
 
 ```ts
+import { errorSummary } from "@ibus-web/protocol";
+```
+
+with
+
+```ts
+import { errorSummary, type EngineManifest } from "@ibus-web/protocol";
+```
+
+and
+
+```ts
 import type { CollectReport, EngineManifest, HostMessage, InstallReport } from "../../shared/messages.ts";
 ```
 
 with
 
 ```ts
-import type { EngineManifest } from "@ibus-web/protocol";
 import type { CollectReport, HostMessage, InstallReport } from "../../shared/messages.ts";
 ```
 
 `src/worker/storage/plan.ts`: replace
 
 ```ts
+import { errorSummary } from "@ibus-web/protocol";
 import { memoryWithData, type EngineManifest, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 ```
 
 with
 
 ```ts
-import type { EngineManifest } from "@ibus-web/protocol";
+import { errorSummary, type EngineManifest } from "@ibus-web/protocol";
 import { memoryWithData, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 ```
 
@@ -9238,14 +9441,13 @@ The log formatter (`hostLogger`) goes with the Worker layer rather than into `fa
 In `packages/worker-host/src/worker/failure.ts`, replace
 
 ```ts
-import { Cause, Data, Effect, Exit, type Scope } from "effect";
+import { errorReport } from "@ibus-web/protocol";
 ```
 
 with
 
 ```ts
-import { CrashReason } from "@ibus-web/protocol";
-import { Cause, Data, Effect, Exit, type Scope } from "effect";
+import { CrashReason, errorReport } from "@ibus-web/protocol";
 ```
 
 and append to the end of the file:
@@ -9282,7 +9484,7 @@ const crashFailure = (cause: Cause.Cause<unknown>): RuntimeStopped | RelayFailed
 
 export const stoppedRecord = (failure: RuntimeStopped): CrashRecord => ({
   reason: failure.reason ?? CrashReason.trap,
-  message: failure.error === UNWIND ? "a thread crashed" : describe(failure.error),
+  message: failure.error === UNWIND ? "a thread crashed" : errorReport(failure.error),
 });
 
 export const crashRecord = (cause: Cause.Cause<unknown>): CrashRecord => {
@@ -9300,7 +9502,7 @@ export const crashMessage = (
   const failure = crashFailure(cause);
   if (failure instanceof RelayFailed) return Promise.resolve(`relay: ${failure.message}`);
   if (failure instanceof RuntimeStopped) {
-    if (failure.error !== UNWIND) return Promise.resolve(describe(failure.error));
+    if (failure.error !== UNWIND) return Promise.resolve(errorReport(failure.error));
     return within(threadError, waitMs, "its error never arrived").then((why) => `a thread crashed: ${why}`);
   }
   return Promise.resolve(Cause.pretty(cause));
@@ -9323,13 +9525,13 @@ Create `packages/worker-host/src/worker/layers/worker.ts`:
 // The Worker scope: the control buffer, the host's channel to the page, its
 // logger, and how it reports a failed start or a crash.
 
-import { encodeValue } from "@ibus-web/protocol";
+import { encodeValue, errorReport } from "@ibus-web/protocol";
 import { RingWriter, transportLayout, Word } from "@ibus-web/protocol/transport";
 import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { controlViews, postCrash, type ControlViews } from "../../shared/control.ts";
 import type { HostInit, HostMessage } from "../../shared/messages.ts";
 import { HostConfig } from "../config.ts";
-import { crashMessage, crashRecord, describe, startupMessage, type CrashRecord } from "../failure.ts";
+import { crashMessage, crashRecord, startupMessage, type CrashRecord } from "../failure.ts";
 import { writeHostRecord } from "../output.ts";
 
 // What a Worker's error event carries, as far as the host reads it.
@@ -9369,7 +9571,7 @@ export class HostWorker extends Context.Service<HostWorker, HostWorkerShape>()("
 const hostLogger = (writer: RingWriter, control: ControlViews, notify: () => void): Logger.Logger<unknown, void> =>
   Logger.make(({ logLevel, message, cause }) => {
     const parts = Array.isArray(message) ? message : [message];
-    const text = parts.map((part) => (typeof part === "string" ? part : describe(part))).join(" ");
+    const text = parts.map((part) => (typeof part === "string" ? part : errorReport(part))).join(" ");
     const levels = { All: 128, Fatal: 4, Error: 8, Warn: 16, Info: 64, Debug: 128, Trace: 128, None: 0 };
     const payload = encodeValue("(uss)", {
       _tag: "()",
@@ -9411,7 +9613,7 @@ export const workerLayer = (
       env.onUncaughtError((event) => {
         if (!isCrashed) return;
         event.preventDefault();
-        keepError(describe(event.error ?? event.message));
+        keepError(errorReport(event.error ?? event.message));
       });
       const crashed = ({ reason, message }: CrashRecord): void => {
         if (isCrashed) return;
@@ -9721,10 +9923,11 @@ Create `packages/worker-host/src/worker/layers/storage.ts`:
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+import { errorReport } from "@ibus-web/protocol";
 import { Context, Effect, Layer } from "effect";
 import { engineDir, engineWriterLock } from "../../shared/naming.ts";
 import { HostConfig } from "../config.ts";
-import { describe, runtimeCallFailed, runtimeFinalizer, type StartupFailed } from "../failure.ts";
+import { runtimeCallFailed, runtimeFinalizer, type StartupFailed } from "../failure.ts";
 import { Instruments } from "../instruments.ts";
 import { provideData } from "../install/provide.ts";
 import { setSchemaDir } from "../schema-dir.ts";
@@ -9763,7 +9966,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
               return Effect.void;
             } catch (error) {
               return Effect.logError(
-                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(manifest)} until its Worker ends: ${describe(error)}`,
+                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(manifest)} until its Worker ends: ${errorReport(error)}`,
               );
             }
           }),
@@ -9802,10 +10005,10 @@ Create `packages/worker-host/src/worker/serve.ts`:
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { CrashReason } from "@ibus-web/protocol";
+import { CrashReason, errorReport } from "@ibus-web/protocol";
 import { Effect } from "effect";
 import { HostConfig } from "./config.ts";
-import { describe, RelayFailed, runtimeIntact, RuntimeStopped, stoppedRecord, within } from "./failure.ts";
+import { RelayFailed, runtimeIntact, RuntimeStopped, stoppedRecord, within } from "./failure.ts";
 import { Instruments, type InstrumentReply } from "./instruments.ts";
 import { HostRuntime } from "./layers/runtime.ts";
 import { Relay } from "./layers/relay.ts";
@@ -9966,7 +10169,7 @@ export const serve: Effect.Effect<
       }
       if ("error" in outcome) {
         ctx.topUpFailed = true;
-        yield* Effect.logError(describe(outcome.error));
+        yield* Effect.logError(errorReport(outcome.error));
       } else instruments.toppedUp(want, outcome.ms, outcome.createMs);
     });
 
@@ -10293,6 +10496,560 @@ lines still print.
 nix develop -c git add packages/core/test packages/worker-host/test
 nix develop -c git commit -m "test: group connection tests and name measurement and capability values" -- packages/core/test packages/worker-host/test
 ```
+
+### Task D10: One console capture for both browser suites
+
+test-programs and worker-host each define `consoleBegin` and `consoleTake` browser commands that keep what a page's
+consoles print, with the same Firefox filter. They differ in which consoles they keep and how they shape a line, so one
+module in test-programs takes both as options, and each package's commands are built from it.
+
+Both now share one rule for when lines are kept: `consoleBegin` forgets whatever was kept and keeps from then on, and
+`consoleTake` returns what was kept since `consoleBegin` or the last `consoleTake`. test-programs sees no difference,
+because it calls `consoleBegin` before each program; worker-host calls it once per test file, from `browserHarness`,
+so lines a previous file left untaken no longer carry over into the next.
+
+**Files:**
+
+- Create: `packages/test-programs/src/node/console.ts`
+- Modify: `packages/test-programs/package.json` (`exports`), `packages/test-programs/src/node/commands.ts`,
+  `packages/test-programs/src/browser/commands.ts`, `packages/worker-host/test/node/commands.ts`,
+  `packages/worker-host/test/browser/commands.ts`
+
+**Interfaces:**
+
+- Produces, from `@ibus-web/test-programs/console`:
+  - `interface ConsoleOptions { readonly from: "page" | "workers"; readonly format: "tagged" | "raw" }`
+  - `interface ConsoleCommands { readonly consoleBegin: BrowserCommand<[]>; readonly consoleTake: BrowserCommand<[]> }`
+  - `consoleCommands(options: ConsoleOptions): ConsoleCommands`
+- The browser-side declarations keep their signatures: test-programs' `consoleTake(): Promise<OutputLine[]>`,
+  worker-host's `consoleTake(): Promise<string[]>`.
+
+- [ ] **Step 1: Write the shared capture**
+
+Create `packages/test-programs/src/node/console.ts`:
+
+```ts
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Browser commands that keep what a test page's consoles print, for a suite
+// to take once the code under test has printed it. They run in Node beside
+// the browser.
+
+import type { ConsoleMessage, Page } from "playwright";
+import type { BrowserCommand } from "vitest/node";
+import type { OutputLine } from "../shared/protocol.ts";
+
+// Firefox warns that a module's legacy exception-handling instructions are
+// deprecated, once for every Worker that instantiates it; every build with
+// them would carry the warning until they are replaced.
+const DEPRECATED_TRY = "WebAssembly exception handling 'try' instruction is deprecated";
+
+export interface ConsoleOptions {
+  // "page" keeps the page's console, its Workers' and the page's uncaught
+  // errors. "workers" keeps its Workers' alone, for a suite whose page is
+  // Vitest's own test page, whose console Vitest already reports.
+  readonly from: "page" | "workers";
+  // "tagged" keeps each message as one OutputLine saying where it came from;
+  // "raw" keeps each non-empty line of its text.
+  readonly format: "tagged" | "raw";
+}
+
+export interface ConsoleCommands {
+  // Forgets whatever was kept and keeps from now on.
+  readonly consoleBegin: BrowserCommand<[]>;
+  // What was kept since consoleBegin or the last consoleTake.
+  readonly consoleTake: BrowserCommand<[]>;
+}
+
+type Kept = (OutputLine | string)[];
+
+export const consoleCommands = (options: ConsoleOptions): ConsoleCommands => {
+  const kept = new WeakMap<Page, Kept>();
+  const keep = (lines: Kept, source: string, text: string): void => {
+    if (options.format === "tagged") lines.push({ stream: "console", text: `[${source}] ${text}` });
+    else lines.push(...text.split("\n").filter((line) => line !== ""));
+  };
+  const keptOf = (page: Page): Kept => {
+    let lines = kept.get(page);
+    if (lines === undefined) {
+      const created: Kept = [];
+      page.on("console", (message: ConsoleMessage) => {
+        const text = message.text();
+        if ((options.from === "workers" && message.worker() === null) || text.includes(DEPRECATED_TRY)) return;
+        keep(created, `console.${message.type()}`, text);
+      });
+      if (options.from === "page") page.on("pageerror", (error) => keep(created, "pageerror", error.message));
+      kept.set(page, created);
+      lines = created;
+    }
+    return lines;
+  };
+  return {
+    consoleBegin: ({ page }) => {
+      keptOf(page).length = 0;
+    },
+    consoleTake: ({ page }) => keptOf(page).splice(0),
+  };
+};
+```
+
+The tagged lines are the ones test-programs printed before: `[console.<type>] <text>` and `[pageerror] <message>`.
+
+- [ ] **Step 2: Export it**
+
+In `packages/test-programs/package.json`, add to `exports`, after the `"./vitest"` entry:
+
+```json
+    "./console": {
+      "types": "./src/node/console.ts",
+      "default": "./dist/node/console.js"
+    }
+```
+
+(with a comma after the `"./vitest"` entry's closing brace). `tsconfig.node.json` already includes `src/node`, so
+`pnpm run build` emits `dist/node/console.js`.
+
+- [ ] **Step 3: Build test-programs' commands from it**
+
+Replace the contents of `packages/test-programs/src/node/commands.ts` with:
+
+```ts
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// The commands browser test files call, which run in Node beside the browser.
+
+import type { BrowserCommand } from "vitest/node";
+import { consoleCommands } from "./console.ts";
+import { parseTap } from "./tap.ts";
+
+export const commands = {
+  parseTap: ((_context, text: string) => parseTap(text)) satisfies BrowserCommand<[string]>,
+  ...consoleCommands({ from: "page", format: "tagged" }),
+};
+```
+
+In `packages/test-programs/src/browser/commands.ts`, replace
+
+```ts
+    // Starts keeping the page's console messages, its Workers' included,
+    // and forgets any kept before.
+    consoleBegin(): Promise<void>;
+    // The messages kept since consoleBegin(); stops keeping them.
+    consoleTake(): Promise<OutputLine[]>;
+```
+
+with
+
+```ts
+    // Forgets the console messages kept so far and keeps the page's, its
+    // Workers' included, from now on.
+    consoleBegin(): Promise<void>;
+    // The messages kept since consoleBegin() or the last consoleTake().
+    consoleTake(): Promise<OutputLine[]>;
+```
+
+- [ ] **Step 4: Build worker-host's commands from it**
+
+Replace the contents of `packages/worker-host/test/node/commands.ts` with:
+
+```ts
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// The commands browser test files call, which run in Node beside the
+// browser: what the page's Workers print to their consoles, the host's and
+// its pthreads' alike.
+
+import { consoleCommands } from "@ibus-web/test-programs/console";
+
+export const commands = { ...consoleCommands({ from: "workers", format: "raw" }) };
+```
+
+The spread makes `commands` an object literal, which `browserMode`'s `Record<string, BrowserCommand>` parameter
+accepts; an interface-typed value isn't assignable to an index signature.
+
+In `packages/worker-host/test/browser/commands.ts`, replace
+
+```ts
+    // Starts keeping what the page's Workers print to their consoles, the
+    // host's and its pthreads' alike, if it hasn't yet.
+    consoleBegin(): Promise<void>;
+    // The lines kept since the last call.
+    consoleTake(): Promise<string[]>;
+```
+
+with
+
+```ts
+    // Forgets the lines kept so far and keeps what the page's Workers print
+    // to their consoles, the host's and its pthreads' alike, from now on.
+    consoleBegin(): Promise<void>;
+    // The lines kept since consoleBegin() or the last consoleTake().
+    consoleTake(): Promise<string[]>;
+```
+
+- [ ] **Step 5: Confirm there is one capture**
+
+```bash
+rg -n "DEPRECATED_TRY = |page.on\(\"console\"" packages --glob '!**/dist/**' --glob '!**/node_modules/**'
+```
+
+Expected: two lines, both in `packages/test-programs/src/node/console.ts`.
+
+- [ ] **Step 6: Run the affected checks**
+
+```bash
+nix develop -c hk check --all
+nix build .#checks.x86_64-linux.test-programs .#checks.x86_64-linux.worker-host-browser .#checks.x86_64-linux.hangul-host -L
+```
+
+Expected: all pass. A browser program fixture that prints to the console still shows `[console.log] …` lines in its
+output, and worker-host's browser suites still match the hosts' printed lines.
+
+- [ ] **Step 7: Run the gate and commit**
+
+```bash
+nix develop -c git add packages/test-programs packages/worker-host/test
+nix develop -c git commit -m "test: share one console capture between test-programs and worker-host" -- packages/test-programs packages/worker-host/test
+```
+
+### Task D11: GVariant variants built by constructors
+
+Settings and attachments carry values as GVariant variants, `{ _tag: "v", type, value }`. Core's settings code, the
+tests and the Hangul example spell that shape out by hand about twenty times, and two test files each define their own
+`stringValue`. Protocol gets four constructors, `ibus-web` re-exports them for pages, and every hand-built variant
+outside protocol's own codec tests uses them. Protocol's tests keep their literals: they test the representation
+itself.
+
+The constructors cover what the call sites build: `variant(type, value)` for a value whose type is only known at run
+time (a settings key's), and `stringVariant`, `booleanVariant` and `int32Variant` for the `s`, `b` and `i` values the
+tests and the example build.
+
+**Files:**
+
+- Create: `packages/protocol/src/gvariant/variants.ts`, `packages/protocol/test/gvariant/variants.test.ts`
+- Modify: `packages/protocol/src/index.ts`, `packages/ibus-web/src/index.ts`, `docs/ibus-web.md`,
+  `examples/hangul/src/main.ts`, `packages/core/src/settings/{api,persister}.ts`,
+  `packages/core/test/node/router/{services,async}.test.ts`, `packages/core/test/browser/{settings.test,real-host}.ts`,
+  `packages/worker-host/test/shared/{engine,protocol}.ts`, `packages/worker-host/test/engines/{page-session,hangul.test}.ts`,
+  `packages/ibus-web/test/browser/facade.test.ts`
+
+**Interfaces:**
+
+- Produces, exported from `@ibus-web/protocol` and from `ibus-web`:
+  - `variant(type: string, value: GVariantValue): Extract<GVariantValue, { _tag: "v" }>`
+  - `stringVariant(value: string)`, `booleanVariant(value: boolean)`, `int32Variant(value: number)`, each returning
+    `Extract<GVariantValue, { _tag: "v" }>` with type `"s"`, `"b"` or `"i"`
+- Removed: `stringValue` from `packages/worker-host/test/engines/page-session.ts`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/protocol/test/gvariant/variants.test.ts`:
+
+```ts
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+import { expect, test } from "vitest";
+import { encodeValue } from "../../src/gvariant/encode.ts";
+import { isGVariantValue } from "../../src/gvariant/value.ts";
+import { booleanVariant, int32Variant, stringVariant, variant } from "../../src/gvariant/variants.ts";
+
+test("variant boxes a value with its type", () => {
+  expect(variant("u", { _tag: "u", value: 7 })).toEqual({ _tag: "v", type: "u", value: { _tag: "u", value: 7 } });
+});
+
+test("the scalar constructors box their value with its signature", () => {
+  expect(stringVariant("한")).toEqual({ _tag: "v", type: "s", value: { _tag: "s", value: "한" } });
+  expect(booleanVariant(true)).toEqual({ _tag: "v", type: "b", value: { _tag: "b", value: true } });
+  expect(int32Variant(-3)).toEqual({ _tag: "v", type: "i", value: { _tag: "i", value: -3 } });
+});
+
+test("what they build is a value the codec encodes", () => {
+  for (const value of [stringVariant("x"), booleanVariant(false), int32Variant(4)]) {
+    expect(isGVariantValue(value)).toBe(true);
+    expect(encodeValue("v", value).byteLength).toBeGreaterThan(0);
+  }
+});
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+```bash
+nix develop -c pnpm --dir packages/protocol exec vitest run --configLoader native test/gvariant/variants.test.ts
+```
+
+Expected: FAIL, `Cannot find module '../../src/gvariant/variants.ts'`.
+
+- [ ] **Step 3: Write the constructors**
+
+Create `packages/protocol/src/gvariant/variants.ts`:
+
+```ts
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+import type { GVariantValue } from "./value.ts";
+
+// A value boxed with its type signature: what settings and attachments
+// carry.
+type Variant = Extract<GVariantValue, { _tag: "v" }>;
+
+export const variant = (type: string, value: GVariantValue): Variant => ({ _tag: "v", type, value });
+
+export const stringVariant = (value: string): Variant => variant("s", { _tag: "s", value });
+
+export const booleanVariant = (value: boolean): Variant => variant("b", { _tag: "b", value });
+
+export const int32Variant = (value: number): Variant => variant("i", { _tag: "i", value });
+```
+
+In `packages/protocol/src/index.ts`, after the line
+
+```ts
+export { type GVariantValue } from "./gvariant/value.ts";
+```
+
+add
+
+```ts
+export { booleanVariant, int32Variant, stringVariant, variant } from "./gvariant/variants.ts";
+```
+
+In `packages/ibus-web/src/index.ts`, after the line
+
+```ts
+export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
+```
+
+add
+
+```ts
+export { booleanVariant, int32Variant, stringVariant, variant } from "@ibus-web/protocol";
+```
+
+- [ ] **Step 4: Run the test to see it pass**
+
+```bash
+nix develop -c pnpm --dir packages/protocol exec vitest run --configLoader native test/gvariant/variants.test.ts
+```
+
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Use `variant` in core's settings code**
+
+In `packages/core/src/settings/api.ts`, add `variant,` to the `import { … } from "@ibus-web/protocol";` list (after
+`EngineManifest,`), and replace both occurrences of
+
+```ts
+{ _tag: "v", type: key.type, value: key.default }
+```
+
+with
+
+```ts
+variant(key.type, key.default)
+```
+
+(one in `get`, one in `reset`).
+
+In `packages/core/src/settings/persister.ts`, replace
+
+```ts
+import { decodeSettingsMetadata, decodeValue, encodeSettingsMetadata, encodeValue } from "@ibus-web/protocol";
+```
+
+with
+
+```ts
+import { decodeSettingsMetadata, decodeValue, encodeSettingsMetadata, encodeValue, variant } from "@ibus-web/protocol";
+```
+
+then replace
+
+```ts
+            : {
+                _tag: "v",
+                type: message.type,
+                value: decodeValue(message.type, new Uint8Array(message.bytes)),
+              };
+```
+
+with
+
+```ts
+            : variant(message.type, decodeValue(message.type, new Uint8Array(message.bytes)));
+```
+
+replace
+
+```ts
+          const value: SettingValue = supplied ?? { _tag: "v", type: key.type, value: key.default };
+```
+
+with
+
+```ts
+          const value: SettingValue = supplied ?? variant(key.type, key.default);
+```
+
+and replace
+
+```ts
+                const value: SettingValue = {
+                  _tag: "v",
+                  type: key.type,
+                  value: decodeValue(key.type, new Uint8Array(record.bytes)),
+                };
+```
+
+with
+
+```ts
+                const value: SettingValue = variant(key.type, decodeValue(key.type, new Uint8Array(record.bytes)));
+```
+
+- [ ] **Step 6: Use the scalar constructors in the tests**
+
+Replace every single-line `s`, `b` or `i` variant literal in the tests that build them:
+
+```bash
+files="packages/core/test/node/router/services.test.ts packages/core/test/node/router/async.test.ts packages/core/test/browser/settings.test.ts packages/worker-host/test/shared/engine.ts packages/worker-host/test/shared/protocol.ts packages/ibus-web/test/browser/facade.test.ts"
+perl -pi -e 's/\{ _tag: "v", type: "(b|s|i)", value: \{ _tag: "\1", value: ([^{}]+?) \} \}/($1 eq "b" ? "booleanVariant" : $1 eq "s" ? "stringVariant" : "int32Variant") . "($2)"/ge' $files
+rg -c 'booleanVariant\(|stringVariant\(|int32Variant\(' $files
+```
+
+Expected counts: `services.test.ts:4`, `async.test.ts:2`, `settings.test.ts:2`, `engine.ts:1`, `protocol.ts:1`,
+`facade.test.ts:2`.
+
+Then the helpers each test file defined for itself:
+
+```bash
+perl -ni -e 'print unless /^const variant = \(value: string\) => /' packages/core/test/browser/settings.test.ts
+perl -pi -e 's/\bvariant\(/stringVariant(/g' packages/core/test/browser/settings.test.ts
+perl -ni -e 'print unless /^const stringValue = \(value: string\) => /' packages/core/test/browser/real-host.ts
+perl -ni -e 'print unless /^export const stringValue = \(value: string\) => /' packages/worker-host/test/engines/page-session.ts
+perl -pi -e 's/\bstringValue\(/stringVariant(/g' packages/core/test/browser/real-host.ts packages/worker-host/test/engines/page-session.ts packages/worker-host/test/engines/hangul.test.ts
+```
+
+Now the imports:
+
+- `packages/core/test/node/router/services.test.ts`: replace
+  `import { CreateEngine, type EngineManifest, type Request } from "@ibus-web/protocol";` with
+  `import { booleanVariant, CreateEngine, stringVariant, type EngineManifest, type Request } from "@ibus-web/protocol";`
+- `packages/core/test/node/router/async.test.ts`: replace `import { FocusIn, SettingChanged } from "@ibus-web/protocol";`
+  with `import { booleanVariant, FocusIn, SettingChanged } from "@ibus-web/protocol";`
+- `packages/core/test/browser/settings.test.ts`: add `int32Variant,` and `stringVariant,` to the
+  `import { … } from "@ibus-web/protocol";` list, after `encodeValue,`
+- `packages/core/test/browser/real-host.ts`: replace
+  `import type { DecodedLazyRecord, Request } from "@ibus-web/protocol";` with
+  `import { stringVariant, type DecodedLazyRecord, type Request } from "@ibus-web/protocol";`
+- `packages/worker-host/test/shared/engine.ts`: add `stringVariant,` to the `@ibus-web/protocol` import list, after
+  `encodeRequest,`
+- `packages/worker-host/test/shared/protocol.ts`: replace
+  `import { encodeRequest, Init, CreateEngine, PROTOCOL_VERSION, ReqMode, Word, State } from "@ibus-web/protocol";` with
+  `import { encodeRequest, Init, CreateEngine, PROTOCOL_VERSION, ReqMode, stringVariant, Word, State } from "@ibus-web/protocol";`
+- `packages/worker-host/test/engines/page-session.ts`: add `stringVariant,` to the `@ibus-web/protocol` import list,
+  after `encodeRequest,`
+- `packages/worker-host/test/engines/hangul.test.ts`: in `import { … } from "./page-session.ts";` drop `stringValue`
+  (leaving `CAPABILITIES, HANGUL_SCHEMA, Key, PageSession`), and add `stringVariant,` to the `@ibus-web/protocol`
+  import list, after `SettingChanged,`
+- `packages/ibus-web/test/browser/facade.test.ts`: add `int32Variant,` to the `@ibus-web/protocol` import list, after
+  `encodeSettingsMetadata,`
+
+The type annotations in `facade.test.ts` that spell out `{ _tag: "v"; type: string; value: { _tag: "i"; … } }` stay:
+they describe what a listener receives, not a value the test builds.
+
+- [ ] **Step 7: Use the constructors in the Hangul example**
+
+In `examples/hangul/src/main.ts`, replace
+
+```ts
+import { createIbusWeb, type IbusWeb, type LogEntry } from "ibus-web";
+```
+
+with
+
+```ts
+import { booleanVariant, createIbusWeb, int32Variant, stringVariant, type IbusWeb, type LogEntry } from "ibus-web";
+```
+
+and replace
+
+```ts
+        const value: SettingValue = {
+          _tag: "v",
+          type: key.type,
+          value:
+            key.type === "b"
+              ? { _tag: "b", value: (control as HTMLInputElement).checked }
+              : key.type === "i"
+                ? { _tag: "i", value: Number(control.value) }
+                : { _tag: "s", value: control.value },
+        };
+```
+
+with
+
+```ts
+        const value: SettingValue =
+          key.type === "b"
+            ? booleanVariant((control as HTMLInputElement).checked)
+            : key.type === "i"
+              ? int32Variant(Number(control.value))
+              : stringVariant(control.value);
+```
+
+- [ ] **Step 8: Document them**
+
+In `docs/ibus-web.md`, replace the line
+
+```markdown
+`reset(engine, schemaId, key)` with typed GVariant variants. The generated
+```
+
+with
+
+```markdown
+`reset(engine, schemaId, key)` with typed GVariant variants, which `variant(type,
+value)` builds for any type and `stringVariant`, `booleanVariant` and
+`int32Variant` build for the `s`, `b` and `i` keys most settings have. The generated
+```
+
+- [ ] **Step 9: Confirm no hand-built variant is left outside protocol**
+
+```bash
+nix develop -c oxfmt packages/core/src/settings/api.ts packages/core/src/settings/persister.ts examples/hangul/src/main.ts docs/ibus-web.md \
+  packages/core/test/node/router/services.test.ts packages/core/test/node/router/async.test.ts \
+  packages/core/test/browser/settings.test.ts packages/core/test/browser/real-host.ts \
+  packages/worker-host/test/shared/engine.ts packages/worker-host/test/shared/protocol.ts \
+  packages/worker-host/test/engines/page-session.ts packages/worker-host/test/engines/hangul.test.ts \
+  packages/ibus-web/test/browser/facade.test.ts packages/protocol/src/gvariant/variants.ts \
+  packages/protocol/test/gvariant/variants.test.ts packages/protocol/src/index.ts packages/ibus-web/src/index.ts
+rg -n '_tag: "v"' packages examples tools -g '*.ts' -g '!**/dist/**' -g '!**/node_modules/**' -g '!packages/protocol/**'
+rg -n '\bstringValue\b|^const variant = ' packages -g '*.ts' -g '!**/dist/**'
+```
+
+Expected from the first `rg`: only the two type annotations in `packages/ibus-web/test/browser/facade.test.ts`
+(`_tag: "v"; type: string; …`). Expected from the second: no output.
+
+- [ ] **Step 10: Run the affected checks**
+
+```bash
+nix develop -c pnpm --dir packages/protocol exec vitest run --configLoader native test/gvariant
+nix develop -c hk check --all
+nix build .#checks.x86_64-linux.protocol .#checks.x86_64-linux.core .#checks.x86_64-linux.core-browser .#checks.x86_64-linux.ibus-web .#checks.x86_64-linux.worker-host-node .#checks.x86_64-linux.worker-host-browser .#checks.x86_64-linux.hangul-host -L
+```
+
+Expected: all pass, with the same test counts as before this task plus the three new protocol tests.
+
+- [ ] **Step 11: Run the gate and commit**
+
+```bash
+nix develop -c git add packages/protocol packages/ibus-web packages/core packages/worker-host/test examples/hangul/src docs/ibus-web.md
+nix develop -c git commit -m "refactor: build GVariant variants with protocol's constructors" -- packages/protocol packages/ibus-web packages/core packages/worker-host/test examples/hangul/src docs/ibus-web.md
+```
+
 ## Phase E: Package metadata and `tools/pack-licenses`
 
 Phase E assumes Phases A–D have landed:

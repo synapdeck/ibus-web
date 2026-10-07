@@ -123,13 +123,20 @@ Code that is copied between packages exists once:
 
 - The panel's record and event types (`PanelRecord`, `PanelEvent`/`PanelUpdate`, `PanelAction`) are defined in
   `@ibus-web/protocol`. Core and panel import them; `ibus-web` builds its `PanelAction` schema from the same definition.
-- Protocol's `asError` and `errorMessage` replace core's `asError` and `error` and the two `messageOf`s. Worker-host's
-  two identical `briefly`s, which also name the error, become one in `failure.ts`. The two `describe`s behave
-  differently and stay.
-- `align`, `alignedSize`, `nonEmpty` and `nodeFs` each have one definition, imported where used.
+- One module in protocol formats errors at three levels: `errorMessage` (the message alone), `errorSummary` (name and
+  message, including `DOMException` and `ErrorEvent`) and `errorReport` (the summary and the stack, without repeating
+  the summary when a Chromium stack already starts with it). It replaces core's `asError` and `error`, both
+  `messageOf`s, both `briefly`s and worker-host's `describe`; `asError` moves there too. test-programs' `describe`
+  stays: its Worker script is served unbundled, so it can't import protocol.
+- `align`, `alignedSize`, `nonEmpty` and `nodeFs` each have one definition, imported where used. `INSTALL_PIECE` moves
+  to worker-host's environment-free `src/shared/config.ts`, where the archive code and its test both import it.
+- Protocol gains a few GVariant value constructors, such as `variant(type, value)` and `stringVariant(value)`, which
+  replace the hand-built `{ _tag: "v", … }` literals in core, the tests and the Hangul example.
+- One browser command module in test-programs captures console output, with options for which consoles (the page and
+  its Workers, or the Workers alone) and whether lines are tagged. Its own commands and worker-host's use it.
 - Worker-host's browser and Node harnesses share a generic launcher in `test/shared/harness.ts`. The clock, Web Locks
-  and the `record` reporter stay per environment, because `test/shared` sees no environment's globals; for the same
-  reason the test copy of `INSTALL_PIECE` stays. Magic capability numbers use `IBusCapability`.
+  and the `record` reporter stay per environment, because `test/shared` sees no environment's globals. Magic capability
+  numbers use `IBusCapability`. The Hangul schema name stays a literal in each package's tests.
 
 Each package exports exactly what consumers import:
 
