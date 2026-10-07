@@ -132,7 +132,7 @@ local linters = new Mapping<String, Step> {
   // reads every config git tracks, since a change to one can break another's
   // chain.
   ["tsconfig-extends"] {
-    glob = List("**/tsconfig*.json")
+    glob = List("**/tsconfig*.json", "packages/tsconfig/*.json")
     check = new CommandSpec {
       command = "node modules/flake/tsconfig-extends.ts"
       effect = "read"

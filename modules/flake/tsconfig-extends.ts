@@ -4,8 +4,9 @@
 // Fails unless every tsconfig*.json git tracks reaches one of
 // @ibus-web/tsconfig's presets through `extends`, so every config shares
 // the repository's standard options. The presets, which aren't named
-// tsconfig*.json, are the roots. A solution config (`"files": []` plus
-// `references`) sets no options of its own and is exempt.
+// tsconfig*.json, are the roots. A solution config, a bare list of
+// `references` with `"files": []` and no `include`, `compilerOptions` or
+// `extends`, compiles nothing itself and is exempt.
 //
 //   tsconfig-extends.ts
 //     Run from the repository root.
@@ -51,8 +52,17 @@ const isPreset = (parent: string) =>
   parent.startsWith(`${presetPackage}/`) || (path.isAbsolute(parent) && path.dirname(parent) === presetDirectory);
 
 const isSolution = (file: string) => {
-  const config = parseJsonc(readFileSync(file, "utf8")) as { files?: unknown[]; references?: unknown[] };
-  return config.files?.length === 0 && config.references !== undefined;
+  const config = parseJsonc(readFileSync(file, "utf8")) as Record<string, unknown>;
+  const { files, references } = config;
+  return (
+    Array.isArray(files) &&
+    files.length === 0 &&
+    Array.isArray(references) &&
+    references.length > 0 &&
+    config.include === undefined &&
+    config.compilerOptions === undefined &&
+    config.extends === undefined
+  );
 };
 
 const reachesPreset = (file: string, seen = new Set<string>()): boolean => {
