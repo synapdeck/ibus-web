@@ -1,12 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-
-// The harness and its Vitest test file, which run under Node.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
     // Atomics.waitAsync().
     "lib": ["es2023", "es2024.sharedmemory"]
-  }
+  },
+  "include": ["tests/*.ts"]
 }

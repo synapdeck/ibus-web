@@ -213,6 +213,27 @@ importers:
         specifier: 'catalog:'
         version: 8.3.2(@types/node@24.19.0)(yaml@2.9.1)
 
+  modules/emscripten:
+    devDependencies:
+      '@ibus-web/test-programs':
+        specifier: workspace:*
+        version: link:../../packages/test-programs
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
+
+  modules/testing:
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+
   packages/core:
     dependencies:
       '@ibus-web/protocol':
@@ -406,6 +427,21 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
+
+  runtime/ibus-runtime:
+    devDependencies:
+      '@ibus-web/test-programs':
+        specifier: workspace:*
+        version: link:../../packages/test-programs
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
       vitest:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))

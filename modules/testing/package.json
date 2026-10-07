@@ -1,0 +1,8 @@
+{
+  "name": "@ibus-web/testing",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*"
+  }
+}

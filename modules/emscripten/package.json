@@ -1,0 +1,11 @@
+{
+  "name": "@ibus-web/emscripten-checks",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@ibus-web/test-programs": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// src/emscripten-types/ is generated, not written: the types of what the
+// library uses from Emscripten, from a link of the library.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/emscripten-js.json",
+  "files": ["src/libwasmfs_idb.js", "src/emscripten-library.d.ts", "src/emscripten-types/globals.d.ts"]
+}

@@ -18,10 +18,13 @@
       # checks there: the workspace's package globs, and its catalog.
       pnpmWorkspace = {
         packages = [
-          "runtime/wasmfs-idb"
-          "tools/*"
           "packages/*"
+          "tools/*"
           "examples/*"
+          "runtime/ibus-runtime"
+          "runtime/wasmfs-idb"
+          "modules/emscripten"
+          "modules/testing"
         ];
         # These packages ship N-API binaries for every supported build platform.
         allowBuilds = {

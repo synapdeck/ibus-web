@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Type-checks the checks' --pre-js, which Emscripten bundles into programs
-// run under Node, as written, as a script, and their Vitest test file.
+// Type-checks the fix checks' --pre-js, which Emscripten bundles into
+// programs run under Node, as written, as a script, and their Vitest test
+// file.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/emscripten-js.json",
@@ -11,5 +12,5 @@
     "lib": ["es2023"],
     "types": ["node", "@ibus-web/tsconfig/types/webassembly"]
   },
-  "files": ["size-pre.js", "pre-js.d.ts", "fixes.test.ts"]
+  "files": ["checks/fixes/size-pre.js", "checks/fixes/pre-js.d.ts", "checks/fixes/fixes.test.ts"]
 }

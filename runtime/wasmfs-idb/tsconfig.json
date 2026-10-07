@@ -1,0 +1,12 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// The backend's JavaScript library, which runs on the backend's thread, a
+// Worker; and the tests' JavaScript libraries and --post-js, which run on
+// every thread of a test program. tsconfig.library-types.json is a negative
+// test that must fail, run only by its Nix check, so it isn't listed here.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.test.json" }]
+}

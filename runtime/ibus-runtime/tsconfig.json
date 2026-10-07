@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Type-checks the runtime's --pre-js, which Emscripten bundles into the
-// runtime as written, as a script. The runtime runs in Workers.
+// The runtime's --pre-js, which Emscripten bundles into the runtime as
+// written and which runs in Workers; and the load tests' harness and test
+// file, which run under Node.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ibus-web/tsconfig/emscripten-js.json",
-  "files": ["host-memory.js", "pre-js.d.ts"]
+  "files": [],
+  "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.test.json" }]
 }

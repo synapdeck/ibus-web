@@ -62,15 +62,15 @@
         fileset = lib.fileset.unions (
           runtime.wasmfsIdbTestLibraries
           ++ [
-            ./src/tsconfig.json
+            ./tsconfig.worker.json
             ./src/libwasmfs_idb.js
             ./src/emscripten-library.d.ts
-            ./tests/tsconfig.json
+            ./tsconfig.test.json
             ./tests/stderr-post.js
             ./tests/errors-post.js
             ./tests/wasm-exports.d.ts
             ./tests/post-js.d.ts
-            ./tests/library-types/tsconfig.json
+            ./tsconfig.library-types.json
             ./tests/library-types/rejected.js
           ]
         );
@@ -117,14 +117,14 @@
             done
             cd ${here}
             ln -s ${types} src/${typesDir}
-            tsc -p src
-            tsc -p tests
+            tsc -p tsconfig.worker.json
+            tsc -p tsconfig.test.json
 
             # The library's own type must reject what Emscripten would: a
             # file of calls that each break one rule fails with one error
             # per call, each carrying the message written above the call.
             rejected=tests/library-types/rejected.js
-            if tsc -p tests/library-types > errors.txt; then
+            if tsc -p tsconfig.library-types.json > errors.txt; then
               echo "$rejected: type-checks, but every call in it is wrong" >&2
               exit 1
             fi

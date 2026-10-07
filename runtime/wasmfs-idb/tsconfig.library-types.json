@@ -5,6 +5,6 @@
 // error for each call in rejected.js.
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../src/tsconfig.json",
-  "files": ["../../src/emscripten-library.d.ts", "rejected.js"]
+  "extends": "./tsconfig.worker.json",
+  "files": ["src/emscripten-library.d.ts", "tests/library-types/rejected.js"]
 }

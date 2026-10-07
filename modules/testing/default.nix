@@ -509,7 +509,7 @@
             inherit root;
             fileset = lib.fileset.unions [
               ../../runtime/wasmfs-idb/src/emscripten-library.d.ts
-              ./gtest-main/tsconfig.json
+              ./tsconfig.json
               ./gtest-main/report.js
               ./gtest-main/report.d.ts
             ];
@@ -532,7 +532,7 @@
             # the types beside them, which any library's link writes alike.
             ln -s ${reportTypes} runtime/wasmfs-idb/src/${typesDir}
             ln -s ${reportTypes} modules/testing/gtest-main/${typesDir}
-            tsc -p modules/testing/gtest-main
+            tsc -p modules/testing
             touch $out
           '';
 
