@@ -2,14 +2,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ibus-web/tsconfig/base.json",
+  "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
     "noEmit": false,
     "allowImportingTsExtensions": false,
     "rootDir": "src",
     "outDir": "dist",
-    "lib": ["es2023"],
-    "types": ["node"],
     // Vitest's declarations name both DOM and Node types, and each
     // environment has only one of them.
     "skipLibCheck": true
