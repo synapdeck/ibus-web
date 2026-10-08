@@ -6,8 +6,9 @@ and reports panel state. It imports only the host's shared transport definitions
 and engine code load by URL and never enter the page bundle.
 
 `@ibus-web/core` exports the Effect services (`Router`, `EngineRegistry`, `CoreConfig`,
-`SettingsSource`, `SettingsApi`, `Logger`, `PanelEvents`) and the textarea adapter;
-`@ibus-web/core/keys` exports key translation alone. `effect` 4 is a peer dependency.
+`SettingsSource`, `SettingsApi`, `Logger`, `PanelEvents`) and the textarea adapter, among others
+such as `Connection`, `KeyRouter`, `ReplayQueue` and the IndexedDB settings persister; this lists
+the main ones. `@ibus-web/core/keys` exports key translation alone. `effect` 4 is a peer dependency.
 
 Most applications use [`ibus-web`](../ibus-web/README.md), which wraps this package in a promise
 API. The design and the layer wiring are in

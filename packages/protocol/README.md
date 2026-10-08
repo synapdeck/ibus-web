@@ -16,8 +16,10 @@ const value = decodeValue("s", bytes);
 ```
 
 Values are tagged unions. `stringVariant`, `booleanVariant`, `int32Variant` and `variant(type, value)` build the typed
-variants that ibus-web's settings API takes. The ring buffer and control layout live under
-`@ibus-web/protocol/transport`. `effect` 4 is a peer dependency.
+variants that ibus-web's settings API takes. `@ibus-web/protocol/transport` is the transport-only
+entry: the ring buffer, control layout and their constants, without the codecs. The root also
+exports the main transport symbols (`RingWriter`, `RingReader`, `transportLayout`,
+`transportViews`, `Word`, `State`, `ReqMode` and the default sizes). `effect` 4 is a peer dependency.
 
 The generated message reference is [`PROTOCOL.md`](PROTOCOL.md); the design is in
 [docs/protocol.md](https://github.com/synapdeck/ibus-web/blob/master/docs/protocol.md).

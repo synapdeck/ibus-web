@@ -20,7 +20,8 @@ await ibus.settings.set("hangul", "org.freedesktop.ibus.panel", "lookup-table-or
 ```
 
 The page must be cross-origin isolated (COOP `same-origin`, COEP `require-corp`). Deploy the
-runtime, the engines' distributions and this package's `host/` directory as static assets.
+runtime, the engines' distributions and this package's `dist/host/` directory (exported as
+`ibus-web/host/*`) as static assets.
 `ibus-web/panel` adds the default candidate panel, `ibus-web/worker` exports the URLs of the
 host's scripts, and `ibus-web/effect` exposes the underlying Effect services. `effect` 4 is a
 peer dependency.
@@ -28,6 +29,6 @@ peer dependency.
 Deployment, the full API and settings are described in
 [docs/ibus-web.md](https://github.com/synapdeck/ibus-web/blob/master/docs/ibus-web.md).
 
-Licensed under MIT OR Apache-2.0, at your option. The Worker scripts in `host/` bundle `effect`
+Licensed under MIT OR Apache-2.0, at your option. The Worker scripts in `dist/host/` bundle `effect`
 and `brotli-dec-wasm`; their licenses are in `LICENSES/`. Engines are licensed separately
 (ibus-hangul is GPL-2.0-or-later) and run only inside their Workers, never in your page's bundle.
