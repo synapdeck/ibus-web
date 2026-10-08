@@ -327,6 +327,7 @@ export class KeyRouter {
     this.output.changed?.();
     try {
       const reply = await connection.requestAsync(request, ic, { settled: settle });
+      // A connection that ignores the hook leaves the request to be settled here.
       settle(reply);
       if (failure) throw failure.cause;
       return reply;
@@ -375,7 +376,7 @@ export class KeyRouter {
       if (!pending.completion) throw error;
     }
   }
-  /** The router prevented this key's default before the engine declined it, so say what the user lost. */
+  /** The router prevented this key's default and the adapter could not perform it, so say what the user lost. */
   private lost({ context, event }: PendingKey): void {
     const chord = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta"]
       .filter(Boolean)
@@ -390,7 +391,7 @@ export class KeyRouter {
         _tag: "Log",
         level: 16,
         domain: "page-adapter",
-        message: `The engine declined ${chord} after it was queued, and the page cannot perform its browser action`,
+        message: `The page could not replay ${chord}, so its browser action was lost`,
       },
     });
   }
