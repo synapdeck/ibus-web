@@ -65,6 +65,8 @@
     {
       ibusWeb.engines.hangul = hangul;
 
+      ibusWeb.toolchain.devLibraries = [ libhangul ];
+
       ibusWeb.toolchain.clangdPathFlags."engines/hangul/module\\.c" = [
         "-I${hangul.src}/src"
         ''-DIBUSWEB_SETTINGS_SCHEMA_DIR="${hangul.settingsSchemaDir}"''

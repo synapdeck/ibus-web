@@ -11,8 +11,6 @@
       pkgConfig = "${pkgsWasm.stdenv.cc.targetPrefix}pkg-config";
     in
     {
-      ibusWeb.toolchain.devLibraries = [ libhangul ];
-
       # Builds against the installed library through the cross pkg-config,
       # the way an engine will find it.
       checks.hangul-libhangul-link =
