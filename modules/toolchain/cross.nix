@@ -45,6 +45,17 @@ in
             builtins.unsafeDiscardStringContext (baseNameOf (builtins.head emscripten.llvmEnv.paths))
           );
 
+          # Hardening clang can't apply for wasm32-unknown-emscripten: it
+          # rejects zeroed call-used registers, branch protection and shadow
+          # stacks, and ignores stack clash protection with a warning, which
+          # fails -Werror builds.
+          unsupportedHardeningFlags = [
+            "pacret"
+            "shadowstack"
+            "stackclashprotection"
+            "zerocallusedregs"
+          ];
+
           # cc-wrapper wraps a clang-shaped compiler; emcc and em++ take the
           # clang and clang++ roles.
           emscriptenClang =
@@ -55,6 +66,11 @@ in
                   version = clangVersion;
                   langC = true;
                   langCC = true;
+
+                  # The wrapper drops these whatever NIX_HARDENING_ENABLE
+                  # holds, which in a build that also compiles for the build
+                  # machine the native compiler's setup hook may set first.
+                  hardeningUnsupportedFlags = unsupportedHardeningFlags;
                 };
               }
               ''
@@ -90,14 +106,7 @@ in
             # to every command itself; a libc here would put a second set of
             # headers and libraries on the command line.
             libc = null;
-            # The default list targets native ELF toolchains (relro, bindnow,
-            # stack clash protection, zeroed call-used registers), several of
-            # which clang rejects for wasm32-unknown-emscripten.
-            defaultHardeningFlags = [
-              "format"
-              "pic"
-              "strictflexarrays1"
-            ];
+            defaultHardeningFlags = lib.subtractLists unsupportedHardeningFlags pkgsBuildBuild.stdenv.cc.defaultHardeningFlags;
           };
 
           cc = buildPackages.wrapCCWith {

@@ -239,8 +239,14 @@ their recipes with no change at all; libhangul's recipe gains only the Hangul en
   linked under the target prefix, since the bintools wrapper wraps only prefixed tools and builds
   would otherwise fall back to whatever `ar` is on `PATH`.
 - `libc` is `null`: Emscripten's libc lives in its cache sysroot, which emcc adds to every command
-  itself. The hardening defaults are cut to `format`, `pic` and `strictflexarrays1`; the native
-  list (relro, bindnow, stack clash protection, …) has flags clang rejects for this target.
+  itself.
+- Hardening is nixpkgs' default list less what clang can't apply for this target, which the
+  compiler declares unsupported: `zerocallusedregs`, `pacret` and `shadowstack`, which it rejects,
+  and `stackclashprotection`, which it ignores with a warning that fails `-Werror` builds.
+  cc-wrapper drops unsupported flags whatever `NIX_HARDENING_ENABLE` holds, so a build that also
+  compiles for the build machine, whose compiler's setup hook may set the variable first, still
+  gets this list. cc-wrapper's own rules for the target drop `fortify`, `stackprotector`, `pic` and
+  `pie`; libc++'s fast hardening mode and `strictoverflow` apply.
 - `isStatic` makes nixpkgs apply its `makeStatic` adapter: static libraries only, every build
   input propagated, `-static` at link time. Engines link their libraries into side modules.
 - Emscripten is the build machine's, as `pkgsBuildBuild`'s would be. `buildPackages` would give it
