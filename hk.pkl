@@ -136,9 +136,10 @@ local linters = new Mapping<String, Step> {
   }
   // Every tsconfig shares the repository's standard options; the script
   // reads every config git tracks, since a change to one can break another's
-  // chain.
+  // chain. A package's root rule also depends on its package.json existing, so
+  // those are in the glob.
   ["tsconfig-extends"] {
-    glob = List("**/tsconfig*.json", "packages/tsconfig/*.json")
+    glob = List("**/tsconfig*.json", "**/package.json", "packages/tsconfig/*.json")
     check = new CommandSpec {
       command = "node tools/tsconfig-extends/tsconfig-extends.ts"
       effect = "read"
