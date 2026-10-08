@@ -80,3 +80,17 @@ test("postpack without a manifest does nothing", async () => {
 
   expect(existsSync(join(packageDir, "LICENSES/keep.txt"))).toBe(true);
 });
+
+test.each([["../outside.txt"], ["/etc/passwd"], ["LICENSES/../../outside.txt"]])(
+  "postpack refuses a manifest entry that leaves the package: %s",
+  async (entry) => {
+    const { packageDir, plan } = await setUp();
+    await prepack(packageDir, plan);
+    await writeFile(join(packageDir, "../outside.txt"), "outside");
+    await writeFile(join(packageDir, MANIFEST), JSON.stringify(["LICENSE-MIT", entry]));
+
+    await expect(postpack(packageDir)).rejects.toThrow(entry);
+    expect(await readFile(join(packageDir, "../outside.txt"), "utf8")).toBe("outside");
+    expect(existsSync(join(packageDir, "LICENSE-MIT"))).toBe(true);
+  },
+);

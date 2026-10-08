@@ -3,7 +3,7 @@
 
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import type { Plan } from "./plan.ts";
 
 /** Lists, in the package directory, the files prepack wrote, for postpack to remove. */
@@ -43,6 +43,15 @@ export async function postpack(packageDir: string): Promise<void> {
 
   const written = JSON.parse(await readFile(manifest, "utf8")) as readonly string[];
   const dirs = new Set<string>();
+
+  // The manifest is a file in the package, so nothing in it can be trusted to name a package file.
+  for (const path of written) {
+    const inside = relative(packageDir, join(packageDir, path));
+
+    if (isAbsolute(path) || inside === ".." || inside.startsWith("../")) {
+      throw new Error(`${MANIFEST} names ${path}, which is outside the package`);
+    }
+  }
 
   for (const path of written) {
     await rm(join(packageDir, path), { force: true });
