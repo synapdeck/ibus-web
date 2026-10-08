@@ -25,9 +25,10 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 
 ## Specs
 
-| Spec                                              | Covers                                                                       |
-| ------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [The design](specs/2026-09-26-ibus-web-design.md) | Goals, architecture, protocol, licensing, build and the remaining milestones |
+| Spec                                                            | Covers                                                                       |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [The design](specs/2026-09-26-ibus-web-design.md)               | Goals, architecture, protocol, licensing, build and the remaining milestones |
+| [M2.1: the table engine](specs/2026-10-08-m2-1-table-engine.md) | Modules and engines on the page side; the LaTeX and X-SAMPA table engine     |
 
 ## Beside the code
 
