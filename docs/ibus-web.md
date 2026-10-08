@@ -4,11 +4,15 @@ The packages aren't on npm yet. To try them, build their tarballs from this
 repository with `nix build .#npm.all`, which holds one for each of `protocol`,
 `worker-host`, `core`, `panel` and `ibus-web`, the runtime's and the Hangul
 engine's. Install the five page packages' tarballs and the runtime's together,
-with `effect`, their peer dependency. Serve the runtime's and the engine's
-`dist/` files as they are.
-Build and serve the runtime, Worker host and engine distribution as URL assets;
-the facade's page bundle does not contain their executable implementation. A
-minimal native input integration is:
+with `effect`, their peer dependency.
+
+The runtime and the engines are files the page serves, not code it imports, and
+`ibus-web` doesn't carry them: serve `@ibus-web/runtime`'s `dist/` and pass its
+`ibus-runtime.js` as `runtimeUrl`, and serve each engine package's `dist/` and
+pass its `manifest.json`. They stay separate packages under their own licenses
+(LGPL-2.1-or-later for the runtime, the engine's for an engine), so the page
+packages stay MIT OR Apache-2.0. The facade's page bundle contains none of the
+Worker host, the runtime or an engine. A minimal native input integration is:
 
 ```ts
 import { createIbusWeb } from "ibus-web";
