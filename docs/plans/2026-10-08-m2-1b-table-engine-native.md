@@ -30,7 +30,7 @@ These are written into `docs/table.md` (Task 5) and covered by `table-golden` or
 
 - **Modifier keys.** A press of a modifier keysym itself (Shift, Control, Caps Lock, ISO level and group keys, Mode_switch, Num_Lock) returns false and changes nothing, in both modes. Otherwise the Shift press that types the `H` of `_H` would flush a continuous composition.
 - **Hidden cursor.** In command mode, the first Up, Down, Tab or Shift+Tab while the cursor is hidden shows it where it is (the first candidate) rather than moving it. Cursor moves stop at either end; paging stays put on the first or last page.
-- **Keys that type nothing** (Delete, F1, …) are consumed while a command composition is open, so they can't edit text around the preedit. Idle, they pass through.
+- **Keys that type nothing** (Delete, Insert, F1, …) commit the raw buffer and pass through while a command composition is open, as Left, Right, Home and End do: the application then acts on committed text, never on text hidden behind a preedit. Continuous mode already flushes and passes through every key outside the alphabet, so both modes treat them alike. Presses of modifier keys alone still change nothing.
 - **Sink order.** Within one call into a session, a commit comes first, then the preedit, then the candidates. A continuous key that resolves several keys commits them as one string. Hiding is `preedit("")` then `candidates({}, 0, false)`. A continuous session emits no hide when nothing was shown.
 - **`ParseError::line` is 0** for errors about the file rather than a line (it can't be opened); `message()` is then `path: reason`. The parser reports the first error only.
 - **Error classes** beyond the spec's: CR line endings, invalid UTF-8, malformed frontmatter lines, empty values and language tags, a trigger longer than one character, a body line without a tab, empty keys and outputs, a space in a key (Space ends compositions), a raw tab in an output, unknown escapes, a key without the trigger, a key that is only the trigger, the trigger inside a key (it opens the next composition), and a table with no mappings. Messages are listed in Task 3.
@@ -2846,12 +2846,14 @@ TEST_F(Command, ReleasesAndModifierKeysChangeNothing) {
   EXPECT_EQ(sink_.take(), Events{});
 }
 
-TEST_F(Command, KeysThatTypeNothingAreConsumed) {
-  type("\\al");
-  sink_.take();
-  EXPECT_TRUE(press(0xffff));
-  EXPECT_TRUE(press(0xffbe));
-  EXPECT_EQ(sink_.take(), Events{});
+TEST_F(Command, KeysThatTypeNothingCommitTheBufferAndPassThrough) {
+  for (const std::uint32_t keyval : {0xffffu, 0xff63u, 0xffbeu}) {
+    type("\\al");
+    sink_.take();
+    EXPECT_FALSE(press(keyval));
+    EXPECT_EQ(sink_.take(),
+              (Events{"commit \"\\al\"", "preedit \"\"", "candidates none"}));
+  }
 }
 
 TEST_F(Command, ClickingACandidateCommitsIt) {
@@ -3544,12 +3546,6 @@ public:
     case keys::Page_Down:
       pageDown();
       return true;
-    case keys::Left:
-    case keys::Right:
-    case keys::Home:
-    case keys::End:
-      finish(buffer_);
-      return false;
     default:
       break;
     }
@@ -3563,9 +3559,11 @@ public:
       finish(chosen());
       return idle(character);
     }
-    // Keys that type nothing, such as Delete or F1, would act on the text
-    // around the preedit.
-    return true;
+
+    // Keys that type nothing (Left, Home, Delete, F1, …) act on the text
+    // around the composition, so it is committed first.
+    finish(buffer_);
+    return false;
   }
 
   void candidateClicked(std::size_t index) override {
@@ -3994,8 +3992,8 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
   first candidate of its page. **Page Up and Page Down** move it by a page.
 - **Backspace** deletes the last character. Deleting the trigger ends the composition and commits nothing.
 - **Escape** commits the raw buffer and is consumed.
-- **Left, Right, Home and End** commit the raw buffer and pass through.
-- Keys that type nothing, such as Delete or F1, are consumed, so they can't act on the text around the preedit.
+- **Left, Right, Home and End**, and every other key that types nothing (Delete, Insert, F1, …), commit the raw buffer
+  and pass through, so the key acts on committed text.
 
 ### Continuous mode
 
@@ -4085,6 +4083,6 @@ Expected: `write-files` changes nothing (`git status --short` is empty); `nix fl
 
 ## Self-review
 
-- **Spec coverage (phase 2).** MARISA with PR #146 on both builds, upstream tests natively, no host tuning: Task 1. `Table`, the parser and every format rule and error: Task 3. `Sink`, `Session`, `CommandSession`, `ContinuousSession` and every behaviour rule (dead ends, `\alpha,`, `\alpha\beta`, cursor shown and hidden, paging, Backspace through the trigger, Escape, Enter, modifiers, Left/Right/Home/End, candidate clicks, longest match, literal fallback, flushing on Space and Enter, combining marks): Task 4, one or more `table-golden` tests each. `xsampa.table` from the archived chart, `tools/latex-table` with every Data rule and both alias failures, the 24 aliases, the pinned `unicode.xml`: Task 2. `table-check`, `table-describe`, `ibusWeb.engines.table.{tables,tools,sources}`: Tasks 2–3. Checks `table-parse`, `table-golden`, `table-marisa`, `tools-latex-table`: Tasks 1–4. Docs: Task 5. Phase 3 items (`glue.cpp`, the side module, distribution, `table-host`, cast audit, Playwright, load-time measurement, `docs/engines.md`) are out of scope.
+- **Spec coverage (phase 2).** MARISA with PR #146 on both builds, upstream tests natively, no host tuning: Task 1. `Table`, the parser and every format rule and error: Task 3. `Sink`, `Session`, `CommandSession`, `ContinuousSession` and every behaviour rule (dead ends, `\alpha,`, `\alpha\beta`, cursor shown and hidden, paging, Backspace through the trigger, Escape, Enter, modifiers, Left/Right/Home/End and other keys that type nothing, candidate clicks, longest match, literal fallback, flushing on Space and Enter, combining marks): Task 4, one or more `table-golden` tests each. `xsampa.table` from the archived chart, `tools/latex-table` with every Data rule and both alias failures, the 24 aliases, the pinned `unicode.xml`: Task 2. `table-check`, `table-describe`, `ibusWeb.engines.table.{tables,tools,sources}`: Tasks 2–3. Checks `table-parse`, `table-golden`, `table-marisa`, `tools-latex-table`: Tasks 1–4. Docs: Task 5. Phase 3 items (`glue.cpp`, the side module, distribution, `table-host`, cast audit, Playwright, load-time measurement, `docs/engines.md`) are out of scope.
 - **Contract names.** Every name in "Produced by B" appears unchanged; additions are `utf8.hpp`, `composition.hpp`, `session.cpp`, `keys::isModifier`, the `keys`/`masks` namespaces, `ParseError` line 0, and the `table-describe` JSON key order (`name`, `displayName`, `languages`, `keyboard{layout,passThrough}`).
 - **Verified while writing.** The C++ compiles warning-free with GCC 16 (`-Wall -Wextra -Wpedantic -Werror`) and Emscripten's clang/libc++ (`-std=c++23`); all 42 golden tests pass; all 27 parse messages match; clangd parses every new source; the four checks, `toolchain-clangd`, `reuse`, `nixfmt`, `clang-format`, `oxlint`, `tsc` for the new package and `links` pass; `nix flake check --no-build` evaluates.

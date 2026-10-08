@@ -4,7 +4,7 @@
 
 **Goal:** Run the native table engine of phase 2 in the browser: one GObject glue file, the `table.wasm` side module, its distribution and npm package, a real-runtime host check, the table module in the demo with Playwright cases, and the docs, as phase 3 of `docs/specs/2026-10-08-m2-1-table-engine.md` describes.
 
-**Architecture:** `engines/table/src/glue.cpp` is the module's only GObject code: one `IBusEngine` subclass for every engine, whose `engine-name` picks a table, implementing phase 2's `Sink` over IBus's engine API. A `create-engine` handler on the factory parses a table on first use into a module-level map and, when the table doesn't parse, logs the parser's `path:line: reason` and stops the emission so `CreateEngine` fails. `pkgsWasm.ibus-web-table` compiles phase 2's sources and the glue with the runtime's side-module flags, links MARISA statically, and compiles the table and schema directories in as store paths, which makes them its data closure. `mkEngineManifest` packs it with descriptors from `table-describe`; the worker-host's engine suites learn to run any module, which `table-host` uses; the demo serves the module through `ibusWeb.demo.modules`.
+**Architecture:** `engines/table/src/glue.cpp` is the module's only GObject code: one `IBusEngine` subclass for every engine, whose `engine-name` picks a table, implementing phase 2's `Sink` over IBus's engine API. A `create-engine` handler on the factory parses a table on first use into a module-level map and, when the table doesn't parse, fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, a runtime API Task 1 adds: the runtime sends the reason to the page in a `CreateEngineFailed` record, and the page's `select` rejects with it. `pkgsWasm.ibus-web-table` compiles phase 2's sources and the glue with the runtime's side-module flags, links MARISA statically, and compiles the table and schema directories in as store paths, which makes them its data closure. `mkEngineManifest` packs it with descriptors from `table-describe`; the worker-host's engine suites learn to run any module, which `table-host` uses; the demo serves the module through `ibusWeb.demo.modules`.
 
 **Tech Stack:** C++23 (Emscripten `em++`, libc++ from the runtime), GObject/IBus (`libibus-web`), MARISA 0.3.1, Nix flake-parts with import-tree, Vitest 5 under Node (worker-host suites), Playwright (Chromium, Firefox, WebKit), pnpm, REUSE, hk.
 
@@ -20,7 +20,7 @@
 - Candidate pages hold 10. The preedit is the raw buffer, underlined, in COMMIT mode. FocusOut and Reset clear state and emit nothing.
 - Comments say why, never what; no history, no references to other files' implementations, plans or pull requests. Separate logical blocks with a blank line; no blank line right after an opening token, right before a closing one, or between a comment and its code.
 - Markdown outside `docs/plans/` is formatted with `nix develop -c oxfmt <file>`. Never run oxfmt on `docs/plans/`.
-- Generated files are never edited by hand. This plan changes none of their sources.
+- Generated files are never edited by hand. Task 1 changes the protocol's schemas, so it regenerates `packages/protocol/PROTOCOL.md` and `runtime/libibus-web/include/ibus-web/protocol.h` with `nix run .#write-files`; no other task changes a generated file's source.
 - Don't revert, reformat or "fix" changes you didn't make.
 
 ## What this plan assumes from Plans A and B
@@ -45,11 +45,16 @@ These come from the cross-phase contracts. Each task that touches one says so; w
 - `examples/demo/options.nix` declares `ibusWeb.demo.modules` (`attrsOf package`); the demo serves every entry.
 - `examples/demo/test/e2e/fixtures.ts` exports `test`, whose automatic `healthyDemo` fixture opens the demo for every test with `openDemo(page)`, and `expect`. The demo's typing field is `#input`; its engine picker is `#engine-picker`, a `<select>` labelled `Input method` with an `Off` option (value `""`) and one `<optgroup label="<module>">` per module whose options are labelled with each engine's `displayName`; Ctrl+Space (Playwright `Control+Space`) toggles between `deselect()` and the last selection and is not typed into the field; the Worker host's script is served under `/ibus-web/host/worker/index.js`. `selectionchange` carries `CustomEvent<Selection | null>`, `null` after a deselection.
 - The facade's option is `modules`, and `select(module, engine?)` selects.
+- `packages/core/src/router/router.ts`'s `reconcile` sends `CreateEngine({ name: context.engine })` and returns on a negative reply; `select(module, engine?)` reconciles every surface in its `start`. `packages/core/test/browser/support/dom.ts`'s `run` starts with module `a` (engines `factory` and `other`) selected, and the file exports `record` and `key`; its `DomConnection` holds a request kind with `hold` and settles it with `completeAsync`.
 
 ## File structure
 
 | Path | Role |
 | --- | --- |
+| `runtime/libibus-web/src/ibus/ibusfactory.c`, `ibusweb-private.h`, `src/dispatch.c`, `include/ibus-web/runtime.h`, `tests/test-dispatch.c` (modify) | `ibusweb_factory_fail_create`, `-EIO` and the `CreateEngineFailed` record |
+| `packages/protocol/src/messages/records.ts`, `src/index.ts`, `test/messages/{kinds,codec}.test.ts`, `test/parity/parity.test.ts`, `test/parity/c/parity.c` (modify) | The `CreateEngineFailed` record and its parity |
+| `packages/core/src/router/router.ts`, `src/page/index.ts`, `test/browser/router/switching.test.ts` (modify) | `CreateEngineError`, which `select` rejects with |
+| `docs/runtime.md`, `docs/protocol.md`, `docs/core.md`, `docs/ibus-web.md`, `runtime/libibus-web/src/ibus/README.md`, `docs/specs/2026-09-26-ibus-web-design.md` (modify) | Docs for engine creation failures |
 | `engines/table/src/glue.cpp` (create) | The IBus engine class, the `Sink` over it, lazy table loading, `ibusweb_module_init` |
 | `engines/table/_package.nix` (create) | `callPackage` recipe for `table.wasm`, its schema directory and audit flags |
 | `engines/table/overlay.nix` (modify, B's) | Adds `ibus-web-table` to `pkgsWasm` |
@@ -69,7 +74,530 @@ These come from the cross-phase contracts. Each task that touches one says so; w
 
 ---
 
-### Task 1: The glue and the side module
+### Task 1: Engines fail `CreateEngine` with a reason the page sees
+
+`CreateEngine`'s reply is only `ibusweb_dispatch`'s return value, so an engine that can't be created has no way to say why: the factory replies `-ESRCH` as for a name nobody registered, and the page's router drops the failure silently. This task gives a `create-engine` handler a way to fail the creation with a reason. The factory writes it in a new record, `CreateEngineFailed`, on the request's context before the reply, which becomes `-EIO` for a registered engine that isn't made; `-ESRCH` stays for an unregistered name. Records written during a request are the reply's own, so the router finds the reason in the reply and rejects `select` with it.
+
+**Files:**
+
+- Modify: `packages/protocol/src/messages/records.ts`, `packages/protocol/src/index.ts`, `packages/protocol/test/messages/kinds.test.ts`, `packages/protocol/test/messages/codec.test.ts`, `packages/protocol/test/parity/parity.test.ts`, `packages/protocol/test/parity/c/parity.c`
+- Regenerate: `packages/protocol/PROTOCOL.md`, `runtime/libibus-web/include/ibus-web/protocol.h`
+- Modify: `runtime/libibus-web/include/ibus-web/runtime.h`, `runtime/libibus-web/src/ibus/ibusfactory.c`, `runtime/libibus-web/src/ibus/ibusweb-private.h`, `runtime/libibus-web/src/dispatch.c`, `runtime/libibus-web/tests/test-dispatch.c`, `runtime/libibus-web/src/ibus/README.md`
+- Modify: `packages/core/src/router/router.ts`, `packages/core/src/page/index.ts`, `packages/core/test/browser/router/switching.test.ts`
+- Modify: `docs/runtime.md`, `docs/protocol.md`, `docs/core.md`, `docs/ibus-web.md`, `docs/specs/2026-09-26-ibus-web-design.md`
+
+**Interfaces:**
+
+- Consumes (A): the router's `reconcile`, which sends `CreateEngine({ name: context.engine })` and returns on a negative reply, and `select(module, engine?)`, whose `start` reconciles every surface in a loop; `InputContext.module`/`.engine`; `packages/core/test/browser/support/dom.ts`'s `run` (module `a` with engines `factory` and `other`, selected at start), `record` and `key`, and `DomConnection.hold`/`untilSent`/`completeAsync`.
+- Produces: record `CreateEngineFailed { message: string }`, kind 35, signature `(s)`, exported from `@ibus-web/protocol`; `IBUSWEB_REC_CREATE_ENGINE_FAILED` in `protocol.h`; `IBUSWEB_API void ibusweb_factory_fail_create(const char *reason)` in `runtime.h`; `CreateEngine` replies `-ESRCH` for an unregistered name and `-EIO` for a registered engine that isn't made; `CreateEngineError` (`_tag`, `module`, `engine`, `reason: string | undefined`) exported from `@ibus-web/core`, with which `select` and `override` reject.
+
+Neither `PROTOCOL_VERSION` nor `IBUSWEB_RUNTIME_ABI` changes: the record and the function are additions, and the page, host and runtime of one build ship together.
+
+- [ ] **Step 1: Add the record to the protocol's schemas**
+
+In `packages/protocol/src/messages/records.ts`, add after the `Crashed` class:
+
+```ts
+export class CreateEngineFailed extends Schema.TaggedClass<CreateEngineFailed>()(
+  "CreateEngineFailed",
+  { message: Str.annotate({ description: "Why the engine couldn't be created, in the engine's words." }) },
+  {
+    kind: 35,
+    description:
+      "Explain a CreateEngine that the engine failed: written on the request's input context, before its -EIO reply.",
+  },
+) {}
+```
+
+and add `CreateEngineFailed,` after `Crashed,` in the `OutputRecord` union. In `packages/protocol/src/index.ts`, add `CreateEngineFailed,` after `Crashed,` in the export from `./messages/records.ts`.
+
+In `packages/protocol/test/messages/kinds.test.ts`, add `["CreateEngineFailed", 35, "(s)"],` after `["Crashed", 34, "(us)"],` and change `expect(recordKinds.size).toBe(18);` to `expect(recordKinds.size).toBe(19);`.
+
+In `packages/protocol/test/messages/codec.test.ts`, add `CreateEngineFailed,` after `CrashReason,` in the import from `../../src/index.ts`, and append:
+
+```ts
+test("decodes CreateEngineFailed's reason on its input context", () => {
+  const message = "latex.table:9: line 9 has no tab";
+  expect(decodeRecord(encodeRecordForTest(new CreateEngineFailed({ message })))).toMatchObject({
+    ic: 7,
+    record: { _tag: "CreateEngineFailed", message },
+  });
+});
+```
+
+- [ ] **Step 2: Regenerate the header and the wire reference, and run the protocol's unit suites**
+
+```bash
+nix run .#write-files
+git status --short
+nix build .#checks.x86_64-linux.protocol-node -L
+```
+
+Expected: `git status` lists `packages/protocol/PROTOCOL.md` and `runtime/libibus-web/include/ibus-web/protocol.h` among the changes; `protocol.h` now has `IBUSWEB_REC_CREATE_ENGINE_FAILED = 35` and `{IBUSWEB_REC_CREATE_ENGINE_FAILED, "(s)"}`. `protocol-node` passes, the codec test above and the kinds test included.
+
+- [ ] **Step 3: Write the failing runtime test**
+
+In `runtime/libibus-web/tests/test-dispatch.c`, add after `skip_debug_logs`:
+
+```c
+static void expect_create_failed(guint32 expected_ic, const gchar *expected) {
+  guint32 length;
+  const guint8 *data = ibusweb_output_peek(&length);
+  g_assert_nonnull(data);
+  g_assert_cmpuint(length, >=, sizeof(IBusWebRecordHeader));
+  IBusWebRecordHeader header;
+  memcpy(&header, data, sizeof header);
+  g_assert_cmpuint(GUINT16_FROM_LE(header.kind), ==,
+                   IBUSWEB_REC_CREATE_ENGINE_FAILED);
+  g_assert_cmpuint(GUINT32_FROM_LE(header.ic), ==, expected_ic);
+
+  guint payload_length = GUINT32_FROM_LE(header.len);
+  GVariant *payload = g_variant_ref_sink(
+      g_variant_new_from_data(G_VARIANT_TYPE("(s)"), data + sizeof header,
+                              payload_length, FALSE, NULL, NULL));
+  g_assert_true(g_variant_is_normal_form(payload));
+  const gchar *message;
+  g_variant_get(payload, "(&s)", &message);
+  g_assert_cmpstr(message, ==, expected);
+  g_variant_unref(payload);
+
+  ibusweb_output_consume((sizeof header + payload_length + 7) & ~7u);
+  empty_output();
+}
+```
+
+and, before `static void protocol(void)`:
+
+```c
+static IBusEngine *refuse(IBusFactory *factory, const gchar *name,
+                          gpointer data G_GNUC_UNUSED) {
+  if (g_str_equal(name, "refused"))
+    ibusweb_factory_fail_create("refused.table:9: line 9 has no tab");
+  else if (g_str_equal(name, "silent"))
+    g_signal_stop_emission_by_name(factory, "create-engine");
+  return NULL;
+}
+
+/* Registered engines that aren't made: a handler's reason reaches the host
+ * on the request's context ahead of the reply, and stops the factory from
+ * making the engine anyway. */
+static void refusals(void) {
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 9, g_variant_new("(s)", "refused")), ==,
+      -EIO);
+  skip_debug_logs();
+  expect_create_failed(9, "refused.table:9: line 9 has no tab");
+
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 9, g_variant_new("(s)", "silent")), ==,
+      -EIO);
+  skip_debug_logs();
+  empty_output();
+  g_assert_null(last_created);
+
+  ibusweb_factory_fail_create("outside");
+  expect_log(G_LOG_LEVEL_CRITICAL, "ibus-web", "outside a CreateEngine");
+}
+```
+
+In `protocol()`, replace
+
+```c
+  IBusFactory *factory = g_object_ref_sink(ibus_factory_new(NULL));
+  ibus_factory_add_engine(factory, "test", dispatch_engine_get_type());
+  g_object_unref(factory);
+```
+
+with
+
+```c
+  IBusFactory *factory = g_object_ref_sink(ibus_factory_new(NULL));
+  ibus_factory_add_engine(factory, "test", dispatch_engine_get_type());
+  ibus_factory_add_engine(factory, "refused", dispatch_engine_get_type());
+  ibus_factory_add_engine(factory, "silent", dispatch_engine_get_type());
+  g_signal_connect(factory, "create-engine", G_CALLBACK(refuse), NULL);
+  g_object_unref(factory);
+  refusals();
+```
+
+```bash
+nix build .#checks.x86_64-linux.libibus-web-tests -L
+```
+
+Expected: FAIL to compile: `ibusweb_factory_fail_create` is undeclared.
+
+- [ ] **Step 4: Declare the API**
+
+In `runtime/libibus-web/include/ibus-web/runtime.h`, add after the declaration of `ibusweb_load_module`:
+
+```c
+/* Fails the CreateEngine in progress with reason, which the host receives in
+ * a CreateEngineFailed record on the request's context, ahead of the -EIO
+ * reply. Call it from a handler of the factory's "create-engine" signal,
+ * which then returns NULL: it stops the emission, so the factory doesn't
+ * make the engine anyway. The first reason counts, and invalid UTF-8 in it
+ * is replaced. Outside a create-engine emission it logs a critical. */
+IBUSWEB_API void ibusweb_factory_fail_create(const char *reason);
+```
+
+and in `ibusweb_dispatch`'s comment, replace `ESRCH for an unregistered engine, EINVAL` with `ESRCH for an unregistered engine, EIO for a registered one that wasn't made, EINVAL`, rewrapping the comment to 80 columns as clang-format leaves it.
+
+In `runtime/libibus-web/src/ibus/ibusweb-private.h`, add after `ibusweb_factory_create`:
+
+```c
+G_GNUC_INTERNAL gboolean ibusweb_factory_fail(const char *reason);
+```
+
+- [ ] **Step 5: Implement it in the factory**
+
+In `runtime/libibus-web/src/ibus/ibusfactory.c`, add the includes
+
+```c
+#include "../output.h"
+#include <ibus-web/protocol.h>
+```
+
+after `#include "ibusweb-private.h"`, replace the private struct with
+
+```c
+struct _IBusFactoryPrivate {
+  GHashTable *types;
+  uint32_t creating_ic;
+  /* While create-engine is emitted: the reason a handler failed the
+   * creation with, once one has. */
+  gboolean creating;
+  gchar *failure;
+};
+```
+
+and replace `ibusweb_factory_create` with:
+
+```c
+gboolean ibusweb_factory_fail(const char *reason) {
+  if (runtime_factory == NULL || !runtime_factory->priv->creating)
+    return FALSE;
+
+  IBusFactoryPrivate *priv = runtime_factory->priv;
+  if (priv->failure == NULL)
+    priv->failure = g_utf8_make_valid(reason, -1);
+  g_signal_stop_emission(runtime_factory, create_engine_signal, 0);
+  return TRUE;
+}
+
+IBusEngine *ibusweb_factory_create(uint32_t ic, const char *name, int *error) {
+  if (error != NULL)
+    *error = -ESRCH;
+  if (runtime_factory == NULL ||
+      !g_hash_table_contains(runtime_factory->priv->types, name))
+    return NULL;
+  if (error != NULL)
+    *error = -EIO;
+
+  IBusFactoryPrivate *priv = runtime_factory->priv;
+  IBusEngine *engine = NULL;
+  uint32_t previous_ic = priv->creating_ic;
+  priv->creating_ic = ic;
+  priv->creating = TRUE;
+  g_signal_emit(runtime_factory, create_engine_signal, 0, name, &engine);
+  priv->creating_ic = previous_ic;
+  priv->creating = FALSE;
+  g_autofree gchar *failure = g_steal_pointer(&priv->failure);
+
+  if (engine != NULL && g_object_is_floating(engine))
+    g_object_ref_sink(engine);
+  /* The handler that gave a reason may still have returned an engine. */
+  if (engine != NULL && failure != NULL) {
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_clear_object(&engine);
+  }
+
+  if (engine == NULL) {
+    /* Written before the reply, so the host hands the page both together. */
+    if (failure != NULL)
+      ibusweb_output_append(ic, IBUSWEB_REC_CREATE_ENGINE_FAILED,
+                            g_variant_new("(s)", failure));
+    return NULL;
+  }
+
+  ibusweb_engine_set_ic(engine, ic);
+  if (error != NULL)
+    *error = 0;
+  return engine;
+}
+```
+
+The public entry point lives in `libibus-web.a`, whose `IBUSWEB_API` symbols are the runtime's export list; the IBus layer exports IBus's own API only. In `runtime/libibus-web/src/dispatch.c`, add before `gboolean ibusweb_runtime_faulted(void)`:
+
+```c
+void ibusweb_factory_fail_create(const char *reason) {
+  g_return_if_fail(reason != NULL);
+  if (!ibusweb_factory_fail(reason))
+    g_critical("ibusweb_factory_fail_create() called outside a CreateEngine");
+}
+```
+
+In `runtime/libibus-web/src/ibus/README.md`, change the `src/ibus/ibusfactory.c` row's description to `Ours, using upstream signal semantics: one runtime registry, per-context engine creation, and a handler's reason for failing it.`
+
+- [ ] **Step 6: Run the runtime's checks**
+
+```bash
+nix build .#checks.x86_64-linux.libibus-web-tests .#checks.x86_64-linux.libibus-web-cast-audit .#checks.x86_64-linux.libibus-web-vendored .#checks.x86_64-linux.ibus-runtime-exports .#checks.x86_64-linux.hangul-host -L
+```
+
+Expected: all pass. `libibus-web-tests` runs `dispatch` and `dispatch-debug` with `refusals()` and still reports 69 C cases; `test-engine`'s factory case still gets `-ESRCH` for `missing`. `ibus-runtime-exports` finds `ibusweb_factory_fail_create` in `libibus-web`'s exports and declared by `runtime.h`. `hangul-host` shows Hangul's own creation unchanged.
+
+- [ ] **Step 7: Have the parity producer emit the record**
+
+In `packages/protocol/test/parity/c/parity.c`, add before `static int dispatch_file`:
+
+```c
+static IBusEngine *refuse(IBusFactory *factory G_GNUC_UNUSED,
+                          const gchar *name, gpointer data G_GNUC_UNUSED) {
+  if (g_str_equal(name, "refused"))
+    ibusweb_factory_fail_create("parity refusal");
+  return NULL;
+}
+```
+
+In `run_runtime`, replace
+
+```c
+  ibus_factory_add_engine(factory, "parity", parity_engine_get_type());
+```
+
+with
+
+```c
+  ibus_factory_add_engine(factory, "parity", parity_engine_get_type());
+  ibus_factory_add_engine(factory, "refused", parity_engine_get_type());
+  g_signal_connect(factory, "create-engine", G_CALLBACK(refuse), NULL);
+```
+
+and replace
+
+```c
+  ibusweb_dispatch(trigger, sizeof(trigger));
+  json_builder_end_array(records);
+```
+
+with
+
+```c
+  ibusweb_dispatch(trigger, sizeof(trigger));
+
+  begin_observation(records, "CreateEngineFailed");
+  string_member(records, "message", "parity refusal");
+  end_observation(records);
+
+  GVariant *refused = g_variant_ref_sink(g_variant_new("(s)", "refused"));
+  gsize refused_size = 8 + g_variant_get_size(refused);
+  guint8 *create = g_malloc0(refused_size);
+  guint16 create_kind = GUINT16_TO_LE(IBUSWEB_REQ_CREATE_ENGINE);
+  guint32 create_ic = GUINT32_TO_LE(2);
+  memcpy(create, &create_kind, sizeof(create_kind));
+  memcpy(create + 4, &create_ic, sizeof(create_ic));
+  g_variant_store(refused, create + 8);
+
+  ibusweb_dispatch(create, refused_size);
+  g_free(create);
+  g_variant_unref(refused);
+  json_builder_end_array(records);
+```
+
+In `packages/protocol/test/parity/parity.test.ts`, replace
+
+```ts
+      expect(decoded.ic).toBe(decoded.record._tag === "Log" || decoded.record._tag === "SettingWritten" ? 0 : 1);
+```
+
+with
+
+```ts
+      const tag = decoded.record._tag;
+      expect(decoded.ic).toBe(tag === "Log" || tag === "SettingWritten" ? 0 : tag === "CreateEngineFailed" ? 2 : 1);
+```
+
+```bash
+nix build .#checks.x86_64-linux.protocol-parity -L
+```
+
+Expected: PASS; the records test decodes `CreateEngineFailed` with `message: "parity refusal"` on context 2, and the emitted kinds again equal every kind but `Crashed`.
+
+- [ ] **Step 8: Write the failing router tests**
+
+In `packages/core/test/browser/router/switching.test.ts`, add `record` to the import from `../support/dom.ts`, and insert before `test("hotkeys start empty, can consume a custom binding, and unregister", …)`:
+
+```ts
+test.each([
+  {
+    records: [record({ _tag: "CreateEngineFailed", message: "other.table:9: line 9 has no tab" })],
+    reason: "other.table:9: line 9 has no tab",
+  },
+  { records: [], reason: "CreateEngine returned -29" },
+])("a failed CreateEngine rejects select with its reason: $reason", ({ records, reason }) =>
+  run(async ({ router, connections, field }) => {
+    await Effect.runPromise(router.deselect());
+    const f = field();
+    f.element.focus();
+    const a = connections.a[0]!;
+    a.hold = "CreateEngine";
+
+    const selecting = Effect.runPromise(router.select("a", "other"));
+    await a.untilSent("CreateEngine");
+    a.completeAsync(-29, records);
+
+    await expect(selecting).rejects.toThrow(`Engine other of module a could not be created: ${reason}`);
+    expect(key(f.element).defaultPrevented).toBe(false);
+  }),
+);
+```
+
+```bash
+nix build .#checks.x86_64-linux.core-browser -L
+```
+
+Expected: FAIL: both cases resolve instead of rejecting.
+
+- [ ] **Step 9: Reject with the engine's reason in the router**
+
+In `packages/core/src/router/router.ts`, add `type Reply` to the imports, from `../connection/connection.ts`, and add before `export class Router`:
+
+```ts
+/** A surface's engine failed to start; `reason` is the engine's own explanation, when it gave one. */
+export class CreateEngineError extends Error {
+  readonly _tag = "CreateEngineError";
+  readonly module: string;
+  readonly engine: string;
+  readonly reason: string | undefined;
+
+  constructor(module: string, engine: string, ret: number, reason: string | undefined) {
+    super(`Engine ${engine} of module ${module} could not be created: ${reason ?? `CreateEngine returned ${ret}`}`);
+    this.module = module;
+    this.engine = engine;
+    this.reason = reason;
+  }
+}
+```
+
+In `makeRouter`, add before `const reconcile`:
+
+```ts
+  const createFailure = (context: InputContext, reply: Reply) => {
+    const reason = reply.records.flatMap(({ ic, record }) =>
+      ic === context.ic && record._tag === "CreateEngineFailed" ? [record.message] : [],
+    )[0];
+    return new CreateEngineError(context.module, context.engine, reply.ret, reason);
+  };
+```
+
+In `reconcile`, replace
+
+```ts
+        if (reply.ret < 0) return;
+```
+
+with
+
+```ts
+        if (reply.ret < 0) return yield* Effect.fail(createFailure(context, reply));
+```
+
+Add after `reconcile`:
+
+```ts
+  // One surface's engine failing to start mustn't leave the others on the old selection.
+  const reconcileAll = () =>
+    Effect.gen(function* () {
+      const failures: CreateEngineError[] = [];
+      for (const surface of surfaces.values())
+        yield* reconcile(surface).pipe(
+          Effect.catch((error) =>
+            error instanceof CreateEngineError ? Effect.sync(() => void failures.push(error)) : Effect.fail(error),
+          ),
+        );
+
+      if (failures.length > 0) return yield* Effect.fail(failures[0]!);
+    });
+```
+
+and in `select`'s `start`, replace `for (const surface of surfaces.values()) yield* reconcile(surface);` with `yield* reconcileAll();`. `override` reconciles one surface and rejects with its failure as it is; a reconcile the mailbox runs on focus already logs its failure as a warning.
+
+In `packages/core/src/page/index.ts`, add `CreateEngineError` to the export from `../router/router.ts`.
+
+```bash
+nix build .#checks.x86_64-linux.core-browser .#checks.x86_64-linux.core-node .#checks.x86_64-linux.ibus-web-browser -L
+nix develop -c hk check -S tsc packages/core/src/router/router.ts packages/core/test/browser/router/switching.test.ts packages/protocol/src/messages/records.ts
+```
+
+Expected: all pass, the two new switching cases in Chromium and Firefox included; hk's `tsc` step reports nothing.
+
+- [ ] **Step 10: Document engine creation failures**
+
+In `docs/runtime.md`, under `### Protocol, dispatch and output`, insert `` `-EIO` for a registered engine that wasn't made, `` after `` `-ESRCH` for an unregistered engine, `` in the paragraph that begins `The errors are exactly those`, where the phrase spans a line break, and add after that paragraph:
+
+```markdown
+A side module's `create-engine` handler fails a `CreateEngine` with a reason by calling
+`ibusweb_factory_fail_create(reason)` and returning `NULL`. The call stops the emission, so the factory makes no
+engine, and the factory writes a `CreateEngineFailed` record with the reason on the request's context before the
+`-EIO` reply, which hands the page both together. The first reason counts, invalid UTF-8 in it is replaced, and a
+reason fails the creation even when its handler also returned an engine. A creation that ends without an engine for
+any other reason replies `-EIO` with no record. Called outside a `create-engine` emission, the function logs a
+critical.
+```
+
+In the `### API` table, add after the `ibusweb_register_module` row:
+
+```markdown
+| `ibusweb_factory_fail_create(reason)` | From a `create-engine` handler: fails the `CreateEngine` in progress with `reason` (Protocol, dispatch and output, above). |
+```
+
+and in `### Tests`, insert `engine creation failures, ` before `logs and settings (69 C cases in total)`.
+
+In `docs/protocol.md`, add after the paragraph that begins `` `Crashed (us)` (kind 34) is written by the host only``:
+
+```markdown
+`CreateEngineFailed (s)` (kind 35) is written by the runtime on the request's context, ahead of the `-EIO` reply to a
+`CreateEngine` that the engine failed with a reason ([runtime.md](runtime.md#protocol-dispatch-and-output)). Its
+`message` is that reason.
+```
+
+In `docs/core.md`, add after the paragraph that begins `` `router.select(module, engine?)` selects an engine``:
+
+```markdown
+Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and the engine's `reason`,
+taken from the runtime's `CreateEngineFailed` record when the engine gave one; otherwise its message names the reply.
+`select` reconciles every surface and then rejects with the first such failure; `override` rejects with its surface's.
+A surface whose engine failed stays on native input, and its next focus tries again. A failure on focus has no caller
+to reject, so it is logged as a warning. The module stays ready, and its other contexts keep working.
+```
+
+In `docs/ibus-web.md`, add after the sentence that ends `rejects before anything changes.`:
+
+```markdown
+When a focused surface's engine fails to start, `select` rejects with a `CreateEngineError` whose message carries the
+engine's reason (for a table engine, the parser's `path:line: reason`), and that surface stays on native input.
+```
+
+In `docs/specs/2026-09-26-ibus-web-design.md`, replace `` `ESRCH` for an unregistered engine, `` with `` `ESRCH` for an unregistered engine, `EIO` for a registered engine that wasn't made, ``.
+
+```bash
+nix develop -c oxfmt docs/runtime.md docs/protocol.md docs/core.md docs/ibus-web.md docs/specs/2026-09-26-ibus-web-design.md runtime/libibus-web/src/ibus/README.md
+nix develop -c hk check -S links
+nix run .#write-files
+git status --short
+```
+
+Expected: oxfmt pads the API table and rewraps the paragraphs; the links step passes; `write-files` leaves nothing new to change.
+
+- [ ] **Step 11: Commit**
+
+```bash
+nix develop -c git commit -m "feat(runtime): fail CreateEngine with the engine's reason" -- packages/protocol/src/messages/records.ts packages/protocol/src/index.ts packages/protocol/test/messages/kinds.test.ts packages/protocol/test/messages/codec.test.ts packages/protocol/test/parity/parity.test.ts packages/protocol/test/parity/c/parity.c packages/protocol/PROTOCOL.md runtime/libibus-web/include/ibus-web/protocol.h runtime/libibus-web/include/ibus-web/runtime.h runtime/libibus-web/src/ibus/ibusfactory.c runtime/libibus-web/src/ibus/ibusweb-private.h runtime/libibus-web/src/dispatch.c runtime/libibus-web/tests/test-dispatch.c runtime/libibus-web/src/ibus/README.md packages/core/src/router/router.ts packages/core/src/page/index.ts packages/core/test/browser/router/switching.test.ts docs/runtime.md docs/protocol.md docs/core.md docs/ibus-web.md docs/specs/2026-09-26-ibus-web-design.md
+```
+
+---
+
+### Task 2: The glue and the side module
 
 **Files:**
 
@@ -78,13 +606,13 @@ These come from the cross-phase contracts. Each task that touches one says so; w
 
 **Interfaces:**
 
-- Consumes (B): `ibusweb::table::{Table, ParseError, Candidate, Sink, Session, makeSession, pageSize}`; `config.ibusWeb.engines.table.{sources, tables}`; `pkgsWasm.marisa`.
-- Produces: `pkgsWasm.ibus-web-table` (a `callPackage` result, so `.override { tables = …; }` works) with `$out/table.wasm` and `passthru` `{ schemas, settingsSchemaDir, tables, auditCflags, auditSources }`; `meta.license.spdxId = "(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C"`; `version = "0.1.0"`. Per-system option `ibusWeb.engines.table.module` (that package) and `packages.ibus-web-table`. Checks `table-imports`, `table-cast-audit`, `table-data-closure`. In the side module: engine names = the `*.table` stems in the table directory; a CreateEngine whose table doesn't parse returns `-ESRCH` after a `Log` record of level 16 (`G_LOG_LEVEL_WARNING`), domain `ibus-web-table`, message `ParseError::message()`.
+- Consumes (B): `ibusweb::table::{Table, ParseError, Candidate, Sink, Session, makeSession, pageSize}`; `config.ibusWeb.engines.table.{sources, tables}`; `pkgsWasm.marisa`. Consumes (Task 1): `ibusweb_factory_fail_create`.
+- Produces: `pkgsWasm.ibus-web-table` (a `callPackage` result, so `.override { tables = …; }` works) with `$out/table.wasm` and `passthru` `{ schemas, settingsSchemaDir, tables, auditCflags, auditSources }`; `meta.license.spdxId = "(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C"`; `version = "0.1.0"`. Per-system option `ibusWeb.engines.table.module` (that package) and `packages.ibus-web-table`. Checks `table-imports`, `table-cast-audit`, `table-data-closure`. In the side module: engine names = the `*.table` stems in the table directory; a CreateEngine whose table doesn't parse returns `-EIO` after a `CreateEngineFailed` record on the request's context whose `message` is `ParseError::message()`, and logs nothing.
 
 Facts this task relies on, checked against the repository:
 
 - `IBusEngine`'s `engine-name` is `G_PARAM_CONSTRUCT_ONLY` (`runtime/libibus-web/src/ibus/ibusengine.c`): it is set after instance init and before `constructed`, so the session, which needs the table the name picks, is made in `constructed`.
-- `ibusweb_factory_create` (`runtime/libibus-web/src/ibus/ibusfactory.c`) emits `create-engine`, a `G_SIGNAL_RUN_LAST` signal whose accumulator continues past a handler that returns `NULL`, and returns `-ESRCH` when the emission yields no engine. A handler that returns `NULL` lets the class handler make the engine; one that also calls `g_signal_stop_emission_by_name` makes CreateEngine fail. `route()` in `dispatch.c` returns that error as the reply, and the page's router treats a negative reply as no context, leaving the field to native input.
+- `ibusweb_factory_create` (`runtime/libibus-web/src/ibus/ibusfactory.c`) emits `create-engine`, a `G_SIGNAL_RUN_LAST` signal whose accumulator continues past a handler that returns `NULL`. A handler that returns `NULL` lets the class handler make the engine; one that calls `ibusweb_factory_fail_create(reason)` (Task 1) stops the emission, so CreateEngine replies `-EIO` after a `CreateEngineFailed` record carrying the reason, and the page's `select` rejects with a `CreateEngineError` whose `reason` it is, leaving the field to native input.
 - `write_log` (`runtime/libibus-web/src/log.c`) turns every `g_warning` into a `Log` record on context 0, `(level, domain, message)`.
 - The panel shows `<label> <candidate text>` and sends a page-relative `CandidateClicked` index (`docs/panel.md`).
 - `checkSideModuleLibraries` (`runtime/ibus-runtime/side-module-libs.sh`) rejects a link library the runtime carries; `-lmarisa` isn't one.
@@ -121,6 +649,7 @@ Expected: FAIL, `does not provide attribute 'packages.x86_64-linux.ibus-web-tabl
 #include <algorithm>
 #include <cstddef>
 #include <exception>
+#include <expected>
 #include <filesystem>
 #include <functional>
 #include <ibus-web/runtime.h>
@@ -131,6 +660,7 @@ Expected: FAIL, `does not provide attribute 'packages.x86_64-linux.ibus-web-tabl
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -150,18 +680,16 @@ constexpr char tableDir[] = IBUSWEB_TABLE_DIR;
 // Worker's: sessions hold their table by reference.
 std::map<std::string, Table, std::less<>> tables;
 
-// The engine's table, parsed on first use; null, with the parser's
-// path:line: reason logged, if it doesn't parse.
-const Table *loadTable(std::string_view name) {
+// The engine's table, parsed on first use, or the parser's path:line: reason
+// if it doesn't parse.
+std::expected<const Table *, std::string> loadTable(std::string_view name) {
   if (auto found = tables.find(name); found != tables.end())
     return &found->second;
 
   auto table = Table::load(std::filesystem::path(tableDir) /
                            (std::string(name) + ".table"));
-  if (!table) {
-    g_warning("%s", table.error().message().c_str());
-    return nullptr;
-  }
+  if (!table)
+    return std::unexpected(table.error().message());
   return &tables.emplace(std::string(name), *std::move(table)).first->second;
 }
 
@@ -338,20 +866,21 @@ GType engineType() {
   return type;
 }
 
-// Runs before the factory's own handler, which makes the engine. When the
-// table doesn't parse, stopping the emission leaves no engine, so
-// CreateEngine fails. An exception unwinding through GLib's emission would
-// leave the runtime faulted, so none leaves here.
-IBusEngine *createEngine(IBusFactory *factory, const gchar *name, gpointer) {
-  bool loaded = false;
+// Runs before the factory's own handler, which makes the engine. A table that
+// doesn't parse fails CreateEngine with the parser's message, which also
+// stops the emission, so no engine is made. An exception unwinding through
+// GLib's emission would leave the runtime faulted, so none leaves here.
+IBusEngine *createEngine(IBusFactory *, const gchar *name, gpointer) {
+  std::string failure;
   try {
-    loaded = loadTable(name) != nullptr;
+    if (auto table = loadTable(name); !table)
+      failure = std::move(table.error());
   } catch (const std::exception &error) {
-    g_warning("%s: %s", name, error.what());
+    failure = std::string(name) + ": " + error.what();
   }
 
-  if (!loaded)
-    g_signal_stop_emission_by_name(factory, "create-engine");
+  if (!failure.empty())
+    ibusweb_factory_fail_create(failure.c_str());
   return nullptr;
 }
 
@@ -634,9 +1163,10 @@ with callbacks of exactly the types GLib calls them through, which leaves the ca
 `ibusweb_module_init` registers an engine for every `*.table` in the table directory, named for its file. A handler on
 the factory's `create-engine` signal runs before the factory makes the engine: it parses the engine's table on first
 use and keeps it in a module-level map for the Worker's life, shared by every context of that engine. A table that
-doesn't parse is logged as a warning in the `ibus-web-table` domain, with the parser's `path:line: reason`, and the
-handler stops the emission, so `CreateEngine` fails with `-ESRCH` and the page leaves that field to native input. No
-exception crosses GLib's signal emission, which would leave the runtime faulted.
+doesn't parse fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, which
+stops the emission: the reply is `-EIO`, the page receives the reason in a `CreateEngineFailed` record and `select`
+rejects with it, and the field stays on native input. No exception crosses GLib's signal emission, which would leave
+the runtime faulted.
 
 The glue is the session's `Sink`:
 
@@ -681,7 +1211,7 @@ nix develop -c git commit -m "feat(table): build the table engine as a side modu
 
 ---
 
-### Task 2: Engine-module suites in the worker-host tests
+### Task 3: Engine-module suites in the worker-host tests
 
 The worker-host's Node configuration runs Hangul's suite from three Hangul-specific environment variables. This task makes it run any module's suite from one description, so `table-host` can add a second suite without a second code path. Behaviour is unchanged: `hangul-host` passes before and after.
 
@@ -705,7 +1235,7 @@ The worker-host's Node configuration runs Hangul's suite from three Hangul-speci
 
   `PageSession.start(h, runtime, manifest: ModuleManifest, options: SessionOptions)` with
   `interface SessionOptions { settings: Init["settings"]; engine: string; ready?: (session: PageSession, ic: number) => Promise<unknown> }`;
-  `session.create(ic, engine = options.engine)`; `session.expectWarning(message)`; `session.key(ic, keyval, keycode, ret = 1)`, `session.request(ic, request, ret = 0)`, `session.stats()` as before. `CAPABILITIES` and `Key` stay exported from `page-session.ts`.
+  `session.create(ic, engine = options.engine)`; `session.key(ic, keyval, keycode, ret = 1)`, `session.request(ic, request, ret = 0)`, `session.stats()` as before. `CAPABILITIES` and `Key` stay exported from `page-session.ts`.
 
 - [ ] **Step 1: Confirm the suite passes before the change**
 
@@ -776,11 +1306,9 @@ export interface SessionOptions {
 }
 
 // Every exchange checks the output barrier, including requests that emit
-// nothing. A warning, critical or error fails it unless the test said it
-// would come.
+// nothing. A warning, critical or error fails it.
 export class PageSession {
   private lastSeq = 0;
-  private readonly expectedWarnings: string[] = [];
   readonly host: RunningHost;
   private readonly options: SessionOptions;
   private constructor(host: RunningHost, options: SessionOptions) {
@@ -812,10 +1340,6 @@ export class PageSession {
     }
   }
 
-  expectWarning(message: string): void {
-    this.expectedWarnings.push(message);
-  }
-
   private checkRecords(outSeq: number): DecodedRecord[] {
     const records = this.host.client.page.records();
     for (const { seq, record } of records) {
@@ -823,11 +1347,7 @@ export class PageSession {
         expect(seq).toBe((this.lastSeq + 1) >>> 0 || 1);
         this.lastSeq = seq;
       }
-      if (record._tag === "Log" && (record.level & (4 | 8 | 16)) !== 0) {
-        const expected = this.expectedWarnings.indexOf(record.message);
-        expect(expected, record.message).toBeGreaterThanOrEqual(0);
-        this.expectedWarnings.splice(expected, 1);
-      }
+      if (record._tag === "Log") expect(record.level & (4 | 8 | 16), record.message).toBe(0);
     }
     expect(outSeq).toBe(this.lastSeq);
     return records;
@@ -1085,8 +1605,8 @@ After the paragraph that ends `it verifies \`SettingWritten\` transport, not an 
 An engine module's suite, `test/engines/<suite>.test.ts`, runs under Node in place of the host's own suites when
 `IBUS_WEB_MODULE_TESTS` names its description: the module distributions it starts hosts from, the program break and
 pool it is held to, and texts its build computed. Its `PageSession` takes the Init settings, the engine each context
-creates and what follows creation; a warning, critical or error record fails the exchange that brought it unless the
-test said it would come. `checks.hangul-host` and `checks.table-host` are such suites.
+creates and what follows creation; a warning, critical or error record fails the exchange that brought it.
+`checks.hangul-host` and `checks.table-host` are such suites.
 ```
 
 ```bash
@@ -1101,7 +1621,7 @@ nix develop -c git commit -m "refactor(worker-host): run any engine module's hos
 
 ---
 
-### Task 3: The distribution and `table-host`
+### Task 4: The distribution and `table-host`
 
 **Files:**
 
@@ -1110,7 +1630,7 @@ nix develop -c git commit -m "refactor(worker-host): run any engine module's hos
 
 **Interfaces:**
 
-- Consumes: Task 1's `ibusWeb.engines.table.module` (with `.override { tables }`, `.settingsSchemaDir`); B's `ibusWeb.engines.table.{tables, tools}`; A's `mkEngineManifest`; Task 2's `IBUS_WEB_MODULE_TESTS`, `PageSession`, `SessionOptions`, `Key`, `inject("module")`.
+- Consumes: Task 2's `ibusWeb.engines.table.module` (with `.override { tables }`, `.settingsSchemaDir`); B's `ibusWeb.engines.table.{tables, tools}`; A's `mkEngineManifest`; Task 3's `IBUS_WEB_MODULE_TESTS`, `PageSession`, `SessionOptions`, `Key`, `inject("module")`.
 - Produces: `packages.ibus-web-table-dist` (manifest `name = "table"`, engines `latex` then `xsampa`, `settingsSchemas = [ "org.freedesktop.ibus.panel" ]`, `passthru.heapBytes`); `checks.table-host`; the record lines `Table <runtime> LaTeX load: {"firstMs":…,"cachedMs":…}` and `Table <runtime> suite peaks: {…}` in the check's `output.txt`.
 
 - [ ] **Step 1: Write the distribution, `engines/table/dist.nix`**
@@ -1319,12 +1839,10 @@ describe.each(h.data.runtimes)("the table module through $name host", (runtime) 
 
   test("a table that doesn't parse fails CreateEngine with the parser's message", async () => {
     const session = await start(xsampa, build.manifests["broken"]!);
-    const message = build.texts["brokenMessage"]!;
-    session.expectWarning(message);
-    const records = await session.request(2, new CreateEngine({ name: "latex" }), -h.data.errno["ESRCH"]!);
-    expect(records.map(({ record }) => record)).toContainEqual(
-      expect.objectContaining({ _tag: "Log", level: 16, domain: "ibus-web-table", message }),
-    );
+    const records = await session.request(2, new CreateEngine({ name: "latex" }), -h.data.errno["EIO"]!);
+    expect(records.map(({ ic, record }) => ({ ic, record }))).toEqual([
+      { ic: 2, record: expect.objectContaining({ _tag: "CreateEngineFailed", message: build.texts["brokenMessage"] }) },
+    ]);
     const typed = [...(await typeText(session, 1, "S@")), ...(await session.key(1, ...Key.space, 0))];
     expect(committed(typed)).toBe("ʃə");
   });
@@ -1466,8 +1984,8 @@ Append to the `## In the browser` section of `docs/table.md`, after its checks t
 
 ```markdown
 `table-host` builds a second distribution whose LaTeX table is a fixture with a malformed line, beside the shipped
-X-SAMPA table, and expects `CreateEngine` to fail with `-ESRCH` after a warning whose text is what `table-check`
-prints for the same file, while X-SAMPA keeps working in that Worker.
+X-SAMPA table, and expects `CreateEngine` to fail with `-EIO` after a `CreateEngineFailed` record, and nothing else,
+whose message is what `table-check` prints for the same file, while X-SAMPA keeps working in that Worker.
 ```
 
 In `docs/testing.md`, add `nix build .#checks.x86_64-linux.table-host` after the `hangul-host` line of the command block under `## Worker transport and engine resources`, and after the paragraph that ends `exercise the transport, not a live page router or panel.` add:
@@ -1491,7 +2009,7 @@ nix develop -c git commit -m "feat(table): distribute the table module and check
 
 ---
 
-### Task 4: `@ibus-web/engine-table`
+### Task 5: `@ibus-web/engine-table`
 
 **Files:**
 
@@ -1697,7 +2215,7 @@ nix develop -c git commit -m "feat(table): pack the module as @ibus-web/engine-t
 
 ---
 
-### Task 5: The table module in the demo
+### Task 6: The table module in the demo
 
 **Files:**
 
@@ -1820,7 +2338,7 @@ nix develop -c git commit -m "test(table): type LaTeX and X-SAMPA in the demo" -
 
 ---
 
-### Task 6: The design spec and the docs index
+### Task 7: The design spec and the docs index
 
 **Files:**
 
@@ -1908,7 +2426,7 @@ nix develop -c git commit -m "docs(spec): mark M2.1 done and split M2" -- docs/s
 
 ---
 
-### Task 7: Full verification
+### Task 8: Full verification
 
 **Files:** none, unless a check fails.
 
