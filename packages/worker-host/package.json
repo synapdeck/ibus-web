@@ -22,6 +22,7 @@
     "dist/worker",
     "types/worker.d.ts",
     "types/relay.d.ts",
+    "LICENSES",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -49,8 +50,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsdown && tsc -p tsconfig.types.json",
-    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
-    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
     "test": "vitest run --configLoader native"
   },
   "dependencies": {

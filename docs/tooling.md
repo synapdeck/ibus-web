@@ -281,7 +281,9 @@ refetches nothing:
    the type derivations and checks for both JavaScript libraries run).
 3. `ibusWeb.typescript.workspace` — the sources (each package's `.ts`, `.mts`, `.cts`, `.json`,
    plus files listed under `ibusWeb.assets` in its `package.json`) with `nodeModules` laid over
-   them, compiled with `pnpm -r run build`. Checks run from this output.
+   them, compiled with `pnpm -r run build`. Checks run from this output. Repository files outside
+   a package that it reads, such as the license texts `tools/pack-licenses` reads, are listed for
+   it in `ibusWeb.typescript.extraSources`.
 
 `ibusWeb.typescript.tsc` is the workspace's single TypeScript (the build fails if the lockfile
 resolves more than one), used by hk, the dev shell and the type-check derivations.
@@ -299,6 +301,35 @@ check. Details in [worker-host.md](worker-host.md).
 `@ibus-web/protocol` bundles one entry, `dist/index.js`, with `effect` external. Its declarations
 come from tsdown's `tsgo` generator instead: oxc's isolated declarations can't express a class
 that extends an expression, as every `Schema.TaggedClass` message does (TS9021).
+
+### Licenses in packed packages
+
+A published package's tarball carries the license of everything bundled into it. Every published
+package's tsdown config writes sourcemaps, and its `prepack` and `postpack` scripts run
+`tools/pack-licenses`:
+
+- **`prepack`** reads the sources of every sourcemap beside the package's packed scripts.
+  - It follows a source that is itself a built script with a map. A bundle of another workspace
+    package's `dist/` therefore leads back to that package's sources.
+  - It reads a copied directory's maps where they were built. ibus-web's `dist/host/` is declared
+    with `ibusWeb.copiedFrom` in its `package.json`.
+  - A script that only re-exports other modules has no map, since it has no code of its own; it
+    needs none.
+  - For each repository file it finds, it takes the SPDX license REUSE gives it, from the file's
+    header or a `REUSE.toml` annotation. If that isn't the repository's own `MIT OR Apache-2.0`,
+    it copies `LICENSES/<id>.txt`.
+  - For each file from `node_modules`, it copies that dependency's own license files to
+    `LICENSES/<package>/`.
+  - It adds the `NOTICES/` files that the map in `tools/pack-licenses/notices.ts` ties to a
+    bundled file, and always adds `LICENSE-MIT` and `LICENSE-APACHE`.
+  - It records what it wrote in `.pack-licenses.json`.
+- **`postpack`** deletes exactly those files.
+- **`check`** (`node tools/pack-licenses/cli.ts check <package>`) prints what `prepack` would copy.
+  It fails on any bundled file whose license it can't find, and on any packed script without a
+  sourcemap. `checks.tools-pack-licenses-packages` runs it on every published package, so a newly
+  bundled dependency without a license file fails CI.
+
+No package keeps a `LICENSES/` directory in the tree; the root `.gitignore` ignores the copies.
 
 ## Editor tooling
 

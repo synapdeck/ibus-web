@@ -46,6 +46,11 @@
           ++ lib.optional (!(manifest ? sideEffects)) "doesn't declare sideEffects"
           ++ lib.optional ((manifest.engines.node or null) != node) "engines.node isn't \"${node}\""
           ++ lib.optional ((manifest.keywords or [ ]) == [ ]) "has no keywords"
+          ++ lib.optional (
+            (manifest.scripts.prepack or null) != "node ../../tools/pack-licenses/cli.ts prepack"
+            || (manifest.scripts.postpack or null) != "node ../../tools/pack-licenses/cli.ts postpack"
+          ) "doesn't pack its licenses with tools/pack-licenses"
+          ++ lib.optional (!(lib.elem "LICENSES" (manifest.files or [ ]))) "doesn't pack LICENSES/"
         );
 
       problems = lib.concatMap problemsOf published;

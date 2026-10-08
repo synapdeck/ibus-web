@@ -73,9 +73,9 @@
         type = lib.types.attrsOf (lib.types.listOf lib.types.str);
         default = { };
         description = ''
-          Repository files outside a workspace package that its build or tests read, by the
-          package's directory, as repository-relative paths. workspaceFor copies them in
-          whenever it selects that package, at the same paths.
+          Repository files and directories outside a workspace package that its build or
+          tests read, by the package's directory, as repository-relative paths.
+          workspaceFor copies them in whenever it selects that package, at the same paths.
         '';
       };
     };

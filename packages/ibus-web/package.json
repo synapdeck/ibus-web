@@ -19,6 +19,7 @@
   },
   "files": [
     "dist",
+    "LICENSES",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -53,8 +54,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsdown && cp ../panel/dist/style.css dist/style.css && cp -R ../worker-host/dist/worker dist/host",
-    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
-    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
     "test": "vitest run --configLoader native"
   },
   "dependencies": {
@@ -77,5 +78,10 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "ibusWeb": {
+    "copiedFrom": {
+      "dist/host": "../worker-host/dist/worker"
+    }
   }
 }

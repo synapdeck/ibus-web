@@ -18,6 +18,7 @@
   },
   "files": [
     "dist",
+    "LICENSES",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -37,8 +38,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsdown && cp src/style.css dist/style.css",
-    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
-    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
     "test": "vitest run --configLoader native"
   },
   "dependencies": {

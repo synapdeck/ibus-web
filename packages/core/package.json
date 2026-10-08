@@ -40,8 +40,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsdown",
-    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE . && mkdir -p LICENSES && cp ../../LICENSES/MIT-open-group.txt ../../LICENSES/HPND.txt ../../LICENSES/BSD-3-Clause.txt LICENSES/ && cp ../../NOTICES/keysymdef.txt LICENSES/keysymdef-notice.txt && cp ../../NOTICES/chromium.txt LICENSES/chromium-notice.txt && cp ../../LICENSES/LicenseRef-xkeyboard-config.txt LICENSES/xkeyboard-config-COPYING.txt",
-    "postpack": "rm -rf LICENSES && rm -f LICENSE-MIT LICENSE-APACHE",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
     "test": "vitest run --configLoader native"
   },
   "dependencies": {

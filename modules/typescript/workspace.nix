@@ -242,7 +242,7 @@
       buildWorkspace =
         selectedDirs:
         let
-          # Files outside the selected packages that their builds or tests read.
+          # Files and directories outside the selected packages that their builds or tests read.
           extraInputs = lib.unique (
             lib.concatMap (dir: config.ibusWeb.typescript.extraSources.${dir} or [ ]) selectedDirs
           );
@@ -304,7 +304,7 @@
             '') packageDirs}
             ${lib.concatMapStrings (file: ''
               mkdir -p $out/${dirOf file}
-              cp ${file} $out/${file}
+              cp -R ${file} $out/${dirOf file}/
             '') extraInputs}
             runHook postInstall
           '';

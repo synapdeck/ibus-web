@@ -6,6 +6,7 @@ export default defineConfig([
   {
     entry: { "shared/index": "src/shared/index.ts" },
     platform: "neutral",
+    sourcemap: true,
     dts: { generator: "tsgo" },
     deps: { neverBundle: ["effect", /^effect\//, /^@ibus-web\//] },
     tsconfig: "tsconfig.shared.json",
@@ -13,6 +14,7 @@ export default defineConfig([
   {
     entry: { "page/index": "src/page/index.ts" },
     platform: "browser",
+    sourcemap: true,
     dts: { generator: "tsgo" },
     deps: { neverBundle: ["effect", /^effect\//, /^@ibus-web\//] },
     tsconfig: "tsconfig.page.json",

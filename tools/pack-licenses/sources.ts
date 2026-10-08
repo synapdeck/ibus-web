@@ -38,6 +38,22 @@ const isVirtual = (source: string) =>
 
 const inNodeModules = (path: string) => path.split(sep).includes("node_modules");
 
+// A bundler writes no sourcemap for an entry that only re-exports other
+// modules, since it has no code of its own to map. Whatever it imports from
+// this package is a packed script with its own map, and anything else isn't
+// bundled at all.
+const STATEMENT = /\s*(?:(?:import|export)\b[^;"]*\bfrom\s*"[^"]*"|import\s*"[^"]*"|export\s*\{[^}]*\})\s*;/y;
+
+function onlyReexports(script: string): boolean {
+  let end = 0;
+  STATEMENT.lastIndex = 0;
+
+  // A failed sticky match resets lastIndex, so the end of the last match is kept apart.
+  while (STATEMENT.test(script)) end = STATEMENT.lastIndex;
+
+  return end > 0 && script.slice(end).trim() === "";
+}
+
 async function walk(path: string): Promise<string[]> {
   if (!(await stat(path)).isDirectory()) return [path];
 
@@ -101,6 +117,7 @@ export async function bundledSources(packageDir: string, manifest: PackageManife
 
     const map = `${builtAt(packageDir, manifest, file)}.map`;
     if (existsSync(map)) await follow(map);
+    else if (onlyReexports(await readFile(file, "utf8"))) continue;
     else problems.push(`${relative(packageDir, file).split(sep).join("/")} has no sourcemap`);
   }
 

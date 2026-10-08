@@ -88,19 +88,6 @@
         IBUS_WEB_XKB_NOTICE = xkbNotice;
         IBUS_WEB_XKB_EXPORT = xkbExport;
       };
-
-      # The licences and notices the generated tables carry, which core's packing
-      # copies and the notices' tests compare.
-      notices = [
-        "LICENSE-MIT"
-        "LICENSE-APACHE"
-        "LICENSES/MIT-open-group.txt"
-        "LICENSES/HPND.txt"
-        "LICENSES/BSD-3-Clause.txt"
-        "LICENSES/LicenseRef-xkeyboard-config.txt"
-        "NOTICES/keysymdef.txt"
-        "NOTICES/chromium.txt"
-      ];
     in
     {
       files.file."packages/core/src/keys/keysyms.generated.ts".source =
@@ -119,10 +106,12 @@
       files.file."NOTICES/chromium.txt".source = notice "chromium" chromiumLicense;
       files.file."LICENSES/LicenseRef-xkeyboard-config.txt".source = xkbNotice;
 
-      ibusWeb.typescript.extraSources = {
-        "packages/core" = notices;
-        "tools/keysyms" = notices;
-      };
+      # The generated notices, which the generators' tests compare with the pinned inputs.
+      ibusWeb.typescript.extraSources."tools/keysyms" = [
+        "LICENSES/LicenseRef-xkeyboard-config.txt"
+        "NOTICES/keysymdef.txt"
+        "NOTICES/chromium.txt"
+      ];
 
       ibusWeb.toolchain = {
         clangdFragments = [ nativeClangd ];
@@ -131,24 +120,17 @@
 
       devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) sourcesEnv;
 
-      checks.tools-keysyms =
-        (testing.vitestCheck {
-          name = "tools-keysyms";
-          packageDir = "${
-            typescript.workspaceFor [
-              "tools/keysyms"
-              "packages/core"
-            ]
-          }/tools/keysyms";
-          limit = 120;
-          inBrowsers = false;
-          env = sourcesEnv // {
-            # Use the pinned pnpm binary without bootstrapping another copy from npm.
-            pnpm_config_pm_on_fail = "ignore";
-          };
-        }).overrideAttrs
-          (old: {
-            nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.pnpm ];
-          });
+      checks.tools-keysyms = testing.vitestCheck {
+        name = "tools-keysyms";
+        packageDir = "${
+          typescript.workspaceFor [
+            "tools/keysyms"
+            "packages/core"
+          ]
+        }/tools/keysyms";
+        limit = 120;
+        inBrowsers = false;
+        env = sourcesEnv;
+      };
     };
 }

@@ -68,9 +68,11 @@ The tables are generated from pinned xorgproto `keysymdef.h`, Chromium
 `dom_code_data.inc` and xkeyboard-config US data. Their source licenses include
 MIT-open-group and the Digital HPND-style notice, BSD-3-Clause, and
 LicenseRef-xkeyboard-config respectively. They are not hand-maintained.
-Canonical license texts and notices live in root `LICENSES/` and `NOTICES/`;
-`prepack` copies the required texts/notices into the package and `postpack`
-removes those generated copies. Keep upstream notices intact when regenerating.
+Canonical license texts and notices live in root `LICENSES/` and `NOTICES/`.
+`prepack` runs `tools/pack-licenses`, which copies the texts and notices the
+bundle needs into the package's `LICENSES/`
+([tooling.md](tooling.md#licenses-in-packed-packages)); `postpack` removes them.
+Keep upstream notices intact when regenerating.
 
 ## Synchronous keys and catch-up
 

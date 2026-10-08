@@ -20,6 +20,7 @@
   "files": [
     "dist",
     "PROTOCOL.md",
+    "LICENSES",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -43,8 +44,8 @@
     "build": "rm -rf dist && tsdown",
     "generate:protocol-h": "node scripts/protocol-h.ts",
     "generate:protocol-md": "node scripts/protocol-md.ts",
-    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
-    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
     "test": "vitest run --configLoader native"
   },
   "devDependencies": {

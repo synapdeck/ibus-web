@@ -50,6 +50,15 @@ test("a packed script without a sourcemap is a problem", async () => {
   expect(problems).toEqual(["dist/index.js has no sourcemap"]);
 });
 
+test("a script that only re-exports needs no sourcemap", async () => {
+  const root = await makeTree({
+    "packages/p/dist/facade.js": 'import { a as A } from "./chunk.js";\nexport * from "@scope/x";\nexport { A };\n',
+    "packages/p/dist/code.js": 'export * from "@scope/x";\nconsole.log(1);\n',
+  });
+  const { problems } = await bundledSources(join(root, "packages/p"), { name: "p", files: ["dist"] });
+  expect(problems).toEqual(["dist/code.js has no sourcemap"]);
+});
+
 test("a copied directory's maps are read where it was built", async () => {
   const root = await tree();
   await mkdir(join(root, "packages/r/dist/host"), { recursive: true });

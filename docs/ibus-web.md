@@ -66,7 +66,8 @@ The built [demo](../examples/hangul/README.md) shows the panel, settings form,
 restart and attachment controls. A host distributing engine code and data should
 publish a licenses page linked from its UI, listing the actual package and engine
 licenses and shipping their required texts/notices. The core key-table notices
-come from the pinned X11, Chromium and xkeyboard-config sources. Inspect the
-published packages' `LICENSES/` and `NOTICES/`, engine source bundle and
+come from the pinned X11, Chromium and xkeyboard-config sources. Inspect each
+published package's `LICENSES/` (license texts, notices and bundled
+dependencies' licenses), the engine source bundle and
 [bundle boundary check](testing.md#bundle-boundary) when preparing that page;
 the demo itself does not supply a complete licenses page.
