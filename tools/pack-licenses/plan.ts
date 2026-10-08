@@ -48,6 +48,18 @@ export async function planLicenses(
     }
   }
 
+  // Two sources for one destination are fine only if they say the same thing.
+  const add = async (to: string, from: string): Promise<void> => {
+    const existing = copies.get(to);
+
+    if (existing !== undefined && existing !== from) {
+      const same = Buffer.compare(await readFile(existing), await readFile(from)) === 0;
+      if (!same) problems.add(`${to} would be both ${existing} and ${from}, which differ`);
+    }
+
+    copies.set(to, from);
+  };
+
   const seenDependencies = new Set<string>();
 
   for (const source of [...bundled.sources].sort()) {
@@ -57,9 +69,15 @@ export async function planLicenses(
       if (seenDependencies.has(dependency.dir)) continue;
       seenDependencies.add(dependency.dir);
 
+      if (!existsSync(dependency.dir)) {
+        const dir = relative(root, dependency.dir).split(sep).join("/");
+        problems.add(`${dependency.name} is bundled from ${dir}, which is missing; rebuild`);
+        continue;
+      }
+
       const files = await licenseFiles(dependency.dir);
       if (files.length === 0) problems.add(`${dependency.name} has no license file`);
-      for (const file of files) copies.set(`LICENSES/${dependency.name}/${file}`, join(dependency.dir, file));
+      for (const file of files) await add(`LICENSES/${dependency.name}/${file}`, join(dependency.dir, file));
 
       continue;
     }
@@ -85,13 +103,13 @@ export async function planLicenses(
       for (const id of licenseIds(expression)) {
         const text = `LICENSES/${id}.txt`;
 
-        if (existsSync(join(root, text))) copies.set(text, join(root, text));
+        if (existsSync(join(root, text))) await add(text, join(root, text));
         else problems.add(`${path} is ${expression}, but ${text} is missing`);
       }
     }
 
     for (const notice of notices[path] ?? []) {
-      copies.set(`LICENSES/${basename(notice, ".txt")}-notice.txt`, join(root, notice));
+      await add(`LICENSES/${basename(notice, ".txt")}-notice.txt`, join(root, notice));
     }
   }
 

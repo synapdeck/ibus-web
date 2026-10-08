@@ -93,3 +93,40 @@ test("whatever can't be accounted for is a problem", async () => {
     ].sort(),
   );
 });
+
+test("two dependencies with the same name and different texts are a problem", async () => {
+  const other = "node_modules/.pnpm/dep@2.0.0/node_modules/dep";
+  const root = await repository({
+    "packages/p/dist/index.js.map": sourceMap(`../../../${dep}/index.js`, `../../../${other}/index.js`),
+    [`${other}/index.js`]: "",
+    [`${other}/LICENSE`]: "different",
+  });
+  const plan = await planLicenses(root, join(root, "packages/p"), {});
+
+  expect(plan.problems).toEqual([expect.stringContaining("LICENSES/dep/LICENSE")]);
+});
+
+test("two dependencies with the same name and the same text are fine", async () => {
+  const other = "node_modules/.pnpm/dep@2.0.0/node_modules/dep";
+  const root = await repository({
+    "packages/p/dist/index.js.map": sourceMap(`../../../${dep}/index.js`, `../../../${other}/index.js`),
+    [`${dep}/LICENSE`]: "same",
+    [`${other}/index.js`]: "",
+    [`${other}/LICENSE`]: "same",
+  });
+  const plan = await planLicenses(root, join(root, "packages/p"), {});
+
+  expect(plan.problems).toEqual([]);
+  expect(tos(plan)).toContain("LICENSES/dep/LICENSE");
+});
+
+test("a bundled dependency whose directory is gone is a problem, not a crash", async () => {
+  const root = await repository({
+    "packages/p/dist/index.js.map": sourceMap("../../../node_modules/.pnpm/gone@1.0.0/node_modules/gone/index.js"),
+  });
+  const plan = await planLicenses(root, join(root, "packages/p"), {});
+
+  expect(plan.problems).toEqual([
+    "gone is bundled from node_modules/.pnpm/gone@1.0.0/node_modules/gone, which is missing; rebuild",
+  ]);
+});
