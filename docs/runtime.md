@@ -1,9 +1,9 @@
 # Runtime
 
-The runtime is what runs inside each engine's Worker: `ibus-runtime.wasm`, a
+The runtime is what runs inside each module's Worker: `ibus-runtime.wasm`, a
 main module that carries libc, libc++, `pkgsWasm.glib` ([glib.md](glib.md)),
 libffi, the WasmFS IndexedDB backend ([storage.md](storage.md)) and
-`libibus-web`, and the engine's side module, which is loaded into it. The
+`libibus-web`, and the module's side module, which is loaded into it. The
 Worker host ([worker-host.md](worker-host.md)) instantiates the runtime,
 drives it through `libibus-web` and sleeps inside it between requests.
 

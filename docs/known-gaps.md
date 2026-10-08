@@ -184,11 +184,11 @@ An item leaves this page when it is fixed or decided.
 
 ## Storage
 
-- **A shared content-addressed store (future design).** Today every engine
+- **A shared content-addressed store (future design).** Today every module
   version installs its whole closure into its own data database. The proposed
   replacement is one IndexedDB database, mounted read-only at `/nix/store`
-  in every engine Worker with one backend thread per Worker. Each store path
-  would be installed once and reused by all engines and versions referencing it.
+  in every module Worker with one backend thread per Worker. Each store path
+  would be installed once and reused by all modules and versions referencing it.
   Content addressing avoids the half-updated-tree failure that motivated a
   database per version. No install lock or per-path marker is planned: the
   backend already reads and bumps `nextIno` in the same readwrite transaction

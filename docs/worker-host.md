@@ -1,9 +1,9 @@
 # Worker host
 
 `@ibus-web/worker-host` (`packages/worker-host/`, MIT OR Apache-2.0) is the
-TypeScript that runs in each engine's Worker. It makes the runtime's memory,
+TypeScript that runs in each module's Worker. It makes the runtime's memory,
 instantiates `ibus-runtime.wasm` ([runtime.md](runtime.md)), starts the wake
-relay, mounts storage and installs the engine's data
+relay, mounts storage and installs the module's data
 ([storage.md](storage.md)), mounts the Nix store view, and serves requests,
 asleep inside the runtime between them. Effect 4 builds the resource scopes;
 the production request loop is synchronous TypeScript. The first successful
@@ -47,7 +47,7 @@ use of `HostWorker` in `types/usage.ts`).
 
 ## Starting a host
 
-A page starts one host per engine:
+A page starts one host per module:
 
 1. The page is cross-origin isolated (`Cross-Origin-Opener-Policy:
 same-origin`, `Cross-Origin-Embedder-Policy: require-corp` on every
@@ -91,9 +91,9 @@ page owes its hosts:
 - **The writer lock after a terminate.** Chromium lets go of the locks of a
   Worker terminated while it sleeps in `Atomics.wait()` only some 2 s after
   `terminate()`. Having terminated a host that didn't report
-  `storage: read-only`, the page waits for that engine's writer lock to come
+  `storage: read-only`, the page waits for that module's writer lock to come
   free (a queued request it lets go of at once, bounded at 10 s) before
-  starting the engine's next host ([storage.md](storage.md#restarts)).
+  starting the module's next host ([storage.md](storage.md#restarts)).
 - **No transactions on engine databases.** A transaction the page hasn't seen
   commit when it starts to spin holds up the backend's writes until the spin
   ends ([storage.md](storage.md#the-page-keeps-out)).
@@ -126,10 +126,10 @@ The host is a scoped Effect program (`src/worker/host.ts`): each resource a
 | Scope           | Acquire                                                                                                                                                                                                                                                                | Release                                                                                                                                         |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Worker          | Control buffer views; the `Logger` that writes ring `Log` records; an uncaught-error listener, registered up front because a thread's error may already be queued by the time the host stops.                                                                          | With a failure: before `ready`, posts `error`; after it, writes the `Crashed` record if the ring has room, then `CRASHED`, and posts `crashed`. |
-| Planned storage | Probes IndexedDB (opens the engine's database without creating it, closes it at once), takes the writer lock `ifAvailable`, decides the mount, and sizes the memory from the plan.                                                                                     | Lets go of every lock, the writer lock only once the user backend is sealed or was never mounted read-write.                                    |
+| Planned storage | Probes IndexedDB (opens the module's database without creating it, closes it at once), takes the writer lock `ifAvailable`, decides the mount, and sizes the memory from the plan.                                                                                     | Lets go of every lock, the writer lock only once the user backend is sealed or was never mounted read-write.                                    |
 | Runtime         | Checks the memory's size, makes it, imports and instantiates the runtime, checks its JavaScript surface, allocates the wake word and the request and reply buffers, calls `ibusweb_runtime_init()`.                                                                    | Nothing: the runtime ends with the Worker.                                                                                                      |
 | Wake relay      | Starts the relay Worker, which bumps a word in the runtime's memory, so it follows the runtime.                                                                                                                                                                        | Terminates the relay.                                                                                                                           |
-| Storage         | Mounts the engine's own files at `/engines/<encodeComponent(name)>`, posts `storage` events, installs or finds the version's data and mounts it at `/nix/store`, posts `install` and `collect`, and sets `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir`. | Seals the read-write backends, while the runtime can still be called; their threads and connections end with the Worker.                        |
+| Storage         | Mounts the module's own files at `/engines/<encodeComponent(name)>`, posts `storage` events, installs or finds the version's data and mounts it at `/nix/store`, posts `install` and `collect`, and sets `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir`. | Seals the read-write backends, while the runtime can still be called; their threads and connections end with the Worker.                        |
 | Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`.                                                                                                                                                                                            | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                                           |
 
 **The storage plan comes before the runtime** because the memory can't grow
@@ -372,7 +372,7 @@ are [storage.md](storage.md)'s. The host's part
   (an opaque origin, blocked site data, a denied third-party iframe), the
   mount is memory and the memory grows by the data's size, in whole pages
   (`memoryWithData`). With it, or with `node` storage, the host requests the
-  engine's writer lock `ifAvailable`; refused, the user backend is mounted
+  module's writer lock `ifAvailable`; refused, the user backend is mounted
   read-only (`WASMFS_IDB_READ_ONLY`, which also skips the backend's sweep).
   Hosts don't queue for the writer lock: a backend can't become writable, so
   the page restarts a host to get a writer.

@@ -1,6 +1,6 @@
 # Storage
 
-Every engine Worker has a WasmFS file system. An engine's own files (user
+Every module Worker has a WasmFS file system. A module's own files (user
 dictionaries, deployed data, user configuration) and its installed,
 read-only data live in IndexedDB, behind a WasmFS backend of our own,
 `runtime/wasmfs-idb/`. This page covers that backend, why it is IndexedDB,
@@ -173,7 +173,7 @@ when the database is:
   file unlinked but open leaves, are deleted with their chunks, in one
   transaction, when a read-write backend is created and before it opens
   anything. A read-only backend doesn't sweep: only the database's one
-  writer may ([below](#one-writer-per-engines-user-data)). A sweep that
+  writer may ([below](#one-writer-per-modules-user-data)). A sweep that
   fails is logged and the backend mounts anyway, unless the connection
   closed, which fails the open.
 - **Renames** stay within one database; overwriting follows POSIX
@@ -248,8 +248,8 @@ it ([known gaps](known-gaps.md#storage)).
 
 ### The page keeps out
 
-The page opens no transaction on an engine's databases; with spec §9.2 it
-reaches the engine's storage only through the protocol. A transaction
+The page opens no transaction on a module's databases; with spec §9.2 it
+reaches the module's storage only through the protocol. A transaction
 commits on the thread that made it, so one the page had made and hadn't
 seen commit when it began to spin held up the backend's writes to the same
 store until the spin ended: in a test that read the user database's `meta`
@@ -435,14 +435,14 @@ any other file. The protocol lives in
 Each version's data is a database of its own, `ibus-web/<name>/data/<version>`,
 apart from the engine's own files (`ibus-web/<name>`) and from every other
 version, so installing one never touches another in use. Three Web Locks
-per engine:
+per module:
 
 - `ibus-web:data:<name>:<version>`, **shared**, held by every host using that
   version for its life; the first lock a host waits for. Taken exclusively,
   it is the right to delete that version.
 - `ibus-web:install:<name>:<version>`, **exclusive**, for deciding and
   installing; versions install independently.
-- `ibus-web:writer:<name>`, the [writer lock](#one-writer-per-engines-user-data),
+- `ibus-web:writer:<name>`, the [writer lock](#one-writer-per-modules-user-data),
   which covers the engine's own files only. Every host installs a missing
   version, writer or not.
 
@@ -593,9 +593,9 @@ lock, a deletion blocked past its limit, a stray Node `.marking`, and a
 waiter outliving its limit on the installer's word, or failing once the word
 stops. Each failed against the first protocol or with its defence removed.
 
-## One writer per engine's user data
+## One writer per module's user data
 
-Every tab or Worker running an engine mounts the same user database.
+Every tab or Worker running a module mounts the same user database.
 IndexedDB serializes transactions but not files: two writers would
 interleave writes to one file, and each writer's sweep would delete the
 other's open, unlinked files. So one host writes and the others read.
@@ -632,7 +632,7 @@ its event loop running, let go at once, its successor ready 0.22 s after).
 Firefox lets go at once, Node once `terminate()`'s promise settles. A host
 started in between would find the writer lock taken and run read-only for
 good. So the page, having terminated a host that didn't report
-`storage: read-only`, waits for the engine's writer lock with a queued
+`storage: read-only`, waits for the module's writer lock with a queued
 request it lets go of at once, bounded at 10 s (after which another tab
 holds it legitimately), before starting the next host: the next host was
 ready 2.2–2.3 s after the terminate in Chromium, 0.2–0.35 s in Firefox and
@@ -650,8 +650,8 @@ or where a third-party iframe is denied storage. Private browsing has it in
 every browser at the Baseline floor, cleared when the session ends.
 
 The runtime's memory is fixed once made ([runtime.md](runtime.md)), so the
-host probes IndexedDB before making it: it opens the engine's database
-without creating it and closes it at once. If that fails, the engine's
+host probes IndexedDB before making it: it opens the module's database
+without creating it and closes it at once. If that fails, the module's
 directory is WasmFS's memory backend, and the host makes the runtime's
 memory, and its maximum, larger than the manifest's `memory` by the data's
 size: the sum of the manifest's data sizes (unpacked bytes), rounded up to
