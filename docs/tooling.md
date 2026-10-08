@@ -277,7 +277,7 @@ refetches nothing:
    offline from the manifests. The Playwright assertion runs here. Builds that run a script with
    its package's dependencies but shouldn't rebuild on every source edit use it
    (`packageNodeModules ./dir`), as the GLib gate does, and the library checker
-   (`ibusWeb.runtime.libraryDeps`: `library-deps.ts` beside its package's `node_modules`, which
+   (`ibusWeb.lib.libraryDeps`: `library-deps.ts` beside its package's `node_modules`, which
    the type derivations and checks for both JavaScript libraries run).
 3. `ibusWeb.typescript.workspace` — the sources (each package's `.ts`, `.mts`, `.cts`, `.json`,
    plus files listed under `ibusWeb.assets` in its `package.json`) with `nodeModules` laid over

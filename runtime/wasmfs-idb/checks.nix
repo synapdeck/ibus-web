@@ -3,9 +3,16 @@
 
 {
   perSystem =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
-      inherit (config.ibusWeb) runtime testing;
+      inherit (config.ibusWeb.lib) emscriptenRoot;
+      inherit (config.ibusWeb) runtime testing typescript;
+      inherit (config.ibusWeb.toolchain) emscripten;
       inherit (runtime) wasmfsIdb;
       tests = ./tests;
 
@@ -40,15 +47,40 @@
           libs = "-lwasmfs-idb";
         };
 
-      testLibraries = runtime.wasmfsIdbTestLibraries;
-    in
-    {
-      ibusWeb.runtime.wasmfsIdbTestLibraries = [
+      # The JavaScript libraries the test programs link besides the backend's
+      # own; each one's __deps are checked and it is type-checked.
+      testLibraries = [
         ./tests/chunk-counts.js
         ./tests/faults.js
         ./tests/strict-commits.js
       ];
 
+      # The sources at their places in the repository, so the configs'
+      # extends of its base config resolve.
+      root = ../..;
+      sources = lib.fileset.toSource {
+        inherit root;
+        fileset = lib.fileset.unions (
+          testLibraries
+          ++ [
+            ./tsconfig.worker.json
+            ./src/libwasmfs_idb.js
+            ./src/emscripten-library.d.ts
+            ./tsconfig.test.json
+            ./tests/stderr-post.js
+            ./tests/errors-post.js
+            ./tests/wasm-exports.d.ts
+            ./tests/post-js.d.ts
+            ./tsconfig.library-types.json
+            ./tests/library-types/rejected.js
+          ]
+        );
+      };
+      # Where a source is in a copy of the sources.
+      sourcePath = path: lib.escapeShellArg (lib.path.removePrefix root path);
+      here = sourcePath ./.;
+    in
+    {
       # The tests and their headers are C++ against GoogleTest; some reach
       # into WasmFS's internals.
       ibusWeb.toolchain.clangdPathFlags."runtime/wasmfs-idb/tests/.*\\.(cpp|h)" = [
@@ -119,5 +151,69 @@
           }
         ];
       };
+
+      # The checker parses libraries with the workspace's acorn and Emscripten
+      # with its own, and both must read a library alike.
+      checks.wasmfs-idb-acorn =
+        pkgs.runCommand "ibus-web-wasmfs-idb-acorn-check"
+          {
+            nativeBuildInputs = [
+              typescript.nodejs
+              pkgs.jq
+            ];
+          }
+          ''
+            expected=$(jq -r .version ${emscriptenRoot}/node_modules/acorn/package.json)
+            cd ${typescript.workspace}
+            node ${typescript.assertDependency} --locked acorn "$expected" \
+              "Emscripten ${emscripten.version} parses libraries with acorn" tools/emscripten-library-deps
+            touch $out
+          '';
+
+      checks.wasmfs-idb-types =
+        pkgs.runCommand "ibus-web-wasmfs-idb-types-check"
+          {
+            nativeBuildInputs = [
+              typescript.nodejs
+              typescript.tsc
+            ];
+          }
+          ''
+            cp -r --no-preserve=mode ${sources} source
+            cd source
+            mkdir -p node_modules/@ibus-web
+            cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
+            node ${config.ibusWeb.lib.libraryDeps} check ${sourcePath ./src/libwasmfs_idb.js} ${emscriptenRoot}
+            for library in ${lib.concatMapStringsSep " " sourcePath testLibraries}; do
+              node ${config.ibusWeb.lib.libraryDeps} check "$library" ${emscriptenRoot}
+            done
+            cd ${here}
+            ln -s ${config.ibusWeb.toolchain.emscriptenTypes.wasmfs-idb-types.package} src/emscripten-types
+            tsc -p tsconfig.worker.json
+            tsc -p tsconfig.test.json
+
+            # The library's own type must reject what Emscripten would: a
+            # file of calls that each break one rule fails with one error
+            # per call, each carrying the message written above the call.
+            rejected=tests/library-types/rejected.js
+            if tsc -p tsconfig.library-types.json > errors.txt; then
+              echo "$rejected: type-checks, but every call in it is wrong" >&2
+              exit 1
+            fi
+            expected=$(grep -c '^// error: ' "$rejected")
+            if [ "$(grep -c 'error TS' errors.txt)" != "$expected" ]; then
+              cat errors.txt >&2
+              echo "$rejected: expected $expected errors" >&2
+              exit 1
+            fi
+            sed -n 's|^// error: ||p' "$rejected" | while IFS= read -r message; do
+              if ! grep -qF -- "$message" errors.txt; then
+                cat errors.txt >&2
+                echo "$rejected: no error says: $message" >&2
+                exit 1
+              fi
+            done
+            touch $out
+          '';
     };
 }

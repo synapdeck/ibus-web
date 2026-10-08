@@ -54,6 +54,22 @@
           cflags
         ];
       };
+
+      # What the backend's JavaScript library uses from Emscripten, for its type
+      # check.
+      ibusWeb.toolchain.emscriptenTypes.wasmfs-idb-types = {
+        link = "runtime/wasmfs-idb/src/emscripten-types";
+        package = config.ibusWeb.lib.emscriptenTypes {
+          name = "wasmfs-idb-types";
+          library = wasmfsIdb.jsLibrary;
+          linkFlags = [
+            "-sWASMFS=1"
+            "-lwasmfs-idb"
+          ];
+          buildInputs = [ wasmfsIdb ];
+        };
+      };
+
       packages.wasmfs-idb = wasmfsIdb;
     };
 }

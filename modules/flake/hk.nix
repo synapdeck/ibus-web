@@ -47,11 +47,6 @@
         '';
       };
 
-      # Where the JavaScript libraries' type checks find their generated
-      # types.
-      wasmfsIdbTypesLink = "runtime/wasmfs-idb/src/emscripten-types";
-      gtestMainTypesLink = "modules/testing/gtest-main/emscripten-types";
-
       # The LLVM emcc drives, so formatting agrees with the clangd editors run.
       clangFormat = pkgs.runCommand "ibus-web-clang-format" { } ''
         mkdir -p $out/bin
@@ -97,8 +92,15 @@
             git add -A
             # Linked after `git add`, and git-ignored, as in a checkout.
             ln -s ${hkPkl} .hk
-            ln -s ${config.packages.wasmfs-idb-types} ${wasmfsIdbTypesLink}
-            ln -s ${config.packages.gtest-main-types} ${gtestMainTypesLink}
+            ${lib.concatStrings (
+              lib.mapAttrsToList (_: types: ''
+                grep -qF '"${types.link}"' hk.pkl || {
+                  echo "hk.pkl's nixInputs lacks ${types.link}" >&2
+                  exit 1
+                }
+                ln -s ${types.package} ${types.link}
+              '') toolchain.emscriptenTypes
+            )}
             (
               cd ${typescript.workspace}
               find . -name node_modules -prune -print

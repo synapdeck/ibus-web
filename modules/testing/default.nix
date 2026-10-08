@@ -289,28 +289,13 @@
           };
         };
 
-      inherit (config.ibusWeb.runtime) libraryDeps;
+      inherit (config.ibusWeb.lib) libraryDeps;
 
       # Types for what the report library uses from Emscripten, from a link
       # that exports exactly that.
-      reportTypes = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-web-gtest-main-types";
-        dontUnpack = true;
-        nativeBuildInputs = [
-          typescript.nodejs
-          typescript.tsc
-        ];
-        dontFixup = true;
-        buildPhase = ''
-          runHook preBuild
-          node ${libraryDeps} emit ${reportLibrary} ${emscriptenRoot} $out
-          $CXX -sASSERTIONS=1 --no-entry --js-library=${reportLibrary} \
-            -sEXPORTED_RUNTIME_METHODS=$(cat $out/exported-runtime-methods.txt) \
-            -sEXPORTED_FUNCTIONS=$(cat $out/exported-functions.txt) \
-            --emit-tsd $out/emscripten.d.ts -o probe.js
-          runHook postBuild
-        '';
-        dontInstall = true;
+      reportTypes = config.ibusWeb.lib.emscriptenTypes {
+        name = "gtest-main-types";
+        library = reportLibrary;
       };
 
       # Where the report library's type check finds those types.
@@ -496,7 +481,11 @@
       # The harness and every GoogleTest program here include GoogleTest.
       ibusWeb.toolchain.clangdPathFlags."modules/testing/.*\\.(cpp|h)" = gtestCflagList;
 
-      packages.gtest-main-types = reportTypes;
+      ibusWeb.toolchain.emscriptenTypes.gtest-main-types = {
+        link = "modules/testing/gtest-main/${typesDir}";
+        package = reportTypes;
+      };
+
       packages.integration-checks = pkgs.linkFarm "ibus-web-integration-checks" (
         lib.mapAttrsToList (name: path: { inherit name path; }) config.ibusWeb.testing.extendedChecks
       );
@@ -537,14 +526,5 @@
             touch $out
           '';
 
-      # Built when the shell starts rather than as part of it, so the shell
-      # still enters while the library doesn't build. The out-link keeps the
-      # types from garbage collection.
-      devshells.default.devshell.startup.gtest-main-types.text = ''
-        rm -f "$FLAKE_ROOT/modules/testing/gtest-main/${typesDir}"
-        nix build "$FLAKE_ROOT#packages.${system}.gtest-main-types" \
-          --out-link "$FLAKE_ROOT/modules/testing/gtest-main/${typesDir}" ||
-          echo "gtest-main types unavailable" >&2
-      '';
     };
 }
