@@ -242,7 +242,7 @@ TypeScript is version 7 (the native compiler). Configuration:
   from a link of the library (`--emit-tsd`, through `ibusWeb.lib.emscriptenTypes`) where one exists,
   and local `.d.ts` files otherwise. `tools/emscripten-library-deps` checks a library's `__deps`
   against what it uses, parsing with the acorn version Emscripten ships
-  (`checks.emscripten-library-deps-acorn`). [storage.md](storage.md) describes the backend's library.
+  (`checks.tools-emscripten-library-deps-acorn`). [storage.md](storage.md) describes the backend's library.
 
 Hand-written TypeScript and JavaScript use modern syntax: what is Baseline "Widely available" and
 also runs on the oldest supported Node.

@@ -25,7 +25,7 @@
 
       # The checker parses libraries with the workspace's acorn and Emscripten
       # with its own, and both must read a library alike.
-      checks.emscripten-library-deps-acorn =
+      checks.tools-emscripten-library-deps-acorn =
         pkgs.runCommand "ibus-web-emscripten-library-deps-acorn"
           {
             nativeBuildInputs = [
