@@ -20,6 +20,7 @@
           root = ./.;
           fileset = lib.fileset.unions [
             ./meson.build
+            ./meson.options
             ./src
             ./native
           ];
