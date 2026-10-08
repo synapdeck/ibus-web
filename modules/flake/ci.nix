@@ -8,9 +8,12 @@
   perSystem =
     { config, ... }:
     let
-      # Determinate Nix and FlakeHub Cache authenticate with the job's OIDC
-      # token.
+      # Each job sets its own: Determinate Nix and FlakeHub authenticate with
+      # the job's OIDC token, which a job that doesn't use them shouldn't get.
       permissions = {
+        contents = "read";
+      };
+      flakehubPermissions = {
         contents = "read";
         id-token = "write";
       };
@@ -34,6 +37,7 @@
         # for a cold run, which rebuilds the patched Emscripten, its
         # cache and everything WASM.
         timeoutMinutes = 240;
+        permissions = flakehubPermissions;
         steps = [
           checkout
           installNix
@@ -82,8 +86,7 @@
           jobs.integration = checkJob "extended integration" "nix build .#integration-checks -L --max-jobs 1";
 
           # FlakeHub Cache grants access per published flake, so the cache
-          # needs this one published, privately; only a master that passed
-          # its checks is published.
+          # needs this one published; only a master that passed its checks is.
           jobs.publish = {
             name = "Publish to FlakeHub";
             needs = [
@@ -93,6 +96,7 @@
             if_ = "github.event_name == 'push' && github.ref == 'refs/heads/master'";
             runsOn = "ubuntu-latest";
             timeoutMinutes = 30;
+            permissions = flakehubPermissions;
             steps = [
               checkout
               installNix
@@ -103,7 +107,9 @@
                 uses = "DeterminateSystems/flakehub-push@v7";
                 with_ = {
                   name = "synapdeck/ibus-web";
-                  visibility = "private";
+                  # The flake is as visible as the repository: private while
+                  # it is, listed once it is public.
+                  visibility = "\${{ github.event.repository.private && 'private' || 'public' }}";
                   rolling = true;
                 };
               }

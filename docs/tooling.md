@@ -389,8 +389,9 @@ module writes it into the tree as `.github/workflows/ci.yml`. Never edit the YAM
 
 ### What it does
 
-`ci.yml` runs on pull requests and on pushes to `master`, with `contents: read` and
-`id-token: write` (Determinate Nix and FlakeHub Cache authenticate with the job's OIDC token). A
+`ci.yml` runs on pull requests and on pushes to `master`. The workflow grants `contents: read`;
+each job adds `id-token: write`, since Determinate Nix and FlakeHub authenticate with the job's
+OIDC token. A
 pull request's new push cancels its run in progress (`concurrency`, grouped by pull request);
 every push to `master` keeps its own run.
 

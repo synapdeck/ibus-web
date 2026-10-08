@@ -3,6 +3,32 @@
 
 root = true
 
+# What the formatters already produce, for editors that don't run them.
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
 [*.sh]
 indent_style = space
 indent_size = 2
+
+[{Makefile,Makefile.*,*.mk}]
+indent_style = tab
+
+# A patch's context lines must stay byte for byte, trailing spaces included.
+[*.{patch,diff}]
+trim_trailing_whitespace = false
+
+# Two trailing spaces are a Markdown line break.
+[*.md]
+trim_trailing_whitespace = false
+
+# Vendored IBus sources keep upstream's formatting.
+[runtime/libibus-web/{include/ibus-1.0,src/ibus}/**]
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = unset

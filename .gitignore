@@ -23,3 +23,7 @@ __pycache__/
 /packages/*/LICENSE-APACHE
 /packages/*/LICENSES/
 /packages/*/.pack-licenses.json
+
+# Local agent and review output.
+.artifacts/
+.claude/settings.local.json

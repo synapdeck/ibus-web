@@ -6,6 +6,9 @@ concurrency:
 jobs:
   check:
     name: nix flake check
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -21,6 +24,9 @@ jobs:
     timeout-minutes: 240
   integration:
     name: extended integration
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -40,6 +46,9 @@ jobs:
     needs:
       - check
       - integration
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -51,7 +60,7 @@ jobs:
         with:
           name: synapdeck/ibus-web
           rolling: true
-          visibility: private
+          visibility: ${{ github.event.repository.private && 'private' || 'public' }}
     timeout-minutes: 30
 name: CI
 "on":
@@ -61,4 +70,3 @@ name: CI
       - master
 permissions:
   contents: read
-  id-token: write
