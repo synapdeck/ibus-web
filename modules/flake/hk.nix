@@ -64,6 +64,13 @@
         pkgs.reuse
         pkgs.actionlint
       ];
+
+      emscriptenTypeLinks = pkgs.writeText "ibus-web-emscripten-type-links" (
+        lib.concatLines (
+          lib.sort lib.lessThan (lib.mapAttrsToList (_: types: types.link) toolchain.emscriptenTypes)
+        )
+      );
+
       # Beyond what the dev shell already has.
       checkTools = tools ++ [
         pkgs.git
@@ -94,12 +101,17 @@
             # Linked after `git add`, and git-ignored, as in a checkout.
             ln -s ${hkPkl} .hk
 
+            # hk.pkl's nixInputs are exactly the registry's links: a link it
+            # lacks goes unchecked, and an entry the registry lacks is never
+            # built or linked.
+            awk '/^local nixInputs =/ { listing = 1 } listing { print } listing && /\)/ { exit }' hk.pkl \
+              | grep -o '"[^"]*"' | tr -d '"' | LC_ALL=C sort > $TMPDIR/nix-inputs
+            if ! diff -u ${emscriptenTypeLinks} $TMPDIR/nix-inputs >&2; then
+              echo "hk.pkl's nixInputs (+) differ from ibusWeb.toolchain.emscriptenTypes' links (-)" >&2
+              exit 1
+            fi
             ${lib.concatStrings (
               lib.mapAttrsToList (_: types: ''
-                grep -qF '"${types.link}"' hk.pkl || {
-                  echo "hk.pkl's nixInputs lacks ${types.link}" >&2
-                  exit 1
-                }
                 ln -s ${types.package} ${types.link}
               '') toolchain.emscriptenTypes
             )}
