@@ -191,7 +191,7 @@
 
             ${lib.optionalString (args != null)
               "cp ${
-                pkgs.writeText "${name}.args" (lib.concatMapStrings (arg: "${arg}\n") args)
+                pkgs.writeText "ibus-web-test-program-${name}.args" (lib.concatMapStrings (arg: "${arg}\n") args)
               } $out/${name}.args"
             }
 

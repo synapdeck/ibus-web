@@ -72,11 +72,12 @@
 
       keysymdef = "${pkgs.xorgproto}/include/X11/keysymdef.h";
 
+      # oxfmt picks its parser from fileName's extension.
       generate =
-        name: script: source:
-        pkgs.runCommand name { } ''
+        fileName: script: source:
+        pkgs.runCommand "ibus-web-${fileName}" { } ''
           ${typescript.nodejs}/bin/node ${script} ${source} \
-            | ${pkgs.oxfmt}/bin/oxfmt -c ${../../.oxfmtrc.jsonc} --stdin-filepath ${name} > $out
+            | ${pkgs.oxfmt}/bin/oxfmt -c ${../../.oxfmtrc.jsonc} --stdin-filepath ${fileName} > $out
         '';
 
       # The generators' inputs, which the dev shell and the generators' tests read.
