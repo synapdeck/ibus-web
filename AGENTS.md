@@ -74,9 +74,6 @@ the tracked copy differs.
 - Before handing back a branch, run `nix run .#write-files` (expect no drift in `git status`), `nix flake check -L`,
   `nix build .#integration-checks -L` and `nix develop -c hk check --all`.
 - Report which you ran and what failed. Don't summarize a check you didn't run as passing.
-- A test in `nix build .#integration-checks` is known to be flaky until it's fixed. If the build fails only on
-  it, re-run it once and say so in your report; any other failure is real.
-  - `[chromium] demo.spec.ts` "one native undo removes the last focused commit" (`examples/hangul/test/e2e`)
 
 ## Writing
 
