@@ -12,9 +12,8 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 2
 
-[*.sh]
-indent_style = space
-indent_size = 2
+[*.py]
+indent_size = 4
 
 [{Makefile,Makefile.*,*.mk}]
 indent_style = tab
