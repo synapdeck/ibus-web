@@ -1988,10 +1988,10 @@ ibus-web/
 │  └─ ibus-runtime/                the main-module link, its export list, side-module support, tests/
 ├─ engines/hangul/                 an engine: overlay.nix, patches/{port,casts,libhangul}, checks/, module.c
 ├─ packages/                       protocol, worker-host, core, panel, ibus-web (published); test-programs; tsconfig
-├─ tools/<name>/                   one package per build and check tool, with its checks.nix or module.nix
+├─ tools/<name>/                   one package per build and check tool; Nix (checks.nix, module.nix) only where it needs any
 ├─ tools/claude/                   Claude Code language-server plugins (nixd, pkl)
 ├─ examples/hangul/                the Hangul demo and its end-to-end tests
-└─ docs/                           this spec and the others; topic pages; plans/; upstream/ drafts
+└─ docs/                           this spec and the others; topic pages; upstream/ drafts
 ```
 
 One version for the whole project. Protocol version and runtime ABI version

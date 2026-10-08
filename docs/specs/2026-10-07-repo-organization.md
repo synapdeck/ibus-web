@@ -286,7 +286,7 @@ package depends on. Check names are `<area>-<what>`, where the area is the direc
   and the first publish after the repository goes public lists it. FlakeHub's documentation doesn't say whether a push
   can change an existing flake's visibility; if the first public push doesn't, it is changed once by hand in FlakeHub's
   settings.
-- `id-token: write` moves from the workflow to the jobs that use FlakeHub, so pull request jobs from forks don't get it.
+- `id-token: write` moves from the workflow to the jobs that use FlakeHub, so only the jobs that use FlakeHub request it.
 
 ## Documentation
 
@@ -337,4 +337,4 @@ The work lands on one branch as a sequence of commits, each of which passes `nix
 8. Repository hygiene
 9. The front door and documentation, written against the final layout
 
-Branch and tag deletion on `origin`, in step 8, waits for confirmation at that point.
+Nothing on `origin` is deleted or pushed in step 8, and no archive tag exists: the table-engine branch stays as it is.
