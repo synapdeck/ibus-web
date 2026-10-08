@@ -113,7 +113,7 @@
     }:
     let
       inherit (config.ibusWeb) toolchain typescript;
-      inherit (config.ibusWeb.testing) vitestCheck;
+      inherit (config.ibusWeb.testing) vitestCheck gtestCflags;
       inherit (toolchain) pkgsWasm;
 
       allEnvironments = [
@@ -127,7 +127,6 @@
         "tap"
       ];
 
-      gtestCflags = lib.concatStringsSep " " config.ibusWeb.testing.gtestCflagList;
       gtestLibs = config.ibusWeb.testing.gtestLinkFlags;
 
       words = value: if lib.isList value then lib.concatStringsSep " " value else value;

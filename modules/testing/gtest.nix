@@ -10,6 +10,11 @@
         description = "Compile flags for a GoogleTest program's sources, one flag an element: GoogleTest's headers, with its pthread support on.";
       };
 
+      gtestCflags = lib.mkOption {
+        type = lib.types.str;
+        description = "gtestCflagList as one string, for a compile command line.";
+      };
+
       gtestLinkFlags = lib.mkOption {
         type = lib.types.str;
         description = ''
@@ -71,7 +76,7 @@
     in
     {
       ibusWeb.testing = {
-        inherit gtestCflagList;
+        inherit gtestCflagList gtestCflags;
         gtestLinkFlags = "-sPROXY_TO_PTHREAD=1 ${gtestMainObject}/gtest-main.o -L${lib.getLib gtest}/lib -lgtest --js-library=${reportLibrary}";
       };
 
