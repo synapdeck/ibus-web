@@ -60,12 +60,10 @@ run from source: Vitest compiles them through Vite, which is why the Nix workspa
 ## The GoogleTest harness
 
 `ibus-web-gtest-main` (`modules/testing/gtest-main/`) supplies `main()` for every GoogleTest
-program, through `ibusWeb.testing.gtestMain`:
-
-- `cflags`: GoogleTest's headers and `-DGTEST_HAS_PTHREAD=1`;
-- `libs`: `-sPROXY_TO_PTHREAD=1`, the harness object, `-lgtest` and `--js-library` of the
-  harness's JavaScript library;
-- `jsLibrary`: that library's path.
+program. A program compiles with `ibusWeb.testing.gtestCflagList` (GoogleTest's headers and
+`-DGTEST_HAS_PTHREAD=1`) and links with `ibusWeb.testing.gtestLinkFlags` (`-sPROXY_TO_PTHREAD=1`,
+the harness object, `-lgtest` and `--js-library` of the harness's JavaScript library);
+`ibusWeb.testing.program` adds both to a GoogleTest program itself.
 
 How a report gets out:
 
@@ -90,7 +88,7 @@ its `__deps` are complete, and it type-checks against types generated from a lin
 
 `@ibus-web/test-programs` (`packages/test-programs/`) runs WebAssembly test programs under Vitest
 and turns each program's GoogleTest JSON report or TAP stream into one Vitest result per case.
-`ibusWeb.testing.programs` (`modules/testing/default.nix`) makes a check that runs it.
+`ibusWeb.testing.programs` (`modules/testing/programs.nix`) makes a check that runs it.
 
 ### The manifest
 
@@ -271,7 +269,7 @@ What `program` takes (its option description has the full list):
   `src`.
 - `linkFlags` (required), `cflags`, `libs`: strings or lists; the build's shell expands them, so
   they may name `$out`.
-- `format`: `"gtest-json"` (default; compiles against GoogleTest and links `gtestMain`), `"tap"`,
+- `format`: `"gtest-json"` (default; compiles against GoogleTest and links its harness), `"tap"`,
   or `null` for a program the shim doesn't run.
 - `args` (written to `NAME.args`), `preBuild` (runs with `$out` made, e.g. to build side modules
   beside the program), `nativeBuildInputs`, `buildInputs`, `derivationName`.

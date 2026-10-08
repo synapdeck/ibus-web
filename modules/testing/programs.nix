@@ -5,35 +5,6 @@
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
     options.ibusWeb.testing = {
-      extendedChecks = lib.mkOption {
-        type = lib.types.attrsOf lib.types.package;
-        default = { };
-        description = "Extended integration checks aggregated by packages.integration-checks, outside the default flake check gate.";
-      };
-      playwright = {
-        chromiumSandbox = lib.mkOption {
-          type = lib.types.bool;
-          default = true;
-          description = ''
-            Whether Chromium runs with its own sandbox, as a browser does, which env passes on
-            to the harnesses. It needs unprivileged user namespaces, which the Nix build
-            sandbox allows on Linux unless the builder forbids them; on such a builder, set it
-            to false.
-          '';
-        };
-        browsers = lib.mkOption {
-          type = lib.types.package;
-          description = "The browsers the workspace's playwright package drives, headless: nixpkgs' playwright-driver builds of Chromium's headless shell, Firefox and WebKit.";
-        };
-        env = lib.mkOption {
-          type = lib.types.attrsOf lib.types.str;
-          description = "Environment variables under which the workspace's playwright package launches those browsers offline, as a derivation's attributes or exported in a shell, and IBUS_WEB_CHROMIUM_SANDBOX (1 or 0) for the harnesses.";
-        };
-        setup = lib.mkOption {
-          type = lib.types.lines;
-          description = "Shell commands a Nix build runs before launching the browsers. For builds only: it points HOME at a fresh directory.";
-        };
-      };
       browserLinkFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags for a C or C++ test program that runs in a browser: an ES module whose factory a dedicated Worker calls, with assertions on.";
@@ -41,23 +12,6 @@
       nodeLinkFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags for a C or C++ test program that runs under Node, as `node NAME.js`: on WasmFS with the host's files at their own paths, with assertions on.";
-      };
-      gtestMain = lib.mkOption {
-        type = lib.types.attrsOf lib.types.str;
-        description = ''
-          What a GoogleTest program builds with, beside browserLinkFlags or nodeLinkFlags:
-
-          - cflags: compile flags for its sources, GoogleTest's headers.
-          - libs: link flags after its objects: main() on a pthread
-            (-sPROXY_TO_PTHREAD), which runs the tests its arguments select and hands
-            GoogleTest's JSON report to the shim, and GoogleTest itself.
-          - jsLibrary: the JavaScript library through which main() hands over the
-            report, which libs already links.
-        '';
-      };
-      gtestCflagList = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        description = "gtestMain.cflags as a list, one flag an element, for the editor's flags.";
       };
       program = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
@@ -74,11 +28,11 @@
           - format (default "gtest-json"): its passthru.testProgram format, "gtest-json"
             or "tap", or null for a program that programs doesn't run, which then has
             no passthru.testProgram.
-          - gtest (default: format is "gtest-json"): whether it compiles against
-            GoogleTest and links gtestMain.
+          - gtest (default: format is "gtest-json"): whether it compiles with
+            gtestCflagList and links gtestLinkFlags.
           - linkFlags (required), cflags and libs (default none): shell words, as
             strings or lists, for the link before the objects, for compiling each
-            source, and for the link after the objects, before gtestMain's libraries.
+            source, and for the link after the objects, before gtestLinkFlags.
             The build's shell expands them, so they may name $out.
           - args (default null): its arguments, as a list, written to NAME.args.
           - preBuild (default none): shell commands run before compiling, with $out
@@ -87,30 +41,6 @@
           - derivationName (default "ibus-web-test-program-NAME"): the derivation's name.
 
           It builds with pkgsWasm's stdenv, whose compilers add the common flags.
-        '';
-      };
-      vitestCheck = lib.mkOption {
-        type = lib.types.functionTo lib.types.package;
-        description = ''
-          A function making a check that runs a workspace package's Vitest suites, from
-          the built workspace, with the configuration the package's vitest.config.ts
-          makes, taking:
-
-          - name: the derivation's name, after "ibus-web-".
-          - packageDir: the package's directory in the built workspace.
-          - env: the build's attributes, such as the manifest the configuration reads.
-          - inBrowsers: whether any suite runs in a browser, which then gets
-            playwright's environment and setup.
-          - limit: whole seconds before the run is killed, a bound on a browser or Vitest
-            that hangs outright, past every test's own limit.
-          - vitestArgs (default none): more arguments for Vitest.
-          - expectedResults (default null): when given, a set as programs takes it, and
-            the check passes if Vitest's report matches it rather than when every test
-            passes.
-          - passthru (default none): as for mkDerivation.
-
-          Its output holds Vitest's console output as output.txt and its JSON report as
-          results.json.
         '';
       };
       programs = lib.mkOption {
@@ -122,10 +52,10 @@
           - programs: derivations, each holding one program as NAME.js and NAME.wasm, and
             optionally NAME.args, its arguments one per line, with
             `passthru.testProgram = { name = NAME; format = "gtest-json" or "tap"; }`. A
-            GoogleTest program links with gtestMain and reports through it; a TAP program
-            takes g_test's -l, -s and --keep-going and prints TAP on its stdout.
-            Programs for browsers link with browserLinkFlags, programs for Node with
-            nodeLinkFlags. It may be empty when nodeTests holds the tests.
+            GoogleTest program links with gtestLinkFlags and reports through its harness;
+            a TAP program takes g_test's -l, -s and --keep-going and prints TAP on its
+            stdout. Programs for browsers link with browserLinkFlags, programs for Node
+            with nodeLinkFlags. It may be empty when nodeTests holds the tests.
           - environments (default chromium and firefox): where they run, any of node,
             chromium and firefox.
           - timeout (default 120): the whole seconds each program has to exit, in each
@@ -176,20 +106,12 @@
       config,
       lib,
       pkgs,
-      system,
       ...
     }:
     let
-      inherit (config.ibusWeb.lib) emscriptenRoot;
       inherit (config.ibusWeb) toolchain typescript;
-      inherit (config.ibusWeb.testing) playwright;
-      inherit (toolchain) emscripten pkgsWasm;
-      # Headless Chromium uses its shell; the full browser and video encoder stay out.
-      browsers = pkgs.playwright-driver.browsers.override {
-        withChromium = false;
-        withWebkit = true;
-        withFfmpeg = false;
-      };
+      inherit (config.ibusWeb.testing) vitestCheck;
+      inherit (toolchain) pkgsWasm;
 
       allEnvironments = [
         "node"
@@ -201,30 +123,8 @@
         "tap"
       ];
 
-      gtest = pkgsWasm.gtest;
-      gtestCflagList = [
-        "-I${lib.getDev gtest}/include"
-        "-DGTEST_HAS_PTHREAD=1"
-      ];
-      gtestCflags = lib.concatStringsSep " " gtestCflagList;
-      reportLibrary = ./gtest-main/report.js;
-      gtestLibs = "-sPROXY_TO_PTHREAD=1 ${gtestMainObject}/gtest-main.o -L${lib.getLib gtest}/lib -lgtest --js-library=${reportLibrary}";
-
-      gtestMainObject = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-web-gtest-main";
-        dontUnpack = true;
-        dontFixup = true;
-        buildPhase = ''
-          runHook preBuild
-          $CXX ${gtestCflags} -c ${./gtest-main/main.cpp} -o gtest-main.o
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          install -Dm644 -t $out gtest-main.o
-          runHook postInstall
-        '';
-      };
+      gtestCflags = lib.concatStringsSep " " config.ibusWeb.testing.gtestCflagList;
+      gtestLibs = config.ibusWeb.testing.gtestLinkFlags;
 
       words = value: if lib.isList value then lib.concatStringsSep " " value else value;
 
@@ -289,68 +189,7 @@
           };
         };
 
-      inherit (config.ibusWeb.lib) libraryDeps;
-
-      # Types for what the report library uses from Emscripten, from a link
-      # that exports exactly that.
-      reportTypes = config.ibusWeb.lib.emscriptenTypes {
-        name = "gtest-main-types";
-        library = reportLibrary;
-      };
-
-      # Where the report library's type check finds those types.
-      typesDir = "emscripten-types";
-
       packageDir = "${typescript.workspace}/packages/test-programs";
-
-      # A failing test fails the check, unless expectedResults says which tests
-      # fail on purpose: Vitest exits non-zero then, so the verdict comes from
-      # its JSON report instead.
-      vitestCheck =
-        {
-          name,
-          packageDir,
-          env,
-          inBrowsers,
-          limit,
-          vitestArgs ? [ ],
-          expectedResults ? null,
-          passthru ? { },
-        }:
-        pkgs.runCommand "ibus-web-${name}"
-          (
-            {
-              nativeBuildInputs = [ typescript.nodejs ];
-              # Nix gives a build a terminal, on which Vitest would redraw its
-              # progress into the log, over and over.
-              CI = "1";
-              inherit passthru;
-            }
-            // env
-            // lib.optionalAttrs inBrowsers playwright.env
-          )
-          ''
-            ${if inBrowsers then playwright.setup else "export HOME=$(mktemp -d)"}
-            export IBUS_WEB_TEST_CACHE_DIR=$TMPDIR/vite
-            mkdir $out
-            status=0
-            (
-              set -o pipefail
-              cd ${packageDir}
-              timeout --kill-after=10 ${toString limit} \
-                node node_modules/vitest/vitest.mjs run --configLoader native \
-                  --reporter=default --reporter=json --outputFile.json=$out/results.json \
-                  ${lib.escapeShellArgs vitestArgs} 2>&1 | tee $out/output.txt
-            ) || status=$?
-            ${
-              if expectedResults == null then
-                ''exit "$status"''
-              else
-                ''
-                  node ${../../tools/expect-results/expect-results.ts} $out/results.json ${pkgs.writeText "expected-results.json" (builtins.toJSON expectedResults)}
-                ''
-            }
-          '';
 
       programs =
         {
@@ -432,31 +271,6 @@
     in
     {
       ibusWeb.testing = {
-        playwright = {
-          inherit browsers;
-          env = {
-            PLAYWRIGHT_BROWSERS_PATH = "${browsers}";
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-            # Playwright checks the host's distribution packages for the
-            # browsers' libraries; Nix links them in instead.
-            PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
-            IBUS_WEB_CHROMIUM_SANDBOX = if playwright.chromiumSandbox then "1" else "0";
-          }
-          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-            PLAYWRIGHT_HOST_PLATFORM_OVERRIDE = "ubuntu-24.04";
-            # WebKit needs an EGL platform even headless; the sandbox has no host GPU driver.
-            LIBGL_ALWAYS_SOFTWARE = "1";
-            __EGL_VENDOR_LIBRARY_FILENAMES = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
-          };
-          # Firefox writes to its XDG configuration and data directories under
-          # HOME as it starts, even with the fresh profile Playwright gives
-          # it, and hangs before Playwright can connect if it can't; a build's
-          # HOME doesn't exist.
-          setup = ''
-            export HOME=$(mktemp -d)
-          '';
-        };
-
         browserLinkFlags = "-sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=worker -sEXIT_RUNTIME=1";
 
         # A program on its own needs nothing of a main module's.
@@ -464,67 +278,7 @@
           lib.filter (flag: !lib.hasPrefix "-sMAIN_MODULE" flag) toolchain.testMainFlagList
         );
 
-        gtestMain = {
-          cflags = gtestCflags;
-          libs = gtestLibs;
-          jsLibrary = "${reportLibrary}";
-        };
-
-        inherit
-          gtestCflagList
-          program
-          programs
-          vitestCheck
-          ;
+        inherit program programs;
       };
-
-      # The harness and every GoogleTest program here include GoogleTest.
-      ibusWeb.toolchain.clangdPathFlags."modules/testing/.*\\.(cpp|h)" = gtestCflagList;
-
-      ibusWeb.toolchain.emscriptenTypes.gtest-main-types = {
-        link = "modules/testing/gtest-main/${typesDir}";
-        package = reportTypes;
-      };
-
-      packages.integration-checks = pkgs.linkFarm "ibus-web-integration-checks" (
-        lib.mapAttrsToList (name: path: { inherit name path; }) config.ibusWeb.testing.extendedChecks
-      );
-
-      # The report library must name every Emscripten symbol it uses in its
-      # __deps, and type-check against what Emscripten gives it.
-      checks.gtest-main-library =
-        let
-          root = ../..;
-          sources = lib.fileset.toSource {
-            inherit root;
-            fileset = lib.fileset.unions [
-              ../../runtime/wasmfs-idb/src/emscripten-library.d.ts
-              ./tsconfig.json
-              ./gtest-main/report.js
-              ./gtest-main/report.d.ts
-            ];
-          };
-        in
-        pkgs.runCommand "ibus-web-gtest-main-library-check"
-          {
-            nativeBuildInputs = [
-              typescript.nodejs
-              typescript.tsc
-            ];
-          }
-          ''
-            cp -r --no-preserve=mode ${sources} source
-            cd source
-            mkdir -p node_modules/@ibus-web
-            cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
-            node ${libraryDeps} check modules/testing/gtest-main/report.js ${emscriptenRoot}
-            # The library's declarations read Emscripten's decorators from
-            # the types beside them, which any library's link writes alike.
-            ln -s ${reportTypes} runtime/wasmfs-idb/src/${typesDir}
-            ln -s ${reportTypes} modules/testing/gtest-main/${typesDir}
-            tsc -p modules/testing
-            touch $out
-          '';
-
     };
 }
