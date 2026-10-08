@@ -13,6 +13,7 @@
     let
       inherit (config.ibusWeb) toolchain testing typescript;
       inherit (toolchain) pkgsWasm;
+
       helper = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-settings-metadata-helper";
         src = ../../tools/gschema;
@@ -29,6 +30,7 @@
           runHook preBuild
           $CC $($PKG_CONFIG --cflags gio-2.0 json-glib-1.0) -c metadata.c -o metadata.o
           $CXX ${toolchain.testMainFlags} metadata.o $($PKG_CONFIG --static --libs gio-2.0 json-glib-1.0) -o metadata.js
+
           mkdir schemas
           cp fixture.gschema.xml schemas/
           $($PKG_CONFIG --variable=glib_compile_schemas gio-2.0) --strict schemas
@@ -40,6 +42,7 @@
           cp -R schemas $out/
         '';
       };
+
       native =
         pkgs.runCommand "ibus-web-settings-metadata-native"
           {
@@ -55,6 +58,7 @@
           ''
             cc ${../../tools/gschema/metadata.c} $(pkg-config --cflags --libs gio-2.0 json-glib-1.0) -o $out
           '';
+
       fixture = pkgs.writeText "ibus-web-settings-metadata-fixture.json" (
         builtins.toJSON {
           helper = "${helper}/metadata.js";
@@ -72,12 +76,12 @@
           node ${../../tools/gschema/metadata.ts} ${
             typescript.workspaceFor [ "packages/protocol" ]
           }/packages/protocol/dist/index.js raw.json $out
-
         '';
+
       ibusWeb.toolchain.clangdPathFlags."tools/gschema/.*\\.c" = [
         "-I${config.ibusWeb.engines.jsonGlib}/include/json-glib-1.0"
-
       ];
+
       checks.engines-settings-metadata = testing.vitestCheck {
         name = "engines-settings-metadata";
         packageDir = "${typescript.workspaceFor [ "tools/gschema" ]}/tools/gschema";

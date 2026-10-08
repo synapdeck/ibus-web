@@ -264,7 +264,6 @@
         };
     in
     {
-
       checks.worker-host-engine-distribution-identity =
         pkgs.runCommand "ibus-web-worker-host-engine-distribution-identity"
           { nativeBuildInputs = [ pkgs.jq ]; }

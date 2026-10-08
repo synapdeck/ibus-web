@@ -61,7 +61,6 @@
                 #define IBUSWEB_SETTINGS_SCHEMA_DIR "${schemas}/share/glib-2.0/schemas"
                 EOF
               '';
-
             in
             prev.ibus-engines.hangul.overrideAttrs (old: {
               outputs = [

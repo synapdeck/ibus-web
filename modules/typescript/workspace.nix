@@ -314,7 +314,6 @@
     in
     {
       ibusWeb.typescript = {
-
         nodejs = pkgs.nodejs_24;
         inherit
           workspace
