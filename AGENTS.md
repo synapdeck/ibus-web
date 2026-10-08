@@ -21,7 +21,7 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
   hk's `tsconfig-extends` step enforces this.
 - A tool is a package `tools/<name>/` (`@ibus-web/<name>`, private) with its own `package.json` and `tsconfig.json`, a
   `vitest.config.ts` when it has tests, and `checks.nix` when it only has checks or `module.nix` when it also provides
-  something.
+  something. `tools/claude/` is the exception: it holds Claude Code plugin manifests and isn't a package.
 - Nix sits beside the component it builds, each file named for its role:
   - `module.nix`, the flake-parts module: packages, outputs, dev-shell setup;
   - `options.nix`, options it declares for other modules;
