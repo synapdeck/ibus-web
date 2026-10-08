@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, it } from "vitest";
-import { run, select, key, preedit, record, text } from "./dom-support.ts";
+import { run, select, key, preedit, record, text } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 for (const reason of ["blur", "reset", "detach"] as const)
   for (const mode of [0, 1])

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
-import { Connection } from "../../src/connection/connection.ts";
+import { Connection } from "../../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";
-import { fixture, key } from "./support.ts";
+import { fixture, key } from "../../shared/router.ts";
 const module = await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
 let host: FakeWorker;
 let dispose: (() => void) | undefined;

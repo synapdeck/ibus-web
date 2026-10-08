@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
-import { translateKey } from "../../src/keys/translate.ts";
+import { translateKey } from "../../../src/keys/translate.ts";
 const event = (code: string, key = "a", mods: string[] = [], type = "keydown") => ({
   code,
   key,

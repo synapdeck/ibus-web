@@ -43,7 +43,7 @@ export default defineConfig({
     },
     testTimeout: 30_000,
     fileParallelism: false,
-    include: ["test/browser/**/*.test.ts", "test/router/{contexts,preedit,surrounding,content-type,switching}.test.ts"],
+    include: ["test/browser/**/*.test.ts"],
     browser: browserMode(["chromium", "firefox"], {}),
   },
 });

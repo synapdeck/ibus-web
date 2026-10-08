@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
-import { fixture, key, output } from "./support.ts";
+import { fixture, key, output } from "../../shared/router.ts";
 
 test("a synchronous reply applies ordered records in one batch and returns its decision", () => {
   const f = fixture();

@@ -4,7 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { RouterService } from "../../src/router/router.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "../../src/router/replay.ts";
-import { key, record, run, select, text } from "../router/dom-support.ts";
+import { key, record, run, select, text } from "./support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 function editor(router: RouterService, mode: "async" | "manual" = "async") {
   const element = document.createElement("div");

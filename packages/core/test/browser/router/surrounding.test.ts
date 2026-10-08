@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, it } from "vitest";
-import { run, select, key, record, text } from "./dom-support.ts";
+import { run, select, key, record, text } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 it("clips ±1000 code points and converts astral cursor and backward anchor offsets", () =>
   run(async ({ router, connections, field }) => {

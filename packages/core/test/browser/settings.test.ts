@@ -19,8 +19,8 @@ import { SettingsSource } from "../../src/services/settings.ts";
 import { makeEngineRegistry } from "../../src/services/engines.ts";
 import { CoreConfig } from "../../src/services/config.ts";
 import { Logger, PanelEvents } from "../../src/services/logging.ts";
-import { DomConnection, record } from "../router/dom-support.ts";
-import { fixture, key } from "../router/support.ts";
+import { DomConnection, record } from "./support/dom.ts";
+import { fixture, key } from "../shared/router.ts";
 const variant = (value: string) => ({ _tag: "v" as const, type: "s", value: { _tag: "s" as const, value } });
 const metadata: SettingsMetadata = {
   schemas: [

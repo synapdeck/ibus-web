@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { describe, expect, it } from "vitest";
-import { decodeEngineManifest } from "../src/manifest.ts";
+import { decodeEngineManifest } from "../../src/manifest.ts";
 
 const bounds = { minimum: 32 * 1024 * 1024, maximum: 2 ** 31 };
 const storePath = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-hangul-data";

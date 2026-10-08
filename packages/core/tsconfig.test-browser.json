@@ -7,12 +7,5 @@
     "declaration": true,
     "skipLibCheck": true
   },
-  "include": [
-    "test/browser",
-    "test/router/contexts.test.ts",
-    "test/router/preedit.test.ts",
-    "test/router/surrounding.test.ts",
-    "test/router/content-type.test.ts",
-    "test/router/switching.test.ts"
-  ]
+  "include": ["test/browser", "test/shared"]
 }

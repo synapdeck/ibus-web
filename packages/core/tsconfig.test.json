@@ -8,13 +8,5 @@
     "declaration": true,
     "skipLibCheck": true
   },
-  "include": ["test/keys", "test/connection", "test/router", "test/support"],
-  "exclude": [
-    "test/router/contexts.test.ts",
-    "test/router/preedit.test.ts",
-    "test/router/surrounding.test.ts",
-    "test/router/content-type.test.ts",
-    "test/router/switching.test.ts",
-    "test/router/dom-support.ts"
-  ]
+  "include": ["test/node", "test/shared"]
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
 import { expect, it } from "vitest";
-import { SettingsMetadata, decodeSettingsMetadata, encodeSettingsMetadata } from "../src/index.ts";
+import { SettingsMetadata, decodeSettingsMetadata, encodeSettingsMetadata } from "../../src/index.ts";
 
 const metadata = (type = "s", value: unknown = { _tag: "s", value: "2" }) => ({
   schemas: [{ id: "org.test", path: "/org/test/", keys: [{ name: "keyboard", type, default: value }] }],

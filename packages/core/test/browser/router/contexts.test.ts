@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, it } from "vitest";
-import { run, select, key, record, text, emptyReply } from "./dom-support.ts";
+import { run, select, key, record, text, emptyReply } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 it("creates distinct contexts on focus, with capabilities, content type and surrounding, before keys", () =>
   run(async ({ router, connections, field }) => {
@@ -90,7 +90,7 @@ it("queues keys behind lifecycle ownership and applies reply output once", () =>
   }));
 it("closing the router scope removes DOM listeners, cancels pending setup and settles queued selections", async () => {
   let captured:
-    | { element: HTMLTextAreaElement; connection: import("./dom-support.ts").DomConnection; selecting: Promise<void> }
+    | { element: HTMLTextAreaElement; connection: import("../support/dom.ts").DomConnection; selecting: Promise<void> }
     | undefined;
   await run(async ({ router, connections, field }) => {
     const f = field();

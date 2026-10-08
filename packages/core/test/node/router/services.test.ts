@@ -4,11 +4,11 @@ import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { CreateEngine, type EngineManifest, type Request } from "@ibus-web/protocol";
-import { makeEngineRegistry } from "../../src/services/engines.ts";
-import { CoreConfig } from "../../src/services/config.ts";
-import { SettingsSource } from "../../src/services/settings.ts";
-import { Logger, PanelEvents, glibLevel } from "../../src/services/logging.ts";
-import { FakeConnection, fixture, key } from "./support.ts";
+import { makeEngineRegistry } from "../../../src/services/engines.ts";
+import { CoreConfig } from "../../../src/services/config.ts";
+import { SettingsSource } from "../../../src/services/settings.ts";
+import { Logger, PanelEvents, glibLevel } from "../../../src/services/logging.ts";
+import { FakeConnection, fixture, key } from "../../shared/router.ts";
 const dataPath = `/nix/store/${"a".repeat(32)}-test`;
 const manifest: EngineManifest = {
   name: "test",

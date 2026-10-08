@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, it } from "vitest";
 import { Effect } from "effect";
-import { run, select, key, preedit } from "./dom-support.ts";
+import { run, select, key, preedit } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 it("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit", () =>
   run(async ({ router, connections, field }) => {

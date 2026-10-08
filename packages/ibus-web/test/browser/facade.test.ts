@@ -28,7 +28,7 @@ import {
   type IbusWeb,
   type PanelAction,
 } from "../../src/index.ts";
-import { DomConnection, key, record, text } from "../../../core/test/router/dom-support.ts";
+import { DomConnection, key, record, text } from "../../../core/test/browser/support/dom.ts";
 const url = new URL("https://example.test/");
 const manifest = {
   name: "test",

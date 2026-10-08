@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
-import { fixture, key, output } from "./support.ts";
+import { fixture, key, output } from "../../shared/router.ts";
 
 test("abandoned key is never resent; queued keys run ASYNC one at a time and declined keys replay in order", async () => {
   const f = fixture();
@@ -159,7 +159,7 @@ test("retirement preserves global logs from the retired request", async () => {
   const f = fixture();
   f.router.disconnect();
   const globals: string[] = [];
-  const { KeyRouter } = await import("../../src/router/keystroke.ts");
+  const { KeyRouter } = await import("../../../src/router/keystroke.ts");
   const router = new KeyRouter(f.snapshot, {
     replayLimit: 64,
     enqueue: (r) => globals.push(r.record._tag),

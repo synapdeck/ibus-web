@@ -3,7 +3,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { textareaAdapter } from "../../src/adapters/textarea.ts";
-import { run, select, key, preedit } from "../router/dom-support.ts";
+import { run, select, key, preedit } from "./support/dom.ts";
 const cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const dispose of cleanup.splice(0)) dispose();

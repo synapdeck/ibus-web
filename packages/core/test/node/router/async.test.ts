@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test, vi } from "vitest";
 import { FocusIn, SettingChanged } from "@ibus-web/protocol";
-import { fixture, key, output } from "./support.ts";
+import { fixture, key, output } from "../../shared/router.ts";
 const event = (value = "a") => ({ ...key(value), preventDefault: vi.fn(), stopPropagation: vi.fn() });
 
 test("async acceptance intercepts immediately, uses only ASYNC, and applies output before settling", async () => {
@@ -249,7 +249,7 @@ test("the native synchronous sink does not construct a Promise", () => {
   }
 });
 test("real Connection publishes ASYNC and applies ring output before settling without polling a reply", async () => {
-  const { Connection } = await import("../../src/connection/connection.ts");
+  const { Connection } = await import("../../../src/connection/connection.ts");
   const { FakeWorker, record } = await import("../support/fake-worker.ts");
   const { Word, ReqMode } = await import("@ibus-web/worker-host");
   const host = new FakeWorker(),
@@ -295,7 +295,7 @@ test("real Connection publishes ASYNC and applies ring output before settling wi
   }
 });
 test("real Connection watchdog replays active and queued async owners and settles their drain", async () => {
-  const { Connection } = await import("../../src/connection/connection.ts");
+  const { Connection } = await import("../../../src/connection/connection.ts");
   const { FakeWorker } = await import("../support/fake-worker.ts");
   const host = new FakeWorker(),
     f = fixture();
@@ -406,7 +406,7 @@ for (const callback of ["output", "fallback"])
     }),
   ])
     test(`real Connection advances ${request._tag} and async input after abandoned native ${callback} failure`, async () => {
-      const { Connection } = await import("../../src/connection/connection.ts");
+      const { Connection } = await import("../../../src/connection/connection.ts");
       const { FakeWorker, record } = await import("../support/fake-worker.ts");
       const { Word, State, ReqMode } = await import("@ibus-web/worker-host");
       const host = new FakeWorker(),

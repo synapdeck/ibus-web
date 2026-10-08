@@ -3,8 +3,8 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber, Schedule } from "effect";
 import { TestClock } from "effect/testing";
-import { makeRestarter } from "../../src/router/restart.ts";
-import { CoreConfig } from "../../src/services/config.ts";
+import { makeRestarter } from "../../../src/router/restart.ts";
+import { CoreConfig } from "../../../src/services/config.ts";
 
 it.effect("restart is immediate, then backs off 250 ms, and fails on three crashes in 60 seconds", () =>
   Effect.gen(function* () {

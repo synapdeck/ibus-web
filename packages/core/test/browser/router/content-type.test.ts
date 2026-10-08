@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, it } from "vitest";
-import { textareaAdapter } from "../../src/adapters/textarea.ts";
+import { textareaAdapter } from "../../../src/adapters/textarea.ts";
 afterEach(() => document.body.replaceChildren());
 const input = (attrs: Record<string, string> = {}) => {
   const element = document.createElement("input");
