@@ -52,6 +52,7 @@ export class KeyRouter {
   private readonly contexts = new Map<number, KeyContext>();
   private readonly replay: ReplayQueue<PendingKey>;
   private readonly accepted = new Set<PendingKey>();
+  private readonly replaying = new Set<PendingKey>();
   private readonly drains = new Set<{ keys: Set<PendingKey>; resolve: () => void }>();
   private active: PendingKey | undefined;
   private activeMode: "sync" | "abandoned" | "async" | undefined;
@@ -132,8 +133,11 @@ export class KeyRouter {
   }
   /** Replay before a synchronous caret/reset boundary while retaining wire ownership. */
   retire(context: KeyContext, beforeReplay?: () => void): void {
-    const keys = [...this.accepted].filter((key) => key.context === context);
-    this.replay.remove((key) => key.context === context);
+    // A replayed key can raise this boundary itself, as a replayed undo does. The keys queued behind it were
+    // typed after that edit, so they stay queued for the engine rather than being replayed raw.
+    const reentrant = [...this.replaying].some((key) => key.context === context);
+    const keys = reentrant ? [] : [...this.accepted].filter((key) => key.context === context);
+    if (!reentrant) this.replay.remove((key) => key.context === context);
     try {
       if (keys.length > 0 || beforeReplay)
         context.adapter.batch(() => {
@@ -358,7 +362,12 @@ export class KeyRouter {
   private fallback(pending: PendingKey): void {
     try {
       if (this.attached(pending.context)) {
-        if (pending.context.adapter.replayKey(pending.event) === false) this.lost(pending);
+        this.replaying.add(pending);
+        try {
+          if (pending.context.adapter.replayKey(pending.event) === false) this.lost(pending);
+        } finally {
+          this.replaying.delete(pending);
+        }
         this.finished(pending, "replayed");
       } else this.finished(pending);
     } catch (error) {

@@ -96,7 +96,9 @@ A doorbell completes the outstanding work; retained keys then run asynchronously
 one at a time. Declined retained keys are applied through `replayKey`, exactly once.
 The router has already prevented their browser default, so `replayKey` returns
 false for a shortcut whose browser action it cannot perform, and the router logs
-that loss as a warning in the `page-adapter` domain.
+that loss as a warning in the `page-adapter` domain. When a replayed key edits the
+field itself, as a replayed undo does, the reset it causes leaves the keys queued
+behind it for the engine, after the Reset, since they were typed after that edit.
 The per-engine FIFO is shared by all attachments and modes; its default bound is
 64 retained events, including the in-flight key. The doorbell word is cleared
 before draining to avoid losing a wake.
@@ -202,7 +204,9 @@ A replayed Ctrl chord (Command on Apple platforms) runs the editing command it
 names: Z undoes, Shift+Z redoes (as does Ctrl+Y elsewhere), A selects all, and
 X and C cut and copy through `execCommand`, which needs the page's transient user
 activation. Inside a batch, the batch's earlier edits are applied first so the
-command sees them. Paste has no page-side equivalent, since `execCommand("paste")`
+command sees them, and the batch continues from what the command leaves. Outside
+one, the command's change is reported through `onReset` once it returns, as a
+native undo's would be. Paste has no page-side equivalent, since `execCommand("paste")`
 is refused in web content; it and every other chord return false. These chords
 cannot be passed through before the engine replies, because engines bind Ctrl
 chords of their own.

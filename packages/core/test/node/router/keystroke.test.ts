@@ -155,3 +155,20 @@ test("a declined retained key whose shortcut the adapter cannot perform is logge
   f.connection.completeAbandoned(0);
   expect(f.logs).toMatchObject([{ ic: 1, record: { _tag: "Log", level: 16, domain: "page-adapter" } }]);
 });
+
+test("a reset raised by a key's own replay keeps later queued keys for the engine", () => {
+  const f = fixture();
+  const replayed: string[] = [];
+  f.context.adapter.replayKey = (event) => {
+    replayed.push(event.key);
+    if (event.key === "z") f.router.retire(f.context, () => f.calls.push("boundary"));
+  };
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(ctrl("z"));
+  f.sink.key(key("q"));
+
+  f.connection.completeAbandoned(0);
+  expect(replayed).toEqual(["z"]);
+  expect(f.calls).toContain("boundary");
+  expect(f.connection.sent.at(-1)).toMatchObject({ mode: "async", request: { keyval: 113 } });
+});

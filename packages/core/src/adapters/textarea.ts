@@ -37,6 +37,7 @@ export function textareaAdapter(
   const overlay = preeditOverlay(element, () => position(element).cursor);
   const apple = applePlatform();
   let ownEdit = 0;
+  const resetChecks = new Set<() => void>();
   let lastValue = element.value;
   let lastSelection = position(element);
   const remember = () => {
@@ -107,13 +108,23 @@ export function textareaAdapter(
     const document = element.ownerDocument;
     if (!command || document.activeElement !== element) return false;
 
-    return edits.native(() => {
-      try {
-        return document.execCommand(command);
-      } catch {
-        return false;
-      }
-    });
+    // A reset raised from inside the command's own input event could not edit natively, so the change is
+    // reported once the command has returned.
+    ownEdit++;
+    let done: boolean;
+    try {
+      done = edits.native(() => {
+        try {
+          return document.execCommand(command);
+        } catch {
+          return false;
+        }
+      });
+    } finally {
+      ownEdit--;
+    }
+    for (const check of resetChecks) check();
+    return done;
   };
   return {
     element,
@@ -255,11 +266,13 @@ export function textareaAdapter(
           listener();
         }
       };
+      resetChecks.add(check);
       element.addEventListener("pointerdown", pointer, true);
       for (const event of events) element.addEventListener(event, check, true);
       element.ownerDocument.addEventListener("selectionchange", selection);
       return () => {
         overlay.dispose();
+        resetChecks.delete(check);
         if (setter && Object.getOwnPropertyDescriptor(element, "value")?.set === setter) {
           if (ownValue) Object.defineProperty(element, "value", ownValue);
           else Reflect.deleteProperty(element, "value");

@@ -311,3 +311,50 @@ test("an async textarea undoes natively when the engine declines Ctrl+z", () =>
     await select(router);
     expect(element.value).toBe("a");
   }));
+test("a replayed undo resets the engine once, before a key queued behind it reaches the engine", () =>
+  run(async ({ router, connections, field }) => {
+    const { element, adapter } = field();
+    await userEvent.click(element);
+    await select(router);
+    adapter.commit("x");
+    adapter.commit("y");
+    const c = connections.a[0]!;
+    const replayed: [string, boolean | void][] = [];
+    const replayKey = adapter.replayKey;
+    adapter.replayKey = (event) => {
+      const result = replayKey(event);
+      replayed.push([event.key, result]);
+      return result;
+    };
+
+    c.outcome = { _tag: "pending" };
+    const undo = new KeyboardEvent("keydown", {
+      key: "z",
+      code: "KeyZ",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    element.dispatchEvent(undo);
+    expect(undo.defaultPrevented).toBe(true);
+    expect(key(element, "q").defaultPrevented).toBe(true);
+
+    const before = c.sent.length;
+    c.hold = "ProcessKeyEvent";
+    c.completeAbandoned(0);
+    await select(router);
+    expect(replayed).toEqual([["z", true]]);
+    expect(element.value).toBe("x");
+    const after = c.sent
+      .slice(before)
+      .map(({ request }) =>
+        request._tag === "ProcessKeyEvent" ? `key:${String.fromCharCode(request.keyval)}` : request._tag,
+      );
+    expect(after).toContain("key:q");
+    expect(after.indexOf("Reset")).toBeGreaterThanOrEqual(0);
+    expect(after.indexOf("Reset")).toBeLessThan(after.indexOf("key:q"));
+
+    c.completeAsync(1);
+    await select(router);
+    expect(replayed).toEqual([["z", true]]);
+  }));

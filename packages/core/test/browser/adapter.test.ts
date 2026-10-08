@@ -141,6 +141,23 @@ test("a declined cut replayed inside a batch leaves the caret where the cut text
   expect(element.value).toBe("ac");
   expect([element.selectionStart, element.selectionEnd]).toEqual([1, 1]);
 });
+test("a replayed undo reports its reset after the command, where the reset can edit natively", async () => {
+  const { element, adapter, reset } = field("textarea", "a");
+  await userEvent.click(element);
+  adapter.commit("b");
+  reset.mockClear();
+  const inputs: InputEvent[] = [];
+  element.addEventListener("input", (event) => inputs.push(event as InputEvent));
+  reset.mockImplementation(() => adapter.commit("!"));
+
+  expect(adapter.replayKey(chord("z"))).toBe(true);
+  expect(reset).toHaveBeenCalledOnce();
+  expect(element.value).toBe("a!");
+  expect(inputs.map((event) => [event.inputType, event.isTrusted])).toEqual([
+    ["historyUndo", true],
+    ["insertText", true],
+  ]);
+});
 test("paste, unbound chords and Mac Control chords report that their action was lost", async () => {
   const { element, adapter } = field("textarea", "abc");
   await userEvent.click(element);
