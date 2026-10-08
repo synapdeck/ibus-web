@@ -17,7 +17,7 @@
           }
           ''
             python3 ${./exnref.py} \
-              ${toolchain.emscripten}/share/emscripten/tools/feature_matrix.py \
+              ${config.ibusWeb.lib.emscriptenRoot}/tools/feature_matrix.py \
               ${toolchain.minimumVersions}/versions.json
             touch $out
           '';

@@ -110,7 +110,7 @@
           done
           macro() { python3 ${./exports.py} macro "$@"; }
           abi=$(macro --include ibus-web/runtime.h --pkg-config libibus-web IBUSWEB_RUNTIME_ABI)
-          musl=$(< ${emscripten}/share/emscripten/system/lib/libc/musl/VERSION)
+          musl=$(< ${config.ibusWeb.lib.emscriptenRoot}/system/lib/libc/musl/VERSION)
           # libc++ numbers its release XXYYZZ.
           libcxx=$(macro --lang c++ --include version _LIBCPP_VERSION)
           # compiler-rt is the compiler's own runtime, tied to it by the LLVM

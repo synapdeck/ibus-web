@@ -11,7 +11,7 @@
     let
       inherit (config.ibusWeb) testing toolchain;
       # WasmFS's internal headers, for a test of its backend threads.
-      wasmfsInclude = "-I${toolchain.emscripten}/share/emscripten/system/lib/wasmfs";
+      wasmfsInclude = config.ibusWeb.lib.wasmfsIncludeFlag;
 
       # The imported memory's sizes, in MiB: the module is linked for the
       # initial size and declares the maximum, and runs with each of sizes.

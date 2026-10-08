@@ -6,12 +6,12 @@
     { config, lib, ... }:
     let
       inherit (config.ibusWeb) toolchain runtime;
-      inherit (toolchain) pkgsWasm emscripten;
+      inherit (toolchain) pkgsWasm;
 
       # The backend subclasses WasmFS's internal classes, whose virtuals the
       # project's Emscripten patches change, so it compiles against the
       # headers of the very tree the library cache was built from.
-      cflags = "-I${emscripten}/share/emscripten/system/lib/wasmfs";
+      cflags = config.ibusWeb.lib.wasmfsIncludeFlag;
 
       wasmfsIdb = pkgsWasm.stdenv.mkDerivation (finalAttrs: {
         pname = "wasmfs-idb";

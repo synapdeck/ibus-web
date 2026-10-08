@@ -4,14 +4,16 @@
 {
   flake.overlays.hangul =
     final: prev:
-    lib.optionalAttrs
-      (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false))
-      {
+    withSystem prev.stdenv.buildPlatform.system (
+      { config, ... }:
+      let
+        inherit (config.ibusWeb) runtime toolchain;
+        inherit (config.ibusWeb.lib) isEmscriptenWasm patchesIn;
+      in
+      lib.optionalAttrs (isEmscriptenWasm prev.stdenv.hostPlatform) {
         ibus-engines = prev.ibus-engines // {
-          hangul = withSystem prev.stdenv.buildPlatform.system (
-            { config, ... }:
+          hangul =
             let
-              inherit (config.ibusWeb) runtime toolchain;
               libhangul = final.libhangul.overrideAttrs (old: {
                 patches = (old.patches or [ ]) ++ [
                   ../../modules/libhangul/patches/0001-buffer-hanja-dictionary-reads.patch
@@ -29,11 +31,7 @@
                   $out/share/glib-2.0/schemas/
                 ${final.glib.dev}/bin/glib-compile-schemas --strict $out/share/glib-2.0/schemas
               '';
-              layer =
-                name:
-                lib.filter (p: lib.hasSuffix ".patch" (toString p)) (
-                  lib.filesystem.listFilesRecursive (./patches + "/${name}")
-                );
+              layer = name: patchesIn (./patches + "/${name}");
               cflags = "-DHAVE_CONFIG_H -I. -Isrc";
               pkgConfigModules = [
                 "ibus-1.0"
@@ -99,8 +97,8 @@
                 auditSources = sources;
                 auditPkgConfigModules = pkgConfigModules;
               };
-            })
-          );
+            });
         };
-      };
+      }
+    );
 }

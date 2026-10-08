@@ -11,6 +11,7 @@
       ...
     }:
     let
+      inherit (config.ibusWeb.lib) emscriptenRoot;
       inherit (config.ibusWeb) runtime testing typescript;
       inherit (config.ibusWeb.toolchain) pkgsWasm emscripten;
       inherit (runtime) wasmfsIdb;
@@ -43,7 +44,7 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
-          node ${libraryDeps} emit ${wasmfsIdb.jsLibrary} ${emscripten}/share/emscripten $out
+          node ${libraryDeps} emit ${wasmfsIdb.jsLibrary} ${emscriptenRoot} $out
           $CXX -sASSERTIONS=1 -sWASMFS=1 --no-entry \
             --js-library=${wasmfsIdb.jsLibrary} -lwasmfs-idb \
             -sEXPORTED_RUNTIME_METHODS=$(cat $out/exported-runtime-methods.txt) \
@@ -91,7 +92,7 @@
             ];
           }
           ''
-            expected=$(jq -r .version ${emscripten}/share/emscripten/node_modules/acorn/package.json)
+            expected=$(jq -r .version ${emscriptenRoot}/node_modules/acorn/package.json)
             cd ${typescript.workspace}
             node ${typescript.assertDependency} --locked acorn "$expected" \
               "Emscripten ${emscripten.version} parses libraries with acorn" tools/emscripten-library-deps
@@ -111,9 +112,9 @@
             cd source
             mkdir -p node_modules/@ibus-web
             cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
-            node ${libraryDeps} check ${sourcePath ./src/libwasmfs_idb.js} ${emscripten}/share/emscripten
+            node ${libraryDeps} check ${sourcePath ./src/libwasmfs_idb.js} ${emscriptenRoot}
             for library in ${lib.concatMapStringsSep " " sourcePath runtime.wasmfsIdbTestLibraries}; do
-              node ${libraryDeps} check "$library" ${emscripten}/share/emscripten
+              node ${libraryDeps} check "$library" ${emscriptenRoot}
             done
             cd ${here}
             ln -s ${types} src/${typesDir}
@@ -153,7 +154,7 @@
         nodeTests = ../../tools/emscripten-library-deps;
         nodeTestData = {
           inherit libraryDeps;
-          emscripten = "${emscripten}/share/emscripten";
+          emscripten = "${emscriptenRoot}";
         };
       };
 

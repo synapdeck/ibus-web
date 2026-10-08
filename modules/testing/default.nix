@@ -180,6 +180,7 @@
       ...
     }:
     let
+      inherit (config.ibusWeb.lib) emscriptenRoot;
       inherit (config.ibusWeb) toolchain typescript;
       inherit (config.ibusWeb.testing) playwright;
       inherit (toolchain) emscripten pkgsWasm;
@@ -302,7 +303,7 @@
         dontFixup = true;
         buildPhase = ''
           runHook preBuild
-          node ${libraryDeps} emit ${reportLibrary} ${emscripten}/share/emscripten $out
+          node ${libraryDeps} emit ${reportLibrary} ${emscriptenRoot} $out
           $CXX -sASSERTIONS=1 --no-entry --js-library=${reportLibrary} \
             -sEXPORTED_RUNTIME_METHODS=$(cat $out/exported-runtime-methods.txt) \
             -sEXPORTED_FUNCTIONS=$(cat $out/exported-functions.txt) \
@@ -527,7 +528,7 @@
             cd source
             mkdir -p node_modules/@ibus-web
             cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
-            node ${libraryDeps} check modules/testing/gtest-main/report.js ${emscripten}/share/emscripten
+            node ${libraryDeps} check modules/testing/gtest-main/report.js ${emscriptenRoot}
             # The library's declarations read Emscripten's decorators from
             # the types beside them, which any library's link writes alike.
             ln -s ${reportTypes} runtime/wasmfs-idb/src/${typesDir}

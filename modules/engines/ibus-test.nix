@@ -52,10 +52,7 @@
         libs = "$($PKG_CONFIG --static --libs libibus-web json-glib-1.0)";
         format = null;
         gtest = false;
-        linkFlags = [
-          toolchain.commonFlags
-        ]
-        ++ lib.filter (flag: !(lib.hasSuffix "/node-host-fs.o" flag)) toolchain.testMainFlagList;
+        linkFlags = config.ibusWeb.lib.testLinkFlagsWithoutNodeFs;
       };
       fixtureModule =
         (runtime.mkSideModule {

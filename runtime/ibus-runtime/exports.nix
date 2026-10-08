@@ -11,7 +11,7 @@
     let
       inherit (config.ibusWeb) toolchain runtime;
       inherit (toolchain) emscripten pkgsWasm;
-      emscriptenRoot = "${emscripten}/share/emscripten";
+      inherit (config.ibusWeb.lib) emscriptenRoot;
 
       # Emscripten records the LLVM release each library it imports from LLVM
       # comes from in that library's README. libc++abi's and libunwind's rest

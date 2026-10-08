@@ -13,11 +13,9 @@
       # the WASM set, stays out of its build tools, and evaluates at all.
       probe =
         final: prev:
-        lib.optionalAttrs
-          (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.useEmscripten or false))
-          {
-            ibusWebOverlayProbe = true;
-          };
+        lib.optionalAttrs (config.ibusWeb.lib.isEmscriptenWasm prev.stdenv.hostPlatform) {
+          ibusWebOverlayProbe = true;
+        };
       probed = pkgsWasm.appendOverlays [ probe ];
     in
     {

@@ -93,7 +93,7 @@
           runHook preBuild
           export HOME=$TMPDIR
           export EM_CACHE=$TMPDIR/cache
-          cp -r --no-preserve=mode ${emscripten}/share/emscripten/cache $EM_CACHE
+          cp -r --no-preserve=mode ${config.ibusWeb.lib.emscriptenRoot}/cache $EM_CACHE
 
           # The level comes last so it overrides the one in the common
           # flags: a package's own -O0 links against the debug variants.

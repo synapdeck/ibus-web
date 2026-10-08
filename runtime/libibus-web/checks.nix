@@ -99,15 +99,7 @@
         ];
         installPhase = ''
           runHook preInstall
-          # Meson exits 0 for a skipped test, as when a cross file loses its
-          # exe wrapper, so the summary must show tests ran and none skipped.
-          meson test --no-rebuild --print-errorlogs | tee meson-summary.txt
-          [ "''${PIPESTATUS[0]}" -eq 0 ]
-          if ! grep -Eq '^Ok:[[:space:]]+[1-9]' meson-summary.txt ||
-            grep -Eq '^(Skipped|Fail|Timeout|Unexpected Pass|Expected Fail):[[:space:]]+[1-9]' meson-summary.txt; then
-            echo "libibus-web: tests did not all run and pass" >&2
-            exit 1
-          fi
+          ${config.ibusWeb.lib.mesonAllTestsRan "libibus-web"}
           mkdir -p $out
           cp meson-logs/testlog.txt $out/
           runHook postInstall

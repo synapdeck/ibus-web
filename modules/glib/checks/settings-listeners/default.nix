@@ -30,13 +30,7 @@
         # Cross builds skip checkPhase; Meson's wrapper runs the WASM tests.
         installPhase = ''
           runHook preInstall
-          meson test --no-rebuild --print-errorlogs | tee meson-summary.txt
-          [ "''${PIPESTATUS[0]}" -eq 0 ]
-          if ! grep -Eq '^Ok:[[:space:]]+[1-9]' meson-summary.txt ||
-            grep -Eq '^(Skipped|Fail|Timeout|Unexpected Pass|Expected Fail):[[:space:]]+[1-9]' meson-summary.txt; then
-            echo "GLib settings listener tests did not all run and pass" >&2
-            exit 1
-          fi
+          ${config.ibusWeb.lib.mesonAllTestsRan "GLib settings listeners"}
           mkdir -p $out
           cp meson-logs/testlog.txt $out/
           runHook postInstall

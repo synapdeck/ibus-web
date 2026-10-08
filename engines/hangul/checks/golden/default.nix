@@ -23,11 +23,7 @@
         buildInputs = [ runtime.libibusWeb ];
         cflags = "$($PKG_CONFIG --cflags libibus-web ibus-1.0)";
         libs = "$($PKG_CONFIG --static --libs libibus-web)";
-        # The memory root keeps writes isolated; store paths stay readable.
-        linkFlags = [
-          toolchain.commonFlags
-        ]
-        ++ lib.filter (flag: !(lib.hasSuffix "/node-host-fs.o" flag)) toolchain.testMainFlagList;
+        linkFlags = config.ibusWeb.lib.testLinkFlagsWithoutNodeFs;
         args = [
           "--schemas"
           engines.hangul.settingsSchemaDir
