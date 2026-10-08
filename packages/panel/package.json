@@ -46,6 +46,7 @@
     "@ibus-web/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@ibus-web/pack-licenses": "workspace:*",
     "@ibus-web/test-programs": "workspace:*",
     "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",

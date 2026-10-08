@@ -20,7 +20,7 @@
         "packages/ibus-web"
       ];
 
-      built = typescript.workspaceFor (published ++ [ "tools/pack-licenses" ]);
+      built = typescript.workspaceFor published;
     in
     {
       # The tool reads these beside whichever package it packs.
