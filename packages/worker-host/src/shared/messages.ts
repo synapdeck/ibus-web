@@ -5,14 +5,14 @@
 // host's one message in, and every message out.
 
 import type { TransportLayout } from "@ibus-web/protocol/transport";
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 export interface RuntimeMemory {
   initial: number;
   maximum: number;
 }
 
 // The engine's data's size, unpacked.
-const engineDataBytes = ({ data }: Pick<EngineManifest, "data">): number =>
+const engineDataBytes = ({ data }: Pick<ModuleManifest, "data">): number =>
   data.reduce((sum, { size }) => sum + size, 0);
 
 // The page size of WebAssembly memory, in bytes.
@@ -22,7 +22,7 @@ export const WASM_PAGE = 65536;
 // it: the data's size more, in whole pages.
 export const memoryWithData = (
   { initial, maximum }: { initial: number; maximum: number },
-  engine: Pick<EngineManifest, "data">,
+  engine: Pick<ModuleManifest, "data">,
 ): { initial: number; maximum: number } => {
   const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
   return { initial: initial + data, maximum: maximum + data };
@@ -73,7 +73,7 @@ export type HostInit<Wasm = unknown, Test = never> = {
   layout?: TransportLayout;
   storage: EngineStorage;
   test?: Test;
-} & ({ manifest: EngineManifest; manifestUrl?: never } | { manifest?: never; manifestUrl: string });
+} & ({ manifest: ModuleManifest; manifestUrl?: never } | { manifest?: never; manifestUrl: string });
 
 // What the host mounts the engine's own files on: "memory" for want of
 // IndexedDB.

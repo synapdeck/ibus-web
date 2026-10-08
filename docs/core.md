@@ -9,15 +9,15 @@ generated tables' source notices included in its distribution.
 
 ## Layers and page lifetime
 
-The page entry exports `Router`, `EngineRegistry`, `CoreConfig`, `SettingsSource`,
+The page entry exports `Router`, `ModuleRegistry`, `CoreConfig`, `SettingsSource`,
 `Logger`, `PanelEvents`, `Connection`, `textareaAdapter` and their public types.
 `@ibus-web/core/keys` exports translation and table helpers without page services.
 `effect` is a peer dependency; the host application provides the shared copy.
 
-Provide `Router.Default` with `EngineRegistry.layer({ hostUrl, runtimeUrl, engines })`,
+Provide `Router.Default` with `ModuleRegistry.layer({ hostUrl, runtimeUrl, modules })`,
 then provide `CoreConfig.Default`, `SettingsSource.Default`, `Logger.Default` and
-`PanelEvents.Default`. Registry keys in `engines` map to manifest URLs; they need
-not equal the manifest's name or instance engine name. `runtimeUrl` names
+`PanelEvents.Default`. Keys in `modules` name modules and map to their manifest URLs;
+they need not equal the manifest's name or any engine's name. `runtimeUrl` names
 `ibus-runtime.js`, with `.wasm` and `constants.json` beside it. Serve every response
 with COOP `same-origin` and COEP `require-corp` for cross-origin isolation.
 
@@ -26,7 +26,7 @@ listeners and terminates Workers; do not return a router from an already-closed
 `Effect.scoped` program. The [Hangul example](../examples/hangul/src/main.ts) provides
 the complete layer wiring and aborts its long-lived program on pagehide or HMR disposal.
 
-`router.select(name)` selects the page engine; `router.override(adapter, name)`
+`router.select(module)` selects the page's module; `router.override(adapter, module)`
 sets a surface override, and `undefined` restores the page choice. Both return
 Effects. Attachment assigns a context ID and returns an idempotent detach function.
 Instances are created lazily on focus. `router.hotkeys.add(predicate, action)`
@@ -103,7 +103,7 @@ The per-engine FIFO is shared by all attachments and modes; its default bound is
 64 retained events, including the in-flight key. The doorbell word is cleared
 before draining to avoid losing a wake.
 
-`EngineRegistry.request(name, request, ic)` already applies its reply records to
+`ModuleRegistry.request(module, request, ic)` already applies its reply records to
 registered contexts. Its caller must not apply those records a second time.
 
 ## Asynchronous and manual surfaces

@@ -4,7 +4,7 @@
 // What the host mounts at the engine's directory, decided before the
 // runtime's memory is made, since a mount in memory needs a larger one.
 
-import { errorSummary, type EngineManifest } from "@ibus-web/protocol";
+import { errorSummary, type ModuleManifest } from "@ibus-web/protocol";
 import { memoryWithData, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 import { engineDatabase, engineWriterLock } from "../../shared/naming.ts";
 import type { Held } from "./held.ts";
@@ -61,7 +61,7 @@ const probeIndexedDB = async (database: string): Promise<string | null> => {
 // is if it gets the engine's writer lock at once, and then holds it for as
 // long as it runs. Hosts don't queue for it: one that starts while another
 // writes stays read-only for good, since a backend can't become writable.
-const takeWriterLock = async (engine: EngineManifest, held: Held): Promise<boolean> => {
+const takeWriterLock = async (engine: ModuleManifest, held: Held): Promise<boolean> => {
   const lock = await requestLock(engineWriterLock(engine), {
     mode: "exclusive",
     ifAvailable: true,
@@ -73,7 +73,7 @@ const takeWriterLock = async (engine: EngineManifest, held: Held): Promise<boole
 
 export const planStorage = async (
   storage: EngineStorage,
-  engine: EngineManifest,
+  engine: ModuleManifest,
   readOnlyFlag: number,
   held: Held,
 ): Promise<StoragePlan> => {
@@ -106,5 +106,5 @@ export const planStorage = async (
 
 // Both the browser fallback and the default filesystem used without user
 // storage keep the engine's data in runtime memory.
-export const memoryFor = (memory: RuntimeMemory, plan: StoragePlan, engine: EngineManifest): RuntimeMemory =>
+export const memoryFor = (memory: RuntimeMemory, plan: StoragePlan, engine: ModuleManifest): RuntimeMemory =>
   plan.mount === "memory" || plan.mount === "none" ? memoryWithData(memory, engine) : memory;

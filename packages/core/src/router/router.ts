@@ -16,7 +16,7 @@ import {
   type PanelEvent,
   type Request,
 } from "@ibus-web/protocol";
-import { EngineRegistry } from "../services/engines.ts";
+import { ModuleRegistry } from "../services/modules.ts";
 import { CoreConfig } from "../services/config.ts";
 import { PanelEvents, SyncMailbox } from "../services/logging.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
@@ -37,10 +37,10 @@ export interface RouterService {
    * Detach/disposal cancels pending ownership. Adapter callback failures reject.
    */
   keyAsync(adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult>;
-  select(engine: string): Effect.Effect<void, Error>;
-  unload(engine: string): Effect.Effect<void, Error>;
-  activeContext(): { engine: string; ic: number; adapter: SurfaceAdapter } | undefined;
-  override(adapter: SurfaceAdapter, engine: string | undefined): Effect.Effect<void, Error>;
+  select(module: string): Effect.Effect<void, Error>;
+  unload(module: string): Effect.Effect<void, Error>;
+  activeContext(): { module: string; ic: number; adapter: SurfaceAdapter } | undefined;
+  override(adapter: SurfaceAdapter, module: string | undefined): Effect.Effect<void, Error>;
   readonly hotkeys: HotkeyRegistry;
   readonly panel: Stream.Stream<PanelEvent>;
 }
@@ -68,7 +68,7 @@ interface PendingReset {
   release(): void;
 }
 export const makeRouter = Effect.gen(function* () {
-  const registry = yield* EngineRegistry;
+  const registry = yield* ModuleRegistry;
   const config = yield* CoreConfig;
   const panel = yield* PanelEvents;
   const surfaces = new Map<SurfaceAdapter, Surface>();
@@ -80,27 +80,27 @@ export const makeRouter = Effect.gen(function* () {
     nextIc = 1,
     closed = false;
   const desired = (surface: Surface) => surface.override ?? selected;
-  const wants = (surface: Surface, engine: string) =>
+  const wants = (surface: Surface, module: string) =>
     !closed &&
     surface.attached &&
     surface.focused &&
     !surface.adapter.contentType().disabled &&
-    desired(surface) === engine;
+    desired(surface) === module;
   const live = (context: InputContext) =>
-    registry.snapshot(context.engine)?.generation === context.generation &&
-    !!registry.snapshot(context.engine)?.connection;
+    registry.snapshot(context.module)?.generation === context.generation &&
+    !!registry.snapshot(context.module)?.connection;
   const request = (context: InputContext, message: Request) =>
-    Effect.tryPromise({ try: () => registry.request(context.engine, message, context.ic), catch: asError });
+    Effect.tryPromise({ try: () => registry.request(context.module, message, context.ic), catch: asError });
   const refresh = (surface: Surface, context: InputContext) =>
     Effect.gen(function* () {
-      if (!wants(surface, context.engine) || !context.created || !context.focused || !live(context)) return;
+      if (!wants(surface, context.module) || !context.created || !context.focused || !live(context)) return;
       for (const message of context.updates(config.surroundingWindow)) {
-        if (!wants(surface, context.engine) || !live(context)) return;
+        if (!wants(surface, context.module) || !live(context)) return;
         yield* request(context, message);
       }
     });
   const drain = (context: InputContext) =>
-    Effect.tryPromise({ try: () => registry.drainContext(context.engine, context), catch: asError });
+    Effect.tryPromise({ try: () => registry.drainContext(context.module, context), catch: asError });
   const pendingSubmissions = new Set<() => void>();
   const pendingRefresh = new Set<InputContext>();
   const pendingResets = new Set<PendingReset>();
@@ -122,16 +122,16 @@ export const makeRouter = Effect.gen(function* () {
   };
   const reconcile = (surface: Surface) =>
     Effect.gen(function* () {
-      const engine = desired(surface),
+      const module = desired(surface),
         old = surface.active;
-      if (old && (!wants(surface, old.engine) || engine !== old.engine)) {
+      if (old && (!wants(surface, old.module) || module !== old.module)) {
         surface.suspended = true;
         yield* drain(old);
         old.finish();
         old.ready = false;
         old.acceptOutput = false;
         if (live(old) && old.created) {
-          if (engine !== old.engine && old.enabled) {
+          if (module !== old.module && old.enabled) {
             old.enabled = false;
             yield* request(old, new Disable({}));
           }
@@ -140,30 +140,30 @@ export const makeRouter = Effect.gen(function* () {
             yield* request(old, new FocusOut({}));
           }
         }
-        panel.enqueue({ _tag: "hide", engine: old.engine, ic: old.ic });
-        if (engine !== old.engine) surface.active = undefined;
+        panel.enqueue({ _tag: "hide", module: old.module, ic: old.ic });
+        if (module !== old.module) surface.active = undefined;
       }
-      if (engine === undefined || !wants(surface, engine)) return;
-      yield* registry.ensure(engine);
-      if (!wants(surface, engine)) return;
-      const snapshot = registry.snapshot(engine)!;
-      let context = surface.contexts.get(engine);
+      if (module === undefined || !wants(surface, module)) return;
+      yield* registry.ensure(module);
+      if (!wants(surface, module)) return;
+      const snapshot = registry.snapshot(module)!;
+      let context = surface.contexts.get(module);
       if (!context) {
         const created = new InputContext({
           ic: surface.ic,
-          engine,
+          module,
           generation: snapshot.generation,
           adapter: surface.adapter,
           current: () =>
             surface.attached &&
             live(created) &&
-            (created.created ? created.acceptOutput : wants(surface, engine) && surface.active === created),
+            (created.created ? created.acceptOutput : wants(surface, module) && surface.active === created),
           refresh: () => enqueueRefresh(surface, created),
           panel: (event) => panel.enqueue(event),
         });
         context = created;
-        surface.contexts.set(engine, context);
-        context.unregister = registry.registerContext(engine, context);
+        surface.contexts.set(module, context);
+        context.unregister = registry.registerContext(module, context);
       }
       surface.active = context;
       if (context.generation !== snapshot.generation) {
@@ -171,10 +171,10 @@ export const makeRouter = Effect.gen(function* () {
         context.generation = snapshot.generation;
       }
       const generation = context.generation;
-      const current = () => wants(surface, engine) && live(context) && generation === context.generation;
+      const current = () => wants(surface, module) && live(context) && generation === context.generation;
       if (!context.created) {
         const reply = yield* request(context, new CreateEngine({ name: snapshot.manifest!.engines[0]! }));
-        if (generation !== registry.snapshot(engine)?.generation) return;
+        if (generation !== registry.snapshot(module)?.generation) return;
         if (reply.ret < 0) return;
         context.created = true;
       }
@@ -276,7 +276,7 @@ export const makeRouter = Effect.gen(function* () {
             }
             yield* request(context, new DestroyEngine({}));
             context.invalidate();
-            panel.enqueue({ _tag: "hide", engine: context.engine, ic: context.ic });
+            panel.enqueue({ _tag: "hide", module: context.module, ic: context.ic });
           }
       }),
     );
@@ -303,36 +303,36 @@ export const makeRouter = Effect.gen(function* () {
     activeContext: () => {
       for (const surface of surfaces.values()) {
         const context = surface.active;
-        if (context && surface.focused && surface.attached && context.ready && wants(surface, context.engine))
-          return { engine: context.engine, ic: context.ic, adapter: surface.adapter };
+        if (context && surface.focused && surface.attached && context.ready && wants(surface, context.module))
+          return { module: context.module, ic: context.ic, adapter: surface.adapter };
       }
       return undefined;
     },
-    unload: (engine) =>
+    unload: (module) =>
       Effect.suspend(() => {
         if (closed) return Effect.fail(new Error("Router is closed"));
-        if (!registry.snapshot(engine)) return Effect.fail(new Error(`Unknown engine: ${engine}`));
-        selectionEpochs.set(engine, (selectionEpochs.get(engine) ?? 0) + 1);
+        if (!registry.snapshot(module)) return Effect.fail(new Error(`Unknown module: ${module}`));
+        selectionEpochs.set(module, (selectionEpochs.get(module) ?? 0) + 1);
         const errors: unknown[] = [];
-        if (selected === engine) selected = undefined;
+        if (selected === module) selected = undefined;
         for (const surface of surfaces.values()) {
-          if (surface.override === engine) surface.override = undefined;
-          const context = surface.contexts.get(engine);
+          if (surface.override === module) surface.override = undefined;
+          const context = surface.contexts.get(module);
           if (!context) continue;
           context.unregister();
           context.invalidate();
-          surface.contexts.delete(engine);
+          surface.contexts.delete(module);
           if (surface.active === context) {
             surface.active = undefined;
             attempt(errors, () => surface.adapter.setPreedit(undefined));
           }
-          panel.enqueue({ _tag: "hide", engine, ic: context.ic });
+          panel.enqueue({ _tag: "hide", module, ic: context.ic });
         }
         return registry
-          .unload(engine)
+          .unload(module)
           .pipe(
             Effect.andThen(() =>
-              errors.length ? Effect.fail(new AggregateError(errors, "Engine surface teardown failed")) : Effect.void,
+              errors.length ? Effect.fail(new AggregateError(errors, "Module surface teardown failed")) : Effect.void,
             ),
           );
       }),
@@ -345,33 +345,33 @@ export const makeRouter = Effect.gen(function* () {
         };
       },
     },
-    select: (engine) =>
+    select: (module) =>
       Effect.suspend(() => {
         if (closed) return Effect.fail(new Error("Router is closed"));
-        if (!registry.snapshot(engine)) return Effect.fail(new Error(`Unknown engine: ${engine}`));
-        const epoch = selectionEpochs.get(engine) ?? 0;
-        const cancelled = () => epoch !== (selectionEpochs.get(engine) ?? 0);
+        if (!registry.snapshot(module)) return Effect.fail(new Error(`Unknown module: ${module}`));
+        const epoch = selectionEpochs.get(module) ?? 0;
+        const cancelled = () => epoch !== (selectionEpochs.get(module) ?? 0);
         const previous = selected;
-        selected = engine;
-        if (previous !== engine)
+        selected = module;
+        if (previous !== module)
           for (const surface of surfaces.values()) if (surface.override === undefined) surface.suspended = true;
         return submit(() =>
           Effect.gen(function* () {
-            if (cancelled()) return yield* Effect.fail(new Error(`Selection of ${engine} was cancelled by unload`));
-            yield* registry.ensure(engine);
-            if (cancelled()) return yield* Effect.fail(new Error(`Selection of ${engine} was cancelled by unload`));
+            if (cancelled()) return yield* Effect.fail(new Error(`Selection of ${module} was cancelled by unload`));
+            yield* registry.ensure(module);
+            if (cancelled()) return yield* Effect.fail(new Error(`Selection of ${module} was cancelled by unload`));
             for (const surface of surfaces.values()) yield* reconcile(surface);
           }),
         );
       }),
-    override: (adapter, engine) =>
+    override: (adapter, module) =>
       Effect.suspend(() => {
         const surface = surfaces.get(adapter);
         if (!surface) return Effect.fail(new Error("Surface is not attached"));
-        if (engine !== undefined && !registry.snapshot(engine))
-          return Effect.fail(new Error(`Unknown engine: ${engine}`));
-        if (surface.override !== engine) {
-          surface.override = engine;
+        if (module !== undefined && !registry.snapshot(module))
+          return Effect.fail(new Error(`Unknown module: ${module}`));
+        if (surface.override !== module) {
+          surface.override = module;
           surface.suspended = true;
         }
         return submit(() => reconcile(surface));
@@ -379,9 +379,9 @@ export const makeRouter = Effect.gen(function* () {
     keyAsync: (adapter, event) => {
       const surface = surfaces.get(adapter),
         context = surface?.active;
-      if (!surface || !context || surface.suspended || !wants(surface, context.engine))
+      if (!surface || !context || surface.suspended || !wants(surface, context.module))
         return Promise.resolve("passthrough");
-      return registry.keyAsync(context.engine, context, event);
+      return registry.keyAsync(context.module, context, event);
     },
     attach: (adapter, { keyMode = "sync" } = {}) => {
       if (closed) throw new Error("Router is closed");
@@ -404,7 +404,7 @@ export const makeRouter = Effect.gen(function* () {
       };
       const blur = () => {
         const context = surface.active;
-        const waitForBoundary = context && registry.captureDrainContext(context.engine, context);
+        const waitForBoundary = context && registry.captureDrainContext(context.module, context);
         surface.focused = false;
         surface.suspended = true;
         mailbox.enqueue(() =>
@@ -420,7 +420,7 @@ export const makeRouter = Effect.gen(function* () {
             if (context?.created && context.focused && live(context)) {
               context.focused = false;
               yield* request(context, new FocusOut({}));
-              panel.enqueue({ _tag: "hide", engine: context.engine, ic: context.ic });
+              panel.enqueue({ _tag: "hide", module: context.module, ic: context.ic });
             }
             yield* reconcile(surface);
           }),
@@ -437,7 +437,7 @@ export const makeRouter = Effect.gen(function* () {
           generation,
           reserve: () => {
             if (!released && context.generation === generation && live(context))
-              resume ??= registry.holdKeys(context.engine);
+              resume ??= registry.holdKeys(context.module);
           },
           release: () => {
             released = true;
@@ -449,12 +449,12 @@ export const makeRouter = Effect.gen(function* () {
         try {
           // Inactive contexts defer their reservation until reconciliation makes
           // them eligible, leaving older blur owners free to drain first.
-          if (context.ready && !surface.suspended && wants(surface, context.engine)) pending.reserve();
-          registry.retireContext(context.engine, context, () => context.preedit.finish(context.adapter));
+          if (context.ready && !surface.suspended && wants(surface, context.module)) pending.reserve();
+          registry.retireContext(context.module, context, () => context.preedit.finish(context.adapter));
           enqueueRefresh(surface, context);
           mailbox.enqueue(() =>
             Effect.gen(function* () {
-              if (!wants(surface, context.engine) || !live(context) || context.generation !== generation) return;
+              if (!wants(surface, context.module) || !live(context) || context.generation !== generation) return;
               yield* request(context, new Reset({}));
               yield* refresh(surface, context);
             }).pipe(Effect.ensuring(Effect.sync(pending.release))),
@@ -483,8 +483,8 @@ export const makeRouter = Effect.gen(function* () {
           return;
         }
         const context = surface.active;
-        if (!context || surface.suspended || !wants(surface, context.engine)) return;
-        if (registry.keySink(context.engine, context).key(event) === "consumed") {
+        if (!context || surface.suspended || !wants(surface, context.module)) return;
+        if (registry.keySink(context.module, context).key(event) === "consumed") {
           event.preventDefault();
           event.stopPropagation();
         }

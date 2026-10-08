@@ -11,7 +11,7 @@ const storePath = Schema.String.check(
   Schema.isPattern(/^\/nix\/store\/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+$/),
 );
 
-export const EngineManifest = Schema.Struct({
+export const ModuleManifest = Schema.Struct({
   name: engineName,
   keyboard: Schema.Struct({ layout: Schema.Literals(["us", "default"]), passThrough: Schema.Array(Schema.String) }),
   version: nonEmpty,
@@ -47,14 +47,14 @@ export const EngineManifest = Schema.Struct({
   }),
 );
 
-export type EngineManifest = typeof EngineManifest.Type;
+export type ModuleManifest = typeof ModuleManifest.Type;
 
-export const decodeEngineManifest = (
+export const decodeModuleManifest = (
   json: unknown,
   bounds: { readonly minimum: number; readonly maximum: number },
-): EngineManifest =>
+): ModuleManifest =>
   Schema.decodeUnknownSync(
-    EngineManifest.check(
+    ModuleManifest.check(
       Schema.makeFilter(
         (manifest) =>
           (manifest.memory >= bounds.minimum && manifest.memory <= bounds.maximum) ||

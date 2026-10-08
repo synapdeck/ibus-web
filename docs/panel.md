@@ -11,13 +11,13 @@ import "ibus-web/panel/style.css";
 
 const ibus = createIbusWeb({
   runtimeUrl: new URL("/assets/runtime/ibus-runtime.js", location.href),
-  engines: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
+  modules: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
 });
 const panel = createPanel(ibus);
 // Later: panel.dispose(); await ibus.dispose();
 ```
 
-The host's `panel` CustomEvents carry an engine, input-context ID and a tagged
+The host's `panel` CustomEvents carry a module, input-context ID and a tagged
 record, hide, caret or orientation update. The panel ignores stale contexts and
 hides output on FocusOut or crash. It decodes only the visible lookup page on a
 table update, then waits for the engine to send another table after PageUp or

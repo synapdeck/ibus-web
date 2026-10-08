@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test, vi } from "vitest";
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import { checkMemory } from "../../src/worker/runtime.ts";
 import { Held } from "../../src/worker/storage/held.ts";
 import { memoryFor, planStorage, type StoragePlan } from "../../src/worker/storage/plan.ts";
 
 const root = "/nix/store/00000000000000000000000000000000-schemas";
-const engine: EngineManifest = {
+const engine: ModuleManifest = {
   name: "test",
   version: "1",
   license: "MIT",

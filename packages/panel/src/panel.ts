@@ -30,7 +30,7 @@ export function createPanel(host: PanelHost): Panel {
   propertiesMenu.setAttribute("aria-label", "Input method properties");
   element.append(auxiliary, candidates, navigation, indicator, propertiesMenu);
   document.body.append(element);
-  let context: { readonly engine: string; readonly ic: number } | undefined;
+  let context: { readonly module: string; readonly ic: number } | undefined;
   let table: LazyLookupTable | undefined;
   let page: LookupPage | undefined;
   let tableVisible = false,
@@ -61,7 +61,7 @@ export function createPanel(host: PanelHost): Panel {
     }
   };
   const send = (action: PanelAction) => {
-    if (context) host.sendPanelAction(context.engine, context.ic, action);
+    if (context) host.sendPanelAction(context.module, context.ic, action);
   };
   const place = () => {
     const rect = host.caretRect();
@@ -75,7 +75,7 @@ export function createPanel(host: PanelHost): Panel {
   };
   const orient = () => {
     const orientation =
-      table?.orientation === 2 && context ? host.lookupTableOrientation(context.engine) : table?.orientation;
+      table?.orientation === 2 && context ? host.lookupTableOrientation(context.module) : table?.orientation;
     element.dataset.orientation = orientation === 0 ? "horizontal" : "vertical";
   };
   const drawProperties = () => {
@@ -158,7 +158,7 @@ export function createPanel(host: PanelHost): Panel {
   const receive = (event: Event) =>
     guard(() => {
       const update = (event as CustomEvent<PanelUpdate>).detail;
-      const same = context?.engine === update.engine && context.ic === update.ic;
+      const same = context?.module === update.module && context.ic === update.ic;
       if (update._tag !== "record") {
         if (!same) return;
         if (update._tag === "hide") {
@@ -172,7 +172,7 @@ export function createPanel(host: PanelHost): Panel {
       }
       if (!same) {
         clear();
-        context = { engine: update.engine, ic: update.ic };
+        context = { module: update.module, ic: update.ic };
       }
       apply(update.record);
     });

@@ -7,7 +7,7 @@
 // browsers only.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import type { HostOptions, RunningHost } from "../shared/harness.ts";
 import {
   abortPrinted,
@@ -146,8 +146,8 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
 
   // Each of these needs a host of its own.
   const ownHost = async (
-    engine: EngineManifest,
-    use: (host: RunningHost, engine: EngineManifest) => Promise<void>,
+    engine: ModuleManifest,
+    use: (host: RunningHost, engine: ModuleManifest) => Promise<void>,
     options: Partial<HostOptions> = {},
   ): Promise<void> => {
     const host = await storedHost(h, runtime, engine, options);

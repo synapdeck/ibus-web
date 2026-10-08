@@ -27,7 +27,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { browserMode, crossOriginIsolation, servePlugin, serveDirs } from "@ibus-web/test-programs/vitest";
 import type { TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import type { BuildConstants, TestArchive, TestData } from "../shared/harness.ts";
 import { commands } from "./commands.ts";
 
@@ -86,7 +86,7 @@ const serveToNode = async (dirs: Readonly<Record<string, string>>): Promise<stri
 export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const manifest = readManifest();
   const hangulPath = process.env["IBUS_WEB_HANGUL_MANIFEST"];
-  const hangul = hangulPath === undefined ? undefined : readJson<EngineManifest>(hangulPath);
+  const hangul = hangulPath === undefined ? undefined : readJson<ModuleManifest>(hangulPath);
   const hangulDir = hangulPath === undefined ? undefined : fileURLToPath(new URL(".", pathToFileURL(hangulPath)));
 
   const { upgrade, ...tree } = readJson<ArchiveDescription>(join(manifest.archives, "tree.json"));
@@ -109,8 +109,8 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
     }),
   ) as Record<"missingConstants" | "malformedConstants", string>;
   type EngineName = "echo" | "thrower" | "empty" | "rebuilt";
-  const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): EngineManifest => {
-    const engine = readJson<EngineManifest>(join(manifest.engines[name], "manifest.json"));
+  const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): ModuleManifest => {
+    const engine = readJson<ModuleManifest>(join(manifest.engines[name], "manifest.json"));
     return {
       ...engine,
       module: { ...engine.module, url: url(name, engine.module.url) },

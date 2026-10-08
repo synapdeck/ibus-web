@@ -9,7 +9,7 @@ import { createIbusWeb } from "ibus-web";
 
 const ibus = createIbusWeb({
   runtimeUrl: new URL("/ibus-web/runtime/ibus-runtime.js", location.href),
-  engines: { hangul: new URL("/ibus-web/engines/hangul/manifest.json", location.href) },
+  modules: { hangul: new URL("/ibus-web/engines/hangul/manifest.json", location.href) },
 });
 ```
 

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Effect, Layer } from "effect";
-import type { DecodedLazyRecord, EngineManifest, LazyOutputRecord, Request } from "@ibus-web/protocol";
+import type { DecodedLazyRecord, ModuleManifest, LazyOutputRecord, Request } from "@ibus-web/protocol";
 import { makeRouter } from "../../../src/router/router.ts";
-import { makeEngineRegistry, EngineRegistry } from "../../../src/services/engines.ts";
+import { makeModuleRegistry, ModuleRegistry } from "../../../src/services/modules.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { Logger, PanelEvents } from "../../../src/services/logging.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
@@ -31,7 +31,7 @@ export const preedit = (value = "한", mode = 1) =>
   record({ _tag: "UpdatePreeditText", text: text(value), cursor: [...value].length, visible: true, mode });
 export const emptyReply = { ret: 0, outSeq: 0, records: [] };
 const url = new URL("https://example.test/");
-const manifest: EngineManifest = {
+const manifest: ModuleManifest = {
   name: "distribution",
   keyboard: { layout: "us", passThrough: [] },
   version: "1",
@@ -68,7 +68,7 @@ export class DomConnection extends FakeConnection {
 export const run = (
   test: (h: {
     router: Effect.Success<typeof makeRouter>;
-    registry: Effect.Success<ReturnType<typeof makeEngineRegistry>>;
+    registry: Effect.Success<ReturnType<typeof makeModuleRegistry>>;
     connections: Record<string, DomConnection[]>;
     field: (value?: string) => {
       element: HTMLTextAreaElement;
@@ -82,10 +82,10 @@ export const run = (
     Effect.scoped(
       Effect.gen(function* () {
         const connections: Record<string, DomConnection[]> = { a: [], b: [] };
-        const registry = yield* makeEngineRegistry({
+        const registry = yield* makeModuleRegistry({
           hostUrl: url,
           runtimeUrl: url,
-          engines: { a: new URL("a", url), b: new URL("b", url) },
+          modules: { a: new URL("a", url), b: new URL("b", url) },
           loadManifest: async (url) => ({ ...manifest, name: `distribution-${url.pathname.slice(1)}` }),
           start: async (options) => {
             const c = new DomConnection();
@@ -94,7 +94,7 @@ export const run = (
           },
           waitForWriter: () => Effect.void,
         });
-        const router = yield* makeRouter.pipe(Effect.provideService(EngineRegistry, registry));
+        const router = yield* makeRouter.pipe(Effect.provideService(ModuleRegistry, registry));
         yield* router.select("a");
         const field = (value = "") => {
           const element = document.createElement("textarea");

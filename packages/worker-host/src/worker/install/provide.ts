@@ -16,7 +16,7 @@
 // once the marker is durable, rather than mount a read-only one as well,
 // since a backend's thread lasts as long as the runtime.
 
-import { errorSummary, type EngineManifest } from "@ibus-web/protocol";
+import { errorSummary, type ModuleManifest } from "@ibus-web/protocol";
 import { Effect, type Scope } from "effect";
 import type { HostConfigValues } from "../../shared/config.ts";
 import type { CollectReport, HostMessage, InstallReport } from "../../shared/messages.ts";
@@ -34,7 +34,7 @@ import { holdLock, progressOn } from "./wait.ts";
 
 interface ProvideData {
   readonly handle: RuntimeHandle;
-  readonly engine: EngineManifest;
+  readonly engine: ModuleManifest;
   readonly plan: StoragePlan;
   readonly idbReadOnly: number;
   readonly held: Held;
@@ -53,7 +53,7 @@ interface DataMount {
 // version holds its data lock shared, so one granted exclusively at once is
 // one no host uses, and no host can start using it until it is let go.
 // Best-effort: a failure is reported, never thrown.
-const collect = async (store: DataStore, engine: EngineManifest): Promise<CollectReport> => {
+const collect = async (store: DataStore, engine: ModuleManifest): Promise<CollectReport> => {
   const report: CollectReport = { removed: [], inUse: [] };
   try {
     for (const version of await store.others()) {

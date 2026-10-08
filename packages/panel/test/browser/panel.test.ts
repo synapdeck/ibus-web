@@ -36,10 +36,10 @@ class Host extends EventTarget implements PanelHost {
     this.dispatchEvent(new CustomEvent("panel", { detail }));
   }
   record(record: PanelRecord, ic = 1) {
-    this.emit({ _tag: "record", engine: "test", ic, record });
+    this.emit({ _tag: "record", module: "test", ic, record });
   }
   notify(_tag: "hide" | "caret" | "orientation", ic = 1) {
-    this.emit({ _tag, engine: "test", ic });
+    this.emit({ _tag, module: "test", ic });
   }
 }
 function table(overrides: Partial<LazyLookupTable> = {}) {

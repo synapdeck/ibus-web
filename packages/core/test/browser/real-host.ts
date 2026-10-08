@@ -6,12 +6,12 @@ import { stringVariant, type DecodedLazyRecord, type Request } from "@ibus-web/p
 import {
   Connection,
   CoreConfig,
-  EngineRegistry,
+  ModuleRegistry,
   Logger,
   PanelEvents,
   Router,
   SettingsSource,
-  makeEngineRegistry,
+  makeModuleRegistry,
   textareaAdapter,
   type CrashInfo,
   type KeyContext,
@@ -45,7 +45,7 @@ export const runHost = (
   engine: "hangul" | "recoverable",
   body: (session: {
     router: Router["Service"];
-    registry: EngineRegistry["Service"];
+    registry: ModuleRegistry["Service"];
     contexts: Map<HTMLElement, KeyContext>;
     records: DecodedLazyRecord[];
     requests: { request: Request; ic: number; generation: number }[];
@@ -98,10 +98,10 @@ export const runHost = (
         const records: DecodedLazyRecord[] = [];
         const requests: { request: Request; ic: number; generation: number }[] = [];
         const crashWaiters: ((crash: CrashInfo) => void)[] = [];
-        const registry = yield* makeEngineRegistry({
+        const registry = yield* makeModuleRegistry({
           hostUrl: new URL(data.hostUrl, location.href),
           runtimeUrl: new URL(runtime.url, location.href),
-          engines: { [alias]: new URL(engine === "hangul" ? data.hangulUrl : data.recoverableUrl, location.href) },
+          modules: { [alias]: new URL(engine === "hangul" ? data.hangulUrl : data.recoverableUrl, location.href) },
           storage: "none",
           start: async (options) => {
             const connection = await Connection.start(options);
@@ -238,7 +238,7 @@ export const runHost = (
             for (const dispose of disposers) dispose();
             for (const element of elements) element.remove();
           }
-        }).pipe(Effect.provide(Router.Default), Effect.provideService(EngineRegistry, registry));
+        }).pipe(Effect.provide(Router.Default), Effect.provideService(ModuleRegistry, registry));
       }),
     ).pipe(
       Effect.provide(

@@ -11,7 +11,7 @@
 // trusted not to write its data.
 
 import { encodeComponent, engineDataDatabase, engineDataDatabasePrefix } from "../../shared/naming.ts";
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import { nodeFs } from "../node-fs.ts";
 import { withString, type RuntimeHandle } from "../runtime.ts";
 import { openExisting } from "../storage/plan.ts";
@@ -95,7 +95,7 @@ const idbRequest = <T>(request: IDBRequest<T>): Promise<T> =>
 
 export const idbStore = (
   handle: RuntimeHandle,
-  engine: EngineManifest,
+  engine: ModuleManifest,
   readOnlyFlag: number,
   deleteLimitMs: number,
 ): DataStore => {
@@ -166,7 +166,7 @@ const PENDING = ".marking";
 
 export const nodeStore = async (
   handle: RuntimeHandle,
-  engine: EngineManifest,
+  engine: ModuleManifest,
   hostPath: string,
 ): Promise<DataStore> => {
   const fs = await nodeFs();

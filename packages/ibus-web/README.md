@@ -10,7 +10,7 @@ import { createIbusWeb, int32Variant } from "ibus-web";
 
 const ibus = createIbusWeb({
   runtimeUrl: new URL("/assets/runtime/ibus-runtime.js", location.href),
-  engines: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
+  modules: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
 });
 const detach = ibus.attach(document.querySelector("textarea")!);
 await ibus.select("hangul");

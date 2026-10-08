@@ -63,7 +63,7 @@ function fixture(options: Partial<IbusWebOptions> = {}) {
     connections.push(c);
     return c as unknown as Connection;
   });
-  const app = createIbusWeb({ runtimeUrl: url, hostUrl: url, engines: { test: url }, settings, ...options });
+  const app = createIbusWeb({ runtimeUrl: url, hostUrl: url, modules: { test: url }, settings, ...options });
   instances.push(app);
   const native = document.createElement("textarea");
   document.body.append(native);
@@ -168,7 +168,7 @@ test("panel errors become filtered typed log events, including a throwing logger
   const seen: unknown[] = [];
   const app = createIbusWeb({
     runtimeUrl: url,
-    engines: {},
+    modules: {},
     logLevel: "error",
     logger: (entry) => {
       seen.push(entry);
@@ -207,7 +207,7 @@ test("forwards lazy panel records and focused geometry without decoding candidat
   edit.element.focus();
   const caret = nextEvent(f.app, "panel", (event) => event._tag === "caret");
   await f.app.select("test");
-  expect((await caret).detail).toEqual({ _tag: "caret", engine: "test", ic: 1 });
+  expect((await caret).detail).toEqual({ _tag: "caret", module: "test", ic: 1 });
   expect(f.app.caretRect()).toMatchObject({ x: 10, y: 20, width: 1, height: 16 });
   const decode = vi.fn(() => ({ candidates: [], labels: [] }));
   const table: LazyLookupTable = {
@@ -285,18 +285,18 @@ test("publishes state and storage CustomEvents from actual core lifecycle, inclu
   f.app.attach(f.native);
   f.native.focus();
   const states: string[] = [];
-  f.app.addEventListener("enginestate", (event) => {
+  f.app.addEventListener("modulestate", (event) => {
     expect(event).toBeInstanceOf(CustomEvent);
     states.push(event.detail.state);
   });
   await f.app.select("test");
   const storage = nextEvent(f.app, "storage");
   f.starts[0]!.onStorage?.({ state: "read-only", message: "writer elsewhere" });
-  expect((await storage).detail).toEqual({ engine: "test", state: "read-only", message: "writer elsewhere" });
+  expect((await storage).detail).toEqual({ module: "test", state: "read-only", message: "writer elsewhere" });
   await f.app.debugRestart("test");
   expect(f.connections).toHaveLength(2);
   expect(f.connections[0]!.terminated).toBe(true);
-  const unloaded = nextEvent(f.app, "enginestate", (event) => event.state === "unloaded");
+  const unloaded = nextEvent(f.app, "modulestate", (event) => event.state === "unloaded");
   await f.app.unload("test");
   await unloaded;
   expect(states).toContain("starting");
@@ -321,7 +321,7 @@ test("filters engine logs by level and reports rejected panel actions through th
   };
   key(f.native);
   await logged;
-  expect(logs).toEqual([{ level: "warn", domain: "test", engine: "test", ic: 0, message: "warning" }]);
+  expect(logs).toEqual([{ level: "warn", domain: "test", module: "test", ic: 0, message: "warning" }]);
   f.connections[0]!.requestAsync = async () => {
     throw new Error("action failed");
   };
@@ -393,7 +393,7 @@ test("settings load without Workers and publish orientation snapshots with conte
   await f.app.select("test");
   const horizontal = nextEvent(f.app, "panel", (event) => event._tag === "orientation");
   await f.app.settings.set("test", schema, name, int32Variant(0));
-  expect((await horizontal).detail).toEqual({ _tag: "orientation", engine: "test", ic: 1 });
+  expect((await horizontal).detail).toEqual({ _tag: "orientation", module: "test", ic: 1 });
   expect(f.app.lookupTableOrientation("test")).toBe(0);
   await expect(f.app.settings.set("test", schema, name, int32Variant(3))).rejects.toThrow();
   await f.app.settings.reset("test", schema, name);
@@ -455,7 +455,7 @@ test("panel error reporting cannot throw even for an unprintable host failure", 
 });
 
 test("unloading an inactive engine preserves the active engine's preedit on its surface", async () => {
-  const f = fixture({ engines: { a: new URL("a", url), b: new URL("b", url) } }),
+  const f = fixture({ modules: { a: new URL("a", url), b: new URL("b", url) } }),
     edit = editor();
   vi.mocked(fetch).mockImplementation(async (input) =>
     Response.json({ ...manifest, name: new URL(String(input)).pathname.slice(1) }),
@@ -517,7 +517,7 @@ test("unload invalidates every earlier queued selection without waiting for stal
 
 for (const callback of ["setPreedit", "batch", "reset cleanup"] as const)
   test(`disposal releases every surface and Worker after a failing first adapter ${callback}`, async () => {
-    const f = fixture({ engines: { a: new URL("a", url), b: new URL("b", url) } });
+    const f = fixture({ modules: { a: new URL("a", url), b: new URL("b", url) } });
     vi.mocked(fetch).mockImplementation(async (input) =>
       Response.json({ ...manifest, name: new URL(String(input)).pathname.slice(1) }),
     );

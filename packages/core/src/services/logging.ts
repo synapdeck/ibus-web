@@ -48,7 +48,7 @@ export function glibLevel(level: number): "Error" | "Warn" | "Info" | "Debug" {
 }
 
 export interface LogLine {
-  readonly engine: string;
+  readonly module: string;
   readonly ic: number;
   readonly record: Log;
 }
@@ -60,9 +60,9 @@ export class Logger extends Context.Service<Logger, { enqueue(line: LogLine): vo
       const mailbox = new SyncMailbox<LogLine>();
       yield* Effect.addFinalizer(() => Effect.sync(() => mailbox.close()));
       yield* mailbox.take.pipe(
-        Effect.flatMap(({ engine, ic, record }) =>
+        Effect.flatMap(({ module, ic, record }) =>
           Effect.logWithLevel(glibLevel(record.level))(record.message).pipe(
-            Effect.annotateLogs({ engine, inputContext: ic, domain: record.domain }),
+            Effect.annotateLogs({ module, inputContext: ic, domain: record.domain }),
           ),
         ),
         Effect.forever,

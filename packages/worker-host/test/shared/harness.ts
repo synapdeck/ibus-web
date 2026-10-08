@@ -4,7 +4,7 @@
 // What a test environment gives the scenarios: the build's values, and hosts
 // to run them against.
 
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { HostConfigValues } from "../../src/shared/config.ts";
 import { createControl } from "../../src/shared/control.ts";
@@ -46,7 +46,7 @@ export interface TestArchive {
 // What Vitest's configuration provides each environment's tests, with
 // locations as that environment loads them.
 export interface TestData {
-  engines: Record<"echo" | "thrower" | "empty" | "rebuilt", EngineManifest>;
+  engines: Record<"echo" | "thrower" | "empty" | "rebuilt", ModuleManifest>;
   echoData: string;
   schemaFiles: number;
   runtimes: RuntimeBuild[];
@@ -77,8 +77,8 @@ export interface HostOptions {
   layout?: TransportLayout;
   runtime: RuntimeBuild;
   // The engine the host runs, by default one of no storage's named "test".
-  engine?: EngineManifest;
-  manifest?: EngineManifest;
+  engine?: ModuleManifest;
+  manifest?: ModuleManifest;
   manifestUrl?: string;
   storage?: EngineStorage;
   // The runtime's memory; its least by default.
@@ -131,7 +131,7 @@ export interface Harness extends Clock {
   // this environment shares: in a browser, the engine's IndexedDB
   // database; under Node, a directory of the engine's own. And what the
   // host mounts it on.
-  storage(engine: EngineManifest): EngineStorage;
+  storage(engine: ModuleManifest): EngineStorage;
   storageMount: "indexeddb" | "node";
   // What leaves a host told to mount IndexedDB without it: under Node,
   // nothing, since Node has none; in a browser, a host that throws as an
@@ -140,23 +140,23 @@ export interface Harness extends Clock {
   // Opens the engine's database at its next version and closes it again, as
   // an upgrade in another tab would; resolves once it opened, with how long
   // that took in milliseconds. Browsers only.
-  upgradeDatabase?: (engine: EngineManifest) => Promise<number>;
+  upgradeDatabase?: (engine: ModuleManifest) => Promise<number>;
   locks: Locks;
   // The versions, encoded, whose data the engine's storage keeps.
-  versions(engine: EngineManifest): Promise<string[]>;
+  versions(engine: ModuleManifest): Promise<string[]>;
   // Leaves the marker of the engine's version as a write cut short would: a
   // file holding part of it under Node, a value that isn't one in
   // IndexedDB.
-  tearMarker(engine: EngineManifest): Promise<void>;
+  tearMarker(engine: ModuleManifest): Promise<void>;
   // Leaves <version>.marking beside the engine's data, as a host that
   // stopped while writing a marker would. Node only.
-  strayMarking?: (engine: EngineManifest, version: string) => Promise<void>;
+  strayMarking?: (engine: ModuleManifest, version: string) => Promise<void>;
   // The names under the engine's data directory on the host, sorted. Node
   // only.
-  dataEntries?: (engine: EngineManifest) => Promise<string[]>;
+  dataEntries?: (engine: ModuleManifest) => Promise<string[]>;
   // Opens the database of the engine's version's data on a connection that
   // ignores requests to close; resolves with what closes it. Browsers only.
-  holdDataDatabase?: (engine: EngineManifest) => Promise<() => void>;
+  holdDataDatabase?: (engine: ModuleManifest) => Promise<() => void>;
   // Removes the storage the hosts left behind, once none runs.
   cleanUp(): Promise<void>;
   printed: Printed;

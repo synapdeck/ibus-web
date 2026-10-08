@@ -25,7 +25,7 @@ export type PanelRecord = Extract<
 >;
 
 interface PanelContext {
-  readonly engine: string;
+  readonly module: string;
   readonly ic: number;
 }
 
@@ -34,7 +34,7 @@ interface PanelDraw {
   readonly record: PanelRecord;
 }
 
-// What the page hears for an engine's input context: a record to draw, or
+// What the page hears for an input context of a module: a record to draw, or
 // that the panel should hide (on focus out or a crash) or follow the caret.
 export type PanelEvent = PanelContext & (PanelDraw | { readonly _tag: "hide" | "caret" });
 

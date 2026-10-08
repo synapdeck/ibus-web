@@ -4,7 +4,7 @@ import { Context, Effect, Layer, Schema, type Stream } from "effect";
 import {
   decodeSettingsMetadata,
   encodeValue,
-  EngineManifest,
+  ModuleManifest,
   variant,
   type SettingsMetadata,
   type GVariantVariant,
@@ -14,7 +14,7 @@ export type SettingsSchema = SettingsMetadata["schemas"][number];
 export type SettingsKey = SettingsSchema["keys"][number];
 export type SettingValue = typeof GVariantVariant.Type;
 export interface SettingsOptions {
-  readonly engines: Readonly<Record<string, URL>>;
+  readonly modules: Readonly<Record<string, URL>>;
   readonly loadManifest?: (url: URL, signal?: AbortSignal) => Promise<unknown>;
   readonly loadMetadata?: (url: URL, signal?: AbortSignal) => Promise<unknown>;
 }
@@ -24,7 +24,7 @@ const fetchJson = async (url: URL, signal?: AbortSignal): Promise<unknown> => {
   return response.json();
 };
 export async function loadSettingsMetadata(
-  manifest: EngineManifest,
+  manifest: ModuleManifest,
   url: URL,
   options: Pick<SettingsOptions, "loadMetadata">,
   signal?: AbortSignal,
@@ -67,10 +67,10 @@ export function validateSetting(key: SettingsKey, value: SettingValue): Uint8Arr
   return bytes;
 }
 export interface SettingsApiService {
-  schemas(engine: string): Promise<readonly SettingsSchema[]>;
-  get(engine: string, schemaId: string, key: string): Promise<SettingValue>;
-  set(engine: string, schemaId: string, key: string, value: SettingValue): Promise<void>;
-  reset(engine: string, schemaId: string, key: string): Promise<void>;
+  schemas(module: string): Promise<readonly SettingsSchema[]>;
+  get(module: string, schemaId: string, key: string): Promise<SettingValue>;
+  set(module: string, schemaId: string, key: string, value: SettingValue): Promise<void>;
+  reset(module: string, schemaId: string, key: string): Promise<void>;
   readonly changes: Stream.Stream<SettingsChange>;
 }
 export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService>()("@ibus-web/core/SettingsApi") {
@@ -85,18 +85,18 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
         const alive = () => {
           if (controller.signal.aborted) throw new Error("Settings API closed");
         };
-        const schemas = (engine: string): Promise<readonly SettingsSchema[]> => {
+        const schemas = (module: string): Promise<readonly SettingsSchema[]> => {
           try {
             alive();
           } catch (cause) {
             return Promise.reject(cause);
           }
-          const existing = loaded.get(engine);
+          const existing = loaded.get(module);
           if (existing) return existing;
           const pending = (async () => {
-            const url = options.engines[engine];
-            if (!url) throw new Error(`Unknown engine: ${engine}`);
-            const manifest = Schema.decodeUnknownSync(EngineManifest, { onExcessProperty: "error" })(
+            const url = options.modules[module];
+            if (!url) throw new Error(`Unknown module: ${module}`);
+            const manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(
               await (options.loadManifest ?? fetchJson)(url, controller.signal),
             );
             const metadata = await loadSettingsMetadata(manifest, url, options, controller.signal);
@@ -105,19 +105,19 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
             alive();
             return metadata.schemas;
           })();
-          loaded.set(engine, pending);
-          void pending.catch(() => loaded.delete(engine));
+          loaded.set(module, pending);
+          void pending.catch(() => loaded.delete(module));
           return pending;
         };
-        const keyFor = async (engine: string, schemaId: string, name: string) => {
-          const key = (await schemas(engine))
+        const keyFor = async (module: string, schemaId: string, name: string) => {
+          const key = (await schemas(module))
             .find((schema) => schema.id === schemaId)
             ?.keys.find((key) => key.name === name);
           if (!key) throw new Error(`Unknown setting: ${schemaId}.${name}`);
           return key;
         };
-        const set = async (engine: string, schemaId: string, name: string, value: SettingValue) => {
-          const key = await keyFor(engine, schemaId, name);
+        const set = async (module: string, schemaId: string, name: string, value: SettingValue) => {
+          const key = await keyFor(module, schemaId, name);
           validateSetting(key, value);
           alive();
           const change = { schemaId, key: name, value };
@@ -128,16 +128,16 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           schemas,
           set,
           changes: source.changes,
-          get: async (engine, schemaId, name) => {
-            const key = await keyFor(engine, schemaId, name);
+          get: async (module, schemaId, name) => {
+            const key = await keyFor(module, schemaId, name);
             const stored = source.read
               ? await source.read(schemaId, name)
               : (await source.snapshot([schemaId]))[schemaId]?.[name];
             return stored ?? variant(key.type, key.default);
           },
-          reset: async (engine, schemaId, name) => {
-            const key = await keyFor(engine, schemaId, name);
-            await set(engine, schemaId, name, variant(key.type, key.default));
+          reset: async (module, schemaId, name) => {
+            const key = await keyFor(module, schemaId, name);
+            await set(module, schemaId, name, variant(key.type, key.default));
           },
         } satisfies SettingsApiService;
       }),

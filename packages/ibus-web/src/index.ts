@@ -3,7 +3,7 @@
 import { Context, Effect, Layer, Logger as EffectLogger, ManagedRuntime, References, Schema, Stream } from "effect";
 import {
   CoreConfig,
-  EngineRegistry,
+  ModuleRegistry,
   Logger,
   PanelEvents,
   Router,
@@ -14,8 +14,8 @@ import {
   type AttachOptions,
   type AsyncKeyResult,
   type CoreConfigValues,
-  type EngineEvent,
-  type EngineRegistryService,
+  type ModuleEvent,
+  type ModuleRegistryService,
   type RouterService,
   type SettingsApiService,
   type SettingsSourceService,
@@ -31,22 +31,22 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 export interface LogEntry {
   readonly level: LogLevel;
   readonly message: string;
-  readonly engine?: string;
+  readonly module?: string;
   readonly ic?: number;
   readonly domain?: string;
 }
 export interface IbusWebOptions {
   readonly hostUrl?: URL;
   readonly runtimeUrl: URL;
-  readonly engines: Readonly<Record<string, URL>>;
+  readonly modules: Readonly<Record<string, URL>>;
   readonly settings?: SettingsSourceService;
   readonly logger?: (entry: LogEntry) => void;
   readonly logLevel?: LogLevel;
   readonly config?: Partial<CoreConfigValues>;
 }
 export interface IbusWebEventMap {
-  enginestate: CustomEvent<Omit<Extract<EngineEvent, { _tag: "state" }>, "_tag">>;
-  storage: CustomEvent<Omit<Extract<EngineEvent, { _tag: "storage" }>, "_tag">>;
+  modulestate: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "state" }>, "_tag">>;
+  storage: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "storage" }>, "_tag">>;
   panel: CustomEvent<PanelUpdate>;
   log: CustomEvent<LogEntry>;
 }
@@ -55,10 +55,10 @@ export interface IbusWeb extends PanelHost {
   attachAdapter(adapter: SurfaceAdapter, options?: AttachOptions): () => void;
   /** Invoke during original dispatch; replayed means fallback is already applied. */
   keyAsync(adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult>;
-  select(engine: string): Promise<void>;
-  unload(engine: string): Promise<void>;
+  select(module: string): Promise<void>;
+  unload(module: string): Promise<void>;
   /** Development only: terminates the actual Worker and awaits normal recovery. */
-  debugRestart(engine: string): Promise<void>;
+  debugRestart(module: string): Promise<void>;
   readonly settings: Omit<SettingsApiService, "changes">;
   dispose(): Promise<void>;
   addEventListener<K extends keyof IbusWebEventMap>(
@@ -74,7 +74,7 @@ export interface IbusWeb extends PanelHost {
 }
 interface Services {
   router: RouterService;
-  registry: EngineRegistryService;
+  registry: ModuleRegistryService;
   settings: SettingsApiService;
 }
 class FacadeServices extends Context.Service<FacadeServices, Services>()("ibus-web/FacadeServices") {}
@@ -111,15 +111,15 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       }
     });
   };
-  const orientation = (engine: string, value: unknown) => {
+  const orientation = (module: string, value: unknown) => {
     const next = value === 0 ? 0 : 1;
-    if (orientations.get(engine) === next) return;
-    orientations.set(engine, next);
+    if (orientations.get(module) === next) return;
+    orientations.set(module, next);
     const context = services?.router.activeContext();
-    if (context?.engine === engine) emit("panel", { _tag: "orientation", engine, ic: context.ic });
+    if (context?.module === module) emit("panel", { _tag: "orientation", module, ic: context.ic });
   };
-  const refreshOrientation = async (engine: string, api: SettingsApiService) => {
-    const schemas = await api.schemas(engine);
+  const refreshOrientation = async (module: string, api: SettingsApiService) => {
+    const schemas = await api.schemas(module);
     if (
       !schemas.some(
         (schema) =>
@@ -129,17 +129,17 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       )
     )
       return;
-    const value = await api.get(engine, panelSchema, orientationKey);
-    orientation(engine, "value" in value.value ? value.value.value : undefined);
+    const value = await api.get(module, panelSchema, orientationKey);
+    orientation(module, "value" in value.value ? value.value.value : undefined);
   };
   const base = Layer.mergeAll(
     CoreConfig.layer(options.config),
     PanelEvents.Default,
     options.settings ? Layer.succeed(SettingsSource, options.settings) : SettingsSource.Default,
     Layer.succeed(Logger, {
-      enqueue: ({ engine, ic, record }) =>
+      enqueue: ({ module, ic, record }) =>
         log({
-          engine,
+          module,
           ic,
           domain: record.domain,
           message: record.message,
@@ -147,25 +147,25 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         }),
     }),
   );
-  const registry = EngineRegistry.layer({
+  const registry = ModuleRegistry.layer({
     hostUrl: options.hostUrl ?? workerUrl,
     runtimeUrl: options.runtimeUrl,
-    engines: options.engines,
+    modules: options.modules,
   }).pipe(Layer.provideMerge(base));
-  const dependencies = Layer.mergeAll(Router.Default, SettingsApi.layer({ engines: options.engines })).pipe(
+  const dependencies = Layer.mergeAll(Router.Default, SettingsApi.layer({ modules: options.modules })).pipe(
     Layer.provideMerge(registry),
   );
   const layer = Layer.effect(
     FacadeServices,
     Effect.gen(function* () {
       const router = yield* Router,
-        registry = yield* EngineRegistry,
+        registry = yield* ModuleRegistry,
         settings = yield* SettingsApi;
       yield* registry.events.pipe(
         Stream.runForEach((event) =>
           Effect.sync(() => {
-            if (event._tag === "state") emit("enginestate", { engine: event.engine, state: event.state });
-            else emit("storage", { engine: event.engine, state: event.state, message: event.message });
+            if (event._tag === "state") emit("modulestate", { module: event.module, state: event.state });
+            else emit("storage", { module: event.module, state: event.state, message: event.message });
           }),
         ),
         Effect.forkScoped,
@@ -178,8 +178,8 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         Stream.runForEach((change) =>
           Effect.sync(() => {
             if (change.schemaId !== panelSchema || change.key !== orientationKey) return;
-            for (const engine of orientations.keys())
-              orientation(engine, "value" in change.value.value ? change.value.value.value : undefined);
+            for (const module of orientations.keys())
+              orientation(module, "value" in change.value.value ? change.value.value.value : undefined);
           }),
         ),
         Effect.forkScoped,
@@ -234,43 +234,43 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
     attachAdapter,
     keyAsync: (adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult> =>
       services && !closed ? services.router.keyAsync(adapter, event) : Promise.resolve("passthrough"),
-    select: async (engine: string) => {
+    select: async (module: string) => {
       const current = await initialize();
-      await runtime.runPromise(current.router.select(engine));
-      await refreshOrientation(engine, current.settings);
+      await runtime.runPromise(current.router.select(module));
+      await refreshOrientation(module, current.settings);
     },
-    unload: async (engine: string) => {
+    unload: async (module: string) => {
       alive();
-      if (!Object.hasOwn(options.engines, engine)) throw new Error(`Unknown engine: ${engine}`);
+      if (!Object.hasOwn(options.modules, module)) throw new Error(`Unknown module: ${module}`);
       if (!initializing) return;
       const current = await initialize();
-      await runtime.runPromise(current.router.unload(engine));
+      await runtime.runPromise(current.router.unload(module));
     },
-    debugRestart: async (engine: string) => {
+    debugRestart: async (module: string) => {
       const current = await initialize();
-      await runtime.runPromise(current.registry.debugRestart(engine));
-      await runtime.runPromise(current.router.select(engine));
+      await runtime.runPromise(current.registry.debugRestart(module));
+      await runtime.runPromise(current.router.select(module));
     },
     settings: {
-      schemas: async (engine: string) => {
+      schemas: async (module: string) => {
         const current = await initialize();
-        const schemas = await current.settings.schemas(engine);
-        await refreshOrientation(engine, current.settings);
+        const schemas = await current.settings.schemas(module);
+        await refreshOrientation(module, current.settings);
         return schemas;
       },
-      get: async (engine: string, schema: string, key: string) => {
+      get: async (module: string, schema: string, key: string) => {
         const current = await initialize();
-        return current.settings.get(engine, schema, key);
+        return current.settings.get(module, schema, key);
       },
-      set: async (engine: string, schema: string, key: string, value: Parameters<SettingsApiService["set"]>[3]) => {
+      set: async (module: string, schema: string, key: string, value: Parameters<SettingsApiService["set"]>[3]) => {
         const current = await initialize();
-        await current.settings.set(engine, schema, key, value);
-        await refreshOrientation(engine, current.settings);
+        await current.settings.set(module, schema, key, value);
+        await refreshOrientation(module, current.settings);
       },
-      reset: async (engine: string, schema: string, key: string) => {
+      reset: async (module: string, schema: string, key: string) => {
         const current = await initialize();
-        await current.settings.reset(engine, schema, key);
-        await refreshOrientation(engine, current.settings);
+        await current.settings.reset(module, schema, key);
+        await refreshOrientation(module, current.settings);
       },
     },
     caretRect: () => {
@@ -278,15 +278,15 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       const adapter = services?.router.activeContext()?.adapter;
       return adapter?.caretRect() ?? null;
     },
-    lookupTableOrientation: (engine: string): 0 | 1 => orientations.get(engine) ?? 1,
-    sendPanelAction: (engine: string, ic: number, action: PanelAction) => {
+    lookupTableOrientation: (module: string): 0 | 1 => orientations.get(module) ?? 1,
+    sendPanelAction: (module: string, ic: number, action: PanelAction) => {
       alive();
       const context = services?.router.activeContext();
-      if (!context || context.engine !== engine || context.ic !== ic) return;
+      if (!context || context.module !== module || context.ic !== ic) return;
       try {
         // Public structural actions cross into the protocol's validated request classes here.
         const request = decodePanelAction(action);
-        void services!.registry.request(engine, request, ic).catch((error: unknown) => app.reportPanelError(error));
+        void services!.registry.request(module, request, ic).catch((error: unknown) => app.reportPanelError(error));
       } catch (error) {
         app.reportPanelError(error);
       }

@@ -174,7 +174,7 @@ it ends.
 
 The host fails its start, posting `error`, when:
 
-- the manifest fails to decode as an `EngineManifest` (the rules are
+- the manifest fails to decode as a `ModuleManifest` (the rules are
   [engines.md](engines.md#distribution-manifest)'s) or its numeric runtime ABI or
   protocol version mismatches (`RuntimeAbiMismatch` or `ProtocolMismatch`);
 

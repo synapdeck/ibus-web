@@ -19,7 +19,7 @@ import { createIbusWeb } from "ibus-web";
 
 const ibus = createIbusWeb({
   runtimeUrl: new URL("/assets/runtime/ibus-runtime.js", location.href),
-  engines: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
+  modules: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
 });
 const detach = ibus.attach(document.querySelector("textarea")!);
 await ibus.select("hangul");
@@ -28,7 +28,8 @@ await ibus.select("hangul");
 
 `createIbusWeb` acquires no Worker or storage until selection or a settings
 operation. Options are `hostUrl?: URL`, required `runtimeUrl: URL`, required
-`engines: Record<string, URL>`, optional `settings: SettingsSourceService`,
+`modules: Record<string, URL>` (each module's manifest, under a name the page
+chooses), optional `settings: SettingsSourceService`,
 `logger(entry)`, `logLevel` and partial core `config`. By default `hostUrl` is
 the URL exported by `ibus-web/worker`. Keep its emitted `host/` directory together:
 the host loads its relay and optional Brotli fallback beside the entry. A host
@@ -49,19 +50,19 @@ async/manual adapters on one facade and engine FIFO. In manual mode call
 `keyAsync(adapter, event)` during the original key event dispatch; its Promise
 returns `consumed`, `replayed`, `passthrough` or `cancelled`. A `replayed` fallback
 is already applied exactly once; excluded `passthrough` events are untouched.
-`select(engine)`, `unload(engine)` and `dispose()` return Promises.
-`debugRestart(engine)` is a development-only way to terminate the actual Worker
+`select(module)`, `unload(module)` and `dispose()` return Promises.
+`debugRestart(module)` is a development-only way to terminate the actual Worker
 and await recovery. No concrete CodeMirror adapter is provided.
 
-`settings.schemas(engine)` returns the generated schemas and keys. Use
-`settings.get(engine, schemaId, key)`, `set(engine, schemaId, key, variant)` and
-`reset(engine, schemaId, key)` with typed GVariant variants, which `variant(type,
+`settings.schemas(module)` returns the generated schemas and keys. Use
+`settings.get(module, schemaId, key)`, `set(module, schemaId, key, variant)` and
+`reset(module, schemaId, key)` with typed GVariant variants, which `variant(type,
 value)` builds for any type and `stringVariant`, `booleanVariant` and
 `int32Variant` build for the `s`, `b` and `i` keys most settings have. The generated
 metadata supplies defaults, descriptions and actual range/choice constraints.
 Hangul's keyboard setting has no generated choices: hosts should render a
 typed input rather than inventing an enum. The default source persists by origin;
-the optional `settings` service can replace it. `enginestate`, `storage`,
+the optional `settings` service can replace it. `modulestate`, `storage`,
 `panel` and `log` are typed CustomEvent names. `logLevel` filters both `log`
 events and the optional logger callback.
 

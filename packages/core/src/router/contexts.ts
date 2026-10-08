@@ -13,7 +13,7 @@ import { PreeditState } from "./preedit.ts";
 import { deletion, ibusText, surroundingWindow, type Surrounding } from "./surrounding.ts";
 export class InputContext implements KeyContext {
   readonly ic: number;
-  readonly engine: string;
+  readonly module: string;
   generation: number;
   ready = false;
   acceptOutput = false;
@@ -30,7 +30,7 @@ export class InputContext implements KeyContext {
   private readonly panel: (event: PanelEvent) => void;
   constructor(options: {
     ic: number;
-    engine: string;
+    module: string;
     generation: number;
     adapter: SurfaceAdapter;
     current: () => boolean;
@@ -38,7 +38,7 @@ export class InputContext implements KeyContext {
     panel: (event: PanelEvent) => void;
   }) {
     this.ic = options.ic;
-    this.engine = options.engine;
+    this.module = options.module;
     this.generation = options.generation;
     this.current = options.current;
     this.refresh = options.refresh;
@@ -83,7 +83,7 @@ export class InputContext implements KeyContext {
       case "HideLookupTable":
       case "RegisterProperties":
       case "UpdateProperty":
-        this.panel({ _tag: "record", engine: this.engine, ic: this.ic, record });
+        this.panel({ _tag: "record", module: this.module, ic: this.ic, record });
         break;
     }
     this.refresh();
@@ -132,7 +132,7 @@ export class InputContext implements KeyContext {
       const key = JSON.stringify(value);
       if (key !== this.rect) {
         this.rect = key;
-        this.panel({ _tag: "caret", engine: this.engine, ic: this.ic });
+        this.panel({ _tag: "caret", module: this.module, ic: this.ic });
         requests.push(new SetCursorLocation(value));
       }
     }

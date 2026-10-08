@@ -672,7 +672,7 @@ describe("output records", () => {
       } = routerFixture();
       const context = new InputContext({
         ic: 7,
-        engine: "test",
+        module: "test",
         generation: 1,
         adapter,
         current: () => true,

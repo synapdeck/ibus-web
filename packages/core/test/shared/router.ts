@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import type { Request, DecodedLazyRecord } from "@ibus-web/protocol";
 import type { Reply, SyncOutcome, CrashInfo } from "../../src/connection/connection.ts";
-import { KeyRouter, type EngineSnapshot, type KeyContext, type KeyConnection } from "../../src/router/keystroke.ts";
+import { KeyRouter, type ModuleSnapshot, type KeyContext, type KeyConnection } from "../../src/router/keystroke.ts";
 import type { SurfaceAdapter } from "../../src/router/replay.ts";
 export const key = (value: string): KeyboardEvent =>
   ({
@@ -115,7 +115,7 @@ export function fixture() {
     crashes: CrashInfo[] = [],
     errors: unknown[] = [];
   const connection = new FakeConnection();
-  const snapshot: EngineSnapshot = {
+  const snapshot: ModuleSnapshot = {
     name: "test",
     status: "ready",
     enabled: true,

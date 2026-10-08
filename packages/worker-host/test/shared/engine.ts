@@ -13,7 +13,7 @@ import {
   encodeRequest,
   stringVariant,
   type Request,
-  type EngineManifest,
+  type ModuleManifest,
 } from "@ibus-web/protocol";
 import { expect } from "vitest";
 import type { Harness, RuntimeBuild, RunningHost } from "./harness.ts";
@@ -47,7 +47,7 @@ export const manifestFailures = async (h: Harness, runtime: RuntimeBuild): Promi
     [{ protocol: base.protocol + 1 }, /ProtocolMismatch/],
     [{ threads: undefined }, /threads/],
   ] as const) {
-    await expect(h.start({ runtime, manifest: { ...base, ...change } as EngineManifest })).rejects.toThrow(error);
+    await expect(h.start({ runtime, manifest: { ...base, ...change } as ModuleManifest })).rejects.toThrow(error);
   }
 };
 

@@ -3,14 +3,14 @@
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { booleanVariant, CreateEngine, stringVariant, type EngineManifest, type Request } from "@ibus-web/protocol";
-import { makeEngineRegistry } from "../../../src/services/engines.ts";
+import { booleanVariant, CreateEngine, stringVariant, type ModuleManifest, type Request } from "@ibus-web/protocol";
+import { makeModuleRegistry } from "../../../src/services/modules.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
 import { Logger, PanelEvents, glibLevel } from "../../../src/services/logging.ts";
 import { FakeConnection, fixture, key } from "../../shared/router.ts";
 const dataPath = `/nix/store/${"a".repeat(32)}-test`;
-const manifest: EngineManifest = {
+const manifest: ModuleManifest = {
   name: "test",
   keyboard: { layout: "us", passThrough: [] },
   version: "1",
@@ -35,10 +35,10 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
     const started: FakeConnection[] = [];
     const requests: Request[] = [];
     const boots = yield* Deferred.make<void>();
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       waitForWriter: () => Effect.void,
       start: async () => {
@@ -80,10 +80,10 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
 it.effect("registry validates keyboard names before starting a Worker", () =>
   Effect.gen(function* () {
     let started = false;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => ({ ...manifest, keyboard: { layout: "us", passThrough: ["NotAKeysym"] } }),
       start: async () => {
         started = true;
@@ -111,7 +111,7 @@ it.effect(
         key: "x",
         value: booleanVariant(true),
       });
-      panel.enqueue({ _tag: "hide", engine: "test", ic: 1 });
+      panel.enqueue({ _tag: "hide", module: "test", ic: 1 });
       expect((yield* Fiber.join(setting))[0]?.key).toBe("x");
       expect((yield* Fiber.join(panelEvent))[0]?._tag).toBe("hide");
       expect(yield* Effect.promise(() => settings.snapshot(["settings"]))).toHaveProperty("settings.x");
@@ -125,12 +125,12 @@ it.effect(
       // The service owns the logging fiber and inherits the provided logger.
       yield* Effect.gen(function* () {
         const log = yield* Logger;
-        log.enqueue({ engine: "test", ic: 3, record: { _tag: "Log", level: 16, domain: "glib", message: "notice" } });
+        log.enqueue({ module: "test", ic: 3, record: { _tag: "Log", level: 16, domain: "glib", message: "notice" } });
         expect(lines).toEqual([]);
         yield* Deferred.await(logged);
         expect(lines[0]).toMatchObject({
           logLevel: "Warn",
-          annotations: { engine: "test", inputContext: 3, domain: "glib" },
+          annotations: { module: "test", inputContext: 3, domain: "glib" },
         });
       }).pipe(
         Effect.provide(Layer.fresh(Logger.Default)),
@@ -144,10 +144,10 @@ it.effect(
 it.effect("the third crash fails the registry and disables its existing key sinks", () =>
   Effect.gen(function* () {
     const connections: FakeConnection[] = [];
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       waitForWriter: () => Effect.void,
       start: async () => {
@@ -186,10 +186,10 @@ it.effect(
         return emptyReply;
       };
       const locks: string[] = [];
-      const registry = yield* makeEngineRegistry({
+      const registry = yield* makeModuleRegistry({
         hostUrl: url,
         runtimeUrl: url,
-        engines: { alias: url },
+        modules: { alias: url },
         loadManifest: async () => ({ ...manifest, name: "distribution", engines: ["factory"] }),
         start: async () => c,
         waitForWriter: (name) => {
@@ -219,10 +219,10 @@ it.effect("a failed relaunch consumes the next restart step without losing regis
     const requests: Request[] = [];
     let attempts = 0;
     const rejected = yield* Deferred.make<void>();
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       waitForWriter: () => Effect.void,
       start: async () => {
@@ -266,10 +266,10 @@ it.effect("a failed relaunch consumes the next restart step without losing regis
 it.effect("initial startup failure is terminal, without scheduling relaunch", () =>
   Effect.gen(function* () {
     let attempts = 0;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       start: async () => {
         attempts++;
@@ -289,10 +289,10 @@ it.effect("repeated transient relaunch failures reach the crash cutoff", () =>
     const c = new FakeConnection();
     c.requestAsync = async () => emptyReply;
     const rejected = yield* Deferred.make<void>();
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       waitForWriter: () => Effect.void,
       start: async () => {
@@ -319,10 +319,10 @@ it.effect("runtime incompatibility is terminal even during relaunch", () =>
     let attempts = 0;
     const c = new FakeConnection();
     c.requestAsync = async () => emptyReply;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       waitForWriter: () => Effect.void,
       start: async () => {
@@ -356,10 +356,10 @@ it.effect("read-only queue overflow restarts without waiting for a writer lock",
   Effect.gen(function* () {
     const connections: FakeConnection[] = [];
     let locks = 0;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       waitForWriter: () => {
         locks++;
@@ -403,10 +403,10 @@ for (const phase of ["initial", "restart"] as const) {
       const first = new FakeConnection();
       first.requestAsync = async () => emptyReply;
       let attempts = 0;
-      const registry = yield* makeEngineRegistry({
+      const registry = yield* makeModuleRegistry({
         hostUrl: url,
         runtimeUrl: url,
-        engines: { test: url },
+        modules: { test: url },
         loadManifest: async () => manifest,
         waitForWriter: () => Effect.void,
         start: (options) => {
@@ -441,10 +441,10 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const starts: string[] = [];
-      const registry = yield* makeEngineRegistry({
+      const registry = yield* makeModuleRegistry({
         hostUrl: url,
         runtimeUrl: url,
-        engines: { a: new URL("a", url), b: new URL("b", url) },
+        modules: { a: new URL("a", url), b: new URL("b", url) },
         loadManifest: async (u) => ({ ...manifest, name: u.pathname.slice(1) }),
         start: async (options) => {
           starts.push(options.manifestUrl.pathname);
@@ -473,10 +473,10 @@ it.effect("unload cancels a pending boot, rejects its waiter and permits a fresh
     const fresh = new FakeConnection();
     fresh.requestAsync = async () => emptyReply;
     let starts = 0;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       start: (options) => {
         if (++starts > 1) return Promise.resolve(fresh);
@@ -507,10 +507,10 @@ it.effect("unload cancels pending async owners without replay and stops schedule
     let starts = 0;
     const connection = new FakeConnection();
     connection.requestAsync = async () => emptyReply;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       start: async () => {
         starts++;
@@ -539,10 +539,10 @@ it.effect("unload interrupts a restart wait without resurrecting the engine", ()
     const waiting = yield* Deferred.make<void>();
     const connection = new FakeConnection();
     connection.requestAsync = async () => emptyReply;
-    const registry = yield* makeEngineRegistry({
+    const registry = yield* makeModuleRegistry({
       hostUrl: url,
       runtimeUrl: url,
-      engines: { test: url },
+      modules: { test: url },
       loadManifest: async () => manifest,
       start: async () => {
         starts++;

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import { Context, Effect, Layer } from "effect";
 import type { RuntimeMemory } from "../../shared/messages.ts";
 import { StartupFailed, startupFailed } from "../failure.ts";
@@ -22,7 +22,7 @@ interface PlannedStorageShape {
   readonly held: Held;
   // The runtime's memory, in bytes.
   readonly memory: RuntimeMemory;
-  readonly manifest: EngineManifest;
+  readonly manifest: ModuleManifest;
   readonly module: ArrayBuffer;
 }
 

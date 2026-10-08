@@ -4,7 +4,7 @@
 // Streaming the engine's data archives into the runtime's extractor, which
 // unpacks each through the mounted file system.
 
-import { errorMessage, type EngineManifest } from "@ibus-web/protocol";
+import { errorMessage, type ModuleManifest } from "@ibus-web/protocol";
 import { decompressed, type BrotliDecoder } from "./decompress.ts";
 import { entryGuard } from "./entries.ts";
 import { engineDataRoot } from "../../shared/naming.ts";
@@ -139,7 +139,7 @@ const installArchive = async (
 // its own store path.
 export const installArchives = async (
   handle: RuntimeHandle,
-  engine: EngineManifest,
+  engine: ModuleManifest,
   hooks: ArchiveHooks,
 ): Promise<Tally> => {
   const tally: Tally = { fed: 0, files: 0, bytes: 0 };

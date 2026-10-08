@@ -28,20 +28,20 @@ export {
 } from "../router/replay.ts";
 export {
   KeyRouter,
-  type EngineSnapshot,
-  type EngineState,
+  type ModuleSnapshot,
+  type ModuleState,
   type KeyConnection,
   type KeyContext,
   type RouterOutput,
 } from "../router/keystroke.ts";
 export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
 export {
-  EngineRegistry,
-  makeEngineRegistry,
-  type EngineEvent,
-  type EngineRegistryOptions,
-  type EngineRegistryService,
-} from "../services/engines.ts";
+  ModuleRegistry,
+  makeModuleRegistry,
+  type ModuleEvent,
+  type ModuleRegistryOptions,
+  type ModuleRegistryService,
+} from "../services/modules.ts";
 export {
   SettingsSource,
   type SettingsChange,

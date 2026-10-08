@@ -12,13 +12,13 @@ import { createServer } from "node:http";
 import * as api from "../../src/effect.ts";
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 test("effect consumers retain core services, tagged errors, adapters and protocol schemas", () => {
-  expect(api.EngineRegistry.key).toBe("@ibus-web/core/EngineRegistry");
+  expect(api.ModuleRegistry.key).toBe("@ibus-web/core/ModuleRegistry");
   expect(api.Router.Default).toBeDefined();
   expect(api.SettingsApi.layer).toBeTypeOf("function");
   expect(api.textareaAdapter).toBeTypeOf("function");
   expect(new api.ProtocolError({ message: "invalid" })._tag).toBe("ProtocolError");
   expect(new api.ConnectionBusyError()).toBeInstanceOf(Error);
-  expect(api.EngineManifest).toBeDefined();
+  expect(api.ModuleManifest).toBeDefined();
   expect(api.ProcessKeyEvent).toBeDefined();
 });
 test("a built package consumer ships URL-only page code and serves every preserved sibling Worker asset", async () => {
@@ -113,13 +113,13 @@ test("published facade declarations support typed lifecycle, manual input, setti
       `// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import type { IbusWeb, AsyncKeyResult, SurfaceAdapter } from "ibus-web";
-import type { EngineState, SettingValue } from "ibus-web/effect";
+import type { ModuleState, SettingValue } from "ibus-web/effect";
 import { createPanel, type PanelHost } from "ibus-web/panel";
 import workerUrl from "ibus-web/worker";
 
 /** Compiled against published declarations, including each public subpath. */
 export function consumer(app: IbusWeb, adapter: SurfaceAdapter, event: KeyboardEvent) {
-  const labels: Record<EngineState, string> = {
+  const labels: Record<ModuleState, string> = {
     starting: "Starting",
     ready: "Ready",
     busy: "Busy",
@@ -127,7 +127,7 @@ export function consumer(app: IbusWeb, adapter: SurfaceAdapter, event: KeyboardE
     failed: "Failed",
     unloaded: "Unloaded",
   };
-  app.addEventListener("enginestate", ({ detail }) => {
+  app.addEventListener("modulestate", ({ detail }) => {
     labels[detail.state].toUpperCase();
   });
   app.addEventListener("storage", ({ detail }) => {

@@ -12,7 +12,7 @@ import {
   encodeRequest,
   stringVariant,
   type DecodedRecord,
-  type EngineManifest,
+  type ModuleManifest,
   type Request,
 } from "@ibus-web/protocol";
 import { expect } from "vitest";
@@ -35,7 +35,7 @@ export const Key = {
 } as const;
 
 export interface HangulBuild {
-  manifest: EngineManifest;
+  manifest: ModuleManifest;
   heapBytes: number;
   poolBase: number;
 }
@@ -53,7 +53,7 @@ export class PageSession {
     this.host = host;
   }
 
-  static async start(h: Harness, runtime: RuntimeBuild, manifest: EngineManifest): Promise<PageSession> {
+  static async start(h: Harness, runtime: RuntimeBuild, manifest: ModuleManifest): Promise<PageSession> {
     const engine = { ...manifest, name: `${manifest.name}-${runtime.name}-${crypto.randomUUID()}` };
     const host = await h.start({
       runtime,

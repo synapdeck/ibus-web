@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
 
 interface Protocol {
   PROTOCOL_VERSION: number;
-  decodeEngineManifest(manifest: unknown, memory: { minimum: number; maximum: number }): unknown;
+  decodeModuleManifest(manifest: unknown, memory: { minimum: number; maximum: number }): unknown;
 }
 
 const usage = "usage: protocol.ts version PROTOCOL.js | protocol.ts check PROTOCOL.js MANIFEST.json MINIMUM MAXIMUM";
@@ -20,7 +20,7 @@ if (!entry) throw new Error(usage);
 const protocol = (await import(pathToFileURL(entry).href)) as Protocol;
 if (command === "version") process.stdout.write(`${protocol.PROTOCOL_VERSION}\n`);
 else if (command === "check" && manifest && minimum && maximum)
-  protocol.decodeEngineManifest(JSON.parse(readFileSync(manifest, "utf8")), {
+  protocol.decodeModuleManifest(JSON.parse(readFileSync(manifest, "utf8")), {
     minimum: Number(minimum),
     maximum: Number(maximum),
   });

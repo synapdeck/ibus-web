@@ -5,7 +5,7 @@ engines running in Workers, applies their preedit and commits to text surfaces t
 and reports panel state. It imports only the host's shared transport definitions: Worker, runtime
 and engine code load by URL and never enter the page bundle.
 
-`@ibus-web/core` exports the Effect services (`Router`, `EngineRegistry`, `CoreConfig`,
+`@ibus-web/core` exports the Effect services (`Router`, `ModuleRegistry`, `CoreConfig`,
 `SettingsSource`, `SettingsApi`, `Logger`, `PanelEvents`) and the textarea adapter, among others
 such as `Connection`, `KeyRouter`, `ReplayQueue` and the IndexedDB settings persister; this lists
 the main ones. `@ibus-web/core/keys` exports key translation alone. `effect` 4 is a peer dependency.

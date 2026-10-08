@@ -14,12 +14,12 @@ import {
   int32Variant,
   stringVariant,
   type Request,
-  type EngineManifest,
+  type ModuleManifest,
   type SettingsMetadata,
 } from "@ibus-web/protocol";
 import { Connection, SettingsApi, indexedDbSettings } from "../../src/page/index.ts";
 import { SettingsSource } from "../../src/services/settings.ts";
-import { makeEngineRegistry } from "../../src/services/engines.ts";
+import { makeModuleRegistry } from "../../src/services/modules.ts";
 import { CoreConfig } from "../../src/services/config.ts";
 import { Logger, PanelEvents } from "../../src/services/logging.ts";
 import { DomConnection, record } from "./support/dom.ts";
@@ -41,7 +41,7 @@ const metadata: SettingsMetadata = {
     },
   ],
 };
-const manifest: EngineManifest = {
+const manifest: ModuleManifest = {
   name: "test",
   keyboard: { layout: "us", passThrough: [] },
   version: "1",
@@ -58,7 +58,7 @@ const manifest: EngineManifest = {
   settingsMetadata: { url: "settings.json", size: 1 },
 };
 const options = {
-  engines: { a: new URL("/a/manifest.json", location.href), b: new URL("/b/manifest.json", location.href) },
+  modules: { a: new URL("/a/manifest.json", location.href), b: new URL("/b/manifest.json", location.href) },
   loadManifest: async (url: URL) => ({ ...manifest, name: url.pathname.split("/")[1] }),
   loadMetadata: async () => encodeSettingsMetadata(metadata),
 };
@@ -93,7 +93,7 @@ const run = (
   body: (
     api: SettingsApi["Service"],
     source: SettingsSource["Service"],
-    registry: Effect.Success<ReturnType<typeof makeEngineRegistry>>,
+    registry: Effect.Success<ReturnType<typeof makeModuleRegistry>>,
     connections: DomConnection[],
   ) => Promise<void>,
   source = indexedDbSettings(),
@@ -104,7 +104,7 @@ const run = (
         const api = yield* SettingsApi;
         const settings = yield* SettingsSource;
         const connections: DomConnection[] = [];
-        const registry = yield* makeEngineRegistry({
+        const registry = yield* makeModuleRegistry({
           ...options,
           hostUrl: new URL("/host", location.href),
           runtimeUrl: new URL("/runtime", location.href),
@@ -241,7 +241,7 @@ test("a host-supplied source replaces persistence entirely, including settings A
 });
 test("a fresh page reads persisted bytes before starting a real Hangul Worker", async () => {
   const { data, HANGUL_SCHEMA } = await import("./real-host.ts");
-  const realOptions = { engines: { hangul: new URL(data.hangulUrl, location.href) } };
+  const realOptions = { modules: { hangul: new URL(data.hangulUrl, location.href) } };
   await Effect.runPromise(
     Effect.gen(function* () {
       const api = yield* SettingsApi;
@@ -252,7 +252,7 @@ test("a fresh page reads persisted bytes before starting a real Hangul Worker", 
     Effect.scoped(
       Effect.gen(function* () {
         const requests: Request[] = [];
-        const registry = yield* makeEngineRegistry({
+        const registry = yield* makeModuleRegistry({
           ...realOptions,
           hostUrl: new URL(data.hostUrl, location.href),
           runtimeUrl: new URL(data.runtimes[0]!.url, location.href),

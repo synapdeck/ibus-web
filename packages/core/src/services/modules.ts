@@ -3,7 +3,7 @@
 import { Clock, Context, Effect, Exit, Layer, PubSub, Schema, Scope, Stream } from "effect";
 import {
   asError,
-  EngineManifest,
+  ModuleManifest,
   Init,
   SettingChanged,
   PROTOCOL_VERSION,
@@ -16,8 +16,8 @@ import { keysymByName } from "../keys/keysyms.generated.ts";
 import { validateKeyboard } from "../keys/manifest.ts";
 import {
   KeyRouter,
-  type EngineSnapshot,
-  type EngineState,
+  type ModuleSnapshot,
+  type ModuleState,
   type KeyConnection,
   type KeyContext,
 } from "../router/keystroke.ts";
@@ -27,11 +27,11 @@ import { loadSettingsMetadata } from "../settings/api.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
-export interface EngineRegistryOptions {
+export interface ModuleRegistryOptions {
   readonly hostUrl: URL;
   readonly runtimeUrl: URL;
   /** Public registry keys may differ from both manifest.name and manifest.engines. */
-  readonly engines: Readonly<Record<string, URL>>;
+  readonly modules: Readonly<Record<string, URL>>;
   readonly storage?: "browser" | "none";
   /** Honor options.signal for partial resources; late returned connections are terminated by the registry. */
   readonly start?: (options: ConnectionOptions) => Promise<KeyConnection>;
@@ -39,19 +39,19 @@ export interface EngineRegistryOptions {
   readonly loadMetadata?: (url: URL, signal?: AbortSignal) => Promise<unknown>;
   readonly waitForWriter?: WaitForWriter;
 }
-export type EngineEvent =
-  | { readonly _tag: "state"; readonly engine: string; readonly state: EngineState }
-  | { readonly _tag: "storage"; readonly engine: string; readonly state: StorageState; readonly message: string };
-export interface EngineRegistryService {
-  readonly events: Stream.Stream<EngineEvent>;
+export type ModuleEvent =
+  | { readonly _tag: "state"; readonly module: string; readonly state: ModuleState }
+  | { readonly _tag: "storage"; readonly module: string; readonly state: StorageState; readonly message: string };
+export interface ModuleRegistryService {
+  readonly events: Stream.Stream<ModuleEvent>;
   unload(name: string): Effect.Effect<void, Error>;
   /** Development aid: terminate the real connection and use normal crash recovery. */
   debugRestart(name: string): Effect.Effect<void, Error>;
   select(name: string | undefined): Effect.Effect<void, Error>;
   ensure(name: string): Effect.Effect<void, Error>;
   whenReady(name: string): Effect.Effect<void, Error>;
-  state(name: string): EngineState;
-  snapshot(name: string): EngineSnapshot | undefined;
+  state(name: string): ModuleState;
+  snapshot(name: string): ModuleSnapshot | undefined;
   registerContext(name: string, context: KeyContext): () => void;
   drainContext(name: string, context: KeyContext): Promise<void>;
   captureDrainContext(name: string, context: KeyContext): () => Promise<void>;
@@ -61,21 +61,21 @@ export interface EngineRegistryService {
   keyAsync(name: string, context: KeyContext, event: KeyboardEvent): Promise<AsyncKeyResult>;
   request(name: string, request: Request, ic: number): Promise<Reply>;
 }
-export class EngineRegistry extends Context.Service<EngineRegistry, EngineRegistryService>()(
-  "@ibus-web/core/EngineRegistry",
+export class ModuleRegistry extends Context.Service<ModuleRegistry, ModuleRegistryService>()(
+  "@ibus-web/core/ModuleRegistry",
 ) {
-  static layer(options: EngineRegistryOptions) {
-    return Layer.effect(EngineRegistry, makeEngineRegistry(options));
+  static layer(options: ModuleRegistryOptions) {
+    return Layer.effect(ModuleRegistry, makeModuleRegistry(options));
   }
 }
 interface Entry {
-  readonly snapshot: EngineSnapshot;
+  readonly snapshot: ModuleSnapshot;
   readonly router: KeyRouter;
   readonly changes: Map<string, SettingsChange>;
   readonly watchers: Set<() => void>;
   crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
   lifetime: Scope.Closeable | undefined;
-  lastState: EngineState | undefined;
+  lastState: ModuleState | undefined;
   origin: symbol;
   started: boolean;
   hasReady: boolean;
@@ -86,7 +86,7 @@ const terminalStartup = (cause: Error): boolean =>
   cause instanceof InitializationRejected ||
   cause instanceof RangeError ||
   /\b(?:RuntimeAbiMismatch|ProtocolMismatch):|manifest \(memory bounds /.test(cause.message);
-export const makeEngineRegistry = (options: EngineRegistryOptions) =>
+export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
   Effect.gen(function* () {
     const config = yield* CoreConfig;
     const settings = yield* SettingsSource;
@@ -95,8 +95,8 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
     const scope = yield* Scope.Scope;
     const clock = yield* Clock.Clock;
     const entries = new Map<string, Entry>();
-    const events = new SyncMailbox<EngineEvent>();
-    const pubsub = yield* PubSub.unbounded<EngineEvent>();
+    const events = new SyncMailbox<ModuleEvent>();
+    const pubsub = yield* PubSub.unbounded<ModuleEvent>();
     yield* Effect.addFinalizer(() => Effect.sync(() => events.close()));
     yield* Effect.addFinalizer(() => PubSub.shutdown(pubsub));
     yield* events.take.pipe(
@@ -105,13 +105,13 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       Effect.forkScoped,
     );
     const distributions = new Map<string, string>();
-    const state = (entry: Entry): EngineState =>
+    const state = (entry: Entry): ModuleState =>
       entry.snapshot.status === "ready" && entry.router.busy ? "busy" : entry.snapshot.status;
     const changed = (entry: Entry) => {
       const value = state(entry);
       if (entry.lastState !== value) {
         entry.lastState = value;
-        events.enqueue({ _tag: "state", engine: entry.snapshot.name, state: value });
+        events.enqueue({ _tag: "state", module: entry.snapshot.name, state: value });
       }
     };
     const notify = (entry: Entry) => {
@@ -146,15 +146,15 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           const raw = yield* Effect.tryPromise({
             try: () =>
               options.loadManifest
-                ? options.loadManifest(options.engines[name]!)
-                : fetch(options.engines[name]!).then((response) => {
+                ? options.loadManifest(options.modules[name]!)
+                : fetch(options.modules[name]!).then((response) => {
                     if (!response.ok) throw new Error(`Manifest fetch failed: ${response.status}`);
                     return response.json();
                   }),
             catch: asError,
           });
           const manifest = yield* Effect.try({
-            try: () => Schema.decodeUnknownSync(EngineManifest, { onExcessProperty: "error" })(raw),
+            try: () => Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(raw),
             catch: asError,
           });
           yield* Effect.try({ try: () => validateKeyboard(manifest.keyboard), catch: asError });
@@ -173,7 +173,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
         const manifest = entry.snapshot.manifest;
         if (settings.register) {
           const metadata = yield* Effect.tryPromise({
-            try: (signal) => loadSettingsMetadata(manifest, options.engines[name]!, options, signal),
+            try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
             catch: asError,
           });
           yield* Effect.tryPromise({
@@ -193,7 +193,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
               void (options.start ?? Connection.start)({
                 hostUrl: options.hostUrl,
                 runtimeUrl: options.runtimeUrl,
-                manifestUrl: options.engines[name]!,
+                manifestUrl: options.modules[name]!,
                 storage: options.storage ?? "browser",
                 budgetMs: config.budgetMs,
                 hangMs: config.hangMs,
@@ -201,7 +201,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
                 layout: transportLayout({ ringBytes: config.ringBytes, slotBytes: config.slotBytes }),
                 signal,
                 onStorage: (message) => {
-                  if (entry.lifetime === lifetime) events.enqueue({ _tag: "storage", engine: name, ...message });
+                  if (entry.lifetime === lifetime) events.enqueue({ _tag: "storage", module: name, ...message });
                 },
               }).then(
                 (connection) => {
@@ -256,8 +256,8 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           ),
         );
       });
-    for (const name of Object.keys(options.engines)) {
-      const snapshot: EngineSnapshot = {
+    for (const name of Object.keys(options.modules)) {
+      const snapshot: ModuleSnapshot = {
         name,
         status: "starting",
         enabled: false,
@@ -281,13 +281,13 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
           replayLimit: config.replayLimit,
           changed: () => changed(entry),
           enqueue: ({ ic, record }) => {
-            if (record._tag === "Log") logger.enqueue({ engine: name, ic, record });
+            if (record._tag === "Log") logger.enqueue({ module: name, ic, record });
             else if (record._tag === "SettingWritten") settings.written({ ...record, origin: entry.origin });
           },
-          hide: (ic) => panel.enqueue({ _tag: "hide", engine: name, ic }),
+          hide: (ic) => panel.enqueue({ _tag: "hide", module: name, ic }),
           error: (cause, ic) =>
             logger.enqueue({
-              engine: name,
+              module: name,
               ic,
               record: { _tag: "Log", level: 8, domain: "page-adapter", message: asError(cause).message },
             }),
@@ -331,14 +331,14 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
     );
     const get = (name: string) => {
       const entry = entries.get(name);
-      if (!entry) throw new Error(`Unknown engine: ${name}`);
+      if (!entry) throw new Error(`Unknown module: ${name}`);
       return entry;
     };
     const whenReady = (name: string): Effect.Effect<void, Error> =>
       Effect.callback((resume) => {
         const entry = entries.get(name);
         if (!entry) {
-          resume(Effect.fail(new Error(`Unknown engine: ${name}`)));
+          resume(Effect.fail(new Error(`Unknown module: ${name}`)));
           return;
         }
         const check = () => {
@@ -347,7 +347,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
             resume(Effect.void);
           } else if (entry.snapshot.status === "failed" || entry.snapshot.status === "unloaded") {
             entry.watchers.delete(check);
-            resume(Effect.fail(new Error(`Engine ${name} ${entry.snapshot.status}`)));
+            resume(Effect.fail(new Error(`Module ${name} ${entry.snapshot.status}`)));
           }
         };
         entry.watchers.add(check);
@@ -388,7 +388,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
       });
     const ensure = (name: string): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
-        if (!entries.has(name)) return yield* Effect.fail(new Error(`Unknown engine: ${name}`));
+        if (!entries.has(name)) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
         const entry = get(name);
         entry.snapshot.enabled = true;
         if (!entry.started) {
@@ -403,12 +403,12 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
         }
         yield* whenReady(name);
       });
-    const service: EngineRegistryService = {
+    const service: ModuleRegistryService = {
       events: Stream.fromPubSub(pubsub),
       unload: (name) =>
         Effect.gen(function* () {
           const entry = entries.get(name);
-          if (!entry) return yield* Effect.fail(new Error(`Unknown engine: ${name}`));
+          if (!entry) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
           const lifetime = entry.lifetime;
           entry.lifetime = undefined;
           entry.snapshot.enabled = false;
@@ -426,14 +426,14 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
         Effect.gen(function* () {
           const entry = entries.get(name);
           if (!entry?.snapshot.connection || entry.snapshot.status !== "ready")
-            return yield* Effect.fail(new Error(`Engine ${name} is not ready`));
+            return yield* Effect.fail(new Error(`Module ${name} is not ready`));
           entry.router.crash({ reason: "worker", message: "Debug restart" });
           yield* whenReady(name);
         }),
       ensure,
       select: (name) =>
         Effect.gen(function* () {
-          if (name !== undefined && !entries.has(name)) return yield* Effect.fail(new Error(`Unknown engine: ${name}`));
+          if (name !== undefined && !entries.has(name)) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
           for (const [key, entry] of entries) entry.snapshot.enabled = key === name;
           if (name !== undefined) yield* ensure(name);
         }),

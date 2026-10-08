@@ -6,7 +6,7 @@
 // spins for each reply as the synchronous keystroke path would, and what the
 // hosts' Workers print to their consoles, taken by the tests.
 
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import { inject } from "vitest";
 import { commands } from "vitest/browser";
 import type { SideModule } from "../../src/shared/messages.ts";
@@ -56,7 +56,7 @@ const opened = (request: IDBOpenDBRequest): Promise<IDBDatabase> =>
 
 // Opening a database at a newer version waits until every other connection
 // to it has closed.
-const upgradeDatabase = async (engine: EngineManifest): Promise<number> => {
+const upgradeDatabase = async (engine: ModuleManifest): Promise<number> => {
   const startedAt = performance.now();
   const name = engineDatabase(engine);
   const current = await opened(indexedDB.open(name));
@@ -68,7 +68,7 @@ const upgradeDatabase = async (engine: EngineManifest): Promise<number> => {
 
 // Writes what isn't a marker where the version's marker is, as a write cut
 // short would leave it.
-const tearMarker = async (engine: EngineManifest): Promise<void> => {
+const tearMarker = async (engine: ModuleManifest): Promise<void> => {
   const db = await opened(indexedDB.open(engineDataDatabase(engine)));
   try {
     const tx = db.transaction("meta", "readwrite");

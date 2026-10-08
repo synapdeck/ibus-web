@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { decodeEngineManifest, type EngineManifest } from "@ibus-web/protocol";
+import { decodeModuleManifest, type ModuleManifest } from "@ibus-web/protocol";
 import type { HostInit, RuntimeConstants } from "../shared/messages.ts";
 import { Schema } from "effect";
 import { StartupFailed } from "./failure.ts";
 import { nodeFs } from "./node-fs.ts";
 
-export const checkManifest = (value: unknown, constants: RuntimeConstants): EngineManifest => {
-  let manifest: EngineManifest;
+export const checkManifest = (value: unknown, constants: RuntimeConstants): ModuleManifest => {
+  let manifest: ModuleManifest;
   try {
-    manifest = decodeEngineManifest(value, constants.memory);
+    manifest = decodeModuleManifest(value, constants.memory);
   } catch (error) {
     throw new StartupFailed({
       message: `manifest (memory bounds ${constants.memory.minimum} to ${constants.memory.maximum} bytes): ${String(error)}`,
@@ -37,7 +37,7 @@ export const fetchBytes = async (url: string): Promise<Uint8Array> => {
 export const readManifest = async (
   init: HostInit<unknown, unknown>,
   constants: RuntimeConstants,
-): Promise<EngineManifest> => {
+): Promise<ModuleManifest> => {
   if (init.manifest !== undefined) return checkManifest(init.manifest, constants);
   if (init.manifestUrl === undefined) throw new StartupFailed({ message: "manifest or manifestUrl is required" });
   const response = await fetch(init.manifestUrl);

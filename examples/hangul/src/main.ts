@@ -33,7 +33,7 @@ const failure = (action: string, cause: unknown) => {
 const app = createIbusWeb({
   hostUrl: new URL("/ibus-web/host/worker/index.js", location.href),
   runtimeUrl: new URL("/ibus-web/runtime/ibus-runtime.js", location.href),
-  engines: { hangul: new URL("/ibus-web/hangul/manifest.json", location.href) },
+  modules: { hangul: new URL("/ibus-web/hangul/manifest.json", location.href) },
   logger,
 });
 const panel = createPanel(app);
@@ -43,7 +43,7 @@ let restarting = false;
 const updateRestart = () => {
   restart.disabled = restarting || !["ready", "busy"].includes(state.textContent ?? "");
 };
-app.addEventListener("enginestate", ({ detail }) => {
+app.addEventListener("modulestate", ({ detail }) => {
   state.textContent = detail.state;
   updateRestart();
   if (detail.state === "starting" || detail.state === "restarting") {

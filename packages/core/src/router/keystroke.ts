@@ -1,23 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { ProcessKeyEvent, type DecodedLazyRecord, type EngineManifest, type Request } from "@ibus-web/protocol";
+import { ProcessKeyEvent, type DecodedLazyRecord, type ModuleManifest, type Request } from "@ibus-web/protocol";
 import type { Connection, CrashInfo, Reply } from "../connection/connection.ts";
 import { translateKey } from "../keys/translate.ts";
 import { ReplayQueue, type KeySink, type KeyResult, type AsyncKeyResult, type SurfaceAdapter } from "./replay.ts";
-export type EngineState = "starting" | "ready" | "busy" | "restarting" | "failed" | "unloaded";
+export type ModuleState = "starting" | "ready" | "busy" | "restarting" | "failed" | "unloaded";
 export type KeyConnection = Pick<
   Connection,
   "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate"
 > &
   Partial<Pick<Connection, "poll">>;
-export interface EngineSnapshot {
+export interface ModuleSnapshot {
   readonly name: string;
-  manifest?: EngineManifest;
-  status: EngineState;
+  manifest?: ModuleManifest;
+  status: ModuleState;
   enabled: boolean;
   generation: number;
   connection: KeyConnection | undefined;
-  keyboard: EngineManifest["keyboard"];
+  keyboard: ModuleManifest["keyboard"];
   passThrough: ReadonlySet<number>;
 }
 /** apply and consumed run inside the adapter transaction and must only do synchronous work. */
@@ -61,9 +61,9 @@ export class KeyRouter {
   /** In-flight lifecycle requests; a key may settle one whose reply has already arrived. */
   private requests = 0;
   private unsubscribe: (() => void)[] = [];
-  readonly snapshot: EngineSnapshot;
+  readonly snapshot: ModuleSnapshot;
   private readonly output: RouterOutput;
-  constructor(snapshot: EngineSnapshot, output: RouterOutput) {
+  constructor(snapshot: ModuleSnapshot, output: RouterOutput) {
     this.snapshot = snapshot;
     this.output = output;
     this.replay = new ReplayQueue(output.replayLimit);

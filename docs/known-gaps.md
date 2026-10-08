@@ -152,7 +152,7 @@ An item leaves this page when it is fixed or decided.
   shortcuts such as find. Those are logged as warnings instead.
   See [core.md](core.md).
 - **Engine errors reach the host only as state.** A crash, hang or load failure
-  shows as an `enginestate` change (`restarting`, `ready`, `failed`), and `select`
+  shows as a `modulestate` change (`restarting`, `ready`, `failed`), and `select`
   rejects with a plain `Error`. The crash reason and the Worker's diagnostic are
   dropped, and the spec's tagged errors (`EngineCrashed`, `EngineHung`,
   `EngineLoadFailed` and the rest) aren't defined.

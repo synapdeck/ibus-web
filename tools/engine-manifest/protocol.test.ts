@@ -17,7 +17,7 @@ beforeEach(() => {
   writeFileSync(
     protocol,
     `export const PROTOCOL_VERSION = 7;
-export const decodeEngineManifest = (manifest, { minimum, maximum }) => {
+export const decodeModuleManifest = (manifest, { minimum, maximum }) => {
   if (manifest.protocol !== 7 || manifest.memory < minimum || manifest.memory > maximum) throw new Error("refused");
   return manifest;
 };

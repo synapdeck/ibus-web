@@ -7,7 +7,7 @@
 
 import { expect } from "vitest";
 import { INSTALL_PIECE } from "../../src/shared/config.ts";
-import type { EngineManifest } from "@ibus-web/protocol";
+import type { ModuleManifest } from "@ibus-web/protocol";
 import type { CollectReport, InstallReport } from "../../src/shared/messages.ts";
 import {
   encodeComponent,
@@ -64,7 +64,7 @@ const expectInstall = (
 };
 
 // The engine's installed tree as the host sees it, listed by list-tree.
-const treeOf = async (h: Harness, client: Client, engine: EngineManifest): Promise<string | number> => {
+const treeOf = async (h: Harness, client: Client, engine: ModuleManifest): Promise<string | number> => {
   const reply = replyFile(await client.call(opsOf(h).listTree, encoder.encode(engineDataDir(engine, engine.data[0]!))));
   return reply.text ?? reply.status;
 };
@@ -72,7 +72,7 @@ const treeOf = async (h: Harness, client: Client, engine: EngineManifest): Promi
 const expectTree = async (
   h: Harness,
   client: Client,
-  engine: EngineManifest,
+  engine: ModuleManifest,
   archive: TestArchive,
   what = "the installed tree",
 ): Promise<void> => {
@@ -80,13 +80,13 @@ const expectTree = async (
 };
 
 // The engine's next version, whose data is the upgrade archive.
-const upgradeOf = (h: Harness, engine: EngineManifest): EngineManifest => withData(engine, h.data.archives.upgrade);
+const upgradeOf = (h: Harness, engine: ModuleManifest): ModuleManifest => withData(engine, h.data.archives.upgrade);
 
 // Runs the scenario, terminating every host it started once it is done.
 const withHosts = async (
   h: Harness,
   runtime: RuntimeBuild,
-  run: (launch: (engine: EngineManifest, more?: Partial<HostOptions>) => LaunchedHost) => Promise<void>,
+  run: (launch: (engine: ModuleManifest, more?: Partial<HostOptions>) => LaunchedHost) => Promise<void>,
 ): Promise<void> => {
   const started: LaunchedHost[] = [];
   try {
@@ -132,8 +132,8 @@ const stalled = (message: Message): message is { type: "stalled"; bytes: number 
 // end.
 const stalledHost = async (
   h: Harness,
-  launch: (engine: EngineManifest, more?: Partial<HostOptions>) => LaunchedHost,
-  engine: EngineManifest,
+  launch: (engine: ModuleManifest, more?: Partial<HostOptions>) => LaunchedHost,
+  engine: ModuleManifest,
   archive: TestArchive,
   silentInstallProgress = false,
 ): Promise<LaunchedHost> => {
@@ -251,7 +251,7 @@ export const installInterruptedStray = (h: Harness, runtime: RuntimeBuild): Prom
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "install-interrupted-stray", runtime);
     const { upgrade } = h.data.archives;
-    const stray: EngineManifest = {
+    const stray: ModuleManifest = {
       ...engine,
       data: engine.data.map((data, i) => (i === 0 ? { ...data, url: upgrade.url, size: upgrade.size } : data)),
     };
@@ -388,7 +388,7 @@ export const staleFile = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   });
 
 // The locks a host of the engine may hold.
-const engineLocks = (engine: EngineManifest): string[] => [
+const engineLocks = (engine: ModuleManifest): string[] => [
   engineInstallLock(engine),
   engineDataLock(engine, encodeComponent(engine.version)),
   engineWriterLock(engine),
@@ -401,7 +401,7 @@ const engineLocks = (engine: EngineManifest): string[] => [
 export const failedInstallReleasesLocks = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "failed-start-releases-locks", runtime);
-    const broken: EngineManifest = {
+    const broken: ModuleManifest = {
       ...engine,
       data: engine.data.map((data) => ({ ...data, url: h.data.archives.missing })),
     };
@@ -572,7 +572,7 @@ export const waitFailsWithoutProgress = (h: Harness, runtime: RuntimeBuild): Pro
   });
 
 // Waits until the host holds the engine's install lock.
-const installing = async (h: Harness, engine: EngineManifest, host: LaunchedHost): Promise<void> => {
+const installing = async (h: Harness, engine: ModuleManifest, host: LaunchedHost): Promise<void> => {
   const lock = engineInstallLock(engine);
   const deadline = h.now() + 30_000;
   while (await h.locks.free(lock)) {
@@ -584,7 +584,7 @@ const installing = async (h: Harness, engine: EngineManifest, host: LaunchedHost
 
 // A host that mounts its storage in memory installs the engine's data at
 // every start, with no lock to wait for.
-export const installedInMemory = async (h: Harness, host: RunningHost, engine: EngineManifest): Promise<void> => {
+export const installedInMemory = async (h: Harness, host: RunningHost, engine: ModuleManifest): Promise<void> => {
   expectInstall(h, host.messages, "installed", h.data.archives.tree);
   expect(installOf(host.messages)?.lockWaitMs, "the wait for a lock").toBe(0);
   expect(collectOf(host.messages), "a collect report").toBeUndefined();
@@ -687,7 +687,7 @@ export const rebuiltDistributionWhileRunning = (h: Harness, runtime: RuntimeBuil
     expect(oldEngine.version.split("+nix.")[0]).toBe(newEngine.version.split("+nix.")[0]);
     expect(oldEngine.settingsSchemaDir).not.toBe(newEngine.settingsSchemaDir);
     const old = await launch(oldEngine).ready;
-    const readSchema = async (host: RunningHost, engine: EngineManifest) =>
+    const readSchema = async (host: RunningHost, engine: ModuleManifest) =>
       replyFile(await host.client.call(opsOf(h).listTree, encoder.encode(engine.settingsSchemaDir)));
     const oldSchema = await readSchema(old, oldEngine);
     expect(oldSchema.status).toBeGreaterThanOrEqual(0);

@@ -62,11 +62,11 @@ nix build .#ibus-web-hangul-dist
 ```
 
 The output contains `manifest.json`, generated `settings.json`, `hangul.wasm`, and one
-`data/<hash>-<name>.tar.br` per closure store path. `EngineManifest` in
+`data/<hash>-<name>.tar.br` per closure store path. `ModuleManifest` in
 `@ibus-web/protocol` has these fields:
 
 ```ts
-type EngineManifest = {
+type ModuleManifest = {
   name: string;
   version: string;
   license: string;
@@ -105,7 +105,7 @@ installation-lock namespaces, so a new build can install while an older
 host continues reading its own closure. Manually authored manifests must
 likewise change version whenever their distribution changes.
 
-`decodeEngineManifest` enforces:
+`decodeModuleManifest` enforces:
 
 - `name` matches `[A-Za-z0-9][A-Za-z0-9._+-]*`: it becomes a directory and
   database name, so it must be one path component that can't climb out of
