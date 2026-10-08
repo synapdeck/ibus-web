@@ -33,12 +33,25 @@ export const errorSummary = (cause: unknown): string => {
   return printed(cause);
 };
 
+// Whether the stack's first line is exactly `head`.
+const opensWith = (stack: string, head: string): boolean => stack === head || stack.startsWith(`${head}\n`);
+
+// Whether a stack already opens with the error's summary. Chromium writes the
+// header when the error is constructed, so it omits ": " for an empty message
+// and keeps the name the error had then, not one assigned afterwards.
+const isHeaded = (error: Error, stack: string, summary: string): boolean => {
+  const constructedName: unknown = (Object.getPrototypeOf(error) as { name?: unknown } | null)?.name;
+  const heads = [summary, summary.replace(/: $/, "")];
+  if (typeof constructedName === "string")
+    heads.push(error.message === "" ? constructedName : `${constructedName}: ${error.message}`);
+  return heads.some((head) => opensWith(stack, head));
+};
+
 // Whatever was thrown, with its stack when it has one. Chromium's stacks
 // start with the summary and Firefox's leave it out, so the summary is added
 // only when the stack doesn't already open with it.
 export const errorReport = (cause: unknown): string => {
   const summary = errorSummary(cause);
-  const stack = cause instanceof Error ? (cause.stack ?? "") : "";
-  if (stack === "") return summary;
-  return stack.startsWith(summary) ? stack : `${summary}\n${stack}`;
+  if (!(cause instanceof Error) || !cause.stack) return summary;
+  return isHeaded(cause, cause.stack, summary) ? cause.stack : `${summary}\n${cause.stack}`;
 };

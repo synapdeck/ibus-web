@@ -66,6 +66,18 @@ test("errorReport keeps a Chromium stack, which starts with the summary", () => 
   expect(errorReport(withStack(new TypeError("bad input"), stack))).toBe(stack);
 });
 
+test("errorReport keeps a Chromium stack for an error with no message", () => {
+  const stack = "Error\n    at run (worker.js:3:9)";
+  expect(errorReport(withStack(new Error(""), stack))).toBe(stack);
+});
+
+test("errorReport keeps a Chromium stack headed by a name the error had before it was renamed", () => {
+  const stack = "TypeError: bad input\n    at run (worker.js:3:9)";
+  const error = withStack(new TypeError("bad input"), stack);
+  error.name = "ConfigError";
+  expect(errorReport(error)).toBe(stack);
+});
+
 test("errorReport puts the summary above a Firefox stack, which leaves it out", () => {
   const stack = "run@worker.js:3:9\n";
   expect(errorReport(withStack(new TypeError("bad input"), stack))).toBe(`TypeError: bad input\n${stack}`);
