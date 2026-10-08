@@ -35,8 +35,10 @@
       inputs.import-tree [
         ./modules
         ./packages
+        ./tools
         ./runtime
         ./engines
+        ./examples
       ]
     );
 }
