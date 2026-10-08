@@ -21,10 +21,10 @@ public:
 
   bool processKey(std::uint32_t keyval, char32_t character,
                   std::uint32_t modifiers) override {
-    if ((modifiers & masks::Release) != 0 || keys::isModifier(keyval)) {
+    if (isInert(keyval, modifiers)) {
       return false;
     }
-    if ((modifiers & (masks::Control | masks::Mod1 | masks::Super)) != 0) {
+    if ((modifiers & masks::passThrough) != 0) {
       if (composing()) {
         finish(buffer_);
       }
@@ -40,6 +40,7 @@ public:
       finish(chosen());
       return true;
     case keys::space:
+    case keys::KP_Space:
       if (candidates_.highlighted() != nullptr) {
         finish(chosen());
         return true;
@@ -53,13 +54,16 @@ public:
       backspace();
       return true;
     case keys::Up:
+    case keys::KP_Up:
     case keys::ISO_Left_Tab:
       cursorUp();
       return true;
     case keys::Down:
+    case keys::KP_Down:
       cursorDown();
       return true;
     case keys::Tab:
+    case keys::KP_Tab:
       if ((modifiers & masks::Shift) != 0) {
         cursorUp();
       } else {
@@ -98,10 +102,18 @@ public:
     }
   }
 
-  void pageUp() override { redraw(candidates_.pageUp()); }
-  void pageDown() override { redraw(candidates_.pageDown()); }
-  void cursorUp() override { redraw(candidates_.cursorUp()); }
-  void cursorDown() override { redraw(candidates_.cursorDown()); }
+  void pageUp() override {
+    candidates_.showIfChanged(candidates_.pageUp(), sink_);
+  }
+  void pageDown() override {
+    candidates_.showIfChanged(candidates_.pageDown(), sink_);
+  }
+  void cursorUp() override {
+    candidates_.showIfChanged(candidates_.cursorUp(), sink_);
+  }
+  void cursorDown() override {
+    candidates_.showIfChanged(candidates_.cursorDown(), sink_);
+  }
 
   void reset() override {
     buffer_.clear();
@@ -156,12 +168,6 @@ private:
   void hide() {
     sink_.preedit("");
     candidates_.show(sink_);
-  }
-
-  void redraw(bool changed) {
-    if (changed) {
-      candidates_.show(sink_);
-    }
   }
 
   const Table &table_;

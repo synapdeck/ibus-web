@@ -77,6 +77,12 @@ void CandidateList::show(Sink &sink) const {
   sink.candidates(list_, cursor_, cursorShown_);
 }
 
+void CandidateList::showIfChanged(bool changed, Sink &sink) const {
+  if (changed) {
+    show(sink);
+  }
+}
+
 std::unique_ptr<Session> makeSession(const Table &table, Sink &sink) {
   if (table.frontmatter().mode == Mode::command) {
     return makeCommandSession(table, sink);

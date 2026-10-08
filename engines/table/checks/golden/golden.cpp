@@ -71,6 +71,12 @@ char32_t characterOf(std::uint32_t keyval) {
     return 0x0d;
   case keys::Escape:
     return 0x1b;
+  case 0xffff:
+    return 0x7f;
+  case 0xff80:
+    return 0x20;
+  case 0xff89:
+    return 0x09;
   default:
     if (keyval >= 0x20 && keyval < 0x7f) {
       return keyval;
@@ -80,6 +86,16 @@ char32_t characterOf(std::uint32_t keyval) {
     }
     return 0;
   }
+}
+
+Events commits(const Events &events) {
+  Events result;
+  for (const std::string &event : events) {
+    if (event.starts_with("commit ")) {
+      result.push_back(event);
+    }
+  }
+  return result;
 }
 
 class SessionTest : public testing::Test {
@@ -422,7 +438,30 @@ TEST_F(Command, ReleasesAndModifierKeysChangeNothing) {
   EXPECT_FALSE(press('p', masks::Release));
   EXPECT_FALSE(press(0xffe1));
   EXPECT_FALSE(press(0xffe3, masks::Shift));
+  for (const std::uint32_t level5 : {0xfe11u, 0xfe12u, 0xfe13u}) {
+    EXPECT_FALSE(press(level5));
+  }
   EXPECT_EQ(sink_.take(), Events{});
+}
+
+TEST_F(Command, KeypadKeysActLikeTheirMainKeys) {
+  type("\\to");
+  sink_.take();
+  EXPECT_TRUE(press(0xff99));
+  EXPECT_TRUE(press(0xff97));
+  EXPECT_TRUE(press(0xff89));
+  EXPECT_EQ(sink_.take(), (Events{"candidates 2 cursor 1 shown",
+                                  "candidates 2 cursor 0 shown",
+                                  "candidates 2 cursor 1 shown"}));
+  EXPECT_TRUE(press(0xff80));
+  EXPECT_EQ(sink_.take(),
+            (Events{"commit \"⟶\"", "preedit \"\"", "candidates none"}));
+
+  type("\\al");
+  sink_.take();
+  EXPECT_FALSE(press(0xff80));
+  EXPECT_EQ(sink_.take(),
+            (Events{"commit \"\\al\"", "preedit \"\"", "candidates none"}));
 }
 
 TEST_F(Command, KeysThatTypeNothingCommitTheBufferAndPassThrough) {
@@ -487,10 +526,40 @@ TEST_F(Continuous, CombiningMarksCommitAsWritten) {
             (Events{"commit \"\u0325\"", "preedit \"\"", "candidates none"}));
 
   EXPECT_EQ(type("_H_0"), "yyyy");
-  EXPECT_EQ(sink_.take().at(6), "commit \"\u0301\u0325\"");
+  EXPECT_EQ(commits(sink_.take()), (Events{"commit \"\u0301\u0325\""}));
 
   type("_H_T");
-  EXPECT_EQ(sink_.take().at(6), "commit \"\u1dc4\"");
+  EXPECT_EQ(commits(sink_.take()), (Events{"commit \"\u1dc4\""}));
+}
+
+TEST(ContinuousPaging, PagesTheCandidateGuide) {
+  Recorder sink;
+  auto table = Table::parse("test.table", "name = Wide\n"
+                                          "languages = und\n"
+                                          "mode = continuous\n"
+                                          "---\n"
+                                          "xa\t1\nxb\t2\nxc\t3\nxd\t4\n"
+                                          "xe\t5\nxf\t6\nxg\t7\nxh\t8\n"
+                                          "xi\t9\nxj\t10\nxk\t11\nxl\t12\n");
+  ASSERT_TRUE(table) << table.error().message();
+  const auto session = makeSession(*table, sink);
+
+  session->processKey('x', 'x', 0);
+  EXPECT_EQ(sink.take().back(), "candidates 12 cursor 0 hidden");
+  session->pageDown();
+  EXPECT_EQ(sink.take(), (Events{"candidates 12 cursor 10 hidden"}));
+  session->pageDown();
+  EXPECT_EQ(sink.take(), Events{});
+  session->pageUp();
+  EXPECT_EQ(sink.take(), (Events{"candidates 12 cursor 0 hidden"}));
+  session->pageUp();
+  EXPECT_EQ(sink.take(), Events{});
+
+  session->pageDown();
+  sink.take();
+  session->candidateClicked(11);
+  EXPECT_EQ(sink.take(),
+            (Events{"commit \"12\"", "preedit \"\"", "candidates none"}));
 }
 
 TEST_F(Continuous, SpaceFlushesAndPassesThrough) {
@@ -554,10 +623,23 @@ TEST_F(Continuous, ModifierKeysAndReleasesChangeNothing) {
   sink_.take();
   EXPECT_FALSE(press(0xffe1));
   EXPECT_FALSE(press('_', masks::Shift | masks::Release));
+  for (const std::uint32_t level5 : {0xfe11u, 0xfe12u, 0xfe13u}) {
+    EXPECT_FALSE(press(level5));
+  }
   EXPECT_EQ(sink_.take(), Events{});
   EXPECT_TRUE(press('H', masks::Shift));
   EXPECT_EQ(sink_.take(),
             (Events{"preedit \"_H\"", "candidates 2 cursor 0 hidden"}));
+}
+
+TEST_F(Continuous, KeypadKeysFlushLikeTheirMainKeys) {
+  for (const std::uint32_t keyval : {0xff80u, 0xff89u, 0xff97u, 0xff99u}) {
+    type("_");
+    sink_.take();
+    EXPECT_FALSE(press(keyval));
+    EXPECT_EQ(sink_.take(),
+              (Events{"commit \"\u0361\"", "preedit \"\"", "candidates none"}));
+  }
 }
 
 TEST_F(Continuous, CandidatesGuideAndCanBeClicked) {

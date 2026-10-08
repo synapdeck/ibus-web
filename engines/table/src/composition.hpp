@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "keys.hpp"
 #include "session.hpp"
 #include "sink.hpp"
 #include "table.hpp"
@@ -19,6 +20,11 @@ namespace ibusweb::table {
 constexpr bool isPrintable(char32_t character) {
   return character >= 0x20 && character != 0x7f &&
          !(character >= 0x80 && character < 0xa0);
+}
+
+// Key releases and presses of modifier keys alone change nothing.
+constexpr bool isInert(std::uint32_t keyval, std::uint32_t modifiers) {
+  return (modifiers & masks::Release) != 0 || keys::isModifier(keyval);
 }
 
 // A session's candidates, its cursor and whether the cursor is shown.
@@ -39,6 +45,9 @@ public:
   bool pageDown();
 
   void show(Sink &sink) const;
+
+  // Redraws only after a move that changed something.
+  void showIfChanged(bool changed, Sink &sink) const;
 
 private:
   std::vector<Candidate> list_;

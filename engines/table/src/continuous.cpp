@@ -21,12 +21,11 @@ public:
 
   bool processKey(std::uint32_t keyval, char32_t character,
                   std::uint32_t modifiers) override {
-    if ((modifiers & masks::Release) != 0 || keys::isModifier(keyval)) {
+    if (isInert(keyval, modifiers)) {
       return false;
     }
 
-    const bool plain =
-        (modifiers & (masks::Control | masks::Mod1 | masks::Super)) == 0;
+    const bool plain = (modifiers & masks::passThrough) == 0;
     if (plain && keyval == keys::BackSpace) {
       if (buffer_.empty()) {
         return false;
@@ -61,15 +60,11 @@ public:
   }
 
   void pageUp() override {
-    if (candidates_.pageUp()) {
-      candidates_.show(sink_);
-    }
+    candidates_.showIfChanged(candidates_.pageUp(), sink_);
   }
 
   void pageDown() override {
-    if (candidates_.pageDown()) {
-      candidates_.show(sink_);
-    }
+    candidates_.showIfChanged(candidates_.pageDown(), sink_);
   }
 
   // The candidates are a guide to what the buffer can still become; they

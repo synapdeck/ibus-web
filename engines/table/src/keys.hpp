@@ -22,7 +22,11 @@ inline constexpr std::uint32_t Down = 0xff54;
 inline constexpr std::uint32_t Page_Up = 0xff55;
 inline constexpr std::uint32_t Page_Down = 0xff56;
 inline constexpr std::uint32_t End = 0xff57;
+inline constexpr std::uint32_t KP_Space = 0xff80;
+inline constexpr std::uint32_t KP_Tab = 0xff89;
 inline constexpr std::uint32_t KP_Enter = 0xff8d;
+inline constexpr std::uint32_t KP_Up = 0xff97;
+inline constexpr std::uint32_t KP_Down = 0xff99;
 inline constexpr std::uint32_t ISO_Left_Tab = 0xfe20;
 
 // Pressing a modifier on its own arrives as a key event too. Treating it as
@@ -31,8 +35,9 @@ inline constexpr std::uint32_t ISO_Left_Tab = 0xfe20;
 constexpr bool isModifier(std::uint32_t keyval) {
   const bool shiftToHyper = keyval >= 0xffe1 && keyval <= 0xffee;
   const bool isoLocksAndGroups = keyval >= 0xfe01 && keyval <= 0xfe0f;
+  const bool isoLevel5 = keyval >= 0xfe11 && keyval <= 0xfe13;
   const bool modeSwitchAndNumLock = keyval == 0xff7e || keyval == 0xff7f;
-  return shiftToHyper || isoLocksAndGroups || modeSwitchAndNumLock;
+  return shiftToHyper || isoLocksAndGroups || isoLevel5 || modeSwitchAndNumLock;
 }
 
 } // namespace ibusweb::table::keys
@@ -44,5 +49,8 @@ inline constexpr std::uint32_t Control = 1u << 2;
 inline constexpr std::uint32_t Mod1 = 1u << 3;
 inline constexpr std::uint32_t Super = 1u << 26;
 inline constexpr std::uint32_t Release = 1u << 30;
+
+// A key held with any of these is a shortcut, not text.
+inline constexpr std::uint32_t passThrough = Control | Mod1 | Super;
 
 } // namespace ibusweb::table::masks
