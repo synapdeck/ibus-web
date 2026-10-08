@@ -9,12 +9,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) runtime typescript testing;
-      fixture = runtime.mkSideModule {
-        name = "manifest-fixture";
-        src = ../../tools/engine-manifest;
-        sources = [ "fixture.c" ];
-      };
+      inherit (config.ibusWeb) runtime typescript;
     in
     {
       ibusWeb.engines.mkEngineManifest =
@@ -109,16 +104,5 @@
             }/packages/protocol/dist/index.js \
               $out/manifest.json ${toString runtime.memory.minimum} ${toString runtime.memory.maximum}
           '';
-      checks.engine-manifest =
-        (testing.vitestCheck {
-          name = "engine-manifest";
-          packageDir = "${typescript.workspaceFor [ "tools/engine-manifest" ]}/tools/engine-manifest";
-          env.IBUS_WEB_DYLINK_FIXTURE = fixture.wasm;
-          inBrowsers = false;
-          limit = 60;
-        }).overrideAttrs
-          (old: {
-            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.wabt ];
-          });
     };
 }

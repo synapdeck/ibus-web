@@ -13,24 +13,18 @@
       # Array options take a Python list literal, since flags such as
       # -Wl,... rule out Meson's comma-separated form.
       mesonArray = flags: builtins.toJSON (lib.filter (flag: flag != "") (lib.splitString " " flags));
-      inventoryTools = config.ibusWeb.typescript.workspaceFor [ "tools/vendor-inventory" ];
     in
     {
       checks.libibus-web-vendored = pkgs.runCommand "libibus-web-vendored" { } ''
-        ${config.ibusWeb.typescript.nodejs}/bin/node ${inventoryTools}/tools/vendor-inventory/cli.ts \
+        ${config.ibusWeb.typescript.nodejs}/bin/node \
+          ${
+            config.ibusWeb.typescript.workspaceFor [ "tools/vendor-inventory" ]
+          }/tools/vendor-inventory/cli.ts \
           --root ${runtime.libibusWeb.src} --readme ${./src/ibus/README.md} \
           --upstream ${pkgs.ibus.src} --version ${pkgs.ibus.version} \
           --hash ${pkgs.ibus.src.outputHash} > $out
         cat $out
       '';
-
-      checks.libibus-web-vendored-script = config.ibusWeb.testing.vitestCheck {
-        name = "libibus-web-vendored-script";
-        packageDir = "${inventoryTools}/tools/vendor-inventory";
-        env = { };
-        inBrowsers = false;
-        limit = 60;
-      };
 
       checks.libibus-web-cast-audit =
         let

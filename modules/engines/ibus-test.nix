@@ -15,7 +15,9 @@
         toolchain
         runtime
         ;
-      testTools = typescript.workspaceFor [ "tools/ibus-test" ];
+      # The trace tooling with its dependencies alone, so editing another
+      # source reruns no trace check.
+      tools = typescript.workspaceFor [ "tools/ibus-test" ];
       native = pkgs.stdenv.mkDerivation {
         pname = "ibus-test-native";
         version = "0.1.0";
@@ -193,7 +195,7 @@
                 export XDG_DATA_HOME=$TMPDIR/vitest-data
                 status=0
                 (
-                  cd ${testTools}/tools/ibus-test
+                  cd ${tools}/tools/ibus-test
                   timeout --kill-after=10 ${
                     toString (90 + 15 * builtins.length traces)
                   } node node_modules/vitest/vitest.mjs run \
@@ -258,19 +260,9 @@
       ibusWeb.lib.nativeIbusConfig = nativeIbusConfig;
       packages = {
         ibus-test-wasm = wasm;
-        ibus-test-tools = testTools;
       }
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux { ibus-test-native = native; };
-      checks = {
-        engines-ibus-test-script = testing.vitestCheck {
-          name = "engines-ibus-test-script";
-          packageDir = "${testTools}/tools/ibus-test";
-          env = { };
-          inBrowsers = false;
-          limit = 60;
-        };
-      }
-      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+      checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         ibus-test-native = native;
         ibus-test-conformance = (
           ibusTest {

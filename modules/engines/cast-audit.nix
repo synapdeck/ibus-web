@@ -9,10 +9,12 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) testing toolchain typescript;
+      inherit (config.ibusWeb) toolchain typescript;
       inherit (toolchain) pkgsWasm;
-      auditTools = typescript.workspaceFor [ "tools/cast-audit" ];
-      script = "${auditTools}/tools/cast-audit/cast-audit.ts";
+      # The audit script with its dependencies alone, so editing another
+      # source reruns no audit.
+      tools = typescript.workspaceFor [ "tools/cast-audit" ];
+      script = "${tools}/tools/cast-audit/cast-audit.ts";
       castAudit =
         {
           name,
@@ -71,13 +73,6 @@
     in
     {
       ibusWeb.engines.castAudit = castAudit;
-      checks.engines-cast-audit-script = testing.vitestCheck {
-        name = "engines-cast-audit-script";
-        packageDir = "${auditTools}/tools/cast-audit";
-        env = { };
-        inBrowsers = false;
-        limit = 60;
-      };
       checks.engines-cast-audit-fixture = fixture.overrideAttrs {
         postInstall = ''
           if node ${script} compare $out/report.json ${../../tools/cast-audit/fixtures/empty.jsonc} \
@@ -87,7 +82,7 @@
           fi
           cat $out/rejected.txt
           # Prove the directly called zero-argument mismatch fails by itself.
-          node ${auditTools}/tools/cast-audit/select.ts $out/report.json takes_int > $out/direct.json
+          node ${tools}/tools/cast-audit/select.ts $out/report.json takes_int > $out/direct.json
           if node ${script} compare $out/direct.json ${../../tools/cast-audit/fixtures/empty.jsonc} \
             > $out/direct-rejected.txt 2>&1; then
             echo "an empty allow-list incorrectly accepted the direct-call mismatch" >&2

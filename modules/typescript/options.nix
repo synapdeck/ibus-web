@@ -56,6 +56,16 @@
           browsers load) and the node_modules Node needs to run it.
         '';
       };
+
+      extraSources = lib.mkOption {
+        type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+        default = { };
+        description = ''
+          Repository files outside a workspace package that its build or tests read, by the
+          package's directory, as repository-relative paths. workspaceFor copies them in
+          whenever it selects that package, at the same paths.
+        '';
+      };
     };
   };
 }

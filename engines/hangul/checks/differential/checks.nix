@@ -57,7 +57,7 @@
         };
         hangul-native-session = config.ibusWeb.testing.vitestCheck {
           name = "hangul-native-session";
-          packageDir = "${config.packages.ibus-test-tools}/tools/ibus-test";
+          packageDir = "${config.ibusWeb.typescript.workspaceFor [ "tools/ibus-test" ]}/tools/ibus-test";
           env = {
             IBUS_TEST_NATIVE_CONFIG = nativeConfig;
             IBUS_TEST_FIXTURE_COMMAND = builtins.toJSON [ "${native}/libexec/test-engine" ];

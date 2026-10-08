@@ -282,25 +282,15 @@
         in
         buildWorkspace (lib.sort builtins.lessThan (map (entry: entry.key) selected));
 
-      coreNoticeInputs = [
-        "LICENSE-MIT"
-        "LICENSE-APACHE"
-        "LICENSES/MIT-open-group.txt"
-        "LICENSES/HPND.txt"
-        "LICENSES/BSD-3-Clause.txt"
-        "LICENSES/LicenseRef-xkeyboard-config.txt"
-        "NOTICES/keysymdef.txt"
-        "NOTICES/chromium.txt"
-      ];
-
       # The sources with nodeModules laid over them, whose links between
       # packages and into the root's store are relative, then compiled.
       buildWorkspace =
         selectedDirs:
         let
-          noticeInputs = lib.optionals (
-            lib.elem "packages/core" selectedDirs || lib.elem "tools/keysyms" selectedDirs
-          ) coreNoticeInputs;
+          # Files outside the selected packages that their builds or tests read.
+          extraInputs = lib.unique (
+            lib.concatMap (dir: config.ibusWeb.typescript.extraSources.${dir} or [ ]) selectedDirs
+          );
         in
         pkgs.stdenvNoCC.mkDerivation {
           name = "ibus-web-typescript";
@@ -311,7 +301,7 @@
                 workspaceFiles
                 # pnpm validates every workspace dependency in the root manifest and lockfile.
                 ++ map (dir: root + "/${dir}/package.json") packageDirs
-                ++ map (file: root + "/${file}") noticeInputs
+                ++ map (file: root + "/${file}") extraInputs
                 ++ map packageSources selectedDirs
               );
             }
@@ -356,7 +346,7 @@
             ${lib.concatMapStrings (file: ''
               mkdir -p $out/${dirOf file}
               cp ${file} $out/${file}
-            '') noticeInputs}
+            '') extraInputs}
             runHook postInstall
           '';
         };
