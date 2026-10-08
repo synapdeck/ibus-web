@@ -50,7 +50,13 @@
             (manifest.scripts.prepack or null) != "node ../../tools/pack-licenses/cli.ts prepack"
             || (manifest.scripts.postpack or null) != "node ../../tools/pack-licenses/cli.ts postpack"
           ) "doesn't pack its licenses with tools/pack-licenses"
-          ++ lib.optional (!(lib.elem "LICENSES" (manifest.files or [ ]))) "doesn't pack LICENSES/"
+          ++ map (entry: "doesn't pack ${entry}") (
+            lib.filter (entry: !(lib.elem entry (manifest.files or [ ]))) [
+              "LICENSES"
+              "LICENSE-MIT"
+              "LICENSE-APACHE"
+            ]
+          )
         );
 
       problems = lib.concatMap problemsOf published;
