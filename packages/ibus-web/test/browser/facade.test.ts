@@ -279,6 +279,34 @@ test("encodes every structural public panel action through the actual protocol b
   expect((await failed).detail.message).toMatch(/index|Uint32|greater|negative/);
   expect(encoded).toHaveLength(6);
 });
+test("lists a module's engines without starting a Worker and rejects an unknown module", async () => {
+  const f = fixture();
+  expect(await f.app.engines("test")).toEqual(manifest.engines);
+  expect(f.start).not.toHaveBeenCalled();
+  await expect(f.app.engines("missing")).rejects.toThrow("Unknown module: missing");
+});
+test("selection and selectionchange follow select, deselect and unload", async () => {
+  const f = fixture();
+  f.app.attach(f.native);
+  f.native.focus();
+  expect(f.app.selection).toBeUndefined();
+  const selected = nextEvent(f.app, "selectionchange");
+  await f.app.select("test");
+  expect((await selected).detail).toEqual({ module: "test", engine: "test" });
+  expect(f.app.selection).toEqual({ module: "test", engine: "test" });
+  await expect(f.app.select("test", "missing")).rejects.toThrow(/Unknown engine/);
+  expect(f.app.selection).toEqual({ module: "test", engine: "test" });
+  const deselected = nextEvent(f.app, "selectionchange");
+  await f.app.deselect();
+  expect((await deselected).detail).toBeNull();
+  expect(f.app.selection).toBeUndefined();
+  expect(key(f.native).defaultPrevented).toBe(false);
+  expect(f.connections[0]!.terminated).toBe(false);
+  await f.app.select("test", "test");
+  const unloaded = nextEvent(f.app, "selectionchange");
+  await f.app.unload("test");
+  expect((await unloaded).detail).toBeNull();
+});
 test("publishes state and storage CustomEvents from actual core lifecycle, including restart and unload", async () => {
   const f = fixture();
   f.app.attach(f.native);

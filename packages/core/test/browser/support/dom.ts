@@ -42,7 +42,11 @@ const manifest: ModuleManifest = {
   threads: 0,
   data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
-  engines: [{ name: "factory", displayName: "factory", languages: [], keyboard: { layout: "us", passThrough: [] } }],
+  // The second engine passes `a` through, so a test can tell whose keyboard policy applies.
+  engines: [
+    { name: "factory", displayName: "Factory", languages: [], keyboard: { layout: "us", passThrough: [] } },
+    { name: "other", displayName: "Other", languages: [], keyboard: { layout: "us", passThrough: ["a"] } },
+  ],
   settingsSchemas: [],
 };
 export class DomConnection extends FakeConnection {

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 import { run, select, key, preedit } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 test("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit", () =>
@@ -24,7 +24,7 @@ test("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedi
 test("preserves per-surface overrides across global switch and restart, reusing the Worker", () =>
   run(async ({ router, registry, connections, field }) => {
     const f = field();
-    await Effect.runPromise(router.override(f.adapter, "a"));
+    await Effect.runPromise(router.override(f.adapter, { module: "a" }));
     f.element.focus();
     await select(router);
     await select(router, "b");
@@ -42,6 +42,124 @@ test("preserves per-surface overrides across global switch and restart, reusing 
     expect(connections.a[1]!.sent.filter((x) => x.request._tag === "CreateEngine")).toHaveLength(1);
     await Effect.runPromise(router.override(f.adapter, undefined));
     expect(connections.b[0]!.sent.some((x) => x.request._tag === "FocusIn")).toBe(true);
+  }));
+test("switching engine within a module reuses its Worker and destroys the old engine first", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const a = connections.a[0]!;
+    a.outcome = { _tag: "reply", ret: 1, records: [preedit()] };
+    key(f.element);
+    await Effect.runPromise(router.select("a", "other"));
+    expect(f.element.value).toBe("한");
+    expect(connections.a).toHaveLength(1);
+    expect(
+      a.sent
+        .map((x) => x.request._tag)
+        .filter((tag) => ["CreateEngine", "DestroyEngine", "Enable", "Disable", "FocusIn", "FocusOut"].includes(tag)),
+    ).toEqual([
+      "CreateEngine",
+      "Enable",
+      "FocusIn",
+      "Disable",
+      "FocusOut",
+      "DestroyEngine",
+      "CreateEngine",
+      "Enable",
+      "FocusIn",
+    ]);
+    expect(a.sent.flatMap(({ request }) => (request._tag === "CreateEngine" ? [request.name] : []))).toEqual([
+      "factory",
+      "other",
+    ]);
+    expect(router.selection).toEqual({ module: "a", engine: "other" });
+    expect(router.activeContext()).toMatchObject({ module: "a", engine: "other", adapter: f.adapter });
+  }));
+test("the keyboard policy follows the selected engine", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    connections.a[0]!.outcome = { _tag: "reply", ret: 1, records: [] };
+    expect(key(f.element).defaultPrevented).toBe(true);
+    await Effect.runPromise(router.select("a", "other"));
+    expect(key(f.element).defaultPrevented).toBe(false);
+    expect(key(f.element, "b").defaultPrevented).toBe(true);
+  }));
+test("an unknown module or engine fails without changing the selection or starting a Worker", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    await expect(Effect.runPromise(router.select("a", "missing"))).rejects.toThrow(/Unknown engine/);
+    await expect(Effect.runPromise(router.select("b", "missing"))).rejects.toThrow(/Unknown engine/);
+    await expect(Effect.runPromise(router.select("c"))).rejects.toThrow(/Unknown module/);
+    expect(router.selection).toEqual({ module: "a", engine: "factory" });
+    expect(connections.b).toHaveLength(0);
+    connections.a[0]!.outcome = { _tag: "reply", ret: 1, records: [] };
+    expect(key(f.element).defaultPrevented).toBe(true);
+  }));
+test("deselect finishes the composition and returns surfaces to native input without unloading", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const a = connections.a[0]!;
+    a.outcome = { _tag: "reply", ret: 1, records: [preedit()] };
+    key(f.element);
+    await Effect.runPromise(router.deselect());
+    expect(f.element.value).toBe("한");
+    expect(router.selection).toBeUndefined();
+    expect(a.sent.slice(-2).map((x) => x.request._tag)).toEqual(["Disable", "FocusOut"]);
+    expect(key(f.element).defaultPrevented).toBe(false);
+    expect(a.terminated).toBe(false);
+    await select(router);
+    expect(key(f.element).defaultPrevented).toBe(true);
+    expect(a.sent.filter((x) => x.request._tag === "CreateEngine")).toHaveLength(1);
+  }));
+test("an override can name another engine of the module, in its own context on the same Worker", () =>
+  run(async ({ router, connections, field }) => {
+    const first = field(),
+      second = field();
+    await Effect.runPromise(router.override(second.adapter, { module: "a", engine: "other" }));
+    first.element.focus();
+    await select(router);
+    second.element.focus();
+    await select(router);
+    expect(connections.a).toHaveLength(1);
+    expect(
+      connections.a[0]!.sent.flatMap(({ request, ic }) =>
+        request._tag === "CreateEngine" ? [[ic, request.name]] : [],
+      ),
+    ).toEqual([
+      [1, "factory"],
+      [2, "other"],
+    ]);
+    expect(router.activeContext()).toMatchObject({ module: "a", engine: "other", adapter: second.adapter });
+    connections.a[0]!.outcome = { _tag: "reply", ret: 1, records: [] };
+    expect(key(second.element).defaultPrevented).toBe(false);
+    expect(key(second.element, "b").defaultPrevented).toBe(true);
+  }));
+test("selection changes are published in order", () =>
+  run(async ({ router }) => {
+    const seen: unknown[] = [];
+    const listening = Effect.runFork(
+      router.selectionChanges.pipe(Stream.runForEach((selection) => Effect.sync(() => seen.push(selection)))),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Effect.runPromise(router.select("a", "other"));
+    await Effect.runPromise(router.select("a", "other"));
+    await Effect.runPromise(router.deselect());
+    await select(router, "b");
+    await expect.poll(() => seen).toHaveLength(3);
+    expect(seen).toEqual([{ module: "a", engine: "other" }, undefined, { module: "b", engine: "factory" }]);
+    await Effect.runPromise(Fiber.interrupt(listening));
+  }));
+test("a selection waiting for its module's manifest yields to a later one", () =>
+  run(async ({ router }) => {
+    await Promise.all([select(router, "b"), select(router, "a")]);
+    expect(router.selection).toEqual({ module: "a", engine: "factory" });
   }));
 test("hotkeys start empty, can consume a custom binding, and unregister", () =>
   run(async ({ router, connections, field }) => {

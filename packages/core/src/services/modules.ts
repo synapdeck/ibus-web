@@ -5,6 +5,7 @@ import {
   asError,
   ModuleManifest,
   Init,
+  type EngineDescriptor,
   SettingChanged,
   PROTOCOL_VERSION,
   transportLayout,
@@ -49,6 +50,8 @@ export interface ModuleRegistryService {
   /** Development aid: terminate the real connection and use normal crash recovery. */
   debugRestart(name: string): Effect.Effect<void, Error>;
   select(name: string | undefined): Effect.Effect<void, Error>;
+  /** Reads and validates the module's manifest without starting its Worker. */
+  engines(name: string): Effect.Effect<readonly EngineDescriptor[], Error>;
   ensure(name: string): Effect.Effect<void, Error>;
   whenReady(name: string): Effect.Effect<void, Error>;
   state(name: string): ModuleState;
@@ -147,42 +150,54 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             });
         }
       });
+    const readManifest = async (name: string): Promise<ModuleManifest> => {
+      const url = options.modules[name]!;
+      const raw = options.loadManifest
+        ? await options.loadManifest(url)
+        : await fetch(url).then((response) => {
+            if (!response.ok) throw new Error(`Manifest fetch failed: ${response.status}`);
+            return response.json();
+          });
+      const manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(raw);
+      for (const engine of manifest.engines) validateKeyboard(engine.keyboard);
+      if (manifest.protocol !== PROTOCOL_VERSION)
+        throw new InitializationRejected(`ProtocolMismatch: page ${PROTOCOL_VERSION}, manifest ${manifest.protocol}`);
+
+      const owner = distributions.get(manifest.name);
+      if (owner !== undefined && owner !== name)
+        throw new Error(`Distribution ${manifest.name} is already registered as ${owner}`);
+      distributions.set(manifest.name, name);
+      return manifest;
+    };
+    // Listing engines and starting the Worker share one read; a failed read is retried on the next use.
+    const reads = new Map<string, Promise<ModuleManifest>>();
+    const manifestOf = (name: string, entry: Entry): Effect.Effect<ModuleManifest, Error> =>
+      Effect.suspend(() => {
+        if (entry.snapshot.manifest) return Effect.succeed(entry.snapshot.manifest);
+
+        let read = reads.get(name);
+        if (!read) {
+          read = readManifest(name).then(
+            (manifest) => {
+              reads.delete(name);
+              entry.snapshot.manifest = manifest;
+              entry.snapshot.keyboards = keyboards(manifest);
+              return manifest;
+            },
+            (cause: unknown) => {
+              reads.delete(name);
+              throw cause;
+            },
+          );
+          reads.set(name, read);
+        }
+        const pending = read;
+        return Effect.tryPromise({ try: () => pending, catch: asError });
+      });
     const boot = (name: string, entry: Entry) =>
       Effect.gen(function* () {
         const lifetime = entry.lifetime!;
-        if (!entry.snapshot.manifest) {
-          const raw = yield* Effect.tryPromise({
-            try: () =>
-              options.loadManifest
-                ? options.loadManifest(options.modules[name]!)
-                : fetch(options.modules[name]!).then((response) => {
-                    if (!response.ok) throw new Error(`Manifest fetch failed: ${response.status}`);
-                    return response.json();
-                  }),
-            catch: asError,
-          });
-          const manifest = yield* Effect.try({
-            try: () => Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(raw),
-            catch: asError,
-          });
-          yield* Effect.try({
-            try: () => {
-              for (const engine of manifest.engines) validateKeyboard(engine.keyboard);
-            },
-            catch: asError,
-          });
-          if (manifest.protocol !== PROTOCOL_VERSION)
-            return yield* Effect.fail(
-              new InitializationRejected(`ProtocolMismatch: page ${PROTOCOL_VERSION}, manifest ${manifest.protocol}`),
-            );
-          const owner = distributions.get(manifest.name);
-          if (owner !== undefined && owner !== name)
-            return yield* Effect.fail(new Error(`Distribution ${manifest.name} is already registered as ${owner}`));
-          distributions.set(manifest.name, name);
-          entry.snapshot.manifest = manifest;
-          entry.snapshot.keyboards = keyboards(manifest);
-        }
-        const manifest = entry.snapshot.manifest;
+        const manifest = yield* manifestOf(name, entry);
         if (settings.register) {
           const metadata = yield* Effect.tryPromise({
             try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
@@ -442,6 +457,20 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           yield* whenReady(name);
         }),
       ensure,
+      engines: (name) =>
+        Effect.suspend(() => {
+          const entry = entries.get(name);
+          if (!entry) return Effect.fail(new Error(`Unknown module: ${name}`));
+          return manifestOf(name, entry).pipe(
+            Effect.map((manifest) => manifest.engines),
+            // An unreadable manifest fails the module, as it would when the module started.
+            Effect.tapError(() =>
+              Effect.sync(() => {
+                if (!entry.started) fail(entry);
+              }),
+            ),
+          );
+        }),
       select: (name) =>
         Effect.gen(function* () {
           if (name !== undefined && !entries.has(name)) return yield* Effect.fail(new Error(`Unknown module: ${name}`));

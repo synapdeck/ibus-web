@@ -26,11 +26,26 @@ listeners and terminates Workers; do not return a router from an already-closed
 `Effect.scoped` program. The [Hangul example](../examples/hangul/src/main.ts) provides
 the complete layer wiring and aborts its long-lived program on pagehide or HMR disposal.
 
-`router.select(module)` selects the page's module; `router.override(adapter, module)`
-sets a surface override, and `undefined` restores the page choice. Both return
-Effects. Attachment assigns a context ID and returns an idempotent detach function.
-Instances are created lazily on focus. `router.hotkeys.add(predicate, action)`
-returns a removal function; there are no default router hotkeys.
+A module is one distribution: one manifest, one Worker. Its engines are the input
+methods inside it. `router.select(module, engine?)` selects an engine, the module's
+first when `engine` is left out, and `router.deselect()` returns every surface,
+overrides included, to native input while Workers stay loaded.
+`router.override(adapter, { module, engine? })` sets a surface override, and
+`undefined` restores the page choice. All three return Effects, and an unknown
+module or engine fails them before anything changes. Naming an engine needs the
+module's manifest: a selection of a module whose manifest hasn't been read waits in
+the router's queue while `registry.engines(module)` reads it, which starts no
+Worker, and until then surfaces following the page take native input. A later
+selection supersedes a waiting one. `router.selection` is the page's
+`{ module, engine }` and `router.selectionChanges` streams each change.
+
+A surface keeps one input context per module, since the host holds one engine per
+context. Switching engine within a module drains the context and sends `Disable`
+and `FocusOut` as any switch does, then `DestroyEngine`, and creates the new engine
+in the same context and Worker with `CreateEngine{engine}`. Attachment assigns a
+context ID and returns an idempotent detach function. Instances are created lazily
+on focus. `router.hotkeys.add(predicate, action)` returns a removal function; there
+are no default router hotkeys.
 
 ## Key translation and layouts
 

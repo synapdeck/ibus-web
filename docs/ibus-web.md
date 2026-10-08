@@ -26,8 +26,9 @@ await ibus.select("hangul");
 // Later: detach(); await ibus.dispose();
 ```
 
-`createIbusWeb` acquires no Worker or storage until selection or a settings
-operation. Options are `hostUrl?: URL`, required `runtimeUrl: URL`, required
+`createIbusWeb` acquires no services or storage until selection, an engine
+listing or a settings operation, and only selection starts a Worker. Options are
+`hostUrl?: URL`, required `runtimeUrl: URL`, required
 `modules: Record<string, URL>` (each module's manifest, under a name the page
 chooses), optional `settings: SettingsSourceService`,
 `logger(entry)`, `logLevel` and partial core `config`. By default `hostUrl` is
@@ -50,7 +51,15 @@ async/manual adapters on one facade and engine FIFO. In manual mode call
 `keyAsync(adapter, event)` during the original key event dispatch; its Promise
 returns `consumed`, `replayed`, `passthrough` or `cancelled`. A `replayed` fallback
 is already applied exactly once; excluded `passthrough` events are untouched.
-`select(module)`, `unload(module)` and `dispose()` return Promises.
+`select(module, engine?)` selects an engine of a module, the module's first when
+`engine` is left out; switching engine within a module reuses its Worker. An
+unknown module or engine rejects before anything changes. `deselect()` returns
+every surface to plain browser input and keeps Workers loaded; hosts bind their own
+shortcut for it, as there are no built-in hotkeys. `selection` is the current
+`{ module, engine }` or `undefined`. `engines(module)` reads and validates a
+module's manifest and resolves to its engine descriptors (`name`, `displayName`,
+`languages`, `keyboard`) without starting a Worker. `select`, `deselect`,
+`engines`, `unload(module)` and `dispose()` return Promises.
 `debugRestart(module)` is a development-only way to terminate the actual Worker
 and await recovery. No concrete CodeMirror adapter is provided.
 
@@ -62,8 +71,9 @@ value)` builds for any type and `stringVariant`, `booleanVariant` and
 metadata supplies defaults, descriptions and actual range/choice constraints.
 Hangul's keyboard setting has no generated choices: hosts should render a
 typed input rather than inventing an enum. The default source persists by origin;
-the optional `settings` service can replace it. `modulestate`, `storage`,
-`panel` and `log` are typed CustomEvent names. `logLevel` filters both `log`
+the optional `settings` service can replace it. `modulestate`, `selectionchange`,
+`storage`, `panel` and `log` are typed CustomEvent names; `selectionchange` carries
+the new selection, or `null` after deselection. `logLevel` filters both `log`
 events and the optional logger callback.
 
 Subpaths: `ibus-web/effect` exposes the core services, adapters and protocol

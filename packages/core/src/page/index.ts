@@ -50,7 +50,14 @@ export {
   type SettingsSourceService,
 } from "../services/settings.ts";
 export { Logger, PanelEvents, glibLevel, type LogLine } from "../services/logging.ts";
-export { Router, makeRouter, type AttachOptions, type HotkeyRegistry, type RouterService } from "../router/router.ts";
+export {
+  Router,
+  makeRouter,
+  type AttachOptions,
+  type HotkeyRegistry,
+  type RouterService,
+  type Selection,
+} from "../router/router.ts";
 export { textareaAdapter } from "../adapters/textarea.ts";
 export {
   SettingsApi,

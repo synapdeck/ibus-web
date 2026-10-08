@@ -1529,13 +1529,20 @@ used. Method and machine details are in `docs/protocol.md`.
 
 #### 7.1.3 Engine selection
 
+- A module is one engine distribution: one manifest, one side module, one
+  Worker. An engine is one input method inside it, created with
+  `CreateEngine{name}`.
 - One active engine for the page, with composition state per input context,
   matching IBus's shared-input-method default. A per-context override API
-  exists.
+  exists and can name an engine.
 - Switching sends `Disable` and `FocusOut` to the old instance, then creates
-  or reuses the new one and sends `Enable` and `FocusIn`.
+  or reuses the new one and sends `Enable` and `FocusIn`. Switching engine
+  within a module reuses its Worker: the old engine is destroyed and the new
+  one created in the same input context.
+- `deselect()` returns every surface to plain browser input; Workers stay
+  loaded.
 - A hotkey registry exists with no default bindings.
-- A Worker starts when its engine is first selected and stays loaded until
+- A Worker starts when its module is first selected and stays loaded until
   the host calls `unload(module)` or disposes the library.
 
 #### 7.1.4 Settings API
@@ -1799,11 +1806,14 @@ createIbusWeb(options: {
   the built-in adapter, and `attachAdapter(adapter, options?)` any adapter;
   both take `keyMode` and return a detach function.
 - `keyAsync(adapter, event)` for async and manual surfaces (§7.2.2).
-- `select(module)`, `unload(module)` and `dispose()`.
-- `debugRestart(module)`, for development: it terminates the engine's
+- `select(module, engine?)`, `deselect()`, `unload(module)` and `dispose()`;
+  `selection` is the current `{ module, engine }`.
+- `engines(module)` reads and validates a module's manifest without starting
+  its Worker.
+- `debugRestart(module)`, for development: it terminates the module's
   Worker and waits for the ordinary crash recovery.
 - `settings.schemas`, `get`, `set` and `reset` (§7.1.4).
-- Events `modulestate`, `storage`, `panel` and `log`.
+- Events `modulestate`, `selectionchange`, `storage`, `panel` and `log`.
 
 The `PanelHost` side gives a panel the caret rectangle, the orientation
 setting, a way to send its actions to the engine and to report its errors.

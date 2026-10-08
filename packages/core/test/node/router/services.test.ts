@@ -98,6 +98,50 @@ it.effect("registry validates keyboard names before starting a Worker", () =>
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("registry lists a module's engines without starting its Worker, and starts it on the same read", () =>
+  Effect.gen(function* () {
+    let reads = 0,
+      starts = 0;
+    const registry = yield* makeModuleRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      modules: { test: url },
+      loadManifest: async () => {
+        reads++;
+        return { ...manifest, engines: [...manifest.engines, { ...manifest.engines[0]!, name: "second" }] };
+      },
+      start: async () => {
+        starts++;
+        const connection = new FakeConnection();
+        connection.requestAsync = async () => emptyReply;
+        return connection;
+      },
+    });
+    expect((yield* registry.engines("test")).map((engine) => engine.name)).toEqual(["test", "second"]);
+    expect(starts).toBe(0);
+    expect(registry.state("test")).toBe("starting");
+    yield* registry.select("test");
+    expect(starts).toBe(1);
+    expect(reads).toBe(1);
+    expect([...registry.snapshot("test")!.keyboards.keys()]).toEqual(["test", "second"]);
+    expect((yield* Effect.exit(registry.engines("missing")))._tag).toBe("Failure");
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("an unreadable manifest fails the module when its engines are listed", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeModuleRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      modules: { test: url },
+      loadManifest: async () => ({ ...manifest, engines: [] }),
+      start: async () => new FakeConnection(),
+    });
+    expect((yield* Effect.exit(registry.engines("test")))._tag).toBe("Failure");
+    expect(registry.state("test")).toBe("failed");
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect(
   "settings and panel streams publish after synchronous enqueue, and logger maps GLib levels with annotations",
   () =>

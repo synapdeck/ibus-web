@@ -17,14 +17,16 @@ import {
   type ModuleEvent,
   type ModuleRegistryService,
   type RouterService,
+  type Selection,
   type SettingsApiService,
   type SettingsSourceService,
   type SurfaceAdapter,
 } from "@ibus-web/core";
-import { errorMessage, PanelAction } from "@ibus-web/protocol";
+import { errorMessage, PanelAction, type EngineDescriptor } from "@ibus-web/protocol";
 import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
-export type { AttachOptions, AsyncKeyResult, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
+export type { AttachOptions, AsyncKeyResult, Selection, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
+export type { EngineDescriptor } from "@ibus-web/protocol";
 export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
 export { booleanVariant, int32Variant, stringVariant, variant } from "@ibus-web/protocol";
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -47,6 +49,8 @@ export interface IbusWebOptions {
 export interface IbusWebEventMap {
   modulestate: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "state" }>, "_tag">>;
   storage: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "storage" }>, "_tag">>;
+  /** `null` after deselection: a CustomEvent can't carry an undefined detail. */
+  selectionchange: CustomEvent<Selection | null>;
   panel: CustomEvent<PanelUpdate>;
   log: CustomEvent<LogEntry>;
 }
@@ -55,10 +59,16 @@ export interface IbusWeb extends PanelHost {
   attachAdapter(adapter: SurfaceAdapter, options?: AttachOptions): () => void;
   /** Invoke during original dispatch; replayed means fallback is already applied. */
   keyAsync(adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult>;
-  select(module: string): Promise<void>;
+  /** Without an engine, selects the module's first. An unknown module or engine rejects before anything changes. */
+  select(module: string, engine?: string): Promise<void>;
+  /** Returns every surface to plain browser input; Workers stay loaded. */
+  deselect(): Promise<void>;
   unload(module: string): Promise<void>;
   /** Development only: terminates the actual Worker and awaits normal recovery. */
   debugRestart(module: string): Promise<void>;
+  /** Reads and validates the module's manifest without starting its Worker. */
+  engines(module: string): Promise<EngineDescriptor[]>;
+  readonly selection: Selection | undefined;
   readonly settings: Omit<SettingsApiService, "changes">;
   dispose(): Promise<void>;
   addEventListener<K extends keyof IbusWebEventMap>(
@@ -83,7 +93,7 @@ const panelSchema = "org.freedesktop.ibus.panel",
 const decodePanelAction = Schema.decodeUnknownSync(PanelAction);
 const levels: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
-/** No services, storage or Workers are acquired until selection or a settings operation. */
+/** No services or storage are acquired until selection, an engine listing or a settings operation; only selection starts Workers. */
 export function createIbusWeb(options: IbusWebOptions): IbusWeb {
   const target = new EventTarget();
   const attachments = new Map<SurfaceAdapter, { options: AttachOptions; detach?: () => void }>();
@@ -174,6 +184,10 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         Stream.runForEach((event) => Effect.sync(() => emit("panel", event))),
         Effect.forkScoped,
       );
+      yield* router.selectionChanges.pipe(
+        Stream.runForEach((selection) => Effect.sync(() => emit("selectionchange", selection ?? null))),
+        Effect.forkScoped,
+      );
       yield* settings.changes.pipe(
         Stream.runForEach((change) =>
           Effect.sync(() => {
@@ -234,10 +248,16 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
     attachAdapter,
     keyAsync: (adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult> =>
       services && !closed ? services.router.keyAsync(adapter, event) : Promise.resolve("passthrough"),
-    select: async (module: string) => {
+    select: async (module: string, engine?: string) => {
       const current = await initialize();
-      await runtime.runPromise(current.router.select(module));
+      await runtime.runPromise(current.router.select(module, engine));
       await refreshOrientation(module, current.settings);
+    },
+    deselect: async () => {
+      alive();
+      if (!initializing) return;
+      const current = await initialize();
+      await runtime.runPromise(current.router.deselect());
     },
     unload: async (module: string) => {
       alive();
@@ -248,9 +268,19 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
     },
     debugRestart: async (module: string) => {
       const current = await initialize();
+      const selection = current.router.selection;
       await runtime.runPromise(current.registry.debugRestart(module));
-      await runtime.runPromise(current.router.select(module));
+      await runtime.runPromise(
+        current.router.select(module, selection?.module === module ? selection.engine : undefined),
+      );
     },
+    engines: async (module: string) => {
+      alive();
+      if (!Object.hasOwn(options.modules, module)) throw new Error(`Unknown module: ${module}`);
+      const current = await initialize();
+      return [...(await runtime.runPromise(current.registry.engines(module)))];
+    },
+    selection: undefined as Selection | undefined,
     settings: {
       schemas: async (module: string) => {
         const current = await initialize();
@@ -319,6 +349,11 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       );
       return disposal;
     },
+  });
+  // Object.assign copies a getter's value once, so the live getter is defined afterwards.
+  Object.defineProperty(app, "selection", {
+    enumerable: true,
+    get: () => (closed ? undefined : services?.router.selection),
   });
   return app;
 }
