@@ -11,6 +11,10 @@
     "./vitest": {
       "types": "./src/node/vitest.ts",
       "default": "./dist/node/vitest.js"
+    },
+    "./console": {
+      "types": "./src/node/console.ts",
+      "default": "./dist/node/console.js"
     }
   },
   "scripts": {

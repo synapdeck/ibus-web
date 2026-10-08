@@ -10,10 +10,10 @@ declare module "vitest/browser" {
   interface BrowserCommands {
     // Reads a TAP program's stdout.
     parseTap(text: string): Promise<ParsedReport>;
-    // Starts keeping the page's console messages, its Workers' included,
-    // and forgets any kept before.
+    // Forgets the console messages kept so far and keeps the page's, its
+    // Workers' included, from now on.
     consoleBegin(): Promise<void>;
-    // The messages kept since consoleBegin(); stops keeping them.
+    // The messages kept since consoleBegin() or the last consoleTake().
     consoleTake(): Promise<OutputLine[]>;
   }
 }

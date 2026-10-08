@@ -6,10 +6,10 @@
 
 declare module "vitest/browser" {
   interface BrowserCommands {
-    // Starts keeping what the page's Workers print to their consoles, the
-    // host's and its pthreads' alike, if it hasn't yet.
+    // Forgets the lines kept so far and keeps what the page's Workers print
+    // to their consoles, the host's and its pthreads' alike, from now on.
     consoleBegin(): Promise<void>;
-    // The lines kept since the last call.
+    // The lines kept since consoleBegin() or the last consoleTake().
     consoleTake(): Promise<string[]>;
   }
 }
