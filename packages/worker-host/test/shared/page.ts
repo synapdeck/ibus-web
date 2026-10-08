@@ -7,7 +7,8 @@ import {
   type DecodedRecord,
   type TransportLayout,
 } from "@ibus-web/protocol";
-import { controlViews, postRequest, takeReply, ReqMode, State, Word, type Reply } from "../../src/shared/control.ts";
+import { ReqMode, State, Word } from "@ibus-web/protocol/transport";
+import { controlViews, postRequest, takeReply, type Reply } from "../../src/shared/control.ts";
 import type { Clock } from "./client.ts";
 
 export class Page {

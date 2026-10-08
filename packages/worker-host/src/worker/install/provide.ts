@@ -16,10 +16,10 @@
 // once the marker is durable, rather than mount a read-only one as well,
 // since a backend's thread lasts as long as the runtime.
 
-import { errorSummary } from "@ibus-web/protocol";
+import { errorSummary, type EngineManifest } from "@ibus-web/protocol";
 import { Effect, type Scope } from "effect";
 import type { HostConfigValues } from "../../shared/config.ts";
-import type { CollectReport, EngineManifest, HostMessage, InstallReport } from "../../shared/messages.ts";
+import type { CollectReport, HostMessage, InstallReport } from "../../shared/messages.ts";
 import { encodeComponent, engineDataLock, engineDataRoot, engineInstallLock } from "../../shared/naming.ts";
 import { runtimeCallFailed, runtimeFinalizer, startupFailed, StartupFailed } from "../failure.ts";
 import type { Instruments } from "../instruments.ts";
@@ -32,7 +32,7 @@ import { installArchives, type ArchiveHooks, type Tally } from "./archive.ts";
 import { idbStore, nodeStore, type DataStore } from "./store.ts";
 import { holdLock, progressOn } from "./wait.ts";
 
-export interface ProvideData {
+interface ProvideData {
   readonly handle: RuntimeHandle;
   readonly engine: EngineManifest;
   readonly plan: StoragePlan;
@@ -44,7 +44,7 @@ export interface ProvideData {
 }
 
 // What the engine's data is mounted on.
-export interface DataMount {
+interface DataMount {
   // Whether its IndexedDB backend's connection has closed under it.
   readonly closed: () => boolean;
 }

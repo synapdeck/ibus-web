@@ -17,8 +17,8 @@ import { EngineScopes } from "./scopes.ts";
 import { writeHostRecord, drainOutput, HostDefect } from "./output.ts";
 import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { engineDir, engineWriterLock } from "../shared/naming.ts";
-import { RingWriter, transportLayout } from "@ibus-web/protocol/transport";
-import { controlViews, postCrash, Word, type ControlViews } from "../shared/control.ts";
+import { RingWriter, transportLayout, Word } from "@ibus-web/protocol/transport";
+import { controlViews, postCrash, type ControlViews } from "../shared/control.ts";
 import { WASM_PAGE, type HostInit, type HostMessage, type RuntimeMemory } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
 import {

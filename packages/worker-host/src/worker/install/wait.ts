@@ -11,13 +11,13 @@ import { requestLock } from "../storage/locks.ts";
 
 // A lock once granted: how long the request waited, and when it was
 // granted, in Date.now() milliseconds, which hosts share.
-export interface Granted {
+interface Granted {
   readonly lock: HeldLock;
   readonly waitMs: number;
   readonly lockedAt: number;
 }
 
-export type WaitLimits = Pick<HostConfigValues, "lockRoundMs" | "lockLimitMs">;
+type WaitLimits = Pick<HostConfigValues, "lockRoundMs" | "lockLimitMs">;
 
 // Requests the lock and resolves once it is held, calling waiting() first if
 // it isn't free. With progress, the holder's word on the BroadcastChannel of

@@ -1,14 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { encodeValue, RingWriter, recordKinds } from "@ibus-web/protocol";
+import { encodeValue, recordKinds, ReqMode, RingWriter, State, transportLayout, Word } from "@ibus-web/protocol";
 import {
   controlViews,
   postReply,
   postCrash,
-  ReqMode,
-  State,
-  Word,
-  transportLayout,
   type HostInit,
   type HostMessage,
   type ControlViews,

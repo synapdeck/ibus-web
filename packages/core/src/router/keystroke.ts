@@ -37,7 +37,7 @@ interface PendingKey {
   retired?: boolean;
   readonly completion?: { resolve(result: AsyncKeyResult): void; reject(cause: unknown): void };
 }
-export interface RouterOutput {
+interface RouterOutput {
   readonly replayLimit: number;
   /** Enqueue-only observer; never run an Effect on the key stack. */
   changed?(): void;

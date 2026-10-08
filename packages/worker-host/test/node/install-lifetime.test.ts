@@ -13,7 +13,7 @@ import * as mounts from "../../src/worker/storage/mount.ts";
 import { Held } from "../../src/worker/storage/held.ts";
 import type { RuntimeHandle } from "../../src/worker/runtime.ts";
 import { engineInstallLock } from "../../src/shared/naming.ts";
-import type { EngineManifest } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
 
 const gate = () => {
   let entered!: () => void;

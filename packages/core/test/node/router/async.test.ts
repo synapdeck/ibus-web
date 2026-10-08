@@ -251,7 +251,7 @@ test("the native synchronous sink does not construct a Promise", () => {
 test("real Connection publishes ASYNC and applies ring output before settling without polling a reply", async () => {
   const { Connection } = await import("../../../src/connection/connection.ts");
   const { FakeWorker, record } = await import("../support/fake-worker.ts");
-  const { Word, ReqMode } = await import("@ibus-web/worker-host");
+  const { Word, ReqMode } = await import("@ibus-web/protocol");
   const host = new FakeWorker(),
     f = fixture();
   const module = await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
@@ -408,7 +408,7 @@ for (const callback of ["output", "fallback"])
     test(`real Connection advances ${request._tag} and async input after abandoned native ${callback} failure`, async () => {
       const { Connection } = await import("../../../src/connection/connection.ts");
       const { FakeWorker, record } = await import("../support/fake-worker.ts");
-      const { Word, State, ReqMode } = await import("@ibus-web/worker-host");
+      const { Word, State, ReqMode } = await import("@ibus-web/protocol");
       const host = new FakeWorker(),
         f = fixture();
       const module = await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));

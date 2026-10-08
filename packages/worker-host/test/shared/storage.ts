@@ -8,7 +8,8 @@
 
 import { expect } from "vitest";
 import type { Reply } from "./client.ts";
-import { memoryWithData, type EngineManifest, type StorageState } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
+import { memoryWithData, type StorageState } from "../../src/shared/messages.ts";
 import { encodeComponent, engineDataLock, engineDir, engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";
 import {

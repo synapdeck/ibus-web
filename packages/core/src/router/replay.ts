@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-export interface PreeditAttribute {
+interface PreeditAttribute {
   readonly type: number;
   readonly value: number;
   readonly start: number;

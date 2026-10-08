@@ -9,7 +9,8 @@ import { CrashReason, RingReader, transportLayout, decodeRecord } from "@ibus-we
 import { controlViews } from "../../src/shared/control.ts";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Layer, Scope } from "effect";
-import { createControl, State, Word } from "../../src/shared/control.ts";
+import { State, Word } from "@ibus-web/protocol/transport";
+import { createControl } from "../../src/shared/control.ts";
 import type { HostInit, HostMessage } from "../../src/shared/messages.ts";
 import { defaultHostConfig, HostConfig } from "../../src/worker/config.ts";
 import { RuntimeRefused } from "../../src/worker/runtime.ts";

@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { State, Word, type ControlViews } from "../shared/control.ts";
-import type { RingWriter } from "@ibus-web/protocol/transport";
+import type { ControlViews } from "../shared/control.ts";
+import { State, Word, type RingWriter } from "@ibus-web/protocol/transport";
 import { CrashReason } from "@ibus-web/protocol";
 import { RuntimeStopped } from "./failure.ts";
 import type { Runtime } from "./runtime.ts";
 
 export class HostDefect extends Error {}
 
-export interface OutputWaitContext {
+interface OutputWaitContext {
   readonly control: ControlViews;
   readonly handle: { readonly words: Int32Array };
   readonly wakeIndex: number;

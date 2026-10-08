@@ -10,17 +10,6 @@ import {
   type TransportViews,
 } from "@ibus-web/protocol/transport";
 
-export {
-  transportLayout,
-  transportViews,
-  ReqMode,
-  State,
-  Word,
-  HEADER_BYTES,
-  DEFAULT_SLOT_BYTES,
-  DEFAULT_RING_BYTES,
-  type TransportLayout,
-} from "@ibus-web/protocol/transport";
 export type ControlViews = TransportViews;
 export interface Reply {
   ret: number;

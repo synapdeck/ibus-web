@@ -1,8 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Clock, Context, Effect, Exit, Layer, PubSub, Schema, Scope, Stream } from "effect";
-import { asError, EngineManifest, Init, SettingChanged, PROTOCOL_VERSION, type Request } from "@ibus-web/protocol";
-import { transportLayout, type StorageState } from "@ibus-web/worker-host";
+import {
+  asError,
+  EngineManifest,
+  Init,
+  SettingChanged,
+  PROTOCOL_VERSION,
+  transportLayout,
+  type Request,
+} from "@ibus-web/protocol";
+import type { StorageState } from "@ibus-web/worker-host";
 import { Connection, type ConnectionOptions, type CrashInfo, type Reply } from "../connection/connection.ts";
 import { keysymByName } from "../keys/keysyms.generated.ts";
 import { validateKeyboard } from "../keys/manifest.ts";
@@ -19,7 +27,7 @@ import { loadSettingsMetadata } from "../settings/api.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
-export interface EngineRegistryOptions {
+interface EngineRegistryOptions {
   readonly hostUrl: URL;
   readonly runtimeUrl: URL;
   /** Public registry keys may differ from both manifest.name and manifest.engines. */

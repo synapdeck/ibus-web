@@ -5,8 +5,8 @@
 // asleep in ibusweb_wait() runs nothing else, so nothing here may rely on
 // another fiber, a timer or a promise; GLib's time is the wait's timeout.
 
-import { postReply, ReqMode, State, Word, type ControlViews } from "../shared/control.ts";
-import { RingWriter } from "@ibus-web/protocol/transport";
+import { postReply, type ControlViews } from "../shared/control.ts";
+import { ReqMode, RingWriter, State, Word } from "@ibus-web/protocol/transport";
 import { CrashReason, errorReport, requestKinds } from "@ibus-web/protocol";
 import { RuntimeStopped } from "./failure.ts";
 import type { EngineScopes } from "./scopes.ts";
@@ -60,7 +60,7 @@ export type Step =
   | { kind: "idle"; seen: number; delay: number };
 
 // Why the synchronous section returned.
-export type Excursion =
+type Excursion =
   | { kind: "topUp"; want: number }
   | { kind: "await"; reply: Promise<InstrumentReply> }
   | { kind: "relayFailed" }

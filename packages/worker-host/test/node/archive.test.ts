@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import { installArchives } from "../../src/worker/install/archive.ts";
 import { entryGuard } from "../../src/worker/install/entries.ts";
 import { RuntimeRefused, type Runtime, type RuntimeHandle } from "../../src/worker/runtime.ts";
-import type { EngineManifest } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
 
 const engine: EngineManifest = {
   version: "1",

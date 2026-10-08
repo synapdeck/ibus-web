@@ -5,7 +5,7 @@
 // HostOp requests.
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import { Word } from "../../src/shared/control.ts";
+import { Word } from "@ibus-web/protocol/transport";
 
 import type { InstrumentReply, Instruments } from "../../src/worker/instruments.ts";
 import { topUp } from "../../src/worker/loop.ts";

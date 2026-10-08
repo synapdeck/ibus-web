@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test, vi } from "vitest";
-import type { EngineManifest } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
 import { checkMemory } from "../../src/worker/runtime.ts";
 import { Held } from "../../src/worker/storage/held.ts";
 import { memoryFor, planStorage, type StoragePlan } from "../../src/worker/storage/plan.ts";

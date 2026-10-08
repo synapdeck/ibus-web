@@ -47,7 +47,7 @@ export interface Runtime {
 }
 
 // Emscripten's internals, not an API: requireRuntime() checks they are there.
-export interface EmscriptenPool {
+interface EmscriptenPool {
   // The Workers pthread_create() hands threads to, last first.
   unusedWorkers: Worker[];
   // Creates a Worker for the pool and adds it to unusedWorkers.

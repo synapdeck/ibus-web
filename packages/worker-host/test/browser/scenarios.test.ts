@@ -5,7 +5,7 @@
 // the page spinning for each reply. heap-full runs under Node only.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
-import type { EngineManifest } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
 import type { HostOptions, RunningHost } from "../shared/harness.ts";
 import { protocolRoundtrip } from "../shared/protocol.ts";
 import { failedInstantiate, refusedMemory, relayFailure, released, topUpLimit } from "../shared/lifecycle.ts";

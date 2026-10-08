@@ -6,8 +6,8 @@
 // at most a budget, then waits for the reply without holding it. A reply
 // that comes only then is a late reply, which fails the test that made it.
 
-import { transportLayout, type TransportLayout } from "@ibus-web/protocol/transport";
-import { ReqMode, State, Word, type Reply as ProtocolReply } from "../../src/shared/control.ts";
+import { ReqMode, State, transportLayout, Word, type TransportLayout } from "@ibus-web/protocol/transport";
+import type { Reply as ProtocolReply } from "../../src/shared/control.ts";
 import { encodeTestOp, type Message } from "./testing.ts";
 import { Page } from "./page.ts";
 export interface Reply extends ProtocolReply {

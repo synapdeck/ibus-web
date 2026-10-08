@@ -74,7 +74,7 @@ test("ring progress resets the no-progress hang clock even without a reply", asy
 test("real async lifecycle reply records precede unsolicited tail records from the same doorbell", async () => {
   const f = await start();
   const { FocusIn } = await import("@ibus-web/protocol");
-  const { State, Word } = await import("@ibus-web/worker-host");
+  const { State, Word } = await import("@ibus-web/protocol");
   host.scripts.push({ records: [record(1)] });
   const request = f.router.request(new FocusIn({}), 1);
   host.tick();
@@ -105,7 +105,7 @@ test("real async key reply owns its batch until its promise applies it, before u
 
 test("a sync reply's buffered tail is applied later without a host bell and without draining new ring output", async () => {
   const f = await start();
-  const { State, Word } = await import("@ibus-web/worker-host");
+  const { State, Word } = await import("@ibus-web/protocol");
   host.scripts.push({ records: [record(1)] });
   let appended = false;
   host.onTick = () => {
@@ -128,7 +128,7 @@ test("a sync reply's buffered tail is applied later without a host bell and with
 
 test.each(["detach", "crash"])("the deferred sync tail is ignored after %s", async (mode) => {
   const f = await start();
-  const { State, Word } = await import("@ibus-web/worker-host");
+  const { State, Word } = await import("@ibus-web/protocol");
   host.scripts.push({ records: [record(1)] });
   let appended = false;
   host.onTick = () => {
@@ -150,7 +150,7 @@ test.each(["detach", "crash"])("the deferred sync tail is ignored after %s", asy
 test("a buffered sync tail held by a later async lifecycle request is eventually applied in reply order", async () => {
   const f = await start();
   const { FocusIn } = await import("@ibus-web/protocol");
-  const { State, Word } = await import("@ibus-web/worker-host");
+  const { State, Word } = await import("@ibus-web/protocol");
   host.scripts.push({ records: [record(1)] }, { records: [record(3)] });
   let appended = false;
   host.onTick = () => {
@@ -171,7 +171,7 @@ test("a buffered sync tail held by a later async lifecycle request is eventually
 
 test("the buffered sync tail cannot be delivered to a new context generation", async () => {
   const f = await start();
-  const { State, Word } = await import("@ibus-web/worker-host");
+  const { State, Word } = await import("@ibus-web/protocol");
   host.scripts.push({ records: [record(1)] });
   let appended = false;
   host.onTick = () => {

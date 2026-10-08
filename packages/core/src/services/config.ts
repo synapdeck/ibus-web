@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Context, Layer, Schedule } from "effect";
-import { transportLayout } from "@ibus-web/worker-host";
+import { transportLayout } from "@ibus-web/protocol";
 
 export interface CoreConfigValues {
   readonly budgetMs: number;

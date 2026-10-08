@@ -11,14 +11,14 @@
 // trusted not to write its data.
 
 import { encodeComponent, engineDataDatabase, engineDataDatabasePrefix } from "../../shared/naming.ts";
-import type { EngineManifest } from "../../shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
 import { nodeFs } from "../node-fs.ts";
 import { withString, type RuntimeHandle } from "../runtime.ts";
 import { openExisting } from "../storage/plan.ts";
 
 // The marker of a version's data installed whole: the regular files and
 // bytes of file data its install wrote.
-export interface Marker {
+interface Marker {
   version: string;
   files: number;
   bytes: number;

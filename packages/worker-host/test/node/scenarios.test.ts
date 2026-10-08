@@ -7,7 +7,7 @@
 // browsers only.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
-import type { EngineManifest } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
 import type { HostOptions, RunningHost } from "../shared/harness.ts";
 import {
   abortPrinted,

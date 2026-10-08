@@ -11,7 +11,7 @@
 import type { TransportLayout } from "@ibus-web/protocol/transport";
 import { controlViews, postCrash } from "../shared/control.ts";
 
-export interface RelayWord {
+interface RelayWord {
   buffer: SharedArrayBuffer;
   index: number;
 }

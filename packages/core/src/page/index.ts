@@ -1,16 +1,53 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-export * from "../connection/connection.ts";
-export * from "../shared/index.ts";
-export * from "../router/replay.ts";
-export * from "../router/keystroke.ts";
-export * from "../services/config.ts";
-export * from "../services/engines.ts";
-export * from "../services/settings.ts";
+export {
+  Connection,
+  ConnectionBusyError,
+  type ConnectionOptions,
+  type CrashInfo,
+  type Reply,
+  type SyncOutcome,
+} from "../connection/connection.ts";
+export {
+  codepointForKeysym,
+  evdevForCode,
+  keysymByName,
+  keysymForCodepoint,
+  translateKey,
+  validateKeyboard,
+  type KeyLike,
+} from "../keys/index.ts";
+export {
+  ReplayQueue,
+  type AsyncKeyResult,
+  type KeyResult,
+  type KeySink,
+  type Preedit,
+  type SurfaceAdapter,
+} from "../router/replay.ts";
+export {
+  KeyRouter,
+  type EngineSnapshot,
+  type EngineState,
+  type KeyConnection,
+  type KeyContext,
+} from "../router/keystroke.ts";
+export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
+export {
+  EngineRegistry,
+  makeEngineRegistry,
+  type EngineEvent,
+  type EngineRegistryService,
+} from "../services/engines.ts";
+export {
+  SettingsSource,
+  type SettingsChange,
+  type SettingsSnapshot,
+  type SettingsSourceService,
+} from "../services/settings.ts";
 export { Logger, PanelEvents, glibLevel, type LogLine } from "../services/logging.ts";
-export * from "../router/router.ts";
-export * from "../adapters/textarea.ts";
-
+export { Router, makeRouter, type AttachOptions, type RouterService } from "../router/router.ts";
+export { textareaAdapter } from "../adapters/textarea.ts";
 export {
   SettingsApi,
   type SettingsApiService,

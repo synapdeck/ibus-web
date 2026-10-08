@@ -34,10 +34,4 @@ export const Byte = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minim
 );
 export const Int32 = Schema.Number.check(Schema.isInt32()).pipe(gvariant("i"));
 export const Uint32 = Schema.Number.check(Schema.isUint32()).pipe(gvariant("u"));
-export const Int64 = Schema.BigInt.check(
-  Schema.isBetweenBigInt({ minimum: -(2n ** 63n), maximum: 2n ** 63n - 1n }),
-).pipe(gvariant("x"));
-export const Uint64 = Schema.BigInt.check(Schema.isBetweenBigInt({ minimum: 0n, maximum: 2n ** 64n - 1n })).pipe(
-  gvariant("t"),
-);
 export const Str = Schema.String.check(Schema.isPattern(/^[^\0\uD800-\uDFFF]*$/u)).pipe(gvariant("s"));

@@ -6,15 +6,13 @@
 
 import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { EngineManifest } from "@ibus-web/protocol";
-export type { EngineManifest } from "@ibus-web/protocol";
-export type EngineData = EngineManifest["data"][number];
 export interface RuntimeMemory {
   initial: number;
   maximum: number;
 }
 
 // The engine's data's size, unpacked.
-export const engineDataBytes = ({ data }: Pick<EngineManifest, "data">): number =>
+const engineDataBytes = ({ data }: Pick<EngineManifest, "data">): number =>
   data.reduce((sum, { size }) => sum + size, 0);
 
 // The page size of WebAssembly memory, in bytes.

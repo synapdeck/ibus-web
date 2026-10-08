@@ -4,12 +4,11 @@
 // Streaming the engine's data archives into the runtime's extractor, which
 // unpacks each through the mounted file system.
 
-import { errorMessage } from "@ibus-web/protocol";
+import { errorMessage, type EngineManifest } from "@ibus-web/protocol";
 import { decompressed, type BrotliDecoder } from "./decompress.ts";
 import { entryGuard } from "./entries.ts";
 import { engineDataRoot } from "../../shared/naming.ts";
 import { INSTALL_PIECE } from "../../shared/config.ts";
-import type { EngineManifest } from "../../shared/messages.ts";
 import { alloc, check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
 import { makeDirs } from "../storage/mount.ts";
 

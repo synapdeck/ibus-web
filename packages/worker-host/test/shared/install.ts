@@ -7,7 +7,8 @@
 
 import { expect } from "vitest";
 import { INSTALL_PIECE } from "../../src/shared/config.ts";
-import type { CollectReport, EngineManifest, InstallReport } from "../../src/shared/messages.ts";
+import type { EngineManifest } from "@ibus-web/protocol";
+import type { CollectReport, InstallReport } from "../../src/shared/messages.ts";
 import {
   encodeComponent,
   engineDataDatabase,

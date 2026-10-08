@@ -4,8 +4,8 @@
 // What the host mounts at the engine's directory, decided before the
 // runtime's memory is made, since a mount in memory needs a larger one.
 
-import { errorSummary } from "@ibus-web/protocol";
-import { memoryWithData, type EngineManifest, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
+import { errorSummary, type EngineManifest } from "@ibus-web/protocol";
+import { memoryWithData, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 import { engineDatabase, engineWriterLock } from "../../shared/naming.ts";
 import type { Held } from "./held.ts";
 import { requestLock } from "./locks.ts";
