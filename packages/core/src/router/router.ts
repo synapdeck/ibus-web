@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Context, Effect, Layer, type Stream } from "effect";
 import {
+  asError,
   CreateEngine,
   DestroyEngine,
   Disable,
@@ -65,7 +66,6 @@ interface PendingReset {
   reserve(): void;
   release(): void;
 }
-const asError = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)));
 export const makeRouter = Effect.gen(function* () {
   const registry = yield* EngineRegistry;
   const config = yield* CoreConfig;

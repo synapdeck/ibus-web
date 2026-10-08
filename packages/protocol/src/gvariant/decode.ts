@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import { Data } from "effect";
-import { isSignature, parseType, type GVariantType } from "./type.ts";
-import { align, framingWidth, offsetWidth } from "./encode.ts";
+import { align, isSignature, parseType, type GVariantType } from "./type.ts";
+import { framingWidth, offsetWidth } from "./encode.ts";
 import { type GVariantValue } from "./value.ts";
 
 const DecodeErrorBase: ReturnType<typeof Data.TaggedError<"GVariantDecodeError">> =

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
+import { nonEmpty } from "./schemas.ts";
 
 const count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
-const nonEmpty = Schema.String.check(Schema.isNonEmpty());
 // The name becomes a directory and a database name, so it must be one path component that can't
 // climb out of its parent or hide itself.
 const engineName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/));

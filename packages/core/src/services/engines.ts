@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Clock, Context, Effect, Exit, Layer, PubSub, Schema, Scope, Stream } from "effect";
-import { EngineManifest, Init, SettingChanged, PROTOCOL_VERSION, type Request } from "@ibus-web/protocol";
+import { asError, EngineManifest, Init, SettingChanged, PROTOCOL_VERSION, type Request } from "@ibus-web/protocol";
 import { transportLayout, type StorageState } from "@ibus-web/worker-host";
 import { Connection, type ConnectionOptions, type CrashInfo, type Reply } from "../connection/connection.ts";
 import { keysymByName } from "../keys/keysyms.generated.ts";
@@ -72,7 +72,6 @@ interface Entry {
   started: boolean;
   hasReady: boolean;
 }
-const error = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)));
 class InitializationRejected extends Error {}
 // Host startup errors cross the public message boundary as text with these diagnostic labels.
 const terminalStartup = (cause: Error): boolean =>
@@ -128,7 +127,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
                   new SettingChanged({ schemaId: change.schemaId, key: change.key, value: change.value }),
                   0,
                 ),
-              catch: error,
+              catch: asError,
             });
         }
       });
@@ -144,13 +143,13 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
                     if (!response.ok) throw new Error(`Manifest fetch failed: ${response.status}`);
                     return response.json();
                   }),
-            catch: error,
+            catch: asError,
           });
           const manifest = yield* Effect.try({
             try: () => Schema.decodeUnknownSync(EngineManifest, { onExcessProperty: "error" })(raw),
-            catch: error,
+            catch: asError,
           });
-          yield* Effect.try({ try: () => validateKeyboard(manifest.keyboard), catch: error });
+          yield* Effect.try({ try: () => validateKeyboard(manifest.keyboard), catch: asError });
           if (manifest.protocol !== PROTOCOL_VERSION)
             return yield* Effect.fail(
               new InitializationRejected(`ProtocolMismatch: page ${PROTOCOL_VERSION}, manifest ${manifest.protocol}`),
@@ -167,18 +166,18 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
         if (settings.register) {
           const metadata = yield* Effect.tryPromise({
             try: (signal) => loadSettingsMetadata(manifest, options.engines[name]!, options, signal),
-            catch: error,
+            catch: asError,
           });
           yield* Effect.tryPromise({
             try: async () => {
               await settings.register!(metadata);
             },
-            catch: error,
+            catch: asError,
           });
         }
         const initial = yield* Effect.tryPromise({
           try: () => settings.snapshot(manifest.settingsSchemas),
-          catch: error,
+          catch: asError,
         });
         const connection = yield* Effect.acquireRelease(
           Effect.callback<KeyConnection, Error>((resume, signal) => {
@@ -202,10 +201,10 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
                   if (signal.aborted) connection.terminate();
                   else resume(Effect.succeed(connection));
                 },
-                (cause) => resume(Effect.fail(error(cause))),
+                (cause) => resume(Effect.fail(asError(cause))),
               );
             } catch (cause) {
-              resume(Effect.fail(error(cause)));
+              resume(Effect.fail(asError(cause)));
             }
           }),
           (connection) =>
@@ -219,7 +218,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
         entry.router.connect(connection);
         const reply = yield* Effect.tryPromise({
           try: () => entry.router.request(new Init({ version: PROTOCOL_VERSION, settings: initial }), 0),
-          catch: error,
+          catch: asError,
         });
         if (reply.ret < 0) return yield* Effect.fail(new InitializationRejected(`Init failed: ${reply.ret}`));
         yield* flushChanges(entry);
@@ -282,7 +281,7 @@ export const makeEngineRegistry = (options: EngineRegistryOptions) =>
             logger.enqueue({
               engine: name,
               ic,
-              record: { _tag: "Log", level: 8, domain: "page-adapter", message: error(cause).message },
+              record: { _tag: "Log", level: 8, domain: "page-adapter", message: asError(cause).message },
             }),
           crashed: (crash) => {
             if (!entry.hasReady) {

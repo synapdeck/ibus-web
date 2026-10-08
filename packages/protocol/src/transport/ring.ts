@@ -8,7 +8,9 @@ import {
   type TransportLayout,
   type TransportViews,
 } from "./layout.ts";
-const alignedSize = (payloadBytes: number): number =>
+// A record's bytes in the ring: its header and payload, padded to the
+// record alignment.
+export const alignedSize = (payloadBytes: number): number =>
   Math.ceil((HEADER_SIZE + payloadBytes) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
 const headerOf = (bytes: Uint8Array): DataView => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 export type WriteResult = { readonly _tag: "written" } | { readonly _tag: "full"; readonly needBytes: number };

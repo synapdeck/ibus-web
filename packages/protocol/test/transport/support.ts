@@ -7,13 +7,11 @@ import {
   type TransportLayout,
   type TransportViews,
 } from "../../src/transport/layout.ts";
+import { alignedSize } from "../../src/transport/ring.ts";
 
 export const ringSizes = [64, 128, 256, 1024] as const;
 // Counters at zero, just before the 2³² wrap at several distances, and across the sign bit.
 export const counterStarts = [0, 0xfffff000, 0xffffffc8, 0xfffffff8, 0x7ffffff0] as const;
-
-const alignedSize = (payloadBytes: number): number =>
-  Math.ceil((RECORD_HEADER_BYTES + payloadBytes) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT;
 
 /** A framed record whose header and payload bytes all derive from `seq`. */
 export function record(payloadBytes: number, seq: number): Uint8Array {

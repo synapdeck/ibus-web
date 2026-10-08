@@ -21,7 +21,15 @@ import {
   type SettingsSourceService,
   type SurfaceAdapter,
 } from "@ibus-web/core";
-import { CandidateClicked, PageUp, PageDown, CursorUp, CursorDown, PropertyActivate } from "@ibus-web/protocol";
+import {
+  CandidateClicked,
+  PageUp,
+  PageDown,
+  CursorUp,
+  CursorDown,
+  PropertyActivate,
+  errorMessage,
+} from "@ibus-web/protocol";
 import type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
@@ -79,13 +87,6 @@ interface Services {
 class FacadeServices extends Context.Service<FacadeServices, Services>()("ibus-web/FacadeServices") {}
 const panelSchema = "org.freedesktop.ibus.panel",
   orientationKey = "lookup-table-orientation";
-const messageOf = (error: unknown): string => {
-  try {
-    return error instanceof Error ? error.message : String(error);
-  } catch {
-    return "Unprintable host error";
-  }
-};
 const decodePanelAction = Schema.decodeUnknownSync(
   Schema.Union([CandidateClicked, PageUp, PageDown, CursorUp, CursorDown, PropertyActivate]),
 );
@@ -208,7 +209,7 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
                 : entry.logLevel === "Info"
                   ? "info"
                   : "debug";
-          log({ level, message: messageOf(entry.message) });
+          log({ level, message: errorMessage(entry.message) });
         }),
       ]),
     ),
@@ -300,7 +301,7 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       }
     },
     reportPanelError: (error: unknown) => {
-      log({ level: "error", domain: "panel", message: messageOf(error) });
+      log({ level: "error", domain: "panel", message: errorMessage(error) });
     },
     dispose: () => {
       if (disposal) return disposal;

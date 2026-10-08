@@ -1,10 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { isSignature, parseType, ProtocolError, type GVariantType } from "./type.ts";
+import { align, isSignature, parseType, ProtocolError, type GVariantType } from "./type.ts";
 import { type GVariantValue } from "./value.ts";
-
-export const align = (size: number, alignment: number): number => Math.ceil(size / alignment) * alignment;
 
 export function offsetWidth(size: number): number {
   if (size <= 255) return 1;

@@ -59,6 +59,7 @@ export {
 } from "./messages/records.ts";
 export { framing, type HeaderField, RECORD_CONTINUATION, PADDING_KIND } from "./messages/framing.ts";
 export { encodeRequest, decodeRecord, type DecodedRecord } from "./messages/codec.ts";
+export { asError, errorMessage, errorReport, errorSummary } from "./errors.ts";
 
 export {
   Word,

@@ -4,6 +4,7 @@
 // Streaming the engine's data archives into the runtime's extractor, which
 // unpacks each through the mounted file system.
 
+import { errorMessage } from "@ibus-web/protocol";
 import { decompressed, type BrotliDecoder } from "./decompress.ts";
 import { entryGuard } from "./entries.ts";
 import { engineDataRoot } from "../../shared/naming.ts";
@@ -33,15 +34,13 @@ export interface ArchiveHooks {
   readonly beforePiece: (tally: Tally) => Promise<void> | undefined;
 }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
 // Fetching and reading happen outside the runtime, which they leave fit to
 // call.
 const outside = async <T>(what: string, promise: Promise<T>): Promise<T> => {
   try {
     return await promise;
   } catch (error) {
-    throw new RuntimeRefused(`${what}: ${messageOf(error)}`);
+    throw new RuntimeRefused(`${what}: ${errorMessage(error)}`);
   }
 };
 
@@ -107,7 +106,7 @@ const installArchive = async (
         try {
           guard(part);
         } catch (error) {
-          throw new RuntimeRefused(`install ${url}: ${messageOf(error)}`);
+          throw new RuntimeRefused(`install ${url}: ${errorMessage(error)}`);
         }
         handle.bytes.set(part, piece);
         check(`install ${url} at byte ${tally.fed}`, rt._ibusweb_install_feed(install, piece, part.length));

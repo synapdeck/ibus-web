@@ -40,7 +40,7 @@ const basics: Readonly<Record<BasicChar, readonly [Alignment, number | undefined
   g: [1, undefined],
 };
 const cache = new Map<string, GVariantType>();
-const align = (size: number, alignment: Alignment): number => Math.ceil(size / alignment) * alignment;
+export const align = (size: number, alignment: number): number => Math.ceil(size / alignment) * alignment;
 const layout = (members: readonly GVariantType[]): Pick<Layout, "alignment" | "fixedSize" | "depth"> => {
   let alignment: Alignment = 1;
   let depth = 0;
