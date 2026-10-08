@@ -30,7 +30,7 @@ export default defineConfig({
   })),
   webServer: {
     command: `${quote(process.execPath)} node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port ${port} --strictPort --outDir ${quote(resolve(page))}`,
-    cwd: resolve(import.meta.dirname, "../../examples/hangul"),
+    cwd: resolve(import.meta.dirname, "../.."),
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 30_000,

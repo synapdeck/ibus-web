@@ -12,10 +12,6 @@
       inherit (config.ibusWeb) typescript;
       inherit (config.ibusWeb.testing) playwright;
       workspace = typescript.workspaceFor [ "examples/hangul" ];
-      suites = lib.fileset.toSource {
-        root = ../tests/playwright;
-        fileset = lib.fileset.fileFilter (file: file.hasExt "ts" || file.hasExt "json") ../tests/playwright;
-      };
       env = playwright.env // {
         IBUS_WEB_DEMO_PAGE = "${config.packages.demo}";
         FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
@@ -23,9 +19,6 @@
       prepare = ''
         cp -R ${workspace} source
         chmod -R u+w source
-        mkdir -p source/tests
-        cp -R ${suites} source/tests/playwright
-        chmod -R u+w source/tests/playwright
         cd source
       '';
       integration =
@@ -44,8 +37,8 @@
             export IBUS_WEB_TEST_REPORT=$out/results.json
             export IBUS_WEB_TEST_OUTPUT=$out/artifacts
             set -o pipefail
-            timeout --kill-after=10 600 node node_modules/playwright/cli.js test \
-              -c tests/playwright/playwright.config.ts 2>&1 | tee "$out/output.txt"
+            timeout --kill-after=10 600 node examples/hangul/node_modules/playwright/cli.js test \
+              -c examples/hangul/test/e2e/playwright.config.ts 2>&1 | tee "$out/output.txt"
           '';
     in
     {
@@ -81,7 +74,7 @@
               cd "$run_dir"
               ${prepare}
               export IBUS_WEB_KEYSTROKE_BENCH=1
-              node node_modules/playwright/cli.js test -c tests/playwright/playwright.config.ts "$@"
+              node examples/hangul/node_modules/playwright/cli.js test -c examples/hangul/test/e2e/playwright.config.ts "$@"
             '';
           }
         );

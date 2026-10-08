@@ -60,7 +60,7 @@
                 lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") env
               )}
               if [ ! -d node_modules ]; then pnpm install --frozen-lockfile; fi
-              pnpm --filter demo... --filter '!demo' run build
+              pnpm --filter @ibus-web/example-hangul... --filter '!@ibus-web/example-hangul' run build
               pnpm --dir examples/hangul exec vite --host 127.0.0.1 --port 5173 --strictPort "$@"
             '';
           }

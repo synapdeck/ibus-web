@@ -1,11 +1,13 @@
 {
-  "name": "demo",
+  "name": "@ibus-web/example-hangul",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
     "bundle": "vite build",
-    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "e2e": "playwright test -c test/e2e/playwright.config.ts",
+    "smoke": "node test/smoke.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "ibus-web": "workspace:*"
