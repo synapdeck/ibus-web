@@ -51,18 +51,25 @@
             cmp $out repeated.json
           '';
 
-      nativeClangd = (pkgs.formats.yaml { }).generate "ibus-web-xkb-export-clangd.yaml" {
-        If.PathMatch = "tools/keysyms/xkb-export\\.c";
-        CompileFlags = {
-          Compiler = "${pkgs.stdenv.cc}/bin/cc";
-          Remove = [
-            "-isystem"
-            "-fwasm-exceptions"
-            "-mextended-const"
-          ];
-          Add = [ "-I${lib.getDev pkgs.libxkbcommon}/include" ];
-        };
-      };
+      # JSON, which is YAML, rather than pkgs.formats.yaml's output: that opens
+      # with a %YAML directive, and the fragment is concatenated mid-file after
+      # a `---`, where clangd rejects it. The final newline keeps a following
+      # `---` on its own line.
+      nativeClangd = pkgs.writeText "ibus-web-xkb-export-clangd.yaml" (
+        builtins.toJSON {
+          If.PathMatch = "tools/keysyms/xkb-export\\.c";
+          CompileFlags = {
+            Compiler = "${pkgs.stdenv.cc}/bin/cc";
+            Remove = [
+              "-isystem"
+              "-fwasm-exceptions"
+              "-mextended-const"
+            ];
+            Add = [ "-I${lib.getDev pkgs.libxkbcommon}/include" ];
+          };
+        }
+        + "\n"
+      );
 
       xkbNotice =
         pkgs.runCommand "ibus-web-xkeyboard-config-COPYING.txt" { nativeBuildInputs = [ pkgs.xz ]; }
