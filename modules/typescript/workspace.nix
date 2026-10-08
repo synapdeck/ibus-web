@@ -21,6 +21,7 @@
         let
           parent = lib.removeSuffix "/*" glob;
           entries = builtins.readDir (root + "/${parent}");
+
           isPackage =
             name: type: type == "directory" && builtins.pathExists (root + "/${parent}/${name}/package.json");
         in
@@ -165,16 +166,19 @@
         name = "ibus-web-node-modules";
         inherit pnpmDeps;
         src = manifests;
+
         nativeBuildInputs = [
           nodejs
           pnpm
           pkgs.pnpmConfigHook
         ];
+
         buildPhase = ''
           runHook preBuild
           ${assertPlaywrightVersion}
           runHook postBuild
         '';
+
         # A package with no dependencies has no node_modules.
         installPhase = ''
           runHook preInstall
@@ -208,6 +212,7 @@
               { key }:
               let
                 manifest = packageManifests.${key};
+
                 localNames = lib.unique (
                   lib.concatMap
                     (
@@ -256,10 +261,12 @@
               );
             }
           );
+
           nativeBuildInputs = [
             nodejs
             pnpm
           ];
+
           configurePhase = ''
             runHook preConfigure
             # Modes kept, for the executables; the store's are read-only.
@@ -267,6 +274,7 @@
             chmod -R u+w .
             runHook postConfigure
           '';
+
           buildPhase = ''
             runHook preBuild
             pnpm -r${
@@ -282,6 +290,7 @@
             } run --if-present build
             runHook postBuild
           '';
+
           installPhase = ''
             runHook preInstall
             mkdir -p $out
@@ -305,6 +314,7 @@
     in
     {
       ibusWeb.typescript = {
+
         nodejs = pkgs.nodejs_24;
         inherit
           workspace
@@ -312,6 +322,7 @@
           nodeModules
           presets
           ;
+
         packageNodeModules =
           dir:
           let
@@ -320,6 +331,7 @@
           lib.throwIfNot (lib.elem (lib.removePrefix "./" relative) packageDirs)
             "packageNodeModules: ${relative} isn't a package of the workspace"
             "${nodeModules}/${relative}/node_modules";
+
         assertDependency = ../../tools/assert-dependency/assert-dependency.ts;
       };
 

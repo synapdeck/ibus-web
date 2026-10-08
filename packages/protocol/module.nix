@@ -95,6 +95,7 @@
           "vitest.parity.config.ts"
         ];
       };
+
       checks.protocol-node = testing.vitestCheck {
         name = "protocol-node";
         packageDir = "${typescript.workspace}/packages/protocol";
@@ -102,6 +103,7 @@
         env.IBUS_WEB_FLAGS = flagsConstants;
         inBrowsers = false;
       };
+
       # Wall-clock timing means nothing on a loaded builder, so the decode benchmark is an app run
       # on demand rather than a check.
       apps.protocol-bench = {

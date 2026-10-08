@@ -14,9 +14,11 @@
         typescript
         toolchain
         runtime
+
         ;
       # The trace tooling with its dependencies alone, so editing another
       # source reruns no trace check.
+
       tools = typescript.workspaceFor [ "tools/ibus-test" ];
       native = pkgs.stdenv.mkDerivation {
         pname = "ibus-web-ibus-test-native";
@@ -36,6 +38,7 @@
         doCheck = true;
         # nixpkgs otherwise disables Meson's own timeout globally.
         mesonCheckFlags = [ "--timeout-multiplier=1" ];
+
       };
       wasm = testing.program {
         name = "ibus-test-wasm";
@@ -55,6 +58,7 @@
         format = null;
         gtest = false;
         linkFlags = config.ibusWeb.lib.testLinkFlagsWithoutNodeFs;
+
       };
       fixtureModule =
         (runtime.mkSideModule {
@@ -67,6 +71,7 @@
         }).overrideAttrs
           {
             NIX_CFLAGS_COMPILE = "-I${runtime.libibusWeb}/include/ibus-1.0";
+
           };
       fixtureNative = pkgs.stdenv.mkDerivation {
         name = "ibus-web-ibus-test-conformance-engine";
@@ -80,6 +85,7 @@
         installPhase = ''
           install -Dm755 conformance-engine $out/bin/conformance-engine
         '';
+
       };
       fixtureData =
         pkgs.runCommand "ibus-web-ibus-test-conformance-data"
@@ -90,6 +96,7 @@
             mkdir -p $out/glib-2.0/schemas
             cp ${../../tools/ibus-test/fixtures/org.example.IBusConformance.gschema.xml} $out/glib-2.0/schemas/
             glib-compile-schemas $out/glib-2.0/schemas
+
           '';
       # A session bus of the test's own, which admits anyone on it.
       sessionBusConfig = pkgs.writeText "ibus-web-ibus-test-session-bus.conf" ''
@@ -103,6 +110,7 @@
             <allow receive_sender="*"/>
           </policy>
         </busconfig>
+
       '';
       # A native IBus session around one engine, as ibusTest's nativeConfig.
       nativeIbusConfig =
@@ -141,6 +149,7 @@
         engine = [ "${fixtureNative}/bin/conformance-engine" ];
         destination = "org.example.IBusConformance";
         env.GSETTINGS_SCHEMA_DIR = "${fixtureData}/glib-2.0/schemas";
+
       };
       ibusTest =
         {
@@ -176,6 +185,7 @@
                 module
               ];
             }
+
           );
           # Materialize failed runs too, so the verdict cannot discard diagnostics.
           results =
@@ -192,6 +202,7 @@
                 mkdir -p $out/artifacts
                 export IBUS_TEST_ARTIFACTS=$out/artifacts
                 export IBUS_WEB_TEST_CACHE_DIR=$TMPDIR/vite
+
                 export XDG_DATA_HOME=$TMPDIR/vitest-data
                 status=0
                 (
@@ -201,9 +212,11 @@
                   } node node_modules/vitest/vitest.mjs run \
                     --configLoader native --reporter=default --reporter=json \
                     --outputFile.json=$out/results.json conformance.test.ts
+
                 ) > $out/output.txt 2>&1 || status=$?
                 cat $out/output.txt
                 printf '%s\n' "$status" > $out/status
+
               '';
           verdict =
             output:
@@ -218,6 +231,7 @@
                   echo "Trace check failed (status $status); retained results: ${output}" >&2
                   cat ${output}/output.txt >&2
                   exit 1
+
                 fi
                 node --input-type=module - ${output}/results.json <<'JS'
                 import { readFileSync } from 'node:fs';
@@ -225,10 +239,12 @@
                 if (result.success !== true || result.numFailedTests !== 0 || result.numPassedTests < 1) {
                   throw new Error('Trace check has no successful test report');
                 }
+
                 JS
                 ln -s ${output} $out
               '';
         in
+
         verdict results;
       nativeClangd =
         pkgs.runCommand "ibus-web-ibus-test-native-clangd"
@@ -248,6 +264,7 @@
                 echo "    - $flag"
               done
             } > $out
+
           '';
     in
     {
@@ -257,14 +274,18 @@
         ];
         clangdFragments = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ nativeClangd ];
         clangdQueryDrivers = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ "${pkgs.stdenv.cc}/bin/cc" ];
+
       };
       ibusWeb.engines.ibusTest = ibusTest;
+
       ibusWeb.lib.nativeIbusConfig = nativeIbusConfig;
       packages = {
         ibus-test-wasm = wasm;
       }
+
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux { ibus-test-native = native; };
       checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+
         engines-ibus-test-native = native;
         engines-ibus-test-conformance = (
           ibusTest {

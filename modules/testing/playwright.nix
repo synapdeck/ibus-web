@@ -15,10 +15,12 @@
           to false.
         '';
       };
+
       env = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
         description = "Environment variables under which the workspace's playwright package launches nixpkgs' headless browsers offline, as a derivation's attributes or exported in a shell, and IBUS_WEB_CHROMIUM_SANDBOX (1 or 0) for the harnesses.";
       };
+
       setup = lib.mkOption {
         type = lib.types.lines;
         description = "Shell commands a Nix build runs before launching the browsers. For builds only: it points HOME at a fresh directory.";
@@ -30,6 +32,7 @@
     { config, pkgs, ... }:
     let
       inherit (config.ibusWeb.testing) playwright;
+
       # Headless Chromium uses its shell; the full browser and video encoder stay out.
       browsers = pkgs.playwright-driver.browsers.override {
         withChromium = false;

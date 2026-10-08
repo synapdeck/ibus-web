@@ -17,6 +17,7 @@
         pname = "wasmfs-idb";
         # Part of the runtime, versioned with it.
         inherit (runtime.libibusWeb) version;
+
         src = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [
@@ -24,13 +25,16 @@
             ./src
           ];
         };
+
         dontFixup = true;
+
         buildPhase = ''
           runHook preBuild
           $CXX -std=c++17 ${cflags} -Iinclude -c src/idb_backend.cpp -o idb_backend.o
           $AR rcs libwasmfs-idb.a idb_backend.o
           runHook postBuild
         '';
+
         installPhase = ''
           runHook preInstall
           install -Dm644 -t $out/lib libwasmfs-idb.a
@@ -38,6 +42,7 @@
           install -Dm644 -t $out/include/ibus-web include/ibus-web/wasmfs-idb.h
           runHook postInstall
         '';
+
         passthru = {
           # Links that take the library pass this with --js-library.
           jsLibrary = "${finalAttrs.finalPackage}/share/wasmfs-idb/libwasmfs_idb.js";
@@ -47,7 +52,9 @@
     in
     {
       ibusWeb.runtime.wasmfsIdb = wasmfsIdb;
+
       ibusWeb.toolchain.devLibraries = [ wasmfsIdb ];
+
       ibusWeb.toolchain.clangdPathFlags = {
         # The in-tree header, ahead of an installed copy.
         "runtime/wasmfs-idb/src/.*" = [

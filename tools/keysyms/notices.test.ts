@@ -84,20 +84,24 @@ test("core pack ships clean complete notices and cleans package-local copies", (
       cpSync(join(root, file), join(directory, file), { recursive: true });
     }
     cpSync(join(root, "NOTICES"), join(directory, "NOTICES"), { recursive: true });
+
     const dependencies = coreWorkspaceDependencies();
     for (const workspaceDirectory of ["packages/core", ...dependencies.values()]) {
       const target = join(directory, workspaceDirectory);
       mkdirSync(target, { recursive: true });
       cpSync(join(root, workspaceDirectory, "package.json"), join(target, "package.json"));
     }
+
     const core = join(directory, "packages/core");
     for (const [name, workspaceDirectory] of dependencies) {
       const link = join(core, "node_modules", name);
       mkdirSync(dirname(link), { recursive: true });
       symlinkSync(join(directory, workspaceDirectory), link);
     }
+
     cpSync(join(root, "packages/core/dist"), join(core, "dist"), { recursive: true });
     execFileSync("pnpm", ["pack", "--pack-destination", directory], { cwd: core, stdio: "pipe" });
+
     const archives = readdirSync(directory).filter((name) => name.endsWith(".tgz"));
     expect(archives).toHaveLength(1);
     const archive = join(directory, archives[0]!);

@@ -17,12 +17,14 @@
           "modules/emscripten"
           "modules/testing"
         ];
+
         # These packages ship N-API binaries for every supported build platform.
         allowBuilds = {
           tree-sitter = false;
           tree-sitter-c = false;
           tree-sitter-cpp = false;
         };
+
         # What must be one version across the repository, and the tools
         # packages share. Packages name these as `catalog:`, never with a
         # version of their own.

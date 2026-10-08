@@ -21,6 +21,7 @@
         cp ${../../../../tools/glib-test-gate/gate.ts} $out/gate.ts
         ln -s ${typescript.packageNodeModules ../../../../tools/glib-test-gate} $out/node_modules
       '';
+
       setupExcludes = ./setup-excludes.py;
 
       # Node makes its stdout non-blocking once a program starts its thread
@@ -37,29 +38,36 @@
       # however it set the modes.
       nodeToFiles = pkgsBuildBuild.writeShellScript "ibus-web-node-to-files" ''
         dir=$(mktemp -d)
+
         replay() {
           cat "$dir/stdout"
           cat "$dir/stderr" >&2
           chmod -R u+rwx "$dir"
           rm -r "$dir"
         }
+
         die() {
           trap - "$1"
           kill -s "$1" $$
         }
+
         trap 'replay; die TERM' TERM
         mkdir "$dir/tmp"
         TMPDIR=$dir/tmp ${lib.getExe pkgsBuildBuild.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
         wait $!
         status=$?
         replay
+
         if [ "$status" -gt 128 ] && sig=$(kill -l "$status" 2> /dev/null); then
           die "$sig"
         fi
+
         exit $status
       '';
+
       nodeRawFs = "-sNODERAWFS=1";
       memoryGrowth = "-sALLOW_MEMORY_GROWTH=1";
+
       testsCrossFile = pkgsBuildBuild.writeText "ibus-web-glib-tests-cross.ini" ''
         [binaries]
         exe_wrapper = ['${nodeToFiles}']
@@ -71,6 +79,7 @@
       # the build machine can't execute host binaries, so the tests run here.
       checks.glib-tests = pkgsWasm.glib.overrideAttrs (old: {
         pname = "ibus-web-glib-tests";
+
         # The tests link against WasmFS, the file system the runtime ships,
         # rather than the tools' JavaScript one. So does every executable this
         # build links, including the in-tree tools Meson runs while building;
@@ -86,16 +95,20 @@
             [ toolchain.nodeHostFsFlags toolchain.testMemoryFlags ]
           ) old.mesonFlags
           ++ [ "-Dtests=true" ];
+
         # After the toolchain's cross file, whose exe_wrapper this replaces.
         preConfigure = (old.preConfigure or "") + ''
           mesonFlagsArray+=("--cross-file=${testsCrossFile}")
         '';
+
         # The tests of GLib's tools run them under Node themselves.
         nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
           pkgsWasm.python3
           pkgsWasm.nodejs
         ];
+
         outputs = [ "out" ];
+
         # Excluded tests never run: several busy-wait until Meson's timeout
         # and hold cores the other tests need. The gate prints the
         # `meson test` invocations that select the rest, one per line, and
@@ -106,10 +119,12 @@
           # which nixpkgs' pkg-config wrapper replaces with its role's search
           # path; the unwrapped pkg-config honours it.
           export PATH=${pkgsWasm.pkgsBuildBuild.pkg-config-unwrapped}/bin:$PATH
+
           gate() {
             ${lib.getExe typescript.nodejs} ${gate}/gate.ts "$1" meson-info/intro-tests.json default-tests \
               excluded-suites ${./baseline.toml} "''${@:2}"
           }
+
           # Invocations come on fd 3, since tests inherit stdin and may read
           # it; Meson's report goes to stderr, stdout carries the joined log.
           # Quiet, and with no terminal to redraw its progress on, Meson
@@ -123,20 +138,24 @@
             done 3< "$3"
             cat meson-logs/"$base"-*.json 2> /dev/null || true
           }
+
           mkdir -p $out
           meson test --no-rebuild --list > default-tests
           meson runpython ${setupExcludes} > excluded-suites
           gate runnable > runnable
           runTests run $NIX_BUILD_CORES runnable > $out/testlog.json
           gate failing $out/testlog.json > failing
+
           rerun=()
           if [ -s failing ]; then
             runTests rerun 1 failing > $out/rerun.json
             rerun=($out/rerun.json)
           fi
+
           gate report $out/testlog.json $out "''${rerun[@]}"
           runHook postInstall
         '';
+
         postInstall = "";
         preFixup = "";
         postFixup = "";
@@ -149,6 +168,7 @@
         environments = [ "node" ];
         programs = [ ];
         nodeTests = ../../../../tools/glib-test-gate;
+
         nodeTestData = {
           gate = "${gate}/gate.ts";
           inherit setupExcludes;

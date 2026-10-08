@@ -23,19 +23,23 @@
       checks.toolchain-meson-consumer = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-toolchain-meson-consumer";
         src = ./src;
+
         nativeBuildInputs = [
           pkgsWasm.meson
           pkgsWasm.ninja
           pkgsWasm.pkg-config
           pkgsWasm.nodejs
         ];
+
         buildInputs = [
           pkgsWasm.zlib
           pkgsWasm.libffi
         ];
+
         # Recipes such as GLib's pass defines this way; main.c refuses to
         # compile if the wrapper drops them.
         env.NIX_CFLAGS_COMPILE = "-DIBUS_WEB_RECIPE_CFLAGS";
+
         installPhase = ''
           runHook preInstall
           mkdir -p $out

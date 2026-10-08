@@ -32,6 +32,7 @@
                 --rawfile listing "$out/$listing" \
                 '{ $archive, $version, $size, $listing }'
             }
+
             python3 ${./tests/archives/make-tree.py} tree $out
             python3 ${./tests/archives/make-tree.py} --upgrade tree-upgrade $out
             describe tree tree.tar listing.txt > tree.json

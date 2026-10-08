@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
+
 { inputs, ... }:
 {
   perSystem =
@@ -68,6 +69,7 @@
           ''
             tar -xOf ${pkgs.xkeyboard_config.src} xkeyboard-config-${pkgs.xkeyboard_config.version}/COPYING > $out
           '';
+
       keysymdef = "${pkgs.xorgproto}/include/X11/keysymdef.h";
 
       generate =
@@ -103,12 +105,15 @@
       files.file."packages/core/src/keys/keysyms.generated.ts".source =
         generate "keysyms.generated.ts" ./keysymdef.ts
           keysymdef;
+
       files.file."packages/core/src/keys/dom-codes.generated.ts".source =
         generate "dom-codes.generated.ts" ./dom-codes.ts
           domCodes;
+
       files.file."packages/core/src/keys/us.generated.ts".source =
         generate "us.generated.ts" ./us.ts
           xkbExport;
+
       files.file."NOTICES/keysymdef.txt".source = notice "keysymdef" keysymdef;
       files.file."NOTICES/chromium.txt".source = notice "chromium" chromiumLicense;
       files.file."LICENSES/LicenseRef-xkeyboard-config.txt".source = xkbNotice;

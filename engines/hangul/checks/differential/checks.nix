@@ -12,12 +12,14 @@
       inherit (config.ibusWeb) engines;
       hangul = pkgs.ibus-engines.hangul;
       native = config.packages.ibus-test-native;
+
       nativeConfig = config.ibusWeb.lib.nativeIbusConfig {
         name = "hangul";
         engine = [
           "${hangul}/libexec/ibus-engine-hangul"
           "--ibus"
         ];
+
         destination = "org.freedesktop.IBus.Hangul";
         env = {
           GSETTINGS_SCHEMA_DIR = "${hangul}/share/gsettings-schemas/${hangul.name}/glib-2.0/schemas";
@@ -29,6 +31,7 @@
       packages = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         ibus-test-hangul-config = nativeConfig;
       };
+
       checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         hangul-differential = engines.ibusTest {
           name = "hangul-differential";
@@ -37,11 +40,13 @@
           settingsSchemaDir = engines.hangul.settingsSchemaDir;
           expectedDifferences = ./expected-differences.json;
           coverage = ./coverage.json;
+
           versions = {
             nativeEngine = hangul.version;
             wasmEngine = engines.hangul.version;
             nativeIBus = pkgs.ibus.version;
           };
+
           traces = [
             ./traces/latin-toggle-composition.json
             ./traces/caps-backspace.json
@@ -55,6 +60,7 @@
             ./traces/invalid-final-page-digit.json
           ];
         };
+
         hangul-native-session = config.ibusWeb.testing.vitestCheck {
           name = "hangul-native-session";
           packageDir = "${config.ibusWeb.typescript.workspaceFor [ "tools/ibus-test" ]}/tools/ibus-test";
@@ -62,6 +68,7 @@
             IBUS_TEST_NATIVE_CONFIG = nativeConfig;
             IBUS_TEST_FIXTURE_COMMAND = builtins.toJSON [ "${native}/libexec/test-engine" ];
           };
+
           inBrowsers = false;
           limit = 60;
           vitestArgs = [ "session.test.ts" ];

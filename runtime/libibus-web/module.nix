@@ -10,6 +10,7 @@
       ibusWeb.runtime.libibusWeb = libibus-web;
       ibusWeb.toolchain.devLibraries = [ libibus-web ];
       packages.libibus-web = libibus-web;
+
       ibusWeb.toolchain.clangdPathFlags = {
         # The in-tree headers, ahead of the installed library's.
         "runtime/libibus-web/(src|tests)/[^/]+" = [

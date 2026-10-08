@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
+
 {
   perSystem =
     { config, lib, ... }:
@@ -10,6 +11,7 @@
     {
       checks.glib-settings-listeners = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-glib-settings-listeners";
+
         src = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [
@@ -18,15 +20,18 @@
             ./org.ibus-web.ListenerTest.gschema.xml
           ];
         };
+
         nativeBuildInputs = [
           pkgsWasm.meson
           pkgsWasm.ninja
           pkgsWasm.pkg-config
         ];
+
         buildInputs = [ pkgsWasm.glib ];
         mesonFlags = [
           "-Dcpp_link_args=${builtins.toJSON (lib.splitString " " testing.nodeLinkFlags)}"
         ];
+
         # Cross builds skip checkPhase; Meson's wrapper runs the WASM tests.
         installPhase = ''
           runHook preInstall

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import { defineConfig } from "tsdown";
+
 export default defineConfig({
   entry: { index: "src/index.ts", transport: "src/transport/index.ts" },
   platform: "neutral",

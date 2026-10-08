@@ -9,10 +9,12 @@
         type = lib.types.str;
         description = "Link flags for a C or C++ test program that runs in a browser: an ES module whose factory a dedicated Worker calls, with assertions on.";
       };
+
       nodeLinkFlags = lib.mkOption {
         type = lib.types.str;
         description = "Link flags for a C or C++ test program that runs under Node, as `node NAME.js`: on WasmFS with the host's files at their own paths, with assertions on.";
       };
+
       program = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
@@ -43,6 +45,7 @@
           It builds with pkgsWasm's stdenv, whose compilers add the common flags.
         '';
       };
+
       programs = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
@@ -118,6 +121,7 @@
         "chromium"
         "firefox"
       ];
+
       formats = [
         "gtest-json"
         "tap"
@@ -161,29 +165,39 @@
               ++ [ (lib.fileset.fileFilter (file: file.hasExt "h") src) ]
             );
           };
+
           inherit nativeBuildInputs buildInputs;
           dontFixup = true;
+
           buildPhase = ''
             mkdir -p $out
             runHook preBuild
+
             ${lib.concatMapStrings (source: ''
               ${compiler source} ${lib.optionalString gtest gtestCflags} ${words cflags} -c ${source} -o ${object source}
             '') sources}
+
             $CXX ${words linkFlags} ${lib.concatMapStringsSep " " object sources} ${words libs} \
               ${lib.optionalString gtest gtestLibs} -o ${name}.js
+
             runHook postBuild
           '';
+
           inherit preBuild;
+
           installPhase = ''
             runHook preInstall
             install -Dm644 -t $out ${name}.js ${name}.wasm
+
             ${lib.optionalString (args != null)
               "cp ${
                 pkgs.writeText "${name}.args" (lib.concatMapStrings (arg: "${arg}\n") args)
               } $out/${name}.args"
             }
+
             runHook postInstall
           '';
+
           passthru = lib.optionalAttrs (format != null) {
             testProgram = { inherit name format; };
           };
@@ -219,15 +233,18 @@
               inherit (testProgram) name format;
               dir = "${program}";
             };
+
           nodeTestSources = lib.fileset.toSource {
             root = nodeTests;
             # A tsconfig.json beside them would extend configurations left
             # behind, which Vite reads when it compiles them.
             fileset = lib.fileset.fileFilter (file: file.hasExt "ts") nodeTests;
           };
+
           nodeTestFiles = lib.optionals (nodeTests != null) (
             lib.fileset.toList (lib.fileset.fileFilter (file: lib.hasSuffix ".test.ts" file.name) nodeTests)
           );
+
           manifest = pkgs.writeText "ibus-web-test-programs-${name}.json" (
             builtins.toJSON (
               {
@@ -246,19 +263,24 @@
         assert lib.assertMsg (
           lib.isInt timeout && timeout > 0
         ) "programs ${name}: timeout is whole seconds, a positive integer, not ${builtins.toJSON timeout}";
+
         assert lib.assertMsg
           (environments != [ ] && lib.all (environment: lib.elem environment allEnvironments) environments)
           "programs ${name}: environments must be some of ${toString allEnvironments}, not ${toString environments}";
+
         assert lib.assertMsg (
           programs != [ ] || nodeTests != null
         ) "programs ${name}: no programs and no nodeTests, so nothing to run";
+
         assert lib.assertMsg (nodeTests == null || lib.elem "node" environments)
           "programs ${name}: nodeTests run in the node environment, which isn't among ${toString environments}";
+
         vitestCheck {
           name = "test-programs-${name}";
           inherit packageDir expectedResults vitestArgs;
           env.IBUS_WEB_TEST_PROGRAMS = manifest;
           inBrowsers = environments != [ "node" ];
+
           # Vitest holds each program to its own limit; this one, past every
           # program's in every environment, and as long again for each test
           # file, catches a browser or Vitest that hangs outright.

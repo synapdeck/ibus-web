@@ -264,6 +264,7 @@
         };
     in
     {
+
       checks.worker-host-engine-distribution-identity =
         pkgs.runCommand "ibus-web-worker-host-engine-distribution-identity"
           { nativeBuildInputs = [ pkgs.jq ]; }
@@ -281,6 +282,7 @@
             done
             touch $out
           '';
+
       checks.worker-host-node = testing.vitestCheck {
         name = "worker-host-node";
         packageDir = "${workspace}/packages/worker-host";
@@ -296,6 +298,7 @@
           inherit constants;
         };
       };
+
       checks.worker-host-browser =
         check "worker-host-browser"
           [ "chromium" "firefox" ]

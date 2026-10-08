@@ -76,6 +76,7 @@
           ]
         );
       };
+
       # Where a source is in a copy of the sources.
       sourcePath = path: lib.escapeShellArg (lib.path.removePrefix root path);
       here = sourcePath ./.;

@@ -10,6 +10,7 @@
         default = { };
         description = "Extended integration checks aggregated by packages.integration-checks, outside the default flake check gate.";
       };
+
       vitestCheck = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
@@ -79,6 +80,7 @@
             export IBUS_WEB_TEST_CACHE_DIR=$TMPDIR/vite
             mkdir $out
             status=0
+
             (
               set -o pipefail
               cd ${packageDir}
@@ -87,6 +89,7 @@
                   --reporter=default --reporter=json --outputFile.json=$out/results.json \
                   ${lib.escapeShellArgs vitestArgs} 2>&1 | tee $out/output.txt
             ) || status=$?
+
             ${
               if expectedResults == null then
                 ''exit "$status"''

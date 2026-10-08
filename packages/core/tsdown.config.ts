@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { defineConfig } from "tsdown";
+
 export default defineConfig([
   {
     entry: { "shared/index": "src/shared/index.ts" },

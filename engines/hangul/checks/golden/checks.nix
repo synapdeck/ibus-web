@@ -10,6 +10,7 @@
         testing
         toolchain
         ;
+
       program = testing.program {
         name = "hangul-golden";
         src = ./.;
@@ -17,12 +18,15 @@
           "golden.c"
           "harness.c"
         ];
+
         format = "tap";
         gtest = false;
+
         nativeBuildInputs = [ toolchain.pkgsWasm.pkg-config ];
         buildInputs = [ runtime.libibusWeb ];
         cflags = "$($PKG_CONFIG --cflags libibus-web ibus-1.0)";
         libs = "$($PKG_CONFIG --static --libs libibus-web)";
+
         linkFlags = config.ibusWeb.lib.testLinkFlagsWithoutNodeFs;
         args = [
           "--schemas"

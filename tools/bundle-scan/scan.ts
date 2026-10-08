@@ -86,11 +86,13 @@ const entries = [
 async function main() {
   const root = import.meta.dirname;
   const temp = await mkdtemp(resolve(root, ".bundle-scan-"));
+
   try {
     for (const [index, entry] of entries.entries()) {
       const source = resolve(temp, `entry-${index}.ts`);
       await writeFile(source, `export * from ${JSON.stringify(entry)};\n`);
       const outDir = resolve(process.env["IBUS_WEB_SCAN_OUTPUT"] ?? temp, `entry-${index}`);
+
       await build({
         configFile: false,
         root,
@@ -104,9 +106,11 @@ async function main() {
           lib: { entry: source, formats: ["es"], fileName: "page" },
         },
       });
+
       await scanBuild(outDir);
       console.log(`PASS published entry ${entry}`);
     }
+
     const demo = process.env["IBUS_WEB_DEMO_PAGE"];
     if (!demo) throw new Error("IBUS_WEB_DEMO_PAGE is required");
     await scanBuild(demo);

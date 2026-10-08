@@ -9,6 +9,7 @@
         type = lib.types.listOf lib.types.str;
         description = "Compile flags for a GoogleTest program's sources, one flag an element: GoogleTest's headers, with its pthread support on.";
       };
+
       gtestLinkFlags = lib.mkOption {
         type = lib.types.str;
         description = ''
@@ -34,6 +35,7 @@
       inherit (config.ibusWeb.lib) libraryDeps emscriptenRoot;
 
       gtest = pkgsWasm.gtest;
+
       gtestCflagList = [
         "-I${lib.getDev gtest}/include"
         "-DGTEST_HAS_PTHREAD=1"
@@ -108,11 +110,14 @@
             cd source
             mkdir -p node_modules/@ibus-web
             cp -R ${typescript.presets} node_modules/@ibus-web/tsconfig
+
             node ${libraryDeps} check modules/testing/gtest-main/report.js ${emscriptenRoot}
+
             # The library's declarations read Emscripten's decorators from
             # the types beside them, which any library's link writes alike.
             ln -s ${reportTypes} runtime/wasmfs-idb/src/${typesDir}
             ln -s ${reportTypes} modules/testing/gtest-main/${typesDir}
+
             tsc -p modules/testing
             touch $out
           '';

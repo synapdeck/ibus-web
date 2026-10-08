@@ -39,12 +39,14 @@
         toolchain.pkgsWasm.stdenv.mkDerivation {
           name = "ibus-web-${name}";
           dontUnpack = true;
+
           nativeBuildInputs = [
             typescript.nodejs
             typescript.tsc
           ];
           inherit buildInputs;
           dontFixup = true;
+
           buildPhase = ''
             runHook preBuild
             node ${libraryDeps} emit ${library} ${emscriptenRoot} $out
@@ -54,6 +56,7 @@
               --emit-tsd $out/emscripten.d.ts -o probe.js
             runHook postBuild
           '';
+
           dontInstall = true;
         };
     in

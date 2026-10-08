@@ -72,9 +72,11 @@
           node ${../../tools/gschema/metadata.ts} ${
             typescript.workspaceFor [ "packages/protocol" ]
           }/packages/protocol/dist/index.js raw.json $out
+
         '';
       ibusWeb.toolchain.clangdPathFlags."tools/gschema/.*\\.c" = [
         "-I${config.ibusWeb.engines.jsonGlib}/include/json-glib-1.0"
+
       ];
       checks.engines-settings-metadata = testing.vitestCheck {
         name = "engines-settings-metadata";

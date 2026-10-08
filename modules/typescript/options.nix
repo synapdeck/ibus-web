@@ -9,10 +9,12 @@
         type = lib.types.attrsOf lib.types.anything;
         description = "pnpm-workspace.yaml's content: the workspace's package globs (each `<dir>` or `<dir>/*`), the dependencies allowed to run builds, and the catalog.";
       };
+
       pnpmWorkspaceFile = lib.mkOption {
         type = lib.types.package;
         description = "pnpm-workspace.yaml as generated from pnpmWorkspace, which builds of the workspace use in place of the tracked copy, so they follow the Nix before `write-files` has run.";
       };
+
       nodejs = lib.mkOption {
         type = lib.types.package;
         description = "The Node that runs the workspace's JavaScript, in checks and in the dev shell.";
@@ -21,6 +23,7 @@
         type = lib.types.package;
         description = "The workspace's TypeScript compiler, as bin/tsc, for type checks outside the workspace's packages.";
       };
+
       presets = lib.mkOption {
         type = lib.types.package;
         description = ''
@@ -30,6 +33,7 @@
           config's `extends` finds it.
         '';
       };
+
       assertDependency = lib.mkOption {
         type = lib.types.path;
         description = "A Node script, run as `node <it> [--locked] <package> <version> <why> <package directory>...`, that fails unless each directory resolves the package at exactly that version; for dependencies whose version something outside the lockfile fixes. --locked says the manifests name a range, which the lockfile holds at that version.";

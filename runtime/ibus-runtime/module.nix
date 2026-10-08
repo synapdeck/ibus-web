@@ -30,6 +30,7 @@
         # and past it while they all stay busy, which this share doesn't
         # cover.
         glib = 3;
+
         # The IndexedDB backends' threads: IndexedDB is asynchronous, so each
         # backend runs its calls on a thread of its own, from mount for good.
         # A host mounts two, each over a database of its own: the engine's
@@ -39,7 +40,9 @@
         # IndexedDB, run on the calling thread and take none.
         storage = 2;
       };
+
       plannedThreads = lib.foldl' builtins.add 0 (lib.attrValues threadShares);
+
       # Spare Workers beyond the shares, which the pool starts with, so that
       # threads alive within the shares never leave fewer than this many
       # idle: GLib's share, since its first GTask needs all three of its
@@ -59,20 +62,24 @@
       # and each running thread adds about 1 MiB, mostly its stack, which
       # leaves room for a pool topped up well past its starting size.
       minimumMemory = 32 * 1024 * 1024;
+
       # The most: Emscripten's JavaScript reads addresses as signed 32-bit
       # numbers unless linked for more.
       maximumMemory = 2048 * 1024 * 1024;
 
       linkFlags = lib.concatStringsSep " " [
         toolchain.runtimeMainFlags
+
         # The Worker host reads and writes requests in the runtime's memory,
         # and tops Emscripten's pthread pool up while it is idle.
         "-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread"
         "-sPTHREAD_POOL_SIZE='${toString poolSize}+Module[\"ibuswebEngineThreads\"]'"
         "-sPTHREAD_POOL_SIZE_STRICT=2"
+
         # GRegex outgrows Emscripten's 64 KiB default stack, on any thread.
         "-sSTACK_SIZE=1MB"
         "-sDEFAULT_PTHREAD_STACK_SIZE=1MB"
+
         # Each runtime's memory is fixed: the host makes it, at the size its
         # engine's manifest gives, and passes it in as wasmMemory, which the
         # runtime refuses to start without. A memory that grows lets V8 trap
@@ -88,10 +95,12 @@
         "-sIMPORTED_MEMORY=1"
         "-sINITIAL_MEMORY=${toString minimumMemory}"
         "-sMAXIMUM_MEMORY=${toString maximumMemory}"
+
         # Also the default without growth. With assertions, the abort's
         # message advises a larger INITIAL_MEMORY or growth; the remedy is
         # a larger memory from the host.
         "-sABORTING_MALLOC=1"
+
         # Listing the settings the module takes drops noExitRuntime unless it
         # is named; without it, the runtime's thread exits after a callback
         # and retires its pthreads' Workers.
@@ -112,14 +121,17 @@
           inherit (runtime.libibusWeb) version;
           dontUnpack = true;
           nativeBuildInputs = [ pkgsWasm.pkg-config ];
+
           buildInputs = [
             runtime.libibusWeb
             runtime.wasmfsIdb
             pkgsWasm.libffi
           ];
+
           # The output is files for the web, which need no fixing up and
           # depend on nothing.
           dontFixup = true;
+
           # Everything the runtime holds comes from libraries; the export
           # list decides what of them is linked, and the GIO subset, GObject,
           # libffi and the IndexedDB backend are on it whether libibus-web
@@ -133,6 +145,7 @@
               -o ibus-runtime.js
             runHook postBuild
           '';
+
           installPhase = ''
             runHook preInstall
             mkdir -p $out
@@ -144,10 +157,12 @@
       # Evaluate ABI and errno macros for the same WebAssembly target as the runtime.
       constants = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-ibus-runtime-constants";
+
         src = lib.fileset.toSource {
           root = ./.;
           fileset = ./constants.c;
         };
+
         nativeBuildInputs = [
           pkgsWasm.pkg-config
           config.ibusWeb.typescript.nodejs
@@ -155,6 +170,7 @@
         ];
         buildInputs = [ runtime.libibusWeb ];
         dontFixup = true;
+
         buildPhase = ''
           runHook preBuild
           $CC $($PKG_CONFIG --cflags libibus-web) -I${runtime.wasmfsIdb}/include -c constants.c -o constants.o
@@ -164,6 +180,7 @@
             '. + { memory: { $minimum, $maximum }, $poolLowWater }' > constants.json
           runHook postBuild
         '';
+
         installPhase = ''
           runHook preInstall
           install -Dm644 constants.json -t $out
@@ -176,21 +193,25 @@
     {
       ibusWeb.runtime = {
         inherit ibusRuntime linkFlags constants;
+
         memory = {
           minimum = minimumMemory;
           maximum = maximumMemory;
         };
+
         threadPool = {
           shares = threadShares;
           size = poolSize;
           planned = plannedThreads;
           inherit lowWater;
         };
+
         ibusRuntimeAsserting = link {
           pname = "ibus-runtime-asserting";
           extraFlags = "-sASSERTIONS=1";
         };
       };
+
       # The IndexedDB backend's header comes with no pkg-config module.
       ibusWeb.toolchain.clangdPathFlags."runtime/ibus-runtime/constants\\.c" = [
         "-I${runtime.wasmfsIdb}/include"

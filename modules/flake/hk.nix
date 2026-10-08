@@ -90,8 +90,10 @@
             cd src
             git init -q
             git add -A
+
             # Linked after `git add`, and git-ignored, as in a checkout.
             ln -s ${hkPkl} .hk
+
             ${lib.concatStrings (
               lib.mapAttrsToList (_: types: ''
                 grep -qF '"${types.link}"' hk.pkl || {
@@ -101,12 +103,14 @@
                 ln -s ${types.package} ${types.link}
               '') toolchain.emscriptenTypes
             )}
+
             (
               cd ${typescript.workspace}
               find . -name node_modules -prune -print
             ) | while IFS= read -r modules; do
               ln -s ${typescript.workspace}/"$modules" "$modules"
             done
+
             export HOME=$TMPDIR/home HK_STATE_DIR=$TMPDIR/hk-state HK_CACHE_DIR=$TMPDIR/hk-cache
             hk check --all --no-fail-fast --no-progress
             touch $out

@@ -10,6 +10,7 @@
     }:
     let
       inherit (config.ibusWeb) toolchain runtime;
+
       # Array options take a Python list literal, since flags such as
       # -Wl,... rule out Meson's comma-separated form.
       mesonArray = flags: builtins.toJSON (lib.filter (flag: flag != "") (lib.splitString " " flags));

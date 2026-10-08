@@ -17,12 +17,14 @@
     {
       ibusWeb.engines.jsonGlib = pkgsWasm.stdenv.mkDerivation {
         pname = "ibus-web-json-glib";
+
         inherit (pkgs.json-glib) version src;
         nativeBuildInputs = [
           pkgs.meson
           pkgs.ninja
           pkgsWasm.pkg-config
         ];
+
         buildInputs = [ pkgsWasm.glib ];
         mesonFlags = [
           "-Dintrospection=disabled"

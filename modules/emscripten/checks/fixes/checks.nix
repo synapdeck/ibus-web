@@ -9,6 +9,7 @@
       ...
     }:
     let
+
       inherit (config.ibusWeb) testing toolchain;
       # WasmFS's internal headers, for a test of its backend threads.
       wasmfsInclude = config.ibusWeb.lib.wasmfsIncludeFlag;
@@ -41,6 +42,7 @@
       sideModules = names: ''
         $CC ${toolchain.sideModuleFlags} dlsync-side.c -o dlsync-side.wasm
         ${lib.concatMapStrings (name: "install -Dm644 dlsync-side.wasm $out/${name}\n") names}
+
       '';
       dlsync =
         name: names:
@@ -113,6 +115,7 @@
       ibusWeb.toolchain.clangdPathFlags."modules/emscripten/checks/fixes/.*\\.(cpp|h)" = [
         wasmfsInclude
       ]
+
       ++ testing.gtestCflagList;
       # The build names the directory of a dlopen() case's side modules and
       # its threads' stack size; the editor only needs the names defined.
@@ -130,6 +133,7 @@
       # growth, at a size between its initial size and its maximum.
       checks.emscripten-fixes = testing.programs {
         name = "emscripten-fixes";
+
         environments = [ "node" ];
         programs = [
           (program {
@@ -158,6 +162,7 @@
             linkFlags = "${testing.nodeLinkFlags} -sPTHREAD_POOL_SIZE=3";
           })
         ]
+
         ++ map importedMemory sizes;
         nodeTests = ./.;
         nodeTestData = {

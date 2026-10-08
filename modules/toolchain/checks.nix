@@ -30,6 +30,7 @@
           name = "ibus-web-toolchain-cross";
           src = ./probes;
           nativeBuildInputs = [ pkgsWasm.nodejs ];
+
           buildPhase = ''
             runHook preBuild
             $CC -O2 -c probe.c -o probe.o
@@ -37,11 +38,13 @@
             $CXX ${toolchain.testMainFlags} probe.cpp -o probe-cpp.js
             test "$(node probe-c.js)" = "probe 7"
             test "$(node probe-cpp.js)" = "probe 2"
+
             # Flags clang and lld accept must not reach emcc or wasm-ld.
             $CC -O2 -static-libgcc -c probe.c -o probe-flags.o 2> flags.log
             test ! -s flags.log
             $CXX ${toolchain.testMainFlags} -Wl,--undefined-version probe-flags.o -o probe-flags.js
             test "$(node probe-flags.js)" = "probe 7"
+
             # Links, and only links, target the project's minimum versions.
             $CC -O2 -Werror=unused-command-line-argument -c probe.c -o probe-compiled.o
             EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CXX ${toolchain.testMainFlags} probe.o \
@@ -50,6 +53,7 @@
             # Python list.
             minimums="'$(sed "s/ /', '/g" ${toolchain.minimumVersions}/link-flags)'"
             grep -qF -- "$minimums" minimums.log
+
             # A link for some environments only gets the minimums emcc uses
             # for them, so it warns about none; the last ENVIRONMENT wins.
             EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CC ${testing.browserLinkFlags} \
@@ -60,6 +64,7 @@
               echo "a worker link was given Node's minimum" >&2
               exit 1
             fi
+
             EMCC_DEBUG=1 EMCC_TEMP_DIR=$PWD $CXX ${toolchain.testMainFlags} -sENVIRONMENT=web \
               -s ENVIRONMENT=node -Werror=unused-command-line-argument probe.o -o probe-node.js 2> node.log \
               || { cat node.log >&2; exit 1; }
@@ -69,6 +74,7 @@
               exit 1
             fi
             test "$(node probe-node.js)" = "probe 7"
+
             # Every compile is optimized unless the package asks otherwise.
             echo | $CC -dM -E -x c - | grep -q "__OPTIMIZE__"
             echo | $CC -O0 -dM -E -x c - > O0.h
@@ -78,6 +84,7 @@
             fi
             runHook postBuild
           '';
+
           installPhase = "touch $out";
         };
     };

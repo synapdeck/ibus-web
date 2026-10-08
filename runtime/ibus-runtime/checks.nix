@@ -104,10 +104,12 @@
             cmp ${runtime.constants}/constants.json $runtime/constants.json
           done
           grep -F 'Module["ibuswebEngineThreads"]' ${runtime.ibusRuntime}/ibus-runtime.js > /dev/null
+
           manifest=${runtime.exportList}
           for file in exports.txt exports.json; do
             cmp $manifest/$file ${runtime.ibusRuntime}/$file
           done
+
           macro() { python3 ${./exports.py} macro "$@"; }
           abi=$(macro --include ibus-web/runtime.h --pkg-config libibus-web IBUSWEB_RUNTIME_ABI)
           musl=$(< ${config.ibusWeb.lib.emscriptenRoot}/system/lib/libc/musl/VERSION)
@@ -117,6 +119,7 @@
           # major release; only that is compared, so a patch release of one
           # without the other doesn't fail the check.
           clang=$(macro __clang_major__)
+
           python3 ${./exports.py} verify --dir $manifest \
             --expect libibus-web=$abi \
             --expect "ibus=$($PKG_CONFIG --modversion ibus-1.0)+ibus-web.$abi" \
