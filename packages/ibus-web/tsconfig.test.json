@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ibus-web/tsconfig/dom.json",
+  "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
-    "types": ["node"],
     "skipLibCheck": true
   },
   "include": ["test/node"]
