@@ -25,10 +25,9 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 
 ## Specs
 
-| Spec                                                             | Covers                                                                       |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [The design](specs/2026-09-26-ibus-web-design.md)                | Goals, architecture, protocol, licensing, build and the remaining milestones |
-| [Repository organization](specs/2026-10-07-repo-organization.md) | The package, tsconfig, Nix and documentation layout                          |
+| Spec                                              | Covers                                                                       |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [The design](specs/2026-09-26-ibus-web-design.md) | Goals, architecture, protocol, licensing, build and the remaining milestones |
 
 ## Beside the code
 
