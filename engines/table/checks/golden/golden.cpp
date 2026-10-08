@@ -581,9 +581,23 @@ TEST_F(Continuous, EnterFlushesAndPassesThrough) {
 TEST_F(Continuous, FlushUsesLiteralFallback) {
   type("t");
   sink_.take();
-  EXPECT_FALSE(press(keys::Escape));
+  EXPECT_FALSE(press(keys::space));
   EXPECT_EQ(sink_.take(),
             (Events{"commit \"t\"", "preedit \"\"", "candidates none"}));
+}
+
+TEST_F(Continuous, EscapeCommitsThePendingBufferRaw) {
+  type("S@");
+  EXPECT_EQ(sink_.take(), (Events{"commit \"ʃ\"", "preedit \"@\"",
+                                  "candidates 2 cursor 0 hidden"}));
+  EXPECT_TRUE(press(keys::Escape));
+  EXPECT_EQ(sink_.take(),
+            (Events{"commit \"@\"", "preedit \"\"", "candidates none"}));
+}
+
+TEST_F(Continuous, EscapePassesThroughWhenNothingIsPending) {
+  EXPECT_FALSE(press(keys::Escape));
+  EXPECT_EQ(sink_.take(), Events{});
 }
 
 TEST_F(Continuous, CharactersOutsideTheAlphabetFlush) {

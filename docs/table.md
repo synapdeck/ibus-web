@@ -117,8 +117,8 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
   are `exact(key)`, `completions(prefix)`, `extendable(prefix)` (a longer key starts with it) and
   `longestPrefix(text)`. MARISA's predictive and common-prefix searches find the keys; key IDs never decide order.
 - **`Sink`** (`sink.hpp`) is what a session writes to: `commit(text)`, `preedit(text)` (empty hides it) and
-  `candidates(all, cursor, cursorShown)` (empty hides them). Sessions pass the whole list; a page is the 10
-  candidates around the cursor. Within one call into a session, a commit comes before the preedit and candidates that
+  `candidates(all, cursor, cursorShown)` (empty hides them). Sessions pass the whole list; a page is the aligned
+  block of 10 candidates that contains the cursor. Within one call into a session, a commit comes before the preedit and candidates that
   follow it.
 - **`Session`** (`session.hpp`) is one context's composition. `makeSession(table, sink)` returns a command or a
   continuous session by the table's mode. `processKey(keyval, character, modifiers)` takes the key's X11 keysym, its
@@ -167,7 +167,8 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
   character is committed as typed. What remains can still extend, and stays as the preedit.
 - **Flushing** runs the same loop as if nothing could extend, leaving the buffer empty. Several commits from one key
   are joined into one.
-- **Any other key** (Space, Enter, Escape, arrows, characters outside the alphabet) flushes, then passes through.
+- **Escape** commits the pending buffer raw, unresolved, and is consumed; with nothing pending it passes through.
+- **Any other key** (Space, Enter, arrows, characters outside the alphabet) flushes, then passes through.
 - **Backspace** deletes the last pending character, or passes through when nothing is pending.
 - **Candidates** are the pending buffer's completions, a guide to what it can still become, with the cursor hidden.
   They can be clicked and paged; `cursorUp` and `cursorDown` do nothing.

@@ -36,6 +36,14 @@ public:
       show();
       return true;
     }
+    if (plain && keyval == keys::Escape && !buffer_.empty()) {
+      // Commits what the preedit shows, as blur does.
+      const std::string raw = std::move(buffer_);
+      buffer_.clear();
+      sink_.commit(raw);
+      show();
+      return true;
+    }
     if (plain && isPrintable(character) && table_.inAlphabet(character)) {
       utf8::append(buffer_, character);
       resolve(false);

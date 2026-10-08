@@ -247,7 +247,8 @@ the same code through `glue.cpp`.
   otherwise commit its first character literally and remove it. What remains can still extend, and stays as the
   preedit.
 - **Flushing** runs the same loop as if nothing could extend, leaving the buffer empty.
-- **Any other key** (Space, Enter, Escape, arrows, characters outside the alphabet) flushes, then passes through.
+- **Escape** commits the pending buffer raw, unresolved, and is consumed; with nothing pending it passes through.
+- **Any other key** (Space, Enter, arrows, characters outside the alphabet) flushes, then passes through.
 - **Backspace** deletes the last pending character, or passes through when nothing is pending.
 - **Candidates** are the pending buffer's completions, shown as a guide to what it can still become. They can be
   clicked; they are not navigated by keyboard.
