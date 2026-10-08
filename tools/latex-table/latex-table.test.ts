@@ -82,6 +82,18 @@ describe("generate", () => {
     );
   });
 
+  test("fails on an alias for a character that only occurs inside a sequence", () => {
+    expect(() => generate(xml, "\\notslash\tU+0338\n", "aliases.tsv")).toThrow(
+      "aliases.tsv:1: U+0338 is not in unicode.xml",
+    );
+  });
+
+  test("fails on an alias that is a unicode-math name", () => {
+    expect(() => generate(xml, "\\mupalpha\tU+03B1\n", "aliases.tsv")).toThrow(
+      "aliases.tsv:1: \\mupalpha is already a name in unicode.xml",
+    );
+  });
+
   test("fails on an alias unicode.xml already uses as a name", () => {
     expect(() => generate(xml, "\\ast\tU+2217\n", "aliases.tsv")).toThrow(
       "aliases.tsv:1: \\ast is already a name in unicode.xml",
