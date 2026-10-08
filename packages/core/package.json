@@ -2,7 +2,14 @@
   "name": "@ibus-web/core",
   "version": "0.0.0",
   "description": "Page-side IBus key translation and input routing.",
-  "homepage": "https://github.com/synapdeck/ibus-web",
+  "keywords": [
+    "ibus",
+    "ime",
+    "input-method",
+    "keyboard",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/core.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -17,6 +24,7 @@
     "LICENSE-APACHE"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     "./keys": {
       "types": "./dist/shared/index.d.ts",
@@ -55,5 +63,8 @@
   },
   "peerDependencies": {
     "effect": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

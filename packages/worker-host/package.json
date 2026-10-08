@@ -2,6 +2,13 @@
   "name": "@ibus-web/worker-host",
   "version": "0.0.0",
   "description": "The Worker host for ibus-web: runs the WebAssembly IBus runtime and its engines in a dedicated Worker, with storage and engine-data install.",
+  "keywords": [
+    "ibus",
+    "ime",
+    "input-method",
+    "web-worker",
+    "webassembly"
+  ],
   "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/worker-host.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
   "license": "MIT OR Apache-2.0",
@@ -19,6 +26,10 @@
     "LICENSE-APACHE"
   ],
   "type": "module",
+  "sideEffects": [
+    "./dist/worker/index.js",
+    "./dist/worker/relay.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/shared/index.d.ts",
@@ -61,5 +72,8 @@
   },
   "peerDependencies": {
     "effect": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

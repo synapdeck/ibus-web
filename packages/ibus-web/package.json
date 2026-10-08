@@ -2,7 +2,14 @@
   "name": "ibus-web",
   "version": "0.0.0",
   "description": "Browser IBus facade for native and custom editor surfaces.",
-  "homepage": "https://github.com/synapdeck/ibus-web",
+  "keywords": [
+    "hangul",
+    "ibus",
+    "ime",
+    "input-method",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/ibus-web.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -16,6 +23,11 @@
     "LICENSE-APACHE"
   ],
   "type": "module",
+  "sideEffects": [
+    "./dist/style.css",
+    "./dist/host/index.js",
+    "./dist/host/relay.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -62,5 +74,8 @@
   },
   "peerDependencies": {
     "effect": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

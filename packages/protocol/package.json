@@ -2,6 +2,13 @@
   "name": "@ibus-web/protocol",
   "version": "0.0.0",
   "description": "The typed wire protocol and GVariant codec for ibus-web.",
+  "keywords": [
+    "gvariant",
+    "ibus",
+    "input-method",
+    "protocol",
+    "webassembly"
+  ],
   "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/protocol.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
   "license": "MIT OR Apache-2.0",
@@ -17,6 +24,7 @@
     "LICENSE-APACHE"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -50,5 +58,8 @@
   },
   "peerDependencies": {
     "effect": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

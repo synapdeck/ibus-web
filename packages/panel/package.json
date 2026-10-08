@@ -2,7 +2,13 @@
   "name": "@ibus-web/panel",
   "version": "0.0.0",
   "description": "Framework-free IBus candidate and property panel.",
-  "homepage": "https://github.com/synapdeck/ibus-web",
+  "keywords": [
+    "candidate-window",
+    "ibus",
+    "ime",
+    "input-method"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/panel.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -16,6 +22,9 @@
     "LICENSE-APACHE"
   ],
   "type": "module",
+  "sideEffects": [
+    "./dist/style.css"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -39,13 +48,12 @@
     "@ibus-web/test-programs": "workspace:*",
     "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",
-    "effect": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "peerDependencies": {
-    "effect": "catalog:"
+  "engines": {
+    "node": ">=24"
   },
   "ibusWeb": {
     "assets": [
