@@ -81,14 +81,21 @@ export function nativeEdits(element: NativeInput) {
         }
       }
     },
-    /** Apply a batch's edits so far, so that a native command run inside it sees them. */
-    flush() {
-      if (!depth) return;
+    /**
+     * Run a native editing command against the live control. Inside a batch, the edits so far are applied first
+     * and the batch continues from whatever value and selection the command leaves.
+     */
+    native<A>(command: () => A): A {
+      if (!depth) return command();
       apply(base!, pending!, affected);
-      base = snapshot(element);
-      pending = base;
-      originalLength = base.value.length;
-      affected = undefined;
+      try {
+        return command();
+      } finally {
+        base = snapshot(element);
+        pending = base;
+        originalLength = base.value.length;
+        affected = undefined;
+      }
     },
     replace(text: string, start: number, end: number, preserve = false) {
       const before = current();

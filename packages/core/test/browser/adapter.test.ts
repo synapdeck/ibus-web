@@ -132,6 +132,15 @@ test("a declined undo replayed inside a batch undoes the batch's earlier commit"
   });
   expect(element.value).toBe("ab");
 });
+test("a declined cut replayed inside a batch leaves the caret where the cut text was", async () => {
+  const { element, adapter } = field("textarea", "abc");
+  await userEvent.click(element);
+  element.setSelectionRange(1, 2);
+
+  adapter.batch(() => adapter.replayKey(chord("x")));
+  expect(element.value).toBe("ac");
+  expect([element.selectionStart, element.selectionEnd]).toEqual([1, 1]);
+});
 test("paste, unbound chords and Mac Control chords report that their action was lost", async () => {
   const { element, adapter } = field("textarea", "abc");
   await userEvent.click(element);

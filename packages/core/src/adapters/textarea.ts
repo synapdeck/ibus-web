@@ -107,13 +107,13 @@ export function textareaAdapter(
     const document = element.ownerDocument;
     if (!command || document.activeElement !== element) return false;
 
-    // The command acts on the control's live value, which must already hold the batch's edits.
-    edits.flush();
-    try {
-      return document.execCommand(command);
-    } catch {
-      return false;
-    }
+    return edits.native(() => {
+      try {
+        return document.execCommand(command);
+      } catch {
+        return false;
+      }
+    });
   };
   return {
     element,
