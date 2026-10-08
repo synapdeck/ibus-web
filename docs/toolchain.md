@@ -396,16 +396,19 @@ Modules never import each other; they share values only through per-system `ibus
 (`ibusWeb.toolchain.*`, `ibusWeb.runtime.*`, `ibusWeb.typescript.*`, `ibusWeb.testing.*`, …) and
 flake outputs.
 
-- `modules/<component>/` holds a component's modules: `overlay.nix` for its overlay, `patches/`
-  with a README of their provenance, and `checks/` (`checks/<name>.nix`, or
-  `checks/<name>/default.nix` with its sources beside it). `modules/toolchain/`,
-  `modules/emscripten/`, `modules/glib/` and
-  `modules/baseline-browser-mapping/` are the ones this page covers; `modules/flake/` holds the
-  flake's own (systems, dev shell, CI, hk, generated files).
-- `runtime/<part>/` holds one part of the runtime, its sources, its modules and its tests;
-  runtime-wide options are in `runtime/options.nix`.
-- `packages/<name>/` holds a TypeScript package of the pnpm workspace, with its Nix module beside
-  it.
+- Each component's Nix sits in its directory, in files named for their role: `module.nix` (its
+  packages, outputs and dev-shell setup), `options.nix` (options it declares for other modules),
+  `checks.nix`, `overlay.nix` (its overlay on `pkgsWasm`), and `_<name>.nix` for a plain
+  `callPackage` recipe, which import-tree skips. A module with more than one job splits into
+  modules named for each (`archives.nix`, `exports.nix`, `cache.nix`), and a job's module may
+  define the checks that need its own bindings. A check with fixtures of its own gets a directory
+  holding its `checks.nix` beside them.
+- `modules/` holds what components share: `toolchain/`, `emscripten/`, `glib/` and
+  `baseline-browser-mapping/`, which this page covers; `engines/`, the API engines are built and
+  checked with; `typescript/` and `testing/`; and `flake/` (systems, dev shell, CI, hk, generated
+  files, and `ibusWeb.lib`, the helpers modules share).
+- `runtime/<part>/`, `packages/<name>/`, `tools/<name>/`, `engines/<name>/` and
+  `examples/<name>/` each hold one component: its sources, its Nix and its tests.
 - Non-Nix files sit beside the module that uses them, under plain names.
 
 **Inputs** come from FlakeHub when the project publishes there and its latest FlakeHub release is
