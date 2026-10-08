@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Effect, Layer, Logger as EffectLogger, Stream } from "effect";
 import {
   CreateEngine,
+  IBusCapability,
   SetCapabilities,
   Enable,
   FocusIn,
@@ -277,7 +278,7 @@ test("a fresh page reads persisted bytes before starting a real Hangul Worker", 
         yield* Effect.promise(async () => {
           for (const request of [
             new CreateEngine({ name: "hangul" }),
-            new SetCapabilities({ capabilities: 1 | 8 }),
+            new SetCapabilities({ capabilities: IBusCapability.PREEDIT_TEXT | IBusCapability.FOCUS }),
             new Enable({}),
             new FocusIn({}),
           ])

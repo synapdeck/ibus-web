@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test } from "vitest";
+import { IBusCapability } from "@ibus-web/protocol";
 import { run, select, key, record, text } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 test("clips ±1000 code points and converts astral cursor and backward anchor offsets", () =>
@@ -74,7 +75,9 @@ test("removes unsupported capabilities and sends changed caret rectangles after 
     f.element.focus();
     await select(router);
     const c = connections.a[0]!;
-    expect(c.sent.find((x) => x.request._tag === "SetCapabilities")!.request).toMatchObject({ capabilities: 25 });
+    expect(c.sent.find((x) => x.request._tag === "SetCapabilities")!.request).toMatchObject({
+      capabilities: IBusCapability.PREEDIT_TEXT | IBusCapability.FOCUS | IBusCapability.PROPERTY,
+    });
     expect(c.sent.some((x) => x.request._tag === "SetSurroundingText")).toBe(false);
     rect = new DOMRect(10, 20, 1, 16);
     key(f.element);

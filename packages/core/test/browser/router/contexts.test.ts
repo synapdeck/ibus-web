@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test } from "vitest";
+import { IBusCapability } from "@ibus-web/protocol";
 import { run, select, key, record, text, emptyReply } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 test("creates distinct contexts on focus, with capabilities, content type and surrounding, before keys", () =>
@@ -21,7 +22,15 @@ test("creates distinct contexts on focus, with capabilities, content type and su
       "SetCursorLocation",
     ]);
     expect(sent[0]).toMatchObject({ name: "factory" });
-    expect(sent[1]).toMatchObject({ capabilities: 63 });
+    expect(sent[1]).toMatchObject({
+      capabilities:
+        IBusCapability.PREEDIT_TEXT |
+        IBusCapability.AUXILIARY_TEXT |
+        IBusCapability.LOOKUP_TABLE |
+        IBusCapability.FOCUS |
+        IBusCapability.PROPERTY |
+        IBusCapability.SURROUNDING_TEXT,
+    });
     expect(sent.find((request) => request._tag === "SetSurroundingText")).toMatchObject({
       text: { text: "😀a" },
       cursor: 2,
