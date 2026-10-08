@@ -326,8 +326,7 @@ An item leaves this page when it is fixed or decided.
 
 - **Most reports are filed; some fixes and one proposal aren't.** [upstream/README.md](upstream/README.md)
   lists what is left to post, in order (two PRs, a Node issue, two Emscripten issues, the follow-up PRs
-  for filed issues, and the IndexedDB backend proposal), and what was filed where. Patch headers get their
-  issue numbers in a later change.
+  for filed issues, and the IndexedDB backend proposal), and what was filed where.
 - **Moving the toolchain past 6.0.9 needs a newer clang.** Emscripten 6.0.10 and `main` build their libc
   with `__builtin_wasm_memory_fill`, which nixpkgs' clang 22 and 23.1 don't know, so the patches that
   shipped upstream (0001 in 6.0.10, 0004 in 6.0.11, 0016 after it) stay until nixpkgs' Emscripten moves.

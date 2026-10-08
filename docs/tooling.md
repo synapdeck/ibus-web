@@ -55,19 +55,19 @@ hk 2 (`hk.pkl`) defines every formatter and lint check once, as `linters` shared
 
 The steps:
 
-| Step               | Files                                                                 | Tool                                              |
-| ------------------ | --------------------------------------------------------------------- | ------------------------------------------------- |
-| `nixfmt`           | `*.nix`                                                               | nixfmt                                            |
-| `clang-format`     | C, C++                                                                | clang-format, `.clang-format` (LLVM style)        |
-| `shfmt`            | `*.sh`                                                                | shfmt, two-space indent from `.editorconfig`      |
-| `oxfmt`            | TS, JS, JSON/JSONC, YAML, Markdown, HTML, TOML (not `pnpm-lock.yaml`) | oxfmt, `.oxfmtrc.jsonc`                           |
-| `pkl-format`       | `*.pkl`                                                               | pkl                                               |
-| `oxlint`           | TS, JS                                                                | oxlint, `.oxlintrc.jsonc`                         |
-| `tsc`              | every directory with a `tsconfig.json`                                | `tsc -b --noEmit` with the workspace's TypeScript |
-| `tsconfig-extends` | `**/tsconfig*.json`                                                   | `node tools/tsconfig-extends/tsconfig-extends.ts` |
-| `reuse`            | the whole tree, every run                                             | `reuse lint`                                      |
-| `links`            | every Markdown file git tracks, every run                             | lychee, offline, with heading anchors             |
-| `actionlint`       | `.github/workflows/*.yml`                                             | actionlint                                        |
+| Step               | Files                                                                                                                                      | Tool                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `nixfmt`           | `*.nix`                                                                                                                                    | nixfmt                                            |
+| `clang-format`     | C, C++                                                                                                                                     | clang-format, `.clang-format` (LLVM style)        |
+| `shfmt`            | `*.sh`                                                                                                                                     | shfmt, two-space indent from `.editorconfig`      |
+| `oxfmt`            | TS, JS, JSON/JSONC, YAML, Markdown, HTML, TOML (not `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.github/workflows/*.yml` or `docs/plans/**`) | oxfmt, `.oxfmtrc.jsonc`                           |
+| `pkl-format`       | `*.pkl`                                                                                                                                    | pkl                                               |
+| `oxlint`           | TS, JS                                                                                                                                     | oxlint, `.oxlintrc.jsonc`                         |
+| `tsc`              | every directory with a `tsconfig.json`                                                                                                     | `tsc -b --noEmit` with the workspace's TypeScript |
+| `tsconfig-extends` | `**/tsconfig*.json`, `**/package.json`, `packages/tsconfig/*.json`                                                                         | `node tools/tsconfig-extends/tsconfig-extends.ts` |
+| `reuse`            | the whole tree, every run                                                                                                                  | `reuse lint`                                      |
+| `links`            | every Markdown file git tracks, every run                                                                                                  | lychee, offline, with heading anchors             |
+| `actionlint`       | `.github/workflows/*.yml`                                                                                                                  | actionlint                                        |
 
 - `tsc` runs once per directory holding a `tsconfig.json` (`workspace_indicator`), so a new
   config is checked without editing `hk.pkl`. A changed JavaScript file or config re-runs it. It
@@ -392,6 +392,8 @@ flake-root, systems and files, which have no current FlakeHub entries, from GitH
 
 - **`nix run .#write-files`** writes every generated file ([the dev shell](#the-dev-shell) lists
   them).
+- **`nix run .#demo`** serves the Hangul demo ([examples/hangul](../examples/hangul/README.md)).
+- **`nix run .#keystroke-bench`** times a production-preview browser run of trusted keys ([testing.md](testing.md)).
 - **`nix run .#protocol-bench`** times decoding a framed 500-candidate lookup table from the built
   workspace. It is an app rather than a check, since wall-clock timing on a loaded builder means
   nothing ([protocol.md](protocol.md#lookup-decode-measurement)).
