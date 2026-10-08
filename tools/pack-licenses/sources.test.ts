@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -57,6 +58,37 @@ test("a script that only re-exports needs no sourcemap", async () => {
   });
   const { problems } = await bundledSources(join(root, "packages/p"), { name: "p", files: ["dist"] });
   expect(problems).toEqual(["dist/code.js has no sourcemap"]);
+});
+
+test.each([
+  ['export function evil() { return globalThis.x }\nexport { b } from "./b.js";\n'],
+  ['export class Evil { m() { return 1 } } export * from "./a.js";\n'],
+  ['export const f = () => g(1)\nimport { g } from "./g.js";\n'],
+])("code beside re-exports still needs a sourcemap: %s", async (script) => {
+  const root = await makeTree({ "packages/p/dist/code.js": script });
+  const { problems } = await bundledSources(join(root, "packages/p"), { name: "p", files: ["dist"] });
+
+  expect(problems).toEqual(["dist/code.js has no sourcemap"]);
+});
+
+test("every form of import and re-export is accepted without a sourcemap", async () => {
+  const root = await makeTree({
+    "packages/p/dist/forms.js": [
+      'import "./side.js";',
+      'import d from "./d.js";',
+      'import * as ns from "./ns.js";',
+      'import d2, { x } from "./d2.js";',
+      'import d3, * as ns3 from "./d3.js";',
+      'export * from "./a.js";',
+      'export * as b from "./b.js";',
+      'export { default } from "./c.js";',
+      "export { d, ns, x };",
+      "",
+    ].join("\n"),
+  });
+  const { problems } = await bundledSources(join(root, "packages/p"), { name: "p", files: ["dist"] });
+
+  expect(problems).toEqual([]);
 });
 
 test("a copied directory's maps are read where it was built", async () => {

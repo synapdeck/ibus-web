@@ -41,8 +41,15 @@ const inNodeModules = (path: string) => path.split(sep).includes("node_modules")
 // A bundler writes no sourcemap for an entry that only re-exports other
 // modules, since it has no code of its own to map. Whatever it imports from
 // this package is a packed script with its own map, and anything else isn't
-// bundled at all.
-const STATEMENT = /\s*(?:(?:import|export)\b[^;"]*\bfrom\s*"[^"]*"|import\s*"[^"]*"|export\s*\{[^}]*\})\s*;/y;
+// bundled at all. The pattern admits only those statements, whitespace and
+// semicolons: anything else is code, which would need a map.
+const NAME = String.raw`[\w$]+`;
+const BINDINGS = String.raw`\*(?:\s+as\s+${NAME})?|\{[^}]*\}|${NAME}(?:\s*,\s*(?:\*\s+as\s+${NAME}|\{[^}]*\}))?`;
+
+const STATEMENT = new RegExp(
+  String.raw`[\s;]*(?:(?:import|export)\b\s*(?:${BINDINGS})\s*from\s*"[^"]*"|import\s*"[^"]*"|export\s*\{[^}]*\})\s*;`,
+  "y",
+);
 
 function onlyReexports(script: string): boolean {
   let end = 0;
