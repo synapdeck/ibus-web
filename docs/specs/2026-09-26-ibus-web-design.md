@@ -1971,6 +1971,7 @@ ibus-web/
 ├─ package.json, pnpm-*.yaml       the pnpm workspace (no root dependencies), its catalog (generated from Nix) and its lockfile
 ├─ hk.pkl                          every formatter and lint check, for the git hooks, `nix fmt` and `checks.flake-hk`
 ├─ REUSE.toml, LICENSES/, NOTICES/ per-path licensing, license texts, third-party notices
+├─ README.md, CONTRIBUTING.md      what ibus-web is and how to work on it; AGENTS.md (and CLAUDE.md) for coding agents; SECURITY.md
 ├─ modules/                        infrastructure several components share
 │  ├─ flake/                       systems, hk, dev shell, the CI workflow, the files writer, ibusWeb.lib
 │  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes, checks/

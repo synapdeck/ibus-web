@@ -1,0 +1,79 @@
+# ibus-web
+
+IBus input-method engines, running in the browser.
+
+ibus-web runs minimally modified C and C++ IBus engines as WebAssembly in Web Workers; ibus-hangul is the first. It
+gives web pages a TypeScript library that does what the IBus daemon, the input-method module and the candidate panel do
+on a Linux desktop. It translates DOM key events, routes them to the engine, applies the engine's preedit and commits to
+text fields, and shows its candidates.
+
+## How it fits together
+
+- **The Worker side** is a WebAssembly runtime: a patched GLib and `libibus-web`, which carries IBus's engine API. It
+  hosts one engine per dedicated Worker, loaded as a side module.
+- **The page side** is `ibus-web` and the `@ibus-web/*` packages: key translation, routing, text-surface adapters and
+  the default panel.
+
+The two halves talk only through a versioned protocol over a dedicated `SharedArrayBuffer`. That boundary is also the
+licensing boundary. Engines are GPL, but the page packages are MIT OR Apache-2.0 and never contain Worker, runtime or
+engine code, so any page can use them. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP
+`require-corp`).
+
+## Try it
+
+You need [Nix](https://nixos.org/download/) with flakes enabled. The flake builds for x86_64-linux, aarch64-linux and
+aarch64-darwin; CI runs on x86_64-linux.
+
+```sh
+nix run .#demo
+```
+
+Open http://127.0.0.1:5173, press Shift+Space to switch to Hangul, type `gks` for 한, and press F9 for Hanja
+candidates. The first build compiles the patched Emscripten toolchain, GLib and the engine, which takes a while.
+[examples/hangul](examples/hangul/README.md) has the demo's other options.
+
+## Packages
+
+| Package                                         | What it is                                                                    |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| [`ibus-web`](packages/ibus-web)                 | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts |
+| [`@ibus-web/core`](packages/core)               | Key translation, routing, adapters and the Effect services under the facade   |
+| [`@ibus-web/panel`](packages/panel)             | The framework-free candidate and property panel                               |
+| [`@ibus-web/protocol`](packages/protocol)       | The wire protocol and its strict GVariant codec                               |
+| [`@ibus-web/worker-host`](packages/worker-host) | The TypeScript that runs inside each engine's Worker                          |
+
+They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how to build, pack and use them.
+
+## Repository layout
+
+| Directory   | What it holds                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `packages/` | the TypeScript packages above, plus the test-program runner and the shared tsconfig presets                  |
+| `runtime/`  | the WebAssembly runtime: `libibus-web`, the IndexedDB storage backend, and the `ibus-runtime.wasm` link      |
+| `engines/`  | one directory per engine: its overlay, patches and checks                                                    |
+| `modules/`  | Nix several components share: the Emscripten toolchain, GLib, engines, TypeScript, testing, the flake and CI |
+| `tools/`    | one package per build or check tool                                                                          |
+| `examples/` | the Hangul demo and its end-to-end tests                                                                     |
+| `docs/`     | how everything works and why, the design spec, and draft upstream reports                                    |
+
+## Documentation
+
+[docs/README.md](docs/README.md) indexes the topic pages. The design and remaining milestones are in the
+[design spec](docs/specs/2026-09-26-ibus-web-design.md), and what is knowingly left open is in
+[docs/known-gaps.md](docs/known-gaps.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
+
+## License
+
+- The page-side packages, the Worker host, the runtime's storage backend and link, and the tools: MIT OR Apache-2.0, at
+  your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
+- `libibus-web` and the GLib patches: LGPL-2.1-or-later.
+- The Emscripten patches: Emscripten's MIT OR NCSA.
+- Each engine and its patches: the engine's own license (ibus-hangul is GPL-2.0-or-later; its libhangul patch is
+  LGPL-2.1-or-later, as libhangul is).
+
+[REUSE.toml](REUSE.toml) is the authoritative per-path mapping, and every license text is in [LICENSES/](LICENSES).
+Copyright 2026 Synapdeck, Inc.
