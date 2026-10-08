@@ -1,0 +1,30 @@
+From 55651461d291e64967598087d3e4bcb286eb6188 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 8 Oct 2026 15:55:31 -0700
+Subject: [PATCH 2/3] Build the IPC path manager for WebAssembly
+
+The client library depends on it even when no server process is used.
+On WebAssembly it takes the generic Unix branch.
+---
+ src/ipc/ipc_path_manager.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/ipc/ipc_path_manager.cc b/src/ipc/ipc_path_manager.cc
+index 3edbde0..97db1e5 100644
+--- a/src/ipc/ipc_path_manager.cc
++++ b/src/ipc/ipc_path_manager.cc
+@@ -58,9 +58,9 @@
+ #include "ipc/ipc.h"
+ #include "ipc/ipc.pb.h"
+ 
+-#if defined(__ANDROID__) || defined(__wasm__)
++#if defined(__ANDROID__)
+ #error "This platform is not supported."
+-#endif  // __ANDROID__ || __wasm__
++#endif  // __ANDROID__
+ 
+ #ifdef __APPLE__
+ #include <sys/sysctl.h>
+-- 
+2.55.0
+

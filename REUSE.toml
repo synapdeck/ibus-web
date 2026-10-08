@@ -21,6 +21,11 @@ SPDX-License-Identifier = "LGPL-2.1-or-later"
 precedence = "override"
 
 [[annotations]]
+path = "engines/mozc/patches/**/*.patch"
+SPDX-FileCopyrightText = ["Google Inc.", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
 path = "tools/cast-audit/fixtures/*.sarif"
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"

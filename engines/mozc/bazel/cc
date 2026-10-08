@@ -1,0 +1,13 @@
+#!@shell@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Bazel runs one program for C and C++ compiles and for links. emcc picks a
+# compile's language from the file's extension, as clang does; a link goes
+# through em++, which brings in the C++ runtime.
+for arg; do
+  if [ "$arg" = -c ]; then
+    exec @cc@ "$@"
+  fi
+done
+exec @cxx@ "$@"

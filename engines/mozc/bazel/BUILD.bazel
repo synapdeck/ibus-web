@@ -1,0 +1,96 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# The WebAssembly target: the cross stdenv's Emscripten as a Bazel C++
+# toolchain. Host tools keep Bazel's autoconfigured toolchain.
+
+load("@bazel_tools//tools/cpp:unix_cc_toolchain_config.bzl", "cc_toolchain_config")
+
+package(default_visibility = ["//visibility:public"])
+
+platform(
+    name = "wasm",
+    constraint_values = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:none",
+    ],
+)
+
+filegroup(
+    name = "compiler_files",
+    srcs = ["cc"],
+)
+
+filegroup(name = "empty")
+
+cc_toolchain_config(
+    name = "config",
+    abi_libc_version = "local",
+    abi_version = "local",
+    compiler = "clang",
+    cpu = "wasm32",
+    # Emscripten's headers come from its cache's sysroot and the store.
+    cxx_builtin_include_directories = [
+        "@emCache@",
+        "/nix/store",
+    ],
+    host_system_name = "local",
+    opt_compile_flags = [
+        "-g0",
+        "-DNDEBUG",
+    ],
+    target_libc = "musl",
+    target_system_name = "wasm32-unknown-emscripten",
+    tool_paths = {
+        "ar": "@ar@",
+        "cpp": "/bin/false",
+        "dwp": "/bin/false",
+        "gcc": "cc",
+        "gcov": "/bin/false",
+        "ld": "@ld@",
+        "llvm-cov": "/bin/false",
+        "nm": "@nm@",
+        "objcopy": "@objcopy@",
+        "objdump": "@objdump@",
+        "strip": "@strip@",
+    },
+    toolchain_identifier = "ibus-web-wasm",
+    unfiltered_compile_flags = [
+        "-no-canonical-prefixes",
+        "-Wno-builtin-macro-redefined",
+        "-D__DATE__=\"redacted\"",
+        "-D__TIMESTAMP__=\"redacted\"",
+        "-D__TIME__=\"redacted\"",
+    ],
+)
+
+cc_toolchain(
+    name = "cc-compiler-wasm",
+    all_files = ":compiler_files",
+    ar_files = ":compiler_files",
+    as_files = ":compiler_files",
+    compiler_files = ":compiler_files",
+    dwp_files = ":empty",
+    linker_files = ":compiler_files",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    # cc decides between emcc and em++ from the arguments, which a params
+    # file would hide.
+    supports_param_files = 0,
+    toolchain_config = ":config",
+    toolchain_identifier = "ibus-web-wasm",
+)
+
+toolchain(
+    name = "cc-toolchain-wasm",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:none",
+    ],
+    toolchain = ":cc-compiler-wasm",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)

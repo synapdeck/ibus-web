@@ -1,0 +1,85 @@
+From 4ea2bf5d7f73a79c7e3d33d3ea60a6bb62682496 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 8 Oct 2026 15:55:31 -0700
+Subject: [PATCH 1/3] Add an oss_wasm build target
+
+oss_wasm makes the same selections as oss_linux, with the OSS branding,
+but leaves out the session watchdog, which watches the client over IPC
+and has no client process to watch when the converter runs in-process.
+Mozc's own wasm target defines GOOGLE_JAPANESE_INPUT_BUILD, which the
+open-source tree cannot build.
+---
+ src/.bazelrc                       | 5 +++++
+ src/BUILD.bazel                    | 1 +
+ src/bazel/cc_target_os/BUILD.bazel | 7 +++++++
+ src/build_defs.bzl                 | 1 +
+ 4 files changed, 14 insertions(+)
+
+diff --git a/src/.bazelrc b/src/.bazelrc
+index 9bf4e7e..0e1f9de 100644
+--- a/src/.bazelrc
++++ b/src/.bazelrc
+@@ -3,6 +3,7 @@ common --noenable_bzlmod
+ 
+ common:linux --config=compiler_gcc_like
+ common:oss_linux --config=compiler_gcc_like
++common:oss_wasm --config=compiler_gcc_like
+ common:prod_linux --config=compiler_gcc_like
+ common:android --config=compiler_gcc_like
+ common:oss_android --config=compiler_gcc_like
+@@ -35,6 +36,10 @@ build:oss_linux --define TARGET=oss_linux --copt "-fPIC"
+ build:oss_linux --build_tag_filters=-nolinux
+ test:oss_linux --test_tag_filters=-nolinux
+ 
++build:oss_wasm --define TARGET=oss_wasm
++build:oss_wasm --build_tag_filters=-nolinux
++test:oss_wasm --test_tag_filters=-nolinux
++
+ build:prod_linux --define TARGET=prod_linux --copt "-fPIC"
+ build:prod_linux --build_tag_filters=-nolinux
+ 
+diff --git a/src/BUILD.bazel b/src/BUILD.bazel
+index 30ad3ef..a0ea8ac 100644
+--- a/src/BUILD.bazel
++++ b/src/BUILD.bazel
+@@ -220,6 +220,7 @@ selects.config_setting_group(
+         # TODO(yuryu): define platforms and use bazel_platforms.
+         "//bazel/cc_target_os:linux",
+         "//bazel/cc_target_os:oss_linux",
++        "//bazel/cc_target_os:oss_wasm",
+         "//bazel/cc_target_os:prod_linux",
+         "//bazel/cc_target_os:darwin",
+         "//bazel/cc_target_os:oss_macos",
+diff --git a/src/bazel/cc_target_os/BUILD.bazel b/src/bazel/cc_target_os/BUILD.bazel
+index a9978bb..0753f65 100644
+--- a/src/bazel/cc_target_os/BUILD.bazel
++++ b/src/bazel/cc_target_os/BUILD.bazel
+@@ -101,6 +101,13 @@ config_setting(
+     },
+ )
+ 
++config_setting(
++    name = "oss_wasm",
++    values = {
++        "define": "TARGET=oss_wasm",
++    },
++)
++
+ config_setting(
+     name = "wasm",
+     values = {
+diff --git a/src/build_defs.bzl b/src/build_defs.bzl
+index b449e4f..6b8f84d 100644
+--- a/src/build_defs.bzl
++++ b/src/build_defs.bzl
+@@ -588,6 +588,7 @@ def mozc_select(
+         "//bazel/cc_target_os:linux": _get_value([linux, client, default]),
+         "//bazel/cc_target_os:oss_android": _get_value([oss_android, oss, android, client, default]),
+         "//bazel/cc_target_os:oss_linux": _get_value([oss_linux, oss, linux, client, default]),
++        "//bazel/cc_target_os:oss_wasm": _get_value([oss_linux, oss, linux, client, default]),
+         "//bazel/cc_target_os:oss_macos": _get_value([oss_macos, oss, macos, ios, client, default]),
+         "//bazel/cc_target_os:oss_windows": _get_value([oss_windows, oss, windows, client, default]),
+         "//bazel/cc_target_os:prod_linux": _get_value([prod_linux, prod, oss_linux, oss, linux, client, default]),
+-- 
+2.55.0
+

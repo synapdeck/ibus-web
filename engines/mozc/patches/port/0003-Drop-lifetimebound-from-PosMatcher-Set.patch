@@ -1,0 +1,27 @@
+From 5b3d864c812e2436cf9ec90311f7dd10f4371342 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 8 Oct 2026 15:55:31 -0700
+Subject: [PATCH 3/3] Drop lifetimebound from PosMatcher::Set
+
+Clang 22 rejects lifetimebound on a parameter of a function returning
+void.
+---
+ src/dictionary/pos_matcher.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/dictionary/pos_matcher.h b/src/dictionary/pos_matcher.h
+index 28b5bbe..b9690df 100644
+--- a/src/dictionary/pos_matcher.h
++++ b/src/dictionary/pos_matcher.h
+@@ -100,7 +100,7 @@ class PosMatcher {
+   PosMatcher(const PosMatcher &) = default;
+   PosMatcher &operator=(const PosMatcher &) = default;
+ 
+-  void Set(const uint16_t *data ABSL_ATTRIBUTE_LIFETIME_BOUND) { data_ = data; }
++  void Set(const uint16_t *data) { data_ = data; }
+ 
+  private:
+   // Used in pos_matcher_impl.inc.
+-- 
+2.55.0
+
