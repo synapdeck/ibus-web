@@ -16,10 +16,10 @@ text fields, and shows its candidates.
 
 The two halves talk only through a versioned protocol over a dedicated `SharedArrayBuffer`. That boundary is also the
 licensing boundary. Engines are GPL, but the page packages are MIT OR Apache-2.0: the page's bundle never contains Worker,
-runtime or engine code, which load by URL from the Worker assets. An engine ships in a package of its own, such as
-`@ibus-web/engine-hangul`, under the engine's license; it holds files a page serves, never code the page imports, so any
-page can use the page packages. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP
-`require-corp`).
+runtime or engine code, which load by URL from the Worker assets. The runtime (`@ibus-web/runtime`, LGPL-2.1-or-later)
+and each engine (such as `@ibus-web/engine-hangul`, under the engine's license) ship in packages of their own, which
+hold files a page serves, never code the page imports, so any page can use the page packages. A page using ibus-web
+must be cross-origin isolated (COOP `same-origin`, COEP `require-corp`).
 
 ## Try it
 
@@ -43,6 +43,7 @@ candidates. The first build compiles the patched Emscripten toolchain, GLib and 
 | [`@ibus-web/panel`](packages/panel)                  | The framework-free candidate and property panel                               |
 | [`@ibus-web/protocol`](packages/protocol)            | The wire protocol and its strict GVariant codec                               |
 | [`@ibus-web/worker-host`](packages/worker-host)      | The TypeScript that runs inside each engine's Worker                          |
+| [`@ibus-web/runtime`](packages/runtime)              | The WebAssembly runtime every engine's Worker loads, built by Nix             |
 | [`@ibus-web/engine-hangul`](packages/engines/hangul) | The Hangul engine's WebAssembly module, data and manifest, built by Nix       |
 
 They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how to build, pack and use them.

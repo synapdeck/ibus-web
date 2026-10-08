@@ -179,12 +179,13 @@ passes through as it is, and a fallback that fails to load says so.
 ### npm package
 
 `packages/engines/hangul/` is `@ibus-web/engine-hangul`, the package that will put this
-distribution on npm. It holds only its `package.json` and README; it isn't a pnpm workspace
-package, since it has no code. `nix build .#npm.engine-hangul` copies `ibus-web-hangul-dist`
-into it as `dist/`, adds the license texts of the engine and libhangul to `LICENSES/`, and packs
-it with `ibusWeb.typescript.npmTarball`. `checks.typescript-npm` builds it with the other tarballs, and
-`checks.typescript-package-metadata` holds the package's `license` to the engine's
-`meta.license`. A host serves `dist/` as it is and passes `manifest.json`'s URL to ibus-web.
+distribution on npm. It holds only its `package.json` and README, since Nix builds its
+contents: `nix build .#npm.engine-hangul` copies `ibus-web-hangul-dist` into it as `dist/`,
+adds the license texts of the engine and libhangul to `LICENSES/`, and packs it with
+`ibusWeb.typescript.npmTarball`, which fails unless the package's `license` is the engine's
+`meta.license`. `checks.typescript-npm` builds it with the other tarballs. It exports
+`manifest.json`, `hangul.wasm`, `settings.json` and `data/*`. A host serves `dist/` as it is
+and passes `manifest.json`'s URL to ibus-web.
 
 ## Startup and patch layers
 

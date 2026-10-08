@@ -32,6 +32,9 @@
         files.dist = config.packages.ibus-web-hangul-dist;
         inherit licenses;
 
+        # The module as a whole is the engine's.
+        license = hangul.meta.license.spdxId;
+
         # The exports name the rest; the data archives' names are hashes.
         expect = map (id: "LICENSES/${id}.txt") licenses;
       };

@@ -17,6 +17,7 @@
           dir ? ".",
           files ? { },
           licenses ? [ ],
+          license ? null,
           expect ? [ ],
           postPack ? "",
         }:
@@ -40,7 +41,7 @@
             ${lib.concatStrings (
               lib.mapAttrsToList (path: source: ''
                 mkdir -p "$(dirname ${lib.escapeShellArg path})"
-                cp -R ${source} ${lib.escapeShellArg path}
+                cp -RL ${source} ${lib.escapeShellArg path}
                 chmod -R u+w ${lib.escapeShellArg path}
               '') files
             )}
@@ -50,6 +51,14 @@
               for id in ${lib.escapeShellArgs licenses}; do
                 cp ${../../LICENSES}/"$id".txt LICENSES/
               done
+            ''}
+
+            ${lib.optionalString (license != null) ''
+              declared=$(jq -r .license package.json)
+              if [ "$declared" != ${lib.escapeShellArg license} ]; then
+                echo "package.json says $declared, but its contents are ${license}" >&2
+                exit 1
+              fi
             ''}
 
             # What prepack writes, postpack must take away again.

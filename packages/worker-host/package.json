@@ -56,6 +56,7 @@
   },
   "dependencies": {
     "@ibus-web/protocol": "workspace:*",
+    "@ibus-web/runtime": "workspace:*",
     "brotli-dec-wasm": "catalog:"
   },
   "devDependencies": {

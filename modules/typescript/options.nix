@@ -75,8 +75,8 @@
         description = ''
           Repository-relative directories of the packages npm may publish: every
           package under packages/ and packages/engines/ that isn't private.
-          Those under packages/engines/ hold an engine's Nix build and aren't
-          workspace packages.
+          Those whose package.json sets `ibusWeb.nixBuilt` hold files a Nix
+          build copies in, and add their own tarballs to npmPackages.
         '';
       };
 
@@ -106,6 +106,8 @@
             first, by their path in it;
           - `licenses`, SPDX identifiers whose texts the repository's LICENSES/
             gives to the package's LICENSES/;
+          - `license`, the SPDX expression package.json must state, for
+            contents whose license the build knows;
           - `expect`, paths in the package the tarball must contain, beyond
             every file its `exports` names without a wildcard;
           - `postPack`, shell run in the package directory once it is packed.

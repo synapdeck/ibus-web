@@ -129,7 +129,7 @@ of in engine code, fix it there.
 | ------------------- | -------- | -------------- | ----------------------------------------------------------------------- | ---------------------------- |
 | `pkgsWasm.glib`     | C        | Worker         | nixpkgs `glib` plus a patch series in this repo; built into the runtime | LGPL-2.1-or-later            |
 | `libibus-web`       | C        | Worker         | built into the runtime                                                  | LGPL-2.1-or-later            |
-| `ibus-runtime.wasm` | WASM     | Worker         | release asset                                                           | LGPL-2.1-or-later (combined) |
+| `ibus-runtime.wasm` | WASM     | Worker         | release asset; npm `@ibus-web/runtime`                                  | LGPL-2.1-or-later (combined) |
 | Engine side modules | WASM     | Worker         | release asset per engine                                                | engine's own license         |
 | Worker host         | TS       | Worker         | `@ibus-web/worker-host`                                                 | MIT OR Apache-2.0            |
 | Protocol            | TS       | Page and tests | `@ibus-web/protocol`                                                    | MIT OR Apache-2.0            |

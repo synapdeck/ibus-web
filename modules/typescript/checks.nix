@@ -13,10 +13,10 @@
 
       inherit (config.ibusWeb.typescript) publishedPackages;
 
-      # Engine packages hold an engine's Nix build; the rest are TypeScript.
-      isEngine = lib.hasPrefix "packages/engines/";
-      published = lib.filter (dir: !(isEngine dir)) publishedPackages;
-      publishedEngines = lib.filter isEngine publishedPackages;
+      # Some packages hold files a Nix build copies in; the rest are TypeScript.
+      isNixBuilt = dir: (lib.importJSON (root + "/${dir}/package.json")).ibusWeb.nixBuilt or false;
+      published = lib.filter (dir: !(isNixBuilt dir)) publishedPackages;
+      publishedNixBuilt = lib.filter isNixBuilt publishedPackages;
 
       # What every published package states, whatever it holds.
       commonProblems =
@@ -64,22 +64,16 @@
           )
         );
 
-      # An engine package holds only what its Nix build copies in, under the
-      # license of the engine's module as a whole.
-      engineProblemsOf =
+      # A Nix-built package holds only what its build copies in. Its
+      # tarball's build holds its license to its contents'.
+      nixBuiltProblemsOf =
         dir:
         let
           manifest = lib.importJSON (root + "/${dir}/package.json");
-          engine = config.ibusWeb.engines.${baseNameOf dir};
-          license = lib.concatMapStringsSep " AND " (license: license.spdxId) (
-            lib.toList engine.meta.license
-          );
         in
         map (problem: "${dir}: ${problem}") (
           commonProblems dir manifest
-          ++ lib.optional (
-            (manifest.license or null) != license
-          ) "isn't licensed ${license}, as the engine is"
+          ++ lib.optional (!(manifest ? license)) "has no license"
           ++ lib.optional (
             (manifest.files or [ ]) != [
               "dist"
@@ -89,7 +83,7 @@
           ++ lib.optional (manifest ? scripts) "has scripts, though Nix builds its contents"
         );
 
-      problems = lib.concatMap problemsOf published ++ lib.concatMap engineProblemsOf publishedEngines;
+      problems = lib.concatMap problemsOf published ++ lib.concatMap nixBuiltProblemsOf publishedNixBuilt;
     in
     {
       checks.typescript-package-metadata = pkgs.runCommand "ibus-web-typescript-package-metadata" { } (

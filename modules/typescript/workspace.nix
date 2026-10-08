@@ -179,14 +179,16 @@
           runHook postBuild
         '';
 
-        # A package with no dependencies has no node_modules.
+        # A package with no dependencies has no node_modules, but its
+        # directory stays, since the links to it from its dependents must
+        # resolve.
         installPhase = ''
           runHook preInstall
           mkdir -p $out
           cp -R node_modules $out/
           for dir in ${lib.escapeShellArgs packageDirs}; do
+            mkdir -p "$out/$dir"
             if [ -d "$dir/node_modules" ]; then
-              mkdir -p "$out/$dir"
               cp -R "$dir/node_modules" "$out/$dir/"
             fi
           done

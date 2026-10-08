@@ -22,9 +22,10 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
 - A tool is a package `tools/<name>/` (`@ibus-web/<name>`, private) with its own `package.json` and `tsconfig.json`, a
   `vitest.config.ts` when it has tests, and `checks.nix` when it only has checks or `module.nix` when it also provides
   something. `tools/claude/` is the exception: it holds Claude Code plugin manifests and isn't a package.
-- A package whose contents Nix builds, such as an engine's (`packages/engines/<name>/`), holds only its `package.json`
-  and README in the tree, isn't a pnpm workspace package, and is packed by `ibusWeb.typescript.npmTarball`, with the
-  built files copied in. Every published package's tarball is in `legacyPackages.<system>.npm`.
+- A package whose contents Nix builds, such as the runtime's (`packages/runtime/`) or an engine's
+  (`packages/engines/<name>/`), holds only its `package.json` (with `"ibusWeb": { "nixBuilt": true }`) and README in the
+  tree. Its `module.nix` packs it with `ibusWeb.typescript.npmTarball`, copying the built files in. Every published
+  package's tarball is in `legacyPackages.<system>.npm`.
 - Nix sits beside the component it builds, each file named for its role:
   - `module.nix`, the flake-parts module: packages, outputs, dev-shell setup;
   - `options.nix`, options it declares for other modules;

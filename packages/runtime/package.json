@@ -1,0 +1,36 @@
+{
+  "name": "@ibus-web/runtime",
+  "version": "0.0.0",
+  "description": "ibus-web's WebAssembly runtime: GLib and libibus-web, which each engine's Worker loads.",
+  "keywords": [
+    "glib",
+    "ibus",
+    "ime",
+    "input-method",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/runtime.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/runtime"
+  },
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./ibus-runtime.js": "./dist/ibus-runtime.js",
+    "./ibus-runtime.wasm": "./dist/ibus-runtime.wasm",
+    "./constants.json": "./dist/constants.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "ibusWeb": {
+    "nixBuilt": true
+  }
+}

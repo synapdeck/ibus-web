@@ -23,7 +23,7 @@
       isPublished = dir: !((lib.importJSON (root + "/${dir}/package.json")).private or false);
 
       publishedPackages = lib.filter isPublished (packagesIn "packages" ++ packagesIn "packages/engines");
-      isEngine = lib.hasPrefix "packages/engines/";
+      isNixBuilt = dir: (lib.importJSON (root + "/${dir}/package.json")).ibusWeb.nixBuilt or false;
 
       # Each packed from its build in the workspace, so its scripts, and pnpm's
       # rewriting of workspace: and catalog: versions, see the workspace.
@@ -41,7 +41,7 @@
               "LICENSE-APACHE"
             ];
           })
-        ) (lib.filter (dir: !(isEngine dir)) publishedPackages)
+        ) (lib.filter (dir: !(isNixBuilt dir)) publishedPackages)
       );
 
       all = pkgs.symlinkJoin {

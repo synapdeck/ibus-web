@@ -381,6 +381,22 @@ replace it ([known-gaps.md](known-gaps.md#runtime)).
 - `checks.ibus-runtime-side-imports`: the import check over its test side
   modules.
 
+### npm package
+
+`packages/runtime/` is `@ibus-web/runtime`, the package that puts the runtime on npm:
+`ibus-runtime.js`, `ibus-runtime.wasm` and `constants.json` under `dist/`, with the
+licenses of what is linked into them. `@ibus-web/worker-host` depends on exactly its
+version, since the host and the runtime share an ABI and constants. `nix build .#npm.runtime`
+packs it (`docs/tooling.md`, "Packing in Nix").
+
+- **License.** The runtime as a whole is LGPL-2.1-or-later, and stays a separate file a host
+  can replace. `LICENSES/` holds that text, GLib's `COPYING`, the licenses of pcre2, zlib and
+  libffi from their sources, and ibus-web's own for the IndexedDB backend.
+- **Not the toolchain's.** libc++, libc++abi, libunwind and compiler-rt are Apache-2.0 WITH
+  LLVM-exception, whose exception covers code the compiler embeds in its output, and nothing
+  compiled with Emscripten ships musl's or the JavaScript glue's notices, so the package
+  carries none of them.
+
 ## Side modules
 
 An engine is a side module (`-sSIDE_MODULE=1`, `toolchain.sideModuleFlags`):
