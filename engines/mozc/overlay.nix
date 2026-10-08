@@ -112,11 +112,11 @@ in
                 '';
 
                 # Bazel builds protoc and the dictionary generators for the build
-                # machine, configuring its host toolchain from $CC. The compiler
-                # is named by path: as a build input its setup hook would set the
-                # desktop hardening flags before the WebAssembly wrapper's.
+                # machine, configuring its host toolchain from $CC.
+                depsBuildBuild = (old.depsBuildBuild or [ ]) ++ [ final.buildPackages.stdenv.cc ];
+
                 preBuild = (old.preBuild or "") + ''
-                  export CC=${final.buildPackages.stdenv.cc}/bin/cc
+                  export CC=$CC_FOR_BUILD
                   bazelFlagsArray+=("--sandbox_writable_path=$EM_CACHE")
 
                   # Mozc's pkg_config_repository runs `pkg-config` by that name.
