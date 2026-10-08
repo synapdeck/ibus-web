@@ -5,6 +5,14 @@
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
     options.ibusWeb.typescript = {
+      pnpmWorkspace = lib.mkOption {
+        type = lib.types.attrsOf lib.types.anything;
+        description = "pnpm-workspace.yaml's content: the workspace's package globs (each `<dir>` or `<dir>/*`), the dependencies allowed to run builds, and the catalog.";
+      };
+      pnpmWorkspaceFile = lib.mkOption {
+        type = lib.types.package;
+        description = "pnpm-workspace.yaml as generated from pnpmWorkspace, which builds of the workspace use in place of the tracked copy, so they follow the Nix before `write-files` has run.";
+      };
       nodejs = lib.mkOption {
         type = lib.types.package;
         description = "The Node that runs the workspace's JavaScript, in checks and in the dev shell.";

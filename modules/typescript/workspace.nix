@@ -10,63 +10,10 @@
       ...
     }:
     let
-      inherit (config.ibusWeb.typescript) nodejs;
+      inherit (config.ibusWeb.typescript) nodejs pnpmWorkspace pnpmWorkspaceFile;
       inherit (pkgs) pnpm;
+
       root = ../..;
-
-      # pnpm-workspace.yaml's content, which `files` writes into the tree and
-      # checks there: the workspace's package globs, and its catalog.
-      pnpmWorkspace = {
-        packages = [
-          "packages/*"
-          "tools/*"
-          "examples/*"
-          "runtime/ibus-runtime"
-          "runtime/wasmfs-idb"
-          "modules/emscripten"
-          "modules/testing"
-        ];
-        # These packages ship N-API binaries for every supported build platform.
-        allowBuilds = {
-          tree-sitter = false;
-          tree-sitter-c = false;
-          tree-sitter-cpp = false;
-        };
-        # What must be one version across the repository, and the tools
-        # packages share. Packages name these as `catalog:`, never with a
-        # version of their own.
-        catalog = {
-          "@effect/vitest" = "^4.0.0";
-          "@types/node" = "^24.19.0";
-          effect = "^4.0.0";
-          # Exactly the driver whose browsers nixpkgs provides.
-          playwright = pkgs.playwright-driver.version;
-          typescript = "^7.0.2";
-          vitest = "^5.0.3";
-          vite = "^8.0.0";
-          "@vitest/browser" = "^5.0.3";
-          "@vitest/browser-playwright" = "^5.0.3";
-          ajv = "^8.20.0";
-          brotli-dec-wasm = "^2.3.2";
-          jsonc-parser = "^3.3.1";
-          smol-toml = "^1.9.0";
-          tsdown = "^0.23.0";
-        };
-      };
-
-      # The generator writes no comments, so the one saying where the file
-      # comes from goes first.
-      pnpmWorkspaceFile =
-        pkgs.runCommand "pnpm-workspace.yaml"
-          {
-            yaml = (pkgs.formats.yaml { }).generate "pnpm-workspace.yaml" pnpmWorkspace;
-          }
-          ''
-            {
-              echo "# Generated from modules/typescript/default.nix by \`nix run .#write-files\`."
-              cat "$yaml"
-            } | ${pkgs.oxfmt}/bin/oxfmt -c ${../../.oxfmtrc.jsonc} --stdin-filepath pnpm-workspace.yaml > $out
-          '';
 
       # Repository-relative directories of the workspace's packages.
       packageDirs = lib.concatMap (
@@ -180,8 +127,9 @@
             "peerDependencies"
           ]
       ) ([ "." ] ++ packageDirs);
+
       assertPlaywrightVersion = ''
-        node ${../../tools/assert-dependency/assert-dependency.ts} playwright ${
+        node ${config.ibusWeb.typescript.assertDependency} playwright ${
           lib.escapeShellArgs (
             [
               pkgs.playwright-driver.version
@@ -202,6 +150,7 @@
           );
         }
       );
+
       pnpmDeps = pkgs.fetchPnpmDeps {
         pname = "ibus-web";
         src = manifests;
@@ -245,6 +194,7 @@
       dirsByName = lib.listToAttrs (
         map (dir: lib.nameValuePair packageManifests.${dir}.name dir) packageDirs
       );
+
       workspaceFor =
         requested:
         let
@@ -352,17 +302,6 @@
         };
 
       workspace = buildWorkspace packageDirs;
-
-      # The lockfile resolves typescript to one version, whichever packages
-      # depend on it.
-      tsc = pkgs.runCommand "ibus-web-tsc" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
-        packages=(${nodeModules}/node_modules/.pnpm/typescript@*/node_modules/typescript)
-        if [ ''${#packages[@]} -ne 1 ] || [ ! -d "''${packages[0]}" ]; then
-          echo "expected one typescript in the workspace, found: ''${packages[*]}" >&2
-          exit 1
-        fi
-        makeWrapper ${lib.getExe nodejs} $out/bin/tsc --add-flags "''${packages[0]}/bin/tsc"
-      '';
     in
     {
       ibusWeb.typescript = {
@@ -371,7 +310,6 @@
           workspace
           workspaceFor
           nodeModules
-          tsc
           presets
           ;
         packageNodeModules =
@@ -385,12 +323,9 @@
         assertDependency = ../../tools/assert-dependency/assert-dependency.ts;
       };
 
-      files.file."pnpm-workspace.yaml".source = pnpmWorkspaceFile;
-
       devshells.default.packages = [
         nodejs
         pnpm
-        tsc
       ];
     };
 }

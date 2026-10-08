@@ -240,7 +240,7 @@ One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (`@ibus-web
 `modules/glib/checks/tests` (the GLib gate's TOML reader).
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
-(`pnpmWorkspace` in `modules/typescript/default.nix`), which reads them for its own builds, and
+(`pnpmWorkspace` in `modules/typescript/files.nix`), which reads them for its own builds, and
 `nix run .#write-files` writes the file; `checks."files:pnpm-workspace.yaml"` fails while the
 tracked copy differs. The Nix builds install from the generated file, not the tracked copy. Never edit the YAML: change the Nix, run `write-files`, then `pnpm install`.
 
@@ -268,7 +268,7 @@ tracked copy differs. The Nix builds install from the generated file, not the tr
 
 ### In Nix
 
-`modules/typescript/default.nix` builds the workspace in three stages, so that editing a source
+`modules/typescript/workspace.nix` builds the workspace in three stages, so that editing a source
 refetches nothing:
 
 1. `pnpmDeps` (`fetchPnpmDeps`) — the dependencies, from the manifests and lockfile only. Its hash
