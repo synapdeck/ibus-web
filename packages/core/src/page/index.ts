@@ -60,3 +60,4 @@ export {
   type SettingValue,
 } from "../settings/api.ts";
 export { indexedDbSettings } from "../settings/persister.ts";
+export type { PanelEvent, PanelRecord } from "@ibus-web/protocol";
