@@ -23,7 +23,7 @@ local linters = new Mapping<String, Step> {
     exclude =
       List(
         "runtime/libibus-web/include/ibus-1.0/ibus?*.h",
-        "runtime/libibus-web/src/ibus/ibus{attr*,error,internal,keys,keyuni,lookuptable,object,prop*,serializable,text,util}.[ch]",
+        "runtime/libibus-web/src/ibus/ibus{attr*,component,enginedesc,error,internal,keys,keyuni,lookuptable,object,observedpath,prop*,serializable,text,util,xml}.[ch]",
         "runtime/libibus-web/src/ibus/*[a-z]private.h",
       )
   }
