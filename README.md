@@ -35,13 +35,14 @@ candidates. The first build compiles the patched Emscripten toolchain, GLib and 
 
 ## Packages
 
-| Package                                         | What it is                                                                    |
-| ----------------------------------------------- | ----------------------------------------------------------------------------- |
-| [`ibus-web`](packages/ibus-web)                 | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts |
-| [`@ibus-web/core`](packages/core)               | Key translation, routing, adapters and the Effect services under the facade   |
-| [`@ibus-web/panel`](packages/panel)             | The framework-free candidate and property panel                               |
-| [`@ibus-web/protocol`](packages/protocol)       | The wire protocol and its strict GVariant codec                               |
-| [`@ibus-web/worker-host`](packages/worker-host) | The TypeScript that runs inside each engine's Worker                          |
+| Package                                              | What it is                                                                    |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [`ibus-web`](packages/ibus-web)                      | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts |
+| [`@ibus-web/core`](packages/core)                    | Key translation, routing, adapters and the Effect services under the facade   |
+| [`@ibus-web/panel`](packages/panel)                  | The framework-free candidate and property panel                               |
+| [`@ibus-web/protocol`](packages/protocol)            | The wire protocol and its strict GVariant codec                               |
+| [`@ibus-web/worker-host`](packages/worker-host)      | The TypeScript that runs inside each engine's Worker                          |
+| [`@ibus-web/engine-hangul`](packages/engines/hangul) | The Hangul engine's WebAssembly module, data and manifest, built by Nix       |
 
 They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how to build, pack and use them.
 
@@ -49,7 +50,7 @@ They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how 
 
 | Directory   | What it holds                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------ |
-| `packages/` | the TypeScript packages above, plus the test-program runner and the shared tsconfig presets                  |
+| `packages/` | the packages above, plus the test-program runner and the shared tsconfig presets                             |
 | `runtime/`  | the WebAssembly runtime: `libibus-web`, the IndexedDB storage backend, and the `ibus-runtime.wasm` link      |
 | `engines/`  | one directory per engine: its overlay, patches and checks                                                    |
 | `modules/`  | Nix several components share: the Emscripten toolchain, GLib, engines, TypeScript, testing, the flake and CI |

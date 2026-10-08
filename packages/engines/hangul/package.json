@@ -1,0 +1,32 @@
+{
+  "name": "@ibus-web/engine-hangul",
+  "version": "0.0.0",
+  "description": "The ibus-hangul engine built for ibus-web: its WebAssembly module, data and manifest.",
+  "keywords": [
+    "hangul",
+    "ibus",
+    "ime",
+    "input-method",
+    "korean",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/engines.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "GPL-2.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/engines/hangul"
+  },
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./*": "./dist/*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

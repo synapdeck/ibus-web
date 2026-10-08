@@ -355,6 +355,18 @@ package's tsdown config writes sourcemaps, and its `prepack` and `postpack` scri
 
 No package keeps a `LICENSES/` directory in the tree; the root `.gitignore` ignores the copies.
 
+### Packing in Nix
+
+`ibusWeb.typescript.npmTarball` packs a package with `pnpm pack`, its lifecycle scripts
+included, into a derivation that holds the tarball. It copies a tree (`src`, with the package at
+`dir` in it) into a writable directory, and copies in `files`, Nix-built files or directories by
+their path in the package, before packing. `licenses` names SPDX identifiers whose texts from
+the root `LICENSES/` go into the package's `LICENSES/`, for a package whose contents
+`tools/pack-licenses` can't trace, such as an engine's WebAssembly; `expect` lists entries the
+tarball must contain. A package with Nix-built contents, such as `@ibus-web/engine-hangul`
+(`docs/engines.md`), is packed this way; `checks.tools-pack-licenses-tarball` packs worker-host
+from the built workspace the same way, so `prepack` and `postpack` run.
+
 ## Editor tooling
 
 - **clangd** is the LLVM Emscripten drives, so its builtin headers match, wrapped with

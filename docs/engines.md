@@ -176,6 +176,16 @@ starts in the decoder is reported as a Brotli error, with the hint about
 `Content-Encoding: br`; a failure of the body itself (the network, an abort)
 passes through as it is, and a fallback that fails to load says so.
 
+### npm package
+
+`packages/engines/hangul/` is `@ibus-web/engine-hangul`, the package that will put this
+distribution on npm. It holds only its `package.json` and README; it isn't a pnpm workspace
+package, since it has no code. `nix build .#ibus-web-hangul-npm` copies `ibus-web-hangul-dist`
+into it as `dist/`, adds the license texts of the engine and libhangul to `LICENSES/`, and packs
+it with `ibusWeb.typescript.npmTarball`. `checks.hangul-npm` builds it, and
+`checks.typescript-package-metadata` holds the package's `license` to the engine's
+`meta.license`. A host serves `dist/` as it is and passes `manifest.json`'s URL to ibus-web.
+
 ## Startup and patch layers
 
 `ibusweb_module_init` calls `ibus_hangul_init(NULL)`, creates an `IBusFactory`,

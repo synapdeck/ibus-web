@@ -69,6 +69,25 @@
         '';
       };
 
+      npmTarball = lib.mkOption {
+        type = lib.types.functionTo lib.types.package;
+        description = ''
+          Packs an npm package with `pnpm pack`, its lifecycle scripts included,
+          into a derivation holding the tarball alone. Takes:
+
+          - `name`, the derivation's name;
+          - `src`, the tree to pack from, and `dir`, the package's directory in
+            it (default `.`), so a package whose scripts read the rest of the
+            workspace can be packed from a built workspace;
+          - `files`, Nix-built files or directories to copy into the package
+            first, by their path in it;
+          - `licenses`, SPDX identifiers whose texts the repository's LICENSES/
+            gives to the package's LICENSES/;
+          - `expect`, paths in the package the tarball must contain;
+          - `postPack`, shell run in the package directory once it is packed.
+        '';
+      };
+
       extraSources = lib.mkOption {
         type = lib.types.attrsOf (lib.types.listOf lib.types.str);
         default = { };
