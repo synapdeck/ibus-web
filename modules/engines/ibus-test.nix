@@ -19,7 +19,7 @@
       # source reruns no trace check.
       tools = typescript.workspaceFor [ "tools/ibus-test" ];
       native = pkgs.stdenv.mkDerivation {
-        pname = "ibus-test-native";
+        pname = "ibus-web-ibus-test-native";
         version = "0.1.0";
         src = ../../tools/ibus-test/native;
         nativeBuildInputs = [
@@ -69,7 +69,7 @@
             NIX_CFLAGS_COMPILE = "-I${runtime.libibusWeb}/include/ibus-1.0";
           };
       fixtureNative = pkgs.stdenv.mkDerivation {
-        name = "ibus-test-conformance-engine";
+        name = "ibus-web-ibus-test-conformance-engine";
         src = ../../tools/ibus-test/fixtures;
         nativeBuildInputs = [ pkgs.pkg-config ];
         buildInputs = [ pkgs.ibus ];
@@ -82,7 +82,7 @@
         '';
       };
       fixtureData =
-        pkgs.runCommand "ibus-test-conformance-data"
+        pkgs.runCommand "ibus-web-ibus-test-conformance-data"
           {
             nativeBuildInputs = [ pkgs.glib ];
           }
@@ -157,7 +157,7 @@
         assert pkgs.stdenv.hostPlatform.isLinux;
         assert traces != [ ];
         let
-          manifest = pkgs.writeText "${name}-manifest.json" (
+          manifest = pkgs.writeText "ibus-web-${name}-manifest.json" (
             builtins.toJSON {
               inherit
                 nativeConfig
@@ -231,7 +231,7 @@
         in
         verdict results;
       nativeClangd =
-        pkgs.runCommand "ibus-test-native-clangd"
+        pkgs.runCommand "ibus-web-ibus-test-native-clangd"
           {
             inherit (native) buildInputs;
             nativeBuildInputs = [ pkgs.pkg-config ];

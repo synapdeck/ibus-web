@@ -13,7 +13,7 @@
       inherit (toolchain) emscripten pkgsWasm;
 
       nodeHarness = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-runtime-node-harness";
+        name = "ibus-web-ibus-runtime-node-harness";
         dontUnpack = true;
         nativeBuildInputs = [
           pkgsWasm.pkg-config
@@ -152,7 +152,7 @@
 
       checks.ibus-runtime-exports = exportListCheck;
       checks.ibus-runtime-exports-script =
-        pkgs.runCommand "ibus-runtime-exports-script"
+        pkgs.runCommand "ibus-web-ibus-runtime-exports-script"
           {
             CC = "${emscripten.llvmEnv}/bin/clang";
             CXX = "${emscripten.llvmEnv}/bin/clang++";

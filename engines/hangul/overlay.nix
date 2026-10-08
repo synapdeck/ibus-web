@@ -28,7 +28,7 @@
             let
               inherit (final) libhangul;
 
-              schemas = prev.runCommand "hangul-gsettings-schemas" { } ''
+              schemas = prev.runCommand "ibus-web-hangul-gsettings-schemas" { } ''
                 mkdir -p $out/share/glib-2.0/schemas
                 cp ${prev.ibus-engines.hangul.src}/data/org.freedesktop.ibus.engine.hangul.gschema.xml $out/share/glib-2.0/schemas/
                 cp ${final.libibus-web}/share/gsettings-schemas/${final.libibus-web.name}/glib-2.0/schemas/org.freedesktop.ibus.gschema.xml \

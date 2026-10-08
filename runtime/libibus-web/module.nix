@@ -25,7 +25,7 @@
           "-I../../include"
           "-I${
             libibus-web.overrideAttrs {
-              pname = "libibus-web-private-headers";
+              pname = "ibus-web-libibus-web-private-headers";
               buildPhase = "ninja src/ibus/ibusmarshalers.h";
               installPhase = "install -Dm644 -t $out src/ibus/ibusmarshalers.h";
               dontFixup = true;

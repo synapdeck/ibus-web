@@ -35,7 +35,7 @@
       # it too, so Meson doesn't take it for an exit status. Each test gets a
       # TMPDIR of its own, and what it leaves there goes with the rest,
       # however it set the modes.
-      nodeToFiles = pkgsBuildBuild.writeShellScript "node-to-files" ''
+      nodeToFiles = pkgsBuildBuild.writeShellScript "ibus-web-node-to-files" ''
         dir=$(mktemp -d)
         replay() {
           cat "$dir/stdout"
@@ -60,7 +60,7 @@
       '';
       nodeRawFs = "-sNODERAWFS=1";
       memoryGrowth = "-sALLOW_MEMORY_GROWTH=1";
-      testsCrossFile = pkgsBuildBuild.writeText "glib-tests-cross.ini" ''
+      testsCrossFile = pkgsBuildBuild.writeText "ibus-web-glib-tests-cross.ini" ''
         [binaries]
         exe_wrapper = ['${nodeToFiles}']
       '';

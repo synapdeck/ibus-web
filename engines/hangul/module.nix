@@ -82,7 +82,7 @@
           "org.freedesktop.ibus.panel"
         ];
       };
-      checks.hangul-data-closure = pkgs.runCommand "hangul-data-closure" { } ''
+      checks.hangul-data-closure = pkgs.runCommand "ibus-web-hangul-data-closure" { } ''
         closure=${pkgs.closureInfo { rootPaths = [ hangul ]; }}/store-paths
         grep -Fx ${hangul.schemas} "$closure"
         test -f ${hangul.settingsSchemaDir}/gschemas.compiled

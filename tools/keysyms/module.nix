@@ -29,7 +29,7 @@
 
       notice =
         kind: source:
-        pkgs.runCommand "${kind}-notice.txt" { } ''
+        pkgs.runCommand "ibus-web-${kind}-notice.txt" { } ''
           ${typescript.nodejs}/bin/node ${./notices.ts} ${kind} ${source} > $out
         '';
 
@@ -50,7 +50,7 @@
             cmp $out repeated.json
           '';
 
-      nativeClangd = (pkgs.formats.yaml { }).generate "xkb-export-clangd.yaml" {
+      nativeClangd = (pkgs.formats.yaml { }).generate "ibus-web-xkb-export-clangd.yaml" {
         If.PathMatch = "tools/keysyms/xkb-export\\.c";
         CompileFlags = {
           Compiler = "${pkgs.stdenv.cc}/bin/cc";
@@ -63,9 +63,11 @@
         };
       };
 
-      xkbNotice = pkgs.runCommand "xkeyboard-config-COPYING.txt" { nativeBuildInputs = [ pkgs.xz ]; } ''
-        tar -xOf ${pkgs.xkeyboard_config.src} xkeyboard-config-${pkgs.xkeyboard_config.version}/COPYING > $out
-      '';
+      xkbNotice =
+        pkgs.runCommand "ibus-web-xkeyboard-config-COPYING.txt" { nativeBuildInputs = [ pkgs.xz ]; }
+          ''
+            tar -xOf ${pkgs.xkeyboard_config.src} xkeyboard-config-${pkgs.xkeyboard_config.version}/COPYING > $out
+          '';
       keysymdef = "${pkgs.xorgproto}/include/X11/keysymdef.h";
 
       generate =

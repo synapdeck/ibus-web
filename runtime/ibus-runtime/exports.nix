@@ -209,7 +209,7 @@
       };
 
       exportList = pkgsWasm.stdenv.mkDerivation {
-        pname = "ibus-runtime-exports";
+        pname = "ibus-web-ibus-runtime-exports";
         inherit (runtime.libibusWeb) version;
         dontUnpack = true;
         nativeBuildInputs = [

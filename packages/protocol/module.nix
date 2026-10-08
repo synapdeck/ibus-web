@@ -108,7 +108,7 @@
         type = "app";
         program = lib.getExe (
           pkgs.writeShellApplication {
-            name = "protocol-bench";
+            name = "ibus-web-protocol-bench";
             runtimeInputs = [ typescript.nodejs ];
             text = ''
               HOME=$(mktemp -d)

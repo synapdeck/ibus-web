@@ -29,7 +29,7 @@
             inherit settingsSchemaDir settingsSchemas;
           };
           licenses = lib.toList package.meta.license;
-          description = pkgs.writeText "${name}-manifest-fields.json" (
+          description = pkgs.writeText "ibus-web-${name}-manifest-fields.json" (
             builtins.toJSON {
               inherit
                 name

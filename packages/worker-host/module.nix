@@ -52,12 +52,12 @@
       # names, links relative and absolute, to a file and a directory, into
       # its own store path and into others it references, one of them a
       # store path that is a single file.
-      linkTarget = pkgs.runCommand "echo-link-target" { } ''
+      linkTarget = pkgs.runCommand "ibus-web-echo-link-target" { } ''
         mkdir -p $out/share
         printf 'echo link target\n' > $out/share/target.txt
       '';
-      singleFile = pkgs.writeText "echo-single-file" "echo single file\n";
-      echoData = pkgs.runCommand "echo-data" { } ''
+      singleFile = pkgs.writeText "ibus-web-echo-single-file" "echo single file\n";
+      echoData = pkgs.runCommand "ibus-web-echo-data" { } ''
         mkdir -p $out/share/echo
         cd $out/share/echo
         printf 'echo store data\n' > data.txt
@@ -69,7 +69,7 @@
         ln -s ${singleFile} single.txt
       '';
       schemas =
-        pkgs.runCommand "echo-schemas"
+        pkgs.runCommand "ibus-web-echo-schemas"
           {
             nativeBuildInputs = [ pkgsWasm.pkg-config ];
             buildInputs = [ pkgsWasm.glib ];
@@ -95,7 +95,7 @@
                 NIX_CFLAGS_COMPILE = ''-I${runtime.libibusWeb}/include/ibus-1.0 -DECHO_DATA="${echoData}/share/echo/data.txt" -DECHO_SCHEMAS="${schemaDir}"'';
               };
         in
-        pkgs.runCommand "worker-host-${name}"
+        pkgs.runCommand "ibus-web-worker-host-${name}"
           {
             version = runtime.libibusWeb.version;
             meta.license = lib.licenses.mit;

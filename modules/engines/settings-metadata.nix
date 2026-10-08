@@ -55,7 +55,7 @@
           ''
             cc ${../../tools/gschema/metadata.c} $(pkg-config --cflags --libs gio-2.0 json-glib-1.0) -o $out
           '';
-      fixture = pkgs.writeText "settings-metadata-fixture.json" (
+      fixture = pkgs.writeText "ibus-web-settings-metadata-fixture.json" (
         builtins.toJSON {
           helper = "${helper}/metadata.js";
           schemas = "${helper}/schemas";

@@ -35,7 +35,7 @@
 
       # Builds get their compilers from stdenv's environment; configuring
       # by hand, Meson needs them named in a cross file.
-      mesonBinaries = pkgs.writeText "wasm-shell-meson-binaries.ini" ''
+      mesonBinaries = pkgs.writeText "ibus-web-wasm-shell-meson-binaries.ini" ''
         [binaries]
         c = '${targetPrefix}cc'
         cpp = '${targetPrefix}c++'

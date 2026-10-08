@@ -143,7 +143,7 @@
 
       # Evaluate ABI and errno macros for the same WebAssembly target as the runtime.
       constants = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-runtime-constants";
+        name = "ibus-web-ibus-runtime-constants";
         src = lib.fileset.toSource {
           root = ./.;
           fileset = ./constants.c;

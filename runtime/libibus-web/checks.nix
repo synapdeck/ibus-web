@@ -15,7 +15,7 @@
       mesonArray = flags: builtins.toJSON (lib.filter (flag: flag != "") (lib.splitString " " flags));
     in
     {
-      checks.libibus-web-vendored = pkgs.runCommand "libibus-web-vendored" { } ''
+      checks.libibus-web-vendored = pkgs.runCommand "ibus-web-libibus-web-vendored" { } ''
         ${config.ibusWeb.typescript.nodejs}/bin/node \
           ${
             config.ibusWeb.typescript.workspaceFor [ "tools/vendor-inventory" ]

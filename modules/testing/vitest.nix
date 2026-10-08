@@ -92,7 +92,7 @@
                 ''exit "$status"''
               else
                 ''
-                  node ${../../tools/expect-results/expect-results.ts} $out/results.json ${pkgs.writeText "expected-results.json" (builtins.toJSON expectedResults)}
+                  node ${../../tools/expect-results/expect-results.ts} $out/results.json ${pkgs.writeText "ibus-web-expected-results.json" (builtins.toJSON expectedResults)}
                 ''
             }
           '';

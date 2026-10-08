@@ -48,9 +48,9 @@
       # The generator writes no comments, so the one saying where the file
       # comes from goes first.
       pnpmWorkspaceFile =
-        pkgs.runCommand "pnpm-workspace.yaml"
+        pkgs.runCommand "ibus-web-pnpm-workspace.yaml"
           {
-            yaml = (pkgs.formats.yaml { }).generate "pnpm-workspace.yaml" pnpmWorkspace;
+            yaml = (pkgs.formats.yaml { }).generate "ibus-web-pnpm-workspace.yaml" pnpmWorkspace;
           }
           ''
             {
