@@ -407,8 +407,11 @@ Table::load(const std::filesystem::path &path) {
   }
 
   std::ifstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    return fail("can't read the file");
+  }
   const std::string text{std::istreambuf_iterator<char>(file), {}};
-  if (!file.is_open() || file.bad()) {
+  if (file.bad()) {
     return fail("can't read the file");
   }
   return parse(path.string(), text);
