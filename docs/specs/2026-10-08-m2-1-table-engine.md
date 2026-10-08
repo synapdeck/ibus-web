@@ -154,10 +154,36 @@ build. In the Worker, a table that fails to parse fails `CreateEngine` with the 
 - Only bare commands matching `\\[A-Za-z]+` are kept; forms with arguments (`\mathbb{A}`, `{\'a}`) are dropped.
 - Names from Elsevier's fonts (`\El…`) are dropped.
 - A command that names two characters (classic and unicode-math disagreeing) becomes two candidates, classic first.
+- The aliases in `tools/latex-table/aliases.tsv` come last. They are the common LaTeX and amsmath spellings
+  `unicode.xml` doesn't carry because it gives each character one classic name, as `command<TAB>U+XXXX` lines we write
+  ourselves. The generator fails if an alias's character isn't in `unicode.xml`, or if `unicode.xml` already uses the alias as a name, so the list shrinks rather than duplicates when upstream adds a name.
+
+The first aliases:
+
+| Aliases                          | Character | `unicode.xml`'s name |
+| -------------------------------- | --------- | -------------------- |
+| `\to`                            | →         | `\rightarrow`        |
+| `\gets`                          | ←         | `\leftarrow`         |
+| `\le`, `\ge`                     | ≤, ≥      | `\leq`, `\geq`       |
+| `\neq`                           | ≠         | `\ne`                |
+| `\iff`, `\implies`, `\impliedby` | ⟺, ⟹, ⟸   | `\Long…arrow`        |
+| `\land`, `\lor`                  | ∧, ∨      | `\wedge`, `\vee`     |
+| `\owns`                          | ∋         | `\ni`                |
+| `\dots`                          | …         | `\ldots`             |
+| `\lvert`, `\rvert`               | \|        | `\vert`              |
+| `\lVert`, `\rVert`               | ‖         | `\Vert`              |
+| `\emptyset`                      | ∅         | `\varnothing`        |
+| `\hbar`                          | ℏ         | `\hslash`            |
+| `\triangle`                      | △         | `\bigtriangleup`     |
+| `\Box`                           | □         | `\square`            |
+| `\Diamond`                       | ◇         | `\mdlgwhtdiamond`    |
+| `\leadsto`                       | ⇝         | `\rightsquigarrow`   |
+| `\qed`                           | ∎         | `\QED`               |
+| `\degree`                        | °         | `\textdegree`        |
 
 `unicode.xml`'s unicode-math names are the same as unicode-math's own table, apart from 11 second spellings it folds into
 one name per character. The classic names are what make `\alpha` work: unicode-math's table names α `\mupalpha`. The
-generated table isn't committed; the W3C notice ships with it.
+generated table isn't committed; the W3C notice ships with it. `aliases.tsv` is ours, MIT OR Apache-2.0.
 
 ## The engine
 
@@ -255,9 +281,9 @@ that file, so each engine's configuration lives in one place and Nix needs no bu
 | `table-host`                   | `table.wasm` in the real runtime under Node: both engines created in one Worker, a short trace each, and a broken table failing `CreateEngine`                                                                                                   |
 | `table-cast-audit`, link check | As for Hangul: callbacks with exact signatures, imports only from the runtime                                                                                                                                                                    |
 | MARISA                         | Upstream's tests in the patched native build                                                                                                                                                                                                     |
-| `tools-latex-table`            | A small `unicode.xml` fixture gives exact output: `\El…` dropped, argument forms dropped, classic names first, a command with two characters                                                                                                     |
+| `tools-latex-table`            | A small `unicode.xml` fixture gives exact output: `\El…` dropped, argument forms dropped, classic names first, a command with two characters, aliases appended, and both alias failures                                                          |
 | Protocol and core unit tests   | Engine descriptors decode and reject duplicates; switching engine in a module reuses its Worker; unknown engine; `deselect`; override with an engine; keyboard policy following the engine; `selectionchange`                                    |
-| Playwright, three browsers     | `\alpha` and Space gives `α`; `\rightarrow,` gives `→,`; `S@` and Space gives `ʃə `; switching between LaTeX and X-SAMPA in one Worker; `deselect` gives plain input                                                                             |
+| Playwright, three browsers     | `\alpha` and Space gives `α`; `\to,` gives `→,`; `S@` and Space gives `ʃə `; switching between LaTeX and X-SAMPA in one Worker; `deselect` gives plain input                                                                                     |
 | `typescript-npm`               | `@ibus-web/engine-table` packs with its tables and every licence text                                                                                                                                                                            |
 
 The time to load the LaTeX table is measured and recorded in `docs/engines.md`. There is no target until there is a
