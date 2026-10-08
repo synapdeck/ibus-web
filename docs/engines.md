@@ -230,7 +230,7 @@ Each engine commits a JSONC allow-list with the editor schema
 explain why its source/target types are safe; stale or unmatched allowances
 fail. Intentional `GCallback` target casts are excluded; generic `void (*)(void)`
 casts remain subject to the exact allow-list. This checks explicit casts; it does
-not yet audit callback arity at
+not audit callback arity at
 signal connection time. The allow-list is validated against that schema
 (Ajv) each time the audit runs, so a misspelled or extra field, or an entry
 without a reason, fails.
@@ -288,10 +288,10 @@ difference can only excuse extra native records, so page-2 clicks are covered
 by the golden tests alone. See [the test adapter](../tools/ibus-test/README.md)
 for the retained artifacts and expected-difference contract.
 
-The page must eventually commit COMMIT-mode preedit on blur and
-reset. Without `IBUS_CAP_SYNC_PROCESS_KEY_V2`, space passes through after the
-engine commits; with it, the engine consumes space and emits `ForwardKeyEvent`
-after `CommitText`. M1.4's router must choose capabilities accordingly.
+The page commits COMMIT-mode preedit on blur and reset, and never advertises
+`IBUS_CAP_SYNC_PROCESS_KEY_V2` ([core.md](core.md#adapter-and-client-duties)).
+Without it, space passes through after the engine commits; with it, the engine
+would consume space and emit `ForwardKeyEvent` after `CommitText`.
 
 The shim reports 17 golden tests, including its run-completion check.
 The [Worker-host conformance harness](worker-host.md#transport-and-hangul-conformance)

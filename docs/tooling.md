@@ -24,9 +24,11 @@ What it provides:
 - **Language servers:** `clangd`, `typescript-language-server`, `nixd`, `pkl-lsp`
   ([editor tooling](#editor-tooling)).
 - **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)),
-  `pnpm-workspace.yaml` ([the pnpm workspace](#the-pnpm-workspace)), and libibus-web's
-  `protocol.h` and `packages/protocol/PROTOCOL.md`, generated from the protocol's schemas
-  ([protocol.md](protocol.md#generated-artifacts)).
+  `pnpm-workspace.yaml` ([the pnpm workspace](#the-pnpm-workspace)), libibus-web's `protocol.h` and
+  `packages/protocol/PROTOCOL.md`, generated from the protocol's schemas
+  ([protocol.md](protocol.md#generated-artifacts)), and the keysym tables in `packages/core/src/keys/`
+  (`*.generated.ts`) with the `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that
+  accompany their sources.
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against
 garbage collection:
@@ -61,14 +63,15 @@ The steps:
 | `oxfmt`            | TS, JS, JSON/JSONC, YAML, Markdown, HTML, TOML (not `pnpm-lock.yaml`) | oxfmt, `.oxfmtrc.jsonc`                           |
 | `pkl-format`       | `*.pkl`                                                               | pkl                                               |
 | `oxlint`           | TS, JS                                                                | oxlint, `.oxlintrc.jsonc`                         |
-| `tsc`              | every directory with a `tsconfig.json`                                | `tsc --noEmit -p` with the workspace's TypeScript |
+| `tsc`              | every directory with a `tsconfig.json`                                | `tsc -b --noEmit` with the workspace's TypeScript |
 | `tsconfig-extends` | `**/tsconfig*.json`                                                   | `node tools/tsconfig-extends/tsconfig-extends.ts` |
 | `reuse`            | the whole tree, every run                                             | `reuse lint`                                      |
 | `links`            | every Markdown file git tracks, every run                             | lychee, offline, with heading anchors             |
 | `actionlint`       | `.github/workflows/*.yml`                                             | actionlint                                        |
 
 - `tsc` runs once per directory holding a `tsconfig.json` (`workspace_indicator`), so a new
-  config is checked without editing `hk.pkl`. A changed JavaScript file or config re-runs it.
+  config is checked without editing `hk.pkl`. A changed JavaScript file or config re-runs it. It
+  runs in build mode, because a package's `tsconfig.json` only references its other configs.
   `runtime/wasmfs-idb/tests/library-types/` is excluded: it is a negative type test whose failure
   `checks.wasmfs-idb-types` asserts.
 - Two type checks read types Nix generates (the dev shell's `emscripten-types` links). In a hook
@@ -76,7 +79,7 @@ The steps:
   `tsc: skipped <dir>: <link> isn't built; enter the dev shell to build it`. `checks.flake-hk` sets
   `HK_REQUIRE_NIX_INPUTS=1`, so there it never skips.
 - `tsconfig-extends` reads every `tsconfig*.json` git tracks (as JSONC, with `jsonc-parser`) and
-  fails unless each reaches the root `packages/tsconfig/base.json` through relative `extends`. It always
+  fails unless each reaches one of `@ibus-web/tsconfig`'s presets through `extends`. It always
   checks the whole set, since a change to one config can break another's chain.
 
 ### The hook and committing
@@ -203,56 +206,72 @@ Nix.
 
 TypeScript is version 7 (the native compiler). Configuration:
 
-- **`base.json` in `@ibus-web/tsconfig`** (`packages/tsconfig/`) holds the standard options: `strict`, `erasableSyntaxOnly`,
-  `verbatimModuleSyntax`, `rewriteRelativeImportExtensions`, `module`/`moduleResolution`
-  `nodenext`, `target` `es2023`. Every `tsconfig*.json` extends it, directly or through
-  another preset, and overrides only what its files need: the environment's `lib`/`types`,
-  `rootDir`/`outDir`, or `allowJs`/`checkJs`. hk's `tsconfig-extends` step enforces the chain.
-- **Presets** extend it for each environment: `dom.json`, `worker.json`, `node.json` (`noEmit`,
-  `allowImportingTsExtensions`, `lib: ["es2023"]`, Node types, and `types/webassembly`, the part of
-  the WebAssembly API Node code here uses, which TypeScript declares only in its web libraries) and
-  `emscripten-js.json`. A package depends on `@ibus-web/tsconfig` and extends a preset by name; the
-  declarations are `packages/tsconfig/types/webassembly`.
-- **Tsconfigs at each package's root**, one per environment: a solution `tsconfig.json` that only
-  references the others, and `tsconfig.<target>.json` (`shared`, `worker`, `page`, `node`, …),
-  `tsconfig.test.json`, `tsconfig.test-browser.json` and `tsconfig.config.json` where the package
-  has that code. Each has its own `lib` and `types`, so code meant for a Worker can't use Node's API
-  by accident. Packages' `build` scripts emit `dist/` (`@ibus-web/test-programs` with `tsc -p` per
-  environment, `@ibus-web/worker-host` with tsdown), and checks run the emitted `dist/`; test files
-  run from source through Vitest ([testing.md](testing.md#vitest)).
-- **JavaScript Emscripten reads** (`--js-library`, `--pre-js`, `--post-js`: the IndexedDB
-  backend's library and its test libraries, the GoogleTest harness's report library,
-  `host-memory.js`, `size-pre.js`) stays JavaScript, with JSDoc types, checked under a
-  `tsconfig.json` extending **`packages/tsconfig/emscripten-js.json`** (`allowJs`/`checkJs`,
-  `module: preserve`, a Worker's `es2023` library at the base's target; `size-pre.js`, which runs
-  under Node, takes Node's instead), with declarations for what it uses
-  from Emscripten: generated from a link of the library (`--emit-tsd`) where one exists, local
-  `pre-js.d.ts` declarations otherwise. A library's `__deps` are checked against what it uses by
-  `tools/emscripten-library-deps/library-deps.ts`, which parses with the same acorn version
-  Emscripten ships (`checks.emscripten-library-deps-acorn`). [storage.md](storage.md) describes the backend's library.
+- **`@ibus-web/tsconfig`** (`packages/tsconfig/`, private) holds the presets every tsconfig
+  extends. `base.json` holds the standard options: `strict`, `exactOptionalPropertyTypes`,
+  `erasableSyntaxOnly`, `verbatimModuleSyntax`, `rewriteRelativeImportExtensions`,
+  `module`/`moduleResolution` `nodenext`, `target` `es2023`. Emit is off, since bundlers and Node's
+  type stripping produce the JavaScript; a config that emits turns it back on. The other presets
+  add an environment's `lib` and `types`:
+  - `dom.json` for page code and browser tests;
+  - `worker.json` for code that runs in a dedicated Worker;
+  - `node.json` for tools, Node tests and the scripts Nix runs. It also brings in the package's
+    declarations (`types/webassembly`) of the part of the WebAssembly API Node code here uses,
+    which TypeScript declares only in its web libraries;
+  - `emscripten-js.json` for JavaScript that Emscripten bundles as scripts.
+- **One tsconfig per configuration, at the package root.** `tsconfig.json` only references the
+  others and is what editors open. A target gets a config named for it (`tsconfig.shared.json`,
+  `tsconfig.worker.json`, `tsconfig.page.json`, …), and tests get `tsconfig.test.json` and
+  `tsconfig.test-browser.json`; `tsconfig.config.json` covers the tsdown and Vitest configs. Each
+  has its own `lib` and `types`, so code meant for a Worker can't use Node's API by accident. A
+  package depends on `@ibus-web/tsconfig` and extends a preset by name. hk's `tsconfig-extends` step
+  fails unless every tsconfig sits at a package root and extends a preset or another config of its
+  own package; solution configs are exempt.
+- **Builds.** Packages' `build` scripts emit `dist/`: tsdown for the published packages, `tsc -p`
+  per environment for `@ibus-web/test-programs`. Checks run the emitted `dist/`. Test files run
+  from source through Vitest ([testing.md](testing.md#vitest)).
+- **JavaScript Emscripten reads** (`--js-library`, `--pre-js`, `--post-js`) stays JavaScript, with
+  JSDoc types:
+  - the IndexedDB backend's library and its test libraries;
+  - the GoogleTest harness's report library;
+  - `host-memory.js`;
+  - `size-pre.js`.
+
+  It's checked under its component's tsconfig, which extends `@ibus-web/tsconfig/emscripten-js.json`
+  (`allowJs`/`checkJs`, `module: preserve`, a Worker's `es2023` library; `size-pre.js`, which runs
+  under Node, takes Node's instead). Its declarations for what it uses from Emscripten are generated
+  from a link of the library (`--emit-tsd`, through `ibusWeb.lib.emscriptenTypes`) where one exists,
+  and local `.d.ts` files otherwise. `tools/emscripten-library-deps` checks a library's `__deps`
+  against what it uses, parsing with the acorn version Emscripten ships
+  (`checks.emscripten-library-deps-acorn`). [storage.md](storage.md) describes the backend's library.
 
 Hand-written TypeScript and JavaScript use modern syntax: what is Baseline "Widely available" and
 also runs on the oldest supported Node.
 
 ## The pnpm workspace
 
-One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (the shipped packages,
-the `@ibus-web/tsconfig` presets and `@ibus-web/test-programs`), `tools/*` (one package per tool, each
-with its own dependencies), `examples/*`, and the component packages `runtime/ibus-runtime`,
-`runtime/wasmfs-idb`, `modules/emscripten` and `modules/testing`.
+One pnpm workspace at the root (`pnpm-workspace.yaml`). Every directory that holds TypeScript is one
+of its packages, with a `package.json` naming exactly what that directory imports; the root
+`package.json` has no dependencies.
+
+| Directory                                                                             | Packages                                                                                                                                                         |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/*`                                                                          | the published `@ibus-web/protocol`, `@ibus-web/worker-host`, `@ibus-web/core`, `@ibus-web/panel` and `ibus-web`; `@ibus-web/test-programs`; `@ibus-web/tsconfig` |
+| `tools/*`                                                                             | one private package per tool, `@ibus-web/<tool>`                                                                                                                 |
+| `examples/*`                                                                          | `@ibus-web/example-hangul`, with its end-to-end tests                                                                                                            |
+| `runtime/ibus-runtime`, `runtime/wasmfs-idb`, `modules/emscripten`, `modules/testing` | the JavaScript Emscripten links into those components, and their Vitest suites                                                                                   |
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
 (`pnpmWorkspace` in `modules/typescript/files.nix`), which reads them for its own builds, and
 `nix run .#write-files` writes the file; `checks."files:pnpm-workspace.yaml"` fails while the
-tracked copy differs. The Nix builds install from the generated file, not the tracked copy. Never edit the YAML: change the Nix, run `write-files`, then `pnpm install`.
+tracked copy differs. The Nix builds install from the generated file, not the tracked copy. Never
+edit the YAML: change the Nix, run `write-files`, then `pnpm install`.
 
 - **Versions.** Manifests use ordinary caret ranges; `pnpm-lock.yaml` pins exact versions.
 - **The catalog.** Whatever must be one version across the repository — TypeScript, Vitest and its
   browser packages, Playwright, Effect, `@effect/vitest`, `@types/node`, and the shared tools
   (`tsdown`, `jsonc-parser`, `smol-toml`) — is declared once in the workspace's catalog. Packages
   name these as `catalog:`, never with a version.
-  Repository-wide tools are `devDependencies` of the root `package.json`; a package that needs
-  one in its own manifest (a peer dependency, a package-level script) names it `catalog:` too.
+  A package names what it imports itself, as `catalog:` when the catalog has it.
 - **Versions pnpm can't know** are asserted against nixpkgs when Nix installs the workspace:
   - `playwright` is exactly nixpkgs' `playwright-driver` version (the catalog takes it from
     `playwright-driver` itself, without a caret), since each Playwright release drives specific
@@ -278,31 +297,34 @@ refetches nothing:
 2. `ibusWeb.typescript.nodeModules` — every `node_modules` (root and per package) installed
    offline from the manifests. The Playwright assertion runs here. Builds that run a script with
    its package's dependencies but shouldn't rebuild on every source edit use it
-   (`packageNodeModules ./dir`), as the GLib gate does, and the library checker
-   (`ibusWeb.lib.libraryDeps`: `library-deps.ts` beside its package's `node_modules`, which
-   the type derivations and checks for both JavaScript libraries run).
+   (`packageNodeModules ./dir`), as the GLib test gate (`tools/glib-test-gate`) and the library
+   checker (`tools/emscripten-library-deps`) do.
 3. `ibusWeb.typescript.workspace` — the sources (each package's `.ts`, `.mts`, `.cts`, `.json`,
-   plus files listed under `ibusWeb.assets` in its `package.json`) with `nodeModules` laid over
-   them, compiled with `pnpm -r run build`. Checks run from this output. Repository files outside
-   a package that it reads, such as the license texts `tools/pack-licenses` reads, are listed for
-   it in `ibusWeb.typescript.extraSources`.
+   plus files listed under `ibusWeb.assets` in its `package.json` and repository files outside any
+   package that it reads, listed in `ibusWeb.typescript.extraSources`) with `nodeModules` laid over
+   them, compiled with `pnpm -r run build`. Checks run from this output. `tools/pack-licenses` reads
+   `REUSE.toml`, `LICENSE-*`, `LICENSES/` and `NOTICES/`, and `tools/keysyms` the generated
+   notices, which none of the packages hold.
 
 `ibusWeb.typescript.tsc` is the workspace's single TypeScript (the build fails if the lockfile
 resolves more than one), used by hk, the dev shell and the type-check derivations.
 
 ### tsdown
 
-`@ibus-web/worker-host` bundles with tsdown. Each Worker script (`dist/worker/index.js`, the relay)
+Every published package bundles with tsdown and writes sourcemaps, which `tools/pack-licenses`
+reads ([below](#licenses-in-packed-packages)). `@ibus-web/worker-host`'s are the interesting ones:
+each Worker script (`dist/worker/index.js`, the relay)
 is one self-contained module with Effect bundled in and no chunk shared with another: a Worker
 loads by URL as it is on disk, so it can't resolve a bare import, and a page's bundler copies a
 script found by `new URL(…, import.meta.url)` without the chunks it imports. `dist/shared/` keeps
-`effect` external, as the peer dependency. Declarations come from tsdown's oxc generator
-(`isolatedDeclarations`), since TypeScript 7 has no compiler API. `tsc --noEmit` remains the type
-check. Details in [worker-host.md](worker-host.md).
+`effect` external, as the peer dependency, and its declarations come from tsdown's oxc generator
+(`isolatedDeclarations`); the Worker scripts' declarations are checked by `tsc -p tsconfig.types.json`
+after the build. Details in [worker-host.md](worker-host.md).
 
-`@ibus-web/protocol` bundles one entry, `dist/index.js`, with `effect` external. Its declarations
-come from tsdown's `tsgo` generator instead: oxc's isolated declarations can't express a class
-that extends an expression, as every `Schema.TaggedClass` message does (TS9021).
+`@ibus-web/protocol` bundles one entry, `dist/index.js`, with `effect` external. The other
+published packages, protocol among them, take their declarations from tsdown's `tsgo` generator:
+oxc's isolated declarations can't express a class that extends an expression, as every
+`Schema.TaggedClass` message does (TS9021).
 
 ### Licenses in packed packages
 
@@ -393,22 +415,30 @@ module writes it into the tree as `.github/workflows/ci.yml`. Never edit the YAM
 
 `ci.yml` runs on pull requests and on pushes to `master`. The workflow grants `contents: read`;
 each job adds `id-token: write`, since Determinate Nix and FlakeHub authenticate with the job's
-OIDC token. A
-pull request's new push cancels its run in progress (`concurrency`, grouped by pull request);
+OIDC token. A pull request's new push cancels its run in progress (`concurrency`, grouped by pull request);
 every push to `master` keeps its own run.
 
-- **`check`** — check out, install Determinate Nix, allow unprivileged user namespaces
-  (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where the runner has the
-  setting: Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks
-  keep on, needs them), enable
-  FlakeHub Cache, then `nix flake check -L --system x86_64-linux`, within 240 minutes. Checks
-  are defined for x86_64-linux, aarch64-linux and aarch64-darwin; the hosted runners are
+- **`check`** and **`integration`** do the same steps:
+  - check out;
+  - install Determinate Nix;
+  - allow unprivileged user namespaces
+    (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where the runner has the
+    setting). Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks
+    keep on, needs them;
+  - enable FlakeHub Cache.
+
+  Then `check` runs `nix flake check -L --system x86_64-linux --max-jobs 1`, and `integration`
+  runs `nix build .#integration-checks -L --max-jobs 1`, each within 240 minutes. One job at a time
+  keeps cold compilation and CPU-bound test checks from competing for the runner's few cores.
+  Checks are defined for x86_64-linux, aarch64-linux and aarch64-darwin; the hosted runners are
   x86_64-linux, and the other systems' checks need their own machines.
-- **`publish`** — `needs: [check]`, and runs only on a push to `master`
+
+- **`publish`** has `needs: [check, integration]`, and runs only on a push to `master`
   (`if: github.event_name == 'push' && github.ref == 'refs/heads/master'`). It publishes the flake
-  to FlakeHub as `synapdeck/ibus-web`, private and rolling (`flakehub-push`), within 30 minutes.
-  FlakeHub Cache grants access per published flake, so the cache needs this flake published; only
-  a `master` that passed its checks is.
+  to FlakeHub as `synapdeck/ibus-web`, rolling (`flakehub-push`), within 30 minutes. Its visibility
+  follows the repository's (`github.event.repository.private`): private while the repository is,
+  public once it is. FlakeHub Cache grants access per published flake, so the cache needs this
+  flake published; only a `master` that passed both jobs is.
 
 Actions are pinned to release tags: `actions/checkout@v7.0.1`; `determinate-nix-action` and
 `flakehub-cache-action` both at one `determinateVersion` (`v3.23.0`), since they release together
@@ -427,30 +457,3 @@ To read the cache on a workstation, install Determinate Nix and run `determinate
 which authenticates it to FlakeHub (access is per flake, granted through the organisation). Then
 a build substitutes from `cache.flakehub.com`; `nix build -L .#checks.x86_64-linux.flake-hk` should
 show `copying path … from 'https://cache.flakehub.com'`.
-
-### First run
-
-The first runs need checking by hand. Prerequisites: the `synapdeck` organisation has FlakeHub
-with a plan covering private flakes and FlakeHub Cache, and the GitHub repository is connected to
-it.
-
-1. **Publish.** On the first push to `master`, `check` passes and then `publish` runs (it is
-   skipped on pull requests); `synapdeck/ibus-web` appears on FlakeHub as private, at
-   `0.1.<commit count>+rev-<sha>`. Until it exists the cache has no flake to attach access
-   control to.
-2. **The cache receives paths.** The "Use FlakeHub Cache" step's post-job log reports a non-zero
-   count of paths pushed.
-3. **A second run substitutes.** Re-run, or push a trivial commit: the `nix flake check -L` log
-   shows `copying path … from 'https://cache.flakehub.com'` for the heavy derivations (the patched
-   Emscripten, the cache and toolchain, pkgsWasm's GLib) rather than `building …`.
-4. **Cold-run cost.** Note the first run's wall time against the `check` job's 240-minute limit
-   (GitHub's own is six hours), and watch for disk exhaustion on `ubuntu-latest` (about 14 GB
-   free): a cold run rebuilds the patched Emscripten and everything WASM.
-5. **Chromium's sandbox.** `checks.worker-host-browser` and the browser test-program checks pass
-   with Chromium's sandbox on, which shows the user-namespace step took effect; if Chromium fails
-   to launch with a sandbox error, that step didn't.
-6. **Fork pull requests** still run and pass, without cache, at cold-run cost.
-7. **Superseded runs.** A second push to a pull request cancels the first's run; a push to
-   `master` doesn't cancel another.
-8. **Determinate Nix** logs that `determinate-nixd` authenticated to FlakeHub through OIDC; it
-   fails visibly if `id-token: write` is missing.

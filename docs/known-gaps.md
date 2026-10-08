@@ -88,7 +88,7 @@ An item leaves this page when it is fixed or decided.
   numeric ABI can pass this check; the import-name guard does not prove that
   layouts and calling conventions match.
 
-- **IBus API scope.** M1.1 supplies engine/data types, emitters, the framed dispatcher
+- **IBus API scope.** The runtime supplies engine/data types, emitters, the framed dispatcher
   and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji;
   unused bus/config/component APIs remain absent. Latin mode therefore leaves ordinary typing
   to the browser. Keymap lookup uses page-provided keysyms.
@@ -239,9 +239,10 @@ An item leaves this page when it is fixed or decided.
   storage one at a time; a Node store that needs real exclusion would take an `O_EXCL` lock file or an
   `Atomics` lock. [Draft bug report](upstream/node-web-locks-worker-threads.md).
 - **Collection failures are silent but for `CollectReport.error`**; nothing is logged.
-- **`@ibus-web/worker-host` is publishable but not released.** Its version stays `0.0.0` and nothing
-  publishes it. Releases are to be versioned with Changesets, with a CI workflow that bumps versions and
-  publishes to npm; neither is set up yet.
+- **The published packages aren't released.** `@ibus-web/protocol`, `@ibus-web/worker-host`,
+  `@ibus-web/core`, `@ibus-web/panel` and `ibus-web` are publishable, but their versions stay `0.0.0`
+  and nothing publishes them. Releases are to be versioned with Changesets, with a CI workflow that
+  bumps versions and publishes to npm; neither is set up yet.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't
   removed; the Node archive server in the Vitest config process is `unref`'d, not closed; Vite's
   unanalyzable-import warning is filtered by its text.
@@ -307,15 +308,15 @@ An item leaves this page when it is fixed or decided.
 
 ## CI
 
-- **Not yet run.** The workflow can't run from a workstation; the first run's checklist is in
-  [tooling.md](tooling.md#ci).
 - **Cold-run disk.** A cold run rebuilds the patched Emscripten and everything WASM, and may exhaust
   `ubuntu-latest`'s some 14 GB of free disk; a disk-freeing step (such as
   `DeterminateSystems/nothing-but-nix`) or a larger runner would fix it.
-- **First-run cache ordering.** The first `master` run pushes to FlakeHub Cache before the flake's first
-  publish exists to attach access to, so only a second run proves the cache.
 - **Fork pull requests** get no cache (FlakeHub Cache can't authenticate their OIDC tokens); their
   behaviour is unverified.
+- **FlakeHub visibility follows the repository's**, read from `github.event.repository.private` at each
+  publish. FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility;
+  if the first publish after the repository goes public leaves the flake private, change it once in
+  FlakeHub's settings.
 - **Only x86_64-linux is checked**; the flake's checks are defined for Darwin and aarch64 too.
 - **The files writer never deletes** a file it no longer configures; a removed workflow needs `git rm`.
 

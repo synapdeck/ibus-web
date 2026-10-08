@@ -1,6 +1,10 @@
 # Using ibus-web
 
-Install `ibus-web` and its `effect` peer dependency with your package manager.
+The packages aren't on npm yet. To try them, build and pack them from this
+repository: inside `nix develop`, run `pnpm install`, then
+`pnpm -r --filter "./packages/*" run build`, then `pnpm --dir packages/<name> pack`
+for each of `protocol`, `worker-host`, `core`, `panel` and `ibus-web`. Install
+all five tarballs together, with `effect`, their peer dependency.
 Build and serve the runtime, Worker host and engine distribution as URL assets;
 the facade's page bundle does not contain their executable implementation. A
 minimal native input integration is:

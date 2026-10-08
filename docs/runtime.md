@@ -10,12 +10,8 @@ drives it through `libibus-web` and sleeps inside it between requests.
 Each part has a directory under `runtime/`: `runtime/libibus-web/` (the C
 library, Meson), `runtime/ibus-runtime/` (the link, the export list, side
 modules and their import check) and `runtime/wasmfs-idb/` (the storage
-backend). Runtime-wide options are `ibusWeb.runtime.*`
-(each part's `options.nix`).
-
-M1.1 adds the IBus types, emitters, framed dispatcher and GSettings backend.
-The Worker host still uses its test transport; protocol transport and page
-integration follow in M1.2–M1.4.
+backend). Their options are `ibusWeb.runtime.*`, each declared in its part's
+`options.nix`.
 
 ## `libibus-web`
 
@@ -153,8 +149,9 @@ Engine writes, resets and delayed write-tree transactions notify listeners and
 emit `SettingWritten (ssv)` for the page to persist. A transaction validates all
 entries and installs the complete batch before notifying. Unknown schemas/keys
 return `-ENOENT`, invalid values `-EINVAL`, and relocatable schemas or a
-different selected backend `-ENOTSUP`. The page persister and cross-tab bridge
-are M1.4 work. Schemas must exist before GLib first obtains its default schema
+different selected backend `-ENOTSUP`. The page persists those records and
+relays them to other tabs ([core.md](core.md#settings-panel-output-and-logging)).
+Schemas must exist before GLib first obtains its default schema
 source; the Hangul data tree includes both the engine and IBus/panel schemas.
 
 ### API
