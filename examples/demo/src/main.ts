@@ -281,16 +281,23 @@ const refreshTimer = setInterval(() => {
 
 const start = async () => {
   for (const module of Object.keys(modules)) {
+    let engines;
+    try {
+      engines = await app.engines(module);
+    } catch (cause) {
+      failure(`Could not list ${module}`, cause);
+      continue;
+    }
     const group = document.createElement("optgroup");
     group.label = module;
-    for (const engine of await app.engines(module)) {
+    for (const engine of engines) {
       group.append(new Option(engine.displayName, String(choices.length)));
       choices.push({ module, engine: engine.name });
     }
     picker.append(group);
   }
   const first = choices[0];
-  if (!first) throw new Error("No modules are configured");
+  if (!first) throw new Error("No module could be loaded");
   picker.disabled = false;
   showSettings(first.module);
   await app.select(first.module, first.engine);
