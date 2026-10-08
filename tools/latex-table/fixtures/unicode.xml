@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: David Carlisle 1999-2025
+SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+SPDX-License-Identifier: W3C
+
+Characters from W3C xml-entities' unicode.xml, cut down to the elements the
+generator reads and reordered so that its sort is tested.
+-->
+<unicode unicode="18">
+   <charlist>
+      <character id="U1D400" dec="119808" mode="math" type="alphabetic">
+         <latex>\mathbf{A}</latex>
+         <mathlatex set="unicode-math">\mbfA</mathlatex>
+         <description unicode="3.1">MATHEMATICAL BOLD CAPITAL A</description>
+      </character>
+      <character id="U00026" dec="38" mode="text" type="other">
+         <latex>\&amp;</latex>
+         <mathlatex set="unicode-math">\mathampersand</mathlatex>
+         <description unicode="1.1">AMPERSAND</description>
+      </character>
+      <character id="U0002A" dec="42" mode="math" type="other">
+         <latex>\ast </latex>
+         <description unicode="1.1">ASTERISK</description>
+      </character>
+      <character id="U0005C" dec="92" mode="mixed" type="normal">
+         <latex>\textbackslash </latex>
+         <mathlatex>\backslash </mathlatex>
+         <mathlatex set="unicode-math">\backslash</mathlatex>
+         <description unicode="1.1">REVERSE SOLIDUS</description>
+      </character>
+      <character id="U000B0" dec="176" mode="mixed" type="other">
+         <latex>\textdegree </latex>
+         <mathlatex>\mbox{\textdegree}</mathlatex>
+         <description unicode="1.1">DEGREE SIGN</description>
+      </character>
+      <character id="U00127" dec="295" mode="math" type="alphabetic">
+         <latex>\Elzxh </latex>
+         <description unicode="1.1">LATIN SMALL LETTER H WITH STROKE</description>
+      </character>
+      <character id="U003B1" dec="945" mode="math" type="alphabetic">
+         <latex>\alpha </latex>
+         <mathlatex set="unicode-math">\mupalpha</mathlatex>
+         <description unicode="1.1">GREEK SMALL LETTER ALPHA</description>
+      </character>
+      <character id="U02192" dec="8594" mode="math" type="relation">
+         <latex>\rightarrow </latex>
+         <mathlatex set="unicode-math">\rightarrow</mathlatex>
+         <description unicode="1.1">RIGHTWARDS ARROW</description>
+      </character>
+      <character id="U02205" dec="8709" mode="math" type="normal">
+         <latex>\varnothing </latex>
+         <mathlatex set="unicode-math">\varnothing</mathlatex>
+         <description unicode="1.1">EMPTY SET</description>
+      </character>
+      <character id="U02217" dec="8727" mode="math" type="binaryop">
+         <latex>{_\ast}</latex>
+         <mathlatex set="unicode-math">\ast</mathlatex>
+         <description unicode="1.1">ASTERISK OPERATOR</description>
+      </character>
+      <character id="U02242-00338" dec="8770-824" mode="math" type="relation">
+         <latex>\NotEqualTilde </latex>
+         <description>MINUS TILDE with slash</description>
+      </character>
+      <character id="U02260" dec="8800" mode="math" type="relation">
+         <latex>\not =</latex>
+         <mathlatex set="unicode-math">\ne</mathlatex>
+         <description unicode="1.1">NOT EQUAL TO</description>
+      </character>
+   </charlist>
+</unicode>

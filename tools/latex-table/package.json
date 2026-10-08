@@ -1,0 +1,19 @@
+{
+  "name": "@ibus-web/latex-table",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  },
+  "ibusWeb": {
+    "assets": [
+      "aliases.tsv",
+      "fixtures"
+    ]
+  }
+}

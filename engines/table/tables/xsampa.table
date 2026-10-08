@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# X-SAMPA to IPA, from J. C. Wells, "Computer-coding the IPA: a proposed
+# extension of SAMPA", in the summary chart's order:
+# https://web.archive.org/web/20110709014830/http://www.phon.ucl.ac.uk/home/sampa/x-sampa.htm
+name = X-SAMPA
+languages = und-fonipa
+mode = continuous
+---
+
+# Consonants (pulmonic). Lower-case letters that are already IPA symbols aren't
+# listed: they are typed as they are.
+t`	ʈ
+d`	ɖ
+F	ɱ
+n`	ɳ
+J	ɲ
+N	ŋ
+N\	ɴ
+B\	ʙ
+R\	ʀ
+4	ɾ
+r`	ɽ
+p\	ɸ
+B	β
+T	θ
+D	ð
+S	ʃ
+Z	ʒ
+s`	ʂ
+z`	ʐ
+C	ç
+j\	ʝ
+G	ɣ
+X	χ
+R	ʁ
+X\	ħ
+?\	ʕ
+h\	ɦ
+K	ɬ
+K\	ɮ
+P	ʋ
+v\	ʋ
+r\	ɹ
+r\`	ɻ
+M\	ɰ
+l`	ɭ
+L	ʎ
+L\	ʟ
+
+# The plosives the summary chart takes from SAMPA and the full chart: palatal
+# and uvular voiced, and glottal.
+J\	ɟ
+G\	ɢ
+?	ʔ
+
+# Clicks
+O\	ʘ
+|\	ǀ
+!\	ǃ
+=\	ǂ
+|\|\	ǁ
+
+# Ejectives, implosives. Unicode has no implosive diacritic, so the chart's
+# `_<` is written out for each implosive.
+_>	ʼ
+b_<	ɓ
+d_<	ɗ
+J\_<	ʄ
+g_<	ɠ
+G\_<	ʛ
+
+# Vowels
+M	ɯ
+1	ɨ
+}	ʉ
+I	ɪ
+Y	ʏ
+U	ʊ
+2	ø
+@\	ɘ
+8	ɵ
+7	ɤ
+@	ə
+E	ɛ
+9	œ
+3	ɜ
+3\	ɞ
+V	ʌ
+O	ɔ
+{	æ
+6	ɐ
+&	ɶ
+A	ɑ
+Q	ɒ
+
+# Other symbols
+W	ʍ
+H	ɥ
+H\	ʜ
+<\	ʢ
+>\	ʡ
+s\	ɕ
+z\	ʑ
+l\	ɺ
+x\	ɧ
+_	͡
+
+# Suprasegmentals
+"	ˈ
+%	ˌ
+:	ː
+:\	ˑ
+_X	̆
+-\	‿
+
+# Tones and word accents
+_T	̋
+_H	́
+_M	̄
+_L	̀
+_B	̏
+!	ꜜ
+^	ꜛ
+_R	̌
+_F	̂
+_H_T	᷄
+_B_L	᷅
+_R_F	᷈
+<R>	↗
+<F>	↘
+
+# Diacritics
+_0	̥
+_v	̬
+_h	ʰ
+_O	̹
+_c	̜
+_+	̟
+_-	̠
+_"	̈
+=	̩
+_=	̩
+_^	̯
+`	˞
+_t	̤
+_k	̰
+_N	̼
+_w	ʷ
+'	ʲ
+_j	ʲ
+_G	ˠ
+_?\	ˤ
+_d	̪
+_a	̺
+_m	̻
+~	̃
+_~	̃
+_n	ⁿ
+_l	ˡ
+_}	̚
+_e	̴
+5	ɫ
+_r	̝
+_o	̞
+_A	̘
+_q	̙

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Common LaTeX and amsmath spellings that unicode.xml doesn't carry, since it
+# gives each character one classic name: a command, a tab, and the character
+# it types.
+\to	U+2192
+\gets	U+2190
+\le	U+2264
+\ge	U+2265
+\neq	U+2260
+\iff	U+27FA
+\implies	U+27F9
+\impliedby	U+27F8
+\land	U+2227
+\lor	U+2228
+\owns	U+220B
+\dots	U+2026
+\lvert	U+007C
+\rvert	U+007C
+\lVert	U+2016
+\rVert	U+2016
+\emptyset	U+2205
+\hbar	U+210F
+\triangle	U+25B3
+\Box	U+25A1
+\Diamond	U+25C7
+\leadsto	U+21DD
+\qed	U+220E
+\degree	U+00B0
