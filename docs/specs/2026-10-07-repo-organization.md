@@ -12,7 +12,7 @@ no behaviour: every check that passes before passes after, and no published API 
 
 - Every directory containing TypeScript is a workspace package whose `package.json` declares exactly what it imports.
   The root `package.json` has no dependencies.
-- Every tsconfig sits at a package root and extends a shared preset or its own package's `tsconfig.json`.
+- Every tsconfig sits at a package root and extends a shared preset or another config of its own package, never the solution `tsconfig.json`.
 - Every Nix file's name says its role, and every component's Nix sits beside the component.
 - Helpers copied between Nix files exist once.
 - A newcomer, human or agent, can find what the project is, how to build it and how to contribute from the repository
@@ -60,7 +60,7 @@ A package with one configuration has only `tsconfig.json`. A test configuration 
 rather than referencing their configuration, because one `noEmit` project can't reference another. `base.json` sets
 `noEmit` and `allowImportingTsExtensions`, which a package that emits turns back off. No tsconfig sits in a subfolder, and none exists only to
 re-extend another. The `tsconfig-extends` check enforces the rule: every tsconfig extends an `@ibus-web/tsconfig` preset
-or its own package's `tsconfig.json`, and sits at a package root.
+or another config of its own package (never the solution `tsconfig.json`), and sits at a package root.
 
 ### Tools: one package per tool
 

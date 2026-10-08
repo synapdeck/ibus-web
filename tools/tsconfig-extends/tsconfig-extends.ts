@@ -3,8 +3,9 @@
 
 // Fails unless every tsconfig*.json git tracks sits at a package's root,
 // beside its package.json, and reaches one of @ibus-web/tsconfig's presets
-// through `extends`, so every config shares the repository's standard
-// options. The presets, which aren't named tsconfig*.json, are the roots. A
+// through `extends` (by package name, or a chain of configs in its own
+// package), so every config shares the repository's standard options. The
+// presets, which aren't named tsconfig*.json, are the roots. A
 // solution config, a bare list of `references` with `"files": []` and no
 // `include`, `compilerOptions` or `extends`, compiles nothing itself and is
 // exempt from the `extends` rule.
@@ -66,10 +67,18 @@ const isSolution = (file: string) => {
   );
 };
 
+// A package's configs all sit at its root, so a relative parent belongs to the
+// same package only if it sits in the same directory. Anything else, such as
+// a preset or another package's config named by a relative path, is rejected;
+// the presets package's own configs may extend its presets.
 const reachesPreset = (file: string, seen = new Set<string>()): boolean => {
   if (seen.has(file)) return false;
   seen.add(file);
-  return extendsOf(file).some((parent) => isPreset(parent) || (path.isAbsolute(parent) && reachesPreset(parent, seen)));
+  return extendsOf(file).some((parent) => {
+    if (!path.isAbsolute(parent)) return isPreset(parent);
+    if (path.dirname(parent) !== path.dirname(file)) return false;
+    return isPreset(parent) || reachesPreset(parent, seen);
+  });
 };
 
 const files = execFileSync("git", ["ls-files", "-z", "--", ":(glob)**/tsconfig*.json"], { encoding: "utf8" })
