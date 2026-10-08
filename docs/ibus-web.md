@@ -83,7 +83,8 @@ schemas/types; `ibus-web/panel` exposes the framework-free panel and its
 available directly.
 
 The built [demo](../examples/demo/README.md) shows the engine picker and a
-deselect shortcut, the panel, settings form, restart and attachment controls. A host distributing engine code and data should
+deselect shortcut, the panel, settings form, restart and attachment controls. A host
+distributing engine code and data should
 publish a licenses page linked from its UI, listing the actual package and engine
 licenses and shipping their required texts/notices. The core key-table notices
 come from the pinned X11, Chromium and xkeyboard-config sources. Inspect each

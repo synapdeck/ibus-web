@@ -90,12 +90,15 @@ app.addEventListener("storage", ({ detail }) => {
   storages.set(detail.module, { text: `${detail.state}: ${detail.message}`, reported: true });
   render();
 });
-app.addEventListener("selectionchange", ({ detail }) => {
-  if (detail) last = detail;
-  const index = detail
-    ? choices.findIndex((choice) => choice.module === detail.module && choice.engine === detail.engine)
+const syncPicker = (selection: Selection | null | undefined) => {
+  const index = selection
+    ? choices.findIndex((choice) => choice.module === selection.module && choice.engine === selection.engine)
     : -1;
   picker.value = index < 0 ? "" : String(index);
+};
+app.addEventListener("selectionchange", ({ detail }) => {
+  if (detail) last = detail;
+  syncPicker(detail);
   render();
   if (detail && detail.module !== shownSettings) showSettings(detail.module);
 });
@@ -130,9 +133,10 @@ window.addEventListener("keyup", shortcut, true);
 
 picker.addEventListener("change", () => {
   const choice = picker.value === "" ? undefined : choices[Number(picker.value)];
-  void (choice ? app.select(choice.module, choice.engine) : app.deselect()).catch((cause: unknown) =>
-    failure("Switching failed", cause),
-  );
+  void (choice ? app.select(choice.module, choice.engine) : app.deselect()).catch((cause: unknown) => {
+    syncPicker(app.selection);
+    failure("Switching failed", cause);
+  });
 });
 enabled.addEventListener("change", () => {
   if (enabled.checked) detaches = fields.map((field) => app.attach(field));
@@ -188,6 +192,7 @@ const refreshSettings = async () => {
 };
 const loadSettings = async (module: string, generation: number) => {
   const schemas = await app.settings.schemas(module);
+  const ids = new Set<string>();
   for (const schema of schemas) {
     const keys = schema.keys.filter(
       (key) => editable.has(key.type) && (schema.id !== panelSchema || panelKeys.has(key.name)),
@@ -198,7 +203,9 @@ const loadSettings = async (module: string, generation: number) => {
       const title = document.createElement("span");
       title.textContent = key.summary || key.name;
       const control = key.choices ? document.createElement("select") : document.createElement("input");
-      control.id = `setting-${key.name}`;
+      // Key names repeat across schemas; the first keeps the plain id, later ones are qualified.
+      control.id = ids.has(`setting-${key.name}`) ? `setting-${schema.id}-${key.name}` : `setting-${key.name}`;
+      ids.add(control.id);
       control.name = key.name;
       if (control instanceof HTMLSelectElement) {
         for (const choice of key.choices!) control.add(new Option(choice, choice));

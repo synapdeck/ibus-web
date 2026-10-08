@@ -602,7 +602,7 @@ remain extended work, not a matrix to repeat for every focused change.
 preview configuration with COOP/COEP and runs nine trusted-input tests in each of
 Chromium, Firefox and WebKit (27 total). The specs are grouped by module, in
 `examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's
-cover real composition, visible preedit without value/input leakage, focused native
+spec covers real composition, visible preedit without value/input leakage, focused native
 undo, separate blur commit, Hanja paging/click/digit selection, password exclusion,
 actual Worker restart, native Space reset ordering, 3f settings changes across live
 contexts, tabs and reload, and the picker with its Ctrl+Space toggle, which leaves
