@@ -25,6 +25,7 @@ const repository = (source: string) =>
 
 test("check lists the copies for a package it can account for", async () => {
   const root = await repository(own());
+
   const result = run("check", join(root, "packages/p"));
 
   expect(result.status).toBe(0);
@@ -33,6 +34,7 @@ test("check lists the copies for a package it can account for", async () => {
 
 test("check fails and names what it can't account for", async () => {
   const root = await repository("export {};\n");
+
   const result = run("check", join(root, "packages/p"));
 
   expect(result.status).toBe(1);

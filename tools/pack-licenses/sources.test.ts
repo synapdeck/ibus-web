@@ -35,10 +35,12 @@ const tree = () =>
 
 test("sources are followed through the maps of built files they name", async () => {
   const root = await tree();
+
   const { sources, problems } = await bundledSources(join(root, "packages/p"), {
     name: "p",
     files: ["dist", "LICENSES"],
   });
+
   expect(problems).toEqual([]);
   expect([...sources].sort()).toEqual(
     [join(root, dep, "index.js"), join(root, "packages/p/src/a.ts"), join(root, "packages/q/src/b.ts")].sort(),
@@ -47,7 +49,9 @@ test("sources are followed through the maps of built files they name", async () 
 
 test("a packed script without a sourcemap is a problem", async () => {
   const root = await makeTree({ "packages/p/dist/index.js": "" });
+
   const { problems } = await bundledSources(join(root, "packages/p"), { name: "p", files: ["dist"] });
+
   expect(problems).toEqual(["dist/index.js has no sourcemap"]);
 });
 
@@ -56,7 +60,9 @@ test("a script that only re-exports needs no sourcemap", async () => {
     "packages/p/dist/facade.js": 'import { a as A } from "./chunk.js";\nexport * from "@scope/x";\nexport { A };\n',
     "packages/p/dist/code.js": 'export * from "@scope/x";\nconsole.log(1);\n',
   });
+
   const { problems } = await bundledSources(join(root, "packages/p"), { name: "p", files: ["dist"] });
+
   expect(problems).toEqual(["dist/code.js has no sourcemap"]);
 });
 
@@ -95,17 +101,20 @@ test("a copied directory's maps are read where it was built", async () => {
   const root = await tree();
   await mkdir(join(root, "packages/r/dist/host"), { recursive: true });
   await writeFile(join(root, "packages/r/dist/host/index.js"), "");
+
   const { sources, problems } = await bundledSources(join(root, "packages/r"), {
     name: "r",
     files: ["dist"],
     ibusWeb: { copiedFrom: { "dist/host": "../p/dist" } },
   });
+
   expect(problems).toEqual([]);
   expect(sources.has(join(root, "packages/p/src/a.ts"))).toBe(true);
 });
 
 test("a files entry that is a pattern is refused", async () => {
   const root = await tree();
+
   await expect(bundledSources(join(root, "packages/p"), { name: "p", files: ["dist/*.js"] })).rejects.toThrow(
     /pattern/,
   );
@@ -113,6 +122,7 @@ test("a files entry that is a pattern is refused", async () => {
 
 test("a dependency is named by the node_modules directory holding it", async () => {
   const root = await tree();
+
   expect(dependencyOf(join(root, dep, "index.js"))).toEqual({ name: "dep", dir: join(root, dep) });
   expect(dependencyOf(join(root, "node_modules/@scope/x/lib/y.js"))).toEqual({
     name: "@scope/x",

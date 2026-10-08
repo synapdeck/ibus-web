@@ -37,6 +37,7 @@ const tos = (plan: { copies: readonly { to: string }[] }) => plan.copies.map((co
 
 test("code under the repository's own license needs only its two license files", async () => {
   const root = await repository({ "packages/p/dist/index.js.map": sourceMap("../src/a.ts") });
+
   const plan = await planLicenses(root, join(root, "packages/p"), {});
 
   expect(plan.problems).toEqual([]);

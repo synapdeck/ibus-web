@@ -84,6 +84,7 @@ ${KEY} = "MIT"
 path = "last/x.ts"
 ${KEY} = "ISC"
 `;
+
   const root = await makeTree({
     "closest/header.ts": own(),
     "closest/bare.ts": "export {};\n",
@@ -94,6 +95,7 @@ ${KEY} = "ISC"
     "sidecar/data.bin.license": `${KEY}: CC0-1.0\n`,
     "none/x.bin": "\0binary",
   });
+
   const annotations = parseReuseToml(toml);
   const of = (path: string) => licenseOf(root, join(root, path), annotations);
 

@@ -32,6 +32,7 @@ const setUp = async () => {
 
 test("prepack copies what the plan says and postpack removes exactly that", async () => {
   const { packageDir, plan } = await setUp();
+
   await prepack(packageDir, plan);
 
   expect(await readFile(join(packageDir, "LICENSES/dep/LICENSE"), "utf8")).toBe("hpnd");
@@ -52,6 +53,7 @@ test("prepack copies what the plan says and postpack removes exactly that", asyn
 
 test("prepack after an interrupted pack starts over", async () => {
   const { packageDir, plan } = await setUp();
+
   await prepack(packageDir, plan);
   await prepack(packageDir, plan);
   await postpack(packageDir);
@@ -76,6 +78,7 @@ test("prepack refuses a plan with problems", async () => {
 
 test("postpack without a manifest does nothing", async () => {
   const { packageDir } = await setUp();
+
   await postpack(packageDir);
 
   expect(existsSync(join(packageDir, "LICENSES/keep.txt"))).toBe(true);
