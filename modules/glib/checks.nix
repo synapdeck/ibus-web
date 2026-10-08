@@ -7,7 +7,7 @@
     let
       inherit (config.ibusWeb.toolchain) pkgsWasm;
       inherit (pkgsWasm) glib;
-      ours = ../patches;
+      ours = ./patches;
       # GLib's patch list ends with ours; the rest are nixpkgs'.
       nixpkgsPatches = lib.filter (p: !(lib.hasPrefix "${toString ours}/" (toString p))) glib.patches;
     in

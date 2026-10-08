@@ -530,7 +530,7 @@ the pool, and loads the runtime into each Worker, before the runtime runs;
 starting it starts no thread.
 
 The size is derived in Nix (`ibusWeb.runtime.threadPool`, from
-`runtime/ibus-runtime/package.nix`) from shares, by what starts the
+`runtime/ibus-runtime/module.nix`) from shares, by what starts the
 threads:
 
 | Share      | Threads            | How it was counted                                                                                                                                                                                                                                                                                            |

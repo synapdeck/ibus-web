@@ -13,7 +13,7 @@ see [Derive, don't hardcode](#derive-dont-hardcode).
 ## Emscripten
 
 `ibusWeb.toolchain.emscripten` is nixpkgs' `emscripten` with the patches in
-`modules/emscripten/patches/` appended (`modules/emscripten/emscripten.nix`). It is the only
+`modules/emscripten/patches/` appended (`modules/emscripten/module.nix`). It is the only
 Emscripten in the build: the library cache, the cross stdenv's compiler wrapper, the dev shell
 and clangd all take it from that option, and nothing uses `pkgs.emscripten` or
 `pkgsBuildBuild.emscripten` directly. The cross stdenv asserts that the cache was built by the
