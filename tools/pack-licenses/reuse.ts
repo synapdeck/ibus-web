@@ -15,6 +15,8 @@ import { parse } from "smol-toml";
 // Spelled in pieces so REUSE doesn't read this file's code as its tags.
 const KEY = ["SPDX", "License", "Identifier"].join("-");
 const TAG = `${KEY}:`;
+const IGNORE_START = ["REUSE", "IgnoreStart"].join("-");
+const IGNORE_END = ["REUSE", "IgnoreEnd"].join("-");
 
 export interface Annotation {
   readonly patterns: readonly RegExp[];
@@ -50,14 +52,24 @@ export function globToRegExp(glob: string): RegExp {
 export function headerLicense(text: string): string | undefined {
   const found: string[] = [];
 
+  let ignoring = false;
+
   for (const line of text.split("\n")) {
+    if (line.includes(IGNORE_START)) ignoring = true;
+    if (ignoring) {
+      if (line.includes(IGNORE_END)) ignoring = false;
+      continue;
+    }
+
     const at = line.indexOf(TAG);
     if (at === -1) continue;
 
     const value = line
       .slice(at + TAG.length)
       .replace(/\s*(?:\*\/|-->)\s*$/, "")
-      .trim();
+      .trim()
+      // A tag inside a string literal: the closing quote and its terminator aren't the value.
+      .replace(/["'`]+[;,]?$/, "");
     if (value !== "") found.push(value);
   }
 

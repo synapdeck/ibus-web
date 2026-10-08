@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 
@@ -22,6 +23,22 @@ test("a header's tags are read without their comment closers", () => {
   expect(headerLicense(`<!-- ${KEY}: BSD-3-Clause -->\n`)).toBe("BSD-3-Clause");
   expect(headerLicense(`// ${KEY}: MIT\n// ${KEY}: HPND\n`)).toBe("(MIT) AND (HPND)");
   expect(headerLicense("no tags\n")).toBeUndefined();
+});
+
+test("trailing quotes, and a semicolon or comma after them, are not part of a tag's value", () => {
+  expect(headerLicense(`const license = "${KEY}: MIT";\n`)).toBe("MIT");
+  expect(headerLicense(`license = '${KEY}: HPND',\n`)).toBe("HPND");
+  expect(headerLicense(`\`${KEY}: ISC\`\n`)).toBe("ISC");
+  expect(headerLicense(`// ${KEY}: MIT;\n`)).toBe("MIT;");
+});
+
+test("tags between ignore markers are ignored", () => {
+  const start = ["REUSE", "IgnoreStart"].join("-");
+  const end = ["REUSE", "IgnoreEnd"].join("-");
+  const text = `// ${KEY}: MIT\n// ${start}\n// ${KEY}: GPL-2.0-only\n// ${end}\n// ${KEY}: HPND\n`;
+
+  expect(headerLicense(text)).toBe("(MIT) AND (HPND)");
+  expect(headerLicense(`// ${start}\n// ${KEY}: MIT\n`)).toBeUndefined();
 });
 
 test("annotations keep their paths, license and precedence", () => {
