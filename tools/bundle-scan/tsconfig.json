@@ -3,6 +3,12 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/node.json",
-  "compilerOptions": { "lib": ["es2023", "dom"], "types": ["node"], "skipLibCheck": true },
+  "compilerOptions": {
+    "lib": ["es2023", "dom"],
+    "types": ["node"],
+    // Vitest's declarations name DOM types, so the DOM lib stays on and
+    // library declarations go unchecked.
+    "skipLibCheck": true
+  },
   "include": ["*.ts"]
 }

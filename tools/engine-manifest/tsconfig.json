@@ -4,7 +4,6 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
-    "types": ["node"],
     // Vitest's declarations name DOM types, which Node code doesn't have.
     "skipLibCheck": true
   },
