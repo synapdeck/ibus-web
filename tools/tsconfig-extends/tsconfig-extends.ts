@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Fails unless every tsconfig*.json git tracks reaches one of
-// @ibus-web/tsconfig's presets through `extends`, so every config shares
-// the repository's standard options. The presets, which aren't named
-// tsconfig*.json, are the roots. A solution config, a bare list of
-// `references` with `"files": []` and no `include`, `compilerOptions` or
-// `extends`, compiles nothing itself and is exempt.
+// Fails unless every tsconfig*.json git tracks sits at a package's root,
+// beside its package.json, and reaches one of @ibus-web/tsconfig's presets
+// through `extends`, so every config shares the repository's standard
+// options. The presets, which aren't named tsconfig*.json, are the roots. A
+// solution config, a bare list of `references` with `"files": []` and no
+// `include`, `compilerOptions` or `extends`, compiles nothing itself and is
+// exempt from the `extends` rule.
 //
 //   tsconfig-extends.ts
 //     Run from the repository root.
@@ -86,4 +87,8 @@ const failures = files.filter((file) => {
 for (const file of failures) {
   console.error(`${file}: doesn't extend an ${presetPackage} preset, directly or through another config`);
 }
-if (failures.length > 0) process.exit(1);
+const outside = files.filter((file) => !existsSync(path.join(path.dirname(file), "package.json")));
+for (const file of outside) {
+  console.error(`${file}: isn't beside a package.json; a package's configs sit at its root`);
+}
+if (failures.length > 0 || outside.length > 0) process.exit(1);

@@ -2,16 +2,5 @@
   "name": "ibus-web",
   "private": true,
   "type": "module",
-  "devDependencies": {
-    "@ibus-web/test-programs": "workspace:*",
-    "@ibus-web/tsconfig": "workspace:*",
-    "@types/node": "catalog:",
-    "@vitest/browser": "catalog:",
-    "@vitest/browser-playwright": "catalog:",
-    "jsonc-parser": "catalog:",
-    "playwright": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
-  },
   "packageManager": "pnpm@12.3.4"
 }
