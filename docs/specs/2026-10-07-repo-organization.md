@@ -278,9 +278,9 @@ package depends on. Check names are `<area>-<what>`, where the area is the direc
 - `.gitignore` gains `.artifacts/`, `.claude/settings.local.json` and the files `prepack` copies into packages.
 - `.editorconfig` gains a `[*]` section: UTF-8, LF, final newline, two-space indentation, matching what the formatters
   already produce.
-- Branches `backup/master-before-ci-squash`, `fix/ci-integration-verified` and `fix/ci-test-scheduling` are deleted,
-  locally and on `origin`. `codex/table-engine` becomes the tag `archive/table-engine`, its worktree is removed, and the
-  branch is deleted.
+- Branches `backup/master-before-ci-squash`, `fix/ci-integration-verified` and `fix/ci-test-scheduling` are deleted.
+  `codex/table-engine` and its worktree stay as they are, uncommitted work included, as the reference for a second
+  attempt at the table engine.
 - The FlakeHub publish step's visibility follows the repository's:
   `${{ github.event.repository.private && 'private' || 'public' }}`. The flake stays private while the repository is,
   and the first publish after the repository goes public lists it. FlakeHub's documentation doesn't say whether a push
