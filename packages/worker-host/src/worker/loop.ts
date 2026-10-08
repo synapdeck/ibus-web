@@ -7,8 +7,8 @@
 
 import { postReply, ReqMode, State, Word, type ControlViews } from "../shared/control.ts";
 import { RingWriter } from "@ibus-web/protocol/transport";
-import { CrashReason, requestKinds } from "@ibus-web/protocol";
-import { describe, RuntimeStopped } from "./failure.ts";
+import { CrashReason, errorReport, requestKinds } from "@ibus-web/protocol";
+import { RuntimeStopped } from "./failure.ts";
 import type { EngineScopes } from "./scopes.ts";
 import { drainOutput } from "./output.ts";
 import type { RuntimeConstants } from "../shared/messages.ts";
@@ -116,7 +116,7 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
     try {
       drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx);
     } catch (error) {
-      message += `; output drain failed: ${describe(error)}`;
+      message += `; output drain failed: ${errorReport(error)}`;
     }
     publishReply(ctx, ret);
     throw new RuntimeStopped({ error: message, reason: CrashReason.fault });

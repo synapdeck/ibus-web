@@ -8,13 +8,10 @@ import { errorMessage } from "@ibus-web/protocol";
 import { decompressed, type BrotliDecoder } from "./decompress.ts";
 import { entryGuard } from "./entries.ts";
 import { engineDataRoot } from "../../shared/naming.ts";
+import { INSTALL_PIECE } from "../../shared/config.ts";
 import type { EngineManifest } from "../../shared/messages.ts";
 import { alloc, check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
 import { makeDirs } from "../storage/mount.ts";
-
-// The response body reaches the extractor through a buffer of this size in
-// the runtime's memory, which also bounds each of the extractor's writes.
-const INSTALL_PIECE = 65536;
 
 // What an install has done: archive bytes fed, and the regular files and
 // bytes of file data written.

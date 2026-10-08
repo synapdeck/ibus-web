@@ -4,6 +4,7 @@
 // What the host mounts at the engine's directory, decided before the
 // runtime's memory is made, since a mount in memory needs a larger one.
 
+import { errorSummary } from "@ibus-web/protocol";
 import { memoryWithData, type EngineManifest, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 import { engineDatabase, engineWriterLock } from "../../shared/naming.ts";
 import type { Held } from "./held.ts";
@@ -16,9 +17,6 @@ export type StoragePlan =
   | { mount: "indexeddb"; database: string; flags: number; readOnly: boolean }
   // why: IndexedDB can't be opened.
   | { mount: "memory"; why: string };
-
-const briefly = (error: unknown): string =>
-  error instanceof Error || error instanceof DOMException ? `${error.name}: ${error.message}` : String(error);
 
 // Opens the database if it exists, without creating it: opening a database
 // that doesn't exist would create it, empty, at the version the backend
@@ -55,7 +53,7 @@ const probeIndexedDB = async (database: string): Promise<string | null> => {
     (await openExisting(database))?.close();
     return null;
   } catch (error) {
-    return briefly(error);
+    return errorSummary(error);
   }
 };
 

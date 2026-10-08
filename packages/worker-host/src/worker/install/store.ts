@@ -12,6 +12,7 @@
 
 import { encodeComponent, engineDataDatabase, engineDataDatabasePrefix } from "../../shared/naming.ts";
 import type { EngineManifest } from "../../shared/messages.ts";
+import { nodeFs } from "../node-fs.ts";
 import { withString, type RuntimeHandle } from "../runtime.ts";
 import { openExisting } from "../storage/plan.ts";
 
@@ -155,26 +156,6 @@ export const idbStore = (
     closed: () => backend !== 0 && rt._wasmfs_idb_backend_closed(backend) !== 0,
   };
 };
-
-// What a host under Node uses of node:fs/promises.
-interface NodeFs {
-  open(
-    path: string,
-    flags: "w" | "r",
-  ): Promise<{
-    writeFile(text: string): Promise<void>;
-    sync(): Promise<void>;
-    close(): Promise<void>;
-  }>;
-  readFile(path: string, encoding: "utf8"): Promise<string>;
-  readdir(path: string): Promise<string[]>;
-  rename(from: string, to: string): Promise<void>;
-  mkdir(path: string, options: { recursive: true }): Promise<unknown>;
-  rm(path: string, options: { recursive: true; force: true }): Promise<void>;
-}
-
-// Only a host under Node is given Node storage, so only it imports this.
-const nodeFs = (): Promise<NodeFs> => import("node:fs/promises" as string) as Promise<NodeFs>;
 
 // Each version's data is a directory under data/ beside the engine's own
 // files; its marker is a file beside that directory, outside the tree the

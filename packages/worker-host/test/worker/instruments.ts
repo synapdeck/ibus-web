@@ -66,10 +66,6 @@ const withholdIndexedDB = (): void => {
   });
 };
 
-// Long enough that the loop reaches the messages already queued for it, not
-// only the timer.
-const yieldToEventLoop = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 const encoder = new TextEncoder();
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -308,7 +304,9 @@ export const makeInstruments = (
         }
         case HostOp.yield:
           counters.eventLoopTurns++;
-          return yieldToEventLoop(arg(10)).then(() => ({ ret: 0 }));
+          // Long enough that the loop reaches the messages already queued
+          // for it, not only the timer.
+          return sleep(arg(10)).then(() => ({ ret: 0 }));
         case HostOp.topUp:
           held = arg(1) === 0;
           return { ret: 0 };

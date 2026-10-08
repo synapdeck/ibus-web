@@ -3,6 +3,7 @@
 
 // Mounting the engine's own files on the backend the plan chose.
 
+import { nodeFs } from "../node-fs.ts";
 import { check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
 import type { Mount } from "../../shared/messages.ts";
 import type { StoragePlan } from "./plan.ts";
@@ -15,14 +16,6 @@ export interface MountedStorage {
   // Makes a read-write IndexedDB backend refuse every change from here on.
   readonly seal?: () => void;
 }
-
-// What a host under Node uses of node:fs/promises.
-interface NodeFs {
-  mkdir(path: string, options: { recursive: true }): Promise<unknown>;
-}
-
-// Only a host under Node is given Node storage, so only it imports this.
-const nodeFs = (): Promise<NodeFs> => import("node:fs/promises" as string) as Promise<NodeFs>;
 
 // Under Node, the engine's own files are kept apart from its data.
 const nodeUserDir = (hostPath: string): string => `${hostPath}/user`;

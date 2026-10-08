@@ -16,6 +16,7 @@
 // once the marker is durable, rather than mount a read-only one as well,
 // since a backend's thread lasts as long as the runtime.
 
+import { errorSummary } from "@ibus-web/protocol";
 import { Effect, type Scope } from "effect";
 import type { HostConfigValues } from "../../shared/config.ts";
 import type { CollectReport, EngineManifest, HostMessage, InstallReport } from "../../shared/messages.ts";
@@ -48,9 +49,6 @@ export interface DataMount {
   readonly closed: () => boolean;
 }
 
-const briefly = (error: unknown): string =>
-  error instanceof Error || error instanceof DOMException ? `${error.name}: ${error.message}` : String(error);
-
 // Deletes the data of every other version no host is using. A host using a
 // version holds its data lock shared, so one granted exclusively at once is
 // one no host uses, and no host can start using it until it is let go.
@@ -72,7 +70,7 @@ const collect = async (store: DataStore, engine: EngineManifest): Promise<Collec
       }
     }
   } catch (error) {
-    report.error = briefly(error);
+    report.error = errorSummary(error);
   }
   return report;
 };

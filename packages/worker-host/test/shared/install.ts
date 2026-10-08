@@ -6,6 +6,7 @@
 // start. Each scenario has an engine, and so storage and locks, of its own.
 
 import { expect } from "vitest";
+import { INSTALL_PIECE } from "../../src/shared/config.ts";
 import type { CollectReport, EngineManifest, InstallReport } from "../../src/shared/messages.ts";
 import {
   encodeComponent,
@@ -33,9 +34,6 @@ const collectOf = (messages: readonly Message[]): CollectReport | undefined => {
   const { type: _, ...report } = found;
   return report;
 };
-
-// The bytes the host feeds the extractor at a time.
-const INSTALL_PIECE = 65536;
 
 // The text as a regular expression matches it.
 const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

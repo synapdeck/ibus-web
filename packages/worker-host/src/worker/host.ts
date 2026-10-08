@@ -10,9 +10,9 @@
 // section, leaving it only to top the pthread pool up. Only this Worker, and
 // the relay it starts, touch the runtime's memory.
 
-import { CrashReason, encodeValue, type EngineManifest } from "@ibus-web/protocol";
+import { CrashReason, encodeValue, errorReport, type EngineManifest } from "@ibus-web/protocol";
 import { readManifest, fetchBytes, readRuntimeConstants, type RuntimeDistributionConstants } from "./startup.ts";
-import { mountStore } from "./store.ts";
+import { setSchemaDir } from "./schema-dir.ts";
 import { EngineScopes } from "./scopes.ts";
 import { writeHostRecord, drainOutput, HostDefect } from "./output.ts";
 import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
@@ -22,7 +22,6 @@ import { controlViews, postCrash, Word, type ControlViews } from "../shared/cont
 import { WASM_PAGE, type HostInit, type HostMessage, type RuntimeMemory } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
 import {
-  describe,
   RelayFailed,
   runtimeCallFailed,
   runtimeFinalizer,
@@ -111,7 +110,7 @@ export class HostWorker extends Context.Service<HostWorker, HostWorkerShape>()("
 const hostLogger = (writer: RingWriter, control: ControlViews, notify: () => void): Logger.Logger<unknown, void> =>
   Logger.make(({ logLevel, message, cause }) => {
     const parts = Array.isArray(message) ? message : [message];
-    const text = parts.map((part) => (typeof part === "string" ? part : describe(part))).join(" ");
+    const text = parts.map((part) => (typeof part === "string" ? part : errorReport(part))).join(" ");
     const levels = { All: 128, Fatal: 4, Error: 8, Warn: 16, Info: 64, Debug: 128, Trace: 128, None: 0 };
     const payload = encodeValue("(uss)", {
       _tag: "()",
@@ -139,7 +138,7 @@ const crashFailure = (cause: Cause.Cause<unknown>): RuntimeStopped | RelayFailed
 
 const stoppedRecord = (failure: RuntimeStopped): CrashRecord => ({
   reason: failure.reason ?? CrashReason.trap,
-  message: failure.error === UNWIND ? "a thread crashed" : describe(failure.error),
+  message: failure.error === UNWIND ? "a thread crashed" : errorReport(failure.error),
 });
 
 const crashRecord = (cause: Cause.Cause<unknown>): CrashRecord => {
@@ -153,7 +152,7 @@ const crashMessage = (cause: Cause.Cause<unknown>, threadError: Promise<string>,
   const failure = crashFailure(cause);
   if (failure instanceof RelayFailed) return Promise.resolve(`relay: ${failure.message}`);
   if (failure instanceof RuntimeStopped) {
-    if (failure.error !== UNWIND) return Promise.resolve(describe(failure.error));
+    if (failure.error !== UNWIND) return Promise.resolve(errorReport(failure.error));
     return within(threadError, waitMs, "its error never arrived").then((why) => `a thread crashed: ${why}`);
   }
   return Promise.resolve(Cause.pretty(cause));
@@ -193,7 +192,7 @@ export const workerLayer = (
       env.onUncaughtError((event) => {
         if (!isCrashed) return;
         event.preventDefault();
-        keepError(describe(event.error ?? event.message));
+        keepError(errorReport(event.error ?? event.message));
       });
       const crashed = ({ reason, message }: CrashRecord): void => {
         if (isCrashed) return;
@@ -457,7 +456,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
               return Effect.void;
             } catch (error) {
               return Effect.logError(
-                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(manifest)} until its Worker ends: ${describe(error)}`,
+                `sealing the engine's user data failed, so this host keeps ${engineWriterLock(manifest)} until its Worker ends: ${errorReport(error)}`,
               );
             }
           }),
@@ -481,7 +480,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
         post: env.post,
       });
       const storage: MountedStorage = { ...mounted, closed: () => mounted.closed() || data.closed() };
-      yield* Effect.try({ try: () => mountStore(handle, manifest), catch: runtimeCallFailed });
+      yield* Effect.try({ try: () => setSchemaDir(handle, manifest), catch: runtimeCallFailed });
       yield* Effect.try({ try: () => instruments.storageMounted(storage), catch: runtimeCallFailed });
       return storage;
     }),
@@ -632,7 +631,7 @@ export const serve: Effect.Effect<
       }
       if ("error" in outcome) {
         ctx.topUpFailed = true;
-        yield* Effect.logError(describe(outcome.error));
+        yield* Effect.logError(errorReport(outcome.error));
       } else instruments.toppedUp(want, outcome.ms, outcome.createMs);
     });
 

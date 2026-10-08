@@ -27,3 +27,7 @@ export interface HostConfigValues {
   // that doesn't close when asked to.
   readonly deleteLimitMs: number;
 }
+
+// The response body reaches the extractor through a buffer of this size in
+// the runtime's memory, which also bounds each of the extractor's writes.
+export const INSTALL_PIECE = 65536;
