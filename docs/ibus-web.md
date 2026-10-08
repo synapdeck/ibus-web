@@ -61,7 +61,7 @@ module's manifest and resolves to its engine descriptors (`name`, `displayName`,
 `languages`, `keyboard`) without starting a Worker. `select`, `deselect`,
 `engines`, `unload(module)` and `dispose()` return Promises.
 `debugRestart(module)` is a development-only way to terminate the actual Worker
-and await recovery. No concrete CodeMirror adapter is provided.
+and await recovery; it restores the selection only when `module` is the selected one. No concrete CodeMirror adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Use
 `settings.get(module, schemaId, key)`, `set(module, schemaId, key, variant)` and

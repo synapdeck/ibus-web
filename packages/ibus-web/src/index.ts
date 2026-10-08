@@ -270,9 +270,7 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       const current = await initialize();
       const selection = current.router.selection;
       await runtime.runPromise(current.registry.debugRestart(module));
-      await runtime.runPromise(
-        current.router.select(module, selection?.module === module ? selection.engine : undefined),
-      );
+      if (selection?.module === module) await runtime.runPromise(current.router.select(module, selection.engine));
     },
     engines: async (module: string) => {
       alive();

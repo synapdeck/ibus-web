@@ -331,6 +331,19 @@ test("publishes state and storage CustomEvents from actual core lifecycle, inclu
   expect(states).toContain("ready");
   expect(states.at(-1)).toBe("unloaded");
 });
+test("restarting a deselected module leaves the selection alone and fires no selectionchange", async () => {
+  const f = fixture();
+  f.app.attach(f.native);
+  f.native.focus();
+  await f.app.select("test");
+  await f.app.deselect();
+  const changes: unknown[] = [];
+  f.app.addEventListener("selectionchange", (event) => changes.push(event.detail));
+  await f.app.debugRestart("test");
+  expect(f.connections).toHaveLength(2);
+  expect(f.app.selection).toBeUndefined();
+  expect(changes).toEqual([]);
+});
 test("filters engine logs by level and reports rejected panel actions through the same observable log route", async () => {
   const logs: unknown[] = [];
   const f = fixture({ logLevel: "warn", logger: (entry) => logs.push(entry) });
