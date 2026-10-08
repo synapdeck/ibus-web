@@ -1596,7 +1596,7 @@ interface SurfaceAdapter {
   commit(text: string): void;
   deleteSurrounding(offset: number, count: number): void;
   setPreedit(preedit: Preedit | undefined): void;
-  replayKey(event: KeyboardEvent): void;
+  replayKey(event: KeyboardEvent): boolean | void;
   forwardKey(key: { keyval: number; keycode: number; state: number }): void;
   onReset(listener: () => void): () => void;
 }
@@ -1613,7 +1613,8 @@ Offsets are UTF-16 code units. `batch` runs its callback synchronously; an
 editor maps a batch to one transaction, and so one undo step. `onReset`
 reports caret, selection and value changes the router didn't make.
 `forwardKey` performs a key an engine forwards (`ForwardKeyEvent`), where
-`replayKey` performs one the engine declined.
+`replayKey` performs one the engine declined, and returns false when it was a
+shortcut whose browser action the adapter could not perform.
 
 #### 7.2.2 Rules and attachment modes
 
