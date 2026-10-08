@@ -6,6 +6,9 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/node.json",
   "compilerOptions": {
+    // Vitest's configuration imports the scenarios' types, whose harness
+    // waits with Atomics.waitAsync().
+    "lib": ["es2023", "es2024.sharedmemory"],
     "skipLibCheck": true
   },
   "files": ["tsdown.config.ts", "vitest.config.ts", "vitest.unit.config.ts"]

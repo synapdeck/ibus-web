@@ -6,36 +6,29 @@
 // spins for each reply as the synchronous keystroke path would, and what the
 // hosts' Workers print to their consoles, taken by the tests.
 
+import type { EngineManifest } from "@ibus-web/protocol";
 import { inject } from "vitest";
 import { commands } from "vitest/browser";
-import { createControl } from "../../src/shared/control.ts";
-import type { EngineManifest, HostInit, SideModule } from "../../src/shared/messages.ts";
+import type { SideModule } from "../../src/shared/messages.ts";
 import { engineDatabase, engineDataDatabase, engineDataDatabasePrefix } from "../../src/shared/naming.ts";
-import { LOCK_RELEASE_LIMIT_MS } from "../shared/locks.ts";
-import { startHost } from "../shared/bootstrap.ts";
-import { blockingClient, type Clock } from "../shared/client.ts";
+import type { Clock } from "../shared/client.ts";
 import {
-  hostUrlFor,
+  hostLauncher,
   launchingAsAPage,
+  runtimeModules,
   startFrom,
-  testHostConfig,
   type Harness,
   type Launch,
-  type LaunchedHost,
-  type RunningHost,
 } from "../shared/harness.ts";
-import { locksFrom, type WebLocks } from "../shared/locks.ts";
+import { LOCK_RELEASE_LIMIT_MS, locksFrom, type WebLocks } from "../shared/locks.ts";
 import { printedFrom } from "../shared/printed.ts";
-import type { Message, TestInit } from "../shared/testing.ts";
 import "./commands.ts";
 
 // A spinning page gives up on a reply after this long, twenty times the
 // longest any request takes when nothing waits for the page (Chromium's
-// spawn(4), some 50 ms), then waits for it without holding its thread, up to
-// the second limit more: a reply that comes only then needed the page's main
-// thread, and fails the test that waited.
+// spawn(4), some 50 ms), then waits for it without holding its thread: a
+// reply that comes only then needed the page's main thread.
 const SPIN_LIMIT_MS = 1000;
-const LATE_REPLY_MS = 30_000;
 
 // A bound on a console line's way to the commands, for a loaded machine.
 const SETTLE_LIMIT_MS = 10_000;
@@ -53,11 +46,6 @@ const fetchOk = async (url: string): Promise<Response> => {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
   return response;
-};
-
-const waitFree = async (words: Int32Array, index: number, value: number, ms: number): Promise<void> => {
-  const result = Atomics.waitAsync(words, index, value, ms);
-  if (result.async) await result.value;
 };
 
 const opened = (request: IDBOpenDBRequest): Promise<IDBDatabase> =>
@@ -146,85 +134,28 @@ export const browserHarness = async (): Promise<Harness> => {
   const sides: SideModule[] = await Promise.all(
     data.sides.map(async ({ name, url }) => ({ name, bytes: await (await fetchOk(url)).arrayBuffer() })),
   );
-  const compiled = new Map<string, Promise<WebAssembly.Module>>();
-  const runtimeModule = (url: string): Promise<WebAssembly.Module> => {
-    const wasm = url.replace(/\.js$/, ".wasm");
-    let module = compiled.get(wasm);
-    if (module === undefined) {
-      module = WebAssembly.compileStreaming(fetchOk(wasm));
-      compiled.set(wasm, module);
-    }
-    return module;
-  };
   const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
+  const launchHost = hostLauncher<WebAssembly.Module>({
+    ...clock,
+    data,
+    sides,
+    worker: (url) => new Worker(url, { type: "module", name: "ibus-web-host" }),
+    resolve: (url) => new URL(url, location.href).href,
+    runtimeModule: runtimeModules((wasm) => WebAssembly.compileStreaming(fetchOk(wasm))),
+    compile: (bytes) => WebAssembly.compile(new Uint8Array(bytes)),
+    block: () => {},
+    budgetMs: SPIN_LIMIT_MS,
+  });
+
   // The databases hosts were given, which outlive them.
   const databases = new Set<string>();
-  const launch: Launch = (options, messages: Message[]): LaunchedHost => {
+  const launch: Launch = (options, messages) => {
     if (options.storage?.kind === "browser" && options.engine !== undefined) {
       databases.add(engineDatabase(options.engine));
       if (options.engine.version !== "") databases.add(engineDataDatabase(options.engine));
     }
-    const control = createControl(options.layout);
-    const worker = new Worker(hostUrlFor(data, options), {
-      type: "module",
-      name: "ibus-web-host",
-    });
-    const minimum = data.constants.memory.minimum;
-    const test: TestInit = {
-      mallinfo: data.constants.mallinfo,
-      sides: [...sides, ...(options.moreSides ?? [])],
-      config: testHostConfig(options),
-      ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
-      ...options.test,
-    };
-    // A browser's terminate() returns before the Worker has stopped;
-    // nothing here waits for that.
-    const terminate = async () => worker.terminate();
-    const ready = (async (): Promise<RunningHost> => {
-      const init: HostInit<WebAssembly.Module, TestInit> = {
-        runtimeUrl: new URL(options.runtime.url, location.href).href,
-        wasm:
-          options.wasm === undefined
-            ? await runtimeModule(options.runtime.url)
-            : await WebAssembly.compile(new Uint8Array(options.wasm)),
-        control,
-        ...(options.layout === undefined ? {} : { layout: options.layout }),
-        ...(options.manifestUrl === undefined
-          ? {
-              manifest: {
-                ...(options.manifest ?? options.engine ?? data.engines.empty),
-                memory: options.memory?.initial ?? options.manifest?.memory ?? options.engine?.memory ?? minimum,
-              },
-            }
-          : { manifestUrl: new URL(options.manifestUrl, location.href).href }),
-        storage: options.storage ?? { kind: "none" },
-        test,
-      };
-      const startupMs = await startHost(worker, init, messages);
-      const client = blockingClient(
-        control,
-        messages,
-        {
-          ...clock,
-          block: () => {},
-          budgetMs: SPIN_LIMIT_MS,
-          lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
-        },
-        options.layout,
-      );
-      worker.addEventListener("message", ({ data }) => {
-        if ((data as Message).type === "doorbell") client.page.onDoorbell();
-        if ((data as Message).type === "crashed") client.page.onCrash();
-      });
-      return {
-        client,
-        instrumented: options.released !== true,
-        startupMs,
-        messages,
-        terminate,
-      };
-    })();
-    return { messages, ready, terminate };
+
+    return launchHost(options, messages);
   };
   const launchAsAPage = launchingAsAPage(launch, locks);
   return {

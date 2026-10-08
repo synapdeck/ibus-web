@@ -4,11 +4,14 @@
 // What a test environment gives the scenarios: the build's values, and hosts
 // to run them against.
 
+import type { EngineManifest } from "@ibus-web/protocol";
 import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import type { EngineManifest, EngineStorage, RuntimeConstants, SideModule } from "../../src/shared/messages.ts";
+import { createControl } from "../../src/shared/control.ts";
+import type { EngineStorage, HostInit, RuntimeConstants, SideModule } from "../../src/shared/messages.ts";
 import { engineWriterLock } from "../../src/shared/naming.ts";
-import type { Client, Clock } from "./client.ts";
+import { startHost, type HostWorker } from "./bootstrap.ts";
+import { blockingClient, type BlockingClientEnv, type Client, type Clock } from "./client.ts";
 import type { Message, TestInit } from "./testing.ts";
 import type { Locks } from "./locks.ts";
 import type { Printed } from "./printed.ts";
@@ -246,3 +249,126 @@ export const hostUrlFor = (data: TestData, options: HostOptions): string => {
   if (options.relayFailsAfter !== 3) throw new Error("the host as released takes only a relay that fails after 3");
   return data.hostWithFailingRelayUrl;
 };
+
+// A caller past its budget waits up to this long more for a reply without
+// holding its thread; a reply that needed the wait fails the test that
+// waited.
+export const LATE_REPLY_MS = 30_000;
+
+// Waits while words[index] is value, for at most ms, without holding the
+// thread.
+export const waitFree = async (words: Int32Array, index: number, value: number, ms: number): Promise<void> => {
+  const result = Atomics.waitAsync(words, index, value, ms);
+  if (result.async) await result.value;
+};
+
+// Compiles each runtime's module once, by its .wasm beside the runtime's
+// script.
+export const runtimeModules = <Wasm>(
+  compile: (wasmUrl: string) => Promise<Wasm>,
+): ((runtimeUrl: string) => Promise<Wasm>) => {
+  const compiled = new Map<string, Promise<Wasm>>();
+  return (runtimeUrl) => {
+    const wasm = runtimeUrl.replace(/\.js$/, ".wasm");
+    let module = compiled.get(wasm);
+    if (module === undefined) {
+      module = compile(wasm);
+      compiled.set(wasm, module);
+    }
+    return module;
+  };
+};
+
+// What a host's Worker is to the harness: a browser's Worker, or Node's
+// stand-in for one.
+export interface LaunchedWorker extends HostWorker {
+  terminate(): unknown;
+}
+
+// Where launching a host differs between test environments.
+export interface LaunchEnv<Wasm> extends Clock {
+  data: TestData;
+  sides: readonly SideModule[];
+  worker(url: string): LaunchedWorker;
+  // A URL as the host's Worker loads it.
+  resolve(url: string): string;
+  runtimeModule(runtimeUrl: string): Promise<Wasm>;
+  compile(bytes: Uint8Array): Promise<Wasm>;
+  // How the caller holds its thread for a reply; a thread that can't block
+  // returns at once and spins.
+  block: BlockingClientEnv["block"];
+  budgetMs: number;
+}
+
+// Launches hosts the same way in every environment: the test build's
+// HostInit, then a client that holds the caller's thread for each reply.
+export const hostLauncher =
+  <Wasm>(env: LaunchEnv<Wasm>): Launch =>
+  (options, messages) => {
+    const { data } = env;
+    const control = createControl(options.layout);
+    const worker = env.worker(hostUrlFor(data, options));
+    const minimum = data.constants.memory.minimum;
+    const test: TestInit = {
+      mallinfo: data.constants.mallinfo,
+      sides: [...env.sides, ...(options.moreSides ?? [])],
+      config: testHostConfig(options),
+      ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
+      ...options.test,
+    };
+
+    // A browser's terminate() returns before its Worker has stopped; Node's
+    // stand-in settles once it has.
+    const terminate = async (): Promise<void> => {
+      await worker.terminate();
+    };
+
+    const ready = (async (): Promise<RunningHost> => {
+      const init: HostInit<Wasm, TestInit> = {
+        runtimeUrl: env.resolve(options.runtime.url),
+        wasm:
+          options.wasm === undefined ? await env.runtimeModule(options.runtime.url) : await env.compile(options.wasm),
+        control,
+        ...(options.layout === undefined ? {} : { layout: options.layout }),
+        ...(options.manifestUrl === undefined
+          ? {
+              manifest: {
+                ...(options.manifest ?? options.engine ?? data.engines.empty),
+                memory: options.memory?.initial ?? options.manifest?.memory ?? options.engine?.memory ?? minimum,
+              },
+            }
+          : { manifestUrl: env.resolve(options.manifestUrl) }),
+        storage: options.storage ?? { kind: "none" },
+        test,
+      };
+      const startupMs = await startHost(worker, init, messages);
+
+      const client = blockingClient(
+        control,
+        messages,
+        {
+          now: env.now,
+          sleep: env.sleep,
+          schedule: env.schedule,
+          block: env.block,
+          budgetMs: env.budgetMs,
+          lateReply: { wait: waitFree, ms: LATE_REPLY_MS },
+        },
+        options.layout,
+      );
+      worker.addEventListener("message", ({ data }) => {
+        if ((data as Message).type === "doorbell") client.page.onDoorbell();
+        if ((data as Message).type === "crashed") client.page.onCrash();
+      });
+
+      return {
+        client,
+        instrumented: options.released !== true,
+        startupMs,
+        messages,
+        terminate,
+      };
+    })();
+
+    return { messages, ready, terminate };
+  };

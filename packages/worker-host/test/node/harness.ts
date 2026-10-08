@@ -11,32 +11,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import type { EngineManifest } from "@ibus-web/protocol";
 import { inject } from "vitest";
-import { createControl } from "../../src/shared/control.ts";
-import type { EngineManifest, HostInit, SideModule } from "../../src/shared/messages.ts";
+import type { SideModule } from "../../src/shared/messages.ts";
 import { encodeComponent } from "../../src/shared/naming.ts";
-import { startHost } from "../shared/bootstrap.ts";
-import { blockingClient, type Clock } from "../shared/client.ts";
-import {
-  hostUrlFor,
-  launchingAsAPage,
-  startFrom,
-  testHostConfig,
-  type Harness,
-  type Launch,
-  type LaunchedHost,
-  type RunningHost,
-} from "../shared/harness.ts";
+import type { Clock } from "../shared/client.ts";
+import { hostLauncher, launchingAsAPage, runtimeModules, startFrom, type Harness } from "../shared/harness.ts";
 import { locksFrom, type WebLocks } from "../shared/locks.ts";
 import { printedFrom } from "../shared/printed.ts";
-import type { Message, TestInit } from "../shared/testing.ts";
 import { BrowserWorker } from "./browser-worker.ts";
 
-// A call holds this thread for at most this long, then waits up to the
-// second limit without holding it; a reply that needed the wait fails the
-// test that waited.
+// A call holds this thread for at most this long, then waits for the reply
+// without holding it.
 const BUDGET_MS = 1000;
-const LATE_REPLY_MS = 30_000;
 
 const clock: Clock = {
   now: () => performance.now(),
@@ -76,83 +63,21 @@ export const nodeHarness = async (): Promise<Harness> => {
   const sides: SideModule[] = await Promise.all(
     data.sides.map(async ({ name, url }) => ({ name, bytes: await bytesOf(url) })),
   );
-  const compiled = new Map<string, WebAssembly.Module>();
-  const runtimeModule = async (url: string): Promise<WebAssembly.Module> => {
-    const wasm = url.replace(/\.js$/, ".wasm");
-    let module = compiled.get(wasm);
-    if (module === undefined) {
-      module = await WebAssembly.compile(new Uint8Array(await bytesOf(wasm)));
-      compiled.set(wasm, module);
-    }
-    return module;
-  };
   const locks = locksFrom(navigator.locks as unknown as WebLocks, (ms) => AbortSignal.timeout(ms) as never);
-  const launch: Launch = (options, messages: Message[]): LaunchedHost => {
-    const control = createControl(options.layout);
-    const worker = new BrowserWorker(hostUrlFor(data, options));
-    const minimum = data.constants.memory.minimum;
-    const test: TestInit = {
-      mallinfo: data.constants.mallinfo,
-      sides: [...sides, ...(options.moreSides ?? [])],
-      config: testHostConfig(options),
-      ...(options.relayFailsAfter === undefined ? {} : { relayFailsAfter: options.relayFailsAfter }),
-      ...options.test,
-    };
-    const terminate = () => worker.terminate();
-    const ready = (async (): Promise<RunningHost> => {
-      const init: HostInit<WebAssembly.Module, TestInit> = {
-        runtimeUrl: options.runtime.url,
-        wasm:
-          options.wasm === undefined
-            ? await runtimeModule(options.runtime.url)
-            : await WebAssembly.compile(new Uint8Array(options.wasm)),
-        control,
-        ...(options.layout === undefined ? {} : { layout: options.layout }),
-        ...(options.manifestUrl === undefined
-          ? {
-              manifest: {
-                ...(options.manifest ?? options.engine ?? data.engines.empty),
-                memory: options.memory?.initial ?? options.manifest?.memory ?? options.engine?.memory ?? minimum,
-              },
-            }
-          : { manifestUrl: options.manifestUrl }),
-        storage: options.storage ?? { kind: "none" },
-        test,
-      };
-      const startupMs = await startHost(worker, init, messages);
-      const client = blockingClient(
-        control,
-        messages,
-        {
-          ...clock,
-          block: (words, index, value, ms) => {
-            Atomics.wait(words, index, value, ms);
-          },
-          budgetMs: BUDGET_MS,
-          lateReply: {
-            wait: async (words, index, value, ms) => {
-              const result = Atomics.waitAsync(words, index, value, ms);
-              if (result.async) await result.value;
-            },
-            ms: LATE_REPLY_MS,
-          },
-        },
-        options.layout,
-      );
-      worker.addEventListener("message", ({ data }) => {
-        if ((data as Message).type === "doorbell") client.page.onDoorbell();
-        if ((data as Message).type === "crashed") client.page.onCrash();
-      });
-      return {
-        client,
-        instrumented: options.released !== true,
-        startupMs,
-        messages,
-        terminate,
-      };
-    })();
-    return { messages, ready, terminate };
-  };
+  const launch = hostLauncher<WebAssembly.Module>({
+    ...clock,
+    data,
+    sides,
+    worker: (url) => new BrowserWorker(url),
+    resolve: (url) => url,
+    runtimeModule: runtimeModules(async (wasm) => WebAssembly.compile(new Uint8Array(await bytesOf(wasm)))),
+    compile: (bytes) => WebAssembly.compile(new Uint8Array(bytes)),
+    block: (words, index, value, ms) => {
+      Atomics.wait(words, index, value, ms);
+    },
+    budgetMs: BUDGET_MS,
+  });
+
   const enginePath = (engine: Pick<EngineManifest, "name">): string =>
     join(scratch, "engines", encodeComponent(engine.name));
   const dataPath = (engine: Pick<EngineManifest, "name">): string => join(enginePath(engine), "data");
