@@ -10,6 +10,16 @@ executable is available on Linux as `packages.ibus-test-native`; its tests are
 runner applies `settings` before launching the engine; the adapter does not apply
 settings. Engine object paths remain internal; contexts are symbolic names.
 
+## Design rules
+
+- The native engine is the reference and runs unpatched. Where the port deliberately fixes an upstream bug, the
+  difference is declared narrowly in `expectedDifferences`. It is never hidden by patching the native side, skipping
+  the scenario or loosening the comparison.
+- Only transport identity is normalized: native object paths, runtime context numbers and sequence counters map to
+  the trace's symbolic names. Events are never dropped, reordered or merged, and empty updates count.
+- An engine is added by configuration alone: its executable, service and factory identity, engine name, schemas, data
+  and traces. Adding one changes neither the driver nor the comparison.
+
 Every created context must have an explicit `destroy` step before a trace ends.
 The shared validator rejects open contexts. Create, destroy, wait, and unit calls
 reply with JSON null; `ProcessKeyEvent` replies with a boolean. Other reply bodies

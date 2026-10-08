@@ -101,7 +101,9 @@ An item leaves this page when it is fixed or decided.
   page: stock ibus-hangul, without port 0004, selects by absolute index and
   diverges from page 2 on, and the comparator tolerates only extra native
   records, so page-2 clicks are covered by the golden tests alone.
-  See [the native testing spec](specs/2026-10-03-native-ibus-differential-testing.md).
+  Comparing what `ibus-daemon` and a toolkit client do on top of the engine needs a separate input-context adapter,
+  which must set client-side preedit commits and capabilities explicitly, since both change the observable output.
+  See [the test adapter](../tools/ibus-test/README.md).
 - **An engine's C++ exception poisons the runtime.** The exception unwinds
   through GLib's signal emission, so `ibusweb_dispatch` latches a fault and
   returns `-ECANCELED`, and the host treats it as a crash. The page must restart the
