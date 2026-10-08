@@ -172,3 +172,20 @@ test("a reset raised by a key's own replay keeps later queued keys for the engin
   expect(f.calls).toContain("boundary");
   expect(f.connection.sent.at(-1)).toMatchObject({ mode: "async", request: { keyval: 113 } });
 });
+
+test("a key whose poll crashes the connection or retires its context passes through untouched", async () => {
+  const crashed = fixture();
+  const request = crashed.router.request(new FocusIn({}), 1);
+  crashed.connection.poll = () => crashed.connection.crash();
+  expect(crashed.sink.key(ctrl("z"))).toBe("passthrough");
+  expect(crashed.calls.filter((call) => call.startsWith("replay:"))).toEqual([]);
+  await expect(request).rejects.toMatchObject({ reason: "worker" });
+
+  const stale = fixture();
+  void stale.router.request(new FocusIn({}), 1);
+  stale.connection.poll = () => {
+    stale.context.ready = false;
+  };
+  expect(stale.sink.key(ctrl("z"))).toBe("passthrough");
+  expect(stale.connection.sent.map((sent) => sent.mode)).toEqual(["async"]);
+});
