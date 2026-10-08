@@ -81,7 +81,23 @@ test("real async lifecycle reply records precede unsolicited tail records from t
   expect(Atomics.load(host.views.words, Word.state)).toBe(State.reply);
   host.write(record(2));
   host.deliver();
-  expect(f.calls).toEqual([]);
+  expect(f.calls.filter((c) => c.startsWith("record:"))).toEqual(["record:1", "record:2"]);
+  await request;
+  expect(f.calls.filter((c) => c.startsWith("record:"))).toEqual(["record:1", "record:2"]);
+});
+
+test("a key settles a finished lifecycle reply from shared memory before its doorbell arrives", async () => {
+  const f = await start();
+  const { FocusIn } = await import("@ibus-web/protocol");
+  host.scripts.push({ records: [record(1)] }, { ret: 0, records: [record(2)] });
+  const request = f.router.request(new FocusIn({}), 1);
+  host.tick();
+
+  expect(f.sink.key(key("a"))).toBe("passthrough");
+  expect(host.requests).toHaveLength(2);
+  expect(f.calls.filter((c) => c.startsWith("record:"))).toEqual(["record:1", "record:2"]);
+
+  host.deliver();
   await request;
   expect(f.calls.filter((c) => c.startsWith("record:"))).toEqual(["record:1", "record:2"]);
 });
@@ -89,13 +105,13 @@ test("real async lifecycle reply records precede unsolicited tail records from t
 test("real async key reply owns its batch until its promise applies it, before unsolicited tail", async () => {
   const f = await start();
   const { FocusIn } = await import("@ibus-web/protocol");
-  host.scripts.push({}, { records: [record(1)] });
+  host.scripts.push({ after: 5 }, { after: 5, records: [record(1)] });
   const request = f.router.request(new FocusIn({}), 1);
   expect(f.sink.key(key("a"))).toBe("consumed");
-  host.tick();
+  while (host.now < 10) host.tick();
   host.deliver();
   await request;
-  host.tick();
+  while (host.now < 20) host.tick();
   host.write(record(2));
   host.deliver();
   expect(f.calls).toEqual([]);

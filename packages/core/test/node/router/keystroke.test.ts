@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
-import { fixture, key, output } from "../../shared/router.ts";
+import { FocusIn } from "@ibus-web/protocol";
+import { ctrl, fixture, key, output } from "../../shared/router.ts";
+
+const settle = () => new Promise((resolve) => setTimeout(resolve));
 
 test("a synchronous reply applies ordered records in one batch and returns its decision", () => {
   const f = fixture();
@@ -99,4 +102,46 @@ test("late lifecycle records do not migrate to a replacement context with the sa
   f.connection.completeAsync(0, [output(1)]);
   await request;
   expect(replacement.calls).toEqual([]);
+});
+
+test("a key arriving after a lifecycle reply is ready but before its doorbell is decided synchronously", async () => {
+  const f = fixture();
+  const request = f.router.request(new FocusIn({}), 1);
+  f.connection.readyAsync(1, [output(1)]);
+  f.connection.outcome = { _tag: "reply", ret: 0, records: [output(2)] };
+
+  expect(f.sink.key(ctrl("z"))).toBe("passthrough");
+  expect(f.connection.sent.map((sent) => sent.mode)).toEqual(["async", "sync"]);
+  expect(f.calls).toEqual(["batch", "record:1", "end", "batch", "record:2", "end"]);
+
+  await request;
+  expect(f.calls.filter((call) => call.startsWith("replay:"))).toEqual([]);
+});
+
+test("a key during a lifecycle request without a reply queues and replays once when declined", async () => {
+  const f = fixture();
+  const request = f.router.request(new FocusIn({}), 1);
+
+  expect(f.sink.key(ctrl("z"))).toBe("consumed");
+  expect(f.connection.sent.map((sent) => sent.mode)).toEqual(["async"]);
+
+  f.connection.completeAsync(1, []);
+  await request;
+  expect(f.connection.sent.map((sent) => sent.mode)).toEqual(["async", "async"]);
+
+  f.connection.completeAsync(0, []);
+  await settle();
+  expect(f.calls.filter((call) => call.startsWith("replay:"))).toEqual(["replay:z"]);
+});
+
+test("held keys queue without settling a finished lifecycle reply", () => {
+  const f = fixture();
+  const release = f.router.holdKeys();
+  void f.router.request(new FocusIn({}), 1);
+  f.connection.readyAsync(1, []);
+
+  expect(f.sink.key(ctrl("z"))).toBe("consumed");
+  expect(f.connection.polls).toBe(0);
+  expect(f.connection.sent.map((sent) => sent.mode)).toEqual(["async"]);
+  release();
 });

@@ -232,7 +232,11 @@ export class Connection {
     this.watch();
     return { _tag: "pending" };
   }
-  requestAsync(request: Request, ic: number): Promise<Reply> {
+  /**
+   * `settled` receives the reply synchronously when the connection reads it, before the promise resolves,
+   * so a caller can finish its bookkeeping inside the event handler that read it.
+   */
+  requestAsync(request: Request, ic: number, options: { settled?: (reply: Reply) => void } = {}): Promise<Reply> {
     this.drain();
     this.checkCrash();
     if (this.crash) return Promise.reject(this.crash);
@@ -240,9 +244,16 @@ export class Connection {
     if (bytes.length > this.control.slot.length)
       return Promise.reject(new RangeError(`request of ${bytes.length} bytes`));
     return new Promise((resolve, reject) => {
-      this.queue.push({ bytes, resolve, reject });
+      this.queue.push({ bytes, resolve, reject, settled: options.settled });
       this.next();
     });
+  }
+  /**
+   * Settle an asynchronous request whose reply is already in shared memory, without waiting for the doorbell
+   * message, which can trail the reply by a frame. Never waits for a reply that is not there yet.
+   */
+  poll(): void {
+    if (!this.crash) this.settle();
   }
   terminate(crash: CrashInfo = { reason: "worker", message: "Connection terminated" }): void {
     this.fail(crash);
@@ -375,6 +386,9 @@ export class Connection {
     this.deferred = undefined;
     if (this.crash) return;
     Atomics.store(this.control.words, Word.doorbell, 0);
+    this.settle();
+  }
+  private settle(): void {
     this.drain();
     this.checkCrash();
     if (this.crash) return;
@@ -384,8 +398,13 @@ export class Connection {
     if (reply) {
       const current = this.current;
       this.current = undefined;
-      if (current) current.resolve(reply);
-      else this.abandoned.push(reply);
+      if (!current) this.abandoned.push(reply);
+      else
+        try {
+          current.settled?.(reply);
+        } finally {
+          current.resolve(reply);
+        }
     }
     for (const listener of this.doorbells) listener();
     this.next();

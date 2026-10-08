@@ -12,6 +12,7 @@ export interface QueuedRequest {
   bytes: Uint8Array;
   resolve: (reply: Reply) => void;
   reject: (crash: CrashInfo) => void;
+  settled: ((reply: Reply) => void) | undefined;
 }
 export class ConnectionBusyError extends Error {
   readonly _tag = "ConnectionBusyError";

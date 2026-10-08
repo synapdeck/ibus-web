@@ -53,16 +53,17 @@ test("crash replays active async then queued keys once, ignoring its eventual re
   expect(f.crashes).toHaveLength(1);
 });
 
-test("a lifecycle request holds keys until its promise has applied records, then releases exactly one", async () => {
+test("a lifecycle request holds keys until its reply records are applied, then releases exactly one", async () => {
   const f = fixture();
   const { FocusIn } = await import("@ibus-web/protocol");
   const lifecycle = f.router.request(new FocusIn({}), 1);
   f.sink.key(key("a"));
   f.sink.key(key("b"));
-  f.connection.completeAsync(0, [output(1)]);
   expect(f.connection.sent).toHaveLength(1);
-  await lifecycle;
+  f.connection.completeAsync(0, [output(1)]);
   expect(f.calls.filter((c) => c.startsWith("record:"))).toEqual(["record:1"]);
+  expect(f.connection.sent).toHaveLength(2);
+  await lifecycle;
   expect(f.connection.sent).toHaveLength(2);
   expect(f.connection.sent[1]!.request).toMatchObject({ keyval: 97 });
   f.connection.completeAsync(1);

@@ -87,8 +87,11 @@ service fibers consume synchronously enqueued logs/panel events off the key stac
 
 On budget exhaustion, the connection abandons the synchronous wait, rechecks for
 a racing reply, and retains ownership of the key if it still has no reply.
-The router prevents the event and queues later accepted keys. Keys arriving while
-an asynchronous lifecycle/settings request occupies the connection also queue.
+The router prevents the event and queues later accepted keys. A key arriving while
+an asynchronous lifecycle/settings request occupies the connection first reads that
+request's reply if it is already in shared memory, since the doorbell message can
+trail the reply by a frame, and then continues synchronously. It queues when the
+reply has not arrived, while a reset reservation holds keys, and behind retained keys.
 A doorbell completes the outstanding work; retained keys then run asynchronously,
 one at a time. Declined retained keys are applied through `replayKey`, exactly once.
 The per-engine FIFO is shared by all attachments and modes; its default bound is

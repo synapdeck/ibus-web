@@ -8,7 +8,8 @@ export type EngineState = "starting" | "ready" | "busy" | "restarting" | "failed
 export type KeyConnection = Pick<
   Connection,
   "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate"
->;
+> &
+  Partial<Pick<Connection, "poll">>;
 export interface EngineSnapshot {
   readonly name: string;
   manifest?: EngineManifest;
@@ -54,7 +55,10 @@ export class KeyRouter {
   private readonly drains = new Set<{ keys: Set<PendingKey>; resolve: () => void }>();
   private active: PendingKey | undefined;
   private activeMode: "sync" | "abandoned" | "async" | undefined;
-  private lifecycle = 0;
+  /** Reservations from holdKeys; only their owner can release them, so keys never overtake one. */
+  private holds = 0;
+  /** In-flight lifecycle requests; a key may settle one whose reply has already arrived. */
+  private requests = 0;
   private unsubscribe: (() => void)[] = [];
   readonly snapshot: EngineSnapshot;
   private readonly output: RouterOutput;
@@ -62,6 +66,9 @@ export class KeyRouter {
     this.snapshot = snapshot;
     this.output = output;
     this.replay = new ReplayQueue(output.replayLimit);
+  }
+  private get lifecycle(): number {
+    return this.holds + this.requests;
   }
   get busy(): boolean {
     return !!this.active || this.replay.size > 0 || this.lifecycle > 0 || !!this.snapshot.connection?.busy;
@@ -218,6 +225,14 @@ export class KeyRouter {
     if (!pending) return "passthrough";
     const snapshot = this.snapshot,
       connection = snapshot.connection!;
+
+    // A lifecycle reply lands in shared memory well before its doorbell message. Reading it here keeps the
+    // key synchronous, and with it the browser's default action if the engine declines the key.
+    if (this.busy && !this.active && this.replay.size === 0 && this.holds === 0) {
+      connection.poll?.();
+      if (snapshot.connection !== connection || !this.current(context)) return "passthrough";
+    }
+
     this.accepted.add(pending);
     if (this.busy) {
       this.replay.push(pending);
@@ -261,14 +276,14 @@ export class KeyRouter {
   holdKeys(): () => void {
     const connection = this.snapshot.connection;
     const generation = this.snapshot.generation;
-    this.lifecycle++;
+    this.holds++;
     this.output.changed?.();
     let released = false;
     return () => {
       if (released) return;
       released = true;
       if (this.snapshot.connection !== connection || this.snapshot.generation !== generation) return;
-      this.lifecycle--;
+      this.holds--;
       this.output.changed?.();
       this.drainUnsolicited();
       this.next();
@@ -280,20 +295,40 @@ export class KeyRouter {
     if (!connection) throw new Error("Engine is unavailable");
     const generation = this.snapshot.generation;
     const owner = this.contexts.get(ic);
-    this.lifecycle++;
+    let open = true;
+    let failure: { cause: unknown } | undefined;
+
+    // The connection can call this from inside a key handler that then decides whether to queue its key, so
+    // the request must be released synchronously and its errors kept for the awaiting caller.
+    const settle = (reply?: Reply) => {
+      if (!open) return;
+      open = false;
+      if (this.snapshot.generation !== generation) return;
+      try {
+        if (reply) this.apply(reply.records.filter((record) => record.ic !== ic || this.contexts.get(ic) === owner));
+      } catch (cause) {
+        failure = { cause };
+      } finally {
+        this.requests--;
+        this.output.changed?.();
+      }
+      try {
+        this.drainUnsolicited();
+      } catch (cause) {
+        failure ??= { cause };
+      }
+    };
+
+    this.requests++;
     this.output.changed?.();
     try {
-      const reply = await connection.requestAsync(request, ic);
-      if (this.snapshot.generation === generation)
-        this.apply(reply.records.filter((record) => record.ic !== ic || this.contexts.get(ic) === owner));
+      const reply = await connection.requestAsync(request, ic, { settled: settle });
+      settle(reply);
+      if (failure) throw failure.cause;
       return reply;
     } finally {
-      if (this.snapshot.generation === generation) {
-        this.lifecycle--;
-        this.output.changed?.();
-        this.drainUnsolicited();
-        this.next();
-      }
+      settle();
+      if (this.snapshot.generation === generation) this.next();
     }
   }
   apply(records: readonly DecodedLazyRecord[], consumed?: KeyContext): void {
@@ -408,7 +443,8 @@ export class KeyRouter {
     const events = [...(this.active ? [this.active] : []), ...this.replay.take()];
     this.active = undefined;
     this.activeMode = undefined;
-    this.lifecycle = 0;
+    this.holds = 0;
+    this.requests = 0;
     const failures: unknown[] = [];
     for (const pending of events) {
       try {
@@ -445,7 +481,8 @@ export class KeyRouter {
     this.snapshot.connection = undefined;
     this.snapshot.status = "failed";
     this.activeMode = undefined;
-    this.lifecycle = 0;
+    this.holds = 0;
+    this.requests = 0;
     this.contexts.clear();
     this.active = undefined;
     this.replay.take();

@@ -13,6 +13,12 @@ export const key = (value: string): KeyboardEvent =>
     repeat: false,
     getModifierState: () => false,
   }) as unknown as KeyboardEvent;
+export const ctrl = (value: string): KeyboardEvent =>
+  ({
+    ...key(value),
+    ctrlKey: true,
+    getModifierState: (modifier: string) => modifier === "Control",
+  }) as unknown as KeyboardEvent;
 export const output = (seq: number): DecodedLazyRecord => ({
   seq,
   ic: 1,
@@ -31,7 +37,13 @@ export class FakeConnection implements KeyConnection {
   replies = { take: () => this.abandoned.splice(0) };
   bells = new Set<() => void>();
   crashes = new Set<(crash: CrashInfo) => void>();
-  pending: { resolve: (r: Reply) => void; reject: (e: unknown) => void }[] = [];
+  pending: {
+    resolve: (r: Reply) => void;
+    reject: (e: unknown) => void;
+    settled: ((r: Reply) => void) | undefined;
+    ready?: Reply;
+  }[] = [];
+  polls = 0;
   onDoorbell(f: () => void) {
     this.bells.add(f);
     return () => {
@@ -51,15 +63,31 @@ export class FakeConnection implements KeyConnection {
     this.busy = this.outcome._tag === "pending";
     return this.outcome;
   }
-  requestAsync(request: Request, ic: number): Promise<Reply> {
+  requestAsync(request: Request, ic: number, options?: { settled?: (reply: Reply) => void }): Promise<Reply> {
     this.sent.push({ mode: "async", request, ic });
     this.busy = true;
-    return new Promise((resolve, reject) => this.pending.push({ resolve, reject }));
+    return new Promise((resolve, reject) => this.pending.push({ resolve, reject, settled: options?.settled }));
   }
   completeAsync(ret = 1, records: DecodedLazyRecord[] = []) {
-    this.busy = false;
-    this.pending.shift()!.resolve({ ret, records, outSeq: records.at(-1)?.seq ?? 0 });
+    this.settle({ ret, records, outSeq: records.at(-1)?.seq ?? 0 });
     this.bell();
+  }
+  /** The reply is in shared memory, but its doorbell message has not arrived. */
+  readyAsync(ret = 1, records: DecodedLazyRecord[] = []) {
+    this.pending[0]!.ready = { ret, records, outSeq: records.at(-1)?.seq ?? 0 };
+  }
+  poll() {
+    this.polls++;
+    const ready = this.pending[0]?.ready;
+    if (!ready) return;
+    this.settle(ready);
+    this.bell();
+  }
+  private settle(reply: Reply) {
+    const pending = this.pending.shift()!;
+    this.busy = false;
+    pending.settled?.(reply);
+    pending.resolve(reply);
   }
   completeAbandoned(ret: number, records: DecodedLazyRecord[] = []) {
     this.busy = false;
@@ -82,6 +110,7 @@ export class FakeConnection implements KeyConnection {
 }
 export function fixture() {
   const calls: string[] = [],
+    logs: DecodedLazyRecord[] = [],
     hidden: number[] = [],
     crashes: CrashInfo[] = [],
     errors: unknown[] = [];
@@ -116,7 +145,7 @@ export function fixture() {
   };
   const router = new KeyRouter(snapshot, {
     replayLimit: 64,
-    enqueue: () => {},
+    enqueue: (record) => logs.push(record),
     hide: (ic) => hidden.push(ic),
     crashed: (crash) => crashes.push(crash),
     error: (cause) => errors.push(cause),
@@ -125,6 +154,7 @@ export function fixture() {
   const unregister = router.register(context);
   return {
     calls,
+    logs,
     hidden,
     crashes,
     errors,
