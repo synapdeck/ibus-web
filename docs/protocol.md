@@ -149,7 +149,7 @@ as schema metadata; repository `checks.hk` checks types, formatting and licensin
    replaced, flipped, truncated or appended; 340 unmutated encodings; and 60 large
    containers sized around the 255- and 65535-byte offset-width boundaries.
 2. The parity-output derivation compiles `test/parity/c/parity.c` to WASM against
-   real IBus, `libibus-web` and json-glib (`ibusWeb.testing.jsonGlib`). Under Node it
+   real IBus, `libibus-web` and json-glib (`ibusWeb.engines.jsonGlib`). Under Node it
    reads the corpus, serializes and deserializes IBus objects, dispatches requests,
    emits records and records `g_variant_is_normal_form` judgments. It produces
    fixtures, not test assertions.

@@ -3,9 +3,9 @@
 { lib, flake-parts-lib, ... }:
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
-    options.ibusWeb.testing.jsonGlib = lib.mkOption {
+    options.ibusWeb.engines.jsonGlib = lib.mkOption {
       type = lib.types.package;
-      description = "json-glib built for WebAssembly, with which C fixture producers write JSON. The runtime never links it.";
+      description = "json-glib built for WebAssembly, with which engines' settings metadata and C test fixtures write JSON. The runtime never links it.";
     };
   };
 
@@ -15,7 +15,7 @@
       inherit (config.ibusWeb.toolchain) pkgsWasm;
     in
     {
-      ibusWeb.testing.jsonGlib = pkgsWasm.stdenv.mkDerivation {
+      ibusWeb.engines.jsonGlib = pkgsWasm.stdenv.mkDerivation {
         pname = "ibus-web-json-glib";
         inherit (pkgs.json-glib) version src;
         nativeBuildInputs = [

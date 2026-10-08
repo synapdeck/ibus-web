@@ -22,7 +22,7 @@
         ];
         buildInputs = [
           pkgsWasm.glib
-          testing.jsonGlib
+          config.ibusWeb.engines.jsonGlib
         ];
         dontFixup = true;
         buildPhase = ''
@@ -74,7 +74,7 @@
           }/packages/protocol/dist/index.js raw.json $out
         '';
       ibusWeb.toolchain.clangdPathFlags."tools/gschema/.*\\.c" = [
-        "-I${testing.jsonGlib}/include/json-glib-1.0"
+        "-I${config.ibusWeb.engines.jsonGlib}/include/json-glib-1.0"
       ];
       checks.settings-metadata = testing.vitestCheck {
         name = "settings-metadata";

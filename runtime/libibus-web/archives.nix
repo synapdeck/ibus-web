@@ -8,7 +8,9 @@
       # tree.tar is uncompressed ustar as engines ship their data, built so
       # that the same tree always gives the same bytes; its version is
       # derived from those bytes, so changing the tree changes it.
-      # tree-upgrade.tar is the next version's, built the same way.
+      # tree-upgrade.tar is the next version's, built the same way. tree.json
+      # describes tree.tar and, under `upgrade`, tree-upgrade.tar; the rest
+      # are archives the installer must refuse.
       installArchives =
         pkgs.runCommand "ibus-web-install-archives"
           {

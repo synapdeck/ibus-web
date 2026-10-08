@@ -48,7 +48,7 @@
         nativeBuildInputs = [ toolchain.pkgsWasm.pkg-config ];
         buildInputs = [
           runtime.libibusWeb
-          testing.jsonGlib
+          config.ibusWeb.engines.jsonGlib
         ];
         cflags = "$($PKG_CONFIG --cflags libibus-web json-glib-1.0)";
         libs = "$($PKG_CONFIG --static --libs libibus-web json-glib-1.0)";
@@ -252,7 +252,9 @@
     in
     {
       ibusWeb.toolchain = {
-        clangdPathFlags."tools/ibus-test/wasm/.*" = [ "-I${testing.jsonGlib}/include/json-glib-1.0" ];
+        clangdPathFlags."tools/ibus-test/wasm/.*" = [
+          "-I${config.ibusWeb.engines.jsonGlib}/include/json-glib-1.0"
+        ];
         clangdFragments = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ nativeClangd ];
         clangdQueryDrivers = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ "${pkgs.stdenv.cc}/bin/cc" ];
       };

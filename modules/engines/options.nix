@@ -12,10 +12,6 @@
         links stored as files; the build fails if a symbolic link in the closure leads outside it.
       '';
     };
-    options.ibusWeb.engines.hangul = lib.mkOption {
-      type = lib.types.package;
-      description = "The Hangul side module with data-only store references.";
-    };
     options.ibusWeb.engines.ibusTest = lib.mkOption {
       type = lib.types.functionTo lib.types.package;
       description = "Build a Linux native/WASM trace check from name, nativeConfig, module, settingsSchemaDir, and traces.";

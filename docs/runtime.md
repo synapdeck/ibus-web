@@ -11,7 +11,7 @@ Each part has a directory under `runtime/`: `runtime/libibus-web/` (the C
 library, Meson), `runtime/ibus-runtime/` (the link, the export list, side
 modules and their import check) and `runtime/wasmfs-idb/` (the storage
 backend). Runtime-wide options are `ibusWeb.runtime.*`
-(`runtime/options.nix`).
+(each part's `options.nix`).
 
 M1.1 adds the IBus types, emitters, framed dispatcher and GSettings backend.
 The Worker host still uses its test transport; protocol transport and page
