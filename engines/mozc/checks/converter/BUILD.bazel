@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# A Node program, its WebAssembly embedded so the one declared output holds
+# all of it.
+cc_binary(
+    name = "converter.js",
+    srcs = ["converter.cc"],
+    linkopts = [
+        "-sSINGLE_FILE=1",
+        "-sPROXY_TO_PTHREAD=1",
+        "-sEXIT_RUNTIME=1",
+        "-sNODERAWFS=1",
+        "@testMemoryFlags@",
+    ],
+    deps = [
+        "//base:system_util",
+        "//data_manager",
+        "//engine",
+        "//protocol:commands_cc_proto",
+        "//session:session_handler",
+    ],
+)
