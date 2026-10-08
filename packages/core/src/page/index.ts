@@ -23,6 +23,7 @@ export {
   type KeyResult,
   type KeySink,
   type Preedit,
+  type PreeditAttribute,
   type SurfaceAdapter,
 } from "../router/replay.ts";
 export {
@@ -31,12 +32,14 @@ export {
   type EngineState,
   type KeyConnection,
   type KeyContext,
+  type RouterOutput,
 } from "../router/keystroke.ts";
 export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
 export {
   EngineRegistry,
   makeEngineRegistry,
   type EngineEvent,
+  type EngineRegistryOptions,
   type EngineRegistryService,
 } from "../services/engines.ts";
 export {
@@ -46,7 +49,7 @@ export {
   type SettingsSourceService,
 } from "../services/settings.ts";
 export { Logger, PanelEvents, glibLevel, type LogLine } from "../services/logging.ts";
-export { Router, makeRouter, type AttachOptions, type RouterService } from "../router/router.ts";
+export { Router, makeRouter, type AttachOptions, type HotkeyRegistry, type RouterService } from "../router/router.ts";
 export { textareaAdapter } from "../adapters/textarea.ts";
 export {
   SettingsApi,

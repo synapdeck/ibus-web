@@ -21,7 +21,7 @@ import { CoreConfig } from "../services/config.ts";
 import { PanelEvents, SyncMailbox } from "../services/logging.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
 import { InputContext } from "./contexts.ts";
-interface HotkeyRegistry {
+export interface HotkeyRegistry {
   add(predicate: (event: KeyboardEvent) => boolean, action: () => void): () => void;
 }
 export interface AttachOptions {

@@ -27,7 +27,7 @@ import { loadSettingsMetadata } from "../settings/api.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
-interface EngineRegistryOptions {
+export interface EngineRegistryOptions {
   readonly hostUrl: URL;
   readonly runtimeUrl: URL;
   /** Public registry keys may differ from both manifest.name and manifest.engines. */
