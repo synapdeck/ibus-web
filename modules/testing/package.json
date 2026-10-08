@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@ibus-web/tsconfig": "workspace:*"
+    "@ibus-web/tsconfig": "workspace:*",
+    "@ibus-web/wasmfs-idb": "workspace:*"
   }
 }
