@@ -3,6 +3,7 @@
 import {
   CreateEngine,
   FocusIn,
+  IBusCapability,
   Init,
   ProcessKeyEvent,
   PROTOCOL_VERSION,
@@ -18,8 +19,12 @@ import type { Harness, RuntimeBuild, RunningHost } from "../shared/harness.ts";
 import { HostOp, type HostStats } from "../shared/testing.ts";
 
 export const HANGUL_SCHEMA = "org.freedesktop.ibus.engine.hangul";
-// Preedit, auxiliary text, lookup table, focus and surrounding text.
-export const CAPABILITIES = 1 | 2 | 4 | 8 | 32;
+export const CAPABILITIES =
+  IBusCapability.PREEDIT_TEXT |
+  IBusCapability.AUXILIARY_TEXT |
+  IBusCapability.LOOKUP_TABLE |
+  IBusCapability.FOCUS |
+  IBusCapability.SURROUNDING_TEXT;
 export const Key = {
   hangul: [0xff31, 122],
   f8: [0xffc5, 66],

@@ -5,6 +5,7 @@ import {
   DestroyEngine,
   FocusIn,
   FocusOut,
+  IBusCapability,
   Reset,
   SetCapabilities,
   SetSurroundingText,
@@ -75,9 +76,12 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     }
   });
   afterAll(() =>
-    console.log(
-      `Hangul ${runtime.name} suite peaks: ${JSON.stringify({ breakPeak, poolWorkersPeak, activeThreadsPeak, threads: build.manifest.threads })}`,
-    ),
+    h.record(`Hangul ${runtime.name} suite peaks`, {
+      breakPeak,
+      poolWorkersPeak,
+      activeThreadsPeak,
+      threads: build.manifest.threads,
+    }),
   );
   const compose = async (ic = 1, keyboard = "2") => {
     let updates: DecodedRecord[] = [];
@@ -176,7 +180,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     );
   });
   test("synchronous forwarding replies handled and commits before forwarding space", async () => {
-    await session.request(1, new SetCapabilities({ capabilities: CAPABILITIES | 128 }));
+    await session.request(1, new SetCapabilities({ capabilities: CAPABILITIES | IBusCapability.SYNC_PROCESS_KEY }));
     await compose();
     const records = await session.key(1, ...Key.space);
     commit(records, "한");
@@ -212,9 +216,14 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       await session.create(1);
     }
     const stats = await session.stats();
-    console.log(
-      `Hangul ${runtime.name} resources: ${JSON.stringify({ breakPeak: stats.breakPeak, poolWorkersPeak: stats.poolWorkersPeak, idleWorkers: stats.idleWorkers, activeThreadsPeak: stats.activeThreadsPeak, threads: build.manifest.threads, heapBytes: build.heapBytes })}`,
-    );
+    h.record(`Hangul ${runtime.name} resources`, {
+      breakPeak: stats.breakPeak,
+      poolWorkersPeak: stats.poolWorkersPeak,
+      idleWorkers: stats.idleWorkers,
+      activeThreadsPeak: stats.activeThreadsPeak,
+      threads: build.manifest.threads,
+      heapBytes: build.heapBytes,
+    });
     expect(stats.poolWorkersPeak).toBe(build.poolBase + build.manifest.threads);
     expect(stats.workersCreated).toBe(0);
     expect(stats).toMatchObject({ activeThreadsAtRuntimeStart: 0, activeThreadsPeak: 0 });
