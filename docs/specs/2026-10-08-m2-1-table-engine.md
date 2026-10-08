@@ -258,7 +258,7 @@ Continuous input has no visible composition step, so Enter keeps its ordinary me
 ### MARISA
 
 `pkgsWasm.marisa` is nixpkgs' recipe (0.3.1) with upstream
-[PR #146](https://github.com/s-yata/marisa-trie/pull/146) as a vendored patch: 0.3.1 reads uninitialized units while
+[PR #146](https://github.com/s-yata/marisa-trie/pull/146) applied with `fetchpatch`: 0.3.1 reads uninitialized units while
 packing a `FlatVector`. The native and WebAssembly builds both carry it, and upstream's tests run in the native build.
 The WebAssembly build has no host-specific instruction tuning. MARISA is linked statically into the side module under
 its BSD-2-Clause option.
@@ -310,5 +310,5 @@ Phases 1 and 2 are independent.
 
 - [W3C xml-entities, `unicode.xml`](https://github.com/w3c/xml-entities)
 - [unicode-math's symbol table](https://github.com/latex3/unicode-math/blob/master/unicode-math-table.tex)
-- [X-SAMPA](https://www.phon.ucl.ac.uk/home/sampa/x-sampa.htm), J. C. Wells
+- [X-SAMPA](https://web.archive.org/web/20110709014830/http://www.phon.ucl.ac.uk/home/sampa/x-sampa.htm), J. C. Wells (the original page is offline; this is the Internet Archive copy)
 - [MARISA](https://github.com/s-yata/marisa-trie) and its [licence](https://github.com/s-yata/marisa-trie/blob/master/COPYING.md)
