@@ -201,7 +201,7 @@ results with and without the patch. We didn't run the full suite.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page
   says user and group permissions "are defined but ignored" and that "the

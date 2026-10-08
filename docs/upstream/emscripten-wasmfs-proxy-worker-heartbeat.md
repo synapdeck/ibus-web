@@ -301,7 +301,7 @@ comment at the top.)
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **How the fix was tested.**
   - The test case on nixpkgs' 6.0.9 with our stack (0001–0017, none of which

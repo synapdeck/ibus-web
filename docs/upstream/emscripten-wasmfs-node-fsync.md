@@ -198,7 +198,7 @@ data
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **How the fix was tested.** The "with this applied" run used a 6.0.9 tree
   with all of this set's candidate fixes applied at once (this one, the

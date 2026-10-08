@@ -546,7 +546,7 @@ open = -1 (Permission denied)
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the
   same result, on nixpkgs' stock 6.0.9 and on ibus-web's toolchain with

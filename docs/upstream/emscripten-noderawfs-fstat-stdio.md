@@ -150,7 +150,7 @@ generated JavaScript made all three calls succeed, reporting the host's types
 (`/dev/null` as a character device, a pipe as a FIFO). #27632 fixes it the other
 way, by giving the streams a node.
 
-## Notes for the user
+## Evidence
 
 - **FAQ / bug_reports.rst.** The FAQ doesn't mention NODERAWFS or `fstat`. The
   guide's checklist doesn't apply, since there is nothing to file.

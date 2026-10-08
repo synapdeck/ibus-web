@@ -182,7 +182,7 @@ become "ignore unknown flags" outright.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ.** Nothing in the FAQ covers open flags. The FAQ's advice to try `-O0`
   is what exposes this: release builds hide it.

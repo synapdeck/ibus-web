@@ -1039,7 +1039,7 @@ diff --git a/test/test_core.py b/test/test_core.py
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **How the fix was tested.**
   - The test case above, with and without the patch, on nixpkgs' 6.0.9.

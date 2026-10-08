@@ -200,7 +200,7 @@ empty, writer open: 0 errno 0
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ.** Nothing in the FAQ covers pipes or documents this behaviour. Following
   its "I tried something: why doesn't it work?" advice, the case was run at `-O0`

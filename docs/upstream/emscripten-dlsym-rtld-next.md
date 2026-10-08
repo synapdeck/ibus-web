@@ -219,7 +219,7 @@ recurse forever.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ.** The FAQ says nothing about `dlsym` or `RTLD_NEXT`. The static
   behaviour is reframed out because a maintainer called it a known limitation

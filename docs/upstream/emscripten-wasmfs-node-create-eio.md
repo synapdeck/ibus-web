@@ -450,7 +450,7 @@ results as without it.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same
   result. The TODOs show the maintainers know. Whether a tracking issue is

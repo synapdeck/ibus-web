@@ -221,7 +221,7 @@ position doesn't matter. A similar hook could later let pipes report
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Scope.** Covers everything the patch set out to fix: empty regular files,
   `/dev/null` and `/dev/random`. Stdin, stdout and stderr fall under the

@@ -195,8 +195,8 @@ followed by a strict one sees one sync call per strict commit that writes
 — `fdatasync` in Chromium 149, `fsync` in Firefox 151 — and none for an
 empty strict transaction, nor for the relaxed writes alone. An empty strict
 transaction, the obvious barrier, makes nothing durable in either browser.
-The script, page and counts are in
-[upstream/evidence/idb-sync-calls/](upstream/evidence/idb-sync-calls/).
+The harness, page, counts and traces are in
+[`docs/upstream/evidence/idb-sync-calls/` at `c35ef8e`](https://github.com/synapdeck/ibus-web/tree/c35ef8e281ab9e048797f4a44dfb86d898065866/docs/upstream/evidence/idb-sync-calls).
 Through the runtime, the same change to `fsync()` raised the sync calls of a
 run of the cost workload ([below](#what-it-costs)) by about one per
 `fsync()` it made, in both browsers. The backend's `fsync` tests count that

@@ -143,7 +143,7 @@ the sync system calls of every browser process under
 disk (ZFS), for 50 rounds of a relaxed write transaction followed by a
 strict one, from a plain page, three runs each, with the headless Chromium
 and the Firefox of Playwright 1.63.0
-([`evidence/idb-sync-calls/`](evidence/idb-sync-calls/README.md) has the
+([`docs/upstream/evidence/idb-sync-calls/` at `c35ef8e`](https://github.com/synapdeck/ibus-web/tree/c35ef8e281ab9e048797f4a44dfb86d898065866/docs/upstream/evidence/idb-sync-calls) has the
 harness, the counts and traces):
 
 | 50 rounds of a relaxed write, then           | Chromium 153   | Firefox 155  |
@@ -282,7 +282,7 @@ of its own:
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Where it lives here.** `runtime/wasmfs-idb/` (`include/ibus-web/wasmfs-idb.h`,
   `src/idb_backend.{cpp,h}`, `src/libwasmfs_idb.js`, `tests/`), checked by
@@ -290,7 +290,7 @@ of its own:
 - **The measurements** are those in [storage.md](../storage.md)
   ("[What it costs](../storage.md#what-it-costs)", "[Chunk
   size](../storage.md#chunk-size)", "[Why IndexedDB](../storage.md#why-indexeddb)"),
-  on one machine. The `strace` counts are rerunnable: `evidence/idb-sync-calls/`
+  on one machine. The `strace` counts are rerunnable: [the harness](https://github.com/synapdeck/ibus-web/tree/c35ef8e281ab9e048797f4a44dfb86d898065866/docs/upstream/evidence/idb-sync-calls)
   has the harness, how to run it, each run's counts and one trace per
   browser and variant. Rerun it against current browsers before posting.
 - **Licensing.** The code is ours, `MIT OR Apache-2.0`; contributing it

@@ -528,7 +528,7 @@ is a separate bug in how the backend handles host errors, reported in #NNNN.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Fill in #NNNN.** It is the issue number of
   `emscripten-wasmfs-node-open-close-errors.md` once that's posted. Or drop the

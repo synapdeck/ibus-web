@@ -408,7 +408,7 @@ diff --git a/test/test_core.py b/test/test_core.py
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **How the fix was tested.**
   - The test case above on nixpkgs' 6.0.9: it fails without the fix, and

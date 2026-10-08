@@ -445,7 +445,7 @@ it, and `other.test_gen_sig_info` passes.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ and docs.** The FAQ doesn't cover the WasmFS Node backend. The File
   System API page says WasmFS is "not yet feature-complete with the old FS",

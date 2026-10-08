@@ -393,7 +393,7 @@ and return the underlying file descriptor") could say so too.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Fill in #NNNN.** It is the issue number of
   `emscripten-wasmfs-node-rename.md` once that's posted. Or reword "(#NNNN)" to

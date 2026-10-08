@@ -139,7 +139,7 @@ affects only what `fstat()` reports.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ.** Nothing in the FAQ covers pipe types. Run at `-O0` and `-O2`, with
   the same result.

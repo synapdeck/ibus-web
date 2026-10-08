@@ -210,7 +210,7 @@ We haven't written that part.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Judgement call.** A maintainer may answer that unbounded pipes are
   intended, since writers can't block. The draft pre-empts that by limiting

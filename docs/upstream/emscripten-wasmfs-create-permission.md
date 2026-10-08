@@ -163,7 +163,7 @@ open("/ro/new", O_CREAT|O_WRONLY)        Permission denied
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page
   says only owner permissions apply. WasmFS's code checks for any write bit

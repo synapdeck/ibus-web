@@ -178,7 +178,7 @@ builds a `FILE*`'s path the same way, and the fix covers both.
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Why it matters to us.** The runtime mounts OPFS at `/engines/<name>/` inside
   the memory root, so `getcwd()` there returns `/engines//…`. Under Node,

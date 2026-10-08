@@ -285,7 +285,7 @@ index b5ad68b..22ae290 100644
 
 ---
 
-## Notes for the user
+## Evidence
 
 - **Kind of report.** A behaviour change more than a bug: the current
   behaviour is documented ("This is only relevant when ALLOW_MEMORY_GROWTH
