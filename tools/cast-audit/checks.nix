@@ -7,8 +7,8 @@
       inherit (config.ibusWeb) testing typescript;
     in
     {
-      checks.engines-cast-audit-script = testing.vitestCheck {
-        name = "engines-cast-audit-script";
+      checks.tools-cast-audit = testing.vitestCheck {
+        name = "tools-cast-audit";
         packageDir = "${typescript.workspaceFor [ "tools/cast-audit" ]}/tools/cast-audit";
         env = { };
         inBrowsers = false;

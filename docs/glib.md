@@ -174,7 +174,7 @@ aborted.
   `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`, which is polled from outside.
 - **`g_poll()` with a timeout** probes with a zero timeout and sleeps in 10 ms slices.
 
-`checks.glib` shows the worker context's thread sleeping: after a `GTask` has run, its CPU time
+`checks.glib-smoke` shows the worker context's thread sleeping: after a `GTask` has run, its CPU time
 (Node's `process.cpuUsage()`, since Emscripten's `clock()` counts wall time and its `getrusage()`
 is a stub) stays under a quarter of wall time, and a blocking iteration with only a 200 ms timeout
 source lasts at least 200 ms without spinning. Each of these threads costs a pthread for the life
@@ -324,7 +324,7 @@ resource through `PKG_CHECK_VAR` and reads them back.
 | Check                     | What it checks                                                                                                                                                              |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `glib-patches`            | nixpkgs' patches, then the series with no fuzz, apply to nixpkgs' GLib source                                                                                               |
-| `glib`                    | a program linked with `testMainFlags` exercising GLib, GObject, GIO and GRegex, the wakeup and wake hook, class handlers, casts, time zones, a compiled resource and schema |
+| `glib-smoke`              | a program linked with `testMainFlags` exercising GLib, GObject, GIO and GRegex, the wakeup and wake hook, class handlers, casts, time zones, a compiled resource and schema |
 | `glib-meson-tools`        | a Meson consumer runs this GLib's tools                                                                                                                                     |
 | `glib-autotools-tools`    | an Autotools consumer runs this GLib's tools                                                                                                                                |
 | `glib-settings-listeners` | all five GSettings listener callbacks, directly and queued from a worker thread (10 cases)                                                                                  |

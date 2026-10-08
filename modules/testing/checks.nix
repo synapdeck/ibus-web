@@ -249,7 +249,7 @@
       # The shim's own test: each fixture's cases come out where and as
       # they should in every environment, the failing ones failing, and a
       # case selected by name runs alone.
-      checks.test-programs = pkgs.linkFarm "ibus-web-test-programs" {
+      checks.testing-programs = pkgs.linkFarm "ibus-web-testing-programs" {
         node = check { node = true; };
         browsers = check { node = false; };
         node-filtered = check {

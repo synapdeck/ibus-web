@@ -7,8 +7,8 @@
       inherit (config.ibusWeb) testing typescript;
     in
     {
-      checks.libibus-web-vendored-script = testing.vitestCheck {
-        name = "libibus-web-vendored-script";
+      checks.tools-vendor-inventory = testing.vitestCheck {
+        name = "tools-vendor-inventory";
         packageDir = "${typescript.workspaceFor [ "tools/vendor-inventory" ]}/tools/vendor-inventory";
         env = { };
         inBrowsers = false;

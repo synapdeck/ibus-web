@@ -76,8 +76,8 @@
       # libibus-web built with its test suite, which Meson runs under Node,
       # the cross file's exe wrapper. nixpkgs never runs checkPhase when the
       # build machine can't execute host binaries, so the tests run here.
-      checks.libibus-web = runtime.libibusWeb.overrideAttrs (old: {
-        pname = "ibus-web-libibus-web-check";
+      checks.libibus-web-tests = runtime.libibusWeb.overrideAttrs (old: {
+        pname = "ibus-web-libibus-web-tests";
         src = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [

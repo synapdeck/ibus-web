@@ -83,7 +83,7 @@
 
       # The report library must name every Emscripten symbol it uses in its
       # __deps, and type-check against what Emscripten gives it.
-      checks.gtest-main-library =
+      checks.testing-gtest-main-library =
         let
           root = ../..;
           sources = lib.fileset.toSource {
@@ -96,7 +96,7 @@
             ];
           };
         in
-        pkgs.runCommand "ibus-web-gtest-main-library-check"
+        pkgs.runCommand "ibus-web-testing-gtest-main-library"
           {
             nativeBuildInputs = [
               typescript.nodejs

@@ -14,9 +14,9 @@
       };
     in
     {
-      checks.engine-manifest =
+      checks.tools-engine-manifest =
         (testing.vitestCheck {
-          name = "engine-manifest";
+          name = "tools-engine-manifest";
           packageDir = "${typescript.workspaceFor [ "tools/engine-manifest" ]}/tools/engine-manifest";
           env.IBUS_WEB_DYLINK_FIXTURE = fixture.wasm;
           inBrowsers = false;

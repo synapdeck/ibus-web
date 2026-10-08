@@ -261,7 +261,7 @@ An item leaves this page when it is fixed or decided.
 - **Output a pthread prints just before exit can be lost**: Emscripten stubs the pthreads' `onmessage`
   during `exitRuntime`. A program that wants its output joins its threads first.
 - **Browser durations patch `TestRunner.prototype`**, since Vitest 5.0.3's browser mode ignores
-  `test.runner`; the duration checks in `checks.test-programs` catch a Vitest update that breaks it. The
+  `test.runner`; the duration checks in `checks.testing-programs` catch a Vitest update that breaks it. The
   program-level suite time isn't asserted.
 - **Pool sizes in wasmfs-idb's checks are hand counts** (`backends` per program); a count too low fails the
   program's cases under `-sPTHREAD_POOL_SIZE_STRICT=2` rather than being derived.

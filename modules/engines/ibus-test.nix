@@ -265,10 +265,10 @@
       }
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux { ibus-test-native = native; };
       checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-        ibus-test-native = native;
-        ibus-test-conformance = (
+        engines-ibus-test-native = native;
+        engines-ibus-test-conformance = (
           ibusTest {
-            name = "ibus-test-conformance";
+            name = "engines-ibus-test-conformance";
             nativeConfig = fixtureConfig;
             module = "${fixtureModule}/conformance.wasm";
             settingsSchemaDir = "${fixtureData}/glib-2.0/schemas";

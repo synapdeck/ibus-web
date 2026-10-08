@@ -21,13 +21,13 @@
     {
       # The probes go through the cross stdenv's own $CC and $CXX, so this
       # checks the wrapped compiler, its flags and the frozen cache together.
-      checks.cross-toolchain =
+      checks.toolchain-cross =
         assert pkgsWasm.stdenv.cc.isClang;
         assert hostPlatform.isWasm && hostPlatform.isStatic;
         assert probed.ibusWebOverlayProbe or false;
         assert !(probed.buildPackages.ibusWebOverlayProbe or false);
         pkgsWasm.stdenv.mkDerivation {
-          name = "ibus-web-cross-toolchain-check";
+          name = "ibus-web-toolchain-cross";
           src = ./probes;
           nativeBuildInputs = [ pkgsWasm.nodejs ];
           buildPhase = ''

@@ -169,7 +169,7 @@
 
       # Every C and C++ source in the repository must parse cleanly under the
       # editor configuration, so it can't drift from the build.
-      checks.clangd = pkgs.runCommand "ibus-web-clangd-check" { } ''
+      checks.toolchain-clangd = pkgs.runCommand "ibus-web-toolchain-clangd" { } ''
         cp -r --no-preserve=mode ${inputs.self} src
         cd src
         ln -s ${clangdConfig} .clangd

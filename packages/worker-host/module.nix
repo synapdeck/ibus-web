@@ -264,8 +264,9 @@
         };
     in
     {
-      checks.engine-distribution-identity =
-        pkgs.runCommand "engine-distribution-identity" { nativeBuildInputs = [ pkgs.jq ]; }
+      checks.worker-host-engine-distribution-identity =
+        pkgs.runCommand "ibus-web-worker-host-engine-distribution-identity"
+          { nativeBuildInputs = [ pkgs.jq ]; }
           ''
             base=$(jq -r .version ${engineDists.empty}/manifest.json)
             test "$base" = "${runtime.libibusWeb.version}+nix.${

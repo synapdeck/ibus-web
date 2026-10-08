@@ -26,8 +26,8 @@
           "vitest.browser.config.ts"
         ];
       };
-      checks.core = config.ibusWeb.testing.vitestCheck {
-        name = "core";
+      checks.core-node = config.ibusWeb.testing.vitestCheck {
+        name = "core-node";
         env = { };
         packageDir = "${workspace}/packages/core";
         inBrowsers = false;

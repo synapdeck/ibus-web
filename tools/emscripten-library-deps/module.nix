@@ -75,8 +75,8 @@
 
       # The checker itself, over small libraries and over Emscripten's tree
       # with its rules changed.
-      checks.wasmfs-idb-library-deps = testing.programs {
-        name = "wasmfs-idb-library-deps";
+      checks.tools-emscripten-library-deps = testing.programs {
+        name = "tools-emscripten-library-deps";
         environments = [ "node" ];
         programs = [ ];
         nodeTests = ./.;

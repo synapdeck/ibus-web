@@ -460,7 +460,7 @@ timeout_usec)` sleeps with `emscripten_futex_wait()` while `signals`
 
 With the wakeup in place, the thread `g_get_worker_context()` starts
 (for `GTask`, among others) and GDBus's shared thread sleep in their
-loops instead of spinning. `checks.glib` measures it with Node's
+loops instead of spinning. `checks.glib-smoke` measures it with Node's
 `process.cpuUsage()`, since Emscripten's `clock()` counts wall time and
 its `getrusage()` is a stub.
 
@@ -780,7 +780,7 @@ void g_main_context_wasm_set_wake_hook (GMainContext  *context,
   context for as long as it relies on the hook. Acquiring is recursive,
   so its non-blocking iterations still work; a context acquired and
   released around each iteration is unowned between pumps, and an
-  attach then calls no hook. `checks.glib` checks both, and that a second
+  attach then calls no hook. `checks.glib-smoke` checks both, and that a second
   hook is refused while the first keeps firing (`wakehook 1 0 1`).
 - **Where it is declared.** `gmain.h`, under `#ifdef G_PLATFORM_WASM`,
   beside the context's other low-level functions and in the same way

@@ -286,7 +286,7 @@ of its own:
 
 - **Where it lives here.** `runtime/wasmfs-idb/` (`include/ibus-web/wasmfs-idb.h`,
   `src/idb_backend.{cpp,h}`, `src/libwasmfs_idb.js`, `tests/`), checked by
-  `checks.wasmfs-idb` and `checks.wasmfs-idb-types`; spec §5.6.
+  `checks.wasmfs-idb-browser` and `checks.wasmfs-idb-types`; spec §5.6.
 - **The measurements** are those in [storage.md](../storage.md)
   ("[What it costs](../storage.md#what-it-costs)", "[Chunk
   size](../storage.md#chunk-size)", "[Why IndexedDB](../storage.md#why-indexeddb)"),
@@ -300,7 +300,7 @@ of its own:
   Before posting, check `main` again for an IndexedDB backend and for
   changes to `ProxyWorker`, `MaybeFile` and the OPFS backend's shape, and
   read #15942 for new replies (last checked 2026-10-02, above).
-- **Where the tests run here.** `checks.wasmfs-idb` builds the ten programs
+- **Where the tests run here.** `checks.wasmfs-idb-browser` builds the ten programs
   and hands them to the `@ibus-web/test-programs` Vitest shim
   (`runtime/wasmfs-idb/tests`); [storage.md](../storage.md#tests) describes
   them.

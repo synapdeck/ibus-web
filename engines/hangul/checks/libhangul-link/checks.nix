@@ -15,9 +15,9 @@
 
       # Builds against the installed library through the cross pkg-config,
       # the way an engine will find it.
-      checks.libhangul-wasm =
+      checks.hangul-libhangul-link =
         assert libhangul.stdenv.hostPlatform.isWasm;
-        pkgsWasm.runCommandCC "ibus-web-libhangul-check"
+        pkgsWasm.runCommandCC "ibus-web-hangul-libhangul-link"
           {
             nativeBuildInputs = [
               pkgsWasm.nodejs

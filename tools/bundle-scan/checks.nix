@@ -10,8 +10,8 @@
     in
     {
       # The scanner's own tests, then its scan of the demo's production page.
-      checks.bundle-scan =
-        pkgs.runCommand "ibus-web-bundle-scan"
+      checks.tools-bundle-scan =
+        pkgs.runCommand "ibus-web-tools-bundle-scan"
           {
             nativeBuildInputs = [ typescript.nodejs ];
             IBUS_WEB_DEMO_PAGE = "${config.packages.demo}";

@@ -90,8 +90,8 @@
       ]
       ++ testing.gtestCflagList;
 
-      checks.wasmfs-idb = testing.programs {
-        name = "wasmfs-idb";
+      checks.wasmfs-idb-browser = testing.programs {
+        name = "wasmfs-idb-browser";
         environments = [
           "chromium"
           "firefox"

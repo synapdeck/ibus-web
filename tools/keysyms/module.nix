@@ -123,9 +123,9 @@
 
       devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) sourcesEnv;
 
-      checks.keys-generators =
+      checks.tools-keysyms =
         (testing.vitestCheck {
-          name = "keys-generators";
+          name = "tools-keysyms";
           packageDir = "${
             typescript.workspaceFor [
               "tools/keysyms"

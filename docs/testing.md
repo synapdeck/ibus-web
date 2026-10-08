@@ -3,7 +3,7 @@
 `nix flake check` runs the default correctness gates. Extended integration matrices run with
 `nix build .#integration-checks -L`; they are registered in `ibusWeb.testing.extendedChecks`.
 One default check runs with `nix build .#checks.<system>.<name> -L` (for example
-`nix build .#checks.x86_64-linux.wasmfs-idb -L`). Both tiers build their programs, browsers and
+`nix build .#checks.x86_64-linux.wasmfs-idb-browser -L`). Both tiers build their programs, browsers and
 dependencies from the flake and run offline in the Nix sandbox. CI runs separate default and
 extended jobs on x86_64-linux; master publication requires both to pass
 ([tooling.md](tooling.md#ci)).
@@ -45,7 +45,7 @@ library with its `gtest.pc`, built with pthreads (`-DGTEST_HAS_PTHREAD=1`).
 
 C that links GLib keeps GLib's own framework, g_test, whose output is TAP. GLib's own test suite
 and libibus-web's tests run under `meson test` with Node as the cross file's exe wrapper
-(`checks.glib-tests`, `checks.libibus-web`; [glib.md](glib.md) covers GLib's gate and baseline).
+(`checks.glib-tests`, `checks.libibus-web-tests`; [glib.md](glib.md) covers GLib's gate and baseline).
 A g_test program can also run through the shim as a `tap` program, in Node or a browser; it must
 then accept g_test's `-l`, `-s` and `--keep-going`, which the shim uses to list and select cases.
 
@@ -81,7 +81,7 @@ How a report gets out:
    Node it writes the text to the path in `IBUS_WEB_TEST_REPORT`.
 
 A program's last report wins. A program that exits without one fails as "no report". The library
-is JSDoc-typed and checked like the other Emscripten-read JavaScript (`checks.gtest-main-library`:
+is JSDoc-typed and checked like the other Emscripten-read JavaScript (`checks.testing-gtest-main-library`:
 its `__deps` are complete, and it type-checks against types generated from a link of it).
 
 ## The test-program shim
@@ -207,7 +207,7 @@ files not copied), and every `*.test.ts` among them runs. They import from `vite
 strings the check passes in `nodeTestData` with `nodeTestData(KEY)` from
 `@ibus-web/test-programs/node-tests`; both resolve from the shim wherever the files are.
 `programs` may be empty when `nodeTests` holds every test (`checks.ibus-runtime-load`,
-`checks.wasmfs-idb-library-deps`, `checks.glib-tests-gate`).
+`checks.tools-emscripten-library-deps`, `checks.glib-tests-gate`).
 
 ## Adding a test program
 
@@ -287,7 +287,7 @@ whose threads must start while the main thread is busy needs them pre-spawned
 rather than slow it down (`runtime/wasmfs-idb/checks.nix` counts them per program).
 
 Editor flags: add the GoogleTest flags for the new sources to clangd with
-`ibusWeb.toolchain.clangdPathFlags."<path regex>" = testing.gtestCflagList;`, or `checks.clangd`
+`ibusWeb.toolchain.clangdPathFlags."<path regex>" = testing.gtestCflagList;`, or `checks.toolchain-clangd`
 fails on `gtest/gtest.h` ([tooling.md](tooling.md#editor-tooling)).
 
 ## Engine golden tests and audits
@@ -325,7 +325,7 @@ rejects incompatible casts. The audit does not cover signal connection arity.
 
 `checks.libibus-web-vendored` checks the vendored IBus tree against its
 inventory and the build's IBus source ([runtime.md](runtime.md#ibus-layer));
-`checks.libibus-web-vendored-script` runs the checker's Vitest suite.
+`checks.tools-vendor-inventory` runs the checker's Vitest suite.
 
 `checks.glib-settings-listeners` owns the regression for GLib patch 0018: ten
 g_test cases exercise five listener signatures, in direct and queued delivery,
@@ -380,7 +380,7 @@ keeps Vitest's console output (`output.txt`) and JSON report (`results.json`).
   Browser checks also need the browsers' environment, which the dev shell doesn't set:
 
   ```sh
-  check=.#checks.x86_64-linux.wasmfs-idb
+  check=.#checks.x86_64-linux.wasmfs-idb-browser
   IBUS_WEB_TEST_PROGRAMS=$(nix eval --raw "$check.IBUS_WEB_TEST_PROGRAMS") \
   PLAYWRIGHT_BROWSERS_PATH=$(nix eval --raw "$check.PLAYWRIGHT_BROWSERS_PATH") \
   PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1 \
@@ -409,22 +409,23 @@ failed build keeps no output unless run with `--keep-failed`).
 Checks whose only assertion is that something builds or links, and lint-style consistency checks,
 aren't tests and don't use a test framework. The main ones:
 
-- `hk`: formatting, oxlint, `tsc`, the `tsconfig` extends chain, REUSE, actionlint
+- `flake-hk`: formatting, oxlint, `tsc`, the `tsconfig` extends chain, REUSE, actionlint
   ([tooling.md](tooling.md#hk)).
-- `clangd`: every C and C++ source parses under the editor configuration.
+- `toolchain-clangd`: every C and C++ source parses under the editor configuration.
 - `files:.github/workflows/ci.yml`: the tracked workflow matches its Nix.
 - `ibus-runtime-exports`, `ibus-runtime-side-imports`, `worker-host-side-imports`: the runtime's
   export manifest against its libraries, and side modules' imports against it.
-- `wasmfs-idb-types`, `wasmfs-idb-acorn`, `gtest-main-library`: Emscripten-read JavaScript checked
+- `wasmfs-idb-types`, `wasmfs-idb-acorn`, `testing-gtest-main-library`: Emscripten-read JavaScript checked
   against generated types and its declared dependencies; the checker's acorn pinned to
   Emscripten's.
-- `glib-patches`, `toolchain-cache`, `toolchain-exnref`, `cross-toolchain`, `meson-consumer`,
-  `libhangul-wasm`: the toolchain and packages build, link and apply as expected
+- `glib-patches`, `toolchain-cache`, `toolchain-exnref`, `toolchain-cross`,
+  `toolchain-meson-consumer`, `hangul-libhangul-link`: the toolchain and packages build, link and
+  apply as expected
   ([toolchain.md](toolchain.md), [glib.md](glib.md)).
 
 ## TypeScript protocol
 
-`checks.protocol` runs the package's Vitest suites under Node: GVariant vectors,
+`checks.protocol-node` runs the package's Vitest suites under Node: GVariant vectors,
 strict rejection cases, schema and framing tests, generated-header/document tests,
 and fixed-seed Effect `Arbitrary` round trips, including encodings mutated by one to
 three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. The
@@ -475,7 +476,7 @@ figures.
 nix build .#checks.x86_64-linux.worker-host-node
 nix build .#checks.x86_64-linux.worker-host-browser
 nix build .#checks.x86_64-linux.hangul-host
-nix build .#checks.x86_64-linux.engine-manifest
+nix build .#checks.x86_64-linux.tools-engine-manifest
 nix build .#checks.x86_64-linux.hangul-data-closure
 ```
 
@@ -530,7 +531,7 @@ the closure, and a store path that is a single file, and read each path back
 as the store has it, on memory storage and on storage that outlives the
 host. Generated `PROTOCOL.md` includes the SAB layout.
 
-`engine-manifest` runs the build tools' Vitest suites: `dylink.ts` against
+`tools-engine-manifest` runs the build tools' Vitest suites: `dylink.ts` against
 `wasm-objdump` on a compiled side module; `symlinks.ts`, which accepts links
 that resolve inside a closure (relative, absolute, chained, or a store path
 that is itself a link) and refuses a dangling link, one leading out of the
@@ -579,14 +580,14 @@ arbitrary starvation.
 
 ## Page core and demo
 
-`checks.core` runs deterministic Node tests for translation, connection budgets,
+`checks.core-node` runs deterministic Node tests for translation, connection budgets,
 key ownership, mixed sync/async/manual modes, context policy and recovery.
 `checks.core-browser` exercises real Worker/runtime/Hangul integration in Chromium
 and Firefox. Its synthetic DOM events use a helper that simulates unprevented
 native defaults; this does not prove trusted input, native undo, OS keyboard/layout,
 Safari or minimum browser versions.
 
-`packages.demo` builds examples/hangul; `checks.demo` separately loads that built
+`packages.demo` builds examples/hangul; `checks.example-hangul-smoke` separately loads that built
 page in fresh Chromium, checks isolation and opaque archive delivery, and verifies
 typing and blur commit with constructed keys. The production demo uses the facade,
 panel and metadata-driven settings form.
@@ -641,7 +642,7 @@ framed-record-to-visible-page measurement in [protocol.md](protocol.md#lookup-de
 
 ### Bundle boundary
 
-`checks.bundle-scan` is a default gate. It fully bundles all seven published
+`checks.tools-bundle-scan` is a default gate. It fully bundles all seven published
 page entries (`ibus-web`, its `effect`/`panel`/`worker` subpaths and the core,
 panel and protocol packages) plus the production demo. It captures Vite's
 executable module graph and emitted imports, checks dependency completeness and

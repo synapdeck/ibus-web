@@ -1,7 +1,7 @@
 # Tooling
 
 The repository's tools all come from the flake: the dev shell for day-to-day work, hk for every
-formatter and lint check (run by the git hook, by `nix fmt` and by `checks.hk` alike), the pnpm
+formatter and lint check (run by the git hook, by `nix fmt` and by `checks.flake-hk` alike), the pnpm
 workspace for TypeScript, language servers for editors and Claude Code, and CI written in Nix.
 
 ## The dev shell
@@ -72,7 +72,7 @@ The steps:
   `checks.wasmfs-idb-types` asserts.
 - Two type checks read types Nix generates (the dev shell's `emscripten-types` links). In a hook
   run where a link isn't built, `tsc` skips that directory with
-  `tsc: skipped <dir>: <link> isn't built; enter the dev shell to build it`. `checks.hk` sets
+  `tsc: skipped <dir>: <link> isn't built; enter the dev shell to build it`. `checks.flake-hk` sets
   `HK_REQUIRE_NIX_INPUTS=1`, so there it never skips.
 - `tsconfig-extends` reads every `tsconfig*.json` git tracks (as JSONC, with `jsonc-parser`) and
   fails unless each reaches the root `tsconfig.base.json` through relative `extends`. It always
@@ -94,9 +94,9 @@ the link is stale, so it works outside the dev shell too.
 Day-to-day hk commands in the dev shell: `hk check --all`, `hk fix --all`, `hk check -S <step>`
 for one step.
 
-### `checks.hk`
+### `checks.flake-hk`
 
-`checks.hk` runs the same steps in the Nix sandbox over the flake source, so CI enforces what the
+`checks.flake-hk` runs the same steps in the Nix sandbox over the flake source, so CI enforces what the
 hook enforces:
 
 1. Copies the flake source (exactly the git-tracked files), `git init`s it and `git add`s
@@ -108,7 +108,7 @@ hook enforces:
    bundle).
 4. Runs `hk check --all --no-fail-fast --no-progress`, so one run reports every failing step.
 
-A type error in a workspace package fails `checks.hk` one step earlier, in the workspace build it
+A type error in a workspace package fails `checks.flake-hk` one step earlier, in the workspace build it
 takes `node_modules` from, which compiles the same configs.
 
 ### Why `.hk`
@@ -127,7 +127,7 @@ strings, which is why the `tsc` step's command is built by concatenation.
 ### Adding a step
 
 Add the step to `linters` in `hk.pkl`, and its tool to `tools` in `modules/flake/hk.nix`, which
-puts it in the dev shell, in `checks.hk` and in the formatter. For a tool hk has a builtin for,
+puts it in the dev shell, in `checks.flake-hk` and in the formatter. For a tool hk has a builtin for,
 say shellcheck:
 
 ```pkl
@@ -156,7 +156,7 @@ A custom step names its files and command; `effect = "read"` says it changes not
 }
 ```
 
-Then run `hk check --all` in the shell, and `nix build .#checks.x86_64-linux.hk -L`.
+Then run `hk check --all` in the shell, and `nix build .#checks.x86_64-linux.flake-hk -L`.
 
 ## Formatters and linters
 
@@ -308,7 +308,7 @@ that extends an expression, as every `Schema.TaggedClass` message does (TS9021).
   compiler, the common flags, an explicit `-resource-dir`, the dev libraries' include paths, and
   per-path flags from `ibusWeb.toolchain.clangdPathFlags` (GoogleTest's headers for tests, a
   test's `-D`s). The dev shell rebuilds the link on entry, so it follows the flake;
-  `checks.clangd` runs `clangd --check` on every C and C++ source in the repository, so the
+  `checks.toolchain-clangd` runs `clangd --check` on every C and C++ source in the repository, so the
   configuration can't drift from the build. A module that adds sources needing extra flags adds a
   `clangdPathFlags` entry beside them; `.envrc` already watches every module.
 - **Claude Code** gets language servers through plugins, enabled in `.claude/settings.json`:
@@ -391,7 +391,7 @@ runs build from scratch.
 
 To read the cache on a workstation, install Determinate Nix and run `determinate-nixd login`,
 which authenticates it to FlakeHub (access is per flake, granted through the organisation). Then
-a build substitutes from `cache.flakehub.com`; `nix build -L .#checks.x86_64-linux.hk` should
+a build substitutes from `cache.flakehub.com`; `nix build -L .#checks.x86_64-linux.flake-hk` should
 show `copying path … from 'https://cache.flakehub.com'`.
 
 ### First run

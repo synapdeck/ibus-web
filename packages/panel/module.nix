@@ -7,8 +7,8 @@
       workspace = config.ibusWeb.typescript.workspaceFor [ "packages/panel" ];
     in
     {
-      checks.panel = config.ibusWeb.testing.vitestCheck {
-        name = "panel";
+      checks.panel-browser = config.ibusWeb.testing.vitestCheck {
+        name = "panel-browser";
         packageDir = "${workspace}/packages/panel";
         env.FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
         inBrowsers = true;

@@ -9,8 +9,8 @@
     {
       # The conformance suite skips itself here: it runs from ibusTest, with a
       # native session and a module to compare.
-      checks.engines-ibus-test-script = testing.vitestCheck {
-        name = "engines-ibus-test-script";
+      checks.tools-ibus-test = testing.vitestCheck {
+        name = "tools-ibus-test";
         packageDir = "${typescript.workspaceFor [ "tools/ibus-test" ]}/tools/ibus-test";
         env = { };
         inBrowsers = false;

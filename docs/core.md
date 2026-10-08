@@ -270,7 +270,7 @@ nix run .#demo -- --port 5174
 
 The default port is 5173. The launcher builds the imported workspace packages and
 serves Nix-built URL assets through Vite with isolation headers. `packages.demo`
-is the production build and `checks.demo` its separate Chromium smoke. Preview
+is the production build and `checks.example-hangul-smoke` its separate Chromium smoke. Preview
 serves copied Brotli archives as opaque bytes without Content-Encoding: br.
 
 Press Shift+Space to switch to Hangul, type gks for 한 and press F9 for Hanja

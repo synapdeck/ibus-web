@@ -95,8 +95,8 @@
           "vitest.parity.config.ts"
         ];
       };
-      checks.protocol = testing.vitestCheck {
-        name = "protocol";
+      checks.protocol-node = testing.vitestCheck {
+        name = "protocol-node";
         packageDir = "${typescript.workspace}/packages/protocol";
         limit = 600;
         env.IBUS_WEB_FLAGS = flagsConstants;

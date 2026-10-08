@@ -259,7 +259,7 @@ the request removed it.
 
 ### Tests
 
-`checks.wasmfs-idb` runs the backend's GoogleTest programs in Chromium and
+`checks.wasmfs-idb-browser` runs the backend's GoogleTest programs in Chromium and
 Firefox ([testing.md](testing.md)): `basic.1`/`basic.2` (files,
 directories, renames, unlinks, modes and times, and their persistence into
 a second program in the same browser storage), `open-unlinked`, `lazy`

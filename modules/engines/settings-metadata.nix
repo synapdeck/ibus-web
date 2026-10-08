@@ -76,8 +76,8 @@
       ibusWeb.toolchain.clangdPathFlags."tools/gschema/.*\\.c" = [
         "-I${config.ibusWeb.engines.jsonGlib}/include/json-glib-1.0"
       ];
-      checks.settings-metadata = testing.vitestCheck {
-        name = "settings-metadata";
+      checks.engines-settings-metadata = testing.vitestCheck {
+        name = "engines-settings-metadata";
         packageDir = "${typescript.workspaceFor [ "tools/gschema" ]}/tools/gschema";
         env.IBUS_WEB_SETTINGS_FIXTURE = fixture;
         inBrowsers = false;

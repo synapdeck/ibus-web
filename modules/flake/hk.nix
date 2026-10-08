@@ -75,8 +75,8 @@
       packages.hk-pkl = hkPkl;
 
       # The hooks' own run, over the flake source: every file git tracks.
-      checks.hk =
-        pkgs.runCommand "ibus-web-hk"
+      checks.flake-hk =
+        pkgs.runCommand "ibus-web-flake-hk"
           {
             nativeBuildInputs = checkTools;
             HK_REQUIRE_NIX_INPUTS = "1";

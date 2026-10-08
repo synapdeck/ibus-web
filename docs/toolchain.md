@@ -73,7 +73,7 @@ How a build gets them:
 
 - In `pkgsWasm`, the compiler wrapper adds them to every compile and link. `-O2` goes before the
   command's own arguments (`cc-cflags-before`), so a package's own `-O` still wins: a package
-  that asks for `-O0` links against the cache's debug variants. `checks.cross-toolchain` checks
+  that asks for `-O0` links against the cache's debug variants. `checks.toolchain-cross` checks
   that `__OPTIMIZE__` is defined by default and not under `-O0`.
 - Builds that call `emcc` or `em++` directly (the cache, a few checks) pass `commonFlags`
   themselves.
@@ -173,7 +173,7 @@ since emcc warns that a link setting is ignored on a compile. It reads the link'
 minimum only if the link can run under Node and the browsers' only if it can run in a browser
 (`web`, `worker`, `webview`); a link that names no environment gets all four. Why: emcc warns
 about, and ignores, a minimum for an environment the link excludes. The flags go ahead of the
-command's own, so a package's own minimum wins. `checks.cross-toolchain` checks that links get
+command's own, so a package's own minimum wins. `checks.toolchain-cross` checks that links get
 them, compiles don't, and a Worker-only or Node-only link gets only its own. Builds that call
 emcc directly use `ibusWeb.toolchain.minimumVersionFlags`.
 
@@ -248,11 +248,11 @@ their recipes with no change at all; libhangul's recipe gains only the Hangul en
   none of it would come from the binary cache.
 - `config.allowUnsupportedSystem` is set, because recipes' platform lists predate this target.
 
-`checks.cross-toolchain` builds and runs the probes through the cross stdenv's own `$CC` and
+`checks.toolchain-cross` builds and runs the probes through the cross stdenv's own `$CC` and
 `$CXX`, so the wrapper, its flags, the dropped arguments and the frozen cache are checked
-together. `checks.meson-consumer` builds a Meson program against `pkgsWasm.zlib` and
+together. `checks.toolchain-meson-consumer` builds a Meson program against `pkgsWasm.zlib` and
 `pkgsWasm.libffi` through the cross `pkg-config`, with a define passed the way recipes pass them
-(`NIX_CFLAGS_COMPILE`) that the program refuses to compile without. `checks.libhangul-wasm`
+(`NIX_CFLAGS_COMPILE`) that the program refuses to compile without. `checks.hangul-libhangul-link`
 builds against the patched libhangul that `hangul.wasm` links, through the cross `pkg-config` as
 the engine does, and composes 한 with it.
 
@@ -285,7 +285,7 @@ lib.optionalAttrs (prev.stdenv.hostPlatform.isWasm && (prev.stdenv.hostPlatform.
 
 so it never reaches a native or WASI package set and the overlays are safe to export. The gate
 reads only the platform: reading `stdenv.cc` evaluates the wrapped compiler, whose `buildPackages`
-splicing reaches back into `pkgsWasm` and recurses. `checks.cross-toolchain` evaluates a probe
+splicing reaches back into `pkgsWasm` and recurses. `checks.toolchain-cross` evaluates a probe
 overlay and asserts it applies to `pkgsWasm` and not to its `buildPackages`.
 
 One overlay per component, `modules/<component>/overlay.nix` defining
@@ -428,17 +428,17 @@ The dev shell carries the cross compiler and binutils, the cross `pkg-config` (s
 `ibusWeb.toolchain.devLibraries` packages), Meson and Ninja, and clangd from the LLVM emcc drives,
 told to trust the cross compiler as a query driver. A generated `.clangd` gives loose sources the
 cross compiler, `commonFlags`, LLVM's resource directory and the dev libraries' include paths;
-`checks.clangd` checks that every C and C++ source in the repository parses cleanly under it.
+`checks.toolchain-clangd` checks that every C and C++ source in the repository parses cleanly under it.
 The rest of the editor and formatting setup is in [tooling.md](tooling.md).
 
 ## Checks
 
-| Check              | What it checks                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------------- |
-| `toolchain-cache`  | probes link from the frozen cache alone; an uncached variant fails; the features the minimums enable |
-| `toolchain-exnref` | fails once every minimum version supports the standard exception encoding                            |
-| `cross-toolchain`  | the cross stdenv's wrapper, flags, dropped arguments, minimum versions per environment, overlay gate |
-| `meson-consumer`   | a Meson build through the cross `pkg-config` against `pkgsWasm.zlib` and `pkgsWasm.libffi`           |
-| `libhangul-wasm`   | the patched libhangul the Hangul engine links, found through the cross `pkg-config`                  |
-| `emscripten-fixes` | the behaviour each Emscripten patch restores                                                         |
-| `clangd`           | every C and C++ source parses under the editor configuration                                         |
+| Check                      | What it checks                                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `toolchain-cache`          | probes link from the frozen cache alone; an uncached variant fails; the features the minimums enable |
+| `toolchain-exnref`         | fails once every minimum version supports the standard exception encoding                            |
+| `toolchain-cross`          | the cross stdenv's wrapper, flags, dropped arguments, minimum versions per environment, overlay gate |
+| `toolchain-meson-consumer` | a Meson build through the cross `pkg-config` against `pkgsWasm.zlib` and `pkgsWasm.libffi`           |
+| `hangul-libhangul-link`    | the patched libhangul the Hangul engine links, found through the cross `pkg-config`                  |
+| `emscripten-fixes`         | the behaviour each Emscripten patch restores                                                         |
+| `toolchain-clangd`         | every C and C++ source parses under the editor configuration                                         |

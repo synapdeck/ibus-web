@@ -11,8 +11,8 @@
     {
       ibusWeb.toolchain.devLibraries = [ pkgsWasm.glib ];
 
-      checks.glib =
-        pkgsWasm.runCommandCC "ibus-web-glib-check"
+      checks.glib-smoke =
+        pkgsWasm.runCommandCC "ibus-web-glib-smoke"
           {
             nativeBuildInputs = [
               pkgsWasm.nodejs

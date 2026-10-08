@@ -57,7 +57,7 @@ source the build uses (`pkgs.ibus.src`): every file is listed, rows reading
 "Upstream …; unchanged" must be byte-identical to upstream, other Upstream rows
 must differ, the Generated row must equal `ibusversion.h.in` expanded for the
 release, and the README's release and hash must equal `pkgs.ibus.version` and
-`pkgs.ibus.src.outputHash`. `checks.libibus-web-vendored-script` runs the
+`pkgs.ibus.src.outputHash`. `checks.tools-vendor-inventory` runs the
 checker's Vitest suite. The generated marshaller header `ibusmarshalers.h` is
 private to the IBus layer and is not installed.
 
@@ -271,7 +271,7 @@ does. The host treats any result but `0` and `-ETIMEDOUT` as a crash.
 
 ### Tests
 
-`checks.libibus-web` builds the library with its tests and runs them under
+`checks.libibus-web-tests` builds the library with its tests and runs them under
 Node through Meson's exe wrapper, failing unless tests ran and none was
 skipped. `test-runtime` (g_test, TAP) covers init, the pump (empty, always
 ready, off-thread, wake from another thread, deadlines, fd sources), the

@@ -20,8 +20,8 @@
 
       # nixpkgs' Meson setup hook writes the cross file; this proves it, the
       # cross pkg-config and both libraries in one program.
-      checks.meson-consumer = pkgsWasm.stdenv.mkDerivation {
-        name = "ibus-web-meson-consumer";
+      checks.toolchain-meson-consumer = pkgsWasm.stdenv.mkDerivation {
+        name = "ibus-web-toolchain-meson-consumer";
         src = ./src;
         nativeBuildInputs = [
           pkgsWasm.meson

@@ -138,7 +138,7 @@ sizes from the layout's constants.
 workspace and formats their output with clang-format and oxfmt respectively.
 Run `nix run .#write-files` to update committed artifacts. The corresponding
 `files:` checks reject stale copies. Package tests check generated content as well
-as schema metadata; repository `checks.hk` checks types, formatting and licensing.
+as schema metadata; repository `checks.flake-hk` checks types, formatting and licensing.
 
 ## Parity pipeline
 
@@ -167,7 +167,7 @@ cases normal form, 139 signatures): at least 40% normal form, at least 30% not,
 at least 100 distinct signatures, and accepted containers with framing offsets of
 widths 1, 2 and 4. A generator change that degrades the corpus fails the check.
 
-`checks.protocol` runs the unit, property and generator suites. Both checks are part
+`checks.protocol-node` runs the unit, property and generator suites. Both checks are part
 of `nix flake check`. The deterministic corpora provide concrete coverage, not an
 exhaustive proof over all GVariant values. Effect `Arbitrary` supplies
 schema-derived and composed inputs with fixed seeds; no fast-check dependency is
@@ -180,7 +180,7 @@ fields, its kind number and description, then include it in the union and public
 exports. Reuse the annotated integer and string schemas and IBus serializables.
 Extend kind/signature tests and parity fixtures, including the C producer's observed
 request or emitted signal. Regenerate the header and wire reference, implement the
-runtime behavior, and run `checks.protocol`, `checks.protocol-parity` and the full
+runtime behavior, and run `checks.protocol-node`, `checks.protocol-parity` and the full
 `nix flake check`. Coordinate protocol-version changes with every wire consumer.
 
 ## Lookup decode measurement

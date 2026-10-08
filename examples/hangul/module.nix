@@ -136,8 +136,8 @@
 
       devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) env;
 
-      checks.demo =
-        pkgs.runCommand "ibus-web-demo-smoke"
+      checks.example-hangul-smoke =
+        pkgs.runCommand "ibus-web-example-hangul-smoke"
           (
             pageEnv
             // {

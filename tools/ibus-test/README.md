@@ -5,7 +5,7 @@
 
 `types.ts` defines the version 1 trace and JSON Lines transcript. The native
 executable is available on Linux as `packages.ibus-test-native`; its tests are
-`checks.ibus-test-native`. Run it with `--address ADDRESS --destination NAME
+`checks.engines-ibus-test-native`. Run it with `--address ADDRESS --destination NAME
 --factory PATH --timeout-ms N`. Supply one validated trace on stdin. The session
 runner applies `settings` before launching the engine; the adapter does not apply
 settings. Engine object paths remain internal; contexts are symbolic names.
@@ -145,7 +145,7 @@ ID zero, fail explicitly with their kind, ID, signature and typed payload. The
 native boundary currently observes Engine signals, and live-settings output
 parity is deferred; no invented context or suppressed record hides that limit.
 
-On Linux, `checks.ibus-test-conformance` runs a portable controlled engine against
+On Linux, `checks.engines-ibus-test-conformance` runs a portable controlled engine against
 stock native libibus and, separately, the WASM replacement. It checks lifecycle,
 two contexts, Unicode/attachments, empty updates, event order, waits, settings,
 invalid calls, deadlines, context reuse, output preceding closure and diagnostics.
