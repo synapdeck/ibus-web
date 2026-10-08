@@ -415,9 +415,9 @@ aren't tests and don't use a test framework. The main ones:
 - `files:.github/workflows/ci.yml`: the tracked workflow matches its Nix.
 - `ibus-runtime-exports`, `ibus-runtime-side-imports`, `worker-host-side-imports`: the runtime's
   export manifest against its libraries, and side modules' imports against it.
-- `wasmfs-idb-types`, `wasmfs-idb-acorn`, `testing-gtest-main-library`: Emscripten-read JavaScript checked
-  against generated types and its declared dependencies; the checker's acorn pinned to
-  Emscripten's.
+- `wasmfs-idb-types`, `emscripten-library-deps-acorn`, `testing-gtest-main-library`:
+  Emscripten-read JavaScript checked against generated types and its declared dependencies; the
+  checker's acorn pinned to Emscripten's.
 - `glib-patches`, `toolchain-cache`, `toolchain-exnref`, `toolchain-cross`,
   `toolchain-meson-consumer`, `hangul-libhangul-link`: the toolchain and packages build, link and
   apply as expected

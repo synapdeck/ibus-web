@@ -227,8 +227,8 @@ TypeScript is version 7 (the native compiler). Configuration:
   under Node, takes Node's instead), with declarations for what it uses
   from Emscripten: generated from a link of the library (`--emit-tsd`) where one exists, local
   `pre-js.d.ts` declarations otherwise. A library's `__deps` are checked against what it uses by
-  `runtime/wasmfs-idb/library-deps.ts`, which parses with the same acorn version Emscripten
-  ships (`checks.wasmfs-idb-acorn`). [storage.md](storage.md) describes the backend's library.
+  `tools/emscripten-library-deps/library-deps.ts`, which parses with the same acorn version
+  Emscripten ships (`checks.emscripten-library-deps-acorn`). [storage.md](storage.md) describes the backend's library.
 
 Hand-written TypeScript and JavaScript use modern syntax: what is Baseline "Widely available" and
 also runs on the oldest supported Node.
@@ -236,8 +236,8 @@ also runs on the oldest supported Node.
 ## The pnpm workspace
 
 One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (`@ibus-web/test-programs`,
-`@ibus-web/worker-host`, `@ibus-web/protocol`), `runtime/wasmfs-idb` (the library checker's acorn), and
-`modules/glib/checks/tests` (the GLib gate's TOML reader).
+`@ibus-web/worker-host`, `@ibus-web/protocol`), `runtime/wasmfs-idb`, `tools/emscripten-library-deps`
+(the library checker's acorn), and `modules/glib/checks/tests` (the GLib gate's TOML reader).
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
 (`pnpmWorkspace` in `modules/typescript/files.nix`), which reads them for its own builds, and
@@ -260,7 +260,7 @@ tracked copy differs. The Nix builds install from the generated file, not the tr
     `pnpm install` follow it.
   - `packageManager` in the root `package.json` names nixpkgs' pnpm: pnpm compares itself with it
     and, offline, can't fetch another.
-  - acorn in `runtime/wasmfs-idb` is the version Emscripten ships.
+  - acorn in `tools/emscripten-library-deps` is the version Emscripten ships.
 - **pnpm 12**, nixpkgs' default `pnpm`, with its defaults. Its lockfile is two YAML documents (the
   first records pnpm itself), which nixpkgs' fetcher handles. No dependency build script is
   allowed or needed.

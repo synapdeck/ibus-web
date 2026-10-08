@@ -2300,7 +2300,7 @@ written and run, and how to run one alone. As built:
   Emscripten generates, with every symbol it uses declared in its
   dependencies (`wasmfs-idb-types`); the dependency checker's own Vitest
   tests (`tools-emscripten-library-deps`) and its acorn matching Emscripten's
-  (`wasmfs-idb-acorn`)
+  (`emscripten-library-deps-acorn`)
 - **the test infrastructure:** the test-program shim against fixtures with
   known results (`testing-programs`), and the GoogleTest harness's JavaScript
   library (`testing-gtest-main-library`)

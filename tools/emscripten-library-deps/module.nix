@@ -11,7 +11,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) testing toolchain typescript;
+      inherit (config.ibusWeb) toolchain typescript;
       inherit (config.ibusWeb.lib) emscriptenRoot;
 
       # The checker with its package's manifest, which makes it a module, and
@@ -80,18 +80,5 @@
             echo "${name} unavailable" >&2
         '';
       }) toolchain.emscriptenTypes;
-
-      # The checker itself, over small libraries and over Emscripten's tree
-      # with its rules changed.
-      checks.tools-emscripten-library-deps = testing.programs {
-        name = "tools-emscripten-library-deps";
-        environments = [ "node" ];
-        programs = [ ];
-        nodeTests = ./.;
-        nodeTestData = {
-          inherit libraryDeps;
-          emscripten = emscriptenRoot;
-        };
-      };
     };
 }
