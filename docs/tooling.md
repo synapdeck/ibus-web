@@ -362,10 +362,25 @@ included, into a derivation that holds the tarball. It copies a tree (`src`, wit
 `dir` in it) into a writable directory, and copies in `files`, Nix-built files or directories by
 their path in the package, before packing. `licenses` names SPDX identifiers whose texts from
 the root `LICENSES/` go into the package's `LICENSES/`, for a package whose contents
-`tools/pack-licenses` can't trace, such as an engine's WebAssembly; `expect` lists entries the
-tarball must contain. A package with Nix-built contents, such as `@ibus-web/engine-hangul`
-(`docs/engines.md`), is packed this way; `checks.tools-pack-licenses-tarball` packs worker-host
-from the built workspace the same way, so `prepack` and `postpack` run.
+`tools/pack-licenses` can't trace, such as an engine's WebAssembly. The tarball must contain
+every file the package's `exports` names without a wildcard, and whatever `expect` adds, and
+packing must leave the package directory as it found it, so `postpack` has to remove all that
+`prepack` wrote.
+
+Every published package's tarball is in `legacyPackages.<system>.npm`, by the name of its
+directory, and `npm.all` holds them all in one directory:
+
+```sh
+nix build .#npm.all          # every tarball
+nix build .#npm.worker-host  # one
+```
+
+The TypeScript packages, those `ibusWeb.typescript.publishedPackages` lists outside
+`packages/engines/`, are packed from their build in the workspace, so pnpm rewrites their
+`workspace:` and `catalog:` versions and `tools/pack-licenses` runs. An engine package adds its
+own tarball to `ibusWeb.typescript.npmPackages` (`docs/engines.md`). `checks.typescript-npm`
+builds `npm.all`, and `checks.tools-pack-licenses-tarball` looks in worker-host's for the license
+of the `effect` it bundles.
 
 ## Editor tooling
 

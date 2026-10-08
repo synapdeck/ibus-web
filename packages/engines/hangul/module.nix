@@ -17,10 +17,9 @@
       );
     in
     {
-      # The tarball `npm publish` takes: the engine's distribution as dist/,
-      # with the license texts.
-      packages.ibus-web-hangul-npm = config.ibusWeb.typescript.npmTarball {
-        name = "ibus-web-hangul-npm";
+      # The engine's distribution as dist/, with the license texts.
+      ibusWeb.typescript.npmPackages.engine-hangul = config.ibusWeb.typescript.npmTarball {
+        name = "ibus-web-npm-engine-hangul";
 
         src = lib.fileset.toSource {
           root = ./.;
@@ -40,7 +39,5 @@
         ]
         ++ map (id: "LICENSES/${id}.txt") licenses;
       };
-
-      checks.hangul-npm = config.packages.ibus-web-hangul-npm;
     };
 }

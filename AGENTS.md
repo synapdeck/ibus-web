@@ -24,7 +24,7 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
   something. `tools/claude/` is the exception: it holds Claude Code plugin manifests and isn't a package.
 - A package whose contents Nix builds, such as an engine's (`packages/engines/<name>/`), holds only its `package.json`
   and README in the tree, isn't a pnpm workspace package, and is packed by `ibusWeb.typescript.npmTarball`, with the
-  built files copied in.
+  built files copied in. Every published package's tarball is in `legacyPackages.<system>.npm`.
 - Nix sits beside the component it builds, each file named for its role:
   - `module.nix`, the flake-parts module: packages, outputs, dev-shell setup;
   - `options.nix`, options it declares for other modules;

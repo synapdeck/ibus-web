@@ -69,11 +69,34 @@
         '';
       };
 
+      publishedPackages = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        readOnly = true;
+        description = ''
+          Repository-relative directories of the packages npm may publish: every
+          package under packages/ and packages/engines/ that isn't private.
+          Those under packages/engines/ hold an engine's Nix build and aren't
+          workspace packages.
+        '';
+      };
+
+      npmPackages = lib.mkOption {
+        type = lib.types.attrsOf lib.types.package;
+        default = { };
+        description = ''
+          The tarballs `npm publish` takes, each a derivation holding one, by
+          the name of its directory (`engine-<name>` for an engine). They are
+          `legacyPackages.<system>.npm`, beside `all`, every one of them in one
+          directory.
+        '';
+      };
+
       npmTarball = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
         description = ''
           Packs an npm package with `pnpm pack`, its lifecycle scripts included,
-          into a derivation holding the tarball alone. Takes:
+          into a derivation holding the tarball alone. Packing must leave the
+          package directory as it found it. Takes:
 
           - `name`, the derivation's name;
           - `src`, the tree to pack from, and `dir`, the package's directory in
@@ -83,7 +106,8 @@
             first, by their path in it;
           - `licenses`, SPDX identifiers whose texts the repository's LICENSES/
             gives to the package's LICENSES/;
-          - `expect`, paths in the package the tarball must contain;
+          - `expect`, paths in the package the tarball must contain, beyond
+            every file its `exports` names without a wildcard;
           - `postPack`, shell run in the package directory once it is packed.
         '';
       };

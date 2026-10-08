@@ -11,23 +11,12 @@
       root = ../..;
       docsBase = "https://github.com/synapdeck/ibus-web/blob/master/";
 
-      # The package directories in a directory, private or not.
-      packagesIn =
-        parent:
-        map (name: "${parent}/${name}") (
-          lib.attrNames (
-            lib.filterAttrs (
-              name: type: type == "directory" && builtins.pathExists (root + "/${parent}/${name}/package.json")
-            ) (builtins.readDir (root + "/${parent}"))
-          )
-        );
+      inherit (config.ibusWeb.typescript) publishedPackages;
 
-      isPublished = dir: !((lib.importJSON (root + "/${dir}/package.json")).private or false);
-
-      # Every package under packages/ that npm may publish: the TypeScript
-      # packages, and the engines whose builds packages/engines/ packs.
-      published = lib.filter isPublished (packagesIn "packages");
-      publishedEngines = lib.filter isPublished (packagesIn "packages/engines");
+      # Engine packages hold an engine's Nix build; the rest are TypeScript.
+      isEngine = lib.hasPrefix "packages/engines/";
+      published = lib.filter (dir: !(isEngine dir)) publishedPackages;
+      publishedEngines = lib.filter isEngine publishedPackages;
 
       # What every published package states, whatever it holds.
       commonProblems =

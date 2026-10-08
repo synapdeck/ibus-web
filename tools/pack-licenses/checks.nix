@@ -12,13 +12,7 @@
     let
       inherit (config.ibusWeb) testing typescript;
 
-      published = [
-        "packages/protocol"
-        "packages/worker-host"
-        "packages/core"
-        "packages/panel"
-        "packages/ibus-web"
-      ];
+      published = lib.filter (dir: !(lib.hasPrefix "packages/engines/" dir)) typescript.publishedPackages;
 
       built = typescript.workspaceFor published;
     in
@@ -57,27 +51,11 @@
             grep -q '^LICENSES/chromium-notice.txt ' $out/core.txt
           '';
 
-      # `pnpm pack` end to end: the tarball must carry the licenses, and the
-      # package directory must be clean again afterwards.
-      checks.tools-pack-licenses-tarball = typescript.npmTarball {
-        name = "ibus-web-tools-pack-licenses-tarball";
-        src = built;
-        dir = "packages/worker-host";
-
-        expect = [
-          "LICENSES/effect/LICENSE"
-          "LICENSE-MIT"
-          "LICENSE-APACHE"
-        ];
-
-        postPack = ''
-          for leftover in LICENSES .pack-licenses.json; do
-            if [ -e "$leftover" ]; then
-              echo "$leftover is left in the package directory" >&2
-              exit 1
-            fi
-          done
-        '';
-      };
+      # `pnpm pack` end to end: worker-host bundles effect, so its tarball
+      # must carry effect's license.
+      checks.tools-pack-licenses-tarball = pkgs.runCommand "ibus-web-tools-pack-licenses-tarball" { } ''
+        tar -tzf ${typescript.npmPackages.worker-host}/*.tgz > $out
+        grep -qx package/LICENSES/effect/LICENSE $out
+      '';
     };
 }

@@ -16,8 +16,9 @@ text fields, and shows its candidates.
 
 The two halves talk only through a versioned protocol over a dedicated `SharedArrayBuffer`. That boundary is also the
 licensing boundary. Engines are GPL, but the page packages are MIT OR Apache-2.0: the page's bundle never contains Worker,
-runtime or engine code, which load by URL from the Worker assets, and no npm package contains the GPL engine or runtime
-code, so any page can use them. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP
+runtime or engine code, which load by URL from the Worker assets. An engine ships in a package of its own, such as
+`@ibus-web/engine-hangul`, under the engine's license; it holds files a page serves, never code the page imports, so any
+page can use the page packages. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP
 `require-corp`).
 
 ## Try it

@@ -300,7 +300,8 @@ inside `pkgsWasm` would not see it.
 
 - `legacyPackages.<system>.pkgsWasm` is the cross set; the WebAssembly build of a nixpkgs package
   is `pkgsWasm.<name>`. `legacyPackages` also holds the toolchain pieces `emscriptenCache` and
-  `emscriptenMinimumVersions`.
+  `emscriptenMinimumVersions`, and other sets of this project's outputs that are better kept
+  together than flat in `packages`, such as `npm`, the npm tarballs (`docs/tooling.md`).
 - `packages.<system>` is not a mirror of `pkgsWasm`. It holds this project's own derivations:
   the runtime's artifacts and pinned tools of our own, such as `baseline-browser-mapping` and
   `hk-pkl`.

@@ -2016,7 +2016,9 @@ nixpkgs' ordinary cross-compilation machinery. Where a recipe needs changes,
 they are overlays applied to `pkgsWasm`, so every package that depends on it
 sees the change. The flake's `packages` output holds only ibus-web's own
 artifacts; WASM builds of nixpkgs packages are reached through
-`legacyPackages.<system>.pkgsWasm`. Only packages nixpkgs lacks
+`legacyPackages.<system>.pkgsWasm`, and sets of our own artifacts that belong
+together, such as the npm tarballs (`legacyPackages.<system>.npm`), are scopes
+in `legacyPackages` too. Only packages nixpkgs lacks
 (`libibus-web`, the custom table engine) get recipes of their own.
 
 | Artifact             | nixpkgs recipe (at `8ce4ef6`)   | Build system | Notes                                                                  |
@@ -2337,7 +2339,7 @@ Still to come, with the parts they check:
 - **Tags:** `nix build .#release`, then publish. Publishing needs credentials,
   so it is the only step outside Nix, and it builds nothing: create the GitHub
   release with the assets from `release/`, then `npm publish` each prebuilt
-  tarball.
+  tarball in `npm.all` (`legacyPackages.<system>.npm`).
 - **npm:** npmjs.com with trusted publishing. The publish job gets
   `id-token: write` and exchanges its GitHub OIDC token for a short-lived npm
   credential, so no npm token is stored, and npm attaches provenance to each
@@ -2384,7 +2386,9 @@ tooling").
 
 The npm tarballs, `ibus-runtime.wasm` and its JS glue, each engine's `.wasm`,
 data archives, manifest and source bundle, the generated protocol
-specification and `release.json`.
+specification and `release.json`. An engine's `.wasm`, data archives and
+manifest also ship as an npm package of their own, `@ibus-web/engine-<name>`,
+under the engine's license.
 
 ## 11. Testing
 
