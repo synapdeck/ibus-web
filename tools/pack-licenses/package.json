@@ -1,0 +1,16 @@
+{
+  "name": "@ibus-web/pack-licenses",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "smol-toml": "catalog:"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

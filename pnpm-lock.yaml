@@ -608,6 +608,22 @@ importers:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
 
+  tools/pack-licenses:
+    dependencies:
+      smol-toml:
+        specifier: 'catalog:'
+        version: 1.9.0
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.19.0)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@24.19.0)(yaml@2.9.1))
+
   tools/toolchain-probes:
     devDependencies:
       '@ibus-web/tsconfig':
