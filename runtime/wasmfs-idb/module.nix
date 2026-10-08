@@ -49,8 +49,10 @@
       ibusWeb.runtime.wasmfsIdb = wasmfsIdb;
       ibusWeb.toolchain.devLibraries = [ wasmfsIdb ];
       ibusWeb.toolchain.clangdPathFlags = {
+        # The in-tree header, ahead of an installed copy.
         "runtime/wasmfs-idb/src/.*" = [
           "-std=c++17"
+          "-I../include"
           cflags
         ];
       };

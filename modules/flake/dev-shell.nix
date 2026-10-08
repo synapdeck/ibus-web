@@ -8,24 +8,12 @@
   perSystem =
     { config, lib, ... }:
     {
-      devshells.default = {
-        packages = [ config.ibusWeb.toolchain.emscripten ];
-        env = [
-          {
-            name = "FLAKE_ROOT";
-            eval = "$(${lib.getExe config.flake-root.package})";
-          }
-          {
-            name = "EM_CACHE";
-            eval = "$FLAKE_ROOT/.emcache";
-          }
-        ];
-        # A writable cache in the checkout, seeded from the prebuilt one.
-        devshell.startup.emscripten-cache.text = ''
-          if [ ! -d "$EM_CACHE" ]; then
-            cp -r --no-preserve=mode ${config.ibusWeb.toolchain.emscriptenCache} "$EM_CACHE"
-          fi
-        '';
-      };
+      # First, so other modules' variables may be set from it.
+      devshells.default.env = lib.mkBefore [
+        {
+          name = "FLAKE_ROOT";
+          eval = "$(${lib.getExe config.flake-root.package})";
+        }
+      ];
     };
 }

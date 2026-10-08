@@ -85,6 +85,7 @@
       # into WasmFS's internals.
       ibusWeb.toolchain.clangdPathFlags."runtime/wasmfs-idb/tests/.*\\.(cpp|h)" = [
         "-std=c++17"
+        "-I../include"
         wasmfsIdb.cflags
       ]
       ++ testing.gtestCflagList;

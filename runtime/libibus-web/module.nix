@@ -10,17 +10,30 @@
       ibusWeb.runtime.libibusWeb = libibus-web;
       ibusWeb.toolchain.devLibraries = [ libibus-web ];
       packages.libibus-web = libibus-web;
-      # The IBus layer's private generated header, for editors, without
-      # shipping it to engines with the library.
-      ibusWeb.toolchain.clangdPathFlags."runtime/libibus-web/src/ibus/.*" = [
-        "-I${
-          libibus-web.overrideAttrs {
-            pname = "libibus-web-private-headers";
-            buildPhase = "ninja src/ibus/ibusmarshalers.h";
-            installPhase = "install -Dm644 -t $out src/ibus/ibusmarshalers.h";
-            dontFixup = true;
-          }
-        }"
-      ];
+      ibusWeb.toolchain.clangdPathFlags = {
+        # The in-tree headers, ahead of the installed library's.
+        "runtime/libibus-web/(src|tests)/[^/]+" = [
+          "-I../include"
+          "-I../include/ibus-1.0"
+        ];
+
+        # The IBus layer is compiled as IBus itself, with its private generated
+        # header, which engines never get with the library.
+        "runtime/libibus-web/src/ibus/.*" = [
+          "-DIBUS_COMPILATION"
+          "-I../../include/ibus-1.0"
+          "-I../../include"
+          "-I${
+            libibus-web.overrideAttrs {
+              pname = "libibus-web-private-headers";
+              buildPhase = "ninja src/ibus/ibusmarshalers.h";
+              installPhase = "install -Dm644 -t $out src/ibus/ibusmarshalers.h";
+              dontFixup = true;
+            }
+          }"
+        ];
+
+        "runtime/libibus-web/include/ibus-1.0/.*" = [ "-DIBUS_COMPILATION" ];
+      };
     };
 }

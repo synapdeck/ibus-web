@@ -13,6 +13,11 @@
         pkgsWasm.libffi
       ];
 
+      # The build sets this through the recipe's NIX_CFLAGS_COMPILE.
+      ibusWeb.toolchain.clangdPathFlags."modules/toolchain/checks/meson-consumer/src/.*" = [
+        "-DIBUS_WEB_RECIPE_CFLAGS"
+      ];
+
       # nixpkgs' Meson setup hook writes the cross file; this proves it, the
       # cross pkg-config and both libraries in one program.
       checks.meson-consumer = pkgsWasm.stdenv.mkDerivation {
