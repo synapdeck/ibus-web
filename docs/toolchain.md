@@ -221,8 +221,8 @@ as `legacyPackages.<system>.pkgsWasm`): nixpkgs imported with `crossSystem` set 
 `pkg-config` and their Autotools, Meson and CMake configuration come from nixpkgs' ordinary
 cross-compilation machinery, and cross splicing supplies the WebAssembly builds of their
 dependencies. Why: nixpkgs already knows how to build the engines and their libraries, and
-updating the `nixpkgs` input is how their versions move (spec §10.2). libhangul, zlib and libffi
-build from their recipes with no change at all.
+updating the `nixpkgs` input is how their versions move (spec §10.2). zlib and libffi build from
+their recipes with no change at all; libhangul's recipe gains only the Hangul engine's patch.
 
 ### The compiler wrapper
 
@@ -253,8 +253,8 @@ build from their recipes with no change at all.
 together. `checks.meson-consumer` builds a Meson program against `pkgsWasm.zlib` and
 `pkgsWasm.libffi` through the cross `pkg-config`, with a define passed the way recipes pass them
 (`NIX_CFLAGS_COMPILE`) that the program refuses to compile without. `checks.libhangul-wasm`
-builds against nixpkgs' unmodified libhangul recipe through the cross `pkg-config`, as an engine
-will, and composes 한 with it.
+builds against the patched libhangul that `hangul.wasm` links, through the cross `pkg-config` as
+the engine does, and composes 한 with it.
 
 ### Meson, Autotools and CMake
 
@@ -399,7 +399,7 @@ flake outputs.
 - `modules/<component>/` holds a component's modules: `overlay.nix` for its overlay, `patches/`
   with a README of their provenance, and `checks/` (`checks/<name>.nix`, or
   `checks/<name>/default.nix` with its sources beside it). `modules/toolchain/`,
-  `modules/emscripten/`, `modules/glib/`, `modules/libhangul/` and
+  `modules/emscripten/`, `modules/glib/` and
   `modules/baseline-browser-mapping/` are the ones this page covers; `modules/flake/` holds the
   flake's own (systems, dev shell, CI, hk, generated files).
 - `runtime/<part>/` holds one part of the runtime, its sources, its modules and its tests;
@@ -439,6 +439,6 @@ The rest of the editor and formatting setup is in [tooling.md](tooling.md).
 | `toolchain-exnref` | fails once every minimum version supports the standard exception encoding                            |
 | `cross-toolchain`  | the cross stdenv's wrapper, flags, dropped arguments, minimum versions per environment, overlay gate |
 | `meson-consumer`   | a Meson build through the cross `pkg-config` against `pkgsWasm.zlib` and `pkgsWasm.libffi`           |
-| `libhangul-wasm`   | nixpkgs' libhangul recipe, found through the cross `pkg-config`                                      |
+| `libhangul-wasm`   | the patched libhangul the Hangul engine links, found through the cross `pkg-config`                  |
 | `emscripten-fixes` | the behaviour each Emscripten patch restores                                                         |
 | `clangd`           | every C and C++ source parses under the editor configuration                                         |

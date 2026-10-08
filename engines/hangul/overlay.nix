@@ -11,19 +11,23 @@
         inherit (config.ibusWeb.lib) isEmscriptenWasm patchesIn;
       in
       lib.optionalAttrs (isEmscriptenWasm prev.stdenv.hostPlatform) {
+        # Patched for everything that links it, so a check of the library
+        # tests what hangul.wasm ships. Its data goes to an output of its own,
+        # which engine distributions carry without the library.
+        libhangul = prev.libhangul.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ patchesIn ./patches/libhangul;
+          outputs = (old.outputs or [ "out" ]) ++ [ "data" ];
+          configureFlags = (old.configureFlags or [ ]) ++ [
+            "--datadir=${placeholder "data"}/share"
+            "--localedir=${placeholder "data"}/share/locale"
+          ];
+        });
+
         ibus-engines = prev.ibus-engines // {
           hangul =
             let
-              libhangul = final.libhangul.overrideAttrs (old: {
-                patches = (old.patches or [ ]) ++ [
-                  ../../modules/libhangul/patches/0001-buffer-hanja-dictionary-reads.patch
-                ];
-                outputs = (old.outputs or [ "out" ]) ++ [ "data" ];
-                configureFlags = (old.configureFlags or [ ]) ++ [
-                  "--datadir=${placeholder "data"}/share"
-                  "--localedir=${placeholder "data"}/share/locale"
-                ];
-              });
+              inherit (final) libhangul;
+
               schemas = prev.runCommand "hangul-gsettings-schemas" { } ''
                 mkdir -p $out/share/glib-2.0/schemas
                 cp ${prev.ibus-engines.hangul.src}/data/org.freedesktop.ibus.engine.hangul.gschema.xml $out/share/glib-2.0/schemas/

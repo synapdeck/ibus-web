@@ -12,6 +12,14 @@ path = "engines/hangul/patches/**/*.patch"
 SPDX-FileCopyrightText = ["The ibus-hangul authors", "2026 Synapdeck, Inc."]
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
+# libhangul's own licence, which the engine-wide annotations above would
+# otherwise override; the last matching annotation wins.
+[[annotations]]
+path = "engines/hangul/patches/libhangul/*.patch"
+SPDX-FileCopyrightText = ["2005-2009 Choe Hwanjin", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "LGPL-2.1-or-later"
+precedence = "override"
+
 [[annotations]]
 path = "tools/cast-audit/fixtures/*.sarif"
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
@@ -124,8 +132,3 @@ path = "packages/core/src/keys/us.generated.ts"
 SPDX-FileCopyrightText = "The xkeyboard-config contributors"
 SPDX-License-Identifier = "LicenseRef-xkeyboard-config"
 precedence = "override"
-
-[[annotations]]
-path = "modules/libhangul/patches/*.patch"
-SPDX-FileCopyrightText = ["2005-2009 Choe Hwanjin", "2026 Synapdeck, Inc."]
-SPDX-License-Identifier = "LGPL-2.1-or-later"

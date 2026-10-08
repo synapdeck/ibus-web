@@ -12,6 +12,11 @@ Global settings listeners are installed once during module initialization and
 owned by the module GSettings objects for the Worker lifetime; upstream exit
 releases those objects, but the current module ABI has no shutdown entry point.
 
+`libhangul/` patches the library rather than the engine, and applies to every WebAssembly build of
+libhangul: `0001` buffers the Hanja dictionary's two loading scans with a 64 KiB stdio buffer, so
+reads that would each cross into the IndexedDB backend's thread and transaction are batched. It is
+LGPL-2.1-or-later, as libhangul is.
+
 | Layer | Patch | Reason                                                                                                                                                                                                                                                                              |
 | ----- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | port  | 0001  | Disconnect both GSettings handlers before freeing an engine, preventing changes from calling a destroyed engine.                                                                                                                                                                    |
