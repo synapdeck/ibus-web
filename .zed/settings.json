@@ -1,4 +1,7 @@
 {
+  "file_types": {
+    "Shell Script": ["cc"]
+  },
   "lsp": {
     "oxlint": {
       "initialization_options": {
