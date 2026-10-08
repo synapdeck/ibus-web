@@ -270,7 +270,7 @@ An item leaves this page when it is fixed or decided.
   ([testing.md](testing.md)).
 - **A failed check keeps no `results.json`**: the derivation's output exists only when it passes, so a
   failure's results are in the log alone.
-- **The library checker leans on the jsifier's shape.** `runtime/wasmfs-idb/library-deps.ts` finds the
+- **The library checker leans on the jsifier's shape.** `tools/emscripten-library-deps/library-deps.ts` finds the
   test that tells a function's source held in a string by its shape in Emscripten's jsifier (the one `if`
   whose block sets `isFunction` and whose test reads `snippet`), so an Emscripten that restructures it
   fails the check rather than being followed; and whatever name `addImplicitDeps` needs that the checker's
@@ -287,7 +287,7 @@ An item leaves this page when it is fixed or decided.
   workspace output duplicates the root `node_modules` (disk only).
 - **TypeScript loose ends**: the workspace's `fileFilter` matches by extension anywhere in a package; two
   `pre-js.d.ts` declare `ENVIRONMENT_IS_PTHREAD` (accepted, one per environment); the WebAssembly shim
-  (`types/webassembly`) may collide with a future `@types/node`.
+  (`packages/tsconfig/types/webassembly`) may collide with a future `@types/node`.
 
 ## Tooling
 

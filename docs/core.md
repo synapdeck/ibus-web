@@ -1,8 +1,9 @@
 # Page core
 
 `@ibus-web/core` is the page-side client: key translation, scoped engine lifecycle,
-input contexts, ordered output and adapters. It imports only the host's shared
-transport definitions; Worker, runtime, Emscripten and engine implementations load
+input contexts, ordered output and adapters. It imports only the protocol's
+transport and message definitions and the host's page-facing exports (the control buffer, the
+storage names); Worker, runtime, Emscripten and engine implementations load
 by URL and stay outside the page bundle. The package is MIT OR Apache-2.0, with the
 generated tables' source notices included in its distribution.
 

@@ -20,7 +20,7 @@ What it provides:
   the checkout, a writable copy seeded from the frozen cache the first time the shell starts.
 - **TypeScript:** Node 24, nixpkgs' pnpm, and the workspace's `tsc`.
 - **hk and the tools its steps run:** `hk`, `pkl`, `oxfmt`, `oxlint`, `nixfmt`, `clang-format`
-  (from Emscripten's LLVM, so it agrees with clangd), `shfmt`, `reuse`, `actionlint`.
+  (from Emscripten's LLVM, so it agrees with clangd), `shfmt`, `reuse`, `actionlint`, `lychee`.
 - **Language servers:** `clangd`, `typescript-language-server`, `nixd`, `pkl-lsp`
   ([editor tooling](#editor-tooling)).
 - **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)),
@@ -62,8 +62,9 @@ The steps:
 | `pkl-format`       | `*.pkl`                                                               | pkl                                               |
 | `oxlint`           | TS, JS                                                                | oxlint, `.oxlintrc.jsonc`                         |
 | `tsc`              | every directory with a `tsconfig.json`                                | `tsc --noEmit -p` with the workspace's TypeScript |
-| `tsconfig-extends` | `**/tsconfig*.json`                                                   | `node modules/flake/tsconfig-extends.ts`          |
+| `tsconfig-extends` | `**/tsconfig*.json`                                                   | `node tools/tsconfig-extends/tsconfig-extends.ts` |
 | `reuse`            | the whole tree, every run                                             | `reuse lint`                                      |
+| `links`            | every Markdown file git tracks, every run                             | lychee, offline, with heading anchors             |
 | `actionlint`       | `.github/workflows/*.yml`                                             | actionlint                                        |
 
 - `tsc` runs once per directory holding a `tsconfig.json` (`workspace_indicator`), so a new
@@ -75,7 +76,7 @@ The steps:
   `tsc: skipped <dir>: <link> isn't built; enter the dev shell to build it`. `checks.flake-hk` sets
   `HK_REQUIRE_NIX_INPUTS=1`, so there it never skips.
 - `tsconfig-extends` reads every `tsconfig*.json` git tracks (as JSONC, with `jsonc-parser`) and
-  fails unless each reaches the root `tsconfig.base.json` through relative `extends`. It always
+  fails unless each reaches the root `packages/tsconfig/base.json` through relative `extends`. It always
   checks the whole set, since a change to one config can break another's chain.
 
 ### The hook and committing
@@ -202,27 +203,27 @@ Nix.
 
 TypeScript is version 7 (the native compiler). Configuration:
 
-- **`tsconfig.base.json`** at the root holds the standard options: `strict`, `erasableSyntaxOnly`,
+- **`base.json` in `@ibus-web/tsconfig`** (`packages/tsconfig/`) holds the standard options: `strict`, `erasableSyntaxOnly`,
   `verbatimModuleSyntax`, `rewriteRelativeImportExtensions`, `module`/`moduleResolution`
-  `nodenext`, `target` `es2023`. Every `tsconfig*.json` extends it, directly or through a
-  package's own base, and overrides only what its files need: the environment's `lib`/`types`,
+  `nodenext`, `target` `es2023`. Every `tsconfig*.json` extends it, directly or through
+  another preset, and overrides only what its files need: the environment's `lib`/`types`,
   `rootDir`/`outDir`, or `allowJs`/`checkJs`. hk's `tsconfig-extends` step enforces the chain.
-- **`tsconfig.node-scripts.json`** extends it for the Nix builds' Node scripts (`noEmit`,
-  `allowImportingTsExtensions`, `lib: ["es2023"]`, Node types, and `types/webassembly`, the part
-  of the WebAssembly API Node code here uses, which TypeScript declares only in its web libraries);
-  each directory of scripts has a `tsconfig.json` extending that. A config for Node code that
-  extends a package's base instead names `types/` as a type root itself; `types/tsconfig.json`
-  checks the declarations on their own.
-- **One `tsconfig.json` per environment directory** in a package (`src/shared`, `src/worker`,
-  `src/node`, `src/browser`, and the test directories likewise), each with its own `lib` and
-  `types`, so code meant for a Worker can't use Node's API by accident. Packages' `build` scripts
-  emit `dist/` (`@ibus-web/test-programs` with `tsc -p` per environment, `@ibus-web/worker-host`
-  with tsdown), and checks run the emitted `dist/`; test files run from source through Vitest
-  ([testing.md](testing.md#vitest)).
+- **Presets** extend it for each environment: `dom.json`, `worker.json`, `node.json` (`noEmit`,
+  `allowImportingTsExtensions`, `lib: ["es2023"]`, Node types, and `types/webassembly`, the part of
+  the WebAssembly API Node code here uses, which TypeScript declares only in its web libraries) and
+  `emscripten-js.json`. A package depends on `@ibus-web/tsconfig` and extends a preset by name; the
+  declarations are `packages/tsconfig/types/webassembly`.
+- **Tsconfigs at each package's root**, one per environment: a solution `tsconfig.json` that only
+  references the others, and `tsconfig.<target>.json` (`shared`, `worker`, `page`, `node`, …),
+  `tsconfig.test.json`, `tsconfig.test-browser.json` and `tsconfig.config.json` where the package
+  has that code. Each has its own `lib` and `types`, so code meant for a Worker can't use Node's API
+  by accident. Packages' `build` scripts emit `dist/` (`@ibus-web/test-programs` with `tsc -p` per
+  environment, `@ibus-web/worker-host` with tsdown), and checks run the emitted `dist/`; test files
+  run from source through Vitest ([testing.md](testing.md#vitest)).
 - **JavaScript Emscripten reads** (`--js-library`, `--pre-js`, `--post-js`: the IndexedDB
   backend's library and its test libraries, the GoogleTest harness's report library,
   `host-memory.js`, `size-pre.js`) stays JavaScript, with JSDoc types, checked under a
-  `tsconfig.json` extending **`tsconfig.emscripten-js.json`** (`allowJs`/`checkJs`,
+  `tsconfig.json` extending **`packages/tsconfig/emscripten-js.json`** (`allowJs`/`checkJs`,
   `module: preserve`, a Worker's `es2023` library at the base's target; `size-pre.js`, which runs
   under Node, takes Node's instead), with declarations for what it uses
   from Emscripten: generated from a link of the library (`--emit-tsd`) where one exists, local
@@ -235,9 +236,10 @@ also runs on the oldest supported Node.
 
 ## The pnpm workspace
 
-One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (`@ibus-web/test-programs`,
-`@ibus-web/worker-host`, `@ibus-web/protocol`), `runtime/wasmfs-idb`, `tools/emscripten-library-deps`
-(the library checker's acorn), and `modules/glib/checks/tests` (the GLib gate's TOML reader).
+One pnpm workspace at the root (`pnpm-workspace.yaml`): `packages/*` (the shipped packages,
+the `@ibus-web/tsconfig` presets and `@ibus-web/test-programs`), `tools/*` (one package per tool, each
+with its own dependencies), `examples/*`, and the component packages `runtime/ibus-runtime`,
+`runtime/wasmfs-idb`, `modules/emscripten` and `modules/testing`.
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
 (`pnpmWorkspace` in `modules/typescript/files.nix`), which reads them for its own builds, and
@@ -255,7 +257,7 @@ tracked copy differs. The Nix builds install from the generated file, not the tr
   - `playwright` is exactly nixpkgs' `playwright-driver` version (the catalog takes it from
     `playwright-driver` itself, without a caret), since each Playwright release drives specific
     browser builds and the browsers come from nixpkgs. Every package depending on `playwright` or
-    `@vitest/browser-playwright` is checked (`modules/typescript/assert-dependency.ts`); a
+    `@vitest/browser-playwright` is checked (`tools/assert-dependency/assert-dependency.ts`); a
     nixpkgs update that moves the driver fails the generated file's check until `write-files` and
     `pnpm install` follow it.
   - `packageManager` in the root `package.json` names nixpkgs' pnpm: pnpm compares itself with it

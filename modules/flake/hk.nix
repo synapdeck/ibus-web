@@ -63,6 +63,7 @@
         pkgs.shfmt
         pkgs.reuse
         pkgs.actionlint
+        pkgs.lychee
       ];
 
       emscriptenTypeLinks = pkgs.writeText "ibus-web-emscripten-type-links" (

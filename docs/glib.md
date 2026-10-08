@@ -381,7 +381,7 @@ The rule for the lists: a test is excluded only if no part of it can run on Emsc
 test that passes gates. Inside a gating test, a subtest whose expectation can't hold here skips
 with `g_test_skip()` and its reason (0016), so the rest of the test still gates.
 
-The gate, `gate.ts` (`@ibus-web/glib-tests-gate`, reading the TOML with `smol-toml`), works from
+The gate, `tools/glib-test-gate/gate.ts` (`@ibus-web/glib-test-gate`, reading the TOML with `smol-toml`), works from
 Meson's introspection data rather than its formatted log names:
 
 1. `runnable` prints the `meson test` invocations that together run every test not excluded.

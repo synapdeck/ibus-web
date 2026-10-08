@@ -220,7 +220,7 @@ effect after refocus.
 ## Cast audit
 
 `tools/cast-audit/` is a TypeScript tool with dependencies isolated in
-`tools/package.json`. It consumes Clang SARIF diagnostics using
+`tools/cast-audit/package.json`. It consumes Clang SARIF diagnostics using
 `@microsoft/sarif` types and parses the C/C++ source with native `tree-sitter`
 and the C/C++ grammars. The Nix wrapper uses the engine's real compiler flags
 and writes a structured `report.json`.

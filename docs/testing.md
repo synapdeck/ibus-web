@@ -55,7 +55,7 @@ TypeScript tests use Vitest (version 5, one version across the repository throug
 catalog, [tooling.md](tooling.md#the-pnpm-workspace)). Code written with Effect tests with
 `@effect/vitest`. Checks run the shim's and packages' emitted `dist/`, but test files (`*.test.ts`)
 run from source: Vitest compiles them through Vite, which is why the Nix workspace build carries
-`tsconfig.base.json` beside the packages.
+the `@ibus-web/tsconfig` presets (`packages/tsconfig/`) beside the packages.
 
 ## The GoogleTest harness
 

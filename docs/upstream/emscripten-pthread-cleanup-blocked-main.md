@@ -1044,7 +1044,7 @@ diff --git a/test/test_core.py b/test/test_core.py
 - **How the fix was tested.**
   - The test case above, with and without the patch, on nixpkgs' 6.0.9.
   - Our `checks.emscripten-fixes` runs a stronger version
-    (`modules/emscripten/checks/fixes/thread-cleanup.c`): eight rounds of
+    (`modules/emscripten/checks/fixes/thread-cleanup.cpp`): eight rounds of
     detached threads, half of which join a child of their own first (so the
     join-from-another-thread path is covered too, and the children's creation
     is proxied to the blocked main thread), on our `MAIN_MODULE=1` + WasmFS

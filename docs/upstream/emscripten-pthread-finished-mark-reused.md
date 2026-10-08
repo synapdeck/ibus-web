@@ -419,7 +419,7 @@ diff --git a/test/test_core.py b/test/test_core.py
     FAIL on stock 6.0.9 (the trap), ok on stock 6.0.9 plus this patch
     alone, ok on our full stack.
   - Our `checks.emscripten-fixes` runs a stricter version
-    (`modules/emscripten/checks/fixes/dlsync-reused.c`) on our test link
+    (`modules/emscripten/checks/fixes/dlsync-reused.cpp`) on our test link
     (`MAIN_MODULE=1`, WasmFS, assertions). It also checks
     `PThread.finishedThreads` directly before the `dlopen()`, and fails if no
     `pthread_t` gets reused in ten attempts, so it can't pass vacuously. Every

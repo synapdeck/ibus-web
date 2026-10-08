@@ -16,11 +16,11 @@ Page separately exercises the transport.
 
 ## Package and bundles
 
-| Export                         | File                   | What it is                                                                                                                                                           |
-| ------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer (`Word`, `State`, helpers), the messages, the storage names, `HostConfigValues`; with declarations.                        |
-| `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s. |
-| `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                  |
+| Export                         | File                   | What it is                                                                                                                                                                                                                                                        |
+| ------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer's helpers (`createControl`, `postRequest`, `takeReply`), the host messages, the storage names, `HostConfigValues`; with declarations. `Word`, `State`, `ReqMode` and the transport layout live in `@ibus-web/protocol`. |
+| `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s.                                                                                              |
+| `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                                                                                                               |
 
 The host also ships `dist/worker/brotli-fallback.js` (291 KB), a separate
 decoder bundle that the host imports by URL from beside its own script only
@@ -42,7 +42,7 @@ isolated-declarations generator, since TypeScript 7 has no compiler API.
 build (`dist/test/worker/`) is the same host with its instruments and a relay
 that fails on purpose; no export names it and the package's `files` leave it
 out. The Worker entries' declarations import the bundled `dist/shared/` ones, so
-the build checks them afterwards (`types/tsconfig.check.json`, with a page's
+the build checks them afterwards (`tsconfig.types.json`, with a page's
 use of `HostWorker` in `types/usage.ts`).
 
 ## Starting a host

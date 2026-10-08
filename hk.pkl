@@ -155,6 +155,17 @@ local linters = new Mapping<String, Step> {
       effect = "read"
     }
   }
+  // Every relative link and heading anchor in the Markdown git tracks
+  // resolves. It reads every file each run, since moving one file breaks
+  // links in others.
+  ["links"] {
+    glob = List("**/*.md")
+    check = new CommandSpec {
+      command =
+        "git ls-files -z -- '*.md' | xargs -0 lychee --offline --include-fragments --no-progress --"
+      effect = "read"
+    }
+  }
   ["actionlint"] = Builtins.actionlint
 }
 

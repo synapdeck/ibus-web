@@ -313,7 +313,7 @@ comment at the top.)
     `tools/maint/gen_sig_info.py` reproduces `libsigs.js` exactly with the
     new `_wasmfs_thread_utils_heartbeat_stop__sig: 'v'` entry.
   - Our `checks.emscripten-fixes` runs the same program on our test link
-    (`modules/emscripten/checks/fixes/proxy-worker-exit.cpp`): red 20 of
+    (`modules/emscripten/checks/fixes/proxy-worker.cpp`): red 20 of
     20 without 0018, green 20 of 20 with it.
   - Our IndexedDB backend's browser tests: `sweep.1`/`sweep.2` 201 times in
     headless Chromium with every core busy: 39 of 402 programs aborted at
