@@ -12,12 +12,12 @@ import {
   ProtocolError,
   CrashReason,
   transportLayout,
+  type PanelEvent,
 } from "@ibus-web/protocol";
 import { Schema } from "effect";
 import { toTree } from "../../../../protocol/src/ibus/walk.ts";
 import { InputContext } from "../../../src/router/contexts.ts";
 import { fixture as routerFixture } from "../../shared/router.ts";
-import type { PanelEvent } from "../../../src/services/logging.ts";
 import { ReqMode, State, Word, postReply } from "@ibus-web/worker-host";
 import { Connection, type ConnectionOptions } from "../../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";

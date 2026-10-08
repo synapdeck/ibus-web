@@ -21,16 +21,8 @@ import {
   type SettingsSourceService,
   type SurfaceAdapter,
 } from "@ibus-web/core";
-import {
-  CandidateClicked,
-  PageUp,
-  PageDown,
-  CursorUp,
-  CursorDown,
-  PropertyActivate,
-  errorMessage,
-} from "@ibus-web/protocol";
-import type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
+import { errorMessage, PanelAction } from "@ibus-web/protocol";
+import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
 export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
@@ -87,9 +79,7 @@ interface Services {
 class FacadeServices extends Context.Service<FacadeServices, Services>()("ibus-web/FacadeServices") {}
 const panelSchema = "org.freedesktop.ibus.panel",
   orientationKey = "lookup-table-orientation";
-const decodePanelAction = Schema.decodeUnknownSync(
-  Schema.Union([CandidateClicked, PageUp, PageDown, CursorUp, CursorDown, PropertyActivate]),
-);
+const decodePanelAction = Schema.decodeUnknownSync(PanelAction);
 const levels: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 /** No services, storage or Workers are acquired until selection or a settings operation. */

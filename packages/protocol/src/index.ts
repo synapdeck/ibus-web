@@ -60,6 +60,7 @@ export {
 export { framing, type HeaderField, RECORD_CONTINUATION, PADDING_KIND } from "./messages/framing.ts";
 export { encodeRequest, decodeRecord, type DecodedRecord } from "./messages/codec.ts";
 export { asError, errorMessage, errorReport, errorSummary } from "./errors.ts";
+export { PanelAction, type PanelEvent, type PanelRecord, type PanelUpdate } from "./messages/panel.ts";
 
 export {
   Word,

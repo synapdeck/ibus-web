@@ -13,11 +13,12 @@ import {
   SetCapabilities,
   SetContentType,
   IBusCapability as Cap,
+  type PanelEvent,
   type Request,
 } from "@ibus-web/protocol";
 import { EngineRegistry } from "../services/engines.ts";
 import { CoreConfig } from "../services/config.ts";
-import { PanelEvents, SyncMailbox, type PanelEvent } from "../services/logging.ts";
+import { PanelEvents, SyncMailbox } from "../services/logging.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
 import { InputContext } from "./contexts.ts";
 export interface HotkeyRegistry {

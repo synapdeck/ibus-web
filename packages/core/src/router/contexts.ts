@@ -1,9 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { SetCursorLocation, SetSurroundingText, type DecodedLazyRecord, type Request } from "@ibus-web/protocol";
+import {
+  SetCursorLocation,
+  SetSurroundingText,
+  type DecodedLazyRecord,
+  type PanelEvent,
+  type Request,
+} from "@ibus-web/protocol";
 import type { KeyContext } from "./keystroke.ts";
 import type { SurfaceAdapter } from "./replay.ts";
-import type { PanelEvent } from "../services/logging.ts";
 import { PreeditState } from "./preedit.ts";
 import { deletion, ibusText, surroundingWindow, type Surrounding } from "./surrounding.ts";
 export class InputContext implements KeyContext {

@@ -1,31 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import type { LazyOutputRecord, Request } from "@ibus-web/protocol";
+import type { PanelAction } from "@ibus-web/protocol";
 
-export type PanelAction = Extract<
-  Request,
-  { _tag: "CandidateClicked" | "PageUp" | "PageDown" | "CursorUp" | "CursorDown" | "PropertyActivate" }
->;
-
-export type PanelRecord = Extract<
-  LazyOutputRecord,
-  {
-    _tag:
-      | "UpdateLookupTable"
-      | "ShowLookupTable"
-      | "HideLookupTable"
-      | "UpdateAuxiliaryText"
-      | "ShowAuxiliaryText"
-      | "HideAuxiliaryText"
-      | "RegisterProperties"
-      | "UpdateProperty";
-  }
->;
-
-export type PanelUpdate = { readonly engine: string; readonly ic: number } & (
-  | { readonly _tag: "record"; readonly record: PanelRecord }
-  | { readonly _tag: "hide" | "caret" | "orientation" }
-);
+export type { PanelAction, PanelRecord, PanelUpdate } from "@ibus-web/protocol";
 
 export interface CaretRect {
   readonly x: number;
