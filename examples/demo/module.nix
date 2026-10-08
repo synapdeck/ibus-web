@@ -9,16 +9,30 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) typescript;
+      inherit (config.ibusWeb) demo typescript;
       inherit (config.ibusWeb.testing) playwright;
 
-      workspace = typescript.workspaceFor [ "examples/hangul" ];
+      workspace = typescript.workspaceFor [ "examples/demo" ];
 
-      # What the page loads: the runtime, the Worker host and the Hangul engine.
+      # Each module's distribution under its name, beside the map from module name
+      # to manifest that the page reads to find them.
+      modules = pkgs.linkFarm "ibus-web-demo-modules" (
+        lib.mapAttrsToList (name: path: { inherit name path; }) demo.modules
+        ++ [
+          {
+            name = "modules.json";
+            path = pkgs.writeText "ibus-web-demo-modules.json" (
+              builtins.toJSON (lib.mapAttrs (name: _: "./${name}/manifest.json") demo.modules)
+            );
+          }
+        ]
+      );
+
+      # What the page loads: the runtime, the Worker host and every module.
       env = {
         IBUS_WEB_DEMO_RUNTIME = "${config.packages.ibus-runtime}";
         IBUS_WEB_DEMO_HOST = "${workspace}/packages/worker-host/dist";
-        IBUS_WEB_DEMO_HANGUL = "${config.packages.ibus-web-hangul-dist}";
+        IBUS_WEB_DEMO_MODULES = "${modules}";
       };
 
       exports =
@@ -31,10 +45,10 @@
       enterExample = ''
         cp -R ${workspace} source
         chmod -R u+w source
-        cd source/examples/hangul
+        cd source/examples/demo
       '';
 
-      demo =
+      page =
         pkgs.runCommand "ibus-web-demo"
           (
             env
@@ -52,7 +66,7 @@
 
       # The browsers, offline, a font so text renders headless, and the built page.
       pageEnv = playwright.env // {
-        IBUS_WEB_DEMO_PAGE = "${demo}";
+        IBUS_WEB_DEMO_PAGE = "${page}";
         FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
       };
 
@@ -78,7 +92,7 @@
           '';
     in
     {
-      packages.demo = demo;
+      packages.demo = page;
       packages.playwright-integration = integration;
       ibusWeb.testing.extendedChecks.playwright = integration;
 
@@ -98,7 +112,7 @@
                 exit 1
               }
               cd "$root"
-              if [ ! -f flake.nix ] || [ ! -f examples/hangul/package.json ]; then
+              if [ ! -f flake.nix ] || [ ! -f examples/demo/package.json ]; then
                 echo "Run this app inside the ibus-web checkout." >&2
                 exit 1
               fi
@@ -106,8 +120,8 @@
               ${exports env}
 
               if [ ! -d node_modules ]; then pnpm install --frozen-lockfile; fi
-              pnpm --filter @ibus-web/example-hangul... --filter '!@ibus-web/example-hangul' run build
-              pnpm --dir examples/hangul exec vite --host 127.0.0.1 --port 5173 --strictPort "$@"
+              pnpm --filter @ibus-web/example-demo... --filter '!@ibus-web/example-demo' run build
+              pnpm --dir examples/demo exec vite --host 127.0.0.1 --port 5173 --strictPort "$@"
             '';
           }
         );
@@ -136,8 +150,8 @@
 
       devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) env;
 
-      checks.example-hangul-smoke =
-        pkgs.runCommand "ibus-web-example-hangul-smoke"
+      checks.example-demo-smoke =
+        pkgs.runCommand "ibus-web-example-demo-smoke"
           (
             pageEnv
             // {

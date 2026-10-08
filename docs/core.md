@@ -23,7 +23,7 @@ with COOP `same-origin` and COEP `require-corp` for cross-origin isolation.
 
 Acquire and use the services inside a live Effect scope. Closing the scope removes
 listeners and terminates Workers; do not return a router from an already-closed
-`Effect.scoped` program. The [Hangul example](../examples/hangul/src/main.ts) provides
+`Effect.scoped` program. The [demo](../examples/demo/src/main.ts) provides
 the complete layer wiring and aborts its long-lived program on pagehide or HMR disposal.
 
 A module is one distribution: one manifest, one Worker. Its engines are the input
@@ -300,7 +300,8 @@ a preference; there is no additional factor-of-ten acceptance target.
 
 ## Demo and validation scope
 
-The production demo is [examples/hangul](../examples/hangul/README.md). From the checkout:
+The production demo is [examples/demo](../examples/demo/README.md), one page for every
+module in `ibusWeb.demo.modules`. From the checkout:
 
 ```sh
 nix run .#demo
@@ -309,13 +310,19 @@ nix run .#demo -- --port 5174
 
 The default port is 5173. The launcher builds the imported workspace packages and
 serves Nix-built URL assets through Vite with isolation headers. `packages.demo`
-is the production build and `checks.example-hangul-smoke` its separate Chromium smoke. Preview
-serves copied Brotli archives as opaque bytes without Content-Encoding: br.
+is the production build and `checks.example-demo-smoke` its separate Chromium smoke. Preview
+serves copied Brotli archives as opaque bytes without Content-Encoding: br. The build
+serves every module under `/ibus-web/modules/<name>/`, beside a `modules.json` map from
+module name to manifest that the page reads.
 
-Press Shift+Space to switch to Hangul, type gks for 한 and press F9 for Hanja
+The page lists every engine of every module through `engines(module)` in its picker
+and opens on the first module's default engine. Ctrl+Space, which the page binds
+itself, toggles between `deselect()` and the last selection. For Hangul, press
+Shift+Space to switch to Hangul input, type gks for 한 and press F9 for Hanja
 candidates. Preedit appears over the field until committed. The page uses the
-facade, candidate/property panel and metadata-driven persistent settings form;
-its attachment control leaves native input usable while disabled or starting.
+facade, candidate/property panel and a metadata-driven persistent settings form for
+the selected module; its attachment control leaves native input usable while
+disabled or starting.
 Restart starts a fresh Worker with default EN mode, then a trusted toggle resumes
 Hangul. IBusEngineSimple has no compose implementation, so Latin mode delegates
 ordinary typing to the browser.

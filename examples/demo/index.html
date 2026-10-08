@@ -5,23 +5,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ibus-web Hangul</title>
+    <title>ibus-web demo</title>
   </head>
   <body>
     <main>
-      <h1>Type Korean with ibus-web</h1>
-      <p>Hangul runs in your browser. Use a US keyboard layout to try it.</p>
+      <h1>Type with ibus-web</h1>
+      <p>These input methods run in your browser. Use a US keyboard layout to try them.</p>
       <p id="how-to">
-        Press the Hangul key or <kbd>Shift+Space</kbd> to toggle Hangul/Latin input. Type <kbd>gks</kbd> for 한. Press
-        <kbd>F9</kbd> to convert to Hanja, then use digits, click a candidate, or use arrows and Enter. Click outside a
-        field to commit its preedit.
+        Pick an input method, then type in either field; its keys work as they do on the desktop. Press
+        <kbd>Ctrl+Space</kbd> to turn input methods off and back on. Click outside a field to commit its preedit.
       </p>
       <div class="toolbar">
+        <label for="engine-picker">Input method</label>
+        <select id="engine-picker" disabled>
+          <option value="">Off</option>
+        </select>
         <label><input id="enabled" type="checkbox" checked disabled /> Enable ibus-web</label>
-        <button id="restart" type="button" disabled>Restart engine</button>
+        <button id="restart" type="button" disabled>Restart module</button>
       </div>
       <p role="status">
-        Engine: <output id="engine">starting</output> · Storage: <output id="storage">starting</output> · Input mode:
+        Module: <output id="engine">starting</output> · Storage: <output id="storage">starting</output> · Input mode:
         <output id="mode">—</output>
       </p>
       <p id="error" role="alert"></p>

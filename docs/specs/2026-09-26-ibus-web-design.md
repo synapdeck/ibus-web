@@ -2008,7 +2008,7 @@ ibus-web/
 ├─ packages/                       protocol, worker-host, core, panel, ibus-web (published); test-programs; tsconfig
 ├─ tools/<name>/                   one package per build and check tool; Nix (checks.nix, module.nix) only where it needs any
 ├─ tools/claude/                   Claude Code language-server plugins (nixd, pkl)
-├─ examples/hangul/                the Hangul demo and its end-to-end tests
+├─ examples/demo/                  the demo of every module and its end-to-end tests
 └─ docs/                           this spec and the others; topic pages; upstream/ drafts
 ```
 

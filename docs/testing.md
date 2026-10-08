@@ -587,7 +587,7 @@ and Firefox. Its synthetic DOM events use a helper that simulates unprevented
 native defaults; this does not prove trusted input, native undo, OS keyboard/layout,
 Safari or minimum browser versions.
 
-`packages.demo` builds examples/hangul; `checks.example-hangul-smoke` separately loads that built
+`packages.demo` builds examples/demo; `checks.example-demo-smoke` separately loads that built
 page in fresh Chromium, checks isolation and opaque archive delivery, and verifies
 typing and blur commit with constructed keys. The production demo uses the facade,
 panel and metadata-driven settings form.
@@ -599,12 +599,14 @@ remain extended work, not a matrix to repeat for every focused change.
 ### Production Playwright integration
 
 `nix build .#playwright-integration` serves the production demo through its Vite
-preview configuration with COOP/COEP and runs eight trusted-input specs in each of
-Chromium, Firefox and WebKit (24 total). It covers real Hangul composition, visible
-preedit without value/input leakage, focused native undo, separate blur commit,
-Hanja paging/click/digit selection, password exclusion, actual Worker restart,
-native Space reset ordering, and 3f settings changes across live contexts, tabs
-and reload. It fails on page errors or visible demo errors. The target belongs to
+preview configuration with COOP/COEP and runs nine trusted-input tests in each of
+Chromium, Firefox and WebKit (27 total). The specs are grouped by module, in
+`examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's
+cover real composition, visible preedit without value/input leakage, focused native
+undo, separate blur commit, Hanja paging/click/digit selection, password exclusion,
+actual Worker restart, native Space reset ordering, 3f settings changes across live
+contexts, tabs and reload, and the picker with its Ctrl+Space toggle, which leaves
+plain input while deselected. It fails on page errors or visible demo errors. The target belongs to
 `ibusWeb.testing.extendedChecks.playwright` and the explicit `integration-checks`
 aggregate, outside default `nix flake check`.
 

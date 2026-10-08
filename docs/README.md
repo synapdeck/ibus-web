@@ -15,7 +15,7 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 | [engines.md](engines.md)         | Engine recipe overrides, FHS data, patch layers, callback audits and Hangul golden tests                                                                                     |
 | [storage.md](storage.md)         | The WasmFS IndexedDB backend; engine data per version, its locks and installs; the writer lock; durability and costs                                                         |
 | [worker-host.md](worker-host.md) | `@ibus-web/worker-host`: the host's scopes, request loop, relay and pool top-up, failures, storage and engine data, and its test suites                                      |
-| [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the Hangul demo                                                                      |
+| [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the demo                                                                             |
 | [ibus-web.md](ibus-web.md)       | Installing and deploying the facade, its public API, Worker assets and settings                                                                                              |
 | [panel.md](panel.md)             | Framework-free candidate/property panel, actions, placement and stylesheet                                                                                                   |
 | [protocol.md](protocol.md)       | `@ibus-web/protocol`: strict GVariant codecs, schemas, generated artifacts, parity and decode measurements                                                                   |
@@ -35,7 +35,7 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 | Document                                                                              | Covers                                                                   |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | [`packages/protocol/PROTOCOL.md`](../packages/protocol/PROTOCOL.md)                   | The generated message reference                                          |
-| [`examples/hangul/README.md`](../examples/hangul/README.md)                           | Running the Hangul demo                                                  |
+| [`examples/demo/README.md`](../examples/demo/README.md)                               | Running the demo and adding a module to it                               |
 | [`tools/cast-audit/README.md`](../tools/cast-audit/README.md)                         | The function-pointer cast audit and its allow-lists                      |
 | [`tools/ibus-test/README.md`](../tools/ibus-test/README.md)                           | The native IBus test adapter: trace protocol, running it, artifacts      |
 | [`modules/emscripten/patches/README.md`](../modules/emscripten/patches/README.md)     | Each Emscripten patch: what it fixes, upstream status, when it can go    |

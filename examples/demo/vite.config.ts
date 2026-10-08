@@ -9,7 +9,7 @@ import { crossOriginIsolation, serveDirs, servePlugin } from "@ibus-web/test-pro
 export default defineConfig(({ command, isPreview }) => {
   const directories: Record<string, string> = {};
   if (!isPreview)
-    for (const name of ["runtime", "host", "hangul"]) {
+    for (const name of ["runtime", "host", "modules"]) {
       const path = process.env[`IBUS_WEB_DEMO_${name.toUpperCase()}`];
       if (!path)
         throw new Error(`IBUS_WEB_DEMO_${name.toUpperCase()} is required; run nix run .#demo or enter the dev shell`);
@@ -27,7 +27,7 @@ export default defineConfig(({ command, isPreview }) => {
           server.middlewares.use(
             serveDirs(
               "/ibus-web/",
-              Object.fromEntries(["runtime", "host", "hangul"].map((name) => [name, resolve(root, name)])),
+              Object.fromEntries(["runtime", "host", "modules"].map((name) => [name, resolve(root, name)])),
             ),
           );
         },
@@ -37,8 +37,12 @@ export default defineConfig(({ command, isPreview }) => {
             {
               name: "copy-ibus-web-distributions",
               async writeBundle(options: { dir?: string }) {
+                // The modules directory links to each distribution; the built page holds copies.
                 for (const [name, directory] of Object.entries(directories))
-                  await cp(directory, resolve(options.dir ?? "dist", "ibus-web", name), { recursive: true });
+                  await cp(directory, resolve(options.dir ?? "dist", "ibus-web", name), {
+                    recursive: true,
+                    dereference: true,
+                  });
               },
             },
           ]

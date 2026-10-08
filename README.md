@@ -30,9 +30,10 @@ aarch64-darwin, but only x86_64-linux is built and checked.
 nix run .#demo
 ```
 
-Open http://127.0.0.1:5173, press Shift+Space to switch to Hangul, type `gks` for 한, and press F9 for Hanja
-candidates. The first build compiles the patched Emscripten toolchain, GLib and the engine, which takes a while.
-[examples/hangul](examples/hangul/README.md) has the demo's other options.
+Open http://127.0.0.1:5173. The page opens on Hangul: press Shift+Space to switch to Hangul input, type `gks` for 한,
+and press F9 for Hanja candidates. The picker lists every engine the repository builds, and Ctrl+Space turns input
+methods off and back on. The first build compiles the patched Emscripten toolchain, GLib and the engines, which takes a
+while. [examples/demo](examples/demo/README.md) has the demo's other options.
 
 ## Packages
 
@@ -57,7 +58,7 @@ They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how 
 | `engines/`  | one directory per engine: its overlay, patches and checks                                                    |
 | `modules/`  | Nix several components share: the Emscripten toolchain, GLib, engines, TypeScript, testing, the flake and CI |
 | `tools/`    | the build and check tools, one package each, with Nix beside those that need it                              |
-| `examples/` | the Hangul demo and its end-to-end tests                                                                     |
+| `examples/` | the demo of every module and its end-to-end tests                                                            |
 | `docs/`     | how everything works and why, the design spec, and draft upstream reports                                    |
 
 ## Documentation

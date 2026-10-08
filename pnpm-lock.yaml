@@ -154,7 +154,7 @@ importers:
 
   .: {}
 
-  examples/hangul:
+  examples/demo:
     dependencies:
       ibus-web:
         specifier: workspace:*

@@ -21,18 +21,6 @@ export const test = base.extend<{ healthyDemo: void }>({
 export async function openDemo(page: Page) {
   await page.goto("/");
   await expect(page.locator("#engine")).toHaveText("ready");
-  await expect(page.locator("#setting-hangul-keyboard")).toHaveValue("2");
+  await expect(page.locator("#settings-state")).toHaveText("Settings ready; changes save automatically.");
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-}
-export async function hangul(page: Page) {
-  await page.locator("#input").click();
-  await expect(page.locator("#mode")).toHaveText("EN");
-  await page.keyboard.press("Shift+Space");
-  await expect(page.locator("#mode")).toHaveText("한");
-}
-export async function keyboardSetting(page: Page, value: string) {
-  await page.locator("#setting-hangul-keyboard").fill(value);
-  await page.locator("h1").click();
-  await expect(page.locator("#settings-state")).toContainText("Saved");
-  await expect(page.locator("#setting-hangul-keyboard")).toBeEnabled();
 }

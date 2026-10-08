@@ -1,6 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { test, expect, hangul } from "./fixtures.ts";
+import { test, expect, openDemo } from "./fixtures.ts";
+import { hangul, keyboardSetting } from "./hangul.ts";
+
+test.beforeEach(async ({ page }) => {
+  await expect(page.locator("#setting-hangul-keyboard")).toHaveValue("2");
+});
 
 test("trusted composition keeps preedit outside value and emits input only for commits", async ({ page }) => {
   await page.locator("#input").evaluate((element) => {
@@ -140,4 +145,56 @@ test("repeated words stay Hangul across native Space reset boundaries", async ({
     );
   }
   await expect(page.locator("#input")).toHaveValue("한글 ".repeat(10));
+});
+
+test("3-set changes composition immediately, persists on reload and reaches another live tab", async ({
+  page,
+  context,
+}) => {
+  const other = await context.newPage();
+  await openDemo(other);
+  for (const tab of [page, other]) {
+    await hangul(tab);
+    await tab.keyboard.type("gks");
+    await tab.locator("h1").click();
+    await expect(tab.locator("#input")).toHaveValue("한");
+  }
+  await keyboardSetting(page, "3f");
+  await expect(other.locator("#setting-hangul-keyboard")).toHaveValue("3f");
+  const compositions: string[] = [];
+  for (const tab of [page, other]) {
+    await tab.locator("#input").click();
+    await expect(tab.locator("#mode")).toHaveText("한");
+    await tab.keyboard.type("gks");
+    await tab.locator("h1").click();
+    const value = (await tab.locator("#input").inputValue()).slice(1);
+    expect(value).not.toBe("한");
+    expect(value).not.toMatch(/[a-z]/i);
+    expect(value.length).toBeGreaterThan(0);
+    compositions.push(value);
+  }
+  expect(compositions[1]).toBe(compositions[0]);
+  await page.reload();
+  await expect(page.locator("#engine")).toHaveText("ready");
+  await expect(page.locator("#setting-hangul-keyboard")).toHaveValue("3f");
+  await hangul(page);
+  await page.keyboard.type("gks");
+  await page.locator("h1").click();
+  await expect(page.locator("#input")).toHaveValue(compositions[0]!);
+  await other.close();
+});
+
+test("the picker lists Hangul, and Ctrl+Space turns input methods off and back on", async ({ page }) => {
+  await expect(page.locator("#engine-picker option:checked")).toHaveText("Hangul");
+  await hangul(page);
+  await page.keyboard.type("gks");
+  await page.keyboard.press("Control+Space");
+  await expect(page.locator("#engine-picker")).toHaveValue("");
+  await expect(page.locator("#input")).toHaveValue("한");
+  await page.keyboard.type("gks");
+  await expect(page.locator("#input")).toHaveValue("한gks");
+  await expect(page.locator("[data-ibus-preedit]").filter({ hasText: /[가-힣]/ })).toHaveCount(0);
+  await page.keyboard.press("Control+Space");
+  await expect(page.locator("#engine-picker option:checked")).toHaveText("Hangul");
+  await expect(page.locator("#engine")).toHaveText("ready");
 });

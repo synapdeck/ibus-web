@@ -257,7 +257,7 @@ of its packages, with a `package.json` naming exactly what that directory import
 | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/*`                                                                          | the published `@ibus-web/protocol`, `@ibus-web/worker-host`, `@ibus-web/core`, `@ibus-web/panel` and `ibus-web`; `@ibus-web/test-programs`; `@ibus-web/tsconfig` |
 | `tools/*`                                                                             | one private package per tool, `@ibus-web/<tool>`                                                                                                                 |
-| `examples/*`                                                                          | `@ibus-web/example-hangul`, with its end-to-end tests                                                                                                            |
+| `examples/*`                                                                          | `@ibus-web/example-demo`, with its end-to-end tests                                                                                                              |
 | `runtime/ibus-runtime`, `runtime/wasmfs-idb`, `modules/emscripten`, `modules/testing` | the JavaScript Emscripten links into those components, and their Vitest suites                                                                                   |
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix
@@ -422,7 +422,7 @@ flake-root, systems and files, which have no current FlakeHub entries, from GitH
 
 - **`nix run .#write-files`** writes every generated file ([the dev shell](#the-dev-shell) lists
   them).
-- **`nix run .#demo`** serves the Hangul demo ([examples/hangul](../examples/hangul/README.md)).
+- **`nix run .#demo`** serves the demo of every module ([examples/demo](../examples/demo/README.md)).
 - **`nix run .#keystroke-bench`** times a production-preview browser run of trusted keys ([testing.md](testing.md)).
 - **`nix run .#protocol-bench`** times decoding a framed 500-candidate lookup table from the built
   workspace. It is an app rather than a check, since wall-clock timing on a loaded builder means

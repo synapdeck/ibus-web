@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { cpus, platform, release, arch, totalmem } from "node:os";
-import { test, expect, hangul } from "./fixtures.ts";
+import { test, expect } from "./fixtures.ts";
+import { hangul } from "./hangul.ts";
 interface Sample {
   key: string;
   milliseconds: number;
