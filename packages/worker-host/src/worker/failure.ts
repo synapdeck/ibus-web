@@ -4,7 +4,7 @@
 // How the host's scopes fail, and whether a failure left the runtime fit to
 // call: only then do finalizers call into it.
 
-import { errorReport } from "@ibus-web/protocol";
+import { CrashReason, errorReport } from "@ibus-web/protocol";
 import { Cause, Data, Effect, Exit, type Scope } from "effect";
 import { RuntimeRefused } from "./runtime.ts";
 
@@ -60,3 +60,67 @@ export const runtimeFinalizer = <R>(
   release: Effect.Effect<void, never, R>,
 ): Effect.Effect<void, never, R | Scope.Scope> =>
   Effect.addFinalizer((exit) => (runtimeIntact(exit) ? release : Effect.void));
+
+// What Emscripten throws to unwind the runtime's thread once another thread
+// has crashed. That thread's own error reaches this one's event loop only
+// afterwards, as an uncaught error.
+const UNWIND = "unwind";
+
+// The promise's value, or fallback if it takes longer than ms.
+export const within = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+
+// What the Crashed record says: what is known at once, which a crashed
+// thread's own error isn't; the crash report carries that.
+export interface CrashRecord {
+  readonly reason: number;
+  readonly message: string;
+}
+
+// Cleanup failures are defects because Effect finalizers cannot fail through
+// the typed channel. Their RuntimeStopped value still controls later scopes.
+const crashFailure = (cause: Cause.Cause<unknown>): RuntimeStopped | RelayFailed | undefined => {
+  for (const reason of cause.reasons) {
+    let error: unknown;
+    if (Cause.isFailReason(reason)) error = reason.error;
+    else if (Cause.isDieReason(reason)) error = reason.defect;
+    else continue;
+
+    if (error instanceof RuntimeStopped || error instanceof RelayFailed) return error;
+  }
+
+  return undefined;
+};
+
+export const stoppedRecord = (failure: RuntimeStopped): CrashRecord => ({
+  reason: failure.reason ?? CrashReason.trap,
+  message: failure.error === UNWIND ? "a thread crashed" : errorReport(failure.error),
+});
+
+export const crashRecord = (cause: Cause.Cause<unknown>): CrashRecord => {
+  const failure = crashFailure(cause);
+
+  if (failure instanceof RelayFailed) return { reason: CrashReason.relay, message: `relay: ${failure.message}` };
+  if (failure instanceof RuntimeStopped) return stoppedRecord(failure);
+  return { reason: CrashReason.host, message: Cause.pretty(cause) };
+};
+
+export const crashMessage = (
+  cause: Cause.Cause<unknown>,
+  threadError: Promise<string>,
+  waitMs: number,
+): Promise<string> => {
+  const failure = crashFailure(cause);
+
+  if (failure instanceof RelayFailed) return Promise.resolve(`relay: ${failure.message}`);
+  if (failure instanceof RuntimeStopped) {
+    if (failure.error !== UNWIND) return Promise.resolve(errorReport(failure.error));
+    return within(threadError, waitMs, "its error never arrived").then((why) => `a thread crashed: ${why}`);
+  }
+  return Promise.resolve(Cause.pretty(cause));
+};
+
+export const startupMessage = (cause: Cause.Cause<unknown>): string => {
+  const error = Cause.findErrorOption(cause);
+  return error._tag === "Some" && error.value instanceof StartupFailed ? error.value.message : Cause.pretty(cause);
+};

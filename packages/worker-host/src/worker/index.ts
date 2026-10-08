@@ -8,7 +8,8 @@
 import { Effect } from "effect";
 import type { HostInit } from "../shared/messages.ts";
 import { HostConfig } from "./config.ts";
-import { program, type WorkerEnv } from "./host.ts";
+import { program } from "./host.ts";
+import type { WorkerEnv } from "./layers/worker.ts";
 
 const env: WorkerEnv = {
   post: (message) => self.postMessage(message),

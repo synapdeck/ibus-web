@@ -27,7 +27,7 @@ import {
   type HostWorkerShape,
   type UncaughtError,
   type WorkerEnv,
-} from "../../src/worker/host.ts";
+} from "../../src/worker/layers/worker.ts";
 
 describe("HostConfig", () => {
   it.effect("holds the defaults, of which a test may shorten some", () =>

@@ -7,7 +7,8 @@
 import { Effect } from "effect";
 import type { HostInit } from "../../src/shared/messages.ts";
 import { defaultHostConfig, HostConfig } from "../../src/worker/config.ts";
-import { program, type WorkerEnv } from "../../src/worker/host.ts";
+import { program } from "../../src/worker/host.ts";
+import type { WorkerEnv } from "../../src/worker/layers/worker.ts";
 import { Instruments } from "../../src/worker/instruments.ts";
 import type { TestInit } from "../shared/testing.ts";
 import { makeInstruments } from "./instruments.ts";
