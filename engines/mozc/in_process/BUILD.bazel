@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+package(default_visibility = ["//:__subpackages__"])
+
+cc_library(
+    name = "in_process",
+    srcs = ["in_process.cc"],
+    hdrs = ["in_process.h"],
+    deps = [
+        "//base:version",
+        "//client",
+        "//client:client_interface",
+        "//data_manager",
+        "//engine",
+        "//ipc",
+        "//protocol:commands_cc_proto",
+        "//session:session_handler",
+        "//session:session_handler_interface",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+    ],
+)

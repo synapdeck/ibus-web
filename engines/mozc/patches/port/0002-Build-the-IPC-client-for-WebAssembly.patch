@@ -1,0 +1,54 @@
+From e5e210169659348ddddbfee740e97b0cf04a58b2 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 8 Oct 2026 15:55:31 -0700
+Subject: [PATCH 2/3] Build the IPC client for WebAssembly
+
+The client library depends on the IPC path manager and the default IPC
+client even when its connection is replaced and no server process is
+used. On WebAssembly both take the generic Unix branch; nothing calls
+the Unix socket code there.
+---
+ src/ipc/ipc_path_manager.cc | 4 ++--
+ src/ipc/unix_ipc.cc         | 6 +++---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/ipc/ipc_path_manager.cc b/src/ipc/ipc_path_manager.cc
+index 3edbde0..97db1e5 100644
+--- a/src/ipc/ipc_path_manager.cc
++++ b/src/ipc/ipc_path_manager.cc
+@@ -58,9 +58,9 @@
+ #include "ipc/ipc.h"
+ #include "ipc/ipc.pb.h"
+ 
+-#if defined(__ANDROID__) || defined(__wasm__)
++#if defined(__ANDROID__)
+ #error "This platform is not supported."
+-#endif  // __ANDROID__ || __wasm__
++#endif  // __ANDROID__
+ 
+ #ifdef __APPLE__
+ #include <sys/sysctl.h>
+diff --git a/src/ipc/unix_ipc.cc b/src/ipc/unix_ipc.cc
+index 0d9a73d..a9f949c 100644
+--- a/src/ipc/unix_ipc.cc
++++ b/src/ipc/unix_ipc.cc
+@@ -27,8 +27,8 @@
+ // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+-// __linux__ only. Note that __ANDROID__/__wasm__ don't reach here.
+-#if defined(__linux__)
++// __linux__ and __wasm__ only. Note that __ANDROID__ doesn't reach here.
++#if defined(__linux__) || defined(__wasm__)
+ 
+ #include <fcntl.h>
+ #include <sys/select.h>
+@@ -478,4 +478,4 @@ void IPCServer::Terminate() {
+ 
+ }  // namespace mozc
+ 
+-#endif  // __linux__
++#endif  // __linux__ || __wasm__
+-- 
+2.55.0
+

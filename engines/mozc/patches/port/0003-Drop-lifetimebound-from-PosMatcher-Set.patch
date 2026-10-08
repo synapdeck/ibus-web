@@ -1,4 +1,4 @@
-From 5b3d864c812e2436cf9ec90311f7dd10f4371342 Mon Sep 17 00:00:00 2001
+From b107cb641fa346b78f6a5d6e3f479b792e67902f Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Thu, 8 Oct 2026 15:55:31 -0700
 Subject: [PATCH 3/3] Drop lifetimebound from PosMatcher::Set

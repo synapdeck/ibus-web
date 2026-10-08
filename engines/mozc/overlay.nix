@@ -105,6 +105,8 @@ in
                     --replace-fail @cxx@ "$(command -v $CXX)"
                   chmod +x src/ibus_web_toolchain/cc
 
+                  cp -r --no-preserve=mode ${./in_process} src/ibus_web_in_process
+
                   mkdir src/ibus_web_converter_check
                   cp ${./checks/converter/converter.cc} src/ibus_web_converter_check/converter.cc
                   substitute ${./checks/converter/BUILD.bazel} src/ibus_web_converter_check/BUILD.bazel \

@@ -15,9 +15,8 @@ cc_binary(
     ],
     deps = [
         "//base:system_util",
-        "//data_manager",
-        "//engine",
+        "//client",
+        "//ibus_web_in_process:in_process",
         "//protocol:commands_cc_proto",
-        "//session:session_handler",
     ],
 )
