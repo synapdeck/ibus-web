@@ -13,6 +13,7 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 | [glib.md](glib.md)               | `pkgsWasm.glib`: the patch series, function-pointer casts, the platform backends, GLib's own tests and their gate                                                            |
 | [runtime.md](runtime.md)         | `libibus-web`, `ibus-runtime.wasm` and side modules; the pump and the wake design; the thread pool and its shares; fixed memory per Worker                                   |
 | [engines.md](engines.md)         | Engine recipe overrides, FHS data, patch layers, callback audits and Hangul golden tests                                                                                     |
+| [table.md](table.md)             | The table engine: its table format, the X-SAMPA and LaTeX tables and their sources, command and continuous mode, MARISA, its native checks                                   |
 | [storage.md](storage.md)         | The WasmFS IndexedDB backend; engine data per version, its locks and installs; the writer lock; durability and costs                                                         |
 | [worker-host.md](worker-host.md) | `@ibus-web/worker-host`: the host's scopes, request loop, relay and pool top-up, failures, storage and engine data, and its test suites                                      |
 | [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the demo                                                                             |
