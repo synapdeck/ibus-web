@@ -11,7 +11,7 @@ export interface NodeFs {
     sync(): Promise<void>;
     close(): Promise<void>;
   }>;
-  readFile(path: string, encoding: "utf8"): Promise<string>;
+  readFile(path: string | URL, encoding: "utf8"): Promise<string>;
   readdir(path: string): Promise<string[]>;
   rename(from: string, to: string): Promise<void>;
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;

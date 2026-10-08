@@ -4,6 +4,7 @@ import { decodeEngineManifest, type EngineManifest } from "@ibus-web/protocol";
 import type { HostInit, RuntimeConstants } from "../shared/messages.ts";
 import { Schema } from "effect";
 import { StartupFailed } from "./failure.ts";
+import { nodeFs } from "./node-fs.ts";
 
 export const checkManifest = (value: unknown, constants: RuntimeConstants): EngineManifest => {
   let manifest: EngineManifest;
@@ -74,11 +75,7 @@ export const readRuntimeConstants = async (runtimeUrl: string): Promise<RuntimeD
     url = new URL("constants.json", runtimeUrl);
     const text =
       url.protocol === "file:"
-        ? await (
-            await (import("node:fs/promises" as string) as Promise<{
-              readFile(url: URL, encoding: "utf8"): Promise<string>;
-            }>)
-          ).readFile(url, "utf8")
+        ? await (await nodeFs()).readFile(url, "utf8")
         : new TextDecoder().decode(await fetchBytes(url.href));
     const constants = Schema.decodeUnknownSync(runtimeConstants)(JSON.parse(text));
     if (constants.memory.minimum > constants.memory.maximum) throw new Error("minimum memory exceeds maximum");

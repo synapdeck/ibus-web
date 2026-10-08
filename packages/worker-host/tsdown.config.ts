@@ -36,8 +36,8 @@ const worker = (name: string, source: string, tsconfig: string): UserConfig => (
   entry: { [name]: source },
   tsconfig,
   dts: false,
-  // The Node store and mount import node:fs/promises only when running under
-  // Node; a browser never reaches that import.
+  // node:fs/promises is imported lazily, only when running under Node; a
+  // browser never reaches that import.
   deps: {
     alwaysBundle: [/^@ibus-web\/protocol(?:\/|$)/, "effect", /^effect\//, /^brotli-dec-wasm/],
     neverBundle: [/^node:/],
