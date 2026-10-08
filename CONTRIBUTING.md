@@ -33,7 +33,7 @@ gives the Nix conventions: which file holds a component's module, options, check
    `protocol.h`, and the notices. Change the Nix that declares them, then run `nix run .#write-files`. The
    `files:<path>` check fails while a tracked copy differs.
 2. **License headers.** Every file you write starts with `SPDX-FileCopyrightText: 2026 Synapdeck, Inc.` and
-   `SPDX-License-Identifier: MIT OR Apache-2.0` in its comment syntax (`libibus-web` uses `LGPL-2.1-or-later`). A file
+   `SPDX-License-Identifier: MIT OR Apache-2.0` in its comment syntax (`libibus-web` uses `LGPL-2.1-or-later`, and engine files take the engine's licence: `engines/hangul` is `GPL-2.0-or-later`). A file
    that can't hold comments, such as strict JSON, gets an entry in `REUSE.toml`. hk runs `reuse lint` on every commit.
 3. **Checks.** A focused check is `nix build .#checks.x86_64-linux.<name> -L`. Before you push, run
    `nix flake check -L` (the default gates, which CI's `check` job runs) and `nix build .#integration-checks -L` (the

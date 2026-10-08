@@ -15,14 +15,15 @@ text fields, and shows its candidates.
   the default panel.
 
 The two halves talk only through a versioned protocol over a dedicated `SharedArrayBuffer`. That boundary is also the
-licensing boundary. Engines are GPL, but the page packages are MIT OR Apache-2.0 and never contain Worker, runtime or
-engine code, so any page can use them. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP
+licensing boundary. Engines are GPL, but the page packages are MIT OR Apache-2.0: the page's bundle never contains Worker,
+runtime or engine code, which load by URL from the Worker assets, and no npm package contains the GPL engine or runtime
+code, so any page can use them. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP
 `require-corp`).
 
 ## Try it
 
-You need [Nix](https://nixos.org/download/) with flakes enabled. The flake builds for x86_64-linux, aarch64-linux and
-aarch64-darwin; CI runs on x86_64-linux.
+You need [Nix](https://nixos.org/download/) with flakes enabled. The flake evaluates for x86_64-linux, aarch64-linux and
+aarch64-darwin, but only x86_64-linux is built and checked.
 
 ```sh
 nix run .#demo
@@ -52,7 +53,7 @@ They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how 
 | `runtime/`  | the WebAssembly runtime: `libibus-web`, the IndexedDB storage backend, and the `ibus-runtime.wasm` link      |
 | `engines/`  | one directory per engine: its overlay, patches and checks                                                    |
 | `modules/`  | Nix several components share: the Emscripten toolchain, GLib, engines, TypeScript, testing, the flake and CI |
-| `tools/`    | one package per build or check tool                                                                          |
+| `tools/`    | the build and check tools, one package each, with Nix beside those that need it                              |
 | `examples/` | the Hangul demo and its end-to-end tests                                                                     |
 | `docs/`     | how everything works and why, the design spec, and draft upstream reports                                    |
 

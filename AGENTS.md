@@ -14,10 +14,11 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
 - Every directory holding TypeScript is a pnpm workspace package whose `package.json` declares exactly what it
   imports. The root `package.json` has no dependencies; don't add any.
 - tsconfigs sit only at package roots, one per compile configuration: `tsconfig.json` (a solution file that only
-  references the others), `tsconfig.<target>.json`, `tsconfig.test.json`, `tsconfig.test-browser.json`,
-  `tsconfig.config.json`. A package with one configuration has only `tsconfig.json`. Each extends a preset from
-  `@ibus-web/tsconfig` (`base`, `dom`, `worker`, `node`, `emscripten-js`) or its own package's `tsconfig.json`; hk's
-  `tsconfig-extends` step enforces this.
+  references the others) and files such as `tsconfig.<target>.json`, `tsconfig.test.json`, `tsconfig.test-browser.json`
+  and `tsconfig.config.json`. A package with one configuration has only `tsconfig.json`. Each extends a preset from
+  `@ibus-web/tsconfig` (`base`, `dom`, `worker`, `node`, `emscripten-js`) or another config of its own package, never
+  the solution `tsconfig.json` (`runtime/wasmfs-idb/tsconfig.library-types.json` extends `./tsconfig.worker.json`);
+  hk's `tsconfig-extends` step enforces this.
 - A tool is a package `tools/<name>/` (`@ibus-web/<name>`, private) with its own `package.json` and `tsconfig.json`, a
   `vitest.config.ts` when it has tests, and `checks.nix` when it only has checks or `module.nix` when it also provides
   something.
@@ -28,6 +29,9 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
   - `overlay.nix`, its overlay on `pkgsWasm`;
   - `_<name>.nix`, a plain `callPackage` recipe, which import-tree skips.
 
+  A module with more than one job splits into further modules named for each job (`exports.nix`, `archives.nix`,
+  `cache.nix`, …).
+
   No `default.nix`. A check with fixtures of its own gets a directory under `checks/` holding its `checks.nix`.
   `modules/` is only for infrastructure several components share. Modules never import each other; they share values
   through `ibusWeb.*` options.
@@ -35,7 +39,8 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
 - A helper two modules need goes in `ibusWeb.lib` (declared in `modules/flake/lib.nix`), not into a copy.
 - Derivations are named `ibus-web-<what>`, except the project's own artifacts (`libibus-web`, `wasmfs-idb`,
   `ibus-runtime`), upstream packages and command wrappers. Checks are named `<area>-<what>`, the area being the
-  component's directory: `hangul-golden`, `tools-cast-audit`, `glib-settings-listeners`.
+  component's directory: `hangul-golden`, `tools-cast-audit`, `glib-settings-listeners`. The `files:<path>` checks from the files module are the exception: they are named for the
+  generated file they guard.
 
 ## Generated files: never edit by hand
 
