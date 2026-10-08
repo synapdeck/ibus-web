@@ -65,7 +65,7 @@
 
             # \space types a single space. Trimming the output would leave it
             # empty, which the parser rejects, so parsing the table pins it.
-            grep -Fx "$(printf '\\space\t ')" ${tables}/latex.table
+            grep -qFx "$(printf '\\space\t ')" ${tables}/latex.table
 
             describe=$(table-describe ${tables}/latex.table ${tables}/xsampa.table)
             if [ "$describe" != ${lib.escapeShellArg descriptors} ]; then
