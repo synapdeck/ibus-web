@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import { Effect } from "effect";
+import { textareaAdapter } from "../../src/adapters/textarea.ts";
 import type { RouterService } from "../../src/router/router.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "../../src/router/replay.ts";
 import { key, record, run, select, text } from "./support/dom.ts";
@@ -281,3 +283,31 @@ test("scope teardown visits all adapters and closes the registry after a callbac
   expect(await pending).toBe("cancelled");
   expect(terminated!()).toBe(true);
 });
+test("an async textarea undoes natively when the engine declines Ctrl+z", () =>
+  run(async ({ router, connections }) => {
+    const element = document.createElement("textarea");
+    element.value = "a";
+    document.body.append(element);
+    const adapter = textareaAdapter(element);
+    router.attach(adapter, { keyMode: "async" });
+    await userEvent.click(element);
+    await select(router);
+    adapter.commit("한");
+    const c = connections.a[0]!;
+    c.hold = "ProcessKeyEvent";
+
+    const event = new KeyboardEvent("keydown", {
+      key: "z",
+      code: "KeyZ",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    element.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(element.value).toBe("a한");
+
+    c.completeAsync(0);
+    await select(router);
+    expect(element.value).toBe("a");
+  }));

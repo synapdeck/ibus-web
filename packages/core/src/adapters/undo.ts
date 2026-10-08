@@ -17,6 +17,7 @@ const snapshot = (element: NativeInput): EditState => ({
 /** Defer reply edits so deletion and commit share one native history entry. */
 export function nativeEdits(element: NativeInput) {
   let pending: EditState | undefined;
+  let base: EditState | undefined;
   let depth = 0;
   let affected: { start: number; end: number } | undefined;
   let originalLength = 0;
@@ -65,20 +66,29 @@ export function nativeEdits(element: NativeInput) {
     current,
     batch(run: () => void) {
       if (depth++ === 0) {
-        pending = snapshot(element);
-        originalLength = pending.value.length;
+        base = snapshot(element);
+        pending = base;
+        originalLength = base.value.length;
         affected = undefined;
       }
-      const before = snapshot(element);
       try {
         run();
       } finally {
         if (--depth === 0) {
           const after = pending!;
           pending = undefined;
-          apply(before, after, affected);
+          apply(base!, after, affected);
         }
       }
+    },
+    /** Apply a batch's edits so far, so that a native command run inside it sees them. */
+    flush() {
+      if (!depth) return;
+      apply(base!, pending!, affected);
+      base = snapshot(element);
+      pending = base;
+      originalLength = base.value.length;
+      affected = undefined;
     },
     replace(text: string, start: number, end: number, preserve = false) {
       const before = current();

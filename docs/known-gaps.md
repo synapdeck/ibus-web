@@ -145,7 +145,11 @@ An item leaves this page when it is fixed or decided.
   If the field is unfocused or `execCommand` is unavailable, the `setRangeText`
   fallback dispatches a synthetic input event and has no native undo. Trusted
   Chromium blur commit reaches this fallback. Full clipboard and platform-complete
-  navigation remain open; a concrete CodeMirror adapter is not shipped.
+  navigation remain open; a concrete CodeMirror adapter is not shipped. A shortcut
+  the engine declines after the router queued it loses its browser action unless
+  the adapter can perform it: the textarea adapter covers undo, redo, select all,
+  cut and copy, but not paste, word-wise deletion or navigation, or browser
+  shortcuts such as find. Those are logged as warnings instead.
   See [core.md](core.md).
 - **Engine errors reach the host only as state.** A crash, hang or load failure
   shows as an `enginestate` change (`restarting`, `ready`, `failed`), and `select`

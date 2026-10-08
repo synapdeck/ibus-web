@@ -94,6 +94,9 @@ trail the reply by a frame, and then continues synchronously. It queues when the
 reply has not arrived, while a reset reservation holds keys, and behind retained keys.
 A doorbell completes the outstanding work; retained keys then run asynchronously,
 one at a time. Declined retained keys are applied through `replayKey`, exactly once.
+The router has already prevented their browser default, so `replayKey` returns
+false for a shortcut whose browser action it cannot perform, and the router logs
+that loss as a warning in the `page-adapter` domain.
 The per-engine FIFO is shared by all attachments and modes; its default bound is
 64 retained events, including the in-flight key. The doorbell word is cleared
 before draining to avoid losing a wake.
@@ -194,6 +197,16 @@ When the command is unavailable or the field has lost focus, `setRangeText` plus
 synthetic input event applies the edit without native undo. Production Chromium
 blur commit reaches this fallback; focused native undo and blur commit were tested
 as separate behaviors. Unsupported selection APIs retain end-of-value fallback.
+
+A replayed Ctrl chord (Command on Apple platforms) runs the editing command it
+names: Z undoes, Shift+Z redoes (as does Ctrl+Y elsewhere), A selects all, and
+X and C cut and copy through `execCommand`, which needs the page's transient user
+activation. Inside a batch, the batch's earlier edits are applied first so the
+command sees them. Paste has no page-side equivalent, since `execCommand("paste")`
+is refused in web content; it and every other chord return false. These chords
+cannot be passed through before the engine replies, because engines bind Ctrl
+chords of their own.
+
 The callback remains optional; full clipboard/platform navigation and a concrete
 CodeMirror adapter are not shipped.
 

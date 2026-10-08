@@ -13,6 +13,11 @@ const position = (element: Input) =>
   element.selectionDirection === "backward"
     ? { cursor: element.selectionStart ?? element.value.length, anchor: element.selectionEnd ?? element.value.length }
     : { cursor: element.selectionEnd ?? element.value.length, anchor: element.selectionStart ?? element.value.length };
+const modifierKeys = new Set(["Alt", "AltGraph", "CapsLock", "Control", "Fn", "Hyper", "Meta", "OS", "Shift", "Super"]);
+const applePlatform = () =>
+  /Mac|iPhone|iPad|iPod/i.test(
+    (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform || navigator.platform,
+  );
 const boundary = (text: string, offset: number, step: number) => {
   if (step < 0) return offset - (Array.from(text.slice(0, offset)).at(-1)?.length ?? 0);
   return offset + (text.codePointAt(offset)! > 0xffff ? 2 : offset < text.length ? 1 : 0);
@@ -30,6 +35,7 @@ export function textareaAdapter(
       : { cursor: state.end, anchor: state.start };
   };
   const overlay = preeditOverlay(element, () => position(element).cursor);
+  const apple = applePlatform();
   let ownEdit = 0;
   let lastValue = element.value;
   let lastSelection = position(element);
@@ -82,6 +88,32 @@ export function textareaAdapter(
       );
       remember();
     } else if ([...key].length === 1) replace(key, start, end);
+  };
+  // Paste has no page-side equivalent: execCommand("paste") is refused in web content.
+  const shortcut = (event: KeyboardEvent): boolean => {
+    const primary = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    if (!primary || event.altKey) return false;
+    const letter = /^[a-z]$/i.test(event.key) ? event.key.toLowerCase() : /^Key([A-Z])$/.exec(event.code)?.[1];
+    if (letter?.toLowerCase() === "a" && !event.shiftKey) {
+      edits.select(0, edits.current().value.length, "forward");
+      remember();
+      return true;
+    }
+
+    const commands: Record<string, string | undefined> = event.shiftKey
+      ? { z: "redo" }
+      : { z: "undo", y: apple ? undefined : "redo", x: "cut", c: "copy" };
+    const command = commands[letter?.toLowerCase() ?? ""];
+    const document = element.ownerDocument;
+    if (!command || document.activeElement !== element) return false;
+
+    // The command acts on the control's live value, which must already hold the batch's edits.
+    edits.flush();
+    try {
+      return document.execCommand(command);
+    } catch {
+      return false;
+    }
   };
   return {
     element,
@@ -147,12 +179,11 @@ export function textareaAdapter(
       options.onPreedit?.(preedit);
     },
     replayKey: (event) => {
-      if (event.type !== "keyup")
-        replay(
-          event.key,
-          event.shiftKey,
-          event.metaKey || (!event.getModifierState("AltGraph") && (event.ctrlKey || event.altKey)),
-        );
+      if (event.type === "keyup" || modifierKeys.has(event.key)) return true;
+      if (event.metaKey || (!event.getModifierState("AltGraph") && (event.ctrlKey || event.altKey)))
+        return shortcut(event);
+      replay(event.key, event.shiftKey);
+      return true;
     },
     forwardKey: (key) => {
       if (key.state & IBusModifier.RELEASE) return;

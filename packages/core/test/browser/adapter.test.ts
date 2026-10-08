@@ -83,6 +83,85 @@ for (const tag of ["input", "textarea"] as const) {
     expect(element.value).toBe("a😀bc");
   });
 }
+function onMac() {
+  const platforms = { platform: "MacIntel", userAgentData: { platform: "macOS" } };
+  for (const [name, value] of Object.entries(platforms)) {
+    Object.defineProperty(navigator, name, { configurable: true, get: () => value });
+    cleanup.push(() => Reflect.deleteProperty(navigator, name));
+  }
+}
+const chord = (key: string, modifiers: KeyboardEventInit = { ctrlKey: true }) =>
+  new KeyboardEvent("keydown", { key, code: `Key${key.toUpperCase()}`, ...modifiers });
+for (const tag of ["input", "textarea"] as const)
+  test(`${tag}: declined undo, redo and select-all chords perform their native edits`, async () => {
+    const { element, adapter } = field(tag, "a");
+    await userEvent.click(element);
+    adapter.commit("한");
+
+    expect(adapter.replayKey(chord("z"))).toBe(true);
+    expect(element.value).toBe("a");
+    expect(adapter.replayKey(chord("Z", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(element.value).toBe("a한");
+    adapter.replayKey(chord("z"));
+    expect(adapter.replayKey(chord("y"))).toBe(true);
+    expect(element.value).toBe("a한");
+
+    expect(adapter.replayKey(chord("a"))).toBe(true);
+    expect([element.selectionStart, element.selectionEnd]).toEqual([0, 2]);
+  });
+test("declined cut and copy chords use the native clipboard commands while the page has user activation", async () => {
+  const { element, adapter } = field("textarea", "abc");
+  await userEvent.click(element);
+  const commands = vi.spyOn(document, "execCommand");
+  element.setSelectionRange(1, 2);
+
+  expect(adapter.replayKey(chord("c"))).toBe(true);
+  expect(commands).toHaveBeenLastCalledWith("copy");
+  expect(adapter.replayKey(chord("x"))).toBe(true);
+  expect(commands).toHaveBeenLastCalledWith("cut");
+  expect(element.value).toBe("ac");
+});
+test("a declined undo replayed inside a batch undoes the batch's earlier commit", async () => {
+  const { element, adapter } = field("textarea", "a");
+  await userEvent.click(element);
+  adapter.commit("b");
+
+  adapter.batch(() => {
+    adapter.commit("한");
+    adapter.replayKey(chord("z"));
+  });
+  expect(element.value).toBe("ab");
+});
+test("paste, unbound chords and Mac Control chords report that their action was lost", async () => {
+  const { element, adapter } = field("textarea", "abc");
+  await userEvent.click(element);
+
+  expect(adapter.replayKey(chord("v"))).toBe(false);
+  expect(adapter.replayKey(chord("b"))).toBe(false);
+  expect(adapter.replayKey(new KeyboardEvent("keydown", { key: "Control", ctrlKey: true }))).toBe(true);
+  expect(adapter.replayKey(new KeyboardEvent("keyup", { key: "v", ctrlKey: true }))).toBe(true);
+  expect(element.value).toBe("abc");
+
+  adapter.commit("d");
+  onMac();
+  const mac = textareaAdapter(element);
+  expect(mac.replayKey(chord("z"))).toBe(false);
+  expect(element.value).toBe("abcd");
+});
+test("Mac maps undo, redo and select all to Command", async () => {
+  onMac();
+  const { element, adapter } = field("textarea", "a");
+  await userEvent.click(element);
+  adapter.commit("한");
+
+  expect(adapter.replayKey(chord("z", { metaKey: true }))).toBe(true);
+  expect(element.value).toBe("a");
+  expect(adapter.replayKey(chord("Z", { metaKey: true, shiftKey: true }))).toBe(true);
+  expect(element.value).toBe("a한");
+  expect(adapter.replayKey(chord("y", { metaKey: true }))).toBe(false);
+  expect(adapter.replayKey(chord("a", { metaKey: true }))).toBe(true);
+  expect([element.selectionStart, element.selectionEnd]).toEqual([0, 2]);
+});
 test("unfocused and unavailable native command paths use setRangeText and synthetic input", () => {
   const { element, adapter, reset } = field();
   element.blur();

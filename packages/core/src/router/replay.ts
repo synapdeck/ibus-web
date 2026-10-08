@@ -23,7 +23,8 @@ export interface SurfaceAdapter {
   commit(text: string): void;
   deleteSurrounding(offset: number, count: number): void;
   setPreedit(preedit: Preedit | undefined): void;
-  replayKey(event: KeyboardEvent): void;
+  /** Returns false when the key was a shortcut whose browser action could not be performed. */
+  replayKey(event: KeyboardEvent): boolean | void;
   forwardKey(key: { keyval: number; keycode: number; state: number }): void;
   onReset(listener: () => void): () => void;
 }

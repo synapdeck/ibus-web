@@ -358,13 +358,32 @@ export class KeyRouter {
   private fallback(pending: PendingKey): void {
     try {
       if (this.attached(pending.context)) {
-        pending.context.adapter.replayKey(pending.event);
+        if (pending.context.adapter.replayKey(pending.event) === false) this.lost(pending);
         this.finished(pending, "replayed");
       } else this.finished(pending);
     } catch (error) {
       this.finished(pending, { error });
       if (!pending.completion) throw error;
     }
+  }
+  /** The router prevented this key's default before the engine declined it, so say what the user lost. */
+  private lost({ context, event }: PendingKey): void {
+    const chord = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta"]
+      .filter(Boolean)
+      .concat(event.key)
+      .join("+");
+    this.output.enqueue({
+      seq: 0,
+      ic: context.ic,
+      flags: 0,
+      size: 0,
+      record: {
+        _tag: "Log",
+        level: 16,
+        domain: "page-adapter",
+        message: `The engine declined ${chord} after it was queued, and the page cannot perform its browser action`,
+      },
+    });
   }
   private complete(reply: Reply): void {
     const pending = this.active;

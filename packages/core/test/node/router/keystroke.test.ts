@@ -145,3 +145,13 @@ test("held keys queue without settling a finished lifecycle reply", () => {
   expect(f.connection.sent.map((sent) => sent.mode)).toEqual(["async"]);
   release();
 });
+
+test("a declined retained key whose shortcut the adapter cannot perform is logged", () => {
+  const f = fixture();
+  f.context.adapter.replayKey = () => false;
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(ctrl("v"));
+
+  f.connection.completeAbandoned(0);
+  expect(f.logs).toMatchObject([{ ic: 1, record: { _tag: "Log", level: 16, domain: "page-adapter" } }]);
+});
