@@ -253,14 +253,14 @@ export const coldWake = async (h: Harness, { client }: RunningHost): Promise<voi
 const CROSS_WORKER_CLOCK_SKEW_MS = 0.05;
 
 // idle-later(50) ×20 with the host idle: every source dispatched, never
-// before its attach (to within the clock skew between Workers), and within 500 ms of it; the median and the longest are
-// recorded (on a quiet machine, well under a millisecond). The host gets no
-// request while the source is pending, so only GLib's wake can get it
-// dispatched; the first poll wakes the host too, so it waits until a source
-// left for that would be later than the bound. The bound is generous: a
-// host on a loaded machine is descheduled now and then. The host it runs on
-// has had no idle-later before,
-// so idle-result has nothing to report yet; and a second idle-later while the
+// before its attach (to within the clock skew between Workers), and within
+// 500 ms of it; the median and the longest are recorded (on a quiet machine,
+// well under a millisecond). The host gets no request while the source is
+// pending, so only GLib's wake can get it dispatched; the first poll wakes
+// the host too, so it waits until a source left for that would be later than
+// the bound. The bound is generous: a host on a loaded machine is descheduled
+// now and then. The host it runs on has had no idle-later before, so
+// idle-result has nothing to report yet; and a second idle-later while the
 // first is pending is refused, since there is one source to time. The first
 // one's delay is far longer than a round trip, so it is still pending however
 // late the second arrives.
@@ -284,7 +284,9 @@ export const crossThreadWake = async (h: Harness, { client }: RunningHost, bound
     minMs: round(sorted[0]!),
     boundMs,
   });
-  expect(sorted[0], "the earliest dispatch, after its attach").toBeGreaterThanOrEqual(-CROSS_WORKER_CLOCK_SKEW_MS);
+  expect(sorted[0], "the earliest dispatch, no earlier than its attach within the clock skew").toBeGreaterThanOrEqual(
+    -CROSS_WORKER_CLOCK_SKEW_MS,
+  );
   expect(sorted.at(-1), "longest attach to dispatch, ms").toBeLessThanOrEqual(boundMs);
 };
 
