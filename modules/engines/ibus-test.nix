@@ -89,40 +89,57 @@
             cp ${../../tools/ibus-test/fixtures/org.example.IBusConformance.gschema.xml} $out/glib-2.0/schemas/
             glib-compile-schemas $out/glib-2.0/schemas
           '';
-      fixtureBus = pkgs.writeText "ibus-test-conformance-bus.conf" ''
+      # A session bus of the test's own, which admits anyone on it.
+      sessionBusConfig = pkgs.writeText "ibus-web-ibus-test-session-bus.conf" ''
         <busconfig>
-          <type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>
+          <type>session</type>
+          <listen>unix:tmpdir=/tmp</listen>
+          <auth>EXTERNAL</auth>
           <policy context="default">
-            <allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/>
+            <allow own="*"/>
+            <allow send_destination="*"/>
+            <allow receive_sender="*"/>
           </policy>
         </busconfig>
       '';
-      fixtureConfig = pkgs.writeText "ibus-test-conformance-config.json" (
-        builtins.toJSON {
-          sessionBus = [
-            "${pkgs.dbus}/bin/dbus-daemon"
-            "--config-file=${fixtureBus}"
-          ];
-          daemon = [
-            "${pkgs.ibus}/bin/ibus-daemon"
-            "--single"
-            "--emoji-extension=disable"
-          ];
-          daemonDestination = "org.freedesktop.IBus";
-          configService = {
-            command = [ "${pkgs.ibus}/libexec/ibus-dconf" ];
-            destination = "org.freedesktop.IBus.Config";
-          };
-          engine = [ "${fixtureNative}/bin/conformance-engine" ];
-          adapter = [ "${native}/bin/ibus-test-native" ];
-          gdbus = [ "${pkgs.glib.bin}/bin/gdbus" ];
-          gsettings = [ "${pkgs.glib.bin}/bin/gsettings" ];
-          destination = "org.example.IBusConformance";
-          factory = "/org/freedesktop/IBus/Factory";
-          env.GSETTINGS_SCHEMA_DIR = "${fixtureData}/glib-2.0/schemas";
-          timeoutMs = 5000;
-        }
-      );
+      # A native IBus session around one engine, as ibusTest's nativeConfig.
+      nativeIbusConfig =
+        {
+          name,
+          engine,
+          destination,
+          env ? { },
+        }:
+        pkgs.writeText "ibus-web-${name}-native-session.json" (
+          builtins.toJSON {
+            sessionBus = [
+              "${pkgs.dbus}/bin/dbus-daemon"
+              "--config-file=${sessionBusConfig}"
+            ];
+            daemon = [
+              "${pkgs.ibus}/bin/ibus-daemon"
+              "--single"
+              "--emoji-extension=disable"
+            ];
+            daemonDestination = "org.freedesktop.IBus";
+            configService = {
+              command = [ "${pkgs.ibus}/libexec/ibus-dconf" ];
+              destination = "org.freedesktop.IBus.Config";
+            };
+            adapter = [ "${native}/bin/ibus-test-native" ];
+            gdbus = [ "${pkgs.glib.bin}/bin/gdbus" ];
+            gsettings = [ "${pkgs.glib.bin}/bin/gsettings" ];
+            factory = "/org/freedesktop/IBus/Factory";
+            timeoutMs = 5000;
+            inherit engine destination env;
+          }
+        );
+      fixtureConfig = nativeIbusConfig {
+        name = "ibus-test-conformance";
+        engine = [ "${fixtureNative}/bin/conformance-engine" ];
+        destination = "org.example.IBusConformance";
+        env.GSETTINGS_SCHEMA_DIR = "${fixtureData}/glib-2.0/schemas";
+      };
       ibusTest =
         {
           name,
@@ -238,6 +255,7 @@
         clangdQueryDrivers = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ "${pkgs.stdenv.cc}/bin/cc" ];
       };
       ibusWeb.engines.ibusTest = ibusTest;
+      ibusWeb.lib.nativeIbusConfig = nativeIbusConfig;
       packages = {
         ibus-test-wasm = wasm;
         ibus-test-tools = testTools;
