@@ -1,14 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
-{ lib, withSystem, ... }:
+{ config, lib, ... }:
 {
   flake.overlays.glib =
     final: prev:
     let
-      inherit (withSystem prev.stdenv.buildPlatform.system ({ config, ... }: config.ibusWeb.lib))
-        isEmscriptenWasm
-        patchesIn
-        ;
+      inherit (config.ibusWeb.lib) isEmscriptenWasm patchesIn;
     in
     lib.optionalAttrs (isEmscriptenWasm prev.stdenv.hostPlatform) {
       glib = prev.glib.overrideAttrs (

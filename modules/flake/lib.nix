@@ -1,8 +1,27 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-{ lib, flake-parts-lib, ... }:
 {
+  config,
+  lib,
+  flake-parts-lib,
+  ...
+}:
+let
+  flakeLib = config.ibusWeb.lib;
+in
+{
+  options.ibusWeb.lib = lib.mkOption {
+    type = lib.types.lazyAttrsOf lib.types.raw;
+    default = { };
+    description = ''
+      The helpers that depend on no system, for code outside perSystem: an overlay
+      decides whether it applies before it picks a system, so that in any package
+      set but the WebAssembly one it evaluates nothing of the flake's. perSystem's
+      ibusWeb.lib has them too.
+    '';
+  };
+
   options.perSystem = flake-parts-lib.mkPerSystemOption {
     options.ibusWeb.lib = lib.mkOption {
       type = lib.types.lazyAttrsOf lib.types.raw;
@@ -15,6 +34,19 @@
     };
   };
 
+  config.ibusWeb.lib = {
+    # The .patch files under a directory, sorted by path, so 0001-… applies
+    # first; a README beside them is not a patch.
+    patchesIn =
+      dir:
+      lib.filter (path: lib.hasSuffix ".patch" (toString path)) (lib.filesystem.listFilesRecursive dir);
+
+    # Whether a platform is the WebAssembly one pkgsWasm builds for. Overlays
+    # gate on the platform because it can be read without evaluating the
+    # compiler.
+    isEmscriptenWasm = platform: platform.isWasm && (platform.useEmscripten or false);
+  };
+
   config.perSystem =
     { config, ... }:
     let
@@ -23,16 +55,7 @@
     in
     {
       ibusWeb.lib = {
-        # The .patch files under a directory, sorted by path, so 0001-… applies
-        # first; a README beside them is not a patch.
-        patchesIn =
-          dir:
-          lib.filter (path: lib.hasSuffix ".patch" (toString path)) (lib.filesystem.listFilesRecursive dir);
-
-        # Whether a platform is the WebAssembly one pkgsWasm builds for. Overlays
-        # gate on the platform because it can be read without evaluating the
-        # compiler.
-        isEmscriptenWasm = platform: platform.isWasm && (platform.useEmscripten or false);
+        inherit (flakeLib) patchesIn isEmscriptenWasm;
 
         # Emscripten's installed tree: its system libraries' sources, its
         # JavaScript libraries and its tools.
