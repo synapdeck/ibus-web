@@ -27,9 +27,11 @@ type ErrorEventLike = new (...args: never[]) => { message: string; filename: str
 export const errorSummary = (cause: unknown): string => {
   if (cause instanceof Error || (typeof DOMException === "function" && cause instanceof DOMException))
     return `${cause.name}: ${cause.message}`;
+
   const errorEvent = (globalThis as { ErrorEvent?: ErrorEventLike }).ErrorEvent;
   if (typeof errorEvent === "function" && cause instanceof errorEvent)
     return `${cause.message} (${cause.filename}:${cause.lineno})`;
+
   return printed(cause);
 };
 
@@ -41,9 +43,11 @@ const opensWith = (stack: string, head: string): boolean => stack === head || st
 // and keeps the name the error had then, not one assigned afterwards.
 const isHeaded = (error: Error, stack: string, summary: string): boolean => {
   const constructedName: unknown = (Object.getPrototypeOf(error) as { name?: unknown } | null)?.name;
+
   const heads = [summary, summary.replace(/: $/, "")];
   if (typeof constructedName === "string")
     heads.push(error.message === "" ? constructedName : `${constructedName}: ${error.message}`);
+
   return heads.some((head) => opensWith(stack, head));
 };
 
@@ -52,6 +56,8 @@ const isHeaded = (error: Error, stack: string, summary: string): boolean => {
 // only when the stack doesn't already open with it.
 export const errorReport = (cause: unknown): string => {
   const summary = errorSummary(cause);
+
   if (!(cause instanceof Error) || !cause.stack) return summary;
+
   return isHeaded(cause, cause.stack, summary) ? cause.stack : `${summary}\n${cause.stack}`;
 };

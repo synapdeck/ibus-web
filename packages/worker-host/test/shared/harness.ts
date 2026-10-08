@@ -268,13 +268,16 @@ export const runtimeModules = <Wasm>(
   compile: (wasmUrl: string) => Promise<Wasm>,
 ): ((runtimeUrl: string) => Promise<Wasm>) => {
   const compiled = new Map<string, Promise<Wasm>>();
+
   return (runtimeUrl) => {
     const wasm = runtimeUrl.replace(/\.js$/, ".wasm");
     let module = compiled.get(wasm);
+
     if (module === undefined) {
       module = compile(wasm);
       compiled.set(wasm, module);
     }
+
     return module;
   };
 };
