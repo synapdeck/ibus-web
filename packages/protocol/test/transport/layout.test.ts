@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, test } from "@effect/vitest";
 import { transportLayout, transportViews, Word } from "../../src/index.ts";
-it("lays out the default shared buffer", () => {
+test("lays out the default shared buffer", () => {
   const layout = transportLayout();
   expect(layout).toEqual({
     slotBytes: 65536,
@@ -18,7 +18,7 @@ it("lays out the default shared buffer", () => {
   expect(new Set(Object.values(Word)).size).toBe(Object.keys(Word).length);
   expect(Math.max(...Object.values(Word))).toBeLessThan(16);
 });
-it("rejects invalid sizes and buffers", () => {
+test("rejects invalid sizes and buffers", () => {
   for (const ringBytes of [0, 32, 65, 192, 2 ** 32]) expect(() => transportLayout({ ringBytes })).toThrow();
   for (const slotBytes of [0, 7, -8, NaN, Infinity]) expect(() => transportLayout({ slotBytes })).toThrow();
   const layout = transportLayout();

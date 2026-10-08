@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Schema } from "effect";
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, test } from "@effect/vitest";
 import {
   decodeRecord,
   decodeValue,
@@ -45,7 +45,7 @@ function json<T>(path: string): T {
 describe("real IBus parity", () => {
   const paths: { corpus: string; output: string } = json(manifest);
   for (const { name, type, value } of objects) {
-    it(`C reads TypeScript ${name}`, () => {
+    test(`C reads TypeScript ${name}`, () => {
       const observed = json<ObjectFixture>(join(paths.output, "ts-objects", `${name}.json`));
       expect(observed.normal).toBe(true);
       expect(observed.value).toEqual(project(encodedObject(type, value)));
@@ -54,7 +54,7 @@ describe("real IBus parity", () => {
       );
     });
   }
-  it("TypeScript reads every C object and preserves its bytes", () => {
+  test("TypeScript reads every C object and preserves its bytes", () => {
     const files = readdirSync(join(paths.output, "c-objects"))
       .filter((name) => name.endsWith(".json"))
       .sort();
@@ -84,7 +84,7 @@ describe("real IBus parity", () => {
       ).toEqual(bytes);
     }
   });
-  it("dispatches every request with the encoded arguments and expected result", () => {
+  test("dispatches every request with the encoded arguments and expected result", () => {
     const observed = json<Record<string, RequestFixture>>(join(paths.output, "requests.json"));
     expect(Object.keys(observed)).toEqual(["init", "create", ...requests.map((request) => request.name), "destroy"]);
     expect(observed.init!.result).toBe(0);
@@ -98,7 +98,7 @@ describe("real IBus parity", () => {
       expect(observed[name]!.calls, name).toEqual([{ kind: value._tag, args: project(value) }]);
     }
   });
-  it("decodes every emitted record in sequence", () => {
+  test("decodes every emitted record in sequence", () => {
     const expected = json<Observation[]>(join(paths.output, "records.json"));
     const bytes = readFileSync(join(paths.output, "records.bin"));
     const actual: unknown[] = [];
@@ -117,7 +117,7 @@ describe("real IBus parity", () => {
       [...recordKinds.keys()].filter((name) => name !== "Crashed").sort(),
     );
   });
-  it("accepts exactly the byte strings GLib calls normal form", () => {
+  test("accepts exactly the byte strings GLib calls normal form", () => {
     const cases: { name: string; signature: string; source: keyof typeof fuzzCounts }[] = json(
       join(paths.corpus, "fuzz.json"),
     );

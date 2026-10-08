@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 import { dylinkMemorySize } from "./dylink.ts";
 
 describe("dylink.0 memory", () => {
-  it("rejects a module without the section", () => {
+  test("rejects a module without the section", () => {
     expect(() => dylinkMemorySize(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0))).toThrow(/dylink.0/);
   });
-  it("agrees with wasm-objdump on the compiled side module", () => {
+  test("agrees with wasm-objdump on the compiled side module", () => {
     const fixture = process.env.IBUS_WEB_DYLINK_FIXTURE;
     if (!fixture) throw new Error("IBUS_WEB_DYLINK_FIXTURE is required");
     const dump = execFileSync("wasm-objdump", ["-x", "--section=dylink.0", fixture], { encoding: "utf8" });

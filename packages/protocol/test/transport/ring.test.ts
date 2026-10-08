@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, it, test } from "@effect/vitest";
 import { Schema } from "effect";
 import { RingReader, RingWriter, transportLayout, transportViews, Word, RECORD_CONTINUATION } from "../../src/index.ts";
 import { published } from "./support.ts";
@@ -21,7 +21,7 @@ function setup(start = 0) {
   Atomics.store(views.words, Word.ringWrite, start);
   return { views, writer: new RingWriter(views, layout), reader: new RingReader(views, layout) };
 }
-it("delivers records in order and hides padding and short tail skips", () => {
+test("delivers records in order and hides padding and short tail skips", () => {
   for (const start of [0, 40, 56, 0xfffff000]) {
     const { writer, reader } = setup(start);
     for (let seq = 1; seq <= 200; seq++) {
@@ -31,7 +31,7 @@ it("delivers records in order and hides padding and short tail skips", () => {
     }
   }
 });
-it("resumes fragments with shared identity and continuation flags", () => {
+test("resumes fragments with shared identity and continuation flags", () => {
   const { views, writer, reader } = setup();
   const input = record(170);
   expect(writer.write(input)).toEqual({ _tag: "full", needBytes: 24 });
@@ -47,7 +47,7 @@ it("resumes fragments with shared identity and continuation flags", () => {
   const output = reader.next();
   expect(output).toEqual(input);
 });
-it("wakes a waiting writer after consumption", () => {
+test("wakes a waiting writer after consumption", () => {
   const { views, writer, reader } = setup();
   writer.write(record(8));
   Atomics.store(views.words, Word.ringWaiting, 1);
@@ -80,7 +80,7 @@ it.prop(
   },
   { arbitrary: { runs: 100, seed: 104 } },
 );
-it("fragments a record that fits the ring when available space is smaller", () => {
+test("fragments a record that fits the ring when available space is smaller", () => {
   const { writer, reader, views } = setup();
   const first = record(8);
   const second = record(32, 2);
@@ -94,7 +94,7 @@ it("fragments a record that fits the ring when available space is smaller", () =
   expect(writer.write(second)._tag).toBe("written");
   expect(reader.next()).toEqual(second);
 });
-it("rejects malformed records and changing a pending record", () => {
+test("rejects malformed records and changing a pending record", () => {
   const { writer } = setup();
   expect(() => writer.write(new Uint8Array(8))).toThrow("Truncated");
   const invalid = record(8);
@@ -103,7 +103,7 @@ it("rejects malformed records and changing a pending record", () => {
   writer.write(record(170));
   expect(() => writer.write(record(170))).toThrow("same record");
 });
-it("asks for exactly the free space the next fragment needs on a 64-byte ring", () => {
+test("asks for exactly the free space the next fragment needs on a 64-byte ring", () => {
   const ringBytes = 64;
   const layout = transportLayout({ slotBytes: 8, ringBytes });
   // Replays the same first write so each probe starts from the writer's state after it.
@@ -139,7 +139,7 @@ it("asks for exactly the free space the next fragment needs on a 64-byte ring", 
       }
   expect(probes).toBeGreaterThan(1000);
 });
-it("rejects ring counters that claim more than the ring holds", () => {
+test("rejects ring counters that claim more than the ring holds", () => {
   const ringBytes = 64;
   const layout = transportLayout({ slotBytes: 8, ringBytes });
   for (let position = 0; position < ringBytes; position += 8)
@@ -158,7 +158,7 @@ it("rejects ring counters that claim more than the ring holds", () => {
         } else expect(() => writer.write(record(payloadBytes))).not.toThrow();
       }
 });
-it("can yield before padding or a short tail and resume without losing a record", () => {
+test("can yield before padding or a short tail and resume without losing a record", () => {
   for (const start of [40, 56]) {
     const { writer, reader, views } = setup(start);
     const input = record(24);
@@ -172,7 +172,7 @@ it("can yield before padding or a short tail and resume without losing a record"
     expect(reader.next()).toBeUndefined();
   }
 });
-it("bounded reads retain fragment identity and payload across repeated yields", () => {
+test("bounded reads retain fragment identity and payload across repeated yields", () => {
   const { writer, reader, views } = setup();
   const input = record(170);
   while (writer.write(input)._tag === "full") {

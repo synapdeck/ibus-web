@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { run, select, key, preedit, record, text } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 for (const reason of ["blur", "reset", "detach"] as const)
   for (const mode of [0, 1])
-    it(`${reason} resolves visible preedit mode ${mode} in one batch before lifecycle`, () =>
+    test(`${reason} resolves visible preedit mode ${mode} in one batch before lifecycle`, () =>
       run(async ({ router, connections, field }) => {
         const f = field();
         const c = connections.a[0]!;
@@ -40,7 +40,7 @@ for (const reason of ["blur", "reset", "detach"] as const)
           ),
         ).toBe(true);
       }));
-it("converts preedit code-point cursor and attributes to UTF-16, including end sentinel", () =>
+test("converts preedit code-point cursor and attributes to UTF-16, including end sentinel", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -67,7 +67,7 @@ it("converts preedit code-point cursor and attributes to UTF-16, including end s
     key(f.element);
     expect(f.seen.at(-1)).toEqual({ text: "a😀b", cursor: 3, attributes: [{ type: 1, value: 2, start: 1, end: 4 }] });
   }));
-it("hidden preedit clears without a commit", () =>
+test("hidden preedit clears without a commit", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -78,7 +78,7 @@ it("hidden preedit clears without a commit", () =>
     await select(router);
     expect(f.element.value).toBe("");
   }));
-it("pointerdown resolves preedit before the browser moves the caret", () =>
+test("pointerdown resolves preedit before the browser moves the caret", () =>
   run(async ({ router, connections, field }) => {
     const f = field("ab");
     f.element.focus();

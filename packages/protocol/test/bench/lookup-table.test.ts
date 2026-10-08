@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { cpus, release } from "node:os";
-import { expect, it } from "@effect/vitest";
+import { expect, test } from "@effect/vitest";
 import { Schema } from "effect";
 import {
   IBusAttribute,
@@ -43,7 +43,7 @@ function measure(label: string, decode: () => unknown) {
   console.log(JSON.stringify({ label, medianMs, p99Ms, samplesMs: samples }));
 }
 
-it("times decoding a framed 500-candidate lookup table", () => {
+test("times decoding a framed 500-candidate lookup table", () => {
   const words = ["한글", "한국어", "대한민국"];
   const record = new UpdateLookupTable({
     table: IBusLookupTable.make({

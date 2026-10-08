@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Worker } from "node:worker_threads";
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, test } from "@effect/vitest";
 import { RingReader, transportLayout, transportViews, Word } from "../../src/index.ts";
 import { payloadSizes, record, WriterStatus, type WriterData } from "./support.ts";
 
@@ -16,7 +16,7 @@ describe.each([
   [1024, 0x7ffffff0, 4],
   [64, 0, 5],
 ] as const)("a %i-byte ring shared with a writer thread from counter %i", (ringBytes, start, seed) => {
-  it(
+  test(
     "delivers every record in order through the full-ring wait",
     async () => {
       const layout = transportLayout({ slotBytes: 8, ringBytes });

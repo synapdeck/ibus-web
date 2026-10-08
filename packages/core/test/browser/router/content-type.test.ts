@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { textareaAdapter } from "../../../src/adapters/textarea.ts";
 afterEach(() => document.body.replaceChildren());
 const input = (attrs: Record<string, string> = {}) => {
@@ -9,7 +9,7 @@ const input = (attrs: Record<string, string> = {}) => {
   document.body.append(element);
   return element;
 };
-it.each([
+test.each([
   [{ type: "password" }, 8, true],
   [{ autocomplete: "section-login current-password" }, 8, true],
   [{ autocomplete: "new-password" }, 8, true],
@@ -21,13 +21,13 @@ it.each([
 ])("maps content attributes %o to purpose and privacy", (attrs, purpose, disabled) => {
   expect(textareaAdapter(input(attrs)).contentType()).toMatchObject({ purpose, disabled });
 });
-it("reports multiline, spellcheck and capitalization hints", () => {
+test("reports multiline, spellcheck and capitalization hints", () => {
   const element = document.createElement("textarea");
   element.spellcheck = false;
   element.setAttribute("autocapitalize", "words");
   expect(textareaAdapter(element).contentType().hints).toBe(16384 | 2 | 32);
 });
-it("commits and deletes with input events, without resetting its own edits", () => {
+test("commits and deletes with input events, without resetting its own edits", () => {
   const element = input();
   element.value = "a😀b";
   element.setSelectionRange(3, 3);
@@ -48,7 +48,7 @@ it("commits and deletes with input events, without resetting its own edits", () 
   expect(resets).toEqual(["external"]);
   cleanup();
 });
-it("detects programmatic value changes on key entry and moving selections, and removes listeners", () => {
+test("detects programmatic value changes on key entry and moving selections, and removes listeners", () => {
   const element = input();
   element.value = "abcd";
   element.setSelectionRange(2, 2);
@@ -69,7 +69,7 @@ it("detects programmatic value changes on key entry and moving selections, and r
   element.dispatchEvent(new Event("input"));
   expect(resets).toBe(2);
 });
-it("replays editing keys by code point, inserts Unicode forwards and ignores releases", () => {
+test("replays editing keys by code point, inserts Unicode forwards and ignores releases", () => {
   const element = input();
   element.value = "a😀b";
   element.setSelectionRange(3, 3);
@@ -85,7 +85,7 @@ it("replays editing keys by code point, inserts Unicode forwards and ignores rel
   adapter.replayKey(new KeyboardEvent("keydown", { key: "Delete" }));
   expect(element.value).toBe("ab");
 });
-it("reports preedit separately and replays Enter only in a textarea", () => {
+test("reports preedit separately and replays Enter only in a textarea", () => {
   const element = document.createElement("textarea");
   document.body.append(element);
   const seen: unknown[] = [];
@@ -97,7 +97,7 @@ it("reports preedit separately and replays Enter only in a textarea", () => {
   adapter.setPreedit(undefined);
   expect(seen).toHaveLength(2);
 });
-it("edits selectionless email input at the value end and emits input", () => {
+test("edits selectionless email input at the value end and emits input", () => {
   const element = input({ type: "email" });
   element.value = "a@example.test";
   let inputs = 0;
@@ -108,13 +108,13 @@ it("edits selectionless email input at the value end and emits input", () => {
   expect(element.value).toBe("a@example.test");
   expect(inputs).toBe(2);
 });
-it("surrounding returns a bounded UTF-16 window without splitting astral characters", () => {
+test("surrounding returns a bounded UTF-16 window without splitting astral characters", () => {
   const element = input();
   element.value = "x😀a😀y";
   element.setSelectionRange(3, 4, "backward");
   expect(textareaAdapter(element).surrounding(2)).toEqual({ text: "x😀a😀", cursor: 3, anchor: 4 });
 });
-it.each([
+test.each([
   ["email", 6],
   ["url", 5],
   ["tel-national", 4],
@@ -122,7 +122,7 @@ it.each([
   expect(textareaAdapter(input({ autocomplete })).contentType().purpose).toBe(purpose);
 });
 
-it.each(["input", "textarea"] as const)("replays printable AltGraph into a native %s with one input event", (tag) => {
+test.each(["input", "textarea"] as const)("replays printable AltGraph into a native %s with one input event", (tag) => {
   const element = document.createElement(tag);
   document.body.append(element);
   const inputs: (string | null)[] = [];
@@ -140,7 +140,7 @@ it.each(["input", "textarea"] as const)("replays printable AltGraph into a nativ
   expect(element.selectionStart).toBe(1);
   expect(inputs).toEqual(["€"]);
 });
-it("AltGraph replay still suppresses real Meta, ordinary Ctrl/Alt shortcuts and key releases", () => {
+test("AltGraph replay still suppresses real Meta, ordinary Ctrl/Alt shortcuts and key releases", () => {
   const element = input();
   let inputs = 0;
   element.addEventListener("input", () => inputs++);

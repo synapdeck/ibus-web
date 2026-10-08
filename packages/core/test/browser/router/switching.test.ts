@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { Effect } from "effect";
 import { run, select, key, preedit } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
-it("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit", () =>
+test("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -21,7 +21,7 @@ it("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit"
     await select(router, "a");
     expect(a.sent.filter((x) => x.request._tag === "CreateEngine")).toHaveLength(1);
   }));
-it("preserves per-surface overrides across global switch and restart, reusing the Worker", () =>
+test("preserves per-surface overrides across global switch and restart, reusing the Worker", () =>
   run(async ({ router, registry, connections, field }) => {
     const f = field();
     await Effect.runPromise(router.override(f.adapter, "a"));
@@ -43,7 +43,7 @@ it("preserves per-surface overrides across global switch and restart, reusing th
     await Effect.runPromise(router.override(f.adapter, undefined));
     expect(connections.b[0]!.sent.some((x) => x.request._tag === "FocusIn")).toBe(true);
   }));
-it("hotkeys start empty, can consume a custom binding, and unregister", () =>
+test("hotkeys start empty, can consume a custom binding, and unregister", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -63,7 +63,7 @@ it("hotkeys start empty, can consume a custom binding, and unregister", () =>
     remove();
     expect(key(f.element, "x").defaultPrevented).toBe(false);
   }));
-it("hotkeys leave composing, Dead and password events untouched", () =>
+test("hotkeys leave composing, Dead and password events untouched", () =>
   run(async ({ router, field }) => {
     const f = field();
     f.element.focus();

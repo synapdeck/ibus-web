@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { closureLinkProblems } from "./symlinks.ts";
 
 let store: string;
@@ -29,7 +29,7 @@ afterEach(() => rmSync(store, { recursive: true, force: true }));
 const problems = (): string[] => closureLinkProblems([a, b]);
 
 describe("links in a closure", () => {
-  it("accepts links that resolve inside it, relative, absolute and chained", () => {
+  test("accepts links that resolve inside it, relative, absolute and chained", () => {
     symlinkSync("file.txt", join(a, "share", "relative"));
     symlinkSync(join(b, "share", "file.txt"), join(a, "share", "absolute"));
     symlinkSync("absolute", join(a, "share", "chained"));
@@ -39,42 +39,42 @@ describe("links in a closure", () => {
     expect(problems()).toEqual([]);
   });
 
-  it("accepts a store path that is itself a link into the closure", () => {
+  test("accepts a store path that is itself a link into the closure", () => {
     const link = join(store, "dddd-link");
     symlinkSync(join(a, "share", "file.txt"), link);
     expect(closureLinkProblems([a, link])).toEqual([]);
   });
 
-  it("refuses a link that dangles", () => {
+  test("refuses a link that dangles", () => {
     symlinkSync("missing.txt", join(a, "share", "dangling"));
     expect(problems()).toEqual([expect.stringContaining(`${join(a, "share", "dangling")} -> missing.txt`)]);
   });
 
-  it("refuses a link out of the closure, absolute or relative", () => {
+  test("refuses a link out of the closure, absolute or relative", () => {
     symlinkSync(join(outside, "share", "file.txt"), join(a, "absolute"));
     symlinkSync("../cccc-outside/share/file.txt", join(a, "relative"));
     expect(problems()).toHaveLength(2);
   });
 
-  it("refuses a chain that passes outside the closure on its way back in", () => {
+  test("refuses a chain that passes outside the closure on its way back in", () => {
     symlinkSync(join(a, "share", "file.txt"), join(outside, "back"));
     symlinkSync(join(outside, "back"), join(a, "detour"));
     expect(problems()).toEqual([expect.stringContaining(join(a, "detour"))]);
   });
 
-  it("refuses a link to a directory that only holds the closure", () => {
+  test("refuses a link to a directory that only holds the closure", () => {
     symlinkSync(store, join(a, "store"));
     symlinkSync("/", join(b, "root"));
     expect(problems()).toHaveLength(2);
   });
 
-  it("refuses a loop", () => {
+  test("refuses a loop", () => {
     symlinkSync("two", join(a, "one"));
     symlinkSync("one", join(a, "two"));
     expect(problems()).toHaveLength(2);
   });
 
-  it("fails the command for a closure with a bad link, naming it", () => {
+  test("fails the command for a closure with a bad link, naming it", () => {
     const paths = join(store, "store-paths");
     writeFileSync(paths, `${a}\n${b}\n`);
     const run = () =>

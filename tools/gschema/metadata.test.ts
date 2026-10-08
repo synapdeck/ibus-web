@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { expect, it } from "vitest";
+import { expect, test } from "vitest";
 import * as protocol from "../../packages/protocol/src/index.ts";
 import { convertMetadata } from "./metadata.ts";
 
@@ -17,7 +17,7 @@ const raw = JSON.parse(
 const converted = convertMetadata(raw, protocol);
 const decoded = protocol.decodeSettingsMetadata(JSON.parse(JSON.stringify(converted)));
 const keys = Object.fromEntries(decoded.schemas[0]!.keys.map((key) => [key.name, key]));
-it("uses identical pinned native and WASM GLib normal-form bytes", () => {
+test("uses identical pinned native and WASM GLib normal-form bytes", () => {
   expect(raw).toEqual(
     JSON.parse(
       execFileSync(paths.native, [paths.schemas, "org.test.Metadata"], {
@@ -27,7 +27,7 @@ it("uses identical pinned native and WASM GLib normal-form bytes", () => {
     ),
   );
 });
-it("decodes each GLib default losslessly, including bigint, binary arrays and infinity", () => {
+test("decodes each GLib default losslessly, including bigint, binary arrays and infinity", () => {
   for (const key of raw.schemas[0].keys) {
     const value = protocol.decodeValue(key.type, Buffer.from(key.default.bytes, "base64"));
     expect(keys[key.name]!.default).toEqual(value);
@@ -40,13 +40,13 @@ it("decodes each GLib default losslessly, including bigint, binary arrays and in
   expect(Object.is((keys["negative-zero"]!.default as { value: number }).value, -0)).toBe(true);
   expect(keys["infinity"]!.default).toEqual({ _tag: "d", value: Infinity });
 });
-it("preserves summaries, ranges, choices and enums", () => {
+test("preserves summaries, ranges, choices and enums", () => {
   expect(keys["text"]).toMatchObject({ summary: "Keyboard name", description: "A Unicode keyboard name." });
   expect(keys["count"]!.range).toEqual({ min: { _tag: "i", value: -2 }, max: { _tag: "i", value: 12 } });
   expect(keys["choice"]!.choices).toEqual(["two", "three"]);
   expect(keys["mode"]!.choices).toEqual(["first", "second"]);
 });
-it("rejects relocatable and missing schemas before producing metadata", () => {
+test("rejects relocatable and missing schemas before producing metadata", () => {
   for (const id of ["org.test.Relocatable", "org.test.Missing"]) {
     const result = spawnSync(process.execPath, [paths.helper, paths.schemas, id], { encoding: "utf8" });
     expect(result.status).not.toBe(0);
@@ -54,7 +54,7 @@ it("rejects relocatable and missing schemas before producing metadata", () => {
     expect(result.stderr).toContain(id);
   }
 });
-it("ships Hangul and panel metadata and an accurate manifest asset", () => {
+test("ships Hangul and panel metadata and an accurate manifest asset", () => {
   const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(`${paths.hangul}/settings.json`, "utf8")));
   const hangul = settings.schemas.find((schema) => schema.id === "org.freedesktop.ibus.engine.hangul")!;
   expect(hangul.path).toBe("/org/freedesktop/ibus/engine/hangul/");

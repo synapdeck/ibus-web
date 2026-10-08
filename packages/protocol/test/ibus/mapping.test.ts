@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, test } from "@effect/vitest";
 import { Schema } from "effect";
 import { ProtocolError } from "../../src/index.ts";
 import { fromTree, toTree } from "../../src/ibus/walk.ts";
 import { IBusText } from "../../src/ibus/types.ts";
 
-it("maps text to the IBus serializable tuple", () => {
+test("maps text to the IBus serializable tuple", () => {
   const encoded = { attachments: {}, text: "hello", attrs: { attachments: {}, attributes: [] } };
   const tree = toTree(IBusText)(encoded);
   expect(tree).toEqual({
@@ -31,7 +31,7 @@ it("maps text to the IBus serializable tuple", () => {
   });
   expect(fromTree(IBusText)(tree)).toEqual(encoded);
 });
-it("rejects a different serializable name", () => {
+test("rejects a different serializable name", () => {
   const tree = {
     _tag: "()",
     items: [
@@ -43,7 +43,7 @@ it("rejects a different serializable name", () => {
   } as const;
   expect(() => fromTree(IBusText)(tree)).toThrow(ProtocolError);
 });
-it("omits the message tag from the wire and restores it", () => {
+test("omits the message tag from the wire and restores it", () => {
   class Message extends Schema.TaggedClass<Message>()("Message", { text: IBusText }) {}
   const encoded = {
     _tag: "Message",
@@ -54,7 +54,7 @@ it("omits the message tag from the wire and restores it", () => {
   expect(fromTree(Message)(tree)).toEqual(encoded);
 });
 
-it("wraps IBus attachments in an additional variant and unwraps them on decode", () => {
+test("wraps IBus attachments in an additional variant and unwraps them on decode", () => {
   const encoded = {
     attachments: { source: { _tag: "v", type: "s", value: { _tag: "s", value: "fixture" } } },
     text: "hello",

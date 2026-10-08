@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, test } from "@effect/vitest";
 import { Request, OutputRecord, requestKinds, recordKinds, signatureOf } from "../../src/index.ts";
 
-it("matches every request kind and payload signature in protocol version 1", () => {
+test("matches every request kind and payload signature in protocol version 1", () => {
   const actual = Request.members.map((message) => [message.name, requestKinds.get(message.name), signatureOf(message)]);
   expect(actual).toEqual([
     ["Init", 1, "(ua{sa{sv}})"],
@@ -31,7 +31,7 @@ it("matches every request kind and payload signature in protocol version 1", () 
   expect(new Set(requestKinds.values()).size).toBe(requestKinds.size);
 });
 
-it("matches every record kind and includes the host crash payload", () => {
+test("matches every record kind and includes the host crash payload", () => {
   const actual = OutputRecord.members.map((message) => [
     message.name,
     recordKinds.get(message.name),
@@ -62,6 +62,6 @@ it("matches every record kind and includes the host crash payload", () => {
   expect(new Set(recordKinds.values()).size).toBe(recordKinds.size);
 });
 
-it("reserves kind zero for ring padding", () => {
+test("reserves kind zero for ring padding", () => {
   expect([...requestKinds.values(), ...recordKinds.values()]).not.toContain(0);
 });

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { Effect } from "effect";
 import type { RouterService } from "../../src/router/router.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "../../src/router/replay.ts";
@@ -45,7 +45,7 @@ function editor(router: RouterService, mode: "async" | "manual" = "async") {
     },
   };
 }
-it("native sync and automatic async surfaces share an engine with distinct contexts and isolated output", () =>
+test("native sync and automatic async surfaces share an engine with distinct contexts and isolated output", () =>
   run(async ({ router, connections, field }) => {
     const native = field(),
       edit = editor(router);
@@ -76,7 +76,7 @@ it("native sync and automatic async surfaces share an engine with distinct conte
       "sync",
     ]);
   }));
-it("manual attachment installs no key or hotkey capture; keyAsync owns immediate eligible interception", () =>
+test("manual attachment installs no key or hotkey capture; keyAsync owns immediate eligible interception", () =>
   run(async ({ router, connections }) => {
     const edit = editor(router, "manual");
     edit.element.focus();
@@ -103,7 +103,7 @@ it("manual attachment installs no key or hotkey capture; keyAsync owns immediate
     expect(await result).toBe("replayed");
     expect(edit.element.textContent).toBe("m");
   }));
-it("manual exclusions and readiness preserve native handling without replay", () =>
+test("manual exclusions and readiness preserve native handling without replay", () =>
   run(async ({ router, registry, connections }) => {
     const edit = editor(router, "manual");
     let result: Promise<AsyncKeyResult> | undefined;
@@ -133,7 +133,7 @@ it("manual exclusions and readiness preserve native handling without replay", ()
     expect(edit.element.textContent).toBe("");
   }));
 for (const transition of ["focus", "switch"])
-  it(`pending async output stays on its original adapter during ${transition}`, () =>
+  test(`pending async output stays on its original adapter during ${transition}`, () =>
     run(async ({ router, connections, field }) => {
       const edit = editor(router, "manual"),
         native = field();
@@ -156,7 +156,7 @@ for (const transition of ["focus", "switch"])
         c.sent.findIndex((x) => x.request._tag === "ProcessKeyEvent"),
       );
     }));
-it("detach cancels old awaiters and old disposer cannot remove reattached adapter or leak old output", () =>
+test("detach cancels old awaiters and old disposer cannot remove reattached adapter or leak old output", () =>
   run(async ({ router, connections }) => {
     const edit = editor(router, "manual");
     edit.element.focus();
@@ -179,7 +179,7 @@ it("detach cancels old awaiters and old disposer cannot remove reattached adapte
     await select(router);
     expect(edit.element.textContent).toBe("b");
   }));
-it("reset retires async active and queued keys, then suppresses their late commit", () =>
+test("reset retires async active and queued keys, then suppresses their late commit", () =>
   run(async ({ router, connections }) => {
     const edit = editor(router, "manual");
     edit.element.focus();
@@ -199,7 +199,7 @@ it("reset retires async active and queued keys, then suppresses their late commi
     await select(router);
     expect(edit.element.textContent).toBe("ab");
   }));
-it("scope disposal cancels pending manual input without editing the disposed surface", async () => {
+test("scope disposal cancels pending manual input without editing the disposed surface", async () => {
   let results: Promise<AsyncKeyResult>[] = [];
   let element: HTMLElement | undefined;
   await run(async ({ router, connections }) => {
@@ -215,7 +215,7 @@ it("scope disposal cancels pending manual input without editing the disposed sur
   expect(await Promise.all(results)).toEqual(["cancelled", "cancelled"]);
   expect(element!.textContent).toBe("");
 });
-it("changing one surface from async to manual leaves the native surface synchronous", () =>
+test("changing one surface from async to manual leaves the native surface synchronous", () =>
   run(async ({ router, connections, field }) => {
     const native = field(),
       edit = editor(router);
@@ -233,7 +233,7 @@ it("changing one surface from async to manual leaves the native surface synchron
     ]);
   }));
 for (const password of ["type", "current-password", "new-password"])
-  it(`automatic async mode excludes native ${password} controls before context creation`, () =>
+  test(`automatic async mode excludes native ${password} controls before context creation`, () =>
     run(async ({ router, connections }) => {
       const { textareaAdapter } = await import("../../src/adapters/textarea.ts");
       const element = document.createElement("input");
@@ -250,7 +250,7 @@ for (const password of ["type", "current-password", "new-password"])
       ).toBe(false);
     }));
 
-it("scope teardown visits all adapters and closes the registry after a callback failure", async () => {
+test("scope teardown visits all adapters and closes the registry after a callback failure", async () => {
   let pending: Promise<AsyncKeyResult> | undefined;
   let firstResets: Set<() => void> | undefined, secondResets: Set<() => void> | undefined;
   let terminated: (() => boolean) | undefined;

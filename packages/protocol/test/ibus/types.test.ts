@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, it, test } from "@effect/vitest";
 import { Schema } from "effect";
 import { decodeValue, encodeValue } from "../../src/index.ts";
 import { signatureOf, toTree, fromTree } from "../../src/ibus/walk.ts";
@@ -22,13 +22,13 @@ function roundTrip<S extends Schema.Top>(schema: S, encoded: S["Encoded"]) {
   expect(fromTree(schema)(decodeValue(signature, bytes))).toEqual(encoded);
 }
 const text = (value: string) => ({ attachments: {}, text: value, attrs: { attachments: {}, attributes: [] } });
-it("preserves the unsigned attribute end sentinel", () => {
+test("preserves the unsigned attribute end sentinel", () => {
   const attribute = { attachments: {}, type: 1, value: 1, startIndex: 0, endIndex: 0xffffffff };
   roundTrip(IBusAttribute, attribute);
   roundTrip(IBusAttrList, { attachments: {}, attributes: [attribute] });
   roundTrip(IBusText, { ...text("underline"), attrs: { attachments: {}, attributes: [attribute] } });
 });
-it("round-trips 500 candidates and labels", () => {
+test("round-trips 500 candidates and labels", () => {
   roundTrip(IBusLookupTable, {
     attachments: {},
     pageSize: 9,
@@ -40,7 +40,7 @@ it("round-trips 500 candidates and labels", () => {
     labels: Array.from({ length: 500 }, (_, index) => text(`label ${index}`)),
   });
 });
-it("round-trips two levels of subproperties", () => {
+test("round-trips two levels of subproperties", () => {
   const leaf = {
     attachments: {},
     key: "leaf",
@@ -59,10 +59,10 @@ it("round-trips two levels of subproperties", () => {
   roundTrip(IBusProperty, root);
   roundTrip(IBusPropList, { attachments: {}, properties: [root] });
 });
-it.each([-1, 2 ** 32])("Uint32 rejects %s", (value) => {
+test.each([-1, 2 ** 32])("Uint32 rejects %s", (value) => {
   expect(() => Schema.decodeUnknownSync(Uint32)(value)).toThrow();
 });
-it("Int32 rejects overflow", () => {
+test("Int32 rejects overflow", () => {
   expect(() => Schema.decodeUnknownSync(Int32)(2 ** 31)).toThrow();
 });
 it.prop(
@@ -75,7 +75,7 @@ it.prop(
   },
   { arbitrary: { runs: 100, seed: 3 } },
 );
-it.each(["\0", "\ud800"])("rejects text that cannot be represented as UTF-8 GVariant: %j", (invalid) => {
+test.each(["\0", "\ud800"])("rejects text that cannot be represented as UTF-8 GVariant: %j", (invalid) => {
   expect(() => Schema.decodeUnknownSync(IBusText)({ ...text(invalid) })).toThrow();
   expect(() =>
     Schema.decodeUnknownSync(IBusText, { onExcessProperty: "error" })({

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "vitest";
+import { expect, test } from "vitest";
 import { build } from "tsdown";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer } from "node:http";
 import * as api from "../../src/effect.ts";
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
-it("effect consumers retain core services, tagged errors, adapters and protocol schemas", () => {
+test("effect consumers retain core services, tagged errors, adapters and protocol schemas", () => {
   expect(api.EngineRegistry.key).toBe("@ibus-web/core/EngineRegistry");
   expect(api.Router.Default).toBeDefined();
   expect(api.SettingsApi.layer).toBeTypeOf("function");
@@ -21,7 +21,7 @@ it("effect consumers retain core services, tagged errors, adapters and protocol 
   expect(api.EngineManifest).toBeDefined();
   expect(api.ProcessKeyEvent).toBeDefined();
 });
-it("a built package consumer ships URL-only page code and serves every preserved sibling Worker asset", async () => {
+test("a built package consumer ships URL-only page code and serves every preserved sibling Worker asset", async () => {
   const root = await mkdtemp(join(tmpdir(), "ibus-facade-consumer-"));
   const modules: string[] = [];
   try {
@@ -101,7 +101,7 @@ it("a built package consumer ships URL-only page code and serves every preserved
   }
 });
 
-it("published facade declarations support typed lifecycle, manual input, settings and panel consumers", async () => {
+test("published facade declarations support typed lifecycle, manual input, settings and panel consumers", async () => {
   const root = await mkdtemp(join(tmpdir(), "ibus-facade-types-"));
   try {
     await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }));

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { run, select, key, record, text } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
-it("clips ±1000 code points and converts astral cursor and backward anchor offsets", () =>
+test("clips ±1000 code points and converts astral cursor and backward anchor offsets", () =>
   run(async ({ router, connections, field }) => {
     const f = field("x".repeat(1100) + "😀A😀" + "y".repeat(1100));
     f.element.setSelectionRange(1102, 1103, "backward");
@@ -16,7 +16,7 @@ it("clips ±1000 code points and converts astral cursor and backward anchor offs
       anchor: 1001,
     });
   }));
-it("deletes astral code points before a commit, forwards keys in record order, and refreshes after a consumed key", () =>
+test("deletes astral code points before a commit, forwards keys in record order, and refreshes after a consumed key", () =>
   run(async ({ router, connections, field }) => {
     const f = field("a😀😀b");
     f.element.setSelectionRange(3, 3);
@@ -63,7 +63,7 @@ it("deletes astral code points before a commit, forwards keys in record order, a
       cursor: 4,
     });
   }));
-it("removes unsupported capabilities and sends changed caret rectangles after a batch", () =>
+test("removes unsupported capabilities and sends changed caret rectangles after a batch", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.detach();

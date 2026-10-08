@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 import { parseType, ProtocolError } from "../../src/index.ts";
 
 describe("GVariant types", () => {
-  it.each([
+  test.each([
     ["b", 1, 1],
     ["y", 1, 1],
     ["n", 2, 2],
@@ -32,10 +32,10 @@ describe("GVariant types", () => {
   ])("lays out %s", (signature, alignment, fixedSize) => {
     expect(parseType(signature as string)).toMatchObject({ signature, alignment, fixedSize });
   });
-  it.each(["a{sv}", "(ua{sa{sv}})", "(sa{sv}uubbiavav)"])("round trips %s", (signature) => {
+  test.each(["a{sv}", "(ua{sa{sv}})", "(sa{sv}uubbiavav)"])("round trips %s", (signature) => {
     expect(parseType(signature).signature).toBe(signature);
   });
-  it.each([
+  test.each([
     "",
     "a",
     "(u",
@@ -53,7 +53,7 @@ describe("GVariant types", () => {
   ])("rejects %s", (signature) => {
     expect(() => parseType(signature)).toThrow(ProtocolError);
   });
-  it("preserves the tagged grammar tree", () => {
+  test("preserves the tagged grammar tree", () => {
     expect(parseType("a{sv}")).toMatchObject({
       _tag: "a",
       element: { _tag: "{}", key: { _tag: "basic", char: "s" }, value: { _tag: "v" } },
@@ -61,14 +61,14 @@ describe("GVariant types", () => {
     expect(parseType("mi")).toMatchObject({ _tag: "m", element: { _tag: "basic", char: "i" } });
     expect(parseType("(yu)")).toMatchObject({ _tag: "()", members: [{ char: "y" }, { char: "u" }] });
   });
-  it("accepts exactly 128 levels of containers", () => {
+  test("accepts exactly 128 levels of containers", () => {
     for (const signature of ["a".repeat(128) + "u", "(".repeat(128) + "u" + ")".repeat(128)]) {
       expect(parseType(signature).signature).toBe(signature);
     }
     expect(() => parseType("a".repeat(128) + "(u)")).toThrow(ProtocolError);
     expect(() => parseType("a".repeat(128) + "{sv}")).toThrow(ProtocolError);
   });
-  it("allows an empty tuple below 128 containers, as GLib's type scanner does", () => {
+  test("allows an empty tuple below 128 containers, as GLib's type scanner does", () => {
     for (const signature of [
       "a".repeat(128) + "()",
       "m".repeat(128) + "()",
@@ -78,7 +78,7 @@ describe("GVariant types", () => {
     }
     expect(() => parseType("a".repeat(129) + "()")).toThrow(ProtocolError);
   });
-  it.each<[string, number]>([
+  test.each<[string, number]>([
     ["y", 1],
     ["v", 1],
     ["()", 0],
@@ -90,7 +90,7 @@ describe("GVariant types", () => {
   ])("measures the depth of %s as GLib does", (signature, depth) => {
     expect(parseType(signature).depth).toBe(depth);
   });
-  it("memoizes immutable types", () => {
+  test("memoizes immutable types", () => {
     const type = parseType("(yu)");
     expect(parseType("(yu)")).toBe(type);
     expect(Object.isFrozen(type)).toBe(true);

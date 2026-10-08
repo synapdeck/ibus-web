@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, it, test } from "@effect/vitest";
 import { Schema } from "effect";
 import {
   CrashReason,
@@ -91,15 +91,15 @@ function crashedRecord(reason: number, seq = 0, ic = 0): Uint8Array {
   return bytes;
 }
 
-it.each(Object.values(CrashReason))("decodes Crashed with reason %i", (reason) => {
+test.each(Object.values(CrashReason))("decodes Crashed with reason %i", (reason) => {
   expect(decodeRecord(crashedRecord(reason)).record).toMatchObject({ _tag: "Crashed", reason, message: "boom" });
 });
 
-it.each([0, 6, 9, 0xffffffff])("rejects Crashed with unknown reason %i", (reason) => {
+test.each([0, 6, 9, 0xffffffff])("rejects Crashed with unknown reason %i", (reason) => {
   expect(() => decodeRecord(crashedRecord(reason))).toThrow();
 });
 
-it.each([
+test.each([
   [1, 0],
   [0, 1],
   [0xffffffff, 7],

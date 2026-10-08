@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { brotliCompressSync } from "node:zlib";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 type Decode = (body: ReadableStream<Uint8Array>) => ReadableStream<Uint8Array>;
 type Wrapper = {
@@ -84,7 +84,7 @@ const pauseInstantiation = (failure?: Error) => {
 };
 
 describe("Brotli stream ownership during initialization", () => {
-  it("decodes with only the fallback JavaScript bundle present", async () => {
+  test("decodes with only the fallback JavaScript bundle present", async () => {
     const directory = await prepared();
     const fetching = vi.spyOn(globalThis, "fetch");
     const { decompress } = await loadFallback(directory);
@@ -101,7 +101,7 @@ describe("Brotli stream ownership during initialization", () => {
     expect(fetching).not.toHaveBeenCalled();
   });
 
-  it("cancels the wrapper before its fallback import completes", async () => {
+  test("cancels the wrapper before its fallback import completes", async () => {
     const directory = await prepared();
     const { decompressed } = await loadWrapper(directory);
     const input = source();
@@ -130,7 +130,7 @@ describe("Brotli stream ownership during initialization", () => {
     reader.releaseLock();
   });
 
-  it("cancels the fallback before WASM initialization completes", async () => {
+  test("cancels the fallback before WASM initialization completes", async () => {
     const directory = await prepared();
     const initialization = pauseInstantiation();
     try {
@@ -154,7 +154,7 @@ describe("Brotli stream ownership during initialization", () => {
     }
   });
 
-  it("releases the source when importing the fallback fails", async () => {
+  test("releases the source when importing the fallback fails", async () => {
     const { decompressed } = await loadWrapper(await prepared(false));
     const input = source();
     const reader = decompressed(input.body, "br", true).getReader();
@@ -169,7 +169,7 @@ describe("Brotli stream ownership during initialization", () => {
     reader.releaseLock();
   });
 
-  it("releases the source when WASM initialization fails", async () => {
+  test("releases the source when WASM initialization fails", async () => {
     const directory = await prepared();
     const failure = new Error("WASM initialization failed");
     const initialization = pauseInstantiation(failure);
@@ -190,7 +190,7 @@ describe("Brotli stream ownership during initialization", () => {
     }
   });
 
-  it("keeps cancellation final if pending WASM initialization later fails", async () => {
+  test("keeps cancellation final if pending WASM initialization later fails", async () => {
     const directory = await prepared();
     const initialization = pauseInstantiation(new Error("late initialization failure"));
     try {
@@ -250,13 +250,13 @@ const failureOf = (stream: ReadableStream<Uint8Array>): Promise<Error> =>
   );
 
 describe.each([false, true])("Brotli errors with the fallback forced %s", (forceFallback) => {
-  it("say how archives must be served when the bytes don't decode", async () => {
+  test("say how archives must be served when the bytes don't decode", async () => {
     const { decompressed } = await loadWrapper(await prepared());
     const failure = await failureOf(decompressed(bodyOf(Uint8Array.of(255, 255, 255, 255)), "br", forceFallback));
     expect(failure.message).toMatch(/Brotli decompression failed.*Content-Encoding/);
   });
 
-  it("keep the body's own failure, mid-stream, as a network's or an abort's", async () => {
+  test("keep the body's own failure, mid-stream, as a network's or an abort's", async () => {
     const { decompressed } = await loadWrapper(await prepared());
     const compressed = brotliCompressSync(Buffer.alloc(1 << 20, "x"));
     const failure = new Error("nothing arrived for 10 ms");
@@ -268,7 +268,7 @@ describe.each([false, true])("Brotli errors with the fallback forced %s", (force
 });
 
 describe("the decoder", () => {
-  it("is reported: native where the environment decodes Brotli, the fallback when forced", async () => {
+  test("is reported: native where the environment decodes Brotli, the fallback when forced", async () => {
     const { decompressed } = await loadWrapper(await prepared());
     for (const forceFallback of [false, true]) {
       const used: string[] = [];
@@ -281,7 +281,7 @@ describe("the decoder", () => {
     }
   });
 
-  it("is not reported for an identity archive", async () => {
+  test("is not reported for an identity archive", async () => {
     const { decompressed } = await loadWrapper(await prepared());
     const used: string[] = [];
     await readAll(decompressed(bodyOf(Buffer.from("plain")), "identity", false, (decoder) => used.push(decoder)));

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { run, select, key, record, text, emptyReply } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
-it("creates distinct contexts on focus, with capabilities, content type and surrounding, before keys", () =>
+test("creates distinct contexts on focus, with capabilities, content type and surrounding, before keys", () =>
   run(async ({ router, connections, field }) => {
     const a = field("😀a");
     const c = connections.a[0]!;
@@ -34,7 +34,7 @@ it("creates distinct contexts on focus, with capabilities, content type and surr
     expect(c.sent.some((x) => x.ic === 1 && x.request._tag === "FocusOut")).toBe(true);
     expect(c.sent.some((x) => x.ic === 2 && x.request._tag === "CreateEngine")).toBe(true);
   }));
-it("password fields never create contexts and pass keys through", () =>
+test("password fields never create contexts and pass keys through", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.autocomplete = "current-password";
@@ -43,7 +43,7 @@ it("password fields never create contexts and pass keys through", () =>
     expect(connections.a[0]!.sent.some((x) => x.request._tag === "CreateEngine")).toBe(false);
     expect(key(f.element).defaultPrevented).toBe(false);
   }));
-it("drops a pending creation's records and stale FocusIn after blur or detach", () =>
+test("drops a pending creation's records and stale FocusIn after blur or detach", () =>
   run(async ({ router, connections, field }) => {
     const c = connections.a[0]!;
     c.hold = "CreateEngine";
@@ -60,7 +60,7 @@ it("drops a pending creation's records and stale FocusIn after blur or detach", 
     expect(c.sent.some((x) => x.request._tag === "FocusIn")).toBe(false);
     expect(c.sent.filter((x) => x.request._tag === "DestroyEngine")).toHaveLength(1);
   }));
-it("a rejected CreateEngine never intercepts keys", () =>
+test("a rejected CreateEngine never intercepts keys", () =>
   run(async ({ router, connections, field }) => {
     const c = connections.a[0]!;
     const original = c.requestAsync.bind(c);
@@ -71,7 +71,7 @@ it("a rejected CreateEngine never intercepts keys", () =>
     await select(router);
     expect(key(f.element).defaultPrevented).toBe(false);
   }));
-it("queues keys behind lifecycle ownership and applies reply output once", () =>
+test("queues keys behind lifecycle ownership and applies reply output once", () =>
   run(async ({ router, connections, field }) => {
     const c = connections.a[0]!;
     const f = field();
@@ -88,7 +88,7 @@ it("queues keys behind lifecycle ownership and applies reply output once", () =>
     expect(f.element.value).toBe("externalXa");
     expect(c.sent.some((x) => x.request._tag === "ProcessKeyEvent" && x.mode === "async")).toBe(true);
   }));
-it("closing the router scope removes DOM listeners, cancels pending setup and settles queued selections", async () => {
+test("closing the router scope removes DOM listeners, cancels pending setup and settles queued selections", async () => {
   let captured:
     | { element: HTMLTextAreaElement; connection: import("../support/dom.ts").DomConnection; selecting: Promise<void> }
     | undefined;
@@ -106,7 +106,7 @@ it("closing the router scope removes DOM listeners, cancels pending setup and se
   expect(key(captured!.element).defaultPrevented).toBe(false);
   await expect(captured!.selecting).rejects.toThrow("Router is closed");
 });
-it("switch during pending Create drops its output and never focuses the stale selection", () =>
+test("switch during pending Create drops its output and never focuses the stale selection", () =>
   run(async ({ router, connections, field }) => {
     const c = connections.a[0]!;
     c.hold = "CreateEngine";
@@ -121,7 +121,7 @@ it("switch during pending Create drops its output and never focuses the stale se
     expect(c.sent.some((x) => x.request._tag === "FocusIn")).toBe(false);
     expect(connections.b[0]!.sent.some((x) => x.request._tag === "FocusIn")).toBe(true);
   }));
-it("an already focused attachment initializes, and consumed capture events stop bubbling", () =>
+test("an already focused attachment initializes, and consumed capture events stop bubbling", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.detach();
@@ -136,7 +136,7 @@ it("an already focused attachment initializes, and consumed capture events stop 
     expect(key(f.element).defaultPrevented).toBe(false);
     expect(bubble).toBe(1);
   }));
-it("blur and refocus in one task still send FocusOut then FocusIn", () =>
+test("blur and refocus in one task still send FocusOut then FocusIn", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -153,7 +153,7 @@ it("blur and refocus in one task still send FocusOut then FocusIn", () =>
         .map((x) => x.request._tag),
     ).toEqual(["FocusOut", "FocusIn"]);
   }));
-it("creation output applies once while keys wait for success", () =>
+test("creation output applies once while keys wait for success", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     const c = connections.a[0]!;
@@ -167,7 +167,7 @@ it("creation output applies once while keys wait for success", () =>
     expect(f.element.value).toBe("created");
     expect(key(f.element).defaultPrevented).toBe(true);
   }));
-it("supports adapter methods inherited from a prototype", () =>
+test("supports adapter methods inherited from a prototype", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.detach();
@@ -181,7 +181,7 @@ it("supports adapter methods inherited from a prototype", () =>
     expect(f.element.value).toBe("X");
   }));
 for (const transition of ["blur", "switch"] as const)
-  it(`drains abandoned and queued keys before ${transition} finalizes composition`, () =>
+  test(`drains abandoned and queued keys before ${transition} finalizes composition`, () =>
     run(async ({ router, connections, field }) => {
       const f = field();
       f.element.focus();
@@ -200,7 +200,7 @@ for (const transition of ["blur", "switch"] as const)
       expect(tags.lastIndexOf("ProcessKeyEvent")).toBeLessThan(tags.indexOf("FocusOut"));
       if (transition === "switch") expect(connections.b[0]!.sent.some((x) => x.request._tag === "FocusIn")).toBe(true);
     }));
-it("pointer reset retires accepted keys before caret movement and ignores their eventual reply", () =>
+test("pointer reset retires accepted keys before caret movement and ignores their eventual reply", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -217,7 +217,7 @@ it("pointer reset retires accepted keys before caret movement and ignores their 
     expect(f.element.value).toBe("ab");
     expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
   }));
-it("reset commits earlier preedit then replays pending keys in one local batch", () =>
+test("reset commits earlier preedit then replays pending keys in one local batch", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -245,7 +245,7 @@ it("reset commits earlier preedit then replays pending keys in one local batch",
     await select(router);
     expect(f.element.value).toBe("Xab");
   }));
-it("scope disposal settles a pending switch drain and drops later editing", async () => {
+test("scope disposal settles a pending switch drain and drops later editing", async () => {
   let pending: Promise<void> | undefined;
   await run(async ({ router, connections, field }) => {
     const f = field();
@@ -259,7 +259,7 @@ it("scope disposal settles a pending switch drain and drops later editing", asyn
   });
   await expect(pending).rejects.toThrow("Router is closed");
 });
-it("new keys after retirement wait behind Reset while the retired reply retains transport ownership", () =>
+test("new keys after retirement wait behind Reset while the retired reply retains transport ownership", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -282,7 +282,7 @@ it("new keys after retirement wait behind Reset while the retired reply retains 
     expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(2);
   }));
 
-it("replays an accepted AltGraph character exactly once when its pending request is declined", () =>
+test("replays an accepted AltGraph character exactly once when its pending request is declined", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -310,7 +310,7 @@ it("replays an accepted AltGraph character exactly once when its pending request
     expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent")).toHaveLength(1);
   }));
 
-it("native input reserves Reset before the next key can reach the wire", () =>
+test("native input reserves Reset before the next key can reach the wire", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -335,7 +335,7 @@ it("native input reserves Reset before the next key can reach the wire", () =>
     ]);
   }));
 
-it("a synchronous reset callback failure releases the reserved wire ordering", () =>
+test("a synchronous reset callback failure releases the reserved wire ordering", () =>
   run(async ({ router, registry, connections, field }) => {
     const f = field();
     f.element.focus();
@@ -355,7 +355,7 @@ it("a synchronous reset callback failure releases the reserved wire ordering", (
 
 for (const ownership of ["native", "async"] as const)
   for (const refocus of [false, true])
-    it(`${ownership} blur drain progresses past a reset on ${refocus ? "refocusing" : "inactive"} second surface`, () =>
+    test(`${ownership} blur drain progresses past a reset on ${refocus ? "refocusing" : "inactive"} second surface`, () =>
       run(async ({ router, connections, field }) => {
         const b = field();
         b.element.focus();
@@ -408,7 +408,7 @@ for (const ownership of ["native", "async"] as const)
 
 for (const ownership of ["native", "async"] as const)
   for (const boundaries of [1, 2])
-    it(
+    test(
       `${ownership} key accepted during refocus refresh after ${boundaries} boundaries stays behind its pending Reset`,
       () =>
         run(async ({ router, connections, field }) => {

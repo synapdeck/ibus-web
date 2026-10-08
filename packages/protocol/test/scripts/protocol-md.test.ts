@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 import { renderProtocolMd } from "../../scripts/protocol-md.ts";
 import { Request, OutputRecord, requestKinds, recordKinds, signatureOf } from "../../src/index.ts";
 import { RECORD_ALIGNMENT } from "../../src/messages/framing.ts";
@@ -13,7 +13,7 @@ import {
 } from "../../src/transport/layout.ts";
 
 describe("protocol document", () => {
-  it("documents licensing, framing, every message and serializable", () => {
+  test("documents licensing, framing, every message and serializable", () => {
     const document = renderProtocolMd();
     expect(document).toContain("<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc.");
     expect(document).toContain(["SPDX-License-Identifier", "MIT OR Apache-2.0 -->"].join(": "));
@@ -58,7 +58,7 @@ describe("protocol document", () => {
     expect(document).toContain("| `candidates` | `av` ([IBusText](#ibustext)[]) |");
     expect(document).toContain("| `name` | `s` | Serializable type name: `IBusText`. |");
   });
-  it("documents wire encoding, malformed requests, padding, ic 0 and page-relative candidate clicks", () => {
+  test("documents wire encoding, malformed requests, padding, ic 0 and page-relative candidate clicks", () => {
     const output = renderProtocolMd();
     expect(output).toContain("Header fields and GVariant payloads are little-endian.");
     expect(output).toContain("A request is 8 bytes of header (`kind`, `flags`, `ic`)");
@@ -70,7 +70,7 @@ describe("protocol document", () => {
     expect(output).toContain("Page-relative position of the clicked candidate on the visible lookup table page.");
   });
 
-  it("describes the key event reply as ibusweb_dispatch's return value", () => {
+  test("describes the key event reply as ibusweb_dispatch's return value", () => {
     const section = renderProtocolMd().split("### ProcessKeyEvent\n\n")[1]!.split("\n\n### ")[0]!;
     expect(section).toContain(
       "Reply: `ibusweb_dispatch` returns 1 if the engine handled the key and 0 if not; the reply is that return value, not a GVariant payload.",
@@ -79,7 +79,7 @@ describe("protocol document", () => {
   });
 });
 
-it("documents transport layout, control words and ring rules", () => {
+test("documents transport layout, control words and ring rules", () => {
   const document = renderProtocolMd();
   expect(document).toContain("## Transport");
   expect(document).toContain("| 10 | `reqMode` | both |");
@@ -87,7 +87,7 @@ it("documents transport layout, control words and ring rules", () => {
     expect(document).toContain(term);
 });
 
-it("states the transport's sizes from the layout's constants", () => {
+test("states the transport's sizes from the layout's constants", () => {
   const document = renderProtocolMd();
   expect(document).toContain(`a ${HEADER_BYTES}-byte control header`);
   expect(document).toContain(`Slot and ring sizes are multiples of ${RECORD_ALIGNMENT}`);
@@ -97,7 +97,7 @@ it("states the transport's sizes from the layout's constants", () => {
   expect(document).toContain(`A tail shorter than ${RECORD_HEADER_BYTES} bytes is skipped`);
 });
 
-it("describes fragment sizes and padding before the ring's end", () => {
+test("describes fragment sizes and padding before the ring's end", () => {
   const document = renderProtocolMd();
   expect(document).toContain(
     `Every fragment but the last carries CONTINUATION and at least ${MIN_FRAGMENT_PAYLOAD_BYTES} payload bytes, a multiple of ${RECORD_ALIGNMENT}; the last carries flags zero and the rest of the payload, which may be shorter.`,
@@ -107,7 +107,7 @@ it("describes fragment sizes and padding before the ring's end", () => {
   );
 });
 
-it("describes needBytes and the writer's re-armed wait for space", () => {
+test("describes needBytes and the writer's re-armed wait for space", () => {
   const document = renderProtocolMd();
   expect(document).toContain(
     "needBytes is the least free space with which the next write publishes a fragment, counting any padding or skip before the ring's end.",

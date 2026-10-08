@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 
 let dir: string;
 let protocol: string;
@@ -39,11 +39,11 @@ const manifest = (fields: object): string => {
   return path;
 };
 
-it("prints the protocol's version", () => {
+test("prints the protocol's version", () => {
   expect(run("version", protocol)).toBe("7\n");
 });
 
-it("checks a manifest with the protocol's decoder and the runtime's bounds", () => {
+test("checks a manifest with the protocol's decoder and the runtime's bounds", () => {
   expect(run("check", protocol, manifest({ protocol: 7, memory: 2 }), "1", "3")).toBe("");
   expect(() => run("check", protocol, manifest({ protocol: 7, memory: 4 }), "1", "3")).toThrow("refused");
   expect(() => run("check", protocol, manifest({ protocol: 6, memory: 2 }), "1", "3")).toThrow("refused");

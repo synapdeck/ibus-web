@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 import { encodeValue, ProtocolError, type GVariantValue } from "../../src/index.ts";
 
 describe("encodeValue", () => {
-  it.each<[string, GVariantValue]>([
+  test.each<[string, GVariantValue]>([
     ["y", { _tag: "y", value: 256 }],
     ["y", { _tag: "y", value: -1 }],
     ["n", { _tag: "n", value: 40000 }],
@@ -29,7 +29,7 @@ describe("encodeValue", () => {
     expect(() => encodeValue(signature, value)).toThrow(ProtocolError);
   });
 
-  it.each<[string, GVariantValue]>([
+  test.each<[string, GVariantValue]>([
     ["y", { _tag: "y", value: 255 }],
     ["n", { _tag: "n", value: -32768 }],
     ["i", { _tag: "i", value: -0 }],
@@ -43,7 +43,7 @@ describe("encodeValue", () => {
     expect(() => encodeValue(signature, value)).not.toThrow();
   });
 
-  it("refuses to nest past GLib's recursion limit", () => {
+  test("refuses to nest past GLib's recursion limit", () => {
     const nested = (levels: number): GVariantValue =>
       levels === 0 ? { _tag: "y", value: 5 } : { _tag: "a", items: [nested(levels - 1)] };
     expect(() => encodeValue("a".repeat(127) + "y", nested(127))).not.toThrow();
@@ -56,7 +56,7 @@ describe("encodeValue", () => {
     expect(() => encodeValue("v", variants(128))).toThrow(ProtocolError);
   });
 
-  it("counts the depth of a variant's type", () => {
+  test("counts the depth of a variant's type", () => {
     const variant = (levels: number): GVariantValue => ({
       _tag: "v",
       type: "a".repeat(levels) + "y",

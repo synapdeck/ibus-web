@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { ProtocolError, type IBusProperty, type IBusText, type LazyLookupTable } from "@ibus-web/protocol";
 import { createPanel, type PanelHost, type PanelRecord, type PanelUpdate } from "../../src/index.ts";
@@ -82,7 +82,7 @@ function click(element: HTMLElement, selector: string) {
   element.querySelector<HTMLElement>(selector)!.click();
 }
 
-it("shows only the visible page, supplied and fallback labels, and the visible cursor", () => {
+test("shows only the visible page, supplied and fallback labels, and the visible cursor", () => {
   const { host, element } = setup();
   const lazy = table();
   show(host, lazy.table);
@@ -93,7 +93,7 @@ it("shows only the visible page, supplied and fallback labels, and the visible c
   show(host, table({ cursorVisible: false }).table);
   expect(element.querySelector('[aria-selected="true"]')).toBeNull();
 });
-it("defers hidden lookup decoding and decodes the next page only when the engine shows it", () => {
+test("defers hidden lookup decoding and decodes the next page only when the engine shows it", () => {
   const { host, element } = setup();
   const lazy = table();
   show(host, lazy.table, false);
@@ -107,7 +107,7 @@ it("defers hidden lookup decoding and decodes the next page only when the engine
   expect(next.page.mock.calls).toEqual([[2]]);
   expect(buttons(element)[1].textContent).toBe("B candidate-7");
 });
-it("sends page-relative selection, paging and directional wheel actions", () => {
+test("sends page-relative selection, paging and directional wheel actions", () => {
   const { host, element } = setup();
   show(host);
   buttons(element)[2].click();
@@ -124,7 +124,7 @@ it("sends page-relative selection, paging and directional wheel actions", () => 
     ["test", 1, { _tag: "CursorDown" }],
   ]);
 });
-it("resolves System orientation from the engine setting and follows changes without decoding again", () => {
+test("resolves System orientation from the engine setting and follows changes without decoding again", () => {
   const { host, element } = setup();
   const lazy = table({ orientation: 2 });
   show(host, lazy.table);
@@ -139,7 +139,7 @@ it("resolves System orientation from the engine setting and follows changes with
   show(host, table({ orientation: 0 }).table);
   expect(element.dataset.orientation).toBe("horizontal");
 });
-it("anchors below or above the caret and clamps both viewport edges", () => {
+test("anchors below or above the caret and clamps both viewport edges", () => {
   const { host, element } = setup();
   show(host);
   expect(element.getBoundingClientRect().top).toBeCloseTo(60, 0);
@@ -154,7 +154,7 @@ it("anchors below or above the caret and clamps both viewport edges", () => {
   expect(bounds.left).toBeGreaterThanOrEqual(0);
   expect(bounds.top).toBeGreaterThanOrEqual(0);
 });
-it("renders auxiliary text independently of the table and respects show/hide records", () => {
+test("renders auxiliary text independently of the table and respects show/hide records", () => {
   const { host, element } = setup();
   host.record({ _tag: "UpdateAuxiliaryText", text: text("help <b>safe</b>"), visible: true });
   expect(element.querySelector("[data-auxiliary]")?.textContent).toBe("help <b>safe</b>");
@@ -168,7 +168,7 @@ it("renders auxiliary text independently of the table and respects show/hide rec
   expect(buttons(element)).toHaveLength(0);
   expect(element.hidden).toBe(false);
 });
-it("lists visible nested properties, reflects toggles and radios and uses the first eligible symbol", () => {
+test("lists visible nested properties, reflects toggles and radios and uses the first eligible symbol", () => {
   const { host, element } = setup();
   host.record({
     _tag: "RegisterProperties",
@@ -208,7 +208,7 @@ it("lists visible nested properties, reflects toggles and radios and uses the fi
   host.record({ _tag: "UpdateProperty", property: property("mode", { type: 2, visible: false }) });
   expect(element.querySelector("[data-indicator]")?.textContent).toBe("EN");
 });
-it("suppresses duplicate radio activation until an authoritative property update", () => {
+test("suppresses duplicate radio activation until an authoritative property update", () => {
   const { host, element } = setup();
   host.record({
     _tag: "RegisterProperties",
@@ -221,7 +221,7 @@ it("suppresses duplicate radio activation until an authoritative property update
   click(element, '[data-property="radio"]');
   expect(host.sendPanelAction).toHaveBeenCalledTimes(2);
 });
-it("clears output on FocusOut/crash hides and does not revive stale output", () => {
+test("clears output on FocusOut/crash hides and does not revive stale output", () => {
   const { host, element } = setup();
   show(host);
   host.notify("hide");
@@ -232,7 +232,7 @@ it("clears output on FocusOut/crash hides and does not revive stale output", () 
   host.notify("hide");
   expect(element.hidden).toBe(true);
 });
-it("ignores stale hide/geometry events from a different context and clears on a context switch", () => {
+test("ignores stale hide/geometry events from a different context and clears on a context switch", () => {
   const { host, element } = setup();
   show(host);
   host.notify("hide", 2);
@@ -241,7 +241,7 @@ it("ignores stale hide/geometry events from a different context and clears on a 
   expect(buttons(element)).toHaveLength(0);
   expect(element.textContent).toContain("new context");
 });
-it("reports a malformed newly visible page and callback errors without EventTarget exceptions", () => {
+test("reports a malformed newly visible page and callback errors without EventTarget exceptions", () => {
   const { host, element } = setup();
   const error = new ProtocolError({ message: "bad deferred text" });
   const lazy = table({
@@ -263,7 +263,7 @@ it("reports a malformed newly visible page and callback errors without EventTarg
   expect(host.reportPanelError).toHaveBeenCalledWith(actionError);
   expect(element.hidden).toBe(true);
 });
-it("preserves the composing field's focus, value and selection during trusted candidate/control clicks", async () => {
+test("preserves the composing field's focus, value and selection during trusted candidate/control clicks", async () => {
   const input = document.createElement("textarea");
   input.value = "composition";
   document.body.append(input);
@@ -283,7 +283,7 @@ it("preserves the composing field's focus, value and selection during trusted ca
   expect(input.value).toBe("composition");
   expect(input.selectionStart).toBe(3);
 });
-it("disposes listeners and DOM and allows host CSS custom properties", () => {
+test("disposes listeners and DOM and allows host CSS custom properties", () => {
   const { host, element, dispose } = setup();
   element.style.setProperty("--ibus-panel-background", "rgb(1, 2, 3)");
   show(host);
@@ -292,7 +292,7 @@ it("disposes listeners and DOM and allows host CSS custom properties", () => {
   show(host);
   expect(element.isConnected).toBe(false);
 });
-it("disables nested menu actions", () => {
+test("disables nested menu actions", () => {
   const { host, element } = setup();
   host.record({
     _tag: "RegisterProperties",
@@ -305,7 +305,7 @@ it("disables nested menu actions", () => {
   });
   expect(element.querySelector<HTMLButtonElement>('[data-property="child"]')!.disabled).toBe(true);
 });
-it("guards property callback failures and hides paging when no table exists", () => {
+test("guards property callback failures and hides paging when no table exists", () => {
   const { host, element } = setup();
   host.record({ _tag: "RegisterProperties", properties: { attachments: {}, properties: [property("toggle")] } });
   expect.soft(element.querySelector<HTMLElement>('[data-action="next"]')!.parentElement!.hidden).toBe(true);
@@ -317,7 +317,7 @@ it("guards property callback failures and hides paging when no table exists", ()
   expect(host.reportPanelError).toHaveBeenCalledWith(failure);
   expect(element.hidden).toBe(true);
 });
-it("uses all sixteen fallback labels and shows at most one selected radio per group", () => {
+test("uses all sixteen fallback labels and shows at most one selected radio per group", () => {
   const { host, element } = setup();
   show(
     host,
@@ -339,7 +339,7 @@ it("uses all sixteen fallback labels and shows at most one selected radio per gr
   expect(element.querySelector('[data-property="radio1"]')!.getAttribute("aria-checked")).toBe("false");
   expect(element.querySelector('[data-property="radio2"]')!.getAttribute("aria-checked")).toBe("true");
 });
-it.each([0, 1, 3, 4])("preserves separate radio groups across non-radio type %i", (type) => {
+test.each([0, 1, 3, 4])("preserves separate radio groups across non-radio type %i", (type) => {
   const { host, element } = setup();
   host.record({
     _tag: "RegisterProperties",
@@ -362,7 +362,7 @@ it.each([0, 1, 3, 4])("preserves separate radio groups across non-radio type %i"
   click(element, '[data-property="C"]');
   expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
 });
-it("keeps nested radio groups independent from parent and separated nested groups", () => {
+test("keeps nested radio groups independent from parent and separated nested groups", () => {
   const { host, element } = setup();
   host.record({
     _tag: "RegisterProperties",
@@ -394,7 +394,7 @@ it("keeps nested radio groups independent from parent and separated nested group
   click(element, '[data-property="C"]');
   expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
 });
-it("defers resize feedback to one frame and cancels pending placement on disposal", () => {
+test("defers resize feedback to one frame and cancels pending placement on disposal", () => {
   let notify!: () => void;
   vi.spyOn(globalThis, "ResizeObserver").mockImplementation(
     class {

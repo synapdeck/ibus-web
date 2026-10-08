@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "vitest";
+import { expect, test } from "vitest";
 import { encodeValue, decodeValue, GVariantDecodeError, type GVariantValue } from "../../src/index.ts";
 const s = (value: string): GVariantValue => ({ _tag: "s", value });
 const vectors: [string, GVariantValue, string][] = [
@@ -31,12 +31,12 @@ const vectors: [string, GVariantValue, string][] = [
   ],
   ["t", { _tag: "t", value: 2n ** 64n - 1n }, "ffffffffffffffff"],
 ];
-it.each(vectors)("matches the %s reference vector", (signature, value, hex) => {
+test.each(vectors)("matches the %s reference vector", (signature, value, hex) => {
   const bytes = Uint8Array.from(Buffer.from(hex, "hex"));
   expect(encodeValue(signature, value)).toEqual(bytes);
   expect(decodeValue(signature, bytes)).toEqual(value);
 });
-it("uses two-byte offsets when the array exceeds 255 bytes", () => {
+test("uses two-byte offsets when the array exceeds 255 bytes", () => {
   const value: GVariantValue = { _tag: "a", items: Array.from({ length: 100 }, () => s("abcd")) };
   const bytes = encodeValue("as", value);
   expect(bytes.length).toBe(700);
@@ -49,7 +49,7 @@ const strings = (body: number, count: number): GVariantValue => ({
   _tag: "a",
   items: [s("a".repeat(body - count)), ...Array.from({ length: count - 1 }, () => s(""))],
 });
-it.each<[number, number, number, number]>([
+test.each<[number, number, number, number]>([
   [253, 2, 1, 255],
   [254, 2, 2, 258],
   [256, 1, 2, 258],
@@ -70,7 +70,7 @@ it.each<[number, number, number, number]>([
   expect(last).toBe(body);
   expect(decodeValue("as", bytes)).toEqual(value);
 });
-it("rejects offsets wider than the container needs", () => {
+test("rejects offsets wider than the container needs", () => {
   // 253 bytes of data and two offsets fit in 255 bytes, so two-byte offsets are not normal.
   const bytes = new Uint8Array(257);
   bytes.fill(97, 0, 252);

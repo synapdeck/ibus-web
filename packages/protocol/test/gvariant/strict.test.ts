@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 import { decodeValue, encodeValue, GVariantDecodeError, type GVariantValue } from "../../src/index.ts";
-it.each<[string, string, number]>([
+test.each<[string, string, number]>([
   ["b", "02", 0],
   ["s", "61", 0],
   ["s", "61006200", 1],
@@ -28,23 +28,23 @@ it.each<[string, string, number]>([
     expect(error).toMatchObject({ offset });
   }
 });
-it("rejects variants nested past 128", () => {
+test("rejects variants nested past 128", () => {
   const bytes = Uint8Array.from([1, ...Array.from({ length: 129 }, (_, i) => [0, i === 0 ? 121 : 118]).flat()]);
   expect(() => decodeValue("v", bytes)).toThrow(GVariantDecodeError);
 });
 
-it("rejects an offset table that inflates its own width", () => {
+test("rejects an offset table that inflates its own width", () => {
   const bytes = new Uint8Array(256);
   bytes.fill(97, 0, 253);
   bytes[254] = 254;
   expect(() => decodeValue("as", bytes)).toThrow(GVariantDecodeError);
 });
 
-it("preserves a UTF-8 byte order mark in a string", () => {
+test("preserves a UTF-8 byte order mark in a string", () => {
   expect(decodeValue("s", Uint8Array.of(239, 187, 191, 0))).toEqual({ _tag: "s", value: "\ufeff" });
 });
 
-it("validates signature sequences with GLib's signature grammar", () => {
+test("validates signature sequences with GLib's signature grammar", () => {
   const bytes = (value: string) => new TextEncoder().encode(value + "\0");
   for (const value of ["", "uu", "{sv}", "a".repeat(128) + "y"]) {
     expect(decodeValue("g", bytes(value))).toEqual({ _tag: "g", value });
@@ -54,7 +54,7 @@ it("validates signature sequences with GLib's signature grammar", () => {
   }
 });
 
-it("resets UTF-8 decoding after locating a malformed sequence", () => {
+test("resets UTF-8 decoding after locating a malformed sequence", () => {
   expect(() => decodeValue("s", Uint8Array.of(97, 226, 130, 0))).toThrow(GVariantDecodeError);
   expect(decodeValue("s", Uint8Array.of(98, 0))).toEqual({ _tag: "s", value: "b" });
 });
@@ -65,22 +65,22 @@ describe("GLib's recursion limit", () => {
     Uint8Array.from([1, 0, 121, ...Array.from({ length: levels - 1 }, () => [0, 118]).flat()]);
   const variantOfEmptyArray = (levels: number) => new TextEncoder().encode(`\0${"a".repeat(levels)}y`);
 
-  it("rejects a value 128 containers deep", () => {
+  test("rejects a value 128 containers deep", () => {
     expect(decodeValue("a".repeat(127) + "y", nestedArrays(127))).toMatchObject({ _tag: "a" });
     expect(() => decodeValue("a".repeat(128) + "y", nestedArrays(128))).toThrow(GVariantDecodeError);
   });
 
-  it("rejects 128 nested variants", () => {
+  test("rejects 128 nested variants", () => {
     expect(decodeValue("v", nestedVariants(127))).toMatchObject({ _tag: "v" });
     expect(() => decodeValue("v", nestedVariants(128))).toThrow(GVariantDecodeError);
   });
 
-  it("counts the depth of a variant's type, not only of its value", () => {
+  test("counts the depth of a variant's type, not only of its value", () => {
     expect(decodeValue("v", variantOfEmptyArray(126))).toMatchObject({ _tag: "v", value: { _tag: "a", items: [] } });
     expect(() => decodeValue("v", variantOfEmptyArray(127))).toThrow(GVariantDecodeError);
   });
 
-  it("accepts an empty tuple at the type nesting limit", () => {
+  test("accepts an empty tuple at the type nesting limit", () => {
     expect(decodeValue("a".repeat(128) + "()", new Uint8Array())).toEqual({ _tag: "a", items: [] });
     const signature = new TextEncoder().encode("a".repeat(128) + "()\0");
     expect(decodeValue("g", signature)).toEqual({ _tag: "g", value: "a".repeat(128) + "()" });
@@ -95,7 +95,7 @@ describe("zero-byte tuples of variable-size members", () => {
   // these, although its own serializer writes the same values with explicit offsets. Accepting
   // them keeps the decoder's notion of normal form identical to GLib's, at the cost of these
   // inputs re-encoding to longer bytes.
-  it.each<[string, string, GVariantValue, string]>([
+  test.each<[string, string, GVariantValue, string]>([
     ["(ayay)", "", { _tag: "()", items: [empty, empty] }, "00"],
     ["m(ayay)", "00", { _tag: "m", value: { _tag: "()", items: [empty, empty] } }, "0000"],
     ["(asmay)", "", { _tag: "()", items: [empty, { _tag: "m", value: null }] }, "00"],
@@ -113,7 +113,7 @@ describe("zero-byte tuples of variable-size members", () => {
     expect(hex(encodeValue(signature, decoded))).toBe(canonical);
   });
 
-  it.each(["(ays)", "(ayv)", "(yay)", "{say}"])("rejects zero-byte %s", (signature) => {
+  test.each(["(ays)", "(ayv)", "(yay)", "{say}"])("rejects zero-byte %s", (signature) => {
     expect(() => decodeValue(signature, new Uint8Array())).toThrow(GVariantDecodeError);
   });
 });

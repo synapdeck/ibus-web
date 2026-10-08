@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, test } from "@effect/vitest";
 import { Schema } from "effect";
 import {
   CommitText,
@@ -21,7 +21,7 @@ import {
 
 // The runtime treats a request of the header alone as malformed, which holds only while no
 // request's payload can be empty.
-it.each(Object.keys(Request.cases))("%s has no empty payload", (name) => {
+test.each(Object.keys(Request.cases))("%s has no empty payload", (name) => {
   const signature = signatureOf(Request.cases[name as keyof typeof Request.cases]);
   expect(() => decodeValue(signature, new Uint8Array())).toThrow(GVariantDecodeError);
 });
@@ -74,7 +74,7 @@ function frame(tree: GVariantValue): Uint8Array {
   return bytes;
 }
 
-it("describes the headers in their wire order", () => {
+test("describes the headers in their wire order", () => {
   expect(framing.request.map(({ name, width }) => [name, width])).toEqual([
     ["kind", 2],
     ["flags", 2],
@@ -89,16 +89,16 @@ it("describes the headers in their wire order", () => {
   ]);
 });
 
-it("encodes FocusIn with its header and the empty tuple byte", () => {
+test("encodes FocusIn with its header and the empty tuple byte", () => {
   expect(encodeRequest(7, new FocusIn({}))).toEqual(Uint8Array.of(0x11, 0, 0, 0, 7, 0, 0, 0, 0));
 });
 
-it("encodes ProcessKeyEvent in little endian without record padding", () => {
+test("encodes ProcessKeyEvent in little endian without record padding", () => {
   const bytes = encodeRequest(1, new ProcessKeyEvent({ keyval: 0x61, keycode: 30, state: 0 }));
   expect(bytes).toEqual(Uint8Array.of(16, 0, 0, 0, 1, 0, 0, 0, 0x61, 0, 0, 0, 30, 0, 0, 0, 0, 0, 0, 0));
 });
 
-it("decodes a hand-framed CommitText with Korean text", () => {
+test("decodes a hand-framed CommitText with Korean text", () => {
   const bytes = commitTextRecord();
   const decoded = decodeRecord(bytes);
   expect(decoded).toMatchObject({ seq: 3, ic: 1, flags: 0, size: bytes.length });
@@ -111,7 +111,7 @@ it("decodes a hand-framed CommitText with Korean text", () => {
   expect([...padding]).toEqual(Array(padding.length).fill(0));
 });
 
-it("reads offsets relative to a byte view and returns the padded record size", () => {
+test("reads offsets relative to a byte view and returns the padded record size", () => {
   const record = commitTextRecord();
   const storage = new Uint8Array(record.length * 2 + 5);
   storage.set(record, 5);
@@ -121,31 +121,31 @@ it("reads offsets relative to a byte view and returns the padded record size", (
   expect(decodeRecord(view, 2).size).toBe(record.length);
 });
 
-it("rejects nonzero record padding", () => {
+test("rejects nonzero record padding", () => {
   const bytes = commitTextRecord();
   bytes[bytes.length - 1] = 1;
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
 });
 
-it("rejects payload lengths beyond the byte view", () => {
+test("rejects payload lengths beyond the byte view", () => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint32(12, bytes.length, true);
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
 });
 
-it.each([0xffff, 0])("rejects record kind %s without a payload schema", (kind) => {
+test.each([0xffff, 0])("rejects record kind %s without a payload schema", (kind) => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(8, kind, true);
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
 });
 
-it("rejects continuation records until the ring reader reassembles them", () => {
+test("rejects continuation records until the ring reader reassembles them", () => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(10, RECORD_CONTINUATION, true);
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
 });
 
-it("rejects record flags it does not define", () => {
+test("rejects record flags it does not define", () => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(10, 0x0002, true);
   expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
@@ -163,18 +163,18 @@ function expectPayloadError(bytes: Uint8Array, message: RegExp) {
   expect(String((error as Error).message)).toMatch(message);
 }
 
-it("reports a variant holding the wrong type as a payload error", () => {
+test("reports a variant holding the wrong type as a payload error", () => {
   expectPayloadError(
     frame({ _tag: "()", items: [{ _tag: "v", type: "s", value: { _tag: "s", value: "한" } }] }),
     /IBusText variant type/,
   );
 });
 
-it("reports an unexpected serializable name as a payload error", () => {
+test("reports an unexpected serializable name as a payload error", () => {
   expectPayloadError(commitTextRecord("IBusFoo"), /serializable name IBusText/);
 });
 
-it("reports an attachment without its inner variant as a payload error", () => {
+test("reports an attachment without its inner variant as a payload error", () => {
   const attachment: GVariantValue = {
     _tag: "{}",
     key: { _tag: "s", value: "source" },
@@ -183,16 +183,16 @@ it("reports an attachment without its inner variant as a payload error", () => {
   expectPayloadError(commitTextRecord("IBusText", [attachment]), /inner variant/);
 });
 
-it.each([-1, 0.5, NaN, Infinity])("rejects invalid record offset %s", (offset) => {
+test.each([-1, 0.5, NaN, Infinity])("rejects invalid record offset %s", (offset) => {
   expect(() => decodeRecord(commitTextRecord(), offset)).toThrow(ProtocolError);
 });
 
-it("rejects truncated headers and missing padding", () => {
+test("rejects truncated headers and missing padding", () => {
   const bytes = commitTextRecord();
   expect(() => decodeRecord(bytes.subarray(0, 15))).toThrow(ProtocolError);
   expect(() => decodeRecord(bytes.subarray(0, bytes.length - 1))).toThrow(ProtocolError);
 });
 
-it.each([-1, 0.5, 2 ** 32, NaN])("rejects invalid input context %s", (ic) => {
+test.each([-1, 0.5, 2 ** 32, NaN])("rejects invalid input context %s", (ic) => {
   expect(() => encodeRequest(ic, new FocusIn({}))).toThrow(ProtocolError);
 });

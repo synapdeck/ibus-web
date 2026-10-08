@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 import { renderProtocolH } from "../../scripts/protocol-h.ts";
 
 type MessageFixture = readonly [name: string, kind: number, signature: string];
@@ -53,13 +53,13 @@ function commentText(header: string): string {
 }
 
 describe("generated C wire header", () => {
-  it("keeps the installed header's license and generation notice", () => {
+  test("keeps the installed header's license and generation notice", () => {
     expect(renderProtocolH()).toMatch(
       /^\/\* SPDX-FileCopyrightText: 2026 Synapdeck, Inc\.\n \* SPDX-License-Identifier: LGPL-2\.1-or-later \*\/\n\/\* Generated from @ibus-web\/protocol's schemas by `nix run \.#write-files`;/,
     );
   });
 
-  it("preserves framing types, field order, version and flag", () => {
+  test("preserves framing types, field order, version and flag", () => {
     const header = renderProtocolH();
     const declarations = header.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ");
     expect(header).toContain("#define IBUSWEB_PROTOCOL_VERSION 1");
@@ -76,20 +76,20 @@ describe("generated C wire header", () => {
     ["REQ", requests],
     ["REC", records],
   ] as const) {
-    it.each(messages)(`preserves ${prefix} %s kind %i and signature %s`, (name, kind, signature) => {
+    test.each(messages)(`preserves ${prefix} %s kind %i and signature %s`, (name, kind, signature) => {
       const header = renderProtocolH();
       expect(header).toContain(`IBUSWEB_${prefix}_${name} = ${kind},`);
       expect(header).toContain(`{IBUSWEB_${prefix}_${name}, "${signature}"}`);
     });
   }
 
-  it("assigns the Crashed payload signature", () => {
+  test("assigns the Crashed payload signature", () => {
     const header = renderProtocolH();
     expect(header).toContain("IBUSWEB_REC_CRASHED = 34,");
     expect(header).toContain('{IBUSWEB_REC_CRASHED, "(us)"}');
   });
 
-  it("documents the crash reasons", () => {
+  test("documents the crash reasons", () => {
     const header = commentText(renderProtocolH());
     const crashed = header.split("(us) reason, message")[1]!.split("IBUSWEB_REC_CRASHED")[0]!;
     for (const reason of ["TRAP 1", "FAULT 2", "-ECANCELED", "RELAY 3", "LOAD 4", "HOST 5"])
@@ -97,7 +97,7 @@ describe("generated C wire header", () => {
     expect(crashed).toContain("message: ");
   });
 
-  it("documents schema fields, descriptions and the key event reply", () => {
+  test("documents schema fields, descriptions and the key event reply", () => {
     const header = commentText(renderProtocolH());
     expect(header).toContain("(uuu) keyval, keycode, state → reply 0 or 1");
     expect(header).toContain("Process a key event and reply whether the engine handled it.");
@@ -105,7 +105,7 @@ describe("generated C wire header", () => {
     expect(header).toContain("GSettings schema id containing the changed key.");
   });
 
-  it("documents wire encoding, malformed requests, padding, ic 0 and page-relative candidate clicks", () => {
+  test("documents wire encoding, malformed requests, padding, ic 0 and page-relative candidate clicks", () => {
     const output = commentText(renderProtocolH());
     expect(output).toContain("Header fields and GVariant payloads are little-endian.");
     expect(output).toContain("A request is 8 bytes of header (kind, flags, ic)");
@@ -119,14 +119,14 @@ describe("generated C wire header", () => {
 
   // clang-format reflows a comment line past its column limit into the line after it, merging
   // separate field descriptions, so the generator wraps every line itself.
-  it("keeps every line within clang-format's 80 columns", () => {
+  test("keeps every line within clang-format's 80 columns", () => {
     const long = renderProtocolH()
       .split("\n")
       .filter((line) => line.length > 80);
     expect(long).toEqual([]);
   });
 
-  it("puts each field description on its own comment line", () => {
+  test("puts each field description on its own comment line", () => {
     const header = renderProtocolH();
     expect(header).toMatch(/\n {3}\* index: Page-relative position .*\n {3}\* {3}\S/);
     expect(header).toMatch(/\n {3}\* button: Mouse button used to select the candidate\.\n/);

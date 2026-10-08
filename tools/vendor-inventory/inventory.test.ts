@@ -3,7 +3,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { checkInventory, expandVersionTemplate, parseInventory, upstreamPath } from "./inventory.ts";
 
 const hash = "sha256-AAAA";
@@ -32,7 +32,7 @@ const rows: [string, string][] = [
 ];
 
 describe("parseInventory", () => {
-  it("reads the release, hash and each row's origin", () => {
+  test("reads the release, hash and each row's origin", () => {
     const inventory = parseInventory(readme(rows));
     expect(inventory.version).toBe("1.5.34");
     expect(inventory.hash).toBe(hash);
@@ -46,17 +46,17 @@ describe("parseInventory", () => {
     ]);
   });
 
-  it("rejects a duplicate row", () => {
+  test("rejects a duplicate row", () => {
     expect(() => parseInventory(readme([rows[1]!, rows[1]!]))).toThrow(/duplicate inventory entry/);
   });
 
-  it("rejects a row without an origin", () => {
+  test("rejects a row without an origin", () => {
     expect(() => parseInventory(readme([["src/ibus/x.c", "Something else."]]))).toThrow(/must start with/);
   });
 });
 
 describe("upstreamPath", () => {
-  it("maps sources and headers to src/ and schemas to data/dconf/", () => {
+  test("maps sources and headers to src/ and schemas to data/dconf/", () => {
     expect(upstreamPath("include/ibus-1.0/ibustext.h")).toBe("src/ibustext.h");
     expect(upstreamPath("src/ibus/ibuskeys.c")).toBe("src/ibuskeys.c");
     expect(upstreamPath("src/ibus/org.freedesktop.ibus.gschema.xml")).toBe(
@@ -66,13 +66,13 @@ describe("upstreamPath", () => {
 });
 
 describe("expandVersionTemplate", () => {
-  it("substitutes the release's parts", () => {
+  test("substitutes the release's parts", () => {
     expect(expandVersionTemplate("(@IBUS_MAJOR_VERSION@.@IBUS_MINOR_VERSION@.@IBUS_MICRO_VERSION@)", "1.5.34")).toBe(
       "(1.5.34)",
     );
   });
 
-  it("rejects a substitution it has no value for", () => {
+  test("rejects a substitution it has no value for", () => {
     expect(() => expandVersionTemplate("@IBUS_API_VERSION@", "1.5.34")).toThrow(/no value/);
   });
 });
@@ -119,11 +119,11 @@ describe("checkInventory", () => {
     await rm(base, { recursive: true, force: true });
   });
 
-  it("accepts a tree matching its inventory and release", async () => {
+  test("accepts a tree matching its inventory and release", async () => {
     expect(await check()).toEqual([]);
   });
 
-  it("fails when the build's IBus is another release", async () => {
+  test("fails when the build's IBus is another release", async () => {
     expect(await check({ version: "1.5.35" })).toEqual(
       expect.arrayContaining([
         "inventory imports IBus 1.5.34, but the IBus source is 1.5.35",
@@ -132,35 +132,35 @@ describe("checkInventory", () => {
     );
   });
 
-  it("fails when the source hash differs", async () => {
+  test("fails when the source hash differs", async () => {
     expect(await check({ hash: "sha256-BBBB" })).toEqual([
       "inventory's source hash is sha256-AAAA, but the IBus source's is sha256-BBBB",
     ]);
   });
 
-  it("fails when an unchanged file differs from upstream", async () => {
+  test("fails when an unchanged file differs from upstream", async () => {
     await writeFile(join(root, "src/ibus/ibuskeys.c"), "keys, edited\n");
     expect(await check()).toEqual(["src/ibus/ibuskeys.c: marked unchanged, but differs from upstream src/ibuskeys.c"]);
   });
 
-  it("fails when an adapted file is identical to upstream", async () => {
+  test("fails when an adapted file is identical to upstream", async () => {
     await writeFile(join(root, "src/ibus/ibustext.c"), "text\n");
     expect(await check()).toEqual(["src/ibus/ibustext.c: identical to upstream, so should be marked unchanged"]);
   });
 
-  it("fails when an upstream file has no counterpart", async () => {
+  test("fails when an upstream file has no counterpart", async () => {
     await rm(join(upstream, "src/ibustext.c"));
     expect(await check()).toEqual(["src/ibus/ibustext.c: upstream has no src/ibustext.c"]);
   });
 
-  it("fails when a generated file isn't the template's expansion", async () => {
+  test("fails when a generated file isn't the template's expansion", async () => {
     await writeFile(join(root, "include/ibus-1.0/ibusversion.h"), "#define IBUS_MICRO_VERSION  (34)\n");
     expect(await check()).toEqual([
       "include/ibus-1.0/ibusversion.h: differs from src/ibusversion.h.in generated for 1.5.34",
     ]);
   });
 
-  it("fails on files missing from or stale in the inventory", async () => {
+  test("fails on files missing from or stale in the inventory", async () => {
     await put(join(root, "src/ibus/extra.c"), "\n");
     await rm(join(root, "src/ibus/ibusengine.c"));
     expect(await check()).toEqual(["not in the inventory: src/ibus/extra.c", "no such file: src/ibus/ibusengine.c"]);

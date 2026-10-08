@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, it, test } from "@effect/vitest";
 import { Arbitrary, Schema } from "effect";
 import {
   IBusAttrList,
@@ -74,7 +74,7 @@ it.prop(
   { arbitrary: { runs: 40, seed: 1403 } },
 );
 
-it("defers malformed invisible candidate bytes until that page is requested", () => {
+test("defers malformed invisible candidate bytes until that page is requested", () => {
   const { bytes } = fixture();
   const position = Buffer.from(bytes).indexOf(Buffer.from("candidate-19-한글"));
   bytes[position] = 0xff;
@@ -92,14 +92,14 @@ it("defers malformed invisible candidate bytes until that page is requested", ()
   });
 });
 
-it("retains an immutable snapshot of caller bytes", () => {
+test("retains an immutable snapshot of caller bytes", () => {
   const { bytes, record } = fixture();
   const lazy = decodeLookupTableRecord(bytes);
   bytes.fill(0);
   expect(lazy.page(2).candidates).toEqual(record.table.candidates.slice(18));
 });
 
-it("retains an immutable Buffer snapshot through decodeLookupTableRecord", () => {
+test("retains an immutable Buffer snapshot through decodeLookupTableRecord", () => {
   const { bytes, record } = fixture();
   const buffer = Buffer.from(bytes);
   const lazy = decodeLookupTableRecord(buffer);
@@ -109,7 +109,7 @@ it("retains an immutable Buffer snapshot through decodeLookupTableRecord", () =>
   expect(lazy.visible().labels).toEqual(record.table.labels.slice(0, 9));
 });
 
-it("retains an immutable Buffer snapshot through decodeRecordLazy", () => {
+test("retains an immutable Buffer snapshot through decodeRecordLazy", () => {
   const { bytes, record } = fixture();
   const buffer = Buffer.from(bytes);
   const decoded = decodeRecordLazy(buffer);
@@ -121,7 +121,7 @@ it("retains an immutable Buffer snapshot through decodeRecordLazy", () => {
   expect(lazy.visible().labels).toEqual(record.table.labels.slice(0, 9));
 });
 
-it("validates candidate av framing before any page is requested", () => {
+test("validates candidate av framing before any page is requested", () => {
   const { bytes, tree } = fixture();
   const table = (tree as Extract<GVariantValue, { _tag: "()" }>).items[0]! as Extract<GVariantValue, { _tag: "v" }>;
   const candidates = (table.value as Extract<GVariantValue, { _tag: "()" }>).items[7]!;
@@ -132,7 +132,7 @@ it("validates candidate av framing before any page is requested", () => {
   expect(() => decodeLookupTableRecord(bytes)).toThrow();
 });
 
-it("handles empty, zero-size and out-of-range pages and rejects invalid indices", () => {
+test("handles empty, zero-size and out-of-range pages and rejects invalid indices", () => {
   for (const [count, size, cursor] of [
     [0, 9, 0],
     [5, 0, 2],
@@ -146,7 +146,7 @@ it("handles empty, zero-size and out-of-range pages and rejects invalid indices"
   }
 });
 
-it("rejects wrong kind, flags, truncated record and nonzero record padding eagerly", () => {
+test("rejects wrong kind, flags, truncated record and nonzero record padding eagerly", () => {
   for (const mutate of [
     (bytes: Uint8Array) => new DataView(bytes.buffer).setUint16(8, 9, true),
     (bytes: Uint8Array) => new DataView(bytes.buffer).setUint16(10, 2, true),
@@ -163,7 +163,7 @@ it("rejects wrong kind, flags, truncated record and nonzero record padding eager
   expect(() => decodeLookupTableRecord(bytes)).toThrow();
 });
 
-it("array boundaries validate framing without reading element payloads", () => {
+test("array boundaries validate framing without reading element payloads", () => {
   const bytes = encodeValue("av", {
     _tag: "a",
     items: [
@@ -179,7 +179,7 @@ it("array boundaries validate framing without reading element payloads", () => {
   expect(() => decodeArrayBoundaries("av", bytes)).toThrow();
 });
 
-it("defers strict IBusText serializable validation and label payloads", () => {
+test("defers strict IBusText serializable validation and label payloads", () => {
   const { bytes } = fixture();
   const position = Buffer.from(bytes).indexOf(Buffer.from("candidate-19-한글"));
   const name = Buffer.from(bytes).lastIndexOf("IBusText", position);
@@ -196,7 +196,7 @@ it("defers strict IBusText serializable validation and label payloads", () => {
   expect(() => withInvalidLabel.page(0)).toThrow();
 });
 
-it("validates fixed boolean fields and the serializable table name eagerly", () => {
+test("validates fixed boolean fields and the serializable table name eagerly", () => {
   const { bytes } = fixture();
   const name = Buffer.from(bytes).indexOf("IBusLookupTable");
   bytes[name] = 88;
@@ -209,7 +209,7 @@ it("validates fixed boolean fields and the serializable table name eagerly", () 
   expect(() => decodeLookupTableRecord(invalid)).toThrow();
 });
 
-it("defers an invisible candidate's malformed inner tuple framing", () => {
+test("defers an invisible candidate's malformed inner tuple framing", () => {
   const { bytes, tree } = fixture();
   if (tree._tag !== "()" || tree.items[0]?._tag !== "v" || tree.items[0].value._tag !== "()")
     throw new Error("wrong fixture");

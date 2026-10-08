@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Effect, Layer, Logger as EffectLogger, Stream } from "effect";
 import {
   CreateEngine,
@@ -117,7 +117,7 @@ const run = (
     ),
   );
 
-it("API loads validated metadata and persists ArrayBuffers without starting Workers; Init contains only stored keys", () =>
+test("API loads validated metadata and persists ArrayBuffers without starting Workers; Init contains only stored keys", () =>
   run(async (api, source, registry, connections) => {
     expect(await api.schemas("a")).toEqual(metadata.schemas);
     expect(await api.get("a", "test.settings", "mode")).toEqual(variant("default"));
@@ -137,7 +137,7 @@ it("API loads validated metadata and persists ArrayBuffers without starting Work
     await api.reset("a", "test.settings", "mode");
     expect(await stored()).toEqual([]);
   }));
-it("engine writes synchronously enqueue, reach the API stream and other Worker, and never echo to writer", () =>
+test("engine writes synchronously enqueue, reach the API stream and other Worker, and never echo to writer", () =>
   run(async (api, _source, registry, connections) => {
     await Effect.runPromise(registry.ensure("a"));
     await Effect.runPromise(registry.ensure("b"));
@@ -178,7 +178,7 @@ it("engine writes synchronously enqueue, reach the API stream and other Worker, 
       await watching.catch(() => {});
     }
   }));
-it("another page receives exact broadcast bytes and forwards remote changes without writing or rebroadcasting", () =>
+test("another page receives exact broadcast bytes and forwards remote changes without writing or rebroadcasting", () =>
   run(async (api, _source, registry, connections) => {
     await Effect.runPromise(registry.ensure("a"));
     const other = new BroadcastChannel("ibus-web:gsettings");
@@ -216,7 +216,7 @@ it("another page receives exact broadcast bytes and forwards remote changes with
       other.close();
     }
   }));
-it("rejects unknown keys, signatures, choices and ranges before storage", () =>
+test("rejects unknown keys, signatures, choices and ranges before storage", () =>
   run(async (api) => {
     await expect(api.set("a", "test.settings", "missing", variant("chosen"))).rejects.toThrow();
     await expect(api.set("a", "test.settings", "count", variant("chosen"))).rejects.toThrow();
@@ -225,7 +225,7 @@ it("rejects unknown keys, signatures, choices and ranges before storage", () =>
       api.set("a", "test.settings", "count", { _tag: "v", type: "i", value: { _tag: "i", value: 4 } }),
     ).rejects.toThrow();
   }));
-it("a host-supplied source replaces persistence entirely, including settings API access", async () => {
+test("a host-supplied source replaces persistence entirely, including settings API access", async () => {
   const open = vi.spyOn(IDBFactory.prototype, "open");
   await run(async (api, _source, registry) => {
     await api.set("a", "test.settings", "mode", variant("chosen"));
@@ -234,7 +234,7 @@ it("a host-supplied source replaces persistence entirely, including settings API
     expect(open).not.toHaveBeenCalled();
   }, SettingsSource.layer());
 });
-it("a fresh page reads persisted bytes before starting a real Hangul Worker", async () => {
+test("a fresh page reads persisted bytes before starting a real Hangul Worker", async () => {
   const { data, HANGUL_SCHEMA } = await import("./real-host.ts");
   const realOptions = { engines: { hangul: new URL(data.hangulUrl, location.href) } };
   await Effect.runPromise(
@@ -289,7 +289,7 @@ it("a fresh page reads persisted bytes before starting a real Hangul Worker", as
     ),
   );
 });
-it("failed storage writes reject API callers and do not stop subsequent settings changes", () =>
+test("failed storage writes reject API callers and do not stop subsequent settings changes", () =>
   run(async (api) => {
     const put = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementationOnce(() => {
       throw new Error("disk failure");
@@ -299,7 +299,7 @@ it("failed storage writes reject API callers and do not stop subsequent settings
     await api.set("a", "test.settings", "mode", variant("remote"));
     expect(await api.get("a", "test.settings", "mode")).toEqual(variant("remote"));
   }));
-it("closed scopes close channels and databases, reject API writes and ignore late synchronous engine writes", async () => {
+test("closed scopes close channels and databases, reject API writes and ignore late synchronous engine writes", async () => {
   let closedSource: SettingsSource["Service"] | undefined;
   let closedApi: SettingsApi["Service"] | undefined;
   const close = vi.spyOn(BroadcastChannel.prototype, "close");
@@ -318,7 +318,7 @@ it("closed scopes close channels and databases, reject API writes and ignore lat
   expect(open).not.toHaveBeenCalled();
   await drop();
 });
-it("two independent page services broadcast to their own Workers with exactly one database write", () =>
+test("two independent page services broadcast to their own Workers with exactly one database write", () =>
   run(async (writer, _source, registry) => {
     await Effect.runPromise(registry.ensure("a"));
     await run(async (reader, _otherSource, otherRegistry, connections) => {
@@ -332,7 +332,7 @@ it("two independent page services broadcast to their own Workers with exactly on
       expect(post).toHaveBeenCalledTimes(1);
     });
   }));
-it("synchronous engine writes report asynchronous storage errors and keep processing later writes", async () => {
+test("synchronous engine writes report asynchronous storage errors and keep processing later writes", async () => {
   const logs: EffectLogger.Options<unknown>[] = [];
   const logger = EffectLogger.make((options) => {
     logs.push(options);
@@ -375,7 +375,7 @@ const sharedPathSchemas: SettingsMetadata = {
   ],
 };
 for (const origin of ["local", "remote"] as const) {
-  it(`shared-path ${origin} changes skip disjoint and incompatible keys without losing valid recipients`, () =>
+  test(`shared-path ${origin} changes skip disjoint and incompatible keys without losing valid recipients`, () =>
     run(async (api, source) => {
       await api.schemas("a");
       await source.register!(sharedPathSchemas);
@@ -453,7 +453,7 @@ for (const origin of ["local", "remote"] as const) {
       }
     }));
 }
-it("shared-path deletion notifies each local and remote alias with its own default and leaves the next snapshot empty", () =>
+test("shared-path deletion notifies each local and remote alias with its own default and leaves the next snapshot empty", () =>
   run(async (api, source) => {
     await api.schemas("a");
     await source.register!(sharedPathSchemas);

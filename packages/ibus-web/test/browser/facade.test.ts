@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { Stream } from "effect";
 import {
   Connection,
@@ -98,7 +98,7 @@ function editor() {
   };
   return { element, adapter, resets };
 }
-it("creation and attachment stay lazy; detach and disposal own every surface and connection", async () => {
+test("creation and attachment stay lazy; detach and disposal own every surface and connection", async () => {
   const f = fixture();
   const detach = f.app.attach(f.native);
   expect(typeof detach).toBe("function");
@@ -113,7 +113,7 @@ it("creation and attachment stay lazy; detach and disposal own every surface and
   expect(f.connections[0]!.terminated).toBe(true);
   await expect(f.app.select("test")).rejects.toThrow();
 });
-it("native sync and manual adapters share the real router and preserve accepted output on focus change", async () => {
+test("native sync and manual adapters share the real router and preserve accepted output on focus change", async () => {
   const f = fixture(),
     edit = editor();
   f.app.attach(f.native);
@@ -142,7 +142,7 @@ it("native sync and manual adapters share the real router and preserve accepted 
   expect(f.native.value).toBe("native");
   expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent").map((x) => x.mode)).toEqual(["sync", "async"]);
 });
-it("unload cancels manual ownership and reselect creates a fresh context on the same attachment", async () => {
+test("unload cancels manual ownership and reselect creates a fresh context on the same attachment", async () => {
   const f = fixture(),
     edit = editor();
   f.app.attachAdapter(edit.adapter, { keyMode: "manual" });
@@ -163,7 +163,7 @@ it("unload cancels manual ownership and reselect creates a fresh context on the 
   expect(edit.resets.size).toBe(0);
   expect(f.connections.every((c) => c.terminated)).toBe(true);
 });
-it("panel errors become filtered typed log events, including a throwing logger", async () => {
+test("panel errors become filtered typed log events, including a throwing logger", async () => {
   const seen: unknown[] = [];
   const app = createIbusWeb({
     runtimeUrl: url,
@@ -199,7 +199,7 @@ function nextEvent<K extends keyof IbusWebEventMap>(
     app.addEventListener(type, listener);
   });
 }
-it("forwards lazy panel records and focused geometry without decoding candidates, and routes actions", async () => {
+test("forwards lazy panel records and focused geometry without decoding candidates, and routes actions", async () => {
   const f = fixture(),
     edit = editor();
   f.app.attachAdapter(edit.adapter);
@@ -242,7 +242,7 @@ it("forwards lazy panel records and focused geometry without decoding candidates
   await hide;
   expect(f.app.caretRect()).toBeNull();
 });
-it("encodes every structural public panel action through the actual protocol boundary", async () => {
+test("encodes every structural public panel action through the actual protocol boundary", async () => {
   const f = fixture();
   f.app.attach(f.native);
   f.native.focus();
@@ -279,7 +279,7 @@ it("encodes every structural public panel action through the actual protocol bou
   expect((await failed).detail.message).toMatch(/index|Uint32|greater|negative/);
   expect(encoded).toHaveLength(6);
 });
-it("publishes state and storage CustomEvents from actual core lifecycle, including restart and unload", async () => {
+test("publishes state and storage CustomEvents from actual core lifecycle, including restart and unload", async () => {
   const f = fixture();
   f.app.attach(f.native);
   f.native.focus();
@@ -303,7 +303,7 @@ it("publishes state and storage CustomEvents from actual core lifecycle, includi
   expect(states).toContain("ready");
   expect(states.at(-1)).toBe("unloaded");
 });
-it("filters engine logs by level and reports rejected panel actions through the same observable log route", async () => {
+test("filters engine logs by level and reports rejected panel actions through the same observable log route", async () => {
   const logs: unknown[] = [];
   const f = fixture({ logLevel: "warn", logger: (entry) => logs.push(entry) });
   f.app.attach(f.native);
@@ -328,7 +328,7 @@ it("filters engine logs by level and reports rejected panel actions through the 
   f.app.sendPanelAction("test", 1, { _tag: "PageDown" });
   expect((await failed).detail).toMatchObject({ level: "error", domain: "panel" });
 });
-it("automatic async adapters and native sync attachments preserve independent policies", async () => {
+test("automatic async adapters and native sync attachments preserve independent policies", async () => {
   const f = fixture(),
     edit = editor();
   f.app.attach(f.native);
@@ -347,7 +347,7 @@ it("automatic async adapters and native sync attachments preserve independent po
   expect(c.sent.filter((x) => x.request._tag === "ProcessKeyEvent").map((x) => x.mode)).toEqual(["async", "sync"]);
 });
 
-it("settings load without Workers and publish orientation snapshots with context identity", async () => {
+test("settings load without Workers and publish orientation snapshots with context identity", async () => {
   const schema = "org.freedesktop.ibus.panel",
     name = "lookup-table-orientation";
   const values: Record<string, Record<string, { _tag: "v"; type: string; value: { _tag: "i"; value: number } }>> = {};
@@ -400,7 +400,7 @@ it("settings load without Workers and publish orientation snapshots with context
   await f.app.settings.reset("test", schema, name);
   expect(f.app.lookupTableOrientation("test")).toBe(1);
 });
-it("dispose during lazy runtime acquisition rejects selection without starting a Worker", async () => {
+test("dispose during lazy runtime acquisition rejects selection without starting a Worker", async () => {
   const f = fixture(),
     edit = editor();
   f.app.attachAdapter(edit.adapter);
@@ -414,7 +414,7 @@ it("dispose during lazy runtime acquisition rejects selection without starting a
   expect(f.start).not.toHaveBeenCalled();
   expect(edit.resets.size).toBe(0);
 });
-it("dispose during Worker startup aborts acquisition and terminates a late connection", async () => {
+test("dispose during Worker startup aborts acquisition and terminates a late connection", async () => {
   const f = fixture();
   let entered!: () => void, finish!: (connection: Connection) => void;
   let signal: AbortSignal | undefined;
@@ -444,7 +444,7 @@ it("dispose during Worker startup aborts acquisition and terminates a late conne
   expect(late.terminated).toBe(true);
   expect(key(f.native).defaultPrevented).toBe(false);
 });
-it("panel error reporting cannot throw even for an unprintable host failure", async () => {
+test("panel error reporting cannot throw even for an unprintable host failure", async () => {
   const f = fixture();
   expect(() =>
     f.app.reportPanelError({
@@ -455,7 +455,7 @@ it("panel error reporting cannot throw even for an unprintable host failure", as
   ).not.toThrow();
 });
 
-it("unloading an inactive engine preserves the active engine's preedit on its surface", async () => {
+test("unloading an inactive engine preserves the active engine's preedit on its surface", async () => {
   const f = fixture({ engines: { a: new URL("a", url), b: new URL("b", url) } }),
     edit = editor();
   vi.mocked(fetch).mockImplementation(async (input) =>
@@ -481,7 +481,7 @@ it("unloading an inactive engine preserves the active engine's preedit on its su
   expect(f.connections[1]!.terminated).toBe(false);
 });
 
-it("unload invalidates every earlier queued selection without waiting for stalled startup", async () => {
+test("unload invalidates every earlier queued selection without waiting for stalled startup", async () => {
   const f = fixture();
   let entered!: () => void, finish!: (connection: Connection) => void;
   let signal: AbortSignal | undefined;
@@ -517,7 +517,7 @@ it("unload invalidates every earlier queued selection without waiting for stalle
 });
 
 for (const callback of ["setPreedit", "batch", "reset cleanup"] as const)
-  it(`disposal releases every surface and Worker after a failing first adapter ${callback}`, async () => {
+  test(`disposal releases every surface and Worker after a failing first adapter ${callback}`, async () => {
     const f = fixture({ engines: { a: new URL("a", url), b: new URL("b", url) } });
     vi.mocked(fetch).mockImplementation(async (input) =>
       Response.json({ ...manifest, name: new URL(String(input)).pathname.slice(1) }),
@@ -573,7 +573,7 @@ for (const callback of ["setPreedit", "batch", "reset cleanup"] as const)
     instances.splice(instances.indexOf(f.app), 1);
   });
 
-it("unload cancels ownership and releases the engine despite a preedit callback failure", async () => {
+test("unload cancels ownership and releases the engine despite a preedit callback failure", async () => {
   const f = fixture(),
     first = editor(),
     second = editor();
