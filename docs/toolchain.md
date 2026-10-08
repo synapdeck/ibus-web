@@ -403,7 +403,8 @@ flake outputs.
   `callPackage` recipe, which import-tree skips. A module with more than one job splits into
   modules named for each (`archives.nix`, `exports.nix`, `cache.nix`), and a job's module may
   define the checks that need its own bindings. A check with fixtures of its own gets a directory
-  holding its `checks.nix` beside them.
+  holding its `checks.nix` beside them, and `patches/` holds a component's patches with a README
+  of their provenance.
 - `modules/` holds what components share: `toolchain/`, `emscripten/`, `glib/` and
   `baseline-browser-mapping/`, which this page covers; `engines/`, the API engines are built and
   checked with; `typescript/` and `testing/`; and `flake/` (systems, dev shell, CI, hk, generated

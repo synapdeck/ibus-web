@@ -1938,57 +1938,59 @@ release.
 ### 10.1 Repository
 
 The flake is dendritic: `flake.nix` holds only inputs and passes its module
-directories (below) through import-tree to flake-parts, so every `.nix` file
-in them is a flake-parts module. Modules share values only through `ibusWeb.*` per-system
-options (the toolchain and its `pkgsWasm` package set, engines), never by
-importing each other. import-tree imports only `.nix` files outside
-`_`-prefixed paths, so non-Nix files a module needs sit beside it under
-plain names; a `_` prefix is only for `.nix` files that aren't flake-parts
-modules. Each component the build changes has one directory,
-`modules/<component>/`: `overlay.nix` defines `flake.overlays.<component>`,
-one gated overlay that may change several nixpkgs attributes; `patches/`
-holds its patch files and a README recording their provenance; `checks/`
-holds its checks, `checks/<name>.nix` or, with sources of its own,
-`checks/<name>/default.nix` with its files beside it. The runtime and
-each engine are components too, living at the repository root with their
-flake-parts modules beside the sources they build. Each part of the
-runtime has one directory, `runtime/<part>/`, holding its sources, its
-modules (`package.nix`, `checks.nix`) and its tests, with runtime-wide
-options in `runtime/options.nix`; `engines/<name>/` has the same shape as
-`modules/<component>/` plus its manifest template and data. TypeScript
-packages live under `packages/<name>/`, members of the pnpm workspace, with
-their flake-parts modules beside them. `flake.nix` passes `./modules`,
-`./packages`, `./runtime` and, once it exists, `./engines` to import-tree.
-How the layout works in practice is in `docs/toolchain.md` ("Flake layout").
+directories (below) through import-tree to flake-parts. Every `.nix` file in
+them is a flake-parts module, except one whose name starts with `_`, which is
+a plain `callPackage` recipe. Modules share values only through `ibusWeb.*`
+per-system options, never by importing each other: the toolchain and its
+`pkgsWasm` package set, engines, and the helpers in `ibusWeb.lib`. Non-Nix
+files a module needs sit beside it under plain names.
+
+A component's Nix lives in its own directory, each file named for its role:
+
+- `module.nix`, its flake-parts module;
+- `options.nix`, options it declares for others;
+- `checks.nix`;
+- `overlay.nix`, defining `flake.overlays.<component>`: one gated overlay on
+  `pkgsWasm` that may change several nixpkgs attributes;
+- `_<name>.nix` recipes.
+
+A check with sources of its own has a directory under `checks/`, with its
+`checks.nix` beside them. `patches/` holds a component's patch files and a
+README recording their provenance. `modules/` holds only infrastructure several
+components share. The runtime's parts, each engine, each TypeScript package,
+each tool and each example are components at the repository root.
+
+Every directory holding TypeScript is a package of the pnpm workspace, and
+every tsconfig extends a preset of `@ibus-web/tsconfig`. How the layout works
+in practice is in `docs/toolchain.md` ("Flake layout") and `docs/tooling.md`.
 Entries marked † below don't exist yet.
 
 ```
 ibus-web/
 ├─ flake.nix, flake.lock           inputs: nixpkgs, flake-parts, import-tree, devshell, flake-root, systems, github-actions-nix, files
-├─ package.json, pnpm-*.yaml       the pnpm workspace, its catalog (generated from Nix) and its lockfile
-├─ tsconfig.base.json              the one TypeScript configuration every tsconfig.json extends
-├─ tsconfig.*.json                 its two shared refinements: Node scripts, and JavaScript Emscripten reads
-├─ types/                          declarations of what Node has but @types/node lacks (WebAssembly)
+├─ package.json, pnpm-*.yaml       the pnpm workspace (no root dependencies), its catalog (generated from Nix) and its lockfile
 ├─ hk.pkl                          every formatter and lint check, for the git hooks, `nix fmt` and `checks.flake-hk`
-├─ modules/
-│  ├─ flake/                       systems, hk, dev shell, the CI workflow and the files writer
-│  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes
-│  │  └─ checks/                   checks of the toolchain itself
-│  ├─ <component>/                 overlay.nix, patches/, checks/ for one component (emscripten, glib, libhangul, …)
+├─ REUSE.toml, LICENSES/, NOTICES/ per-path licensing, license texts, third-party notices
+├─ modules/                        infrastructure several components share
+│  ├─ flake/                       systems, hk, dev shell, the CI workflow, the files writer, ibusWeb.lib
+│  ├─ toolchain/                   pkgsWasm (Emscripten cross package set), emscriptenCache, wrapper hooks, probes, checks/
+│  ├─ emscripten/                  Emscripten's patches and the checks of what they fix
+│  ├─ glib/                        pkgsWasm.glib: overlay.nix, patches/, checks/
 │  ├─ baseline-browser-mapping/    the package Emscripten's minimum versions come from
-│  ├─ typescript/                  the pnpm workspace's offline build and its version assertions
-│  ├─ testing/                     the GoogleTest harness, the test-program checks, nixpkgs' Playwright browsers
-│  ├─ engines/ †                   side-module packaging, data, source bundles
+│  ├─ typescript/                  the pnpm workspace's offline build, its generated files, version and metadata checks
+│  ├─ testing/                     the GoogleTest harness, the test-program and Vitest checks, nixpkgs' Playwright browsers
+│  ├─ engines/                     what every engine shares: manifests, settings metadata, cast audits, the IBus conformance adapter
 │  └─ release.nix †                the release set
-├─ runtime/                        the runtime component; options.nix
-│  ├─ libibus-web/                 C sources, ibus.h-compatible headers, package.nix, checks.nix, tests/
+├─ runtime/
+│  ├─ libibus-web/                 C sources, ibus.h-compatible headers, overlay.nix, checks.nix, tests/
 │  ├─ wasmfs-idb/                  the WasmFS IndexedDB backend: C++, its JS library, header, tests/
-│  └─ ibus-runtime/                the main-module link: package.nix, exports.nix, checks.nix, tests/
-├─ packages/                       worker-host, test-programs; protocol, core, ibus-web, panel †
-├─ engines/<name>/ †               one component per engine: overlay.nix, patches/{port,casts}, checks/, manifest template, data
+│  └─ ibus-runtime/                the main-module link, its export list, side-module support, tests/
+├─ engines/hangul/                 an engine: overlay.nix, patches/{port,casts,libhangul}, checks/, module.c
+├─ packages/                       protocol, worker-host, core, panel, ibus-web (published); test-programs; tsconfig
+├─ tools/<name>/                   one package per build and check tool, with its checks.nix or module.nix
 ├─ tools/claude/                   Claude Code language-server plugins (nixd, pkl)
-├─ docs/                           this spec; topic pages (toolchain, glib, runtime, storage, worker-host, testing, tooling, known gaps); upstream/ drafts
-└─ tests/ †                        conformance harness, Playwright suites, benchmarks
+├─ examples/hangul/                the Hangul demo and its end-to-end tests
+└─ docs/                           this spec and the others; topic pages; plans/; upstream/ drafts
 ```
 
 One version for the whole project. Protocol version and runtime ABI version
@@ -2149,9 +2151,8 @@ each choice, is in `docs/toolchain.md` and `docs/glib.md`.
   safe to export. The gate reads only the platform, because reading
   `stdenv.cc` would evaluate the wrapped compiler, whose `buildPackages`
   splicing reaches back into `pkgsWasm` and recurses. Layout: one per
-  component, `modules/<component>/overlay.nix` defining
-  `flake.overlays.<component>`, with its patches in
-  `modules/<component>/patches/`. They do three things, and nothing else:
+  component, `overlay.nix` in the component's directory defining
+  `flake.overlays.<component>`, with its patches in `patches/` beside it. They do three things, and nothing else:
   1. drop desktop-only inputs and features: GTK and Python setup programs,
      `wrapGAppsHook3`, GObject introspection, libnotify, and network features
      such as ibus-libpinyin's cloud input (`libsoup_3`, `--enable-cloud-input-mode`);
@@ -2228,8 +2229,8 @@ each choice, is in `docs/toolchain.md` and `docs/glib.md`.
     iconv and gettext), disables NLS, sysprof, documentation, tests and
     xattr, and drops the `devdoc` output.
 - **TypeScript.** One pnpm workspace at the repository root (`package.json`,
-  `pnpm-workspace.yaml` over `packages/*` and the few directories elsewhere
-  whose scripts need dependencies), with one `catalog:` for what must be
+  `pnpm-workspace.yaml` over `packages/*`, `tools/*`, `examples/*` and the
+  component directories whose TypeScript needs dependencies), with one `catalog:` for what must be
   one version across the repository, both declared in Nix, which writes
   the file. Its
   dependencies are a fixed-output derivation (`fetchPnpmDeps` with pnpm 12,
@@ -2237,12 +2238,13 @@ each choice, is in `docs/toolchain.md` and `docs/glib.md`.
   builds every package's `dist/` (`tsc`, or tsdown where a package bundles,
   as the Worker host's scripts do), the JavaScript browsers load. The
   workspace, its build and its configuration are in `docs/tooling.md`.
-  Every `tsconfig.json` in the repository extends one standard
-  configuration, the root `tsconfig.base.json` (`strict`,
-  `erasableSyntaxOnly`, so Node runs the sources directly while iterating),
-  and overrides only what its files need. Each package has one
-  `tsconfig.json` per environment directory: `shared/` sees no environment's globals,
-  `worker/` the WebWorker library, `page/` the DOM and `node/` Node's types.
+  Every tsconfig in the repository extends a preset of `@ibus-web/tsconfig`
+  (`base.json`, with `strict` and `erasableSyntaxOnly` so Node runs the
+  sources directly while iterating, and `dom.json`, `worker.json`, `node.json`
+  and `emscripten-js.json` on top of it), and overrides only what its files
+  need. Each package keeps its tsconfigs at its root: a `tsconfig.json` that
+  only references the others, and one per target or purpose
+  (`tsconfig.worker.json`, `tsconfig.test.json`, `tsconfig.config.json`, …).
   Versions pnpm can't know are asserted against what it resolved: the
   `playwright` package equals nixpkgs' `playwright-driver` (1.63.0 at
   `c59305b`), and `packageManager` names nixpkgs' pnpm 12. The tests use
@@ -2276,7 +2278,7 @@ written and run, and how to run one alone. As built:
   a `tsconfig.json`, the `tsconfig` extends chain, `reuse lint` (§9.4) and
   actionlint (`docs/tooling.md`)
 - **the editor and CI configuration:** every C and C++ source parsing under
-  clangd's configuration (`clangd`), and the generated CI workflow against
+  clangd's configuration (`toolchain-clangd`), and the generated CI workflow against
   its Nix (`files:.github/workflows/ci.yml`)
 - **the toolchain:** the Emscripten patches' behaviour (`emscripten-fixes`,
   GoogleTest programs under Node), the cache against every flag combination
@@ -2286,17 +2288,17 @@ written and run, and how to run one alone. As built:
   (`toolchain-cross`), and Meson and nixpkgs recipes building through it
   (`toolchain-meson-consumer`, `hangul-libhangul-link`)
 - **GLib:** the patch series applying (`glib-patches`), a smoke program
-  (`glib`), consumers running its tools (`glib-meson-tools`,
+  (`glib-smoke`), consumers running its tools (`glib-meson-tools`,
   `glib-autotools-tools`), its own tests under Node gated by their baseline
   (`glib-tests`), and the gate's own Vitest tests (`glib-tests-gate`)
 - **the runtime:** `libibus-web`'s g_test programs under `meson test` in
-  Node (`libibus-web`); the runtime's load and memory contract under Vitest
+  Node (`libibus-web-tests`); the runtime's load and memory contract under Vitest
   (`ibus-runtime-load`: it refuses a missing or out-of-bounds memory and
   never grows one); its export manifest against its libraries
   (`ibus-runtime-exports`) and test side modules' imports against the
   manifest (`ibus-runtime-side-imports`, `worker-host-side-imports`)
 - **the IndexedDB backend:** its GoogleTest programs in Chromium and Firefox
-  (`wasmfs-idb`), and its JavaScript library type-checked against types
+  (`wasmfs-idb-browser`), and its JavaScript library type-checked against types
   Emscripten generates, with every symbol it uses declared in its
   dependencies (`wasmfs-idb-types`); the dependency checker's own Vitest
   tests (`tools-emscripten-library-deps`) and its acorn matching Emscripten's
