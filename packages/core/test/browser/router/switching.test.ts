@@ -156,10 +156,39 @@ test("selection changes are published in order", () =>
     expect(seen).toEqual([{ module: "a", engine: "other" }, undefined, { module: "b", engine: "factory" }]);
     await Effect.runPromise(Fiber.interrupt(listening));
   }));
-test("a selection waiting for its module's manifest yields to a later one", () =>
-  run(async ({ router }) => {
-    await Promise.all([select(router, "b"), select(router, "a")]);
-    expect(router.selection).toEqual({ module: "a", engine: "factory" });
+test("a selection waiting for its module's manifest yields to a later one and never starts its Worker", () =>
+  run(async ({ router, connections }) => {
+    const seen: unknown[] = [];
+    const listening = Effect.runFork(
+      router.selectionChanges.pipe(Stream.runForEach((selection) => Effect.sync(() => seen.push(selection)))),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // `a`'s manifest is loaded, so its selection applies at once while `b`'s waits for the read.
+    await Promise.all([select(router, "b"), Effect.runPromise(router.select("a", "other"))]);
+    expect(router.selection).toEqual({ module: "a", engine: "other" });
+    expect(connections.b).toHaveLength(0);
+
+    await Effect.runPromise(router.deselect());
+    await expect.poll(() => seen).toHaveLength(2);
+    expect(seen).toEqual([{ module: "a", engine: "other" }, undefined]);
+    await Effect.runPromise(Fiber.interrupt(listening));
+  }));
+test("deselect clears surface overrides", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    await Effect.runPromise(router.override(f.adapter, { module: "a", engine: "other" }));
+    f.element.focus();
+    await select(router);
+    connections.a[0]!.outcome = { _tag: "reply", ret: 1, records: [] };
+    expect(key(f.element, "b").defaultPrevented).toBe(true);
+
+    await Effect.runPromise(router.deselect());
+    expect(key(f.element, "b").defaultPrevented).toBe(false);
+
+    // Following the page again, the surface takes `factory`'s policy, which doesn't pass `a` through.
+    await select(router);
+    expect(key(f.element).defaultPrevented).toBe(true);
   }));
 test("hotkeys start empty, can consume a custom binding, and unregister", () =>
   run(async ({ router, connections, field }) => {

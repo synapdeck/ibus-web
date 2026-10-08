@@ -505,7 +505,9 @@ export const makeRouter = Effect.gen(function* () {
             if (cancelled()) return yield* cancellation();
             const target = yield* resolve(module, engine);
             if (cancelled()) return yield* cancellation();
-            if (call === selections) apply(target);
+            // A later selection owns the surfaces; booting this module would only hold up its turn in the mailbox.
+            if (call !== selections) return;
+            apply(target);
             release();
             yield* start;
           }).pipe(
