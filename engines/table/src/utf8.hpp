@@ -17,6 +17,7 @@ struct Decoded {
 
 // The code point starting at `offset`, or nothing where the bytes there
 // aren't well-formed UTF-8: overlong forms and surrogates are rejected.
+// `offset` must be less than `text.size()`.
 std::optional<Decoded> decode(std::string_view text, std::size_t offset);
 
 bool valid(std::string_view text);

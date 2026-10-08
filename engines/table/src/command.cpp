@@ -105,12 +105,15 @@ public:
   void pageUp() override {
     candidates_.showIfChanged(candidates_.pageUp(), sink_);
   }
+
   void pageDown() override {
     candidates_.showIfChanged(candidates_.pageDown(), sink_);
   }
+
   void cursorUp() override {
     candidates_.showIfChanged(candidates_.cursorUp(), sink_);
   }
+
   void cursorDown() override {
     candidates_.showIfChanged(candidates_.cursorDown(), sink_);
   }
