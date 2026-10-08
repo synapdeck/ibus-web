@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Each config checks the files of one environment, so no file sees another
+// environment's globals: the page, the Node-run Playwright suites and smoke
+// test, and the build's and Playwright's configurations.
 {
-  "extends": "@ibus-web/tsconfig/base.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "lib": ["es2023", "dom"],
-    "types": ["node", "vite/client"],
-    "skipLibCheck": true
-  },
-  "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"]
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.page.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.config.json" }
+  ]
 }

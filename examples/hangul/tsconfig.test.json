@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Playwright runs these under Node, but the functions they hand to
+// page.evaluate and waitForFunction run in the page, so they see DOM types.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/node.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom"],
+    "skipLibCheck": true
+  },
+  "include": ["test"],
+  "exclude": ["test/e2e/playwright.config.ts"]
+}

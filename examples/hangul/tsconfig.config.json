@@ -1,0 +1,12 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Vite's and Playwright's configurations, which load from source.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/node.json",
+  "compilerOptions": {
+    "skipLibCheck": true
+  },
+  "files": ["vite.config.ts", "test/e2e/playwright.config.ts"]
+}

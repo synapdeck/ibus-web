@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "e2e": "playwright test -c test/e2e/playwright.config.ts",
     "smoke": "node test/smoke.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -b"
   },
   "dependencies": {
     "ibus-web": "workspace:*"
