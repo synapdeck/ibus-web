@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+name = Broken
+languages = und
+mode = command
+trigger = \
+---
+\a\b	x
