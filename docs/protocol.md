@@ -115,8 +115,8 @@ throw on counters that claim more than the ring holds. The wire rules, including
 the writer's full-ring wait, are the generated
 [Transport section](../packages/protocol/PROTOCOL.md#transport)'s.
 
-`ModuleManifest` and `decodeModuleManifest(json, { minimum, maximum })` decode an
-engine's distribution manifest against the runtime's memory bounds, rejecting
+`ModuleManifest`, its `EngineDescriptor`s and `decodeModuleManifest(json, { minimum, maximum })`
+decode a module's distribution manifest against the runtime's memory bounds, rejecting
 unknown keys at every level; the rules are
 [engines.md](engines.md#distribution-manifest)'s.
 

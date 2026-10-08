@@ -12,7 +12,6 @@ import { FakeConnection, fixture, key } from "../../shared/router.ts";
 const dataPath = `/nix/store/${"a".repeat(32)}-test`;
 const manifest: ModuleManifest = {
   name: "test",
-  keyboard: { layout: "us", passThrough: [] },
   version: "1",
   license: "MIT",
   runtimeAbi: 1,
@@ -22,7 +21,7 @@ const manifest: ModuleManifest = {
   threads: 0,
   data: [{ storePath: dataPath, url: "data.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `${dataPath}/schemas`,
-  engines: ["test"],
+  engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: ["settings"],
 };
 const url = new URL("https://example.test/");
@@ -84,7 +83,10 @@ it.effect("registry validates keyboard names before starting a Worker", () =>
       hostUrl: url,
       runtimeUrl: url,
       modules: { test: url },
-      loadManifest: async () => ({ ...manifest, keyboard: { layout: "us", passThrough: ["NotAKeysym"] } }),
+      loadManifest: async () => ({
+        ...manifest,
+        engines: [{ ...manifest.engines[0]!, keyboard: { layout: "us", passThrough: ["NotAKeysym"] } }],
+      }),
       start: async () => {
         started = true;
         return new FakeConnection();
@@ -190,7 +192,11 @@ it.effect(
         hostUrl: url,
         runtimeUrl: url,
         modules: { alias: url },
-        loadManifest: async () => ({ ...manifest, name: "distribution", engines: ["factory"] }),
+        loadManifest: async () => ({
+          ...manifest,
+          name: "distribution",
+          engines: [{ ...manifest.engines[0]!, name: "factory" }],
+        }),
         start: async () => c,
         waitForWriter: (name) => {
           locks.push(name);
@@ -198,9 +204,13 @@ it.effect(
         },
       });
       yield* registry.select("alias");
-      expect(registry.snapshot("alias")!.manifest!.engines).toEqual(["factory"]);
+      expect(registry.snapshot("alias")!.manifest!.engines.map((engine) => engine.name)).toEqual(["factory"]);
       yield* Effect.promise(() =>
-        registry.request("alias", new CreateEngine({ name: registry.snapshot("alias")!.manifest!.engines[0]! }), 1),
+        registry.request(
+          "alias",
+          new CreateEngine({ name: registry.snapshot("alias")!.manifest!.engines[0]!.name }),
+          1,
+        ),
       );
       expect(sent.at(-1)).toMatchObject({ _tag: "CreateEngine", name: "factory" });
       c.crash();

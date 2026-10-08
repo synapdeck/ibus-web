@@ -115,17 +115,22 @@
         recoverable = engineSide "recoverable" "engine-recoverable.cpp";
         empty = engineSide "empty" "engine-empty.c";
       };
+      testEngine = name: {
+        inherit name;
+        displayName = name;
+        languages = [ ];
+        keyboard = {
+          layout = "default";
+          passThrough = [ ];
+        };
+      };
       engineDists = lib.mapAttrs (
         name: package:
         engines.mkEngineManifest {
-          keyboard = {
-            layout = "default";
-            passThrough = [ ];
-          };
           inherit name package settingsSchemaDir;
           threads = engineThreads;
           heapBytes = 1024 * 1024;
-          engines = [ name ];
+          engines = [ (testEngine name) ];
           settingsSchemas = [
             "org.example.echo"
             "org.freedesktop.ibus.panel"
@@ -133,16 +138,12 @@
         }
       ) engineSides;
       rebuiltDist = engines.mkEngineManifest {
-        keyboard = {
-          layout = "default";
-          passThrough = [ ];
-        };
         name = "empty";
         package = engineSideWithSchemas rebuiltSchemaDir "empty" "engine-empty.c";
         settingsSchemaDir = rebuiltSchemaDir;
         threads = engineThreads;
         heapBytes = 1024 * 1024;
-        engines = [ "empty" ];
+        engines = [ (testEngine "empty") ];
         settingsSchemas = [
           "org.example.echo"
           "org.freedesktop.ibus.panel"

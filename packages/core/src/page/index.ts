@@ -28,6 +28,7 @@ export {
 } from "../router/replay.ts";
 export {
   KeyRouter,
+  type KeyboardPolicy,
   type ModuleSnapshot,
   type ModuleState,
   type KeyConnection,

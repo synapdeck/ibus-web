@@ -56,8 +56,9 @@ describe("install lock lifetime", () => {
         threads: 0,
         data: [],
         settingsSchemaDir: "unused",
-        engines: ["progress"],
-        keyboard: { layout: "us", passThrough: [] },
+        engines: [
+          { name: "progress", displayName: "progress", languages: [], keyboard: { layout: "us", passThrough: [] } },
+        ],
         settingsSchemas: [],
       };
       const held = new Held();

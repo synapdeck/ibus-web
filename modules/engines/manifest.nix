@@ -15,7 +15,6 @@
       ibusWeb.engines.mkEngineManifest =
         {
           name,
-          keyboard,
           package,
           threads,
           heapBytes,
@@ -29,14 +28,21 @@
             inherit settingsSchemaDir settingsSchemas;
           };
           licenses = lib.toList package.meta.license;
+
+          # Descriptors can come from another derivation's build; the check below
+          # validates them with the rest of the manifest, so evaluation never reads them.
+          enginesFile =
+            if builtins.isList engines then
+              pkgs.writeText "ibus-web-${name}-engines.json" (builtins.toJSON engines)
+            else
+              engines;
+
           description = pkgs.writeText "ibus-web-${name}-manifest-fields.json" (
             builtins.toJSON {
               inherit
                 name
-                keyboard
                 threads
                 settingsSchemaDir
-                engines
                 settingsSchemas
                 ;
               inherit (package) version;
@@ -96,8 +102,8 @@
             jq --arg identity "$identity" --argjson runtimeAbi "$abi" --argjson protocol "$protocol" --argjson memory "$memory" \
               --arg url './${name}.wasm' --argjson size "$(stat -c%s $out/${name}.wasm)" \
               --argjson settingsMetadata "$(jq -nc --arg url ./settings.json --argjson size "$(stat -c%s $out/settings.json)" '{ $url, $size }')" \
-              --slurpfile data data.jsonl \
-              '.version += "+nix." + $identity | . + { $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, $settingsMetadata }' \
+              --slurpfile data data.jsonl --slurpfile engines ${enginesFile} \
+              '.version += "+nix." + $identity | . + { $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], $settingsMetadata }' \
               ${description} > $out/manifest.json
             node ${../../tools/engine-manifest/protocol.ts} check ${
               typescript.workspaceFor [ "packages/protocol" ]

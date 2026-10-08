@@ -33,7 +33,6 @@ import { DomConnection, key, record, text } from "../../../core/test/browser/sup
 const url = new URL("https://example.test/");
 const manifest = {
   name: "test",
-  keyboard: { layout: "us", passThrough: [] },
   version: "1",
   license: "MIT",
   runtimeAbi: 1,
@@ -43,7 +42,7 @@ const manifest = {
   threads: 0,
   data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
-  engines: ["test"],
+  engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: [],
 };
 const settings: SettingsSourceService = { snapshot: async () => ({}), written: () => {}, changes: Stream.empty };

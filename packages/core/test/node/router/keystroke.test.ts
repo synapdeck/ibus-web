@@ -29,7 +29,7 @@ test("unready, disabled, stale, composing, Dead, and configured pass-through key
   f.snapshot.enabled = true;
   expect(f.sink.key(key("Dead"))).toBe("passthrough");
   expect(f.sink.key({ ...key("a"), isComposing: true })).toBe("passthrough");
-  f.snapshot.passThrough = new Set([97]);
+  f.snapshot.keyboards = new Map([["test", { layout: "us" as const, passThrough: new Set([97]) }]]);
   expect(f.sink.key(key("a"))).toBe("passthrough");
   expect(f.connection.sent).toEqual([]);
 });

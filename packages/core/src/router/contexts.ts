@@ -14,6 +14,7 @@ import { deletion, ibusText, surroundingWindow, type Surrounding } from "./surro
 export class InputContext implements KeyContext {
   readonly ic: number;
   readonly module: string;
+  readonly engine: string;
   generation: number;
   ready = false;
   acceptOutput = false;
@@ -31,6 +32,7 @@ export class InputContext implements KeyContext {
   constructor(options: {
     ic: number;
     module: string;
+    engine: string;
     generation: number;
     adapter: SurfaceAdapter;
     current: () => boolean;
@@ -39,6 +41,7 @@ export class InputContext implements KeyContext {
   }) {
     this.ic = options.ic;
     this.module = options.module;
+    this.engine = options.engine;
     this.generation = options.generation;
     this.current = options.current;
     this.refresh = options.refresh;

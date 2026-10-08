@@ -34,10 +34,11 @@ returns a removal function; there are no default router hotkeys.
 
 ## Key translation and layouts
 
-`keycode` comes from the evdev column for `event.code`. A required manifest
-`keyboard` field declares `{ layout: "us" | "default", passThrough: string[] }`;
-pass-through entries are validated keysym names and skip engine processing.
-Hangul declares the US layout and an empty pass-through list.
+`keycode` comes from the evdev column for `event.code`. Each engine descriptor in
+the manifest has a required `keyboard` field, `{ layout: "us" | "default",
+passThrough: string[] }`, and a context's keys follow its engine's. Pass-through
+entries are validated keysym names and skip engine processing. Hangul declares the
+US layout and an empty pass-through list.
 
 For `default`, `event.key` supplies the keyval: Latin-1 directly, a generated legacy
 keysym where one exists, or `0x01000000 + codepoint`. Named DOM keys use a separate
@@ -232,11 +233,11 @@ per record; live tabs follow the last received broadcast, while future Init read
 the database. The Worker host never opens this database. See [ibus-web.md](ibus-web.md)
 for the public API.
 
-`router.panel` publishes tagged record/hide events with engine and context ID for
+`router.panel` publishes tagged record/hide events with module and context ID for
 auxiliary text, lazy lookup tables and properties. The framework-free default
 panel consumes facade events; see [panel.md](panel.md). `Logger.Default` maps GLib error/critical to
 Error, warning to Warn, message/info to Info and the remaining levels to Debug,
-annotating engine, inputContext and domain; hosts can replace the Logger service.
+annotating module, inputContext and domain; hosts can replace the Logger service.
 
 ## Crashes, hangs and initialization
 

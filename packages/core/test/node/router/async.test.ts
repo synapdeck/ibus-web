@@ -161,7 +161,7 @@ test("excluded async events retain native handling and never enter transport", a
       f.snapshot.enabled = false;
     },
     () => {
-      f.snapshot.passThrough = new Set([97]);
+      f.snapshot.keyboards = new Map([["test", { layout: "us" as const, passThrough: new Set([97]) }]]);
     },
     () => {
       f.context.adapter.contentType = () => ({ purpose: 0, hints: 0, disabled: true });
@@ -170,7 +170,7 @@ test("excluded async events retain native handling and never enter transport", a
     f.context.ready = true;
     f.context.generation = 0;
     f.snapshot.enabled = true;
-    f.snapshot.passThrough = new Set();
+    f.snapshot.keyboards = new Map([["test", { layout: "us" as const, passThrough: new Set<number>() }]]);
     alter();
     const e = event();
     expect(await f.router.keyAsync(f.context, e)).toBe("passthrough");

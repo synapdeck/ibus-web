@@ -85,10 +85,6 @@
 
       packages.ibus-web-hangul-dist = engines.mkEngineManifest {
         name = "hangul";
-        keyboard = {
-          layout = "us";
-          passThrough = [ ];
-        };
         package = hangul;
 
         # Host conformance peaks at 3,461,120 bytes and uses no engine threads.
@@ -97,7 +93,17 @@
         heapBytes = 4 * 1024 * 1024;
 
         inherit (hangul) settingsSchemaDir;
-        engines = [ "hangul" ];
+        engines = [
+          {
+            name = "hangul";
+            displayName = "Hangul";
+            languages = [ "ko" ];
+            keyboard = {
+              layout = "us";
+              passThrough = [ ];
+            };
+          }
+        ];
         settingsSchemas = [
           "org.freedesktop.ibus.engine.hangul"
           "org.freedesktop.ibus.panel"

@@ -121,8 +121,7 @@ export function fixture() {
     enabled: true,
     generation: 0,
     connection,
-    keyboard: { layout: "us", passThrough: [] },
-    passThrough: new Set(),
+    keyboards: new Map([["test", { layout: "us", passThrough: new Set() }]]),
   };
   const adapter = {
     batch: (apply: () => void) => {
@@ -136,6 +135,7 @@ export function fixture() {
   } as unknown as SurfaceAdapter;
   const context: KeyContext = {
     ic: 1,
+    engine: "test",
     generation: 0,
     ready: true,
     adapter,

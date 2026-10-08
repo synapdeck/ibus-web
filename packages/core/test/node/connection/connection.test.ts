@@ -673,6 +673,7 @@ describe("output records", () => {
       const context = new InputContext({
         ic: 7,
         module: "test",
+        engine: "test",
         generation: 1,
         adapter,
         current: () => true,

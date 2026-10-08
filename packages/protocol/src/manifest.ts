@@ -6,14 +6,22 @@ import { nonEmpty } from "./schemas.ts";
 const count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
 // The name becomes a directory and a database name, so it must be one path component that can't
 // climb out of its parent or hide itself.
-const engineName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/));
+const moduleName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/));
 const storePath = Schema.String.check(
   Schema.isPattern(/^\/nix\/store\/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+$/),
 );
 
-export const ModuleManifest = Schema.Struct({
-  name: engineName,
+export const EngineDescriptor = Schema.Struct({
+  name: nonEmpty,
+  displayName: nonEmpty,
+  languages: Schema.Array(Schema.String),
   keyboard: Schema.Struct({ layout: Schema.Literals(["us", "default"]), passThrough: Schema.Array(Schema.String) }),
+});
+
+export type EngineDescriptor = typeof EngineDescriptor.Type;
+
+export const ModuleManifest = Schema.Struct({
+  name: moduleName,
   version: nonEmpty,
   license: nonEmpty,
   runtimeAbi: count,
@@ -30,11 +38,15 @@ export const ModuleManifest = Schema.Struct({
     }),
   ),
   settingsSchemaDir: Schema.String,
-  engines: Schema.Array(nonEmpty).check(Schema.isNonEmpty()),
+  // The first engine is the module's default.
+  engines: Schema.Array(EngineDescriptor).check(Schema.isNonEmpty()),
   settingsSchemas: Schema.Array(Schema.String),
   settingsMetadata: Schema.optionalKey(Schema.Struct({ url: nonEmpty, size: count })),
 }).check(
   Schema.makeFilter((manifest) => {
+    const names = manifest.engines.map((engine) => engine.name);
+    if (new Set(names).size !== names.length) return "duplicate engine names";
+
     const paths = manifest.data.map((entry) => entry.storePath);
     if (new Set(paths).size !== paths.length) return "duplicate data store paths";
     const components = manifest.settingsSchemaDir.split("/").slice(1);

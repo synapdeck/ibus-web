@@ -5,6 +5,12 @@ import { decodeModuleManifest } from "../../src/manifest.ts";
 
 const bounds = { minimum: 32 * 1024 * 1024, maximum: 2 ** 31 };
 const storePath = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-hangul-data";
+const engine = {
+  name: "hangul",
+  displayName: "Hangul",
+  languages: ["ko"],
+  keyboard: { layout: "us", passThrough: [] },
+};
 const valid = {
   name: "hangul",
   version: "1",
@@ -16,23 +22,26 @@ const valid = {
   threads: 0,
   data: [{ storePath, url: "./data/hangul.tar.br", size: 4096, encoding: "br" }],
   settingsSchemaDir: `${storePath}/share/glib-2.0/schemas`,
-  engines: ["hangul"],
-  keyboard: { layout: "us", passThrough: [] },
+  engines: [engine],
   settingsSchemas: ["org.freedesktop.ibus.engine.hangul"],
 };
 
-describe("engine manifests", () => {
+describe("module manifests", () => {
   test("decodes a valid manifest", () => expect(decodeModuleManifest(valid, bounds)).toEqual(valid));
   test("accepts identity archives", () =>
     expect(
       decodeModuleManifest({ ...valid, data: [{ ...valid.data[0], encoding: "identity" }] }, bounds),
     ).toBeDefined());
-  test("requires keyboard", () => {
-    const { keyboard: _, ...missing } = valid;
-    expect(() => decodeModuleManifest(missing, bounds)).toThrow();
+  test("requires each engine's keyboard", () => {
+    const { keyboard: _, ...missing } = engine;
+    expect(() => decodeModuleManifest({ ...valid, engines: [missing] }, bounds)).toThrow();
   });
   test("rejects unknown layout", () =>
-    expect(() => decodeModuleManifest({ ...valid, keyboard: { layout: "de", passThrough: [] } }, bounds)).toThrow());
+    expect(() =>
+      decodeModuleManifest({ ...valid, engines: [{ ...engine, keyboard: { layout: "de", passThrough: [] } }] }, bounds),
+    ).toThrow());
+  test("rejects a keyboard outside the engines", () =>
+    expect(() => decodeModuleManifest({ ...valid, keyboard: engine.keyboard }, bounds)).toThrow());
   test("requires the version", () => {
     const { version: _, ...missing } = valid;
     expect(() => decodeModuleManifest(missing, bounds)).toThrow();
@@ -77,12 +86,24 @@ describe("engine manifests", () => {
     expect(() => decodeModuleManifest({ ...valid, data: [{ ...valid.data[0], url: "" }] }, bounds)).toThrow());
   test("requires at least one engine", () =>
     expect(() => decodeModuleManifest({ ...valid, engines: [] }, bounds)).toThrow());
-  test("rejects an empty engine name", () =>
-    expect(() => decodeModuleManifest({ ...valid, engines: [""] }, bounds)).toThrow());
+  test.each(["name", "displayName"])("rejects an empty engine %s", (field) =>
+    expect(() => decodeModuleManifest({ ...valid, engines: [{ ...engine, [field]: "" }] }, bounds)).toThrow(),
+  );
+  test("rejects duplicate engine names", () =>
+    expect(() =>
+      decodeModuleManifest({ ...valid, engines: [engine, { ...engine, displayName: "Other" }] }, bounds),
+    ).toThrow());
+  test("keeps several engines in order, the first being the default", () =>
+    expect(
+      decodeModuleManifest({ ...valid, engines: [engine, { ...engine, name: "romaja" }] }, bounds).engines.map(
+        (descriptor) => descriptor.name,
+      ),
+    ).toEqual(["hangul", "romaja"]));
   test.each([
     ["the manifest", { ...valid, extra: 1 }],
     ["the module", { ...valid, module: { ...valid.module, extra: 1 } }],
     ["a data entry", { ...valid, data: [{ ...valid.data[0], extra: 1 }] }],
+    ["an engine", { ...valid, engines: [{ ...engine, extra: 1 }] }],
   ])("rejects an excess key in %s", (_, manifest) => expect(() => decodeModuleManifest(manifest, bounds)).toThrow());
   test.each([`${storePath}//schemas`, `${storePath}/share/`, `${storePath}/`, `${storePath}/share//`])(
     "rejects schema directory %s with an empty component",

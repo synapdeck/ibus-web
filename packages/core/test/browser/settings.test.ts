@@ -43,7 +43,6 @@ const metadata: SettingsMetadata = {
 };
 const manifest: ModuleManifest = {
   name: "test",
-  keyboard: { layout: "us", passThrough: [] },
   version: "1",
   license: "MIT",
   runtimeAbi: 1,
@@ -53,7 +52,7 @@ const manifest: ModuleManifest = {
   threads: 0,
   data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
-  engines: ["test"],
+  engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: ["test.settings"],
   settingsMetadata: { url: "settings.json", size: 1 },
 };

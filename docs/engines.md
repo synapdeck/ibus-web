@@ -53,7 +53,10 @@ before any Init, since GLib caches its schema source on the first lookup.
 ### Distribution manifest
 
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`,
-`heapBytes`, `settingsSchemaDir`, `engines`, `settingsSchemas` and `keyboard`. It derives
+`heapBytes`, `settingsSchemaDir`, `engines` and `settingsSchemas`. `engines` is the
+module's engine descriptors, as a Nix list or as a JSON file another derivation
+builds; the manifest's own check validates them, so evaluation never reads a build
+output. It derives
 license and the upstream version from the package, runtime ABI and protocol from the build,
 and static memory from the module's `dylink.0` section. Build:
 
@@ -62,8 +65,10 @@ nix build .#ibus-web-hangul-dist
 ```
 
 The output contains `manifest.json`, generated `settings.json`, `hangul.wasm`, and one
-`data/<hash>-<name>.tar.br` per closure store path. `ModuleManifest` in
-`@ibus-web/protocol` has these fields:
+`data/<hash>-<name>.tar.br` per closure store path. A module is one such
+distribution, run in one Worker; its engines are the input methods inside it, each
+created by name with `CreateEngine`. `ModuleManifest` and `EngineDescriptor` in
+`@ibus-web/protocol` have these fields:
 
 ```ts
 type ModuleManifest = {
@@ -77,9 +82,15 @@ type ModuleManifest = {
   threads: number;
   data: { storePath: string; url: string; size: number; encoding: "br" | "identity" }[];
   settingsSchemaDir: string;
-  engines: string[];
+  engines: EngineDescriptor[];
   settingsSchemas: string[];
   settingsMetadata?: { url: string; size: number };
+};
+
+type EngineDescriptor = {
+  name: string;
+  displayName: string;
+  languages: string[]; // BCP 47
   keyboard: { layout: "us" | "default"; passThrough: string[] };
 };
 ```
@@ -90,9 +101,11 @@ listed schema's fixed path, key names/types, defaults, descriptions and any
 range/choices supplied by GLib; relocatable schemas fail the build. The page
 fetches it through `settingsMetadata` before Init, validates settings and
 constructs a metadata-driven form. Hangul's keyboard key has no generated
-choices. `keyboard.layout = "us"` translates physical `event.code` positions;
-`"default"` uses translated `event.key`. This engine keyboard preference is not
-an OS keyboard-layout detector.
+choices. An engine's `keyboard.layout = "us"` translates physical `event.code`
+positions; `"default"` uses translated `event.key`. This engine keyboard preference
+is not an OS keyboard-layout detector. The first engine is the module's default.
+Hangul's manifest lists one engine: `hangul`, "Hangul", `["ko"]`, with the US
+layout and no pass-through keys.
 
 `version` is an immutable distribution identity: `<upstream-version>+nix.<output-hash>`.
 The hash comes from the distribution's Nix output path, covering its build
@@ -111,7 +124,7 @@ likewise change version whenever their distribution changes.
   database name, so it must be one path component that can't climb out of
   its parent or hide itself;
 - `version`, `license` and every URL are non-empty; `engines` lists at least
-  one engine, each name non-empty;
+  one engine, with non-empty, unique names and non-empty display names;
 - `memory` is bytes in whole 64 KiB pages within the runtime bounds;
   `threads` is a nonnegative engine pool share;
 - each `storePath` is `/nix/store/<32 base-32 characters>-<name>`, with no

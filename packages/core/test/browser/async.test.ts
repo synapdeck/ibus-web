@@ -124,10 +124,12 @@ test("manual exclusions and readiness preserve native handling without replay", 
       expect(e.defaultPrevented).toBe(false);
       expect(await result).toBe("passthrough");
     }
-    registry.snapshot("a")!.passThrough = new Set([97]);
+    registry.snapshot("a")!.keyboards = new Map([["factory", { layout: "us" as const, passThrough: new Set([97]) }]]);
     expect(key(edit.element).defaultPrevented).toBe(false);
     expect(await result).toBe("passthrough");
-    registry.snapshot("a")!.passThrough = new Set();
+    registry.snapshot("a")!.keyboards = new Map([
+      ["factory", { layout: "us" as const, passThrough: new Set<number>() }],
+    ]);
     edit.adapter.contentType = () => ({ purpose: 8, hints: 0, disabled: true });
     expect(key(edit.element).defaultPrevented).toBe(false);
     expect(await result).toBe("passthrough");

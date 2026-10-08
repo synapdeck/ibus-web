@@ -705,9 +705,15 @@ type ModuleManifest = {
   threads: number;
   data: { storePath: string; url: string; size: number; encoding: "br" | "identity" }[];
   settingsSchemaDir: string;
-  engines: string[];
+  engines: EngineDescriptor[];
   settingsSchemas: string[];
   settingsMetadata?: { url: string; size: number };
+};
+
+type EngineDescriptor = {
+  name: string;
+  displayName: string;
+  languages: string[]; // BCP 47
   keyboard: { layout: "us" | "default"; passThrough: string[] };
 };
 ```
@@ -716,8 +722,9 @@ type ModuleManifest = {
 is a nonnegative integer. `name` matches `[A-Za-z0-9][A-Za-z0-9._+-]*`, since
 it becomes a directory (`/engines/<encodeComponent(name)>`) and database name
 and must be one path component that can't climb out of its parent or hide
-itself. `version`, `license` and every URL are non-empty, and `engines` names
-at least one engine, each non-empty. Unknown keys are rejected at every
+itself. `version`, `license` and every URL are non-empty, and `engines` lists
+at least one engine, the first being the module's default, with non-empty and
+unique names and non-empty display names. Unknown keys are rejected at every
 level, so a misspelled field fails rather than reading as missing.
 `runtimeAbi` must match `IBUSWEB_RUNTIME_ABI` and
 `protocol` must match `PROTOCOL_VERSION`; mismatches fail startup before
@@ -734,12 +741,12 @@ Module `size` is fetched byte length; data `size` is unpacked regular-file
 bytes. Data paths are unique `/nix/store/<hash>-<name>` roots, and
 `settingsSchemaDir` must be canonical (no empty, `.` or `..` component) and
 lie inside one. `heapBytes` is build/check metadata.
-Engine names and schema IDs are string arrays; richer page metadata and
-source-release assets are outside this manifest's current interface.
-`keyboard` is required. Its `layout` selects how the page translates keys
-(§7.1.1), and `passThrough` lists keysym names the page never sends to the
-engine; the page rejects a manifest that names an unknown keysym. Hangul
-declares `us` with an empty list. `settingsMetadata` points to the engine's
+Schema IDs are a string array; source-release assets are outside this
+manifest's current interface. Each engine's `keyboard` is required. Its
+`layout` selects how the page translates keys (§7.1.1), and `passThrough`
+lists keysym names the page never sends to the engine; the page rejects a
+manifest that names an unknown keysym. Hangul declares `us` with an empty
+list. `settingsMetadata` points to the engine's
 generated `settings.json` (§7.1.4), with its size.
 
 `HostInit` carries either `manifest` or `manifestUrl`, replacing separate

@@ -10,6 +10,8 @@
         Each store path of the closure but the module's own becomes a Brotli-compressed ustar archive
         whose entries are named from /nix/store (`<hash>-<name>/...`, or the single file), with hard
         links stored as files; the build fails if a symbolic link in the closure leads outside it.
+        `engines` lists the module's engine descriptors, the first being its default, either as Nix
+        attribute sets or as a JSON file holding the array.
       '';
     };
     options.ibusWeb.engines.ibusTest = lib.mkOption {

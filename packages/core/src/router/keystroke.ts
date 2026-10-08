@@ -10,6 +10,10 @@ export type KeyConnection = Pick<
   "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate"
 > &
   Partial<Pick<Connection, "poll">>;
+export interface KeyboardPolicy {
+  readonly layout: "us" | "default";
+  readonly passThrough: ReadonlySet<number>;
+}
 export interface ModuleSnapshot {
   readonly name: string;
   manifest?: ModuleManifest;
@@ -17,12 +21,14 @@ export interface ModuleSnapshot {
   enabled: boolean;
   generation: number;
   connection: KeyConnection | undefined;
-  keyboard: ModuleManifest["keyboard"];
-  passThrough: ReadonlySet<number>;
+  /** By engine name; empty until the manifest has loaded. */
+  keyboards: ReadonlyMap<string, KeyboardPolicy>;
 }
 /** apply and consumed run inside the adapter transaction and must only do synchronous work. */
 export interface KeyContext {
   readonly ic: number;
+  /** The engine created in this context, whose keyboard policy its keys follow. */
+  readonly engine: string;
   generation: number;
   ready: boolean;
   readonly adapter: SurfaceAdapter;
@@ -198,8 +204,10 @@ export class KeyRouter {
       context.adapter.contentType().disabled
     )
       return undefined;
-    const translated = translateKey(event, snapshot.keyboard.layout);
-    if (!translated || snapshot.passThrough.has(translated.keyval)) return undefined;
+    const keyboard = snapshot.keyboards.get(context.engine);
+    if (!keyboard) return undefined;
+    const translated = translateKey(event, keyboard.layout);
+    if (!translated || keyboard.passThrough.has(translated.keyval)) return undefined;
     const connection = snapshot.connection;
     if (!connection) return undefined;
     return {

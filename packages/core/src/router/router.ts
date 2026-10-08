@@ -152,6 +152,7 @@ export const makeRouter = Effect.gen(function* () {
         const created = new InputContext({
           ic: surface.ic,
           module,
+          engine: snapshot.manifest!.engines[0]!.name,
           generation: snapshot.generation,
           adapter: surface.adapter,
           current: () =>
@@ -173,7 +174,7 @@ export const makeRouter = Effect.gen(function* () {
       const generation = context.generation;
       const current = () => wants(surface, module) && live(context) && generation === context.generation;
       if (!context.created) {
-        const reply = yield* request(context, new CreateEngine({ name: snapshot.manifest!.engines[0]! }));
+        const reply = yield* request(context, new CreateEngine({ name: context.engine }));
         if (generation !== registry.snapshot(module)?.generation) return;
         if (reply.ret < 0) return;
         context.created = true;

@@ -26,8 +26,7 @@ const engine: ModuleManifest = {
     },
   ],
   settingsSchemaDir: `${root}/schemas`,
-  engines: ["test"],
-  keyboard: { layout: "us", passThrough: [] },
+  engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: [],
 };
 const memory = { initial: 131072, maximum: 262144 };

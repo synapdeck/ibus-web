@@ -16,6 +16,7 @@ import { keysymByName } from "../keys/keysyms.generated.ts";
 import { validateKeyboard } from "../keys/manifest.ts";
 import {
   KeyRouter,
+  type KeyboardPolicy,
   type ModuleSnapshot,
   type ModuleState,
   type KeyConnection,
@@ -30,7 +31,7 @@ import { SettingsSource, type SettingsChange } from "./settings.ts";
 export interface ModuleRegistryOptions {
   readonly hostUrl: URL;
   readonly runtimeUrl: URL;
-  /** Public registry keys may differ from both manifest.name and manifest.engines. */
+  /** Keys name modules; they may differ from manifest.name and from every engine's name. */
   readonly modules: Readonly<Record<string, URL>>;
   readonly storage?: "browser" | "none";
   /** Honor options.signal for partial resources; late returned connections are terminated by the registry. */
@@ -86,6 +87,13 @@ const terminalStartup = (cause: Error): boolean =>
   cause instanceof InitializationRejected ||
   cause instanceof RangeError ||
   /\b(?:RuntimeAbiMismatch|ProtocolMismatch):|manifest \(memory bounds /.test(cause.message);
+const keyboards = (manifest: ModuleManifest): Map<string, KeyboardPolicy> =>
+  new Map(
+    manifest.engines.map(({ name, keyboard }) => [
+      name,
+      { layout: keyboard.layout, passThrough: new Set(keyboard.passThrough.map((key) => keysymByName.get(key)!)) },
+    ]),
+  );
 export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
   Effect.gen(function* () {
     const config = yield* CoreConfig;
@@ -157,7 +165,12 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             try: () => Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(raw),
             catch: asError,
           });
-          yield* Effect.try({ try: () => validateKeyboard(manifest.keyboard), catch: asError });
+          yield* Effect.try({
+            try: () => {
+              for (const engine of manifest.engines) validateKeyboard(engine.keyboard);
+            },
+            catch: asError,
+          });
           if (manifest.protocol !== PROTOCOL_VERSION)
             return yield* Effect.fail(
               new InitializationRejected(`ProtocolMismatch: page ${PROTOCOL_VERSION}, manifest ${manifest.protocol}`),
@@ -167,8 +180,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             return yield* Effect.fail(new Error(`Distribution ${manifest.name} is already registered as ${owner}`));
           distributions.set(manifest.name, name);
           entry.snapshot.manifest = manifest;
-          entry.snapshot.keyboard = manifest.keyboard;
-          entry.snapshot.passThrough = new Set(manifest.keyboard.passThrough.map((key) => keysymByName.get(key)!));
+          entry.snapshot.keyboards = keyboards(manifest);
         }
         const manifest = entry.snapshot.manifest;
         if (settings.register) {
@@ -263,8 +275,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         enabled: false,
         generation: 0,
         connection: undefined,
-        keyboard: { layout: "default", passThrough: [] },
-        passThrough: new Set(),
+        keyboards: new Map(),
       };
       const crashes = new SyncMailbox<{ crash: CrashInfo; at: number }>();
       const entry: Entry = {
