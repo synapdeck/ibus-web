@@ -3,6 +3,9 @@
 import { expect, type Page } from "playwright/test";
 
 export async function hangul(page: Page) {
+  await page.locator("#engine-picker").selectOption({ label: "Hangul" });
+  await expect(page.locator("#engine")).toHaveText("ready");
+  await expect(page.locator("#settings-state")).toHaveText("Settings ready; changes save automatically.");
   await page.locator("#input").click();
   await expect(page.locator("#mode")).toHaveText("EN");
   await page.keyboard.press("Shift+Space");

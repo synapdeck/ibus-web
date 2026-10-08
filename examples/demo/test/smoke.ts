@@ -52,6 +52,8 @@ try {
     }
     console.log(`Production page ready after ${(performance.now() - openedAt).toFixed(1)} ms (fresh browser context).`);
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
+    await page.locator("#engine-picker").selectOption({ label: "Hangul" });
+    await page.getByText("ready", { exact: true }).waitFor();
     const field = page.getByRole("textbox", { name: "Type here" });
     await field.focus();
     await page.waitForFunction(() => document.querySelector("#mode")?.textContent === "EN");
