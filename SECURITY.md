@@ -4,8 +4,8 @@
 
 Report security problems privately. Don't open a public issue or pull request for them.
 
-While the repository is private, report to the Synapdeck maintainers directly. Once it is public, use GitHub's private
-vulnerability reporting: [open a draft security advisory](https://github.com/synapdeck/ibus-web/security/advisories/new).
+Email [security@synapdeck.com](mailto:security@synapdeck.com). Once the repository is public, you can also use GitHub's
+private vulnerability reporting: [open a draft security advisory](https://github.com/synapdeck/ibus-web/security/advisories/new).
 
 Include:
 
