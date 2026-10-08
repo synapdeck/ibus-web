@@ -44,31 +44,24 @@ in
                   ${final.glib.dev}/bin/glib-compile-schemas --strict $out/share/glib-2.0/schemas
                 '';
                 layer = name: patchesIn (./patches + "/${name}");
+                settingsSchemaDir = "${schemas}/share/glib-2.0/schemas";
 
-                cflags = "-DHAVE_CONFIG_H -I. -Isrc";
-                pkgConfigModules = [
-                  "ibus-1.0"
-                  "libhangul"
+                # The flags automake compiles libinternal.a's sources with, as
+                # shell words for a configured src/, starting with the options
+                # configure added to CC (the C standard). module.c compiles with
+                # them too, plus the schema directory it keeps in the store
+                # closure.
+                cflags = lib.concatStringsSep " " [
+                  "$(make -s --no-print-directory -f Makefile -f - print-cflags <<< 'print-cflags: ; @echo $(wordlist 2,$(words $(CC)),$(CC)) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libinternal_a_CFLAGS) $(CFLAGS)')"
+                  "'-DIBUSWEB_SETTINGS_SCHEMA_DIR=\"${settingsSchemaDir}\"'"
                 ];
 
+                # Relative to src/, where the flags' include paths resolve.
                 sources = [
-                  "src/engine.c"
-                  "src/ustring.c"
+                  "engine.c"
+                  "ustring.c"
                   "module.c"
                 ];
-
-                prepare = ''
-                  cp ${./module.c} module.c
-
-                  cat > config.h <<EOF
-                  #define GETTEXT_PACKAGE "ibus-hangul"
-                  #define IBUSHANGUL_DATADIR "$data/share/ibus-hangul"
-                  #define PKGDATADIR "$data/share/ibus-hangul"
-                  #define LOCALEDIR "$data/share/locale"
-                  #define LIBEXECDIR "/usr/libexec"
-                  #define IBUSWEB_SETTINGS_SCHEMA_DIR "${schemas}/share/glib-2.0/schemas"
-                  EOF
-                '';
               in
               prev.ibus-engines.hangul.overrideAttrs (old: {
                 outputs = [
@@ -77,7 +70,13 @@ in
                 ];
 
                 patches = (old.patches or [ ]) ++ layer "port" ++ layer "casts";
-                nativeBuildInputs = [ final.buildPackages.pkg-config ];
+
+                nativeBuildInputs = with final.buildPackages; [
+                  autoreconfHook
+                  gettext
+                  pkg-config
+                  python3
+                ];
 
                 buildInputs = [
                   final.libibus-web
@@ -86,41 +85,56 @@ in
 
                 # The static adapter also propagates the desktop recipe's inputs.
                 propagatedBuildInputs = [ ];
-                dontConfigure = true;
-                postPatch = (old.postPatch or "") + prepare;
 
+                configureFlags = (old.configureFlags or [ ]) ++ [
+                  "--datadir=${placeholder "data"}/share"
+                  "--localedir=${placeholder "data"}/share/locale"
+                ];
+
+                # configure requires GTK for the setup tool and its tests, which
+                # aren't built. PKG_CHECK_MODULES skips its query when the flags
+                # are preset, and takes an empty value as unset.
+                preConfigure = (old.preConfigure or "") + ''
+                  export GTK_CFLAGS=" " GTK_LIBS=" "
+                '';
+
+                postPatch = (old.postPatch or "") + ''
+                  cp ${./module.c} src/module.c
+                '';
+
+                # ibus-engine-hangul is a desktop process; the side module needs
+                # only the engine library and our module.
                 buildPhase = ''
                   runHook preBuild
-                  cflags="$($PKG_CONFIG --cflags ${lib.escapeShellArgs pkgConfigModules}) ${cflags}"
+                  cd src
+                  make libinternal.a
+                  $CC ${cflags} -c module.c -o module.o
 
-                  objects=()
-                  for source in ${lib.escapeShellArgs sources}; do
-                    object="$(basename "$source" .c).o"
-                    $CC $cflags -c "$source" -o "$object"
-                    objects+=("$object")
-                  done
 
                   libs="$($PKG_CONFIG --static --libs libhangul)"
                   source ${runtime.sideModuleLibraryGuard}
                   checkSideModuleLibraries $libs
-                  $CC ${toolchain.sideModuleFlags} -g0 "''${objects[@]}" $libs -o hangul.wasm
 
+                  # The archive is the engine itself, not a library to pick
+                  # members from.
+                  $CC ${toolchain.sideModuleFlags} -g0 -Wl,--whole-archive libinternal.a -Wl,--no-whole-archive \
+                    module.o $libs -o hangul.wasm
+
+                  cd ..
                   runHook postBuild
                 '';
 
                 installPhase = ''
                   runHook preInstall
-                  install -Dm644 hangul.wasm -t $out
-                  install -Dm644 data/symbol.txt -t $data/share/ibus-hangul/data
+                  install -Dm644 src/hangul.wasm -t $out
+                  make -C data install-symboltableDATA
                   runHook postInstall
                 '';
 
                 passthru = (old.passthru or { }) // {
-                  inherit libhangul schemas;
-                  settingsSchemaDir = "${schemas}/share/glib-2.0/schemas";
+                  inherit libhangul schemas settingsSchemaDir;
                   auditCflags = cflags;
                   auditSources = sources;
-                  auditPkgConfigModules = pkgConfigModules;
                 };
               });
           };

@@ -19,12 +19,21 @@
           inherit (hangul) src buildInputs;
           sources = hangul.auditSources;
           cflags = hangul.auditCflags;
-          pkgConfigModules = hangul.auditPkgConfigModules;
           allowList = ./cast-audit.jsonc;
         }).overrideAttrs
-          {
-            inherit (hangul) patches postPatch;
-          };
+          (old: {
+            inherit (hangul)
+              patches
+              postPatch
+              configureFlags
+              preConfigure
+              ;
+            nativeBuildInputs = old.nativeBuildInputs ++ hangul.nativeBuildInputs;
+
+            # The flags and config.h come from the engine's own configure run.
+            dontConfigure = false;
+            preBuild = "cd src";
+          });
 
       # The sources of the static archive linked into hangul.wasm.
       libhangulAudit =

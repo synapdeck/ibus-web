@@ -20,11 +20,19 @@ code and private libhangul, importing IBus, GLib and system libraries from
 
 The WASM-gated overlay overrides the pinned nixpkgs `ibus-engines.hangul`
 recipe (ibus-hangul 1.5.5), keeping its source and patches. It replaces the
-desktop dependency set, including propagated inputs, bypasses configure, writes
-the small engine config header, and compiles `engine.c`, `ustring.c` and our
-`module.c`. Cross `pkg-config` supplies compile flags. Only private libhangul
-contributes link libraries; the shared `checkSideModuleLibraries` guard rejects
-runtime libraries accidentally added by pkg-config.
+desktop dependency set, including propagated inputs, and builds through
+upstream's own Autotools: `configure`, with `--datadir` and `--localedir` in
+the `data` output, then `make` for `src/libinternal.a`, which holds `engine.c`
+and `ustring.c`. configure requires GTK for the setup tool, which isn't built,
+so the overlay presets `GTK_CFLAGS` and `GTK_LIBS` to skip that query. Our
+`module.c` compiles with the flags make used for the library, queried from the
+generated Makefile, plus `IBUSWEB_SETTINGS_SCHEMA_DIR`. The link of the archive
+and module into `hangul.wasm` is ours, since upstream builds only the desktop
+`ibus-engine-hangul` executable, and `make -C data install-symboltableDATA`
+installs the symbol table. Cross `pkg-config` supplies compile flags. Only
+private libhangul contributes link libraries; the shared
+`checkSideModuleLibraries` guard rejects runtime libraries accidentally added
+by pkg-config.
 
 Engine data keeps the paths compiled by Nix. Private libhangul's Hanja table
 and ibus-hangul's symbols retain their respective `/nix/store/<hash>-<name>`
@@ -247,9 +255,9 @@ signal connection time. The allow-list is validated against that schema
 without a reason, fails.
 
 `checks.hangul-cast-audit` runs the audit twice: over the engine, whose
-sources, flags and pkg-config modules come from the overlay's `passthru`
-(`auditSources`, `auditCflags`, `auditPkgConfigModules`), with the patches
-applied, and over the private libhangul linked into `hangul.wasm`, with its own
+sources and flags come from the overlay's `passthru` (`auditSources`,
+`auditCflags`), with the patches applied and the engine's own configure run
+supplying `config.h` and the Makefile the flags are read from, and over the private libhangul linked into `hangul.wasm`, with its own
 configured `config.h` and allow-list (`engines/hangul/libhangul-cast-audit.jsonc`).
 Hangul's unpatched report contains three findings; its patched report and
 allow-list are empty, and libhangul has no findings. A separate import check
