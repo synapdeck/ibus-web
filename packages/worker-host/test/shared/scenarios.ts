@@ -247,8 +247,13 @@ export const coldWake = async (h: Harness, { client }: RunningHost): Promise<voi
   expect(asleep, `requests of ${requests} that found the host asleep`).toBeGreaterThan(0);
 };
 
+// Each Worker rounds its own timer (20 µs steps in Firefox, 5 µs in
+// Chromium), so a reading taken in one Worker after a reading from another
+// can come out up to a step earlier. This is two Firefox steps plus rounding.
+const CROSS_WORKER_CLOCK_SKEW_MS = 0.05;
+
 // idle-later(50) ×20 with the host idle: every source dispatched, never
-// before its attach, and within 500 ms of it; the median and the longest are
+// before its attach (to within the clock skew between Workers), and within 500 ms of it; the median and the longest are
 // recorded (on a quiet machine, well under a millisecond). The host gets no
 // request while the source is pending, so only GLib's wake can get it
 // dispatched; the first poll wakes the host too, so it waits until a source
@@ -279,7 +284,7 @@ export const crossThreadWake = async (h: Harness, { client }: RunningHost, bound
     minMs: round(sorted[0]!),
     boundMs,
   });
-  expect(sorted[0], "the earliest dispatch, after its attach").toBeGreaterThanOrEqual(0);
+  expect(sorted[0], "the earliest dispatch, after its attach").toBeGreaterThanOrEqual(-CROSS_WORKER_CLOCK_SKEW_MS);
   expect(sorted.at(-1), "longest attach to dispatch, ms").toBeLessThanOrEqual(boundMs);
 };
 
