@@ -24,7 +24,10 @@
   ],
   "exports": {
     "./package.json": "./package.json",
-    "./*": "./dist/*"
+    "./manifest.json": "./dist/manifest.json",
+    "./hangul.wasm": "./dist/hangul.wasm",
+    "./settings.json": "./dist/settings.json",
+    "./data/*": "./dist/data/*"
   },
   "publishConfig": {
     "access": "public"

@@ -32,12 +32,8 @@
         files.dist = config.packages.ibus-web-hangul-dist;
         inherit licenses;
 
-        expect = [
-          "dist/manifest.json"
-          "dist/hangul.wasm"
-          "dist/settings.json"
-        ]
-        ++ map (id: "LICENSES/${id}.txt") licenses;
+        # The exports name the rest; the data archives' names are hashes.
+        expect = map (id: "LICENSES/${id}.txt") licenses;
       };
     };
 }
