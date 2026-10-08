@@ -187,8 +187,11 @@ A package with sourcemaps turned off fails `--check`. The files `prepack` writes
 ### Where it lives
 
 A component's Nix sits in the component's directory: `packages/*`, `tools/*`, `runtime/*`, `engines/*`, `examples/*`.
-`modules/` keeps only shared infrastructure: `flake/`, `toolchain/`, `emscripten/`, `glib/`, `typescript/` and
-`testing/`. `flake.nix` import-trees `modules`, `packages`, `tools`, `runtime`, `engines` and `examples`.
+`modules/` keeps only shared infrastructure: `flake/`, `toolchain/`, `emscripten/`, `glib/`, `typescript/`,
+`testing/`, `engines/` (the generic engine modules) and `baseline-browser-mapping/`. The last is a nixpkgs-style recipe
+for the baseline-browser-mapping CLI, not a component of the project: the toolchain reads it to derive the minimum
+browser versions every link targets. `flake.nix` import-trees `modules`, `packages`, `tools`, `runtime`, `engines` and
+`examples`.
 
 Moves:
 
