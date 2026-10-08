@@ -23,6 +23,11 @@
         cp ${./package.json} $out/package.json
         ln -s ${typescript.packageNodeModules ./.} $out/node_modules
       '';
+
+      # Run as `node <it> check <library.js> <emscripten root>`, which fails if
+      # the library's entries declare their dependencies wrongly, or as
+      # `node <it> emit <library.js> <emscripten root> <directory>`, which
+      # writes the lists and declarations emscriptenTypes builds from.
       libraryDeps = "${checker}/library-deps.ts";
 
       # Types for what a JavaScript library uses from Emscripten, from a link

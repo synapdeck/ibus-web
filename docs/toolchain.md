@@ -390,8 +390,9 @@ nothing.
 ## Flake layout
 
 The flake is dendritic: `flake.nix` holds only its inputs and hands every `.nix` file under
-`modules/`, `packages/` and `runtime/` to flake-parts through import-tree. Every such file is a
-flake-parts module (a path containing `/_` is skipped, for `.nix` files that aren't modules).
+`modules/`, `packages/`, `tools/`, `runtime/`, `engines/` and `examples/` to flake-parts through
+import-tree. Every such file is a flake-parts module (a path containing `/_` is skipped, for
+`.nix` files that aren't modules).
 Modules never import each other; they share values only through per-system `ibusWeb.*` options
 (`ibusWeb.toolchain.*`, `ibusWeb.runtime.*`, `ibusWeb.typescript.*`, `ibusWeb.testing.*`, …) and
 flake outputs.

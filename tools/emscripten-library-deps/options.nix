@@ -21,7 +21,7 @@
         }
       );
       default = { };
-      description = "Types generated for Emscripten JavaScript libraries, by name. Each is a flake package of that name, linked at its link when the dev shell starts and in the tree checks.hk runs over.";
+      description = "Types generated for Emscripten JavaScript libraries, by name. Each is a flake package of that name, linked at its link when the dev shell starts and in the tree checks.flake-hk runs over.";
     };
   };
 }
