@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { createIbusWeb, type IbusWeb, type LogEntry } from "ibus-web";
+import { booleanVariant, createIbusWeb, int32Variant, stringVariant, type IbusWeb, type LogEntry } from "ibus-web";
 import { createPanel } from "ibus-web/panel";
 import "ibus-web/panel/style.css";
 import "./style.css";
@@ -150,16 +150,12 @@ const loadSettings = async () => {
       controls.push({ schema: schema.id, key, control });
       control.addEventListener("change", () => {
         if (!control.reportValidity()) return;
-        const value: SettingValue = {
-          _tag: "v",
-          type: key.type,
-          value:
-            key.type === "b"
-              ? { _tag: "b", value: (control as HTMLInputElement).checked }
-              : key.type === "i"
-                ? { _tag: "i", value: Number(control.value) }
-                : { _tag: "s", value: control.value },
-        };
+        const value: SettingValue =
+          key.type === "b"
+            ? booleanVariant((control as HTMLInputElement).checked)
+            : key.type === "i"
+              ? int32Variant(Number(control.value))
+              : stringVariant(control.value);
         control.disabled = true;
         settingsState.textContent = "Saving…";
         void app.settings.set("hangul", schema.id, key.name, value).then(

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Cause, Effect, Layer, PubSub, Stream } from "effect";
-import { decodeSettingsMetadata, decodeValue, encodeSettingsMetadata, encodeValue } from "@ibus-web/protocol";
+import { decodeSettingsMetadata, decodeValue, encodeSettingsMetadata, encodeValue, variant } from "@ibus-web/protocol";
 import {
   SettingsSource,
   type SettingsChange,
@@ -99,17 +99,13 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
         const supplied: SettingValue | undefined =
           message.bytes === null
             ? undefined
-            : {
-                _tag: "v",
-                type: message.type,
-                value: decodeValue(message.type, new Uint8Array(message.bytes)),
-              };
+            : variant(message.type, decodeValue(message.type, new Uint8Array(message.bytes)));
         const changes: SettingsChange[] = [];
         for (const schema of schemas.values()) {
           if (schema.path !== message.schemaPath) continue;
           const key = schema.keys.find((key) => key.name === message.key);
           if (!key) continue;
-          const value: SettingValue = supplied ?? { _tag: "v", type: key.type, value: key.default };
+          const value: SettingValue = supplied ?? variant(key.type, key.default);
           try {
             validateSetting(key, value);
           } catch {
@@ -218,11 +214,7 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
                 const record = request.result as { type?: unknown; bytes?: unknown };
                 if (record.type !== key.type || !(record.bytes instanceof ArrayBuffer))
                   throw new Error(`Invalid stored setting: ${schema.id}.${key.name}`);
-                const value: SettingValue = {
-                  _tag: "v",
-                  type: key.type,
-                  value: decodeValue(key.type, new Uint8Array(record.bytes)),
-                };
+                const value: SettingValue = variant(key.type, decodeValue(key.type, new Uint8Array(record.bytes)));
                 validateSetting(key, value);
                 return [[key.name, value]];
               }),

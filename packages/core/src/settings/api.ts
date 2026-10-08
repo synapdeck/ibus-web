@@ -5,6 +5,7 @@ import {
   decodeSettingsMetadata,
   encodeValue,
   EngineManifest,
+  variant,
   type SettingsMetadata,
   type GVariantVariant,
 } from "@ibus-web/protocol";
@@ -132,11 +133,11 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
             const stored = source.read
               ? await source.read(schemaId, name)
               : (await source.snapshot([schemaId]))[schemaId]?.[name];
-            return stored ?? { _tag: "v", type: key.type, value: key.default };
+            return stored ?? variant(key.type, key.default);
           },
           reset: async (engine, schemaId, name) => {
             const key = await keyFor(engine, schemaId, name);
-            await set(engine, schemaId, name, { _tag: "v", type: key.type, value: key.default });
+            await set(engine, schemaId, name, variant(key.type, key.default));
           },
         } satisfies SettingsApiService;
       }),

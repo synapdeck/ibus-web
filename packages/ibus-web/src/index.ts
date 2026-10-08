@@ -26,6 +26,7 @@ import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
 export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
+export { booleanVariant, int32Variant, stringVariant, variant } from "@ibus-web/protocol";
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export interface LogEntry {
   readonly level: LogLevel;

@@ -11,6 +11,7 @@ import {
   State,
   Word,
   encodeRequest,
+  stringVariant,
   type Request,
   type EngineManifest,
 } from "@ibus-web/protocol";
@@ -29,7 +30,7 @@ const init = () =>
   new Init({
     version: PROTOCOL_VERSION,
     settings: {
-      "org.example.echo": { value: { _tag: "v", type: "s", value: { _tag: "s", value: "snapshot" } } },
+      "org.example.echo": { value: stringVariant("snapshot") },
     },
   });
 const key = (value: string, state = 0) => new ProcessKeyEvent({ keyval: value.charCodeAt(0), keycode: 0, state });

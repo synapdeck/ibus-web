@@ -46,7 +46,9 @@ and await recovery. No concrete CodeMirror adapter is provided.
 
 `settings.schemas(engine)` returns the generated schemas and keys. Use
 `settings.get(engine, schemaId, key)`, `set(engine, schemaId, key, variant)` and
-`reset(engine, schemaId, key)` with typed GVariant variants. The generated
+`reset(engine, schemaId, key)` with typed GVariant variants, which `variant(type,
+value)` builds for any type and `stringVariant`, `booleanVariant` and
+`int32Variant` build for the `s`, `b` and `i` keys most settings have. The generated
 metadata supplies defaults, descriptions and actual range/choice constraints.
 Hangul's keyboard setting has no generated choices: hosts should render a
 typed input rather than inventing an enum. The default source persists by origin;

@@ -18,6 +18,7 @@ import {
   CursorDown,
   PropertyActivate,
   encodeSettingsMetadata,
+  int32Variant,
   type SettingsMetadata,
   type LazyLookupTable,
 } from "@ibus-web/protocol";
@@ -391,12 +392,10 @@ test("settings load without Workers and publish orientation snapshots with conte
   f.native.focus();
   await f.app.select("test");
   const horizontal = nextEvent(f.app, "panel", (event) => event._tag === "orientation");
-  await f.app.settings.set("test", schema, name, { _tag: "v", type: "i", value: { _tag: "i", value: 0 } });
+  await f.app.settings.set("test", schema, name, int32Variant(0));
   expect((await horizontal).detail).toEqual({ _tag: "orientation", engine: "test", ic: 1 });
   expect(f.app.lookupTableOrientation("test")).toBe(0);
-  await expect(
-    f.app.settings.set("test", schema, name, { _tag: "v", type: "i", value: { _tag: "i", value: 3 } }),
-  ).rejects.toThrow();
+  await expect(f.app.settings.set("test", schema, name, int32Variant(3))).rejects.toThrow();
   await f.app.settings.reset("test", schema, name);
   expect(f.app.lookupTableOrientation("test")).toBe(1);
 });

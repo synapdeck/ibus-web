@@ -1,6 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { encodeRequest, Init, CreateEngine, PROTOCOL_VERSION, ReqMode, Word, State } from "@ibus-web/protocol";
+import {
+  encodeRequest,
+  Init,
+  CreateEngine,
+  PROTOCOL_VERSION,
+  ReqMode,
+  stringVariant,
+  Word,
+  State,
+} from "@ibus-web/protocol";
 import { expect } from "vitest";
 import {
   createControl,
@@ -34,7 +43,7 @@ export const replySequence = async (h: Harness, { client }: RunningHost): Promis
       new Init({
         version: PROTOCOL_VERSION,
         settings: {
-          "org.example.absent": { unknown: { _tag: "v", type: "s", value: { _tag: "s", value: "ignored" } } },
+          "org.example.absent": { unknown: stringVariant("ignored") },
         },
       }),
     ),

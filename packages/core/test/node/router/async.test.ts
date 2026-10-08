@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test, vi } from "vitest";
-import { FocusIn, SettingChanged } from "@ibus-web/protocol";
+import { booleanVariant, FocusIn, SettingChanged } from "@ibus-web/protocol";
 import { fixture, key, output } from "../../shared/router.ts";
 const event = (value = "a") => ({ ...key(value), preventDefault: vi.fn(), stopPropagation: vi.fn() });
 
@@ -76,7 +76,7 @@ for (const request of [
   new SettingChanged({
     schemaId: "test",
     key: "mode",
-    value: { _tag: "v", type: "b", value: { _tag: "b", value: true } },
+    value: booleanVariant(true),
   }),
 ])
   test(`async keys wait for ${request._tag} output before sending`, async () => {
@@ -402,7 +402,7 @@ for (const callback of ["output", "fallback"])
     new SettingChanged({
       schemaId: "test",
       key: "mode",
-      value: { _tag: "v", type: "b", value: { _tag: "b", value: true } },
+      value: booleanVariant(true),
     }),
   ])
     test(`real Connection advances ${request._tag} and async input after abandoned native ${callback} failure`, async () => {

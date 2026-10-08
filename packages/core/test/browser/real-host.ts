@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Effect, Layer, Logger as EffectLogger } from "effect";
 import { expect, inject } from "vitest";
-import type { DecodedLazyRecord, Request } from "@ibus-web/protocol";
+import { stringVariant, type DecodedLazyRecord, type Request } from "@ibus-web/protocol";
 import {
   Connection,
   CoreConfig,
@@ -34,7 +34,6 @@ export const data = inject("realHost");
 if (data.runtimes.length !== 2)
   throw new Error("Real host tests require IBUS_WEB_WORKER_HOST_TESTS and IBUS_WEB_HANGUL_MANIFEST");
 export const HANGUL_SCHEMA = "org.freedesktop.ibus.engine.hangul";
-const stringValue = (value: string) => ({ _tag: "v" as const, type: "s", value: { _tag: "s" as const, value } });
 export interface Field {
   element: HTMLTextAreaElement | HTMLInputElement;
   adapter: ReturnType<typeof textareaAdapter>;
@@ -248,7 +247,7 @@ export const runHost = (
           EffectLogger.layer([frameworkLogger]),
           Layer.succeed(Logger, { enqueue: (line) => logs.push(line) }),
           PanelEvents.Default,
-          SettingsSource.layer({ [HANGUL_SCHEMA]: { "hanja-keys": stringValue("Hangul_Hanja,F9,F8") } }),
+          SettingsSource.layer({ [HANGUL_SCHEMA]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") } }),
         ),
       ),
     ),

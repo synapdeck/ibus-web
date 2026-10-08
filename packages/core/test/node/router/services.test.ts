@@ -3,7 +3,7 @@
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { CreateEngine, type EngineManifest, type Request } from "@ibus-web/protocol";
+import { booleanVariant, CreateEngine, stringVariant, type EngineManifest, type Request } from "@ibus-web/protocol";
 import { makeEngineRegistry } from "../../../src/services/engines.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
@@ -60,7 +60,7 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
     settings.written({
       schemaId: "settings",
       key: "mode",
-      value: { _tag: "v", type: "s", value: { _tag: "s", value: "new" } },
+      value: stringVariant("new"),
     });
     started[0]!.crash({ reason: "worker", message: "stop", storage: "read-only" });
     expect(f.context.ready).toBe(false);
@@ -109,7 +109,7 @@ it.effect(
       settings.written({
         schemaId: "settings",
         key: "x",
-        value: { _tag: "v", type: "b", value: { _tag: "b", value: true } },
+        value: booleanVariant(true),
       });
       panel.enqueue({ _tag: "hide", engine: "test", ic: 1 });
       expect((yield* Fiber.join(setting))[0]?.key).toBe("x");
@@ -248,7 +248,7 @@ it.effect("a failed relaunch consumes the next restart step without losing regis
     settings.written({
       schemaId: "settings",
       key: "latest",
-      value: { _tag: "v", type: "b", value: { _tag: "b", value: true } },
+      value: booleanVariant(true),
     });
     const ready = yield* registry.whenReady("test").pipe(Effect.forkScoped);
     yield* TestClock.adjust(250);
@@ -346,7 +346,7 @@ it.effect("the in-memory settings layer ignores writes after its scope closes", 
     closed.written({
       schemaId: "settings",
       key: "late",
-      value: { _tag: "v", type: "b", value: { _tag: "b", value: true } },
+      value: booleanVariant(true),
     });
     expect(yield* Effect.promise(() => closed.snapshot(["settings"]))).toEqual({ settings: {} });
   }),

@@ -10,6 +10,7 @@ import {
   ReqMode,
   SetCapabilities,
   encodeRequest,
+  stringVariant,
   type DecodedRecord,
   type EngineManifest,
   type Request,
@@ -32,7 +33,6 @@ export const Key = {
   pageDown: [0xff56, 109],
   space: [32, 57],
 } as const;
-export const stringValue = (value: string) => ({ _tag: "v" as const, type: "s", value: { _tag: "s" as const, value } });
 
 export interface HangulBuild {
   manifest: EngineManifest;
@@ -68,7 +68,7 @@ export class PageSession {
         new Init({
           version: PROTOCOL_VERSION,
           settings: {
-            [HANGUL_SCHEMA]: { "hanja-keys": stringValue("Hangul_Hanja,F9,F8") },
+            [HANGUL_SCHEMA]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") },
           },
         }),
       );

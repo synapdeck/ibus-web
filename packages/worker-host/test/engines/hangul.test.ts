@@ -10,12 +10,13 @@ import {
   SetCapabilities,
   SetSurroundingText,
   SettingChanged,
+  stringVariant,
   type DecodedRecord,
   type OutputRecord,
 } from "@ibus-web/protocol";
 import { afterAll, afterEach, beforeEach, describe, expect, inject, test } from "vitest";
 import { nodeHarness } from "../node/harness.ts";
-import { CAPABILITIES, HANGUL_SCHEMA, Key, PageSession, stringValue } from "./page-session.ts";
+import { CAPABILITIES, HANGUL_SCHEMA, Key, PageSession } from "./page-session.ts";
 
 const h = await nodeHarness();
 const build = inject("hangul");
@@ -125,7 +126,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     await session.request(1, new Reset({}));
     const changed = await session.request(
       0,
-      new SettingChanged({ schemaId: HANGUL_SCHEMA, key: "hangul-keyboard", value: stringValue("39") }),
+      new SettingChanged({ schemaId: HANGUL_SCHEMA, key: "hangul-keyboard", value: stringVariant("39") }),
     );
     expect(changed.some(({ record }) => record._tag === "SettingWritten")).toBe(false);
     await compose(1, "39");
@@ -140,7 +141,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     const written = records.find(({ record }) => record._tag === "SettingWritten");
     expect(written).toMatchObject({
       ic: 0,
-      record: { _tag: "SettingWritten", schemaId: HANGUL_SCHEMA, key: "hangul-keyboard", value: stringValue("39") },
+      record: { _tag: "SettingWritten", schemaId: HANGUL_SCHEMA, key: "hangul-keyboard", value: stringVariant("39") },
     });
     await compose(1, "39");
   });
