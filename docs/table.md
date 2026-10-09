@@ -5,6 +5,12 @@ and `xsampa` turns X-SAMPA into IPA. Its code is MIT OR Apache-2.0, and no table
 describes the table format, where the two tables come from, the engine's C++ core, which the native checks build
 and drive, and the glue and side module that run it in the browser.
 
+The format and behaviour are the engine's own, compatible with neither ibus-table nor SCIM. There is no ordinary table
+mode (type a code, pick a candidate) and no wildcards: methods that need one, such as Cangjie, Quick or Wubi, come with
+Rime, and scripts with context rules (Hebrew final forms, Greek final sigma) are left to engines of their own. The
+engine keeps no user data, learns no frequencies and has no settings. Tables are parsed when the engine loads; a
+precompiled bundle could go behind the same loader if a table grows large enough for load time to matter.
+
 ## Table format
 
 A table is a UTF-8 file with LF line endings, named `<engine>.table`; the engine's name is the file's stem.
