@@ -197,7 +197,7 @@ describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("native and 
     [
       "invalid initial value",
       { schema: "org.example.IBusConformance", key: "initial-text", value: "uint32 42" },
-      "Invalid value for settings key: org.example.IBusConformance:initial-text",
+      "Invalid value for settings key: /org/example/ibus-conformance/initial-text",
     ],
     [
       "unknown initial schema",
@@ -242,7 +242,9 @@ describe.skipIf(!manifestPath || !process.env["IBUS_TEST_FIXTURE"])("native and 
   });
 
   test("rejects global settings output with its typed diagnostic", async () => {
-    const result = await runAdapter(manifest().wasmCommand, trace(create(), key(7), destroy()), {
+    const input = trace(create(), key(7), destroy());
+    input.settings = [{ schema: "org.example.IBusConformance", key: "initial-text", value: "'text'" }];
+    const result = await runAdapter(manifest().wasmCommand, input, {
       artifactDir: artifacts(),
       timeoutMs: 5000,
     });

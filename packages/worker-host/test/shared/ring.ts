@@ -54,7 +54,7 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
     },
   });
   const page = host.client.page;
-  page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: {} })), ReqMode.sync);
+  page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.sync);
   expect((await page.waitForReply()).ret).toBe(0);
   page.post(encodeRequest(1, new CreateEngine({ name: "echo" })), ReqMode.sync);
   expect((await page.waitForReply()).ret).toBe(0);

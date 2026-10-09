@@ -6,7 +6,7 @@ import { renderProtocolH } from "../../scripts/protocol-h.ts";
 type MessageFixture = readonly [name: string, kind: number, signature: string];
 
 const requests: readonly MessageFixture[] = [
-  ["INIT", 1, "(ua{sa{sv}})"],
+  ["INIT", 1, "(ua(ssa{sv}))"],
   ["CREATE_ENGINE", 2, "(s)"],
   ["DESTROY_ENGINE", 3, "()"],
   ["SETTING_CHANGED", 4, "(ssv)"],
@@ -102,7 +102,7 @@ describe("generated C wire header", () => {
     expect(header).toContain("(uuu) keyval, keycode, state → reply 0 or 1");
     expect(header).toContain("Process a key event and reply whether the engine handled it.");
     expect(header).toContain("Reserved request flags; must be zero.");
-    expect(header).toContain("GSettings schema id containing the changed key.");
+    expect(header).toContain("Path of the schema instance holding the changed key.");
   });
 
   test("documents wire encoding, malformed requests, padding, ic 0 and page-relative candidate clicks", () => {

@@ -13,6 +13,7 @@ export { IBusAttribute, IBusAttrList, IBusText, IBusLookupTable, IBusProperty, I
 export { IBusAttrType, IBusOrientation, IBusPropType, IBusPropState, IBusPreeditFocusMode } from "./ibus/enums.ts";
 export {
   Init,
+  SettingsInstance,
   CreateEngine,
   DestroyEngine,
   SettingChanged,

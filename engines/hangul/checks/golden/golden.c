@@ -109,10 +109,10 @@ static void lifecycle(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   guint signal = g_signal_lookup("changed", G_TYPE_SETTINGS);
   gulong hook =
       g_signal_add_emission_hook(signal, 0, capture_settings, instances, NULL);
-  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
+  golden_setting(fixture, HANGUL_PATH, "hanja-keys",
                  g_variant_new_string("Hangul_Hanja,F9,F8,F7"));
-  golden_setting(fixture, "org.freedesktop.ibus.panel",
-                 "lookup-table-orientation", g_variant_new_int32(0));
+  golden_setting(fixture, PANEL_PATH, "lookup-table-orientation",
+                 g_variant_new_int32(0));
   g_signal_remove_emission_hook(signal, hook);
   g_assert_cmpuint(instances->len, ==, 2);
   /* Compared by address only; the engine is never dereferenced. */
@@ -126,7 +126,7 @@ static void lifecycle(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   /* Only the module listener on each settings object remains. */
   g_assert_cmpuint(changed_handlers(instances, 0, NULL), ==, 2);
   /* A stale instance handler would select a keyboard on the freed context. */
-  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+  golden_setting(fixture, HANGUL_PATH, "hangul-keyboard",
                  g_variant_new_string("39"));
   golden_create(fixture);
   toggle(fixture);
@@ -152,9 +152,9 @@ static IBusLookupTable *lookup(Fixture *fixture) {
 static void idle_settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_destroy(fixture);
   golden_clear(fixture);
-  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+  golden_setting(fixture, HANGUL_PATH, "hangul-keyboard",
                  g_variant_new_string("39"));
-  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
+  golden_setting(fixture, HANGUL_PATH, "hanja-keys",
                  g_variant_new_string("F7"));
   golden_create(fixture);
   toggle(fixture);
@@ -172,9 +172,9 @@ static void idle_settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   /* Equal-value resends are suppressed; neither assertion above relies on one.
    */
   golden_clear(fixture);
-  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+  golden_setting(fixture, HANGUL_PATH, "hangul-keyboard",
                  g_variant_new_string("39"));
-  golden_setting(fixture, HANGUL_SCHEMA, "hanja-keys",
+  golden_setting(fixture, HANGUL_PATH, "hanja-keys",
                  g_variant_new_string("F7"));
   g_assert_cmpuint(fixture->records->len, ==, 0);
 }
@@ -318,7 +318,7 @@ static void invalid_click(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
 
 static void settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   toggle(fixture);
-  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+  golden_setting(fixture, HANGUL_PATH, "hangul-keyboard",
                  g_variant_new_string("39"));
   g_assert_cmpint(golden_key(fixture, IBUS_m, 50, 0), ==, 1);
   preedit(fixture, "ㅎ", IBUS_ENGINE_PREEDIT_COMMIT);
@@ -327,11 +327,11 @@ static void settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_cmpint(golden_key(fixture, IBUS_s, 31, 0), ==, 1);
   preedit(fixture, "한", IBUS_ENGINE_PREEDIT_COMMIT);
   golden_empty_request(fixture, IBUSWEB_REQ_RESET);
-  golden_setting(fixture, HANGUL_SCHEMA, "hangul-keyboard",
+  golden_setting(fixture, HANGUL_PATH, "hangul-keyboard",
                  g_variant_new_string("2"));
   compose_han(fixture);
   golden_empty_request(fixture, IBUSWEB_REQ_RESET);
-  golden_setting(fixture, HANGUL_SCHEMA, "preedit-mode",
+  golden_setting(fixture, HANGUL_PATH, "preedit-mode",
                  g_variant_new_string("word"));
   golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_OUT);
   golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_IN);

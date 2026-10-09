@@ -6,7 +6,7 @@ import { Request, OutputRecord, requestKinds, recordKinds, signatureOf } from ".
 test("matches every request kind and payload signature in protocol version 1", () => {
   const actual = Request.members.map((message) => [message.name, requestKinds.get(message.name), signatureOf(message)]);
   expect(actual).toEqual([
-    ["Init", 1, "(ua{sa{sv}})"],
+    ["Init", 1, "(ua(ssa{sv}))"],
     ["CreateEngine", 2, "(s)"],
     ["DestroyEngine", 3, "()"],
     ["SettingChanged", 4, "(ssv)"],

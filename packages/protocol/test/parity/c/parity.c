@@ -443,7 +443,7 @@ static void setting_changed(GSettings *instance, gchar *key,
     return;
   gchar *value = g_settings_get_string(instance, key);
   begin_observation(calls, "SettingChanged");
-  string_member(calls, "schemaId", "org.example.Parity");
+  string_member(calls, "path", "/org/example/parity/");
   string_member(calls, "key", key);
   string_variant(calls, value);
   end_observation(calls);
@@ -518,7 +518,7 @@ static void emit_records(IBusEngine *engine) {
   end_observation(records);
   ibus_engine_get_surrounding_text(engine, NULL, NULL, NULL);
   begin_observation(records, "SettingWritten");
-  string_member(records, "schemaId", "org.example.Parity");
+  string_member(records, "path", "/org/example/parity/");
   string_member(records, "key", "sample");
   string_variant(records, "written");
   end_observation(records);

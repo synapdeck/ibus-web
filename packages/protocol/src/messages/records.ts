@@ -113,7 +113,7 @@ export class RequireSurroundingText extends Schema.TaggedClass<RequireSurroundin
 export class SettingWritten extends Schema.TaggedClass<SettingWritten>()(
   "SettingWritten",
   {
-    schemaId: Str.annotate({ description: "GSettings schema id containing the written key." }),
+    path: Str.annotate({ description: "Path of the schema instance holding the written key." }),
     key: Str.annotate({ description: "GSettings key written by the engine." }),
     value: GVariantVariant.annotate({ description: "Typed value the host should persist." }),
   },

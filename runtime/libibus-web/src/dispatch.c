@@ -113,10 +113,10 @@ static int32_t route(gpointer data) {
   if (!initialized)
     return -ENOTCONN;
   if (kind == IBUSWEB_REQ_SETTING_CHANGED) {
-    const gchar *schema, *key;
+    const gchar *path, *key;
     g_autoptr(GVariant) value = NULL;
-    g_variant_get(payload, "(&s&sv)", &schema, &key, &value);
-    return ibusweb_settings_changed(schema, key, value);
+    g_variant_get(payload, "(&s&sv)", &path, &key, &value);
+    return ibusweb_settings_changed(path, key, value);
   }
   IBusEngine *engine = g_hash_table_lookup(engines, GUINT_TO_POINTER(ic));
   if (kind == IBUSWEB_REQ_CREATE_ENGINE) {

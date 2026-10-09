@@ -117,11 +117,11 @@ an absent context, `-EEXIST` for a duplicate context, `-ESRCH` for an
 unregistered engine, `-EIO` for a registered engine that wasn't made, `-EINVAL` for a `SetSurroundingText` cursor or anchor
 past the text's length in characters, `-EPERM` off the pumping thread, and
 `-ECANCELED` when an engine throws a C++ exception. Requests failing on their
-framing, payload or context reach no engine. `SettingChanged` ignores the
-header's `ic`, so its `-ENOENT` means an unknown schema or key, never a
-missing context; it returns `-EINVAL` for a value outside the key's type or
-range and `-ENOTSUP` for a relocatable schema or a default settings backend
-other than the runtime's, and each of these also writes a `Log` record.
+framing, payload or context reach no engine. `SettingChanged` ignores the header's `ic`, so its `-ENOENT` means a path no
+`Init` entry declared or a key its schema lacks, never a missing context; it
+returns `-EINVAL` for a value outside the key's type or range and `-ENOTSUP` for
+a default settings backend other than the runtime's, and each of these also
+writes a `Log` record.
 
 A side module's `create-engine` handler fails a `CreateEngine` with a reason by calling
 `ibusweb_factory_fail_create(reason)` and returning `NULL`. The call stops the emission, so the factory makes no
@@ -169,17 +169,22 @@ Runtime init registers the `ibus-web` backend at priority 1000 through public
 GIO API: creating and dropping a memory backend registers GIO's extension
 points, and `g_io_extension_point_implement` adds the backend to them; GLib
 needs no hook for it. With no explicit `GSETTINGS_BACKEND` override it is the
-default. Its per-instance store is keyed
-by settings path and key, protected by a mutex, and falls back to schema
-defaults. Init snapshots are applied silently. `SettingChanged` validates the
-schema, key, type and range; a different value notifies listeners, an equal
-value does nothing, and neither echoes a `SettingWritten` record.
+default. `Init` declares the module's schema instances, each a schema id at a
+path: a fixed schema at its own path, a relocatable one at any path that is
+absolute, ends in `/` and has no empty component. An unknown schema, a fixed
+schema at another path or an invalid path is refused with a warning. Values are
+keyed by settings path and key, protected by a mutex, and fall back to schema
+defaults. Init's values are applied silently. `SettingChanged` names a declared
+path and a key and validates the type and range; a different value notifies
+listeners, an equal value does nothing, and neither echoes a `SettingWritten`
+record.
 
-Engine writes, resets and delayed write-tree transactions notify listeners and
-emit `SettingWritten (ssv)` for the page to persist. A transaction validates all
-entries and installs the complete batch before notifying. Unknown schemas/keys
-return `-ENOENT`, invalid values `-EINVAL`, and relocatable schemas or a
-different selected backend `-ENOTSUP`. The page persists those records and
+Engine writes, resets and delayed write-tree transactions belong to the longest
+declared path that prefixes their key; they notify listeners and emit
+`SettingWritten (ssv)`, with the instance's path, for the page to persist. A
+transaction validates all entries and installs the complete batch before
+notifying. A write under no declared path, or with an invalid value, is refused
+with a warning. The page persists those records and
 relays them to other tabs ([core.md](core.md#settings-panel-output-and-logging)).
 Schemas must exist before GLib first obtains its default schema
 source; the Hangul data tree includes both the engine and IBus/panel schemas.

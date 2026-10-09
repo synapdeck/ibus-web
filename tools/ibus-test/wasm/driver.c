@@ -351,13 +351,28 @@ static GVariant *settings_snapshot(JsonArray *settings, GError **error) {
     g_variant_unref(value);
   }
   GVariantBuilder snapshot;
-  g_variant_builder_init(&snapshot, G_VARIANT_TYPE("a{sa{sv}}"));
+  g_variant_builder_init(&snapshot, G_VARIANT_TYPE("a(ssa{sv})"));
+  GSettingsSchemaSource *source = g_settings_schema_source_get_default();
   GHashTableIter iterator;
   gpointer schema, keys;
   g_hash_table_iter_init(&iterator, schemas);
-  while (g_hash_table_iter_next(&iterator, &schema, &keys))
-    g_variant_builder_add(&snapshot, "{s@a{sv}}", (gchar *)schema,
+  while (ok && g_hash_table_iter_next(&iterator, &schema, &keys)) {
+    g_autoptr(GSettingsSchema) found =
+        source == NULL ? NULL
+                       : g_settings_schema_source_lookup(source, schema, TRUE);
+    /* An unknown schema still goes to Init, which refuses it with the
+     * runtime's own diagnostic. */
+    const gchar *path = found == NULL ? "/" : g_settings_schema_get_path(found);
+    if (path == NULL) {
+      g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                  "trace settings schema %s has no fixed path",
+                  (const gchar *)schema);
+      ok = FALSE;
+      break;
+    }
+    g_variant_builder_add(&snapshot, "(ss@a{sv})", (gchar *)schema, path,
                           g_variant_builder_end(keys));
+  }
   g_hash_table_unref(schemas);
   if (!ok) {
     g_variant_builder_clear(&snapshot);
@@ -389,10 +404,10 @@ gboolean ibus_test_wasm_run(JsonObject *trace, const gchar *module,
    * warnings arrive as Log records that collection rejects. */
   g_log_set_always_fatal(runtime_fatal_mask);
   if (ok)
-    ok = dispatch(
-             &driver, 0, IBUSWEB_REQ_INIT,
-             g_variant_new("(u@a{sa{sv}})", IBUSWEB_PROTOCOL_VERSION, snapshot),
-             &error) >= 0;
+    ok = dispatch(&driver, 0, IBUSWEB_REQ_INIT,
+                  g_variant_new("(u@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
+                                snapshot),
+                  &error) >= 0;
   if (ok) {
     g_log_set_default_handler(g_log_default_handler, NULL);
     gint loaded = ibusweb_load_module(module, NULL);

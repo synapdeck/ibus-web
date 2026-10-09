@@ -63,14 +63,14 @@ Host records use seq and ic zero and do not advance replyOutSeq. Runtime sequenc
 
 ### Init
 
-Kind: **1**. Signature: `(ua{sa{sv}})`.
+Kind: **1**. Signature: `(ua(ssa{sv}))`.
 
 Initialize the runtime with the host's protocol version and settings.
 
-| Name       | GVariant type | Description                                                  |
-| ---------- | ------------- | ------------------------------------------------------------ |
-| `version`  | `u`           | Protocol version supported by the host.                      |
-| `settings` | `a{sa{sv}}`   | Initial GSettings values, indexed by schema id and then key. |
+| Name       | GVariant type | Description                                                                  |
+| ---------- | ------------- | ---------------------------------------------------------------------------- |
+| `version`  | `u`           | Protocol version supported by the host.                                      |
+| `settings` | `a(ssa{sv})`  | Every GSettings schema instance the module declares, with its stored values. |
 
 ### CreateEngine
 
@@ -97,11 +97,11 @@ Kind: **4**. Signature: `(ssv)`.
 
 Notify the runtime that a host setting changed.
 
-| Name       | GVariant type | Description                                     |
-| ---------- | ------------- | ----------------------------------------------- |
-| `schemaId` | `s`           | GSettings schema id containing the changed key. |
-| `key`      | `s`           | GSettings key that changed.                     |
-| `value`    | `v`           | New typed GSettings value.                      |
+| Name    | GVariant type | Description                                          |
+| ------- | ------------- | ---------------------------------------------------- |
+| `path`  | `s`           | Path of the schema instance holding the changed key. |
+| `key`   | `s`           | GSettings key that changed.                          |
+| `value` | `v`           | New typed GSettings value.                           |
 
 ### ProcessKeyEvent
 
@@ -426,11 +426,11 @@ Kind: **32**. Signature: `(ssv)`.
 
 Notify the host of a setting written by the engine.
 
-| Name       | GVariant type | Description                                     |
-| ---------- | ------------- | ----------------------------------------------- |
-| `schemaId` | `s`           | GSettings schema id containing the written key. |
-| `key`      | `s`           | GSettings key written by the engine.            |
-| `value`    | `v`           | Typed value the host should persist.            |
+| Name    | GVariant type | Description                                          |
+| ------- | ------------- | ---------------------------------------------------- |
+| `path`  | `s`           | Path of the schema instance holding the written key. |
+| `key`   | `s`           | GSettings key written by the engine.                 |
+| `value` | `v`           | Typed value the host should persist.                 |
 
 ### Log
 

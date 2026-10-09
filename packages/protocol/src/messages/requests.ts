@@ -5,12 +5,18 @@ import { GVariantVariant } from "../gvariant/schema.ts";
 import { Int32, Str, Uint32 } from "../ibus/annotations.ts";
 import { IBusText, KeyEvent } from "../ibus/types.ts";
 
+export const SettingsInstance = Schema.Struct({
+  schemaId: Str.annotate({ description: "GSettings schema id." }),
+  path: Str.annotate({ description: "Path the schema is instantiated at, ending in /." }),
+  values: Schema.Record(Str, GVariantVariant).annotate({ description: "The instance's stored values, by key." }),
+});
+
 export class Init extends Schema.TaggedClass<Init>()(
   "Init",
   {
     version: Uint32.annotate({ description: "Protocol version supported by the host." }),
-    settings: Schema.Record(Str, Schema.Record(Str, GVariantVariant)).annotate({
-      description: "Initial GSettings values, indexed by schema id and then key.",
+    settings: Schema.Array(SettingsInstance).annotate({
+      description: "Every GSettings schema instance the module declares, with its stored values.",
     }),
   },
   { kind: 1, description: "Initialize the runtime with the host's protocol version and settings." },
@@ -31,7 +37,7 @@ export class DestroyEngine extends Schema.TaggedClass<DestroyEngine>()(
 export class SettingChanged extends Schema.TaggedClass<SettingChanged>()(
   "SettingChanged",
   {
-    schemaId: Str.annotate({ description: "GSettings schema id containing the changed key." }),
+    path: Str.annotate({ description: "Path of the schema instance holding the changed key." }),
     key: Str.annotate({ description: "GSettings key that changed." }),
     value: GVariantVariant.annotate({ description: "New typed GSettings value." }),
   },

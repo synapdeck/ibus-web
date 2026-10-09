@@ -4,6 +4,7 @@ import { Schema } from "effect";
 import * as P from "../../src/index.ts";
 
 export const schemaId = "org.example.Parity";
+export const path = "/org/example/parity/";
 // Byte strings checked against g_variant_is_normal_form: normal-form encodings with a few bytes
 // mutated, the encodings themselves, and containers large enough for 2- and 4-byte offsets.
 export const fuzzCounts = { mutated: 600, valid: 340, large: 60 } as const;
@@ -70,7 +71,9 @@ export const objects = [
 export const lifecycle = {
   init: new P.Init({
     version: 1,
-    settings: { [schemaId]: { sample: { _tag: "v", type: "s", value: { _tag: "s", value: "initial" } } } },
+    settings: [
+      { schemaId, path, values: { sample: { _tag: "v", type: "s", value: { _tag: "s", value: "initial" } } } },
+    ],
   }),
   create: new P.CreateEngine({ name: "parity" }),
   destroy: new P.DestroyEngine({}),
@@ -95,7 +98,7 @@ export const requests: readonly { name: string; value: P.Request; result: number
     new P.SetSurroundingText({ text: decorated, cursor: 2, anchor: 1 }),
     new P.SetContentType({ purpose: 3, hints: 32 }),
     new P.SettingChanged({
-      schemaId,
+      path,
       key: "sample",
       value: { _tag: "v", type: "s", value: { _tag: "s", value: "changed" } },
     }),

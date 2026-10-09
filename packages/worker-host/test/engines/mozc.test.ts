@@ -21,8 +21,9 @@ const manifest = build.manifests["mozc"]!;
 afterAll(() => h.cleanUp());
 
 const MOZC_SCHEMA = "org.freedesktop.ibus.engine.mozc";
-const hiragana: SessionOptions = { settings: {}, engine: "mozc-on" };
-const direct: SessionOptions = { settings: {}, engine: "mozc-off" };
+const MOZC_PATH = "/org/freedesktop/ibus/engine/mozc/";
+const hiragana: SessionOptions = { settings: [], engine: "mozc-on" };
+const direct: SessionOptions = { settings: [], engine: "mozc-off" };
 const enter = [0xff0d, 28] as const;
 
 const last = <Tag extends OutputRecord["_tag"]>(
@@ -143,20 +144,22 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
   test("Init's punctuation setting reaches the converter", async () => {
     const session = await start({
       ...hiragana,
-      settings: { [MOZC_SCHEMA]: { "punctuation-method": stringVariant("comma-period") } },
+      settings: [
+        { schemaId: MOZC_SCHEMA, path: MOZC_PATH, values: { "punctuation-method": stringVariant("comma-period") } },
+      ],
     });
     await typeText(session, 1, "a,");
     expect(committed(await session.key(1, ...enter))).toBe("あ，");
   });
 
   test("a punctuation change applies to the context already open", async () => {
-    const session = await start(hiragana);
+    const session = await start({ ...hiragana, settings: [{ schemaId: MOZC_SCHEMA, path: MOZC_PATH, values: {} }] });
     await typeText(session, 1, "a,");
     expect(committed(await session.key(1, ...enter))).toBe("あ、");
 
     const changed = await session.request(
       0,
-      new SettingChanged({ schemaId: MOZC_SCHEMA, key: "punctuation-method", value: stringVariant("comma-period") }),
+      new SettingChanged({ path: MOZC_PATH, key: "punctuation-method", value: stringVariant("comma-period") }),
     );
     expect(changed.some(({ record }) => record._tag === "SettingWritten")).toBe(false);
     await typeText(session, 1, "a,");
@@ -164,13 +167,13 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
   });
 
   test("active-on-launch starts mozc-jp in hiragana, which otherwise starts in direct input", async () => {
-    const off = await start({ settings: {}, engine: "mozc-jp" });
+    const off = await start({ settings: [], engine: "mozc-jp" });
     expect(committed(await typeText(off, 1, "a", 0))).toBe("");
     await off.host.terminate();
     current = undefined;
 
     const on = await start({
-      settings: { [MOZC_SCHEMA]: { "active-on-launch": booleanVariant(true) } },
+      settings: [{ schemaId: MOZC_SCHEMA, path: MOZC_PATH, values: { "active-on-launch": booleanVariant(true) } }],
       engine: "mozc-jp",
     });
     await typeText(on, 1, "a");

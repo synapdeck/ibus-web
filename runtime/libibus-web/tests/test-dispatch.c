@@ -116,9 +116,10 @@ static gint send(guint16 kind, guint32 ic, GVariant *payload) {
 
 static GVariant *snapshot(guint version) {
   GVariantBuilder builder;
-  g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sa{sv}}"));
-  g_variant_builder_add_parsed(&builder, "{'review', {'value': <true>}}");
-  return g_variant_new("(u@a{sa{sv}})", version,
+  g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ssa{sv})"));
+  g_variant_builder_add_parsed(&builder,
+                               "('review', '/review/', {'value': <true>})");
+  return g_variant_new("(u@a(ssa{sv}))", version,
                        g_variant_builder_end(&builder));
 }
 
@@ -583,11 +584,11 @@ static void protocol(void) {
   retained_surrounding();
   malformed();
   g_assert_cmpint(send(IBUSWEB_REQ_SETTING_CHANGED, 0,
-                       g_variant_new("(ssv)", "review", "value",
+                       g_variant_new("(ssv)", "/review/", "value",
                                      g_variant_new_boolean(TRUE))),
                   ==, -ENOENT);
   expect_log(G_LOG_LEVEL_WARNING, "ibus-web",
-             "Unknown settings schema: review");
+             "Unknown settings path: /review/");
   logging();
   fatal_logging();
   g_assert_cmpint(send(IBUSWEB_REQ_DESTROY_ENGINE, 7, g_variant_new("()")), ==,

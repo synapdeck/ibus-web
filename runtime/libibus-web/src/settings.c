@@ -12,7 +12,10 @@
 typedef struct {
   GSettingsBackend parent;
   GMutex lock;
+  /* Full key paths to values; a missing value has the schema's default. */
   GHashTable *values;
+  /* Instance paths to their schemas, as Init declared them. */
+  GHashTable *instances;
 } IBusWebSettingsBackend;
 typedef struct {
   GSettingsBackendClass parent;
@@ -21,7 +24,7 @@ G_DEFINE_TYPE(IBusWebSettingsBackend, ibusweb_settings_backend,
               G_TYPE_SETTINGS_BACKEND)
 
 typedef struct {
-  gchar *schema;
+  gchar *instance;
   gchar *name;
   gchar *path;
   GSettingsSchemaKey *definition;
@@ -29,7 +32,7 @@ typedef struct {
 
 static void key_free(gpointer data) {
   SettingKey *key = data;
-  g_free(key->schema);
+  g_free(key->instance);
   g_free(key->name);
   g_free(key->path);
   g_settings_schema_key_unref(key->definition);
@@ -37,65 +40,105 @@ static void key_free(gpointer data) {
 }
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(SettingKey, key_free)
 
-static SettingKey *key_new(GSettingsSchema *schema, const gchar *name) {
+static SettingKey *key_new(GSettingsSchema *schema, const gchar *instance,
+                           const gchar *name) {
   SettingKey *key = g_new(SettingKey, 1);
-  key->schema = g_strdup(g_settings_schema_get_id(schema));
+  key->instance = g_strdup(instance);
   key->name = g_strdup(name);
-  key->path = g_strconcat(g_settings_schema_get_path(schema), name, NULL);
+  key->path = g_strconcat(instance, name, NULL);
   key->definition = g_settings_schema_get_key(schema, name);
   return key;
 }
 
-static SettingKey *resolve_key(const gchar *id, const gchar *name,
-                               gint *error) {
+/* GSettings' own rule for a path: absolute, a directory, no empty
+ * component. */
+static gboolean path_valid(const gchar *path) {
+  return path[0] == '/' && g_str_has_suffix(path, "/") &&
+         strstr(path, "//") == NULL;
+}
+
+static gboolean declare(IBusWebSettingsBackend *backend, const gchar *id,
+                        const gchar *path) {
   GSettingsSchemaSource *source = g_settings_schema_source_get_default();
   g_autoptr(GSettingsSchema) schema =
       source == NULL ? NULL : g_settings_schema_source_lookup(source, id, TRUE);
   if (schema == NULL) {
     g_warning("Unknown settings schema: %s", id);
+    return FALSE;
+  }
+  if (!path_valid(path)) {
+    g_warning("Invalid settings path: %s", path);
+    return FALSE;
+  }
+  const gchar *fixed = g_settings_schema_get_path(schema);
+  if (fixed != NULL && !g_str_equal(fixed, path)) {
+    g_warning("Settings schema %s has the fixed path %s, not %s", id, fixed,
+              path);
+    return FALSE;
+  }
+  g_mutex_lock(&backend->lock);
+  g_hash_table_replace(backend->instances, g_strdup(path),
+                       g_settings_schema_ref(schema));
+  g_mutex_unlock(&backend->lock);
+  return TRUE;
+}
+
+static GSettingsSchema *instance_at(IBusWebSettingsBackend *backend,
+                                    const gchar *path) {
+  g_mutex_lock(&backend->lock);
+  GSettingsSchema *schema = g_hash_table_lookup(backend->instances, path);
+  if (schema != NULL)
+    g_settings_schema_ref(schema);
+  g_mutex_unlock(&backend->lock);
+  return schema;
+}
+
+static SettingKey *resolve_key(IBusWebSettingsBackend *backend,
+                               const gchar *path, const gchar *name,
+                               gint *error) {
+  g_autoptr(GSettingsSchema) schema = instance_at(backend, path);
+  if (schema == NULL) {
+    g_warning("Unknown settings path: %s", path);
     *error = -ENOENT;
     return NULL;
   }
-  if (g_settings_schema_get_path(schema) == NULL) {
-    g_warning("Relocatable settings schema is unsupported: %s", id);
-    *error = -ENOTSUP;
-    return NULL;
-  }
   if (!g_settings_schema_has_key(schema, name)) {
-    g_warning("Unknown settings key: %s:%s", id, name);
+    g_warning("Unknown settings key: %s%s", path, name);
     *error = -ENOENT;
     return NULL;
   }
   *error = 0;
-  return key_new(schema, name);
+  return key_new(schema, path, name);
 }
 
-static SettingKey *resolve_path(const gchar *path) {
-  GSettingsSchemaSource *source = g_settings_schema_source_get_default();
-  if (source == NULL)
-    return NULL;
-  g_auto(GStrv) ids = NULL;
-  g_auto(GStrv) relocatable = NULL;
-  g_settings_schema_source_list_schemas(source, TRUE, &ids, &relocatable);
+/* A key path belongs to the longest declared instance path that prefixes it
+ * and whose schema has the rest as a key. */
+static SettingKey *resolve_path(IBusWebSettingsBackend *backend,
+                                const gchar *path) {
   g_autoptr(GSettingsSchema) best = NULL;
+  g_autofree gchar *best_path = NULL;
   gsize best_length = 0;
-  for (guint i = 0; ids[i] != NULL; ++i) {
-    g_autoptr(GSettingsSchema) schema =
-        g_settings_schema_source_lookup(source, ids[i], TRUE);
-    const gchar *prefix = g_settings_schema_get_path(schema);
-    gsize length = strlen(prefix);
-    if (length > best_length && g_str_has_prefix(path, prefix) &&
+  g_mutex_lock(&backend->lock);
+  GHashTableIter iter;
+  gpointer instance, schema;
+  g_hash_table_iter_init(&iter, backend->instances);
+  while (g_hash_table_iter_next(&iter, &instance, &schema)) {
+    gsize length = strlen(instance);
+    if (length > best_length && g_str_has_prefix(path, instance) &&
         g_settings_schema_has_key(schema, path + length)) {
       g_clear_pointer(&best, g_settings_schema_unref);
+      g_clear_pointer(&best_path, g_free);
       best = g_settings_schema_ref(schema);
+      best_path = g_strdup(instance);
       best_length = length;
     }
   }
+  g_mutex_unlock(&backend->lock);
   if (best == NULL) {
     g_warning("Unknown settings path: %s", path);
     return NULL;
   }
-  return key_new(best, path + best_length);
+  return key_new(best, best_path, path + best_length);
 }
 
 static gboolean value_valid(SettingKey *key, GVariant *value) {
@@ -103,7 +146,7 @@ static gboolean value_valid(SettingKey *key, GVariant *value) {
           value, g_settings_schema_key_get_value_type(key->definition)) &&
       g_settings_schema_key_range_check(key->definition, value))
     return TRUE;
-  g_warning("Invalid value for settings key: %s:%s", key->schema, key->name);
+  g_warning("Invalid value for settings key: %s", key->path);
   return FALSE;
 }
 
@@ -123,8 +166,9 @@ static gboolean store_value(IBusWebSettingsBackend *backend, SettingKey *key,
 }
 
 static void emit_write(SettingKey *key, GVariant *value) {
-  ibusweb_output_append(0, IBUSWEB_REC_SETTING_WRITTEN,
-                        g_variant_new("(ssv)", key->schema, key->name, value));
+  ibusweb_output_append(
+      0, IBUSWEB_REC_SETTING_WRITTEN,
+      g_variant_new("(ssv)", key->instance, key->name, value));
 }
 
 static gboolean write_value(IBusWebSettingsBackend *backend, SettingKey *key,
@@ -161,18 +205,19 @@ static gboolean writable(GSettingsBackend *base G_GNUC_UNUSED,
 
 static gboolean backend_write(GSettingsBackend *base, const gchar *path,
                               GVariant *value, gpointer origin) {
-  g_autoptr(SettingKey) key = resolve_path(path);
-  return key != NULL &&
-         write_value((IBusWebSettingsBackend *)base, key, value, origin);
+  IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
+  g_autoptr(SettingKey) key = resolve_path(backend, path);
+  return key != NULL && write_value(backend, key, value, origin);
 }
 
 static void reset(GSettingsBackend *base, const gchar *path, gpointer origin) {
-  g_autoptr(SettingKey) key = resolve_path(path);
+  IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
+  g_autoptr(SettingKey) key = resolve_path(backend, path);
   if (key == NULL)
     return;
   g_autoptr(GVariant) value =
       g_settings_schema_key_get_default_value(key->definition);
-  write_value((IBusWebSettingsBackend *)base, key, value, origin);
+  write_value(backend, key, value, origin);
 }
 
 typedef struct {
@@ -188,13 +233,14 @@ static void pending_free(gpointer data) {
 }
 
 typedef struct {
+  IBusWebSettingsBackend *backend;
   GPtrArray *writes;
   gboolean valid;
 } WriteTree;
 
 static gboolean prepare_write(gpointer path, gpointer value, gpointer data) {
   WriteTree *tree = data;
-  SettingKey *key = resolve_path(path);
+  SettingKey *key = resolve_path(tree->backend, path);
   if (key == NULL) {
     tree->valid = FALSE;
     return TRUE;
@@ -217,12 +263,12 @@ static gboolean prepare_write(gpointer path, gpointer value, gpointer data) {
 
 static gboolean write_tree(GSettingsBackend *base, GTree *values,
                            gpointer origin) {
+  IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
   g_autoptr(GPtrArray) pending = g_ptr_array_new_with_free_func(pending_free);
-  WriteTree tree = {pending, TRUE};
+  WriteTree tree = {backend, pending, TRUE};
   g_tree_foreach(values, prepare_write, &tree);
   if (!tree.valid)
     return FALSE;
-  IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
   g_mutex_lock(&backend->lock);
   for (guint i = 0; i < pending->len; ++i) {
     PendingWrite *entry = g_ptr_array_index(pending, i);
@@ -241,9 +287,12 @@ static gboolean write_tree(GSettingsBackend *base, GTree *values,
 
 static void value_unref(gpointer data) { g_variant_unref(data); }
 
+static void schema_unref(gpointer data) { g_settings_schema_unref(data); }
+
 static void finalize(GObject *object) {
   IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)object;
   g_hash_table_unref(backend->values);
+  g_hash_table_unref(backend->instances);
   g_mutex_clear(&backend->lock);
   G_OBJECT_CLASS(ibusweb_settings_backend_parent_class)->finalize(object);
 }
@@ -263,6 +312,8 @@ static void ibusweb_settings_backend_init(IBusWebSettingsBackend *backend) {
   g_mutex_init(&backend->lock);
   backend->values =
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, value_unref);
+  backend->instances =
+      g_hash_table_new_full(g_str_hash, g_str_equal, g_free, schema_unref);
 }
 
 static GSettingsBackend *default_backend(void) {
@@ -276,46 +327,48 @@ static GSettingsBackend *default_backend(void) {
   return backend;
 }
 
-void ibusweb_settings_init(GVariant *snapshot) {
+void ibusweb_settings_init(GVariant *instances) {
   g_autoptr(GSettingsBackend) base = default_backend();
   if (base == NULL)
     return;
   IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
-  GVariantIter schemas;
-  const gchar *id;
+  GVariantIter entries;
+  const gchar *id, *path;
   GVariant *values;
-  g_variant_iter_init(&schemas, snapshot);
-  while (g_variant_iter_next(&schemas, "{&s@a{sv}}", &id, &values)) {
-    GVariantIter keys;
-    const gchar *name;
-    GVariant *value;
-    g_variant_iter_init(&keys, values);
-    while (g_variant_iter_next(&keys, "{&sv}", &name, &value)) {
-      gint error;
-      g_autoptr(SettingKey) key = resolve_key(id, name, &error);
-      if (key != NULL && value_valid(key, value)) {
-        g_mutex_lock(&backend->lock);
-        store_value(backend, key, value);
-        g_mutex_unlock(&backend->lock);
+  g_variant_iter_init(&entries, instances);
+  while (g_variant_iter_next(&entries, "(&s&s@a{sv})", &id, &path, &values)) {
+    if (declare(backend, id, path)) {
+      GVariantIter keys;
+      const gchar *name;
+      GVariant *value;
+      g_variant_iter_init(&keys, values);
+      while (g_variant_iter_next(&keys, "{&sv}", &name, &value)) {
+        gint error;
+        g_autoptr(SettingKey) key = resolve_key(backend, path, name, &error);
+        if (key != NULL && value_valid(key, value)) {
+          g_mutex_lock(&backend->lock);
+          store_value(backend, key, value);
+          g_mutex_unlock(&backend->lock);
+        }
+        g_variant_unref(value);
       }
-      g_variant_unref(value);
     }
     g_variant_unref(values);
   }
 }
 
-int ibusweb_settings_changed(const char *schema, const char *name,
+int ibusweb_settings_changed(const char *path, const char *name,
                              GVariant *value) {
-  gint error;
-  g_autoptr(SettingKey) key = resolve_key(schema, name, &error);
-  if (key == NULL)
-    return error;
-  if (!value_valid(key, value))
-    return -EINVAL;
   g_autoptr(GSettingsBackend) base = default_backend();
   if (base == NULL)
     return -ENOTSUP;
   IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
+  gint error;
+  g_autoptr(SettingKey) key = resolve_key(backend, path, name, &error);
+  if (key == NULL)
+    return error;
+  if (!value_valid(key, value))
+    return -EINVAL;
   g_mutex_lock(&backend->lock);
   gboolean changed = store_value(backend, key, value);
   g_mutex_unlock(&backend->lock);

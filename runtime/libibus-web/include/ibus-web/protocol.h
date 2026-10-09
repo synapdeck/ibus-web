@@ -49,10 +49,11 @@ typedef struct {
 #define IBUSWEB_RECORD_CONTINUATION 0x0001
 
 enum IBusWebRequestKind {
-  /* (ua{sa{sv}}) version, settings
+  /* (ua(ssa{sv})) version, settings
    * Initialize the runtime with the host's protocol version and settings.
    * version: Protocol version supported by the host.
-   * settings: Initial GSettings values, indexed by schema id and then key. */
+   * settings: Every GSettings schema instance the module declares, with its
+   *   stored values. */
   IBUSWEB_REQ_INIT = 1,
   /* (s) name
    * Create an engine for the input context.
@@ -61,9 +62,9 @@ enum IBusWebRequestKind {
   /* ()
    * Destroy the input context's engine. */
   IBUSWEB_REQ_DESTROY_ENGINE = 3,
-  /* (ssv) schemaId, key, value
+  /* (ssv) path, key, value
    * Notify the runtime that a host setting changed.
-   * schemaId: GSettings schema id containing the changed key.
+   * path: Path of the schema instance holding the changed key.
    * key: GSettings key that changed.
    * value: New typed GSettings value. */
   IBUSWEB_REQ_SETTING_CHANGED = 4,
@@ -201,9 +202,9 @@ enum IBusWebRecordKind {
   /* ()
    * Ask the client to supply its current surrounding text. */
   IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT = 15,
-  /* (ssv) schemaId, key, value
+  /* (ssv) path, key, value
    * Notify the host of a setting written by the engine.
-   * schemaId: GSettings schema id containing the written key.
+   * path: Path of the schema instance holding the written key.
    * key: GSettings key written by the engine.
    * value: Typed value the host should persist. */
   IBUSWEB_REC_SETTING_WRITTEN = 32,
@@ -234,7 +235,7 @@ static inline const char *ibusweb_request_signature(uint16_t kind) {
     uint16_t kind;
     const char *signature;
   } signatures[] = {
-      {IBUSWEB_REQ_INIT, "(ua{sa{sv}})"},
+      {IBUSWEB_REQ_INIT, "(ua(ssa{sv}))"},
       {IBUSWEB_REQ_CREATE_ENGINE, "(s)"},
       {IBUSWEB_REQ_DESTROY_ENGINE, "()"},
       {IBUSWEB_REQ_SETTING_CHANGED, "(ssv)"},

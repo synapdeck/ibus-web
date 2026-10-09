@@ -19,8 +19,8 @@ const build = inject("module");
 const manifest = build.manifests["table"]!;
 afterAll(() => h.cleanUp());
 
-const latex: SessionOptions = { settings: {}, engine: "latex" };
-const xsampa: SessionOptions = { settings: {}, engine: "xsampa" };
+const latex: SessionOptions = { settings: [], engine: "latex" };
+const xsampa: SessionOptions = { settings: [], engine: "xsampa" };
 
 const tags = (records: DecodedRecord[]) => records.map(({ record }) => record._tag);
 const last = <Tag extends OutputRecord["_tag"]>(

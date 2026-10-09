@@ -19,12 +19,15 @@ import { nodeHarness } from "../node/harness.ts";
 import { CAPABILITIES, Key, PageSession, type SessionOptions } from "./page-session.ts";
 
 const HANGUL_SCHEMA = "org.freedesktop.ibus.engine.hangul";
+const HANGUL_PATH = "/org/freedesktop/ibus/engine/hangul/";
 
 const h = await nodeHarness();
 const build = inject("module");
 const manifest = build.manifests["hangul"]!;
 const options: SessionOptions = {
-  settings: { [HANGUL_SCHEMA]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") } },
+  settings: [
+    { schemaId: HANGUL_SCHEMA, path: HANGUL_PATH, values: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") } },
+  ],
   engine: "hangul",
   ready: (session, ic) => session.key(ic, ...Key.hangul),
 };
@@ -134,7 +137,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     await session.request(1, new Reset({}));
     const changed = await session.request(
       0,
-      new SettingChanged({ schemaId: HANGUL_SCHEMA, key: "hangul-keyboard", value: stringVariant("39") }),
+      new SettingChanged({ path: HANGUL_PATH, key: "hangul-keyboard", value: stringVariant("39") }),
     );
     expect(changed.some(({ record }) => record._tag === "SettingWritten")).toBe(false);
     await compose(1, "39");
@@ -149,7 +152,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     const written = records.find(({ record }) => record._tag === "SettingWritten");
     expect(written).toMatchObject({
       ic: 0,
-      record: { _tag: "SettingWritten", schemaId: HANGUL_SCHEMA, key: "hangul-keyboard", value: stringVariant("39") },
+      record: { _tag: "SettingWritten", path: HANGUL_PATH, key: "hangul-keyboard", value: stringVariant("39") },
     });
     await compose(1, "39");
   });

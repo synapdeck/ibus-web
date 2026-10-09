@@ -248,9 +248,9 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * exception. Requests failing on their framing, payload or context reach no
  * engine.
  *
- * SettingChanged ignores the header's ic, so its ENOENT means an unknown
- * schema or key, never a missing context; it returns EINVAL for a value
- * outside the key's type or range, or ENOTSUP for a relocatable schema or a
+ * SettingChanged ignores the header's ic, so its ENOENT means a path no Init
+ * entry declared or a key its schema lacks, never a missing context; it
+ * returns EINVAL for a value outside the key's type or range, or ENOTSUP for a
  * default settings backend other than the runtime's. Each of these also
  * writes a Log record.
  *

@@ -29,9 +29,9 @@ const call = async (host: RunningHost, ic: number, request: Request): Promise<nu
 const init = () =>
   new Init({
     version: PROTOCOL_VERSION,
-    settings: {
-      "org.example.echo": { value: stringVariant("snapshot") },
-    },
+    settings: [
+      { schemaId: "org.example.echo", path: "/org/example/echo/", values: { value: stringVariant("snapshot") } },
+    ],
   });
 const key = (value: string, state = 0) => new ProcessKeyEvent({ keyval: value.charCodeAt(0), keycode: 0, state });
 const modules = async (host: RunningHost): Promise<string[]> => {
@@ -90,7 +90,7 @@ export const engineLifecycle = async (h: Harness, runtime: RuntimeBuild, memory:
       expect.arrayContaining([
         expect.objectContaining({
           ic: 0,
-          record: expect.objectContaining({ _tag: "SettingWritten", schemaId: "org.example.echo" }),
+          record: expect.objectContaining({ _tag: "SettingWritten", path: "/org/example/echo/" }),
         }),
       ]),
     );

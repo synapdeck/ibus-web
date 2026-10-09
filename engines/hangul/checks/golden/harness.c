@@ -81,10 +81,10 @@ gint golden_key(Fixture *fixture, guint key, guint code, guint modifiers) {
   return reply;
 }
 
-void golden_setting(Fixture *fixture, const gchar *schema, const gchar *key,
+void golden_setting(Fixture *fixture, const gchar *path, const gchar *key,
                     GVariant *value) {
   g_assert_cmpint(golden_request(fixture, IBUSWEB_REQ_SETTING_CHANGED,
-                                 g_variant_new("(ssv)", schema, key, value)),
+                                 g_variant_new("(ssv)", path, key, value)),
                   ==, 0);
   g_assert_cmpuint(golden_count(fixture, IBUSWEB_REC_SETTING_WRITTEN), ==, 0);
 }
@@ -160,8 +160,11 @@ static const gchar golden_hanja_keys[] = "Hangul_Hanja,F9,F8";
 
 /* Engine settings are module globals, so each case starts from the same
  * snapshot whatever an earlier case changed or failed to restore. */
-static const gchar *const reset_schemas[] = {HANGUL_SCHEMA,
-                                             "org.freedesktop.ibus.panel"};
+static const struct {
+  const gchar *schema;
+  const gchar *path;
+} reset_instances[] = {{HANGUL_SCHEMA, HANGUL_PATH},
+                       {PANEL_SCHEMA, PANEL_PATH}};
 
 static GVariant *baseline(GSettingsSchemaKey *key, const gchar *schema) {
   if (g_str_equal(schema, HANGUL_SCHEMA) &&
@@ -172,16 +175,16 @@ static GVariant *baseline(GSettingsSchemaKey *key, const gchar *schema) {
 
 static void reset_settings(Fixture *fixture) {
   GSettingsSchemaSource *source = g_settings_schema_source_get_default();
-  for (guint i = 0; i < G_N_ELEMENTS(reset_schemas); ++i) {
-    g_autoptr(GSettingsSchema) schema =
-        g_settings_schema_source_lookup(source, reset_schemas[i], TRUE);
+  for (guint i = 0; i < G_N_ELEMENTS(reset_instances); ++i) {
+    g_autoptr(GSettingsSchema) schema = g_settings_schema_source_lookup(
+        source, reset_instances[i].schema, TRUE);
     g_assert_nonnull(schema);
     g_auto(GStrv) names = g_settings_schema_list_keys(schema);
     for (gchar **name = names; *name != NULL; ++name) {
       g_autoptr(GSettingsSchemaKey) key =
           g_settings_schema_get_key(schema, *name);
-      g_autoptr(GVariant) value = baseline(key, reset_schemas[i]);
-      golden_setting(fixture, reset_schemas[i], *name, value);
+      g_autoptr(GVariant) value = baseline(key, reset_instances[i].schema);
+      golden_setting(fixture, reset_instances[i].path, *name, value);
     }
   }
 }
@@ -214,18 +217,20 @@ void golden_init(const gchar *schemas_dir, const gchar *module) {
   g_setenv("G_MESSAGES_DEBUG", "all", TRUE);
   static gint32 wake_word;
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
-  GVariantBuilder keys, schemas;
+  GVariantBuilder keys, instances;
   g_variant_builder_init(&keys, G_VARIANT_TYPE("a{sv}"));
   g_variant_builder_add(&keys, "{sv}", "hanja-keys",
                         g_variant_new_string(golden_hanja_keys));
-  g_variant_builder_init(&schemas, G_VARIANT_TYPE("a{sa{sv}}"));
-  g_variant_builder_add(&schemas, "{s@a{sv}}", HANGUL_SCHEMA,
+  g_variant_builder_init(&instances, G_VARIANT_TYPE("a(ssa{sv})"));
+  g_variant_builder_add(&instances, "(ss@a{sv})", HANGUL_SCHEMA, HANGUL_PATH,
                         g_variant_builder_end(&keys));
+  g_variant_builder_add_parsed(&instances, "(%s, %s, @a{sv} {})", PANEL_SCHEMA,
+                               PANEL_PATH);
   Fixture fixture = {.records = g_ptr_array_new_with_free_func(record_free)};
   g_assert_cmpint(
       golden_request(&fixture, IBUSWEB_REQ_INIT,
-                     g_variant_new("(u@a{sa{sv}})", IBUSWEB_PROTOCOL_VERSION,
-                                   g_variant_builder_end(&schemas))),
+                     g_variant_new("(u@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
+                                   g_variant_builder_end(&instances))),
       ==, 0);
   g_log_set_default_handler(g_log_default_handler, NULL);
   g_assert_cmpint(ibusweb_load_module("/sides/hangul.wasm", NULL), ==, 0);

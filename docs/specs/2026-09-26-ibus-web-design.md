@@ -437,10 +437,10 @@ context, `ESRCH` for an unregistered engine, `EIO` for a registered engine that 
 `EPERM` off the pumping thread, and `ECANCELED` when an engine throws a C++
 exception. Requests failing on their framing, payload or context reach no
 engine. `SettingChanged` ignores the header's context, so its `ENOENT` means
-an unknown schema or key, never a missing context; it returns `EINVAL` for a
-value outside the key's type or range and `ENOTSUP` for a relocatable schema
-or a default settings backend other than the runtime's, each with a `Log`
-record.
+a path no `Init` entry declared or a key its schema lacks, never a missing
+context; it returns `EINVAL` for a value outside the key's type or range and
+`ENOTSUP` for a default settings backend other than the runtime's, each with a
+`Log` record.
 
 `ECANCELED` means the runtime is unusable: the exception unwound through
 GLib's signal emission, skipping its cleanup and leaking the engine's
@@ -514,10 +514,13 @@ doorbell `postMessage` (§6.2.3).
   registered at priority 1000 during runtime init on
   `G_SETTINGS_BACKEND_EXTENSION_POINT_NAME`. It is the default unless
   `GSETTINGS_BACKEND` explicitly selects another backend.
-- **Values.** Seeded from the snapshot in `Init`. `SettingChanged` requests
+- **Values.** `Init` declares every schema instance the module uses, a schema
+  id at a path (a relocatable schema at as many paths as the build declares),
+  with its stored values. `SettingChanged` requests name a path and a key; they
   update the backend and call `g_settings_backend_changed`, so engines' own
-  `changed::` handlers fire. Engine writes emit `SettingWritten` records for
-  the page to persist (§7.1.4).
+  `changed::` handlers fire. Engine writes resolve to the declared instance
+  whose path prefixes their key and emit `SettingWritten` records, with that
+  path, for the page to persist (§7.1.4).
 - **Schemas.** Compiled at build time with `pkgsWasm.glib`'s
   `glib-compile-schemas`, run under Node through the cross `.pc` tool path, and shipped in the engine's data files under
   the manifest's store-path `settingsSchemaDir`. The host sets
@@ -1224,12 +1227,12 @@ visibility reaches the page in the engine's `UpdateProperty` records.
 
 #### 6.1.3 Lifecycle and settings requests
 
-| Message          | Payload                             | Notes                                 |
-| ---------------- | ----------------------------------- | ------------------------------------- |
-| `Init`           | protocol version, settings snapshot | exact protocol-version match required |
-| `CreateEngine`   | IC ID, engine name                  |                                       |
-| `DestroyEngine`  | IC ID                               |                                       |
-| `SettingChanged` | schema, key, `v`                    |                                       |
+| Message          | Payload                                                      | Notes                                 |
+| ---------------- | ------------------------------------------------------------ | ------------------------------------- |
+| `Init`           | protocol version, schema instances (id, path, stored values) | exact protocol-version match required |
+| `CreateEngine`   | IC ID, engine name                                           |                                       |
+| `DestroyEngine`  | IC ID                                                        |                                       |
+| `SettingChanged` | path, key, `v`                                               |                                       |
 
 #### 6.1.4 Output records (Worker → page)
 
@@ -1238,7 +1241,7 @@ visibility reaches the page in the engine's `UpdateProperty` records.
 `ShowAuxiliaryText`, `HideAuxiliaryText`, `ShowLookupTable`,
 `HideLookupTable`, `RegisterProperties`, `UpdateProperty`, `ForwardKeyEvent`,
 `DeleteSurroundingText`, `RequireSurroundingText`, with IBus's signatures;
-plus `SettingWritten (ssv)` and `Log (uss)` (level, domain, message).
+plus `SettingWritten (ssv)` (path, key, value) and `Log (uss)` (level, domain, message).
 `Crashed (us)` carries a reason and message: `TRAP` 1, `FAULT` 2
 (a request returned `-ECANCELED`), `RELAY` 3, `LOAD` 4, `HOST` 5; decoders
 reject any other reason as a schema error, and a `Crashed` record with a
