@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import type { DecodedRecord, OutputRecord } from "@ibus-web/protocol";
+import {
+  SettingChanged,
+  booleanVariant,
+  stringVariant,
+  type DecodedRecord,
+  type OutputRecord,
+} from "@ibus-web/protocol";
 import { afterAll, afterEach, describe, expect, inject, test } from "vitest";
 import { nodeHarness } from "../node/harness.ts";
 import { Key, PageSession, type SessionOptions } from "./page-session.ts";
@@ -10,6 +16,7 @@ const build = inject("module");
 const manifest = build.manifests["mozc"]!;
 afterAll(() => h.cleanUp());
 
+const MOZC_SCHEMA = "org.freedesktop.ibus.engine.mozc";
 const hiragana: SessionOptions = { settings: {}, engine: "mozc-on" };
 const direct: SessionOptions = { settings: {}, engine: "mozc-off" };
 const enter = [0xff0d, 28] as const;
@@ -80,6 +87,43 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
     expect(visible).toBe(true);
     expect(table.candidates.length).toBeGreaterThan(1);
     expect(table.candidates.map(({ text }) => text)).toContain("漢字");
+  });
+
+  test("Init's punctuation setting reaches the converter", async () => {
+    const session = await start({
+      ...hiragana,
+      settings: { [MOZC_SCHEMA]: { "punctuation-method": stringVariant("comma-period") } },
+    });
+    await typeText(session, 1, "a,");
+    expect(committed(await session.key(1, ...enter))).toBe("あ，");
+  });
+
+  test("a punctuation change applies to the context already open", async () => {
+    const session = await start(hiragana);
+    await typeText(session, 1, "a,");
+    expect(committed(await session.key(1, ...enter))).toBe("あ、");
+
+    const changed = await session.request(
+      0,
+      new SettingChanged({ schemaId: MOZC_SCHEMA, key: "punctuation-method", value: stringVariant("comma-period") }),
+    );
+    expect(changed.some(({ record }) => record._tag === "SettingWritten")).toBe(false);
+    await typeText(session, 1, "a,");
+    expect(committed(await session.key(1, ...enter))).toBe("あ，");
+  });
+
+  test("active-on-launch starts mozc-jp in hiragana, which otherwise starts in direct input", async () => {
+    const off = await start({ settings: {}, engine: "mozc-jp" });
+    expect(committed(await typeText(off, 1, "a", 0))).toBe("");
+    await off.host.terminate();
+    current = undefined;
+
+    const on = await start({
+      settings: { [MOZC_SCHEMA]: { "active-on-launch": booleanVariant(true) } },
+      engine: "mozc-jp",
+    });
+    await typeText(on, 1, "a");
+    expect(committed(await on.key(1, ...enter))).toBe("あ");
   });
 
   test("the direct-input engine passes keys through", async () => {

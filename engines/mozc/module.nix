@@ -43,7 +43,10 @@
           (engine "mozc-on" "Mozc:あ")
           (engine "mozc-off" "Mozc:A_")
         ];
-        settingsSchemas = [ "org.freedesktop.ibus.panel" ];
+        settingsSchemas = [
+          "org.freedesktop.ibus.engine.mozc"
+          "org.freedesktop.ibus.panel"
+        ];
       };
 
       ibusWeb.demo.modules.mozc = config.packages.ibus-web-mozc-dist;

@@ -196,6 +196,10 @@ An item leaves this page when it is fixed or decided.
 - **Surrounding selection anchor.** The IBus-compatible delete operation updates
   cached text/cursor but leaves the selection anchor unchanged until the host's
   next `SetSurroundingText`; callers can observe that stale anchor.
+- **Mozc settings that wait for a restart.** Changing `active-on-launch` or the keymap style's turn-on keys takes
+  effect when the module next starts, and a switch between romaji and kana at the next focus
+  ([mozc.md](mozc.md#settings)). Mozc's keymap and romaji table editors and its user dictionary tool have no
+  equivalent on the page.
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a

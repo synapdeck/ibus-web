@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!-- Mozc's settings, from the ones its own settings dialog offers. Defaults
+     are Mozc's own; each key names the config field it sets. -->
+<schemalist>
+  <schema id="org.freedesktop.ibus.engine.mozc" path="/org/freedesktop/ibus/engine/mozc/">
+    <key name="preedit-method" type="s">
+      <choices>
+        <choice value="romaji"/>
+        <choice value="kana"/>
+      </choices>
+      <default>'romaji'</default>
+      <summary>Input method</summary>
+      <description>Type Japanese as romaji, or as kana from a JIS keyboard's kana layout.</description>
+    </key>
+    <key name="session-keymap" type="s">
+      <choices>
+        <choice value="ms-ime"/>
+        <choice value="atok"/>
+        <choice value="kotoeri"/>
+      </choices>
+      <default>'ms-ime'</default>
+      <summary>Keymap style</summary>
+      <description>The key bindings of MS-IME, ATOK or Kotoeri.</description>
+    </key>
+    <key name="punctuation-method" type="s">
+      <choices>
+        <choice value="kuten-touten"/>
+        <choice value="comma-period"/>
+        <choice value="kuten-period"/>
+        <choice value="comma-touten"/>
+      </choices>
+      <default>'kuten-touten'</default>
+      <summary>Punctuation</summary>
+      <description>The marks typed for comma and period: 、。 (touten and kuten) or ，．, in either pairing.</description>
+    </key>
+    <key name="symbol-method" type="s">
+      <choices>
+        <choice value="corner-bracket-middle-dot"/>
+        <choice value="square-bracket-slash"/>
+        <choice value="corner-bracket-slash"/>
+        <choice value="square-bracket-middle-dot"/>
+      </choices>
+      <default>'corner-bracket-middle-dot'</default>
+      <summary>Symbols</summary>
+      <description>The marks typed for brackets and slash: 「」 or ［］, and ・ or ／.</description>
+    </key>
+    <key name="space-character-form" type="s">
+      <choices>
+        <choice value="input-mode"/>
+        <choice value="full-width"/>
+        <choice value="half-width"/>
+      </choices>
+      <default>'input-mode'</default>
+      <summary>Space</summary>
+      <description>The width of a typed space: as the input mode has it, or always full or half width.</description>
+    </key>
+    <key name="selection-shortcut" type="s">
+      <choices>
+        <choice value="none"/>
+        <choice value="123456789"/>
+        <choice value="asdfghjkl"/>
+      </choices>
+      <default>'123456789'</default>
+      <summary>Candidate selection shortcut</summary>
+      <description>The keys that pick a candidate from the candidate window.</description>
+    </key>
+    <key name="numpad-character-form" type="s">
+      <choices>
+        <choice value="input-mode"/>
+        <choice value="full-width"/>
+        <choice value="half-width"/>
+        <choice value="direct-input"/>
+      </choices>
+      <default>'half-width'</default>
+      <summary>Numeric keypad</summary>
+      <description>What the numeric keypad types: as the input mode has it, full or half width, or bypassing Mozc.</description>
+    </key>
+    <key name="shift-key-mode-switch" type="s">
+      <choices>
+        <choice value="off"/>
+        <choice value="ascii"/>
+        <choice value="katakana"/>
+      </choices>
+      <default>'ascii'</default>
+      <summary>Shift key</summary>
+      <description>What a letter typed with Shift switches to: nothing, ASCII input (as MS-IME and ATOK do) or katakana (as Kotoeri does).</description>
+    </key>
+    <key name="yen-sign-character" type="s">
+      <choices>
+        <choice value="yen-sign"/>
+        <choice value="backslash"/>
+      </choices>
+      <default>'yen-sign'</default>
+      <summary>Yen key</summary>
+      <description>The character the yen key types: ¥ or \.</description>
+    </key>
+    <key name="use-auto-ime-turn-off" type="b">
+      <default>true</default>
+      <summary>Turn off for ASCII words</summary>
+      <description>Switch to direct input on typing what looks like an English word or a URL.</description>
+    </key>
+    <key name="use-date-conversion" type="b">
+      <default>true</default>
+      <summary>Date and time conversion</summary>
+    </key>
+    <key name="use-single-kanji-conversion" type="b">
+      <default>true</default>
+      <summary>Single kanji conversion</summary>
+    </key>
+    <key name="use-symbol-conversion" type="b">
+      <default>true</default>
+      <summary>Symbol conversion</summary>
+    </key>
+    <key name="use-number-conversion" type="b">
+      <default>true</default>
+      <summary>Number conversion</summary>
+    </key>
+    <key name="use-emoticon-conversion" type="b">
+      <default>true</default>
+      <summary>Emoticon conversion</summary>
+    </key>
+    <key name="use-emoji-conversion" type="b">
+      <default>true</default>
+      <summary>Emoji conversion</summary>
+    </key>
+    <key name="use-calculator" type="b">
+      <default>true</default>
+      <summary>Calculator</summary>
+      <description>Offer the result of an arithmetic expression typed and followed by =.</description>
+    </key>
+    <key name="use-t13n-conversion" type="b">
+      <default>true</default>
+      <summary>Transliteration</summary>
+      <description>Offer katakana, half-width and alphabet forms among the candidates.</description>
+    </key>
+    <key name="use-zip-code-conversion" type="b">
+      <default>true</default>
+      <summary>Zip code conversion</summary>
+      <description>Convert a Japanese postal code to its address.</description>
+    </key>
+    <key name="use-spelling-correction" type="b">
+      <default>true</default>
+      <summary>Spelling correction</summary>
+    </key>
+    <key name="use-history-suggest" type="b">
+      <default>true</default>
+      <summary>Suggest from history</summary>
+    </key>
+    <key name="use-dictionary-suggest" type="b">
+      <default>true</default>
+      <summary>Suggest from the dictionary</summary>
+    </key>
+    <key name="use-realtime-conversion" type="b">
+      <default>true</default>
+      <summary>Realtime conversion</summary>
+      <description>Suggest a conversion of the whole preedit while typing.</description>
+    </key>
+    <key name="suggestions-size" type="i">
+      <range min="1" max="9"/>
+      <default>3</default>
+      <summary>Suggestions</summary>
+      <description>The most suggestions shown at once.</description>
+    </key>
+    <key name="history-learning-level" type="s">
+      <choices>
+        <choice value="learn"/>
+        <choice value="read-only"/>
+        <choice value="off"/>
+      </choices>
+      <default>'learn'</default>
+      <summary>History</summary>
+      <description>Learn from what is typed, use what was learned without learning more, or use no history.</description>
+    </key>
+    <key name="incognito-mode" type="b">
+      <default>false</default>
+      <summary>Incognito mode</summary>
+      <description>Neither learn from nor suggest what was typed before.</description>
+    </key>
+    <key name="active-on-launch" type="b">
+      <default>false</default>
+      <summary>Start in Japanese input</summary>
+      <description>Start each field in hiragana rather than direct input. Takes effect when the module next starts.</description>
+    </key>
+  </schema>
+</schemalist>

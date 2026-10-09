@@ -13,6 +13,7 @@
 #include "base/system_util.h"
 #include "client/client.h"
 #include "ibus_web_in_process/in_process.h"
+#include "ibus_web_module/settings.h"
 #include "session/session_handler_interface.h"
 #include "unix/ibus/engine_registrar.h"
 #include "unix/ibus/ibus_config.h"
@@ -49,8 +50,8 @@ IBusEngine *CreateEngine(IBusFactory *, const gchar *, gpointer) {
 extern "C" const char ibusweb_mozc_settings_schema_dir[] =
     "@settingsSchemaDir@";
 
-// The handler, client factory and engine live as long as the module, which
-// is the Worker's lifetime, so none is ever freed.
+// The handler, client factory, settings and engine live as long as the
+// module, which is the Worker's lifetime, so none is ever freed.
 void ibusweb_module_init(IBusWebModule *) {
   // Mozc has no profile directory of its own under WebAssembly; the host
   // makes the module's own files its home.
@@ -66,6 +67,11 @@ void ibusweb_module_init(IBusWebModule *) {
   if (handler.ok()) {
     mozc::client::ClientFactory::SetClientFactory(
         new ibus_web::InProcessClientFactory(handler->release()));
+
+    GSettings *settings = g_settings_new("org.freedesktop.ibus.engine.mozc");
+    ibus_web::FollowSettings(settings);
+    ibus_web::ApplyLaunchSetting(settings);
+
     type = mozc::ibus::RegisterEngine(new mozc::ibus::MozcEngine);
   } else {
     *failure = std::string(handler.status().message());

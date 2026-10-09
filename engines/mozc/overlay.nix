@@ -18,9 +18,11 @@ in
         let
           inherit (config.ibusWeb) toolchain;
 
-          # The panel reads its candidate orientation from this schema.
+          # Mozc's own settings, and the panel's, which it reads its candidate
+          # orientation from.
           schemas = prev.runCommand "ibus-web-mozc-gsettings-schemas" { } ''
             mkdir -p $out/share/glib-2.0/schemas
+            cp ${./org.freedesktop.ibus.engine.mozc.gschema.xml} $out/share/glib-2.0/schemas/org.freedesktop.ibus.engine.mozc.gschema.xml
             cp ${final.libibus-web}/share/gsettings-schemas/${final.libibus-web.name}/glib-2.0/schemas/org.freedesktop.ibus.gschema.xml \
               $out/share/glib-2.0/schemas/
             ${final.glib.dev}/bin/glib-compile-schemas --strict $out/share/glib-2.0/schemas
@@ -166,6 +168,8 @@ in
                   cp -r --no-preserve=mode ${./in_process} src/ibus_web_in_process
 
                   mkdir src/ibus_web_module
+                  cp ${./module/settings.h} src/ibus_web_module/settings.h
+                  cp ${./module/settings.cc} src/ibus_web_module/settings.cc
                   substitute ${./module/module.cc} src/ibus_web_module/module.cc \
                     --replace-fail @dataFile@ "$data/share/mozc/mozc.data" \
                     --replace-fail @settingsSchemaDir@ ${settingsSchemaDir}

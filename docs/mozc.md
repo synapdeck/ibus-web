@@ -72,13 +72,41 @@ process, as `mozc_server`'s `SessionServer::Process` would, and `InProcessServer
    Mozc's renderer process;
 3. loads the data set, compiled in by store path, into a desktop engine and its session handler, and installs the
    in-process client factory;
-4. creates the one `MozcEngine` and registers its type;
-5. reads Mozc's IBus configuration (`ibus_config.textproto` in the profile directory, written from the built-in
+4. applies the module's settings ([Settings](#settings)) to Mozc's config and its IBus configuration;
+5. creates the one `MozcEngine` and registers its type;
+6. reads Mozc's IBus configuration (`ibus_config.textproto` in the profile directory, written from the built-in
    default when missing) and adds an engine to the factory for each engine it lists.
 
 If the data set doesn't load, every `CreateEngine` fails with the reason. The handler, factory and engine are never
 freed: the module lives as long as its Worker. This init replaces Mozc's own `main()`, which would need `ibus_main()`
 to park its thread ([known-gaps.md](known-gaps.md#runtime)).
+
+## Settings
+
+Mozc keeps its settings as a protobuf, `config1.db` in its profile directory, which its own settings tool edits. That
+tool is a desktop application, so the module takes Mozc's settings from a GSettings schema of ibus-web's,
+`org.freedesktop.ibus.engine.mozc` (`engines/mozc/org.freedesktop.ibus.engine.mozc.gschema.xml`), which the page's
+settings reach the way they reach any engine's: the Init snapshot, the settings form and `SettingChanged`. The schema
+holds what Mozc's settings dialog offers that means something in a browser, with Mozc's defaults: the input method
+(romaji or kana), keymap style (MS-IME, ATOK, Kotoeri), punctuation, symbols, the width of a space and of the numeric
+keypad, the candidate selection shortcut, what Shift does, the yen key, turning off for ASCII words, each conversion
+Mozc can offer (date, single kanji, symbol, number, emoticon, emoji, calculator, transliteration, zip code, spelling
+correction), suggestions from history and the dictionary, realtime conversion, the number of suggestions, history
+learning and incognito mode. Enumerations are string keys with choices. Keymap and romaji table editing, the user
+dictionary tool, presentation mode, usage statistics and logging are left out.
+
+`engines/mozc/module/settings.cc` applies them. At startup, before the engine is made, it reads Mozc's config through
+a client of its own, sets every field the schema has from its key, and writes the config back with `SetConfig`, as
+Mozc's settings tool does, so the converter and its sessions take it up; fields the schema lacks keep what
+`config1.db` holds. On each `changed` signal it does the same again, so a change reaches open contexts at once. Mozc's
+engine rereads the input method on enable and focus, so a switch between romaji and kana applies at the next focus,
+and its client reads the keymap's turn-on keys when it is made, so those follow a keymap change when the module next
+starts.
+
+`active-on-launch`, whether `mozc-jp` starts in hiragana rather than direct input, is the one key that isn't in Mozc's
+config: it is in `ibus_config.textproto`, which the engine reads when it is made. The module rewrites that file when
+the key differs from it, before making the engine and again on each change, so a change takes effect when the module
+next starts. The rewrite keeps the file's settings and loses its comments.
 
 ## Distribution
 

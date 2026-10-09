@@ -49,3 +49,13 @@ test("the direct-input engine leaves typing to the browser", async ({ page }) =>
   await page.keyboard.type("abc");
   await expect(field(page)).toHaveValue("abc");
 });
+
+test("the settings form's punctuation choice reaches Mozc", async ({ page }) => {
+  await pick(page);
+  await page.locator("#setting-punctuation-method").selectOption("comma-period");
+  await expect(page.locator("#settings-state")).toHaveText("Saved; applies live and across tabs.");
+  await field(page).click();
+  await page.keyboard.type("a,");
+  await page.keyboard.press("Enter");
+  await expect(field(page)).toHaveValue("あ，");
+});
