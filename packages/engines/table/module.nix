@@ -38,7 +38,7 @@
           ${marisaLicense} = "${pkgs.srcOnly config.ibusWeb.toolchain.pkgsWasm.marisa}/COPYING.md";
         };
         inherit licenses;
-        license = config.ibusWeb.engines.table.module.meta.license.spdxId;
+        license = config.ibusWeb.lib.spdxExpression config.ibusWeb.engines.table.module.meta.license;
 
         # The exports name the rest; the data archives' names are hashes.
         expect = map (id: "LICENSES/${id}.txt") licenses ++ [ marisaLicense ];

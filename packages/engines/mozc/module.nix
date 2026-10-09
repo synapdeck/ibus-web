@@ -36,7 +36,7 @@
           dist = config.packages.ibus-web-mozc-dist;
         };
         inherit licenses;
-        license = lib.concatStringsSep " AND " ids;
+        license = config.ibusWeb.lib.spdxExpression mozc.meta.license;
 
         # The exports name the rest; the data archives' names are hashes.
         expect = map (id: "LICENSES/${id}.txt") licenses ++ lib.attrNames notices;

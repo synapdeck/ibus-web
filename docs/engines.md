@@ -58,7 +58,12 @@ module's engine descriptors, as a Nix list or as a JSON file another derivation
 builds; the manifest's own check validates them, so evaluation never reads a build
 output. It derives
 license and the upstream version from the package, runtime ABI and protocol from the build,
-and static memory from the module's `dylink.0` section. Build:
+and static memory from the module's `dylink.0` section. The license is the conjunction of the
+package's `meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's
+`license-expression` over the SPDX ids, which writes each license once under its current
+identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an id SPDX doesn't know. It merges no
+license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the expression
+records what the contents carry, not the terms they can be passed on under. Build:
 
 ```sh
 nix build .#ibus-web-hangul-dist
@@ -204,7 +209,7 @@ distribution on npm. It holds only its `package.json` and README, since Nix buil
 contents: `nix build .#npm.engine-hangul` copies `ibus-web-hangul-dist` into it as `dist/`,
 adds the license texts of the engine and libhangul to `LICENSES/`, and packs it with
 `ibusWeb.typescript.npmTarball`, which fails unless the package's `license` is the engine's
-`meta.license`. `checks.typescript-npm` builds it with the other tarballs. It exports
+`meta.license` as `spdxExpression` normalizes it, the manifest's license. `checks.typescript-npm` builds it with the other tarballs. It exports
 `manifest.json`, `hangul.wasm`, `settings.json` and `data/*`. A host serves `dist/` as it is
 and passes `manifest.json`'s URL to ibus-web.
 

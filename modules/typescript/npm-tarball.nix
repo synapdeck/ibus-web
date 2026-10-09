@@ -55,8 +55,9 @@
 
             ${lib.optionalString (license != null) ''
               declared=$(jq -r .license package.json)
-              if [ "$declared" != ${lib.escapeShellArg license} ]; then
-                echo "package.json says $declared, but its contents are ${license}" >&2
+              expected=${if lib.isDerivation license then "$(< ${license})" else lib.escapeShellArg license}
+              if [ "$declared" != "$expected" ]; then
+                echo "package.json says $declared, but its contents are $expected" >&2
                 exit 1
               fi
             ''}

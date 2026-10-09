@@ -27,7 +27,7 @@
           settingsMetadata = config.ibusWeb.engines.mkSettingsMetadata {
             inherit settingsSchemaDir settingsSchemas;
           };
-          licenses = lib.toList package.meta.license;
+          license = config.ibusWeb.lib.spdxExpression package.meta.license;
 
           # Descriptors can come from another derivation's build; the check below
           # validates them with the rest of the manifest, so evaluation never reads them.
@@ -46,7 +46,6 @@
                 settingsSchemas
                 ;
               inherit (package) version;
-              license = lib.concatMapStringsSep " AND " (license: license.spdxId) licenses;
             }
           );
         in
@@ -101,9 +100,10 @@
             identity="''${identity%%-*}"
             jq --arg identity "$identity" --argjson runtimeAbi "$abi" --argjson protocol "$protocol" --argjson memory "$memory" \
               --arg url './${name}.wasm' --argjson size "$(stat -c%s $out/${name}.wasm)" \
+              --rawfile license ${license} \
               --argjson settingsMetadata "$(jq -nc --arg url ./settings.json --argjson size "$(stat -c%s $out/settings.json)" '{ $url, $size }')" \
               --slurpfile data data.jsonl --slurpfile engines ${enginesFile} \
-              '.version += "+nix." + $identity | . + { $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], $settingsMetadata }' \
+              '.version += "+nix." + $identity | . + { $license, $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], $settingsMetadata }' \
               ${description} > $out/manifest.json
             node ${../../tools/engine-manifest/protocol.ts} check ${
               typescript.workspaceFor [ "packages/protocol" ]

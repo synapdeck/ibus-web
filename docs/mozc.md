@@ -97,11 +97,11 @@ into memory. The manifest declares one engine thread and a 75 MiB program break,
 73,367,552 bytes asserting and 73,371,648 released, with the data set loaded and at most one engine thread alive; its
 memory comes to 136 MiB.
 
-The licence is `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0 AND
+The licence is `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0-only AND
 CC-BY-SA-4.0 AND GPL-2.0-or-later`. The first five come from Mozc's own credits: Mozc, Protocol Buffers and the
 Japanese usage dictionary; Abseil; IPAdic; the Tamachi phonetic kanji alphabet; and Unicode's JIS tables. The Okinawa
 dictionary and Japan Post's zip codes are in the public domain, which has no SPDX identifier. The rest are the UT
-dictionaries' licences as nixpkgs declares them: alt-cannadic's GPL-2.0, EDICT2's and jawiki's CC-BY-SA-4.0,
+dictionaries' licences as nixpkgs declares them: alt-cannadic's GPL-2.0-only (nixpkgs' deprecated `GPL-2.0`), EDICT2's and jawiki's CC-BY-SA-4.0,
 SKK-JISYO's GPL-2.0-or-later, and Apache-2.0 for the merge tooling and the other dictionaries.
 
 The module ships as `@ibus-web/engine-mozc` (`packages/engines/mozc/`): `nix build .#npm.engine-mozc` copies

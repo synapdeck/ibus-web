@@ -48,12 +48,41 @@ in
   };
 
   config.perSystem =
-    { config, ... }:
+    { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) toolchain;
+      spdxPython = pkgs.python3.withPackages (ps: [ ps.license-expression ]);
       emscriptenRoot = "${toolchain.emscripten}/share/emscripten";
     in
     {
+      # Deprecated ids are renamed and repeats dropped, but no license is
+      # merged into another, and an id SPDX doesn't know fails.
+      checks.flake-spdx-expression =
+        let
+          inherit (config.ibusWeb.lib) spdxExpression;
+          inherit (lib.licenses) bsd3 gpl2 gpl2Plus;
+          table = {
+            spdxId = "(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C";
+          };
+        in
+        pkgs.runCommand "ibus-web-flake-spdx-expression" { nativeBuildInputs = [ spdxPython ]; } ''
+          test "$(< ${
+            spdxExpression [
+              bsd3
+              gpl2
+              gpl2Plus
+              bsd3
+            ]
+          })" = "BSD-3-Clause AND GPL-2.0-only AND GPL-2.0-or-later"
+          test "$(< ${spdxExpression table})" = ${lib.escapeShellArg table.spdxId}
+          test "$(< ${spdxExpression gpl2Plus})" = GPL-2.0-or-later
+          if python3 ${./spdx-expression.py} Nonsense-1.0; then
+            echo "an unknown id was accepted" >&2
+            exit 1
+          fi
+          touch $out
+        '';
+
       ibusWeb.lib = {
         inherit (flakeLib) patchesIn isEmscriptenWasm;
 
@@ -72,6 +101,17 @@ in
           toolchain.commonFlags
         ]
         ++ lib.filter (flag: !(lib.hasSuffix "/node-host-fs.o" flag)) toolchain.testMainFlagList;
+
+        # A file holding the SPDX expression for contents under all of
+        # licenses, nixpkgs license attribute sets: each license once, under
+        # its current identifier, none merged into another.
+        spdxExpression =
+          licenses:
+          pkgs.runCommand "ibus-web-license-expression" { nativeBuildInputs = [ spdxPython ]; } ''
+            python3 ${./spdx-expression.py} ${
+              lib.escapeShellArgs (map (license: license.spdxId) (lib.toList licenses))
+            } > $out
+          '';
 
         # Shell that runs a Meson build's tests and fails unless some ran and all
         # passed. Meson exits 0 for a skipped test, as when a cross file loses its

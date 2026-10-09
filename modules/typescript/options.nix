@@ -107,7 +107,8 @@
           - `licenses`, SPDX identifiers whose texts the repository's LICENSES/
             gives to the package's LICENSES/;
           - `license`, the SPDX expression package.json must state, for
-            contents whose license the build knows;
+            contents whose license the build knows, or a derivation whose
+            output file holds it, as `ibusWeb.lib.spdxExpression` makes;
           - `expect`, paths in the package the tarball must contain, beyond
             every file its `exports` names without a wildcard;
           - `postPack`, shell run in the package directory once it is packed.
