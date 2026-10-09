@@ -350,10 +350,10 @@ compiled `org.freedesktop.ibus.panel` schema, the module's only settings schema.
 `(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`: the engine, MARISA linked into it, and the LaTeX table's data. It
 declares no engine threads and a program break that `checks.table-host` checks with both tables loaded.
 
-The module ships as `@ibus-web/engine-table` (`packages/engines/table/`), packed as Hangul's is: `nix build .#npm.engine-table` copies
-`ibus-web-table-dist` in as `dist/` and adds the MIT, Apache-2.0 and W3C texts to `LICENSES/` and MARISA's own
-`COPYING.md`, taken from its source, as `LICENSES/marisa/COPYING.md`, and `npmTarball` fails unless `package.json`'s
-`license` is the module's. It exports `manifest.json`, `table.wasm`, `settings.json` and `data/*`.
+The module ships as `@ibus-web/engine-table` (`packages/engines/table/`), packed as Hangul's is: `nix build
+.#npm.engine-table` copies `ibus-web-table-dist` in as `dist/` and adds the MIT, Apache-2.0 and W3C texts to `LICENSES/`
+and MARISA's own `COPYING.md`, taken from its source, as `LICENSES/marisa/COPYING.md`, and `npmTarball` fails unless
+`package.json`'s `license` is the module's. It exports `manifest.json`, `table.wasm`, `settings.json` and `data/*`.
 
 The first `CreateEngine` of `latex` in a Worker parses the LaTeX table and builds its MARISA trie: 7.5 ms under Node
 on the released runtime, against 1.1 ms for a second context, which shares the parsed table. `checks.table-host`
