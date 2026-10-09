@@ -1,0 +1,104 @@
+# Mozc
+
+`engines/mozc/` builds Mozc 2.30.5544.102, Google's open-source Japanese input method, as an engine module: its
+converter, its session layer and its own IBus frontend, ibus-mozc, in one side module, `mozc.wasm`. This page
+describes how it is built, how the frontend reaches the converter without `mozc_server`, the distribution and its
+checks.
+
+```sh
+nix build .#ibus-web-mozc-dist
+nix build .#checks.x86_64-linux.mozc-host
+```
+
+## Build
+
+`flake.overlays.mozc`, which applies only to `pkgsWasm`, overrides nixpkgs' `mozc` recipe and keeps its Bazel build:
+its source, its pinned Bazel 7, and its dependency fetch, whose output is the native recipe's, since the WebAssembly
+build needs no external repository the native one lacks. Bazel and every tool it runs (protoc, the dictionary
+generators) are the build machine's; Bazel configures their compiler from `$CC`, which the overlay points at the build
+machine's. `withIbus` is on, with libibus-web as `ibus`; Qt is stubbed out, since the setup tool and renderer aren't
+built.
+
+The WebAssembly target is a Bazel C++ toolchain of its own, `src/ibus_web_toolchain`, installed from
+`engines/mozc/bazel/`: a platform of `cpu:wasm32` and `os:none` (Bazel's platforms have no Emscripten OS) and a
+`unix_cc_toolchain_config` over the cross stdenv's Emscripten, through a wrapper, `cc`, that compiles with emcc and
+links with em++. Bazel actions inherit the client's environment, so the toolchain's hardening flags are the cross
+stdenv's. The build runs with `--config=oss_wasm --compilation_mode=opt --force_pic`.
+
+Three port patches, in `patches/port`, apply after nixpkgs':
+
+- 0001 adds the `oss_wasm` target: the open-source branding of `oss_linux` with Mozc's WebAssembly handling. Mozc's
+  own `wasm` target is Google-branded and defines `GOOGLE_JAPANESE_INPUT_BUILD`, which the open-source tree can't
+  build. The session watchdog stays off.
+- 0002 builds the Unix IPC client for WebAssembly. Nothing calls it, but the client library links it.
+- 0003 drops `ABSL_ATTRIBUTE_LIFETIME_BOUND` from `PosMatcher::Set`, which clang 22 rejects.
+
+Mozc's `pkg_config_repository` passes what `pkg-config --libs-only-l` names for `@ibus` to the link. The overlay's
+`pkg-config` (`bazel/pkg-config`) leaves out every library the runtime carries, which is all of them: the side module
+imports GLib and IBus rather than linking a second copy. Abseil's two debugging files are compiled with
+`-DSTANDALONE_WASM`, its switch for builds without Emscripten's JavaScript, since their Emscripten stack traces and
+symbolizer call JavaScript functions the runtime doesn't export.
+
+The derivation has three outputs: `out`, `mozc.wasm` alone; `data`, the OSS data set, `share/mozc/mozc.data`; and
+`check`, the converter check's program. The static stdenv's propagated inputs are cleared, so the module's closure is
+its data closure.
+
+## The converter in-process
+
+On the desktop, ibus-mozc's `client::Client` serializes each command and sends it to `mozc_server` over a Unix socket.
+`engines/mozc/in_process/` (`//ibus_web_in_process`) keeps the client and its protocol and replaces the connection:
+`InProcessIPCClientFactory` makes connections that hand each serialized command to a `SessionHandler` in this
+process, as `mozc_server`'s `SessionServer::Process` would, and `InProcessServerLauncher` starts nothing.
+`InProcessClientFactory` makes clients with both installed, for `ClientFactory::SetClientFactory`.
+
+## Startup
+
+`engines/mozc/module/module.cc` does what ibus-mozc's `main()` sets up before it enters `ibus_main()`:
+
+1. sets Mozc's profile directory to `g_get_home_dir()`, which the host makes the module's own files,
+   `/engines/<name>`; Mozc keeps its configuration, user dictionary and history there;
+2. turns off `use_mozc_renderer`, so candidates go through IBus's lookup table to the page's panel rather than to
+   Mozc's renderer process;
+3. loads the data set, compiled in by store path, into a desktop engine and its session handler, and installs the
+   in-process client factory;
+4. creates the one `MozcEngine` and registers its type;
+5. reads Mozc's IBus configuration (`ibus_config.textproto` in the profile directory, written from the built-in
+   default when missing) and adds an engine to the factory for each engine it lists.
+
+If the data set doesn't load, every `CreateEngine` fails with the reason. The handler, factory and engine are never
+freed: the module lives as long as its Worker. This init replaces Mozc's own `main()`, which would need `ibus_main()`
+to park its thread ([known-gaps.md](known-gaps.md#runtime)).
+
+## Distribution
+
+`ibus-web-mozc-dist` is `mkEngineManifest` over `mozc.wasm`. It lists Mozc's three default engines, all Japanese, on
+the `"default"` keyboard, since romaji input follows the characters typed rather than key positions:
+
+| Engine     | Display name | Starts in                    |
+| ---------- | ------------ | ---------------------------- |
+| `mozc-jp`  | Mozc         | the user's chosen input mode |
+| `mozc-on`  | Mozc:あ      | hiragana                     |
+| `mozc-off` | Mozc:A\_     | direct input                 |
+
+The data closure is the data set and the compiled `org.freedesktop.ibus.panel` schema, the module's only settings
+schema. The data set is 21,550,753 bytes, 14 MB as Brotli; `mozc.wasm` is 5.3 MB. The manifest declares one engine
+thread and a 40 MiB program break, from `checks.mozc-host`'s peaks of 39,796,736 bytes asserting and 39,784,448
+released, with the data set loaded and at most one engine thread alive; its memory comes to 92 MiB.
+
+The licence is `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015`, from Mozc's own credits:
+Mozc, Protocol Buffers and the Japanese usage dictionary; Abseil; IPAdic; the Tamachi phonetic kanji alphabet; and
+Unicode's JIS tables. The Okinawa dictionary and Japan Post's zip codes are in the public domain, which has no SPDX
+identifier.
+
+## Checks
+
+- `checks.mozc-converter` runs the converter check's program under Node: Mozc's real `client::Client`, through the
+  in-process factory, types `kyouhaiitenkidesu`, converts it with Space and commits it with Enter, and the output must
+  be きょうはいいてんきです, 今日はいい天気です and 今日はいい天気です.
+- `checks.mozc-host` runs the distribution through a Node Worker host and the test page, on each runtime build: romaji
+  composes underlined hiragana, Space converts it and Enter commits it; a second Space opens the candidate window with
+  漢字 among the candidates; the direct-input engine passes keys through. It holds the program break and threads to the
+  manifest's declaration and records each start, 556–707 ms with the data installed from its archive.
+- `checks.mozc-imports` checks `mozc.wasm`'s 380 imports against the runtime's export list.
+- `checks.mozc-data-closure` checks that the closure is the data set and the schema, with no libraries, headers or
+  modules.

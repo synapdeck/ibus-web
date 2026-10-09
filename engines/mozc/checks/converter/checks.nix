@@ -17,7 +17,7 @@
           }
           ''
             mkdir profile
-            node ${mozc.check}/converter.js ${mozc}/share/mozc/mozc.data "$PWD/profile" kyouhaiitenkidesu \
+            node ${mozc.check}/converter.js ${mozc.data}/share/mozc/mozc.data "$PWD/profile" kyouhaiitenkidesu \
               > actual 2> log || { cat log; exit 1; }
 
             cat > expected <<'EOF'

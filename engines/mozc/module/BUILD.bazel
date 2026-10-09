@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# The side module the runtime loads. GLib and IBus are the runtime's, which
+# it imports, so nothing here links them.
+cc_binary(
+    name = "mozc.wasm",
+    srcs = ["module.cc"],
+    copts = ["@libibusWebCflags@"],
+    linkopts = ["@sideModuleFlags@"],
+    deps = [
+        "//base:system_util",
+        "//client",
+        "//ibus_web_in_process:in_process",
+        "//session:session_handler_interface",
+        "//unix/ibus:ibus_config",
+        "//unix/ibus:ibus_mozc_lib",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/status:statusor",
+        "@ibus",
+    ],
+)

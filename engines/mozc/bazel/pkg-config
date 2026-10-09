@@ -1,0 +1,23 @@
+#!@shell@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Mozc's pkg_config_repository runs `pkg-config` by that name and links what
+# --libs-only-l names. A side module imports the runtime's libraries rather
+# than linking a second copy, which would have state of its own, so those are
+# left out of the answer.
+for arg; do
+  if [ "$arg" = --libs-only-l ]; then
+    runtime=" $(@pkgConfig@ --static --libs libibus-web) "
+    libs=$(@pkgConfig@ "$@") || exit
+    for flag in $libs; do
+      case "$runtime" in
+        *" $flag "*) ;;
+        *) printf '%s ' "$flag" ;;
+      esac
+    done
+    echo
+    exit
+  fi
+done
+exec @pkgConfig@ "$@"

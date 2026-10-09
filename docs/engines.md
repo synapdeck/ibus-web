@@ -358,3 +358,14 @@ and MARISA's own `COPYING.md`, taken from its source, as `LICENSES/marisa/COPYIN
 The first `CreateEngine` of `latex` in a Worker parses the LaTeX table and builds its MARISA trie: 7.5 ms under Node
 on the released runtime, against 1.1 ms for a second context, which shares the parsed table. `checks.table-host`
 records both as `Table released LaTeX load`. There is no target until there is a baseline; this is the baseline.
+
+## Mozc
+
+`engines/mozc/` is Mozc's converter and its own IBus frontend in one side module, `mozc.wasm`, built through nixpkgs'
+Bazel recipe, with the frontend talking to the converter in-process instead of to `mozc_server`. Its three engines
+are `mozc-jp`, `mozc-on` and `mozc-off`. [mozc.md](mozc.md) describes its build, startup, distribution and checks.
+
+```sh
+nix build .#ibus-web-mozc-dist
+nix build .#checks.x86_64-linux.mozc-host
+```
