@@ -264,8 +264,8 @@ stored values, accepts `SettingWritten` by mapping its path to the module's
 schema, and forwards changes to the other live modules that declare the same
 instance. Cross-tab recipients update their live Workers without writing the
 record again. Concurrent writes are last write wins per record; live tabs follow
-the last received broadcast, while future Init reads the database. The Worker host never opens this database. See [ibus-web.md](ibus-web.md)
-for the public API.
+the last received broadcast, while future Init reads the database. The Worker host
+never opens this database. See [ibus-web.md](ibus-web.md) for the public API.
 
 `router.panel` publishes tagged record/hide events with module and context ID for
 auxiliary text, lazy lookup tables and properties. The framework-free default

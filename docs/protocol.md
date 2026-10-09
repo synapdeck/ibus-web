@@ -88,7 +88,7 @@ invalid indices throw `RangeError`. Core's Connection uses this lazy path before
 publishing panel events. The eager decoder remains available to other callers.
 
 `SettingsMetadata` is a separate JSON codec generated from compiled GSettings
-schemas. It holds schema ID/path and each key's GVariant type, default, optional
+schemas. It holds each schema's id and paths (a fixed schema's one path, a relocatable schema's declared paths) and each key's GVariant type, default, optional
 summary/description, numeric range and choices. `decodeSettingsMetadata` rejects
 unknown fields and validates typed defaults/ranges. Its JSON encoding preserves
 64-bit integers as decimal strings, then restores `bigint` in the decoded tree.

@@ -53,7 +53,8 @@ before any Init, since GLib caches its schema source on the first lookup.
 ### Distribution manifest
 
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`,
-`heapBytes`, `settingsSchemaDir`, `engines` and `settingsSchemas`. `engines` is the
+`heapBytes`, `settingsSchemaDir`, `engines`, `settingsSchemas` and `settingsPaths` (an attrset from
+schema id to its paths, or a JSON file a derivation builds). `engines` is the
 module's engine descriptors, as a Nix list or as a JSON file another derivation
 builds; the manifest's own check validates them, so evaluation never reads a build
 output. It derives
@@ -102,7 +103,9 @@ type EngineDescriptor = {
 
 `settings.json` comes from the compiled schema directory via pinned GLib running
 under WebAssembly, then the strict TypeScript GVariant decoder. It records each
-listed schema's paths (a fixed schema's own path; a relocatable schema's paths from the manifest's `settingsPaths`, which the build fails without), key names/types, defaults, descriptions and any
+listed schema's paths (a fixed schema's own path; a relocatable schema's paths
+from the manifest's `settingsPaths`, which the build fails without), key
+names/types, defaults, descriptions and any
 range/choices supplied by GLib. The page
 fetches it through `settingsMetadata` before Init, validates settings and
 constructs a metadata-driven form. Hangul's keyboard key has no generated

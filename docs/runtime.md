@@ -59,8 +59,9 @@ not implemented. `ibus_init()` registers the serializable types;
 ([known gaps](known-gaps.md#runtime)).
 
 `IBusEngineSimple` is a minimal base: compose, Ctrl+Shift+U and emoji input are
-not implemented, and `ibus_engine_simple_add_table_by_locale()` loads nothing and returns `FALSE`. `ibus_keymap_get("us")` returns a shared US keymap and any
-other name `NULL`. Its lookup maps an evdev code and modifier state to the
+not implemented, and `ibus_engine_simple_add_table_by_locale()` loads nothing and returns `FALSE`.
+`ibus_keymap_get("us")` returns a shared US keymap and any other name `NULL`.
+Its lookup maps an evdev code and modifier state to the
 keysym the page's `us` translation would give: NumLock alone selects keypad
 levels, Shift and Lock invert each other for letters, Shift selects the second
 level for other keys, and Mod5 is ignored. Its table is generated from the same
@@ -119,10 +120,12 @@ The errors are exactly those `runtime.h` lists: `-EBADMSG` for invalid framing
 or payload, `-ENOSYS` for unknown request kinds, `-ENOTCONN` before Init,
 `-EALREADY` for repeated Init, `-EPROTO` for a version mismatch, `-ENOENT` for
 an absent context, `-EEXIST` for a duplicate context, `-ESRCH` for an
-unregistered engine, `-EIO` for a registered engine that wasn't made, `-EINVAL` for a `SetSurroundingText` cursor or anchor
+unregistered engine, `-EIO` for a registered engine that wasn't made, `-EINVAL` for a
+`SetSurroundingText` cursor or anchor
 past the text's length in characters, `-EPERM` off the pumping thread, and
 `-ECANCELED` when an engine throws a C++ exception. Requests failing on their
-framing, payload or context reach no engine. `SettingChanged` ignores the header's `ic`, so its `-ENOENT` means a path no
+framing, payload or context reach no engine.
+`SettingChanged` ignores the header's `ic`, so its `-ENOENT` means a path no
 `Init` entry declared or a key its schema lacks, never a missing context; it
 returns `-EINVAL` for a value outside the key's type or range and `-ENOTSUP` for
 a default settings backend other than the runtime's, and each of these also

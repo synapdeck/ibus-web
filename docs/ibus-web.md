@@ -68,7 +68,8 @@ reads and validates a module's manifest and resolves to its engine descriptors
 and await recovery; it restores the selection only when `module` is the selected
 one. No concrete CodeMirror adapter is provided.
 
-`settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has one, a relocatable schema one per instance. Use
+`settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has one, a relocatable schema
+one per instance. Use
 `settings.get(module, path, key)`, `set(module, path, key, variant)` and
 `reset(module, path, key)` with typed GVariant variants, which `variant(type,
 value)` builds for any type and `stringVariant`, `booleanVariant` and

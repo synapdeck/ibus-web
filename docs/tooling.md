@@ -27,8 +27,8 @@ What it provides:
   `pnpm-workspace.yaml` ([the pnpm workspace](#the-pnpm-workspace)), libibus-web's `protocol.h` and
   `packages/protocol/PROTOCOL.md`, generated from the protocol's schemas
   ([protocol.md](protocol.md#generated-artifacts)), and the keysym tables in `packages/core/src/keys/`
-  (`*.generated.ts`) with the `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that
-  accompany their sources.
+  (`*.generated.ts`), libibus-web's US keymap table (`us-keymap.generated.h`) and the `NOTICES/` and
+  `LICENSES/LicenseRef-xkeyboard-config.txt` texts that accompany their sources.
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against
 garbage collection:
