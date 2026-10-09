@@ -8,7 +8,7 @@ import { HostConfig } from "../config.ts";
 import { runtimeCallFailed, runtimeFinalizer, type StartupFailed } from "../failure.ts";
 import { Instruments } from "../instruments.ts";
 import { provideData } from "../install/provide.ts";
-import { setSchemaDir } from "../schema-dir.ts";
+import { setEnvironment } from "../environment.ts";
 import { mount, type MountedStorage } from "../storage/mount.ts";
 import { HostRuntime } from "./runtime.ts";
 import { PlannedStorage } from "./storage-plan.ts";
@@ -72,7 +72,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
       });
       const storage: MountedStorage = { ...mounted, closed: () => mounted.closed() || data.closed() };
 
-      yield* Effect.try({ try: () => setSchemaDir(handle, manifest), catch: runtimeCallFailed });
+      yield* Effect.try({ try: () => setEnvironment(handle, manifest), catch: runtimeCallFailed });
       yield* Effect.try({ try: () => instruments.storageMounted(storage), catch: runtimeCallFailed });
       return storage;
     }),

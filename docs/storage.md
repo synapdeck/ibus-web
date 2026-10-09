@@ -26,9 +26,9 @@ mount's root, its entries named from the store, so each lands at its exact
 store path. Without IndexedDB, data is installed under the same store paths
 in WasmFS memory. Engine builds retain their Nix paths; no FHS mapping is
 applied. Once the store is mounted, and before any `Init`, the host sets
-`GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir` with the
-runtime's `setenv`, since GLib caches its default schema source on its first
-lookup. Each version still installs its own whole
+`GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir` and `HOME` to
+the engine's own directory with the runtime's `setenv`, since GLib caches its
+default schema source and the home directory on their first lookup. Each version still installs its own whole
 closure; a shared store is [future work](known-gaps.md#storage).
 
 The engine's name and version are encoded in every database, lock and
