@@ -59,7 +59,7 @@ not implemented. `ibus_init()` registers the serializable types;
 ([known gaps](known-gaps.md#runtime)).
 
 `IBusEngineSimple` is a minimal base: compose, Ctrl+Shift+U and emoji input are
-not implemented. `ibus_keymap_get("us")` returns a shared US keymap and any
+not implemented, and `ibus_engine_simple_add_table_by_locale()` loads nothing and returns `FALSE`. `ibus_keymap_get("us")` returns a shared US keymap and any
 other name `NULL`. Its lookup maps an evdev code and modifier state to the
 keysym the page's `us` translation would give: NumLock alone selects keypad
 levels, Shift and Lock invert each other for letters, Shift selects the second

@@ -21,3 +21,11 @@ static void ibus_engine_simple_class_init(IBusEngineSimpleClass *klass) {
 }
 
 static void ibus_engine_simple_init(IBusEngineSimple *engine G_GNUC_UNUSED) {}
+
+gboolean
+ibus_engine_simple_add_table_by_locale(IBusEngineSimple *simple G_GNUC_UNUSED,
+                                       const gchar *locale G_GNUC_UNUSED) {
+  /* Compose sequences stay with the browser and the OS, so there is no table
+   * to load. */
+  return FALSE;
+}

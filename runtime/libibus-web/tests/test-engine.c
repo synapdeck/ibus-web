@@ -597,6 +597,8 @@ static void simple_and_keymap(void) {
   gboolean handled = TRUE;
   g_signal_emit_by_name(engine, "process-key-event", IBUS_a, 38u, 0u, &handled);
   g_assert_false(handled);
+  g_assert_false(
+      ibus_engine_simple_add_table_by_locale(IBUS_ENGINE_SIMPLE(engine), NULL));
   g_object_unref(engine);
 
   g_assert_null(ibus_keymap_get("de"));
