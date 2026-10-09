@@ -203,8 +203,10 @@ const loadSettings = async (module: string, generation: number) => {
       for (const key of keys) {
         const label = document.createElement("label");
         label.className = "setting";
+
         const title = document.createElement("span");
         title.textContent = key.summary || key.name;
+
         const control = key.choices ? document.createElement("select") : document.createElement("input");
         // Key names repeat across schemas and instances; the first keeps the plain id, later ones are qualified.
         const qualified =
@@ -214,6 +216,7 @@ const loadSettings = async (module: string, generation: number) => {
         control.id = ids.has(`setting-${key.name}`) ? qualified : `setting-${key.name}`;
         ids.add(control.id);
         control.name = key.name;
+
         if (control instanceof HTMLSelectElement) {
           for (const choice of key.choices!) control.add(new Option(choice, choice));
         } else {
@@ -224,14 +227,17 @@ const loadSettings = async (module: string, generation: number) => {
             control.max = scalar(key.range.max);
           }
         }
+
         const help = document.createElement("small");
         help.id = `${control.id}-help`;
         help.textContent = `${key.description ? `${key.description} ` : ""}Default: ${scalar(key.default)}${key.range ? `; range: ${scalar(key.range.min)}–${scalar(key.range.max)}` : ""}`;
         control.setAttribute("aria-describedby", help.id);
+
         const value = await app.settings.get(module, path, key.name);
         if (generation !== settingsGeneration) return;
         display(control, value);
         controls.push({ path, key, control });
+
         control.addEventListener("change", () => {
           if (!control.reportValidity()) return;
           const value: SettingValue =
@@ -255,6 +261,7 @@ const loadSettings = async (module: string, generation: number) => {
             },
           );
         });
+
         label.append(title, control, help);
         form.append(label);
       }

@@ -49,7 +49,7 @@ guint ibus_keymap_lookup_keysym(IBusKeymap *keymap, guint16 keycode,
                    : key->flags & US_KEY_LETTER ? shift != lock
                                                 : shift;
 
-  /* A key whose first level has no keysym stays 0, as in the page's
-   * translation. */
+  /* A key with one level gives that keysym whatever the modifiers, and a key
+   * whose table entry is 0 gives 0, as the page's translation does. */
   return upper && key->upper != 0 ? key->upper : key->lower;
 }
