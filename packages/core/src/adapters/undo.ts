@@ -14,6 +14,23 @@ const snapshot = (element: NativeInput): EditState => ({
   direction: element.selectionDirection ?? "none",
 });
 
+// Replaces the one span where element's value differs from value, so the
+// rest of the field, and its selection, is left as it is.
+const finish = (element: NativeInput, value: string) => {
+  const now = element.value;
+  let prefix = 0;
+  while (prefix < now.length && prefix < value.length && now[prefix] === value[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < now.length - prefix &&
+    suffix < value.length - prefix &&
+    now[now.length - 1 - suffix] === value[value.length - 1 - suffix]
+  )
+    suffix++;
+  if (element.selectionStart === null) element.value = value;
+  else element.setRangeText(value.slice(prefix, value.length - suffix), prefix, now.length - suffix, "end");
+};
+
 /** Defer reply edits so deletion and commit share one native history entry. */
 export function nativeEdits(element: NativeInput) {
   let pending: EditState | undefined;
@@ -47,12 +64,17 @@ export function nativeEdits(element: NativeInput) {
         /* Unsupported editing commands use the fallback. */
       }
     }
-    if (!native) {
+    // WebKit's native delete keeps a textarea's trailing line break when the
+    // selection takes it in, so a command can report success short of the
+    // edit; what it left undone is finished by hand.
+    const complete = native && element.value === after.value;
+    if (native && !complete) finish(element, after.value);
+    else if (!native) {
       if (element.selectionStart === null) element.value = after.value;
       else element.setRangeText(text, start, end, "end");
     }
     if (element.selectionStart !== null) element.setSelectionRange(after.start, after.end, after.direction);
-    if (!native)
+    if (!complete)
       element.dispatchEvent(
         new InputEvent("input", {
           bubbles: true,

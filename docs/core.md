@@ -219,7 +219,10 @@ The control value, native undo history and input events never contain preedit.
 Focused commits and surrounding deletions in one batch become one native
 `execCommand("insertText"/"delete")` edit with a browser input event and undo step.
 When the command is unavailable or the field has lost focus, `setRangeText` plus a
-synthetic input event applies the edit without native undo. Production Chromium
+synthetic input event applies the edit without native undo. A command that reports
+success but leaves the field short of the edit is finished the same way, over the span
+that still differs: WebKit's `delete` keeps a textarea's final line break when the
+selection takes it in, which a replayed Delete over a whole field hits. Production Chromium
 blur commit reaches this fallback; focused native undo and blur commit were tested
 as separate behaviors. Unsupported selection APIs retain end-of-value fallback.
 

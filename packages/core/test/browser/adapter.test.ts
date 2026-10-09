@@ -204,6 +204,25 @@ test("unfocused and unavailable native command paths use setRangeText and synthe
   expect(range).toHaveBeenCalledTimes(2);
   expect(element.value).toBe("ab😀cdXY");
 });
+test("finishes a native edit that reports success short of the edit", () => {
+  const { element, adapter } = field("textarea", "a\n");
+  element.setSelectionRange(0, 2);
+  // What WebKit's delete does with a selection ending at a textarea's final
+  // line break: it keeps the break.
+  const native = document.execCommand.bind(document);
+  vi.spyOn(document, "execCommand").mockImplementation((command, ...rest) => {
+    if (command !== "delete") return native(command, ...rest);
+    element.setRangeText("", element.selectionStart!, element.selectionEnd! - 1, "end");
+    return true;
+  });
+  const events: InputEvent[] = [];
+  element.addEventListener("input", (event) => events.push(event as InputEvent));
+
+  adapter.replayKey(new KeyboardEvent("keydown", { key: "Delete" }));
+  expect(element.value).toBe("");
+  expect(element.selectionStart).toBe(0);
+  expect(events.map(({ inputType }) => inputType)).toEqual(["deleteContentBackward"]);
+});
 test("replays code points, deletion, textarea Enter and selection arrows", () => {
   const { element, adapter } = field("textarea", "a😀b");
   element.setSelectionRange(3, 3);
