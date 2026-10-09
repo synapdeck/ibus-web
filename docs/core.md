@@ -242,20 +242,27 @@ CodeMirror adapter are not shipped.
 
 ## Settings, panel output and logging
 
-`SettingsSource` supplies `snapshot(schemas): Promise<SettingsSnapshot>`,
-`written(change)` and a `changes` Stream. Optional `register(metadata)`,
-`write(change)` and `read(schemaId, key)` hooks support persistent sources while
-older host-provided in-memory sources remain valid. Snapshot values are typed
-GVariant variants indexed by schema ID and key. `SettingsSource.layer(initial)` is
-in-memory; `SettingsSource.Default` is a lazy `gsettings` IndexedDB source with
-`BroadcastChannel("ibus-web:gsettings")` synchronization. It stores one origin-wide
-record keyed by schema path and key, with GVariant type and normal-form
-`ArrayBuffer` bytes. Values equal to the schema default delete the record. The
-registry loads metadata and snapshots before Init, accepts SettingWritten, and
-forwards changes to other live engines. Cross-tab recipients update their live
-Workers without writing the record again. Concurrent writes are last write wins
-per record; live tabs follow the last received broadcast, while future Init reads
-the database. The Worker host never opens this database. See [ibus-web.md](ibus-web.md)
+A setting the page handles is an instance, a schema id at one of its paths,
+plus a key: within one module a path holds one schema, but modules can declare
+different schemas at one path. `SettingsSource` supplies
+`snapshot(instances): Promise<SettingsSnapshot>`, `written(change)` and a
+`changes` Stream. Optional `register(metadata)`, `write(change)` and
+`read(instance, key)` hooks support persistent sources while in-memory sources
+remain valid. Snapshot values are typed GVariant variants indexed by path and
+key; a change names its schema id, path and key. `settingsInstances(metadata)`
+lists a module's instances. `SettingsSource.layer(initial)` is in-memory;
+`SettingsSource.Default` is a lazy `gsettings` IndexedDB source with
+`BroadcastChannel("ibus-web:gsettings")` synchronization. It stores one
+origin-wide record keyed by path and key, with GVariant type and normal-form
+`ArrayBuffer` bytes, and delivers a stored or broadcast change to every schema
+registered at its path whose key accepts it, each with its own default on a
+reset. Values equal to the schema default delete the record. The registry loads
+metadata and snapshots before Init, which declares every instance with its
+stored values, accepts `SettingWritten` by mapping its path to the module's
+schema, and forwards changes to the other live modules that declare the same
+instance. Cross-tab recipients update their live Workers without writing the
+record again. Concurrent writes are last write wins per record; live tabs follow
+the last received broadcast, while future Init reads the database. The Worker host never opens this database. See [ibus-web.md](ibus-web.md)
 for the public API.
 
 `router.panel` publishes tagged record/hide events with module and context ID for

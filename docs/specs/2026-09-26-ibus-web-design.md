@@ -1579,10 +1579,11 @@ the facade offers the first four as Promise methods.
   completes requests through an event loop, which a host serving requests
   never returns to, and the settings UI needs values while no engine runs.
 - **Starting a Worker.** Before it starts a Worker, the page reads the keys of
-  the engine's schemas and sends them as `Init`'s snapshot.
+  each of the module's schema instances and sends every instance, with its
+  stored values, in `Init`.
 - **Changes.** On a `SettingWritten` record, or a change through this API,
-  the page writes the value, sends `SettingChanged` to its other live
-  Workers whose engines use the schema, and announces
+  the page writes the value, sends `SettingChanged`, with the path, to its other live
+  Workers whose modules declare that schema at that path, and announces
   `{ schemaPath, key, type, bytes }` on
   `BroadcastChannel("ibus-web:gsettings")`, with the bytes in GVariant
   normal form, or `null` for a reset. Other tabs forward the change to their

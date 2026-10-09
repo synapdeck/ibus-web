@@ -5,6 +5,7 @@ import { decodeSettingsMetadata, decodeValue, encodeSettingsMetadata, encodeValu
 import {
   SettingsSource,
   type SettingsChange,
+  type SettingsInstance,
   type SettingsSnapshot,
   type SettingsSourceService,
 } from "../services/settings.ts";
@@ -17,12 +18,17 @@ interface Job {
   readonly reject?: (cause: unknown) => void;
 }
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((value, i) => value === b[i]);
+const sameKeys = (a: SettingsSchema, b: SettingsSchema) =>
+  JSON.stringify(encodeSettingsMetadata({ schemas: [{ ...a, paths: b.paths }] })) ===
+  JSON.stringify(encodeSettingsMetadata({ schemas: [b] }));
 /** The database is acquired only by the first read or write, never by importing the service. */
 export function indexedDbSettings(): Layer.Layer<SettingsSource> {
   return Layer.effect(
     SettingsSource,
     Effect.gen(function* () {
+      // Modules can declare different schemas at one path, so a path holds a set of schema ids.
       const schemas = new Map<string, SettingsSchema>();
+      const atPath = new Map<string, Set<string>>();
       const current = new Map<string, SettingValue>();
       const mailbox = new SyncMailbox<Job>();
       const pending = new Set<Job>();
@@ -86,14 +92,19 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
           }
         });
       };
-      const setting = (schemaId: string, name: string) => {
-        const schema = schemas.get(schemaId),
-          key = schema?.keys.find((key) => key.name === name);
-        if (!schema || !key) throw new Error(`Unknown setting: ${schemaId}.${name}`);
-        return { schema, key };
+      const schemaOf = (instance: SettingsInstance) => {
+        const schema = atPath.get(instance.path)?.has(instance.schemaId) ? schemas.get(instance.schemaId) : undefined;
+        if (!schema) throw new Error(`Unknown settings instance: ${instance.schemaId} at ${instance.path}`);
+        return schema;
       };
+      const setting = (instance: SettingsInstance, name: string) => {
+        const key = schemaOf(instance).keys.find((key) => key.name === name);
+        if (!key) throw new Error(`Unknown setting: ${instance.path}${name}`);
+        return key;
+      };
+      const memoryKey = (instance: SettingsInstance, key: string) => `${instance.schemaId}\0${instance.path}\0${key}`;
       const remember = (change: SettingsChange) => {
-        current.set(`${change.schemaId}\0${change.key}`, change.value);
+        current.set(memoryKey(change, change.key), change.value);
       };
       const destinations = (message: SettingsBroadcast, origin?: symbol): SettingsChange[] => {
         const supplied: SettingValue | undefined =
@@ -101,9 +112,8 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
             ? undefined
             : variant(message.type, decodeValue(message.type, new Uint8Array(message.bytes)));
         const changes: SettingsChange[] = [];
-        for (const schema of schemas.values()) {
-          if (schema.path !== message.schemaPath) continue;
-          const key = schema.keys.find((key) => key.name === message.key);
+        for (const id of atPath.get(message.schemaPath) ?? []) {
+          const key = schemas.get(id)!.keys.find((key) => key.name === message.key);
           if (!key) continue;
           const value: SettingValue = supplied ?? variant(key.type, key.default);
           try {
@@ -112,7 +122,13 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
             // Shared storage does not make a value valid for every schema using that path.
             continue;
           }
-          changes.push({ schemaId: schema.id, key: key.name, value, ...(origin === undefined ? {} : { origin }) });
+          changes.push({
+            schemaId: id,
+            path: message.schemaPath,
+            key: key.name,
+            value,
+            ...(origin === undefined ? {} : { origin }),
+          });
         }
         return changes;
       };
@@ -125,18 +141,18 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
         if (!closed) mailbox.enqueue({ run: () => remote(value) });
       });
       const persist = async (change: SettingsChange): Promise<SettingsChange[]> => {
-        const { schema, key } = setting(change.schemaId, change.key);
+        const key = setting(change, change.key);
         const bytes = validateSetting(key, change.value);
         const reset = sameBytes(bytes, encodeValue(key.type, key.default));
         const message: SettingsBroadcast = {
-          schemaPath: schema.path,
+          schemaPath: change.path,
           key: key.name,
           type: key.type,
           bytes: reset ? null : bytes.slice().buffer,
         };
         await transaction("readwrite", (store) => {
-          if (reset) store.delete([schema.path, key.name]);
-          else store.put({ type: key.type, bytes: message.bytes }, [schema.path, key.name]);
+          if (reset) store.delete([change.path, key.name]);
+          else store.put({ type: key.type, bytes: message.bytes }, [change.path, key.name]);
           return () => undefined;
         });
         alive();
@@ -188,32 +204,28 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
           pending.add(job);
           mailbox.enqueue(job);
         });
-      const snapshot = async (ids: readonly string[]): Promise<SettingsSnapshot> => {
+      const snapshot = async (instances: readonly SettingsInstance[]): Promise<SettingsSnapshot> => {
         await submit(async () => []);
-        const selected = ids.map((id) => {
-          const schema = schemas.get(id);
-          if (!schema) throw new Error(`Unknown settings schema: ${id}`);
-          return schema;
-        });
+        const selected = instances.map((instance) => ({ instance, schema: schemaOf(instance) }));
         const raw = await transaction("readonly", (store) => {
-          const requests = selected.map((schema) => ({
-            schema,
+          const requests = selected.map(({ instance, schema }) => ({
+            instance,
             keys: schema.keys.map((key) => ({
               key,
-              request: store.get([schema.path, key.name]) as IDBRequest<unknown>,
+              request: store.get([instance.path, key.name]) as IDBRequest<unknown>,
             })),
           }));
           return () => requests;
         });
         return Object.fromEntries(
-          raw.map(({ schema, keys }) => [
-            schema.id,
+          raw.map(({ instance, keys }) => [
+            instance.path,
             Object.fromEntries(
               keys.flatMap(({ key, request }) => {
                 if (request.result === undefined) return [];
                 const record = request.result as { type?: unknown; bytes?: unknown };
                 if (record.type !== key.type || !(record.bytes instanceof ArrayBuffer))
-                  throw new Error(`Invalid stored setting: ${schema.id}.${key.name}`);
+                  throw new Error(`Invalid stored setting: ${instance.path}${key.name}`);
                 const value: SettingValue = variant(key.type, decodeValue(key.type, new Uint8Array(record.bytes)));
                 validateSetting(key, value);
                 return [[key.name, value]];
@@ -228,19 +240,28 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
           const validated = decodeSettingsMetadata(encodeSettingsMetadata(metadata));
           for (const schema of validated.schemas) {
             const existing = schemas.get(schema.id);
-            if (
-              existing &&
-              JSON.stringify(encodeSettingsMetadata({ schemas: [existing] })) !==
-                JSON.stringify(encodeSettingsMetadata({ schemas: [schema] }))
-            )
-              throw new Error(`Conflicting settings schema: ${schema.id}`);
+            if (existing && !sameKeys(existing, schema)) throw new Error(`Conflicting settings schema: ${schema.id}`);
           }
-          for (const schema of validated.schemas) schemas.set(schema.id, schema);
+          for (const schema of validated.schemas) {
+            const existing = schemas.get(schema.id);
+            schemas.set(
+              schema.id,
+              existing ? { ...existing, paths: [...new Set([...existing.paths, ...schema.paths])] } : schema,
+            );
+            for (const path of schema.paths) {
+              let ids = atPath.get(path);
+              if (!ids) {
+                ids = new Set();
+                atPath.set(path, ids);
+              }
+              ids.add(schema.id);
+            }
+          }
         },
         snapshot,
-        read: async (schemaId, key) => {
+        read: async (instance, key) => {
           await submit(async () => []);
-          return current.get(`${schemaId}\0${key}`) ?? (await snapshot([schemaId]))[schemaId]?.[key];
+          return current.get(memoryKey(instance, key)) ?? (await snapshot([instance]))[instance.path]?.[key];
         },
         written: (change) => {
           if (!closed) mailbox.enqueue({ run: () => persist(change) });

@@ -25,7 +25,7 @@ import {
 } from "../router/keystroke.ts";
 import type { AsyncKeyResult, KeySink } from "../router/replay.ts";
 import { makeRestarter, type WaitForWriter } from "../router/restart.ts";
-import { loadSettingsMetadata } from "../settings/api.ts";
+import { loadSettingsMetadata, settingsInstances } from "../settings/api.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
@@ -76,6 +76,8 @@ interface Entry {
   readonly snapshot: ModuleSnapshot;
   readonly router: KeyRouter;
   readonly changes: Map<string, SettingsChange>;
+  // The module's settings instances: path to schema id.
+  readonly instances: Map<string, string>;
   readonly watchers: Set<() => void>;
   crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
   lifetime: Scope.Closeable | undefined;
@@ -143,7 +145,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             yield* Effect.tryPromise({
               try: () =>
                 entry.router.request(
-                  new SettingChanged({ schemaId: change.schemaId, key: change.key, value: change.value }),
+                  new SettingChanged({ path: change.path, key: change.key, value: change.value }),
                   0,
                 ),
               catch: asError,
@@ -198,20 +200,22 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       Effect.gen(function* () {
         const lifetime = entry.lifetime!;
         const manifest = yield* manifestOf(name, entry);
-        if (settings.register) {
-          const metadata = yield* Effect.tryPromise({
-            try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
-            catch: asError,
-          });
+        const metadata = yield* Effect.tryPromise({
+          try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
+          catch: asError,
+        });
+        if (settings.register)
           yield* Effect.tryPromise({
             try: async () => {
               await settings.register!(metadata);
             },
             catch: asError,
           });
-        }
+        const instances = settingsInstances(metadata);
+        entry.instances.clear();
+        for (const { schemaId, path } of instances) entry.instances.set(path, schemaId);
         const initial = yield* Effect.tryPromise({
-          try: () => settings.snapshot(manifest.settingsSchemas),
+          try: () => settings.snapshot(instances),
           catch: asError,
         });
         const connection = yield* Effect.acquireRelease(
@@ -252,7 +256,14 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         entry.origin = Symbol();
         entry.router.connect(connection);
         const reply = yield* Effect.tryPromise({
-          try: () => entry.router.request(new Init({ version: PROTOCOL_VERSION, settings: initial }), 0),
+          try: () =>
+            entry.router.request(
+              new Init({
+                version: PROTOCOL_VERSION,
+                settings: instances.map(({ schemaId, path }) => ({ schemaId, path, values: initial[path] ?? {} })),
+              }),
+              0,
+            ),
           catch: asError,
         });
         if (reply.ret < 0) return yield* Effect.fail(new InitializationRejected(`Init failed: ${reply.ret}`));
@@ -302,13 +313,36 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         started: false,
         hasReady: false,
         changes: new Map(),
+        instances: new Map(),
         watchers: new Set(),
         router: new KeyRouter(snapshot, {
           replayLimit: config.replayLimit,
           changed: () => changed(entry),
           enqueue: ({ ic, record }) => {
             if (record._tag === "Log") logger.enqueue({ module: name, ic, record });
-            else if (record._tag === "SettingWritten") settings.written({ ...record, origin: entry.origin });
+            else if (record._tag === "SettingWritten") {
+              const schemaId = entry.instances.get(record.path);
+              // The runtime refuses writes under undeclared paths, so this is a runtime fault.
+              if (schemaId === undefined)
+                logger.enqueue({
+                  module: name,
+                  ic,
+                  record: {
+                    _tag: "Log",
+                    level: 16,
+                    domain: "page-settings",
+                    message: `Setting written at an undeclared path: ${record.path}`,
+                  },
+                });
+              else
+                settings.written({
+                  schemaId,
+                  path: record.path,
+                  key: record.key,
+                  value: record.value,
+                  origin: entry.origin,
+                });
+            }
           },
           hide: (ic) => panel.enqueue({ _tag: "hide", module: name, ic }),
           error: (cause, ic) =>
@@ -341,12 +375,12 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         Effect.gen(function* () {
           for (const entry of entries.values()) {
             if (
-              !entry.snapshot.manifest?.settingsSchemas.includes(change.schemaId) ||
+              entry.instances.get(change.path) !== change.schemaId ||
               entry.snapshot.status === "failed" ||
               change.origin === entry.origin
             )
               continue;
-            entry.changes.set(`${change.schemaId}\0${change.key}`, change);
+            entry.changes.set(`${change.path}\0${change.key}`, change);
             if (entry.snapshot.status === "ready") {
               yield* flushChanges(entry).pipe(Effect.catchCause(() => Effect.void));
             }

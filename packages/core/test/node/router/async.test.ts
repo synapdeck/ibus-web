@@ -74,7 +74,7 @@ test("native and async owners share one FIFO and retain distinct context output"
 for (const request of [
   new FocusIn({}),
   new SettingChanged({
-    schemaId: "test",
+    path: "/test/",
     key: "mode",
     value: booleanVariant(true),
   }),
@@ -400,7 +400,7 @@ for (const callback of ["output", "fallback"])
   for (const request of [
     new FocusIn({}),
     new SettingChanged({
-      schemaId: "test",
+      path: "/test/",
       key: "mode",
       value: booleanVariant(true),
     }),

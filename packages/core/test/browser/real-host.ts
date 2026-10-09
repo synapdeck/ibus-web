@@ -34,6 +34,7 @@ export const data = inject("realHost");
 if (data.runtimes.length !== 2)
   throw new Error("Real host tests require IBUS_WEB_WORKER_HOST_TESTS and IBUS_WEB_HANGUL_MANIFEST");
 export const HANGUL_SCHEMA = "org.freedesktop.ibus.engine.hangul";
+export const HANGUL_PATH = "/org/freedesktop/ibus/engine/hangul/";
 export interface Field {
   element: HTMLTextAreaElement | HTMLInputElement;
   adapter: ReturnType<typeof textareaAdapter>;
@@ -247,7 +248,7 @@ export const runHost = (
           EffectLogger.layer([frameworkLogger]),
           Layer.succeed(Logger, { enqueue: (line) => logs.push(line) }),
           PanelEvents.Default,
-          SettingsSource.layer({ [HANGUL_SCHEMA]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") } }),
+          SettingsSource.layer({ [HANGUL_PATH]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") } }),
         ),
       ),
     ),

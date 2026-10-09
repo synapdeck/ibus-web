@@ -18,17 +18,20 @@ import {
   type SettingsMetadata,
 } from "@ibus-web/protocol";
 import { Connection, SettingsApi, indexedDbSettings } from "../../src/page/index.ts";
-import { SettingsSource } from "../../src/services/settings.ts";
+import { SettingsSource, type SettingsChange } from "../../src/services/settings.ts";
 import { makeModuleRegistry } from "../../src/services/modules.ts";
 import { CoreConfig } from "../../src/services/config.ts";
 import { Logger, PanelEvents } from "../../src/services/logging.ts";
 import { DomConnection, record } from "./support/dom.ts";
 import { fixture, key } from "../shared/router.ts";
+
+const PATH = "/test/settings/";
+const instance = { schemaId: "test.settings", path: PATH };
 const metadata: SettingsMetadata = {
   schemas: [
     {
       id: "test.settings",
-      path: "/test/settings/",
+      paths: [PATH],
       keys: [
         { name: "mode", type: "s", default: { _tag: "s", value: "default" }, choices: ["default", "chosen", "remote"] },
         {
@@ -38,6 +41,11 @@ const metadata: SettingsMetadata = {
           range: { min: { _tag: "i", value: 0 }, max: { _tag: "i", value: 3 } },
         },
       ],
+    },
+    {
+      id: "test.relocatable",
+      paths: ["/test/relocatable/first/", "/test/relocatable/second/"],
+      keys: [{ name: "mode", type: "s", default: { _tag: "s", value: "default" } }],
     },
   ],
 };
@@ -53,7 +61,7 @@ const manifest: ModuleManifest = {
   data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
-  settingsSchemas: ["test.settings"],
+  settingsSchemas: ["test.settings", "test.relocatable"],
   settingsMetadata: { url: "settings.json", size: 1 },
 };
 const options = {
@@ -118,25 +126,49 @@ const run = (
     ),
   );
 
-test("API loads validated metadata and persists ArrayBuffers without starting Workers; Init contains only stored keys", () =>
+test("API loads validated metadata and persists ArrayBuffers without starting Workers; Init declares every instance", () =>
   run(async (api, source, registry, connections) => {
     expect(await api.schemas("a")).toEqual(metadata.schemas);
-    expect(await api.get("a", "test.settings", "mode")).toEqual(stringVariant("default"));
-    await api.set("a", "test.settings", "mode", stringVariant("chosen"));
+    expect(await api.get("a", PATH, "mode")).toEqual(stringVariant("default"));
+    await api.set("a", PATH, "mode", stringVariant("chosen"));
     expect(connections).toHaveLength(0);
     expect(await stored()).toEqual([{ type: "s", bytes: encodeValue("s", { _tag: "s", value: "chosen" }).buffer }]);
     expect((await stored())[0]).toHaveProperty("bytes", expect.any(ArrayBuffer));
     await Effect.runPromise(registry.ensure("a"));
     expect(connections[0]!.sent[0]!.request).toMatchObject({
       _tag: "Init",
-      settings: { "test.settings": { mode: stringVariant("chosen") } },
+      settings: [
+        { schemaId: "test.settings", path: PATH, values: { mode: stringVariant("chosen") } },
+        { schemaId: "test.relocatable", path: "/test/relocatable/first/", values: {} },
+        { schemaId: "test.relocatable", path: "/test/relocatable/second/", values: {} },
+      ],
     });
-    expect(await source.snapshot(["test.settings"])).toEqual({ "test.settings": { mode: stringVariant("chosen") } });
-    await api.set("a", "test.settings", "mode", stringVariant("default"));
+    expect(await source.snapshot([instance])).toEqual({ [PATH]: { mode: stringVariant("chosen") } });
+    await api.set("a", PATH, "mode", stringVariant("default"));
     expect(await stored()).toEqual([]);
-    await api.set("a", "test.settings", "mode", stringVariant("chosen"));
-    await api.reset("a", "test.settings", "mode");
+    await api.set("a", PATH, "mode", stringVariant("chosen"));
+    await api.reset("a", PATH, "mode");
     expect(await stored()).toEqual([]);
+  }));
+test("relocatable instances keep their own values and changes", () =>
+  run(async (api, source, registry, connections) => {
+    await Effect.runPromise(registry.ensure("a"));
+    connections[0]!.sent.length = 0;
+    await api.set("a", "/test/relocatable/second/", "mode", stringVariant("chosen"));
+    await connections[0]!.untilSent("SettingChanged");
+    expect(connections[0]!.sent.at(-1)!.request).toMatchObject({
+      _tag: "SettingChanged",
+      path: "/test/relocatable/second/",
+      key: "mode",
+      value: stringVariant("chosen"),
+    });
+    expect(await api.get("a", "/test/relocatable/first/", "mode")).toEqual(stringVariant("default"));
+    expect(
+      await source.snapshot([
+        { schemaId: "test.relocatable", path: "/test/relocatable/first/" },
+        { schemaId: "test.relocatable", path: "/test/relocatable/second/" },
+      ]),
+    ).toEqual({ "/test/relocatable/first/": {}, "/test/relocatable/second/": { mode: stringVariant("chosen") } });
   }));
 test("engine writes synchronously enqueue, reach the API stream and other Worker, and never echo to writer", () =>
   run(async (api, _source, registry, connections) => {
@@ -158,24 +190,23 @@ test("engine writes synchronously enqueue, reach the API stream and other Worker
       { signal: controller.signal },
     );
     try {
-      await api.set("a", "test.settings", "mode", stringVariant("remote"));
+      await api.set("a", PATH, "mode", stringVariant("remote"));
       connections[0]!.sent.length = 0;
       connections[1]!.sent.length = 0;
       connections[0]!.outcome = {
         _tag: "reply",
         ret: 1,
-        records: [
-          record({ _tag: "SettingWritten", schemaId: "test.settings", key: "mode", value: stringVariant("chosen") }),
-        ],
+        records: [record({ _tag: "SettingWritten", path: PATH, key: "mode", value: stringVariant("chosen") })],
       };
       expect(registry.keySink("a", f.context).key(key("a"))).toBe("consumed");
       await connections[1]!.untilSent("SettingChanged");
       await watching;
       expect(changes).toHaveLength(2);
-      expect(changes[1]).toMatchObject({ value: stringVariant("chosen") });
+      expect(changes[1]).toMatchObject({ schemaId: "test.settings", path: PATH, value: stringVariant("chosen") });
       expect(connections[0]!.sent.filter(({ request }) => request._tag === "SettingChanged")).toEqual([]);
       expect(connections[1]!.sent.at(-1)!.request).toMatchObject({
         _tag: "SettingChanged",
+        path: PATH,
         value: stringVariant("chosen"),
       });
       expect(await stored()).toEqual([{ type: "s", bytes: encodeValue("s", { _tag: "s", value: "chosen" }).buffer }]);
@@ -192,9 +223,9 @@ test("another page receives exact broadcast bytes and forwards remote changes wi
       const received = new Promise<unknown>((resolve) => {
         other.onmessage = (event) => resolve(event.data);
       });
-      await api.set("a", "test.settings", "mode", stringVariant("chosen"));
+      await api.set("a", PATH, "mode", stringVariant("chosen"));
       expect(await received).toEqual({
-        schemaPath: "/test/settings/",
+        schemaPath: PATH,
         key: "mode",
         type: "s",
         bytes: encodeValue("s", { _tag: "s", value: "chosen" }).buffer,
@@ -203,17 +234,17 @@ test("another page receives exact broadcast bytes and forwards remote changes wi
       const put = vi.spyOn(IDBObjectStore.prototype, "put");
       const remove = vi.spyOn(IDBObjectStore.prototype, "delete");
       other.postMessage({
-        schemaPath: "/test/settings/",
+        schemaPath: PATH,
         key: "mode",
         type: "s",
         bytes: encodeValue("s", { _tag: "s", value: "remote" }).buffer,
       });
       await connections[0]!.untilSent("SettingChanged");
-      expect(connections[0]!.sent.at(-1)!.request).toMatchObject({ value: stringVariant("remote") });
+      expect(connections[0]!.sent.at(-1)!.request).toMatchObject({ path: PATH, value: stringVariant("remote") });
       expect(put).not.toHaveBeenCalled();
       expect(remove).not.toHaveBeenCalled();
       connections[0]!.sent.length = 0;
-      other.postMessage({ schemaPath: "/test/settings/", key: "mode", type: "s", bytes: null });
+      other.postMessage({ schemaPath: PATH, key: "mode", type: "s", bytes: null });
       await connections[0]!.untilSent("SettingChanged");
       expect(connections[0]!.sent.at(-1)!.request).toMatchObject({ value: stringVariant("default") });
       expect(put).not.toHaveBeenCalled();
@@ -222,29 +253,30 @@ test("another page receives exact broadcast bytes and forwards remote changes wi
       other.close();
     }
   }));
-test("rejects unknown keys, signatures, choices and ranges before storage", () =>
+test("rejects unknown paths, keys, signatures, choices and ranges before storage", () =>
   run(async (api) => {
-    await expect(api.set("a", "test.settings", "missing", stringVariant("chosen"))).rejects.toThrow();
-    await expect(api.set("a", "test.settings", "count", stringVariant("chosen"))).rejects.toThrow();
-    await expect(api.set("a", "test.settings", "mode", stringVariant("invalid"))).rejects.toThrow();
-    await expect(api.set("a", "test.settings", "count", int32Variant(4))).rejects.toThrow();
+    await expect(api.set("a", "/test/missing/", "mode", stringVariant("chosen"))).rejects.toThrow();
+    await expect(api.set("a", PATH, "missing", stringVariant("chosen"))).rejects.toThrow();
+    await expect(api.set("a", PATH, "count", stringVariant("chosen"))).rejects.toThrow();
+    await expect(api.set("a", PATH, "mode", stringVariant("invalid"))).rejects.toThrow();
+    await expect(api.set("a", PATH, "count", int32Variant(4))).rejects.toThrow();
   }));
 test("a host-supplied source replaces persistence entirely, including settings API access", async () => {
   const open = vi.spyOn(IDBFactory.prototype, "open");
   await run(async (api, _source, registry) => {
-    await api.set("a", "test.settings", "mode", stringVariant("chosen"));
+    await api.set("a", PATH, "mode", stringVariant("chosen"));
     await Effect.runPromise(registry.ensure("a"));
-    expect(await api.get("a", "test.settings", "mode")).toEqual(stringVariant("chosen"));
+    expect(await api.get("a", PATH, "mode")).toEqual(stringVariant("chosen"));
     expect(open).not.toHaveBeenCalled();
   }, SettingsSource.layer());
 });
 test("a fresh page reads persisted bytes before starting a real Hangul Worker", async () => {
-  const { data, HANGUL_SCHEMA } = await import("./real-host.ts");
+  const { data, HANGUL_SCHEMA, HANGUL_PATH } = await import("./real-host.ts");
   const realOptions = { modules: { hangul: new URL(data.hangulUrl, location.href) } };
   await Effect.runPromise(
     Effect.gen(function* () {
       const api = yield* SettingsApi;
-      yield* Effect.promise(() => api.set("hangul", HANGUL_SCHEMA, "initial-input-mode", stringVariant("hangul")));
+      yield* Effect.promise(() => api.set("hangul", HANGUL_PATH, "initial-input-mode", stringVariant("hangul")));
     }).pipe(Effect.provide(SettingsApi.layer(realOptions)), Effect.provide(indexedDbSettings())),
   );
   await Effect.runPromise(
@@ -269,10 +301,14 @@ test("a fresh page reads persisted bytes before starting a real Hangul Worker", 
         yield* registry.ensure("hangul");
         expect(requests[0]).toMatchObject({
           _tag: "Init",
-          settings: {
-            [HANGUL_SCHEMA]: { "initial-input-mode": stringVariant("hangul") },
-            "org.freedesktop.ibus.panel": {},
-          },
+          settings: expect.arrayContaining([
+            {
+              schemaId: HANGUL_SCHEMA,
+              path: HANGUL_PATH,
+              values: { "initial-input-mode": stringVariant("hangul") },
+            },
+            { schemaId: "org.freedesktop.ibus.panel", path: "/desktop/ibus/panel/", values: {} },
+          ]),
         });
         yield* Effect.promise(async () => {
           for (const request of [
@@ -301,10 +337,10 @@ test("failed storage writes reject API callers and do not stop subsequent settin
     const put = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementationOnce(() => {
       throw new Error("disk failure");
     });
-    await expect(api.set("a", "test.settings", "mode", stringVariant("chosen"))).rejects.toThrow("disk failure");
+    await expect(api.set("a", PATH, "mode", stringVariant("chosen"))).rejects.toThrow("disk failure");
     put.mockRestore();
-    await api.set("a", "test.settings", "mode", stringVariant("remote"));
-    expect(await api.get("a", "test.settings", "mode")).toEqual(stringVariant("remote"));
+    await api.set("a", PATH, "mode", stringVariant("remote"));
+    expect(await api.get("a", PATH, "mode")).toEqual(stringVariant("remote"));
   }));
 test("closed scopes close channels and databases, reject API writes and ignore late synchronous engine writes", async () => {
   let closedSource: SettingsSource["Service"] | undefined;
@@ -313,15 +349,15 @@ test("closed scopes close channels and databases, reject API writes and ignore l
   await run(async (api, source) => {
     closedSource = source;
     closedApi = api;
-    await api.set("a", "test.settings", "mode", stringVariant("chosen"));
+    await api.set("a", PATH, "mode", stringVariant("chosen"));
   });
   expect(close).toHaveBeenCalledOnce();
   const open = vi.spyOn(IDBFactory.prototype, "open");
-  closedSource!.written({ schemaId: "test.settings", key: "mode", value: stringVariant("remote") });
-  await expect(
-    closedSource!.write!({ schemaId: "test.settings", key: "mode", value: stringVariant("remote") }),
-  ).rejects.toThrow("closed");
-  await expect(closedApi!.set("a", "test.settings", "mode", stringVariant("remote"))).rejects.toThrow("closed");
+  closedSource!.written({ ...instance, key: "mode", value: stringVariant("remote") });
+  await expect(closedSource!.write!({ ...instance, key: "mode", value: stringVariant("remote") })).rejects.toThrow(
+    "closed",
+  );
+  await expect(closedApi!.set("a", PATH, "mode", stringVariant("remote"))).rejects.toThrow("closed");
   expect(open).not.toHaveBeenCalled();
   await drop();
 });
@@ -332,9 +368,9 @@ test("two independent page services broadcast to their own Workers with exactly 
       await Effect.runPromise(otherRegistry.ensure("a"));
       const put = vi.spyOn(IDBObjectStore.prototype, "put");
       const post = vi.spyOn(BroadcastChannel.prototype, "postMessage");
-      await writer.set("a", "test.settings", "mode", stringVariant("chosen"));
+      await writer.set("a", PATH, "mode", stringVariant("chosen"));
       await connections[0]!.untilSent("SettingChanged");
-      expect(await reader.get("a", "test.settings", "mode")).toEqual(stringVariant("chosen"));
+      expect(await reader.get("a", PATH, "mode")).toEqual(stringVariant("chosen"));
       expect(put).toHaveBeenCalledTimes(1);
       expect(post).toHaveBeenCalledTimes(1);
     });
@@ -350,43 +386,43 @@ test("synchronous engine writes report asynchronous storage errors and keep proc
     const put = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementationOnce(() => {
       throw new Error("engine disk failure");
     });
-    settings.written({ schemaId: "test.settings", key: "mode", value: stringVariant("chosen") });
-    settings.written({ schemaId: "test.settings", key: "mode", value: stringVariant("remote") });
-    expect(await api.get("a", "test.settings", "mode")).toEqual(stringVariant("remote"));
+    settings.written({ ...instance, key: "mode", value: stringVariant("chosen") });
+    settings.written({ ...instance, key: "mode", value: stringVariant("remote") });
+    expect(await api.get("a", PATH, "mode")).toEqual(stringVariant("remote"));
     expect(logs).toHaveLength(1);
     expect(logs[0]!.logLevel).toBe("Error");
     expect(logs[0]!.message).toContain("Settings change failed");
     put.mockRestore();
   }, source);
 });
-const sharedPathSchemas: SettingsMetadata = {
-  schemas: [
-    ...metadata.schemas,
-    { id: "test.barrier", path: "/test/barrier/", keys: [metadata.schemas[0]!.keys[1]!] },
-    { id: "test.disjoint", path: "/test/settings/", keys: [metadata.schemas[0]!.keys[1]!] },
-    {
-      id: "test.alias",
-      path: "/test/settings/",
-      keys: [{ ...metadata.schemas[0]!.keys[0]!, default: { _tag: "s", value: "remote" } }],
-    },
-    {
-      id: "test.incompatible",
-      path: "/test/settings/",
-      keys: [{ name: "mode", type: "i", default: { _tag: "i", value: 2 } }],
-    },
-    {
-      id: "test.restricted",
-      path: "/test/settings/",
-      keys: [{ name: "mode", type: "s", default: { _tag: "s", value: "default" }, choices: ["default"] }],
-    },
-  ],
+
+// Each schema stands for another module's settings.json: a path is unique within one file, not across modules.
+const sharedPathSchemas: SettingsMetadata["schemas"] = [
+  metadata.schemas[0]!,
+  { id: "test.barrier", paths: ["/test/barrier/"], keys: [metadata.schemas[0]!.keys[1]!] },
+  { id: "test.disjoint", paths: [PATH], keys: [metadata.schemas[0]!.keys[1]!] },
+  {
+    id: "test.alias",
+    paths: [PATH],
+    keys: [{ ...metadata.schemas[0]!.keys[0]!, default: { _tag: "s", value: "remote" } }],
+  },
+  { id: "test.incompatible", paths: [PATH], keys: [{ name: "mode", type: "i", default: { _tag: "i", value: 2 } }] },
+  {
+    id: "test.restricted",
+    paths: [PATH],
+    keys: [{ name: "mode", type: "s", default: { _tag: "s", value: "default" }, choices: ["default"] }],
+  },
+];
+const registerShared = async (source: SettingsSource["Service"]) => {
+  for (const schema of sharedPathSchemas) await source.register!({ schemas: [schema] });
 };
+const at = (schemaId: string) => ({ schemaId, path: PATH });
 for (const origin of ["local", "remote"] as const) {
   test(`shared-path ${origin} changes skip disjoint and incompatible keys without losing valid recipients`, () =>
     run(async (api, source) => {
       await api.schemas("a");
-      await source.register!(sharedPathSchemas);
-      const changes: import("../../src/services/settings.ts").SettingsChange[] = [];
+      await registerShared(source);
+      const changes: SettingsChange[] = [];
       const abort = new AbortController();
       const watching = Effect.runPromise(
         source.changes.pipe(
@@ -404,12 +440,7 @@ for (const origin of ["local", "remote"] as const) {
       const post = vi.spyOn(BroadcastChannel.prototype, "postMessage");
       try {
         if (origin === "local") {
-          await source.write!({
-            schemaId: "test.settings",
-            key: "mode",
-            value: stringVariant("chosen"),
-            origin: token,
-          });
+          await source.write!({ ...instance, key: "mode", value: stringVariant("chosen"), origin: token });
         } else {
           // A valid following message is a processing barrier even if the preceding change is dropped.
           const done = Effect.runPromise(
@@ -421,7 +452,7 @@ for (const origin of ["local", "remote"] as const) {
             { signal: abort.signal },
           );
           other.postMessage({
-            schemaPath: "/test/settings/",
+            schemaPath: PATH,
             key: "mode",
             type: "s",
             bytes: encodeValue("s", { _tag: "s", value: "chosen" }).buffer,
@@ -434,27 +465,34 @@ for (const origin of ["local", "remote"] as const) {
           });
           await done;
         }
-        const snapshot = await source.snapshot(["test.settings", "test.alias", "test.disjoint"]);
+        const aliased = await source.snapshot([at("test.alias")]);
         expect(
           changes
             .filter((change) => change.key === "mode")
-            .map(({ schemaId, value, origin }) => ({ schemaId, value, origin })),
+            .map(({ schemaId, path, value, origin }) => ({ schemaId, path, value, origin })),
         ).toEqual([
-          { schemaId: "test.settings", value: stringVariant("chosen"), origin: origin === "local" ? token : undefined },
-          { schemaId: "test.alias", value: stringVariant("chosen"), origin: origin === "local" ? token : undefined },
+          {
+            schemaId: "test.settings",
+            path: PATH,
+            value: stringVariant("chosen"),
+            origin: origin === "local" ? token : undefined,
+          },
+          {
+            schemaId: "test.alias",
+            path: PATH,
+            value: stringVariant("chosen"),
+            origin: origin === "local" ? token : undefined,
+          },
         ]);
         if (origin === "local") {
-          expect(snapshot).toEqual({
-            "test.settings": { mode: stringVariant("chosen") },
-            "test.alias": { mode: stringVariant("chosen") },
-            "test.disjoint": {},
-          });
-          await expect(source.snapshot(["test.incompatible"])).rejects.toThrow("Invalid stored setting");
-          await expect(source.snapshot(["test.restricted"])).rejects.toThrow("Invalid choice");
+          expect(aliased).toEqual({ [PATH]: { mode: stringVariant("chosen") } });
+          expect(await source.snapshot([at("test.disjoint")])).toEqual({ [PATH]: {} });
+          await expect(source.snapshot([at("test.incompatible")])).rejects.toThrow("Invalid stored setting");
+          await expect(source.snapshot([at("test.restricted")])).rejects.toThrow("Invalid choice");
           expect(put).toHaveBeenCalledTimes(1);
           expect(post).toHaveBeenCalledTimes(1);
         } else {
-          expect(snapshot).toEqual({ "test.settings": {}, "test.alias": {}, "test.disjoint": {} });
+          expect(aliased).toEqual({ [PATH]: {} });
           expect(put).not.toHaveBeenCalled();
           expect(post).toHaveBeenCalledTimes(2);
         }
@@ -468,14 +506,14 @@ for (const origin of ["local", "remote"] as const) {
 test("shared-path deletion notifies each local and remote alias with its own default and leaves the next snapshot empty", () =>
   run(async (api, source) => {
     await api.schemas("a");
-    await source.register!(sharedPathSchemas);
-    await source.write!({ schemaId: "test.settings", key: "mode", value: stringVariant("chosen") });
+    await registerShared(source);
+    await source.write!({ ...instance, key: "mode", value: stringVariant("chosen") });
     await run(async (remoteApi, receiver) => {
       await remoteApi.schemas("a");
-      await receiver.register!(sharedPathSchemas);
+      await registerShared(receiver);
       const token = Symbol("writer");
-      const localChanges: import("../../src/services/settings.ts").SettingsChange[] = [];
-      const remoteChanges: import("../../src/services/settings.ts").SettingsChange[] = [];
+      const localChanges: SettingsChange[] = [];
+      const remoteChanges: SettingsChange[] = [];
       const abort = new AbortController();
       const localWatching = Effect.runPromise(
         source.changes.pipe(
@@ -502,35 +540,27 @@ test("shared-path deletion notifies each local and remote alias with its own def
       const remove = vi.spyOn(IDBObjectStore.prototype, "delete");
       const post = vi.spyOn(BroadcastChannel.prototype, "postMessage");
       try {
-        await source.write!({ schemaId: "test.settings", key: "mode", value: stringVariant("default"), origin: token });
+        await source.write!({ ...instance, key: "mode", value: stringVariant("default"), origin: token });
         const expected = [
-          { schemaId: "test.settings", key: "mode", value: stringVariant("default") },
-          { schemaId: "test.alias", key: "mode", value: stringVariant("remote") },
-          {
-            schemaId: "test.incompatible",
-            key: "mode",
-            value: int32Variant(2),
-          },
-          { schemaId: "test.restricted", key: "mode", value: stringVariant("default") },
+          { schemaId: "test.settings", path: PATH, key: "mode", value: stringVariant("default") },
+          { schemaId: "test.alias", path: PATH, key: "mode", value: stringVariant("remote") },
+          { schemaId: "test.incompatible", path: PATH, key: "mode", value: int32Variant(2) },
+          { schemaId: "test.restricted", path: PATH, key: "mode", value: stringVariant("default") },
         ];
         expect(localChanges).toEqual(expected.map((change) => ({ ...change, origin: token })));
         await remoteWatching;
         expect(remoteChanges).toEqual(expected);
         for (const page of [source, receiver]) {
-          for (const change of expected) expect(await page.read!(change.schemaId, "mode")).toEqual(change.value);
-          expect(await page.snapshot(sharedPathSchemas.schemas.map((schema) => schema.id))).toEqual(
-            Object.fromEntries(sharedPathSchemas.schemas.map((schema) => [schema.id, {}])),
-          );
+          for (const change of expected) expect(await page.read!(at(change.schemaId), "mode")).toEqual(change.value);
+          for (const schema of sharedPathSchemas)
+            expect(await page.snapshot([{ schemaId: schema.id, path: schema.paths[0]! }])).toEqual({
+              [schema.paths[0]!]: {},
+            });
         }
         expect(await stored()).toEqual([]);
         expect(put).not.toHaveBeenCalled();
         expect(remove).toHaveBeenCalledTimes(1);
-        expect(post).toHaveBeenCalledExactlyOnceWith({
-          schemaPath: "/test/settings/",
-          key: "mode",
-          type: "s",
-          bytes: null,
-        });
+        expect(post).toHaveBeenCalledExactlyOnceWith({ schemaPath: PATH, key: "mode", type: "s", bytes: null });
       } finally {
         abort.abort();
         await Promise.all([localWatching.catch(() => {}), remoteWatching.catch(() => {})]);

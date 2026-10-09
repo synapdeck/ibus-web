@@ -23,7 +23,9 @@ const manifest: ModuleManifest = {
   settingsSchemaDir: `${dataPath}/schemas`,
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: ["settings"],
+  settingsMetadata: { url: "settings.json", size: 1 },
 };
+const metadata = { schemas: [{ id: "settings", paths: ["/settings/"], keys: [] }] };
 const url = new URL("https://example.test/");
 const services = Layer.mergeAll(CoreConfig.Default, SettingsSource.layer(), Logger.Default, PanelEvents.Default);
 const emptyReply = { ret: 0, outSeq: 0, records: [] };
@@ -39,6 +41,7 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       waitForWriter: () => Effect.void,
       start: async () => {
         const connection = new FakeConnection();
@@ -58,6 +61,7 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
     expect(registry.keySink("test", f.context).key(key("a"))).toBe("consumed");
     settings.written({
       schemaId: "settings",
+      path: "/settings/",
       key: "mode",
       value: stringVariant("new"),
     });
@@ -68,8 +72,8 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
     yield* registry.whenReady("test");
     expect(registry.state("test")).toBe("ready");
     expect(requests.filter((r) => r._tag === "Init")).toMatchObject([
-      { settings: { settings: {} } },
-      { settings: { settings: { mode: { value: { value: "new" } } } } },
+      { settings: [{ schemaId: "settings", path: "/settings/", values: {} }] },
+      { settings: [{ schemaId: "settings", path: "/settings/", values: { mode: { value: { value: "new" } } } }] },
     ]);
     expect(requests.some((r) => r._tag === "CreateEngine")).toBe(false);
     expect(registry.keySink("test", f.context).key(key("a"))).toBe("passthrough");
@@ -106,6 +110,7 @@ it.effect("registry lists a module's engines without starting its Worker, and st
       hostUrl: url,
       runtimeUrl: url,
       modules: { test: url },
+      loadMetadata: async () => metadata,
       loadManifest: async () => {
         reads++;
         return { ...manifest, engines: [...manifest.engines, { ...manifest.engines[0]!, name: "second" }] };
@@ -154,13 +159,16 @@ it.effect(
       yield* Effect.yieldNow;
       settings.written({
         schemaId: "settings",
+        path: "/settings/",
         key: "x",
         value: booleanVariant(true),
       });
       panel.enqueue({ _tag: "hide", module: "test", ic: 1 });
       expect((yield* Fiber.join(setting))[0]?.key).toBe("x");
       expect((yield* Fiber.join(panelEvent))[0]?._tag).toBe("hide");
-      expect(yield* Effect.promise(() => settings.snapshot(["settings"]))).toHaveProperty("settings.x");
+      expect(
+        yield* Effect.promise(() => settings.snapshot([{ schemaId: "settings", path: "/settings/" }])),
+      ).toHaveProperty(["/settings/", "x"]);
       expect([4, 8, 16, 32, 64, 128].map(glibLevel)).toEqual(["Error", "Error", "Warn", "Info", "Info", "Debug"]);
       const logged = yield* Deferred.make<void>();
       const lines: unknown[] = [];
@@ -195,6 +203,7 @@ it.effect("the third crash fails the registry and disables its existing key sink
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       waitForWriter: () => Effect.void,
       start: async () => {
         const c = new FakeConnection();
@@ -236,6 +245,7 @@ it.effect(
         hostUrl: url,
         runtimeUrl: url,
         modules: { alias: url },
+        loadMetadata: async () => metadata,
         loadManifest: async () => ({
           ...manifest,
           name: "distribution",
@@ -278,6 +288,7 @@ it.effect("a failed relaunch consumes the next restart step without losing regis
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       waitForWriter: () => Effect.void,
       start: async () => {
         attempts++;
@@ -301,6 +312,7 @@ it.effect("a failed relaunch consumes the next restart step without losing regis
     yield* Deferred.await(rejected);
     settings.written({
       schemaId: "settings",
+      path: "/settings/",
       key: "latest",
       value: booleanVariant(true),
     });
@@ -309,7 +321,7 @@ it.effect("a failed relaunch consumes the next restart step without losing regis
     yield* Fiber.join(ready);
     expect(attempts).toBe(3);
     expect(requests.filter((r) => r._tag === "Init").at(-1)).toMatchObject({
-      settings: { settings: { latest: { value: { value: true } } } },
+      settings: [{ schemaId: "settings", path: "/settings/", values: { latest: { value: { value: true } } } }],
     });
     f.context.generation = registry.snapshot("test")!.generation;
     f.context.ready = true;
@@ -325,6 +337,7 @@ it.effect("initial startup failure is terminal, without scheduling relaunch", ()
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       start: async () => {
         attempts++;
         throw new Error("network failure");
@@ -348,6 +361,7 @@ it.effect("repeated transient relaunch failures reach the crash cutoff", () =>
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       waitForWriter: () => Effect.void,
       start: async () => {
         if (++attempts > 1) {
@@ -378,6 +392,7 @@ it.effect("runtime incompatibility is terminal even during relaunch", () =>
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       waitForWriter: () => Effect.void,
       start: async () => {
         if (++attempts > 1) throw new Error("StartupFailed: RuntimeAbiMismatch: manifest 1, runtime 2");
@@ -399,10 +414,13 @@ it.effect("the in-memory settings layer ignores writes after its scope closes", 
     }).pipe(Effect.provide(SettingsSource.layer()));
     closed.written({
       schemaId: "settings",
+      path: "/settings/",
       key: "late",
       value: booleanVariant(true),
     });
-    expect(yield* Effect.promise(() => closed.snapshot(["settings"]))).toEqual({ settings: {} });
+    expect(yield* Effect.promise(() => closed.snapshot([{ schemaId: "settings", path: "/settings/" }]))).toEqual({
+      "/settings/": {},
+    });
   }),
 );
 
@@ -415,6 +433,7 @@ it.effect("read-only queue overflow restarts without waiting for a writer lock",
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       waitForWriter: () => {
         locks++;
         return Effect.fail(new Error("must skip read-only lock"));
@@ -462,6 +481,7 @@ for (const phase of ["initial", "restart"] as const) {
         runtimeUrl: url,
         modules: { test: url },
         loadManifest: async () => manifest,
+        loadMetadata: async () => metadata,
         waitForWriter: () => Effect.void,
         start: (options) => {
           if (phase === "restart" && attempts++ === 0) return Promise.resolve(first);
@@ -499,6 +519,7 @@ it.effect(
         hostUrl: url,
         runtimeUrl: url,
         modules: { a: new URL("a", url), b: new URL("b", url) },
+        loadMetadata: async () => metadata,
         loadManifest: async (u) => ({ ...manifest, name: u.pathname.slice(1) }),
         start: async (options) => {
           starts.push(options.manifestUrl.pathname);
@@ -532,6 +553,7 @@ it.effect("unload cancels a pending boot, rejects its waiter and permits a fresh
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       start: (options) => {
         if (++starts > 1) return Promise.resolve(fresh);
         signal = options.signal;
@@ -566,6 +588,7 @@ it.effect("unload cancels pending async owners without replay and stops schedule
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       start: async () => {
         starts++;
         return connection;
@@ -598,6 +621,7 @@ it.effect("unload interrupts a restart wait without resurrecting the engine", ()
       runtimeUrl: url,
       modules: { test: url },
       loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
       start: async () => {
         starts++;
         return connection;

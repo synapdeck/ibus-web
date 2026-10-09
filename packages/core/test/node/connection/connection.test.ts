@@ -824,7 +824,7 @@ describe("Init watchdog", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const connection = await start();
     host.scripts.push({ after: 8000, ret: 0 }, { after: "never" });
-    const initial = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: {} }), 0);
+    const initial = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: [] }), 0);
     const first = initial.catch((cause: unknown) => cause);
     const queued = connection.requestAsync(key, 1);
     const rejected = expect(queued).rejects.toMatchObject({ reason: "hang" });
@@ -844,7 +844,7 @@ describe("Init watchdog", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const connection = await start(initHangMs === undefined ? {} : { initHangMs });
     host.scripts.push({ after: "never" });
-    const pending = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: {} }), 0);
+    const pending = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: [] }), 0);
     const rejected = expect(pending).rejects.toMatchObject({ reason: "hang" });
     const budget = initHangMs ?? 30000;
     host.now += budget - 1;
@@ -860,7 +860,7 @@ describe("Init watchdog", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const connection = await start({ initHangMs: 5000 });
     host.scripts.push({ after: "never" });
-    const pending = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: {} }), 0);
+    const pending = connection.requestAsync(new Init({ version: PROTOCOL_VERSION, settings: [] }), 0);
     const rejected = expect(pending).rejects.toMatchObject({ reason: "hang" });
     host.now += 4000;
     host.write(record(1));

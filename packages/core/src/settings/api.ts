@@ -9,7 +9,7 @@ import {
   type SettingsMetadata,
   type GVariantVariant,
 } from "@ibus-web/protocol";
-import { SettingsSource, type SettingsChange } from "../services/settings.ts";
+import { SettingsSource, type SettingsChange, type SettingsInstance } from "../services/settings.ts";
 export type SettingsSchema = SettingsMetadata["schemas"][number];
 export type SettingsKey = SettingsSchema["keys"][number];
 export type SettingValue = typeof GVariantVariant.Type;
@@ -66,11 +66,14 @@ export function validateSetting(key: SettingsKey, value: SettingValue): Uint8Arr
   }
   return bytes;
 }
+export function settingsInstances(metadata: SettingsMetadata): SettingsInstance[] {
+  return metadata.schemas.flatMap((schema) => schema.paths.map((path) => ({ schemaId: schema.id, path })));
+}
 export interface SettingsApiService {
   schemas(module: string): Promise<readonly SettingsSchema[]>;
-  get(module: string, schemaId: string, key: string): Promise<SettingValue>;
-  set(module: string, schemaId: string, key: string, value: SettingValue): Promise<void>;
-  reset(module: string, schemaId: string, key: string): Promise<void>;
+  get(module: string, path: string, key: string): Promise<SettingValue>;
+  set(module: string, path: string, key: string, value: SettingValue): Promise<void>;
+  reset(module: string, path: string, key: string): Promise<void>;
   readonly changes: Stream.Stream<SettingsChange>;
 }
 export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService>()("@ibus-web/core/SettingsApi") {
@@ -109,18 +112,17 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           void pending.catch(() => loaded.delete(module));
           return pending;
         };
-        const keyFor = async (module: string, schemaId: string, name: string) => {
-          const key = (await schemas(module))
-            .find((schema) => schema.id === schemaId)
-            ?.keys.find((key) => key.name === name);
-          if (!key) throw new Error(`Unknown setting: ${schemaId}.${name}`);
-          return key;
+        const keyFor = async (module: string, path: string, name: string) => {
+          const schema = (await schemas(module)).find((schema) => schema.paths.includes(path));
+          const key = schema?.keys.find((key) => key.name === name);
+          if (!schema || !key) throw new Error(`Unknown setting: ${path}${name}`);
+          return { instance: { schemaId: schema.id, path }, key };
         };
-        const set = async (module: string, schemaId: string, name: string, value: SettingValue) => {
-          const key = await keyFor(module, schemaId, name);
+        const set = async (module: string, path: string, name: string, value: SettingValue) => {
+          const { instance, key } = await keyFor(module, path, name);
           validateSetting(key, value);
           alive();
-          const change = { schemaId, key: name, value };
+          const change = { ...instance, key: name, value };
           if (source.write) await source.write(change);
           else source.written(change);
         };
@@ -128,16 +130,16 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           schemas,
           set,
           changes: source.changes,
-          get: async (module, schemaId, name) => {
-            const key = await keyFor(module, schemaId, name);
+          get: async (module, path, name) => {
+            const { instance, key } = await keyFor(module, path, name);
             const stored = source.read
-              ? await source.read(schemaId, name)
-              : (await source.snapshot([schemaId]))[schemaId]?.[name];
+              ? await source.read(instance, name)
+              : (await source.snapshot([instance]))[path]?.[name];
             return stored ?? variant(key.type, key.default);
           },
-          reset: async (module, schemaId, name) => {
-            const key = await keyFor(module, schemaId, name);
-            await set(module, schemaId, name, variant(key.type, key.default));
+          reset: async (module, path, name) => {
+            const { key } = await keyFor(module, path, name);
+            await set(module, path, name, variant(key.type, key.default));
           },
         } satisfies SettingsApiService;
       }),

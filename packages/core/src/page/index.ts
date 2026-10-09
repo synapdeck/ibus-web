@@ -46,6 +46,7 @@ export {
 export {
   SettingsSource,
   type SettingsChange,
+  type SettingsInstance,
   type SettingsSnapshot,
   type SettingsSourceService,
 } from "../services/settings.ts";
@@ -62,6 +63,7 @@ export {
 export { textareaAdapter } from "../adapters/textarea.ts";
 export {
   SettingsApi,
+  settingsInstances,
   type SettingsApiService,
   type SettingsOptions,
   type SettingsSchema,

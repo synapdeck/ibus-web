@@ -5,14 +5,20 @@ import type { GVariantVariant, SettingWritten, SettingsMetadata } from "@ibus-we
 import { indexedDbSettings } from "../settings/persister.ts";
 import { SyncMailbox } from "./logging.ts";
 
+/** A schema id at one of its paths. Modules may declare different schemas at one path. */
+export interface SettingsInstance {
+  readonly schemaId: string;
+  readonly path: string;
+}
+/** Stored values by instance path, then key. */
 export type SettingsSnapshot = Record<string, Record<string, typeof GVariantVariant.Type>>;
-export type SettingsChange = Pick<SettingWritten, "schemaId" | "key" | "value"> & { readonly origin?: symbol };
+export type SettingsChange = SettingsInstance & Pick<SettingWritten, "key" | "value"> & { readonly origin?: symbol };
 export interface SettingsSourceService {
   /** Optional persistence hooks keep host-provided in-memory sources compatible. */
   register?(metadata: SettingsMetadata): void | Promise<void>;
   write?(record: SettingsChange): Promise<void>;
-  read?(schemaId: string, key: string): Promise<typeof GVariantVariant.Type | undefined>;
-  snapshot(schemas: readonly string[]): Promise<SettingsSnapshot>;
+  read?(instance: SettingsInstance, key: string): Promise<typeof GVariantVariant.Type | undefined>;
+  snapshot(instances: readonly SettingsInstance[]): Promise<SettingsSnapshot>;
   /** Enqueue only; the default source reports asynchronous write failures through Effect logging. */
   written(record: SettingsChange): void;
   readonly changes: Stream.Stream<SettingsChange>;
@@ -25,9 +31,7 @@ export class SettingsSource extends Context.Service<SettingsSource, SettingsSour
     return Layer.effect(
       SettingsSource,
       Effect.gen(function* () {
-        const values = new Map(
-          Object.entries(initial).map(([schema, keys]) => [schema, new Map(Object.entries(keys))]),
-        );
+        const values = new Map(Object.entries(initial).map(([path, keys]) => [path, new Map(Object.entries(keys))]));
         const mailbox = new SyncMailbox<SettingsChange>();
         yield* Effect.addFinalizer(() => Effect.sync(() => mailbox.close()));
         const pubsub = yield* PubSub.unbounded<SettingsChange>();
@@ -40,16 +44,16 @@ export class SettingsSource extends Context.Service<SettingsSource, SettingsSour
         );
 
         return {
-          snapshot: async (schemas: readonly string[]) =>
-            Object.fromEntries(schemas.map((schema) => [schema, Object.fromEntries(values.get(schema) ?? [])])),
+          snapshot: async (instances: readonly SettingsInstance[]) =>
+            Object.fromEntries(instances.map(({ path }) => [path, Object.fromEntries(values.get(path) ?? [])])),
           written: (record: SettingsChange) => {
             if (mailbox.isClosed) return;
-            let schema = values.get(record.schemaId);
-            if (!schema) {
-              schema = new Map();
-              values.set(record.schemaId, schema);
+            let instance = values.get(record.path);
+            if (!instance) {
+              instance = new Map();
+              values.set(record.path, instance);
             }
-            schema.set(record.key, record.value);
+            instance.set(record.key, record.value);
             mailbox.enqueue(record);
           },
           changes: Stream.fromPubSub(pubsub),
