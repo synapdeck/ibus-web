@@ -24,6 +24,11 @@
         type = lib.types.listOf lib.types.str;
         description = "The C++ files in `engines/table/src` that a build of the engine compiles, by name; the headers beside them are included from there.";
       };
+
+      module = lib.mkOption {
+        type = lib.types.package;
+        description = "The table side module, table.wasm, whose store references are its tables and settings schema.";
+      };
     };
   };
 }

@@ -2,8 +2,8 @@
 
 `engines/table/` is an engine module whose engines are driven by tables: `latex` turns LaTeX commands into Unicode,
 and `xsampa` turns X-SAMPA into IPA. Its code is MIT OR Apache-2.0, and no table carries a copyleft licence. This page
-describes the table format, where the two tables come from, and the engine's C++ core, which the native checks build
-and drive.
+describes the table format, where the two tables come from, the engine's C++ core, which the native checks build
+and drive, and the glue and side module that run it in the browser.
 
 ## Table format
 
@@ -186,6 +186,42 @@ the command-line tools, which the engine doesn't use, and records the BSD-2-Clau
 Upstream's tests run in the check phase wherever the build can run them, which is the native build: that build is the
 `table-marisa` check, which also asserts that the WebAssembly build carries the same patches.
 
+## In the browser
+
+`engines/table/src/glue.cpp` is the module's only GObject code. One `IBusEngine` subclass, `IBusWebTableEngine`,
+serves every engine, and its `engine-name` picks the table. That name is a construct property, set after instance
+init, so an instance makes its session in `constructed` and destroys it in `finalize`. The type is registered by hand
+with callbacks of exactly the types GLib calls them through, which leaves the cast audit nothing to allow.
+
+`ibusweb_module_init` registers an engine for every `*.table` in the table directory, named for its file. A handler on
+the factory's `create-engine` signal runs before the factory makes the engine: it parses the engine's table on first
+use and keeps it in a module-level map for the Worker's life, shared by every context of that engine. A table that
+doesn't parse fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, which
+stops the emission: the reply is `-EIO`, the page receives the reason in a `CreateEngineFailed` record and `select`
+rejects with it, and the field stays on native input. No exception crosses GLib's signal emission, which would leave
+the runtime faulted.
+
+The glue is the session's `Sink`:
+
+- `commit` commits the text.
+- `preedit` shows the raw buffer, underlined, in COMMIT mode, with the cursor at its end. Empty, it clears and hides
+  the preedit.
+- `candidates` gets the whole list, which a bare `\` makes every command in the LaTeX table, and sends IBus a lookup
+  table of only the page of 10 that holds the cursor, each candidate as its output and key (`α \alpha`), with the
+  cursor's position on that page. The panel draws the table it is sent as one page and leaves paging to the engine,
+  so only those 10 become `IBusText`s. Empty, it hides the lookup table.
+
+PageUp, PageDown, CursorUp and CursorDown go to the session, which redraws with the cursor's new page. The panel's
+click index counts from the page it shows, and the glue adds the page's start; a position no candidate holds is
+ignored. A key's character is `ibus_keyval_to_unicode(keyval)`, and its state is the session's modifiers as it is.
+FocusOut and Reset reset the session, which emits nothing.
+
+`pkgsWasm.ibus-web-table` (`engines/table/_package.nix`) compiles `ibusWeb.engines.table.sources` as C++23 with the
+runtime's toolchain and side-module flags, and links `pkgsWasm.marisa` into `table.wasm` statically; the runtime's
+library guard rejects a library the runtime carries. The table directory and the compiled
+`org.freedesktop.ibus.panel` schema are compiled in as store paths, which makes them the side module's whole data
+closure.
+
 ## Building and checking
 
 The native build is Meson (`engines/table/meson.build`), from nixpkgs' compiler, linking the patched MARISA. It builds
@@ -195,13 +231,18 @@ the engine as a static library and two tools, `ibusWeb.engines.table.tools`:
 - `table-describe FILE.table...` prints the tables' engine descriptors as one JSON array, each named for its file's
   stem, with the frontmatter's display name, languages and layout, and no pass-through keys.
 
-`ibusWeb.engines.table.sources` lists the `.cpp` files in `engines/table/src` by name, for builds of the engine.
+`ibusWeb.engines.table.sources` lists the `.cpp` files in `engines/table/src` by name, for builds of the engine. The
+side module compiles all of them; the Meson build names its own and leaves out `glue.cpp`, the only one that needs
+IBus.
 
-| Check               | Covers                                                                                                                  |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `table-parse`       | Both shipped tables parse and describe their engines; one malformed table per error class fails with its exact message  |
-| `table-golden`      | GoogleTest, native, through a recording `Sink`: the table queries and every rule of both modes, and the shipped X-SAMPA |
-| `table-marisa`      | Upstream MARISA's tests in the patched native build                                                                     |
-| `tools-latex-table` | Vitest: a cut-down `unicode.xml` gives an exact table, every generator rule and both alias failures, and the 24 aliases |
+| Check                | Covers                                                                                                                  |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `table-parse`        | Both shipped tables parse and describe their engines; one malformed table per error class fails with its exact message  |
+| `table-golden`       | GoogleTest, native, through a recording `Sink`: the table queries and every rule of both modes, and the shipped X-SAMPA |
+| `table-marisa`       | Upstream MARISA's tests in the patched native build                                                                     |
+| `table-imports`      | `table.wasm` imports only what the runtime exports                                                                      |
+| `table-cast-audit`   | every source, glue included, under `-Wcast-function-type-strict`, with an empty allow-list                              |
+| `table-data-closure` | the closure is the module, the tables and the compiled schema, all of them data                                         |
+| `tools-latex-table`  | Vitest: a cut-down `unicode.xml` gives an exact table, every generator rule and both alias failures, and the 24 aliases |
 
 Each is a flake check, run as `nix build .#checks.x86_64-linux.<name> -L`.
