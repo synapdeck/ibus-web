@@ -118,8 +118,99 @@ static void keys(void) {
   g_assert_cmpuint(ibus_keyval_to_unicode(IBUS_space), ==, ' ');
 }
 
+static IBusEngineDesc *mozc_desc(void) {
+  return ibus_engine_desc_new("mozc-jp", "Mozc", "Japanese input", "ja",
+                              "BSD-3-Clause", "Google", "/icon.png", "default");
+}
+
+static void engine_desc(void) {
+  IBusEngineDesc *desc = round_trip(mozc_desc(), "(sa{sv}ssssssssussssssss)");
+  g_assert_cmpstr(ibus_engine_desc_get_name(desc), ==, "mozc-jp");
+  g_assert_cmpstr(ibus_engine_desc_get_language(desc), ==, "ja");
+  g_assert_cmpstr(ibus_engine_desc_get_layout(desc), ==, "default");
+  g_object_unref(desc);
+}
+
+static IBusComponent *mozc_component(void) {
+  IBusComponent *component = ibus_component_new(
+      "com.google.IBus.Mozc", "Mozc Component", "2.30", "BSD-3-Clause",
+      "Google", "https://github.com/google/mozc", "", "ibus-mozc");
+  ibus_component_add_engine(component, mozc_desc());
+  ibus_component_add_observed_path(component, "/nix/store/mozc.xml", FALSE);
+  return component;
+}
+
+static void component(void) {
+  IBusComponent *component =
+      round_trip(mozc_component(), "(sa{sv}ssssssssavav)");
+  g_assert_cmpstr(ibus_component_get_name(component), ==,
+                  "com.google.IBus.Mozc");
+
+  GList *engines = ibus_component_get_engines(component);
+  g_assert_cmpuint(g_list_length(engines), ==, 1);
+  g_assert_cmpstr(ibus_engine_desc_get_name(engines->data), ==, "mozc-jp");
+  g_list_free(engines);
+
+  GList *paths = ibus_component_get_observed_paths(component);
+  g_assert_cmpuint(g_list_length(paths), ==, 1);
+  g_assert_cmpstr(((IBusObservedPath *)paths->data)->path, ==,
+                  "/nix/store/mozc.xml");
+  g_list_free(paths);
+
+  g_object_unref(component);
+}
+
+/* A copy shares the descriptions it lists, taking a reference to each.
+ * Destroying a component destroys its descriptions, so the copy is checked
+ * while the original lives. */
+static void component_copy(void) {
+  IBusComponent *component = g_object_ref_sink(mozc_component());
+  GList *engines = ibus_component_get_engines(component);
+  IBusEngineDesc *desc = engines->data;
+  g_list_free(engines);
+  guint refs = G_OBJECT(desc)->ref_count;
+
+  IBusComponent *copy = IBUS_COMPONENT(
+      g_object_ref_sink(ibus_serializable_copy(IBUS_SERIALIZABLE(component))));
+  g_assert_cmpuint(G_OBJECT(desc)->ref_count, ==, refs + 1);
+
+  engines = ibus_component_get_engines(copy);
+  g_assert_cmpuint(g_list_length(engines), ==, 1);
+  g_assert_true(engines->data == desc);
+  g_list_free(engines);
+
+  g_object_unref(copy);
+  g_assert_cmpuint(G_OBJECT(desc)->ref_count, ==, refs);
+  g_object_unref(component);
+}
+
+static void component_xml(void) {
+  IBusComponent *component = g_object_ref_sink(mozc_component());
+  GString *xml = g_string_new(NULL);
+  ibus_component_output(component, xml, 0);
+  g_object_unref(component);
+
+  XMLNode *node = ibus_xml_parse_buffer(xml->str);
+  g_string_free(xml, TRUE);
+  g_assert_nonnull(node);
+  g_assert_cmpstr(node->name, ==, "component");
+
+  gboolean found = FALSE;
+  for (GList *child = node->sub_nodes; child != NULL; child = child->next) {
+    XMLNode *sub = child->data;
+    if (g_strcmp0(sub->name, "engines") == 0)
+      found = sub->sub_nodes != NULL;
+  }
+  g_assert_true(found);
+  ibus_xml_free(node);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
+  g_test_add_func("/serializable/engine-desc", engine_desc);
+  g_test_add_func("/serializable/component", component);
+  g_test_add_func("/serializable/component-copy", component_copy);
+  g_test_add_func("/serializable/component-xml", component_xml);
   g_test_add_func("/serializable/attribute", attribute);
   g_test_add_func("/serializable/attributes", attributes);
   g_test_add_func("/serializable/text", text);

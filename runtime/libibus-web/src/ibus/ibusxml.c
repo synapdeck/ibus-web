@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* bus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2015 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2018 Takao Fujiwara <takao.fujiwara1@gmail.com>
  * Copyright (C) 2008-2018 Red Hat, Inc.
@@ -45,6 +46,12 @@ ibus_xml_copy (const XMLNode *node)
     return ret;
 }
 
+static void
+ibus_xml_free_node (gpointer node)
+{
+    ibus_xml_free (node);
+}
+
 void
 ibus_xml_free (XMLNode *node)
 {
@@ -54,7 +61,7 @@ ibus_xml_free (XMLNode *node)
 
     g_strfreev (node->attributes);
 
-    g_list_free_full (node->sub_nodes, (GDestroyNotify) ibus_xml_free);
+    g_list_free_full (node->sub_nodes, ibus_xml_free_node);
 
     g_slice_free (XMLNode, node);
 }

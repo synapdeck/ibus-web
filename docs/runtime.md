@@ -33,9 +33,31 @@ module instead of linking another copy.
 The public layouts, serializable data types, key helpers and schemas come from
 IBus 1.5.34. Explicit callback signatures are adapted to the declared GLib types;
 layouts and serialization stay compatible. `IBusService`, `IBusEngine`,
-`IBusFactory`, `IBusEngineSimple` and `IBusKeymap` are local implementations
-against those headers. There is no bus API. The opaque `IBusBus` declaration
-only permits engine init signatures that accept an unused bus pointer.
+`IBusFactory`, `IBusEngineSimple`, `IBusKeymap` and `IBusBus` are local
+implementations against those headers. Components, engine descriptions,
+observed paths and their XML form are upstream's.
+
+There is no daemon or D-Bus connection, so the module is the bus's only client,
+and the bus answers as the daemon would answer that client. `ibus_bus_new()`
+returns the one process-wide bus, connected; an asynchronous one emits
+`connected` once control returns to the context it was made on.
+`ibus_bus_get_connection()` returns `NULL`, which the local factory and
+services take. Name requests are granted from a table of the names the module
+owns, under the unique name `:1.1`; the daemon's own `org.freedesktop.IBus` and
+`org.freedesktop.DBus` are never handed over. `name-owner-changed` is emitted
+while D-Bus signals are watched. Registered components are kept, and
+`ibus_bus_list_engines()` and `ibus_bus_get_engines_by_names()` read their
+engines. Match rules are accepted and have nothing to filter. Requests only a
+daemon or an application could act on (input contexts, the global engine,
+preloading, shortcut keys, IBus properties, `exit`, and `get_config`, since
+settings come from GSettings) warn once per function and fail: `FALSE` or
+`NULL`, or `G_IO_ERROR_NOT_SUPPORTED` for the asynchronous forms, whose replies
+all arrive on the caller's context after the call returns. `IBusConfig`,
+`IBusInputContext` and `IBusProxy` are declared, as `ibusbus.h` needs them, but
+not implemented. `ibus_init()` registers the serializable types;
+`ibus_main()` and `ibus_quit()` are not implemented
+([known gaps](known-gaps.md#runtime)).
+
 `IBusEngineSimple` is a minimal base: compose, Ctrl+Shift+U and emoji input are
 not implemented. `ibus_keymap_get()` returns `NULL`; keymap lookup returns the
 input keyval because the page supplies translated keysyms.

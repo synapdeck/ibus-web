@@ -60,6 +60,14 @@ test_serializable = executable(
 )
 test('serializable', test_serializable, protocol: 'tap')
 
+test_bus = executable(
+  'test-bus',
+  'test-bus.c',
+  dependencies: libibus_web_dep,
+  link_args: get_option('test_main_link_args'),
+)
+test('bus', test_bus, protocol: 'tap')
+
 test_engine = executable(
   'test-engine',
   'test-engine.c',

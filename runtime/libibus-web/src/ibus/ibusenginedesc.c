@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* bus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2015 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2008-2019 Red Hat, Inc.
  *
@@ -77,21 +78,21 @@ struct _IBusEngineDescPrivate {
 // static guint            _signals[LAST_SIGNAL] = { 0 };
 
 /* functions prototype */
-static void         ibus_engine_desc_set_property   (IBusEngineDesc         *desc,
+static void         ibus_engine_desc_set_property   (GObject         *desc,
                                                      guint                   prop_id,
                                                      const GValue           *value,
                                                      GParamSpec             *pspec);
-static void         ibus_engine_desc_get_property   (IBusEngineDesc         *desc,
+static void         ibus_engine_desc_get_property   (GObject         *desc,
                                                      guint                   prop_id,
                                                      GValue                 *value,
                                                      GParamSpec             *pspec);
-static void         ibus_engine_desc_destroy        (IBusEngineDesc         *desc);
-static gboolean     ibus_engine_desc_serialize      (IBusEngineDesc         *desc,
+static void         ibus_engine_desc_destroy        (IBusObject         *desc);
+static gboolean     ibus_engine_desc_serialize      (IBusSerializable         *desc,
                                                      GVariantBuilder        *builder);
-static gint         ibus_engine_desc_deserialize    (IBusEngineDesc         *desc,
+static gint         ibus_engine_desc_deserialize    (IBusSerializable         *desc,
                                                      GVariant               *variant);
-static gboolean     ibus_engine_desc_copy           (IBusEngineDesc         *dest,
-                                                     const IBusEngineDesc   *src);
+static gboolean     ibus_engine_desc_copy           (IBusSerializable         *dest,
+                                                     const IBusSerializable   *src);
 static gboolean     ibus_engine_desc_parse_xml_node (IBusEngineDesc         *desc,
                                                      XMLNode                *node);
 
@@ -107,13 +108,13 @@ ibus_engine_desc_class_init (IBusEngineDescClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    gobject_class->set_property = (GObjectSetPropertyFunc) ibus_engine_desc_set_property;
-    gobject_class->get_property = (GObjectGetPropertyFunc) ibus_engine_desc_get_property;
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_engine_desc_destroy;
+    gobject_class->set_property = ibus_engine_desc_set_property;
+    gobject_class->get_property = ibus_engine_desc_get_property;
+    object_class->destroy = ibus_engine_desc_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_engine_desc_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_engine_desc_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_engine_desc_copy;
+    serializable_class->serialize   = ibus_engine_desc_serialize;
+    serializable_class->deserialize = ibus_engine_desc_deserialize;
+    serializable_class->copy        = ibus_engine_desc_copy;
 
     /* install properties */
     /**
@@ -365,8 +366,9 @@ ibus_engine_desc_init (IBusEngineDesc *desc)
 }
 
 static void
-ibus_engine_desc_destroy (IBusEngineDesc *desc)
+ibus_engine_desc_destroy (IBusObject *object_base)
 {
+    IBusEngineDesc *desc = (IBusEngineDesc *) object_base;
     g_free (desc->priv->name);
     g_free (desc->priv->longname);
     g_free (desc->priv->description);
@@ -388,11 +390,12 @@ ibus_engine_desc_destroy (IBusEngineDesc *desc)
 }
 
 static void
-ibus_engine_desc_set_property (IBusEngineDesc *desc,
+ibus_engine_desc_set_property (GObject *object_base,
                                guint           prop_id,
                                const GValue   *value,
                                GParamSpec     *pspec)
 {
+    IBusEngineDesc *desc = (IBusEngineDesc *) object_base;
     switch (prop_id) {
     case PROP_NAME:
         g_assert (desc->priv->name == NULL);
@@ -467,11 +470,12 @@ ibus_engine_desc_set_property (IBusEngineDesc *desc,
 }
 
 static void
-ibus_engine_desc_get_property (IBusEngineDesc *desc,
+ibus_engine_desc_get_property (GObject *object_base,
                                guint           prop_id,
                                GValue         *value,
                                GParamSpec     *pspec)
 {
+    IBusEngineDesc *desc = (IBusEngineDesc *) object_base;
     switch (prop_id) {
     case PROP_NAME:
         g_value_set_string (value, ibus_engine_desc_get_name (desc));
@@ -530,9 +534,10 @@ ibus_engine_desc_get_property (IBusEngineDesc *desc,
 }
 
 static gboolean
-ibus_engine_desc_serialize (IBusEngineDesc  *desc,
+ibus_engine_desc_serialize (IBusSerializable *object_base,
                             GVariantBuilder *builder)
 {
+    IBusEngineDesc *desc = (IBusEngineDesc *) object_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_engine_desc_parent_class)->serialize ((IBusSerializable *)desc, builder);
@@ -568,9 +573,10 @@ ibus_engine_desc_serialize (IBusEngineDesc  *desc,
 }
 
 static gint
-ibus_engine_desc_deserialize (IBusEngineDesc *desc,
+ibus_engine_desc_deserialize (IBusSerializable *object_base,
                               GVariant       *variant)
 {
+    IBusEngineDesc *desc = (IBusEngineDesc *) object_base;
     gint retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_engine_desc_parent_class)->deserialize ((IBusSerializable *)desc, variant);
@@ -627,9 +633,11 @@ ibus_engine_desc_deserialize (IBusEngineDesc *desc,
 }
 
 static gboolean
-ibus_engine_desc_copy (IBusEngineDesc       *dest,
-                       const IBusEngineDesc *src)
+ibus_engine_desc_copy (IBusSerializable *object_base,
+                       const IBusSerializable *source_base)
 {
+    IBusEngineDesc *dest = (IBusEngineDesc *) object_base;
+    const IBusEngineDesc *src = (const IBusEngineDesc *) source_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_engine_desc_parent_class)->copy ((IBusSerializable *)dest,

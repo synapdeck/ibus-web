@@ -88,10 +88,25 @@ An item leaves this page when it is fixed or decided.
   numeric ABI can pass this check; the import-name guard does not prove that
   layouts and calling conventions match.
 
-- **IBus API scope.** The runtime supplies engine/data types, emitters, the framed dispatcher
-  and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji;
-  unused bus/config/component APIs remain absent. Latin mode therefore leaves ordinary typing
-  to the browser. Keymap lookup uses page-provided keysyms.
+- **IBus API scope.** The runtime supplies engine/data types, components and engine
+  descriptions, a local bus, emitters, the framed dispatcher and settings backend.
+  `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji; Latin mode therefore leaves
+  ordinary typing to the browser. Keymap lookup uses page-provided keysyms. `IBusConfig`,
+  `IBusInputContext` and `IBusProxy` are declared, for `ibusbus.h`, but not implemented, and
+  the bus's daemon- and application-side requests warn once and fail
+  ([runtime.md](runtime.md#ibus-layer)).
+- **An engine's own startup code doesn't run yet.** `ibus_main()` and `ibus_quit()` are
+  declared but not implemented, so each engine's `main()` (bus, factory, `request_name` or
+  `register_component`, then `ibus_main()`) is replaced by a hand-written
+  `ibusweb_module_init`. Running `main()` unmodified needs a module-loading model: compile it
+  under another name, call it on a thread of its own with the daemon's arguments (`--ibus`),
+  and have `ibus_main()` report that startup is complete and park that thread until
+  `ibus_quit()`, so locals that registered objects point at (Mozc keeps its engine on
+  `main()`'s stack) stay alive. Unwinding to JavaScript would free them. Engine callbacks
+  still run on the pumping thread, which owns the default main context; `main()` returning,
+  or calling `exit()`, before `ibus_main()` would fail the load, and `exit()` would need
+  catching, since it ends the runtime. The parked thread counts toward the manifest's
+  `threads`. This is the module-loading ABI, so it waits on the engine API's changes.
 - **Native parity scope.** `checks.hangul-differential` compares ten traces at
   the engine boundary against the pinned stock native engine. It does not test
   browser host/router behavior or live settings. The stock engine's invalid
@@ -335,6 +350,10 @@ An item leaves this page when it is fixed or decided.
 - **Most reports are filed; some fixes and one proposal aren't.** [upstream/README.md](upstream/README.md)
   lists what is left to post, in order (two PRs, a Node issue, two Emscripten issues, the follow-up PRs
   for filed issues, and the IndexedDB backend proposal), and what was filed where.
+- **IBus's observed paths serialize `mtime` wrongly on 32-bit targets.** `mtime` is a
+  `glong`, but its serializer passes it to a 64-bit `"x"` through varargs and its deserializer
+  writes 64 bits over it and the field after it. The vendored `ibusobservedpath.c` carries the
+  fix; no upstream report is drafted yet.
 - **Moving the toolchain past 6.0.9 needs a newer clang.** Emscripten 6.0.10 and `main` build their libc
   with `__builtin_wasm_memory_fill`, which nixpkgs' clang 22 and 23.1 don't know, so the patches that
   shipped upstream (0001 in 6.0.10, 0004 in 6.0.11, 0016 after it) stay until nixpkgs' Emscripten moves.

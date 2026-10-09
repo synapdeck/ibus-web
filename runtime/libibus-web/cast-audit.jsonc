@@ -94,5 +94,33 @@
       "to": "GInstanceInitFunc",
       "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
     },
+    {
+      "file": "../src/ibus/ibuscomponent.c",
+      "function": null,
+      "from": "void (*)(IBusComponent *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusenginedesc.c",
+      "function": null,
+      "from": "void (*)(IBusEngineDesc *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusobservedpath.c",
+      "function": null,
+      "from": "void (*)(IBusObservedPath *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
+    {
+      "file": "../src/ibus/ibusbus.c",
+      "function": null,
+      "from": "void (*)(IBusBus *, gpointer)",
+      "to": "GInstanceInitFunc",
+      "reason": "GLib G_DEFINE_TYPE emits a two-argument initializer adapter. Both parameters are pointers, matching GInstanceInitFunc exactly at the wasm32 ABI; only the first pointer's C pointee type differs.",
+    },
   ],
 }

@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* ibus - The Input IBus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2015 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2020 Takao Fujiwara <takao.fujiwara1@gmail.com>
  * Copyright (C) 2008-2020 Red Hat, Inc.
@@ -43,13 +44,13 @@ typedef struct _IBusObservedPathPrivate IBusObservedPathPrivate;
 // static guint            _signals[LAST_SIGNAL] = { 0 };
 
 /* functions prototype */
-static void      ibus_observed_path_destroy         (IBusObservedPath       *path);
-static gboolean  ibus_observed_path_serialize       (IBusObservedPath       *path,
+static void      ibus_observed_path_destroy         (IBusObject       *path);
+static gboolean  ibus_observed_path_serialize       (IBusSerializable       *path,
                                                      GVariantBuilder        *builder);
-static gint      ibus_observed_path_deserialize     (IBusObservedPath       *path,
+static gint      ibus_observed_path_deserialize     (IBusSerializable       *path,
                                                      GVariant               *variant);
-static gboolean  ibus_observed_path_copy            (IBusObservedPath       *dest,
-                                                     const IBusObservedPath *src);
+static gboolean  ibus_observed_path_copy            (IBusSerializable       *dest,
+                                                     const IBusSerializable *src);
 static gboolean  ibus_observed_path_parse_xml_node  (IBusObservedPath       *path,
                                                      XMLNode                *node);
 
@@ -63,11 +64,11 @@ ibus_observed_path_class_init (IBusObservedPathClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_observed_path_destroy;
+    object_class->destroy = ibus_observed_path_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_observed_path_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_observed_path_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_observed_path_copy;
+    serializable_class->serialize   = ibus_observed_path_serialize;
+    serializable_class->deserialize = ibus_observed_path_deserialize;
+    serializable_class->copy        = ibus_observed_path_copy;
 }
 
 
@@ -77,8 +78,9 @@ ibus_observed_path_init (IBusObservedPath *path)
 }
 
 static void
-ibus_observed_path_destroy (IBusObservedPath *path)
+ibus_observed_path_destroy (IBusObject *object_base)
 {
+    IBusObservedPath *path = (IBusObservedPath *) object_base;
     IBusObservedPathPrivate *priv;
     g_free (path->path);
     if (IBUS_IS_OBSERVED_PATH (path)) {
@@ -89,9 +91,10 @@ ibus_observed_path_destroy (IBusObservedPath *path)
 }
 
 static gboolean
-ibus_observed_path_serialize (IBusObservedPath *path,
+ibus_observed_path_serialize (IBusSerializable *object_base,
                               GVariantBuilder  *builder)
 {
+    IBusObservedPath *path = (IBusObservedPath *) object_base;
     IBusObservedPathPrivate *priv = IBUS_OBSERVED_PATH_GET_PRIVATE (path);
     gboolean retval;
     guint i;
@@ -101,7 +104,9 @@ ibus_observed_path_serialize (IBusObservedPath *path,
     g_return_val_if_fail (retval, FALSE);
 
     g_variant_builder_add (builder, "s", path->path);
-    g_variant_builder_add (builder, "x", path->mtime);
+    /* mtime is a glong, 32 bits on 32-bit targets, but the wire carries
+     * 64 bits, which varargs would read past it. */
+    g_variant_builder_add (builder, "x", (gint64) path->mtime);
 
     if (!priv->file_hash_list) {
         g_variant_builder_add (builder, "u", 0);
@@ -116,9 +121,10 @@ ibus_observed_path_serialize (IBusObservedPath *path,
 }
 
 static gint
-ibus_observed_path_deserialize (IBusObservedPath *path,
+ibus_observed_path_deserialize (IBusSerializable *object_base,
                                 GVariant         *variant)
 {
+    IBusObservedPath *path = (IBusObservedPath *) object_base;
     IBusObservedPathPrivate *priv = IBUS_OBSERVED_PATH_GET_PRIVATE (path);
     gint retval;
     guint i, length = 0;
@@ -128,7 +134,11 @@ ibus_observed_path_deserialize (IBusObservedPath *path,
     g_return_val_if_fail (retval, 0);
 
     ibus_g_variant_get_child_string (variant, retval++, &path->path);
-    g_variant_get_child (variant, retval++, "x", &path->mtime);
+    /* Read the wire's 64 bits into their own variable, not over a 32-bit
+     * mtime and the field after it. */
+    gint64 mtime;
+    g_variant_get_child (variant, retval++, "x", &mtime);
+    path->mtime = mtime;
 
     if (g_variant_n_children (variant) < retval + 2)
         return retval;
@@ -143,9 +153,11 @@ ibus_observed_path_deserialize (IBusObservedPath *path,
 }
 
 static gboolean
-ibus_observed_path_copy (IBusObservedPath       *dest,
-                         const IBusObservedPath *src)
+ibus_observed_path_copy (IBusSerializable *object_base,
+                         const IBusSerializable *source_base)
 {
+    IBusObservedPath *dest = (IBusObservedPath *) object_base;
+    const IBusObservedPath *src = (const IBusObservedPath *) source_base;
     IBusObservedPathPrivate *dest_priv = IBUS_OBSERVED_PATH_GET_PRIVATE (dest);
     IBusObservedPathPrivate *src_priv =
             IBUS_OBSERVED_PATH_GET_PRIVATE ((IBusObservedPath *)src);

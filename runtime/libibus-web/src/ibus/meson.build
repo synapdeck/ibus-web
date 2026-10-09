@@ -4,7 +4,7 @@
 gnome = import('gnome')
 ibus_enums = gnome.mkenums(
   'ibusenumtypes',
-  sources: files('../../include/ibus-1.0/ibustypes.h', '../../include/ibus-1.0/ibusattribute.h', '../../include/ibus-1.0/ibusobject.h', '../../include/ibus-1.0/ibusproperty.h', '../../include/ibus-1.0/ibusengine.h', '../../include/ibus-1.0/ibuserror.h'),
+  sources: files('../../include/ibus-1.0/ibustypes.h', '../../include/ibus-1.0/ibusattribute.h', '../../include/ibus-1.0/ibusobject.h', '../../include/ibus-1.0/ibusproperty.h', '../../include/ibus-1.0/ibusengine.h', '../../include/ibus-1.0/ibuserror.h', '../../include/ibus-1.0/ibusbus.h', '../../include/ibus-1.0/ibusxevent.h'),
   identifier_prefix: 'IBus',
   symbol_prefix: 'ibus',
   c_template: 'ibusenumtypes.c.template',
@@ -21,6 +21,8 @@ libibus_ibus = static_library(
   'ibusattrlist.c', 'ibuslookuptable.c', 'ibusproperty.c', 'ibusproplist.c',
   'ibuskeys.c', 'ibuskeyuni.c', 'ibusutil.c', 'ibuserror.c',
   'ibusservice.c', 'ibusengine.c', 'ibusenginesimple.c', 'ibusfactory.c', 'ibuskeymap.c',
+  'ibusxml.c', 'ibusobservedpath.c', 'ibusenginedesc.c', 'ibuscomponent.c',
+  'ibusbus.c', 'ibusshare.c',
   ibus_enums, ibus_marshallers,
   include_directories: [ibus_includes, include_directories('../../include')],
   dependencies: [glib, gobject, gio],

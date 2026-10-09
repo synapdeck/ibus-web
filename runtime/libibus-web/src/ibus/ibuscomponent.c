@@ -1,6 +1,7 @@
 /* -*- mode: C; c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 /* vim:set et sts=4: */
 /* bus - The Input Bus
+ * Copyright (C) 2026 Synapdeck, Inc.
  * Copyright (C) 2008-2010 Peng Huang <shawn.p.huang@gmail.com>
  * Copyright (C) 2020-2025 Takao Fujiwara <takao.fujiwara1@gmail.com>
  * Copyright (C) 2008-2020 Red Hat, Inc.
@@ -64,21 +65,21 @@ struct _IBusComponentPrivate {
 // static guint            _signals[LAST_SIGNAL] = { 0 };
 
 /* functions prototype */
-static void         ibus_component_set_property (IBusComponent          *component,
+static void         ibus_component_set_property (GObject          *component,
                                                  guint                   prop_id,
                                                  const GValue           *value,
                                                  GParamSpec             *pspec);
-static void         ibus_component_get_property (IBusComponent          *component,
+static void         ibus_component_get_property (GObject          *component,
                                                  guint                   prop_id,
                                                  GValue                 *value,
                                                  GParamSpec             *pspec);
-static void         ibus_component_destroy      (IBusComponent          *component);
-static gboolean     ibus_component_serialize    (IBusComponent          *component,
+static void         ibus_component_destroy      (IBusObject          *component);
+static gboolean     ibus_component_serialize    (IBusSerializable          *component,
                                                  GVariantBuilder        *builder);
-static gint         ibus_component_deserialize  (IBusComponent          *component,
+static gint         ibus_component_deserialize  (IBusSerializable          *component,
                                                  GVariant               *variant);
-static gboolean     ibus_component_copy         (IBusComponent          *dest,
-                                                 const IBusComponent    *src);
+static gboolean     ibus_component_copy         (IBusSerializable          *dest,
+                                                 const IBusSerializable    *src);
 static gboolean     ibus_component_parse_xml_node
                                                 (IBusComponent          *component,
                                                  XMLNode                *node,
@@ -91,6 +92,9 @@ static void         ibus_component_parse_observed_paths
                                                  XMLNode                *node,
                                                  gboolean                access_fs);
 
+static gpointer     ibus_component_ref_copy     (gconstpointer           object,
+                                                 gpointer                data);
+
 G_DEFINE_TYPE_WITH_PRIVATE (IBusComponent,
                             ibus_component,
                             IBUS_TYPE_SERIALIZABLE)
@@ -102,13 +106,13 @@ ibus_component_class_init (IBusComponentClass *class)
     IBusObjectClass *object_class = IBUS_OBJECT_CLASS (class);
     IBusSerializableClass *serializable_class = IBUS_SERIALIZABLE_CLASS (class);
 
-    gobject_class->set_property = (GObjectSetPropertyFunc) ibus_component_set_property;
-    gobject_class->get_property = (GObjectGetPropertyFunc) ibus_component_get_property;
-    object_class->destroy = (IBusObjectDestroyFunc) ibus_component_destroy;
+    gobject_class->set_property = ibus_component_set_property;
+    gobject_class->get_property = ibus_component_get_property;
+    object_class->destroy = ibus_component_destroy;
 
-    serializable_class->serialize   = (IBusSerializableSerializeFunc) ibus_component_serialize;
-    serializable_class->deserialize = (IBusSerializableDeserializeFunc) ibus_component_deserialize;
-    serializable_class->copy        = (IBusSerializableCopyFunc) ibus_component_copy;
+    serializable_class->serialize   = ibus_component_serialize;
+    serializable_class->deserialize = ibus_component_deserialize;
+    serializable_class->copy        = ibus_component_copy;
 
     /* install properties */
     /**
@@ -224,8 +228,9 @@ ibus_component_init (IBusComponent *component)
 }
 
 static void
-ibus_component_destroy (IBusComponent *component)
+ibus_component_destroy (IBusObject *object_base)
 {
+    IBusComponent *component = (IBusComponent *) object_base;
     GList *p;
 
     g_free (component->priv->name);
@@ -261,11 +266,12 @@ ibus_component_destroy (IBusComponent *component)
 }
 
 static void
-ibus_component_set_property (IBusComponent *component,
+ibus_component_set_property (GObject *object_base,
                              guint          prop_id,
                              const GValue  *value,
                              GParamSpec    *pspec)
 {
+    IBusComponent *component = (IBusComponent *) object_base;
     switch (prop_id) {
     case PROP_NAME:
         g_assert (component->priv->name == NULL);
@@ -305,11 +311,12 @@ ibus_component_set_property (IBusComponent *component,
 }
 
 static void
-ibus_component_get_property (IBusComponent *component,
+ibus_component_get_property (GObject *object_base,
                              guint          prop_id,
                              GValue        *value,
                              GParamSpec    *pspec)
 {
+    IBusComponent *component = (IBusComponent *) object_base;
     switch (prop_id) {
     case PROP_NAME:
         g_value_set_string (value, ibus_component_get_name (component));
@@ -341,9 +348,10 @@ ibus_component_get_property (IBusComponent *component,
 }
 
 static gboolean
-ibus_component_serialize (IBusComponent   *component,
+ibus_component_serialize (IBusSerializable *object_base,
                           GVariantBuilder *builder)
 {
+    IBusComponent *component = (IBusComponent *) object_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_component_parent_class)->serialize ((IBusSerializable *)component, builder);
@@ -388,9 +396,10 @@ ibus_component_serialize (IBusComponent   *component,
 }
 
 static gint
-ibus_component_deserialize (IBusComponent   *component,
+ibus_component_deserialize (IBusSerializable *object_base,
                             GVariant        *variant)
 {
+    IBusComponent *component = (IBusComponent *) object_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_component_parent_class)->deserialize ((IBusSerializable *)component, variant);
@@ -433,9 +442,11 @@ ibus_component_deserialize (IBusComponent   *component,
 }
 
 static gboolean
-ibus_component_copy (IBusComponent       *dest,
-                     const IBusComponent *src)
+ibus_component_copy (IBusSerializable *object_base,
+                     const IBusSerializable *source_base)
 {
+    IBusComponent *dest = (IBusComponent *) object_base;
+    const IBusComponent *src = (const IBusComponent *) source_base;
     gboolean retval;
 
     retval = IBUS_SERIALIZABLE_CLASS (ibus_component_parent_class)->copy ((IBusSerializable *)dest,
@@ -451,13 +462,22 @@ ibus_component_copy (IBusComponent       *dest,
     dest->priv->exec          = g_strdup (src->priv->exec);
     dest->priv->textdomain    = g_strdup (src->priv->textdomain);
 
-    dest->priv->observed_paths = g_list_copy (src->priv->observed_paths);
-    g_list_foreach (dest->priv->observed_paths, (GFunc) g_object_ref, NULL);
+    dest->priv->observed_paths = g_list_copy_deep (src->priv->observed_paths,
+                                                   ibus_component_ref_copy,
+                                                   NULL);
 
-    dest->priv->engines = g_list_copy (src->priv->engines);
-    g_list_foreach (dest->priv->engines, (GFunc) g_object_ref, NULL);
+    dest->priv->engines = g_list_copy_deep (src->priv->engines,
+                                            ibus_component_ref_copy,
+                                            NULL);
 
     return TRUE;
+}
+
+static gpointer
+ibus_component_ref_copy (gconstpointer object,
+                         gpointer      data)
+{
+    return g_object_ref ((gpointer) object);
 }
 
 
