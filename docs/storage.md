@@ -433,7 +433,7 @@ any other file. The protocol lives in
 ### Names and locks
 
 Each version's data is a database of its own, `ibus-web/<name>/data/<version>`,
-apart from the engine's own files (`ibus-web/<name>`) and from every other
+apart from the module's own files (`ibus-web/<name>`) and from every other
 version, so installing one never touches another in use. Three Web Locks
 per module:
 
@@ -443,7 +443,7 @@ per module:
 - `ibus-web:install:<name>:<version>`, **exclusive**, for deciding and
   installing; versions install independently.
 - `ibus-web:writer:<name>`, the [writer lock](#one-writer-per-modules-user-data),
-  which covers the engine's own files only. Every host installs a missing
+  which covers the module's own files only. Every host installs a missing
   version, writer or not.
 
 ### Installing

@@ -53,15 +53,20 @@ returns `consumed`, `replayed`, `passthrough` or `cancelled`. A `replayed` fallb
 is already applied exactly once; excluded `passthrough` events are untouched.
 `select(module, engine?)` selects an engine of a module, the module's first when
 `engine` is left out; switching engine within a module reuses its Worker. An
-unknown module or engine rejects before anything changes. When a focused surface's engine fails to start, `select` rejects with a `CreateEngineError`, exported from `ibus-web` for `instanceof`, whose message carries the engine's reason (for a table engine, the parser's `path:line: reason`). The selection stands, since the engine failed to start, and that surface stays on native input. `deselect()` returns
-every surface to plain browser input and keeps Workers loaded; hosts bind their own
-shortcut for it, as there are no built-in hotkeys. `selection` is the current
-`{ module, engine }` or `undefined`. `engines(module)` reads and validates a
-module's manifest and resolves to its engine descriptors (`name`, `displayName`,
-`languages`, `keyboard`) without starting a Worker. `select`, `deselect`,
-`engines`, `unload(module)` and `dispose()` return Promises.
+unknown module or engine rejects before anything changes. When a focused
+surface's engine fails to start, `select` rejects with a `CreateEngineError`,
+exported from `ibus-web` for `instanceof`, whose message carries the engine's
+reason (for a table engine, the parser's `path:line: reason`). The selection
+stands, since the engine failed to start, and that surface stays on native input.
+`deselect()` returns every surface to plain browser input and keeps Workers
+loaded; hosts bind their own shortcut for it, as there are no built-in hotkeys.
+`selection` is the current `{ module, engine }` or `undefined`. `engines(module)`
+reads and validates a module's manifest and resolves to its engine descriptors
+(`name`, `displayName`, `languages`, `keyboard`) without starting a Worker.
+`select`, `deselect`, `engines`, `unload(module)` and `dispose()` return Promises.
 `debugRestart(module)` is a development-only way to terminate the actual Worker
-and await recovery; it restores the selection only when `module` is the selected one. No concrete CodeMirror adapter is provided.
+and await recovery; it restores the selection only when `module` is the selected
+one. No concrete CodeMirror adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Use
 `settings.get(module, schemaId, key)`, `set(module, schemaId, key, variant)` and
