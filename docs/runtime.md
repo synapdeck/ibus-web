@@ -92,7 +92,7 @@ The errors are exactly those `runtime.h` lists: `-EBADMSG` for invalid framing
 or payload, `-ENOSYS` for unknown request kinds, `-ENOTCONN` before Init,
 `-EALREADY` for repeated Init, `-EPROTO` for a version mismatch, `-ENOENT` for
 an absent context, `-EEXIST` for a duplicate context, `-ESRCH` for an
-unregistered engine, `-EINVAL` for a `SetSurroundingText` cursor or anchor
+unregistered engine, `-EIO` for a registered engine that wasn't made, `-EINVAL` for a `SetSurroundingText` cursor or anchor
 past the text's length in characters, `-EPERM` off the pumping thread, and
 `-ECANCELED` when an engine throws a C++ exception. Requests failing on their
 framing, payload or context reach no engine. `SettingChanged` ignores the
@@ -100,6 +100,14 @@ header's `ic`, so its `-ENOENT` means an unknown schema or key, never a
 missing context; it returns `-EINVAL` for a value outside the key's type or
 range and `-ENOTSUP` for a relocatable schema or a default settings backend
 other than the runtime's, and each of these also writes a `Log` record.
+
+A side module's `create-engine` handler fails a `CreateEngine` with a reason by calling
+`ibusweb_factory_fail_create(reason)` and returning `NULL`. The call stops the emission, so the factory makes no
+engine, and the factory writes a `CreateEngineFailed` record with the reason on the request's context before the
+`-EIO` reply, which hands the page both together. The first reason counts, invalid UTF-8 in it is replaced, and a
+reason fails the creation even when its handler also returned an engine. A creation that ends without an engine for
+any other reason replies `-EIO` with no record. Called outside a `create-engine` emission, the function logs a
+critical.
 
 `-ECANCELED` means the runtime is unusable. The exception unwound through
 GLib's signal emission, skipping its cleanup and leaking the engine's
@@ -166,6 +174,7 @@ values, as Emscripten's libc numbers them.
 | `ibusweb_wait(seen, timeout_ms)`                                       | Sleeps while the wake word holds `seen`, running proxied calls meanwhile (below). `0`, `-ETIMEDOUT`, `-EINVAL` before init, `-EPERM` off the pumping thread.                                                   |
 | `ibusweb_load_module(path, out)`                                       | Loads a side module and registers it (Side modules, below). `-ENOENT`, `-ENOEXEC`, or the registration's error.                                                                                                |
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                |
+| `ibusweb_factory_fail_create(reason)`                                  | From a `create-engine` handler: fails the `CreateEngine` in progress with `reason` (Protocol, dispatch and output, above).                                                                                     |
 | `ibusweb_test_dispatch(request, len, reply, cap)`                      | The test dispatcher (below).                                                                                                                                                                                   |
 | `ibusweb_dispatch(request, len)`                                       | Dispatches one `protocol.h` request on the pumping thread without pumping: a key event's 0/1 reply, zero for other requests, or a negative errno (Protocol, dispatch and output, above).                       |
 | `ibusweb_output_peek(len)`                                             | The buffered whole records, in sequence order; the pointer is valid until the next runtime call, `ibusweb_wait()` included. Pumping thread only.                                                               |
@@ -278,7 +287,7 @@ registration, test-dispatch errors and exceptions, and loading side modules
 extractor. The suite also covers serialization, key helpers, emitters, engine
 signals and caches (including fresh cursor/capabilities/content values inside
 non-chaining subclass callbacks and ordinary connected handlers), protocol
-validation, logs and settings (69 C cases in total). The real Hangul side module has its own [golden tests](engines.md#golden-tests).
+validation, engine creation failures, logs and settings (69 C cases in total). The real Hangul side module has its own [golden tests](engines.md#golden-tests).
 See [testing.md](testing.md).
 
 ## `ibus-runtime.wasm`

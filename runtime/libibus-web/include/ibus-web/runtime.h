@@ -141,6 +141,14 @@ IBUSWEB_API void ibusweb_module_init(IBusWebModule *module);
 IBUSWEB_API int ibusweb_load_module(const char *path,
                                     IBusWebModule **module_out);
 
+/* Fails the CreateEngine in progress with reason, which the host receives in
+ * a CreateEngineFailed record on the request's context, ahead of the -EIO
+ * reply. Call it from a handler of the factory's "create-engine" signal,
+ * which then returns NULL: it stops the emission, so the factory doesn't
+ * make the engine anyway. The first reason counts, and invalid UTF-8 in it
+ * is replaced. Outside a create-engine emission it logs a critical. */
+IBUSWEB_API void ibusweb_factory_fail_create(const char *reason);
+
 /* Test dispatcher, through which a host's tests call the operations side
  * modules register. A request is a little-endian uint32_t opcode followed by
  * the operation's payload; the reply the operation appends is copied into
@@ -234,10 +242,11 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * errno: EBADMSG for invalid framing/payload, ENOSYS for unknown kinds,
  * ENOTCONN before Init, EALREADY for a repeated Init, EPROTO for a version
  * mismatch, ENOENT for a missing context, EEXIST for a duplicate context,
- * ESRCH for an unregistered engine, EINVAL for a SetSurroundingText cursor or
- * anchor past the text's length in characters, EPERM off-thread, or ECANCELED
- * when an engine throws a C++ exception. Requests failing on their framing,
- * payload or context reach no engine.
+ * ESRCH for an unregistered engine, EIO for a registered one that wasn't made,
+ * EINVAL for a SetSurroundingText cursor or anchor past the text's length in
+ * characters, EPERM off-thread, or ECANCELED when an engine throws a C++
+ * exception. Requests failing on their framing, payload or context reach no
+ * engine.
  *
  * SettingChanged ignores the header's ic, so its ENOENT means an unknown
  * schema or key, never a missing context; it returns EINVAL for a value

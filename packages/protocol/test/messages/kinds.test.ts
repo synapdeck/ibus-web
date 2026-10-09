@@ -56,9 +56,10 @@ test("matches every record kind and includes the host crash payload", () => {
     ["SettingWritten", 32, "(ssv)"],
     ["Log", 33, "(uss)"],
     ["Crashed", 34, "(us)"],
+    ["CreateEngineFailed", 35, "(s)"],
   ]);
   expect(recordKinds.get("Crashed")).toBe(34);
-  expect(recordKinds.size).toBe(18);
+  expect(recordKinds.size).toBe(19);
   expect(new Set(recordKinds.values()).size).toBe(recordKinds.size);
 });
 

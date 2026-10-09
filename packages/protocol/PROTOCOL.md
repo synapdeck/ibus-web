@@ -455,6 +455,16 @@ Host crash report; the shared control state is authoritative. Written by the hos
 | `reason`  | `u`           | Why the Worker stopped: TRAP 1 (the runtime trapped), FAULT 2 (a request returned -ECANCELED, leaving the runtime unusable), RELAY 3 (the wake relay failed), LOAD 4 (the engine module failed to load), HOST 5 (the host itself failed). |
 | `message` | `s`           | Human-readable detail of the failure, for logs.                                                                                                                                                                                           |
 
+### CreateEngineFailed
+
+Kind: **35**. Signature: `(s)`.
+
+Explain a CreateEngine that the engine failed: written on the request's input context, before its -EIO reply.
+
+| Name      | GVariant type | Description                                                |
+| --------- | ------------- | ---------------------------------------------------------- |
+| `message` | `s`           | Why the engine couldn't be created, in the engine's words. |
+
 ## IBus types
 
 Serializable tuples begin with their type name and attachments. Nested serializables occupy GVariant variant (`v`) slots.

@@ -71,6 +71,10 @@ and `SchemaError` for a request that fails its schema.
 3, `LOAD` 4 and `HOST` 5 (`CrashReason`), and any other value fails its schema.
 The control state, not the record, is authoritative for a crash.
 
+`CreateEngineFailed (s)` (kind 35) is written by the runtime on the request's context, ahead of the `-EIO` reply to a
+`CreateEngine` that the engine failed with a reason ([runtime.md](runtime.md#protocol-dispatch-and-output)). Its
+`message` is that reason.
+
 `decodeRecord` remains the fully eager API. `decodeRecordLazy` instead carries a
 `LazyLookupTable` in `UpdateLookupTable` records. The dedicated
 `decodeLookupTableRecord(bytes, offset?)` validates the envelope, fixed fields,

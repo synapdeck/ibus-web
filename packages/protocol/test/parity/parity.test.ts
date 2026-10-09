@@ -106,7 +106,8 @@ describe("real IBus parity", () => {
     while (offset < bytes.length) {
       const decoded = decodeRecord(bytes, offset);
       expect(decoded.seq).toBe(actual.length + 1);
-      expect(decoded.ic).toBe(decoded.record._tag === "Log" || decoded.record._tag === "SettingWritten" ? 0 : 1);
+      const tag = decoded.record._tag;
+      expect(decoded.ic).toBe(tag === "Log" || tag === "SettingWritten" ? 0 : tag === "CreateEngineFailed" ? 2 : 1);
       expect(decoded.flags).toBe(0);
       actual.push({ kind: decoded.record._tag, args: project(Schema.encodeSync(OutputRecord)(decoded.record)) });
       offset += decoded.size;

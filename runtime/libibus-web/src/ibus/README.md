@@ -96,5 +96,5 @@ sed -n 's/^| `\([^`]*\)` *| Upstream.*/\1/p' src/ibus/README.md |
 | `src/ibus/ibusservice.c`                    | Ours: GObject service properties and ownership without D-Bus.                                                                                           |
 | `src/ibus/ibusengine.c`                     | Ours, using upstream signal declarations and emitter logic: replace D-Bus output with protocol records; retain surrounding text and fast-page behavior. |
 | `src/ibus/ibusenginesimple.c`               | Ours: pass-through simple engine; Compose and emoji remain with the browser and OS.                                                                     |
-| `src/ibus/ibusfactory.c`                    | Ours, using upstream signal semantics: one runtime registry and per-context engine creation.                                                            |
+| `src/ibus/ibusfactory.c`                    | Ours, using upstream signal semantics: one runtime registry, per-context engine creation, and a handler's reason for failing it.                        |
 | `src/ibus/ibuskeymap.c`                     | Ours: router keyvals pass through without engine-side remapping.                                                                                        |

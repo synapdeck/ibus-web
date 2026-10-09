@@ -217,6 +217,12 @@ static int32_t route(gpointer data) {
   }
 }
 
+void ibusweb_factory_fail_create(const char *reason) {
+  g_return_if_fail(reason != NULL);
+  if (!ibusweb_factory_fail(reason))
+    g_critical("ibusweb_factory_fail_create() called outside a CreateEngine");
+}
+
 gboolean ibusweb_runtime_faulted(void) { return g_atomic_int_get(&faulted); }
 
 int32_t ibusweb_dispatch(const uint8_t *bytes, uint32_t len) {

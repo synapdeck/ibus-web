@@ -172,6 +172,31 @@ static void skip_debug_logs(void) {
   }
 }
 
+static void expect_create_failed(guint32 expected_ic, const gchar *expected) {
+  guint32 length;
+  const guint8 *data = ibusweb_output_peek(&length);
+  g_assert_nonnull(data);
+  g_assert_cmpuint(length, >=, sizeof(IBusWebRecordHeader));
+  IBusWebRecordHeader header;
+  memcpy(&header, data, sizeof header);
+  g_assert_cmpuint(GUINT16_FROM_LE(header.kind), ==,
+                   IBUSWEB_REC_CREATE_ENGINE_FAILED);
+  g_assert_cmpuint(GUINT32_FROM_LE(header.ic), ==, expected_ic);
+
+  guint payload_length = GUINT32_FROM_LE(header.len);
+  GVariant *payload = g_variant_ref_sink(
+      g_variant_new_from_data(G_VARIANT_TYPE("(s)"), data + sizeof header,
+                              payload_length, FALSE, NULL, NULL));
+  g_assert_true(g_variant_is_normal_form(payload));
+  const gchar *message;
+  g_variant_get(payload, "(&s)", &message);
+  g_assert_cmpstr(message, ==, expected);
+  g_variant_unref(payload);
+
+  ibusweb_output_consume((sizeof header + payload_length + 7) & ~7u);
+  empty_output();
+}
+
 typedef struct {
   GVariant *expected;
   guint calls;
@@ -447,6 +472,36 @@ static void stale_engine(void) {
   g_object_unref(old);
 }
 
+static IBusEngine *refuse(IBusFactory *factory, const gchar *name,
+                          gpointer data G_GNUC_UNUSED) {
+  if (g_str_equal(name, "refused"))
+    ibusweb_factory_fail_create("refused.table:9: line 9 has no tab");
+  else if (g_str_equal(name, "silent"))
+    g_signal_stop_emission_by_name(factory, "create-engine");
+  return NULL;
+}
+
+/* Registered engines that aren't made: a handler's reason reaches the host
+ * on the request's context ahead of the reply, and stops the factory from
+ * making the engine anyway. */
+static void refusals(void) {
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 9, g_variant_new("(s)", "refused")), ==,
+      -EIO);
+  skip_debug_logs();
+  expect_create_failed(9, "refused.table:9: line 9 has no tab");
+
+  g_assert_cmpint(
+      send(IBUSWEB_REQ_CREATE_ENGINE, 9, g_variant_new("(s)", "silent")), ==,
+      -EIO);
+  skip_debug_logs();
+  empty_output();
+  g_assert_null(last_created);
+
+  ibusweb_factory_fail_create("outside");
+  expect_log(G_LOG_LEVEL_CRITICAL, "ibus-web", "outside a CreateEngine");
+}
+
 static void protocol(void) {
   static gint32 wake_word;
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
@@ -468,7 +523,11 @@ static void protocol(void) {
       -ESRCH);
   IBusFactory *factory = g_object_ref_sink(ibus_factory_new(NULL));
   ibus_factory_add_engine(factory, "test", dispatch_engine_get_type());
+  ibus_factory_add_engine(factory, "refused", dispatch_engine_get_type());
+  ibus_factory_add_engine(factory, "silent", dispatch_engine_get_type());
+  g_signal_connect(factory, "create-engine", G_CALLBACK(refuse), NULL);
   g_object_unref(factory);
+  refusals();
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==, 0);
   g_assert_cmpint(

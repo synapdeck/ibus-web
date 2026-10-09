@@ -22,6 +22,7 @@ import { CoreConfig } from "../services/config.ts";
 import { PanelEvents, SyncMailbox } from "../services/logging.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
 import { InputContext } from "./contexts.ts";
+import type { Reply } from "../connection/connection.ts";
 
 export interface HotkeyRegistry {
   add(predicate: (event: KeyboardEvent) => boolean, action: () => void): () => void;
@@ -61,6 +62,21 @@ export interface RouterService {
   readonly selectionChanges: Stream.Stream<Selection | undefined>;
   readonly hotkeys: HotkeyRegistry;
   readonly panel: Stream.Stream<PanelEvent>;
+}
+
+/** A surface's engine failed to start; `reason` is the engine's own explanation, when it gave one. */
+export class CreateEngineError extends Error {
+  readonly _tag = "CreateEngineError";
+  readonly module: string;
+  readonly engine: string;
+  readonly reason: string | undefined;
+
+  constructor(module: string, engine: string, ret: number, reason: string | undefined) {
+    super(`Engine ${engine} of module ${module} could not be created: ${reason ?? `CreateEngine returned ${ret}`}`);
+    this.module = module;
+    this.engine = engine;
+    this.reason = reason;
+  }
 }
 
 export class Router extends Context.Service<Router, RouterService>()("@ibus-web/core/Router") {
@@ -205,6 +221,13 @@ export const makeRouter = Effect.gen(function* () {
       context.invalidate();
     });
 
+  const createFailure = (context: InputContext, reply: Reply) => {
+    const reason = reply.records.flatMap(({ ic, record }) =>
+      ic === context.ic && record._tag === "CreateEngineFailed" ? [record.message] : [],
+    )[0];
+    return new CreateEngineError(context.module, context.engine, reply.ret, reason);
+  };
+
   const reconcile = (surface: Surface) =>
     Effect.gen(function* () {
       const target = desired(surface),
@@ -272,7 +295,7 @@ export const makeRouter = Effect.gen(function* () {
       if (!context.created) {
         const reply = yield* request(context, new CreateEngine({ name: context.engine }));
         if (generation !== registry.snapshot(target.module)?.generation) return;
-        if (reply.ret < 0) return;
+        if (reply.ret < 0) return yield* Effect.fail(createFailure(context, reply));
         context.created = true;
       }
       if (!current()) return;
@@ -315,6 +338,20 @@ export const makeRouter = Effect.gen(function* () {
       context.ready = true;
       surface.suspended = false;
       yield* refresh(surface, context);
+    });
+
+  // One surface's engine failing to start mustn't leave the others on the old selection.
+  const reconcileAll = () =>
+    Effect.gen(function* () {
+      const failures: CreateEngineError[] = [];
+      for (const surface of surfaces.values())
+        yield* reconcile(surface).pipe(
+          Effect.catch((error) =>
+            error instanceof CreateEngineError ? Effect.sync(() => void failures.push(error)) : Effect.fail(error),
+          ),
+        );
+
+      if (failures.length > 0) return yield* Effect.fail(failures[0]!);
     });
 
   const submit = (work: () => Effect.Effect<void, Error>): Effect.Effect<void, Error> =>
@@ -361,11 +398,13 @@ export const makeRouter = Effect.gen(function* () {
       count.decrement();
     };
   };
-  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it.
+  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it. An engine
+  // fails to start only while every surface is reconciled, so that failure needs no second pass.
   const restore = (release: () => void, error: Error) =>
     Effect.gen(function* () {
       release();
-      for (const surface of surfaces.values()) yield* Effect.ignore(reconcile(surface));
+      if (!(error instanceof CreateEngineError))
+        for (const surface of surfaces.values()) yield* Effect.ignore(reconcile(surface));
       return yield* Effect.fail(error);
     });
 
@@ -481,7 +520,7 @@ export const makeRouter = Effect.gen(function* () {
         const start = Effect.gen(function* () {
           yield* registry.ensure(module);
           if (cancelled()) return yield* cancellation();
-          for (const surface of surfaces.values()) yield* reconcile(surface);
+          yield* reconcileAll();
         });
 
         if (snapshot.manifest) {

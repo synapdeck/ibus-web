@@ -432,7 +432,7 @@ The errors are those `runtime.h` lists: `EBADMSG` for invalid framing or
 payload (a request of the header alone included), `ENOSYS` for an unknown
 kind, `ENOTCONN` before Init, `EALREADY` for a repeated Init, `EPROTO` for a
 version mismatch, `ENOENT` for a missing context, `EEXIST` for a duplicate
-context, `ESRCH` for an unregistered engine, `EINVAL` for a
+context, `ESRCH` for an unregistered engine, `EIO` for a registered engine that wasn't made, `EINVAL` for a
 `SetSurroundingText` cursor or anchor past the text's length in characters,
 `EPERM` off the pumping thread, and `ECANCELED` when an engine throws a C++
 exception. Requests failing on their framing, payload or context reach no

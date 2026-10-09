@@ -51,6 +51,7 @@ export {
 } from "../services/settings.ts";
 export { Logger, PanelEvents, glibLevel, type LogLine } from "../services/logging.ts";
 export {
+  CreateEngineError,
   Router,
   makeRouter,
   type AttachOptions,

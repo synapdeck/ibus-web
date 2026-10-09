@@ -155,6 +155,16 @@ export class Crashed extends Schema.TaggedClass<Crashed>()(
   { kind: 34, description: "Host crash report; the shared control state is authoritative. Written by the host only." },
 ) {}
 
+export class CreateEngineFailed extends Schema.TaggedClass<CreateEngineFailed>()(
+  "CreateEngineFailed",
+  { message: Str.annotate({ description: "Why the engine couldn't be created, in the engine's words." }) },
+  {
+    kind: 35,
+    description:
+      "Explain a CreateEngine that the engine failed: written on the request's input context, before its -EIO reply.",
+  },
+) {}
+
 export const OutputRecord = Schema.Union([
   CommitText,
   UpdatePreeditText,
@@ -174,6 +184,7 @@ export const OutputRecord = Schema.Union([
   SettingWritten,
   Log,
   Crashed,
+  CreateEngineFailed,
 ]).pipe(Schema.toTaggedUnion("_tag"));
 export type OutputRecord = typeof OutputRecord.Type;
 

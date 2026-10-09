@@ -77,7 +77,7 @@ test("a rejected CreateEngine never intercepts keys", () =>
       r._tag === "CreateEngine" ? Promise.resolve({ ...emptyReply, ret: -1 }) : original(r, ic);
     const f = field();
     f.element.focus();
-    await select(router);
+    await expect(select(router)).rejects.toThrow("CreateEngine returned -1");
     expect(key(f.element).defaultPrevented).toBe(false);
   }));
 test("queues keys behind lifecycle ownership and applies reply output once", () =>

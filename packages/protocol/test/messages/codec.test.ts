@@ -4,6 +4,7 @@ import { expect, it, test } from "@effect/vitest";
 import { Schema } from "effect";
 import {
   CrashReason,
+  CreateEngineFailed,
   ProtocolError,
   Request,
   OutputRecord,
@@ -105,4 +106,12 @@ test.each([
   [0xffffffff, 7],
 ])("rejects Crashed from seq %i and ic %i", (seq, ic) => {
   expect(() => decodeRecord(crashedRecord(CrashReason.trap, seq, ic))).toThrow(ProtocolError);
+});
+
+test("decodes CreateEngineFailed's reason on its input context", () => {
+  const message = "latex.table:9: line 9 has no tab";
+  expect(decodeRecord(encodeRecordForTest(new CreateEngineFailed({ message })))).toMatchObject({
+    ic: 7,
+    record: { _tag: "CreateEngineFailed", message },
+  });
 });

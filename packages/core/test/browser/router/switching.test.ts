@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test } from "vitest";
 import { Effect, Fiber, Stream } from "effect";
-import { run, select, key, preedit } from "../support/dom.ts";
+import { run, select, key, preedit, record } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 test("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit", () =>
   run(async ({ router, connections, field }) => {
@@ -190,6 +190,29 @@ test("deselect clears surface overrides", () =>
     await select(router);
     expect(key(f.element).defaultPrevented).toBe(true);
   }));
+test.each([
+  {
+    records: [record({ _tag: "CreateEngineFailed", message: "other.table:9: line 9 has no tab" })],
+    reason: "other.table:9: line 9 has no tab",
+  },
+  { records: [], reason: "CreateEngine returned -29" },
+])("a failed CreateEngine rejects select with its reason: $reason", ({ records, reason }) =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    // Deselecting after the focus lets its reconcile run first, so the selection sends the only CreateEngine.
+    await Effect.runPromise(router.deselect());
+    const a = connections.a[0]!;
+    a.hold = "CreateEngine";
+
+    const selecting = Effect.runPromise(router.select("a", "other"));
+    await a.untilSent("CreateEngine");
+    a.completeAsync(-29, records);
+
+    await expect(selecting).rejects.toThrow(`Engine other of module a could not be created: ${reason}`);
+    expect(key(f.element).defaultPrevented).toBe(false);
+  }),
+);
 test("hotkeys start empty, can consume a custom binding, and unregister", () =>
   run(async ({ router, connections, field }) => {
     const f = field();

@@ -222,6 +222,11 @@ enum IBusWebRecordKind {
    *   (the host itself failed).
    * message: Human-readable detail of the failure, for logs. */
   IBUSWEB_REC_CRASHED = 34,
+  /* (s) message
+   * Explain a CreateEngine that the engine failed: written on the request's
+   *   input context, before its -EIO reply.
+   * message: Why the engine couldn't be created, in the engine's words. */
+  IBUSWEB_REC_CREATE_ENGINE_FAILED = 35,
 };
 
 static inline const char *ibusweb_request_signature(uint16_t kind) {
@@ -279,6 +284,7 @@ static inline const char *ibusweb_record_signature(uint16_t kind) {
       {IBUSWEB_REC_SETTING_WRITTEN, "(ssv)"},
       {IBUSWEB_REC_LOG, "(uss)"},
       {IBUSWEB_REC_CRASHED, "(us)"},
+      {IBUSWEB_REC_CREATE_ENGINE_FAILED, "(s)"},
   };
   for (size_t i = 0; i < sizeof signatures / sizeof signatures[0]; i++)
     if (signatures[i].kind == kind)

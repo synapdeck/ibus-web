@@ -2,13 +2,19 @@
  * SPDX-FileCopyrightText: 2008-2015 Red Hat, Inc.
  * SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: LGPL-2.1-or-later */
+#include "../output.h"
 #include "ibusmarshalers.h"
 #include "ibusweb-private.h"
 #include <errno.h>
+#include <ibus-web/protocol.h>
 
 struct _IBusFactoryPrivate {
   GHashTable *types;
   uint32_t creating_ic;
+  /* While create-engine is emitted: the reason a handler failed the
+   * creation with, once one has. */
+  gboolean creating;
+  gchar *failure;
 };
 
 static IBusFactory *runtime_factory;
@@ -79,21 +85,52 @@ void ibus_factory_add_engine(IBusFactory *factory, const gchar *name,
                        GSIZE_TO_POINTER(type));
 }
 
+gboolean ibusweb_factory_fail(const char *reason) {
+  if (runtime_factory == NULL || !runtime_factory->priv->creating)
+    return FALSE;
+
+  IBusFactoryPrivate *priv = runtime_factory->priv;
+  if (priv->failure == NULL)
+    priv->failure = g_utf8_make_valid(reason, -1);
+  g_signal_stop_emission(runtime_factory, create_engine_signal, 0);
+  return TRUE;
+}
+
 IBusEngine *ibusweb_factory_create(uint32_t ic, const char *name, int *error) {
   if (error != NULL)
     *error = -ESRCH;
   if (runtime_factory == NULL ||
       !g_hash_table_contains(runtime_factory->priv->types, name))
     return NULL;
+  if (error != NULL)
+    *error = -EIO;
+
+  IBusFactoryPrivate *priv = runtime_factory->priv;
   IBusEngine *engine = NULL;
-  uint32_t previous_ic = runtime_factory->priv->creating_ic;
-  runtime_factory->priv->creating_ic = ic;
+  uint32_t previous_ic = priv->creating_ic;
+  priv->creating_ic = ic;
+  priv->creating = TRUE;
   g_signal_emit(runtime_factory, create_engine_signal, 0, name, &engine);
-  runtime_factory->priv->creating_ic = previous_ic;
-  if (engine == NULL)
-    return NULL;
-  if (g_object_is_floating(engine))
+  priv->creating_ic = previous_ic;
+  priv->creating = FALSE;
+  g_autofree gchar *failure = g_steal_pointer(&priv->failure);
+
+  if (engine != NULL && g_object_is_floating(engine))
     g_object_ref_sink(engine);
+  /* The handler that gave a reason may still have returned an engine. */
+  if (engine != NULL && failure != NULL) {
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_clear_object(&engine);
+  }
+
+  if (engine == NULL) {
+    /* Written before the reply, so the host hands the page both together. */
+    if (failure != NULL)
+      ibusweb_output_append(ic, IBUSWEB_REC_CREATE_ENGINE_FAILED,
+                            g_variant_new("(s)", failure));
+    return NULL;
+  }
+
   ibusweb_engine_set_ic(engine, ic);
   if (error != NULL)
     *error = 0;

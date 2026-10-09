@@ -534,6 +534,13 @@ static void emit_records(IBusEngine *engine) {
   g_object_unref(table);
   g_object_unref(text);
 }
+static IBusEngine *refuse(IBusFactory *factory G_GNUC_UNUSED, const gchar *name,
+                          gpointer data G_GNUC_UNUSED) {
+  if (g_str_equal(name, "refused"))
+    ibusweb_factory_fail_create("parity refusal");
+  return NULL;
+}
+
 static int dispatch_file(const char *directory, const char *name) {
   GBytes *bytes = read_bytes(directory, name);
   gsize size;
@@ -549,6 +556,8 @@ static void run_runtime(JsonArray *requests) {
     g_error("Runtime initialization: %d", initialized);
   IBusFactory *factory = ibus_factory_new(NULL);
   ibus_factory_add_engine(factory, "parity", parity_engine_get_type());
+  ibus_factory_add_engine(factory, "refused", parity_engine_get_type());
+  g_signal_connect(factory, "create-engine", G_CALLBACK(refuse), NULL);
   JsonBuilder *results = json_builder_new();
   json_builder_begin_object(results);
   json_builder_set_member_name(results, "init");
@@ -590,6 +599,23 @@ static void run_runtime(JsonArray *requests) {
   memcpy(trigger + 4, &ic, sizeof(ic));
   memcpy(trigger + 8, &key, sizeof(key));
   ibusweb_dispatch(trigger, sizeof(trigger));
+
+  begin_observation(records, "CreateEngineFailed");
+  string_member(records, "message", "parity refusal");
+  end_observation(records);
+
+  GVariant *refused = g_variant_ref_sink(g_variant_new("(s)", "refused"));
+  gsize refused_size = 8 + g_variant_get_size(refused);
+  guint8 *create = g_malloc0(refused_size);
+  guint16 create_kind = GUINT16_TO_LE(IBUSWEB_REQ_CREATE_ENGINE);
+  guint32 create_ic = GUINT32_TO_LE(2);
+  memcpy(create, &create_kind, sizeof(create_kind));
+  memcpy(create + 4, &create_ic, sizeof(create_ic));
+  g_variant_store(refused, create + 8);
+
+  ibusweb_dispatch(create, refused_size);
+  g_free(create);
+  g_variant_unref(refused);
   json_builder_end_array(records);
   guint32 size;
   const guint8 *data = ibusweb_output_peek(&size);

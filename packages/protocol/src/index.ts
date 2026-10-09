@@ -54,6 +54,7 @@ export {
   SettingWritten,
   Log,
   Crashed,
+  CreateEngineFailed,
   CrashReason,
   OutputRecord,
   recordKinds,
