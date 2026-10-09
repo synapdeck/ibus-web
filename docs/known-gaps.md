@@ -95,8 +95,8 @@ An item leaves this page when it is fixed or decided.
   `IBusInputContext` and `IBusProxy` are declared, for `ibusbus.h`, but not implemented, and
   the bus's daemon- and application-side requests warn once and fail
   ([runtime.md](runtime.md#ibus-layer)).
-- **An engine's own startup code doesn't run yet.** `ibus_main()` and `ibus_quit()` are
-  declared but not implemented, so each engine's `main()` (bus, factory, `request_name` or
+- **An engine's own startup code doesn't run yet.** `ibus_main()` and `ibus_quit()` warn
+  once and return, so each engine's `main()` (bus, factory, `request_name` or
   `register_component`, then `ibus_main()`) is replaced by a hand-written
   `ibusweb_module_init`. Running `main()` unmodified needs a module-loading model: compile it
   under another name, call it on a thread of its own with the daemon's arguments (`--ibus`),

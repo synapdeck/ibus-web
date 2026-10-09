@@ -22,3 +22,22 @@ void ibus_init(void) {
 
   g_once_init_leave(&inited, 1);
 }
+
+/* The runtime's pumping thread runs the default main context, so an
+ * engine's own main loop never runs: these warn the first time and return
+ * at once. */
+void ibus_main(void) {
+  static gsize warned = 0;
+  if (g_once_init_enter(&warned)) {
+    g_warning("%s: the runtime runs the main context", G_STRFUNC);
+    g_once_init_leave(&warned, 1);
+  }
+}
+
+void ibus_quit(void) {
+  static gsize warned = 0;
+  if (g_once_init_enter(&warned)) {
+    g_warning("%s: the runtime runs the main context", G_STRFUNC);
+    g_once_init_leave(&warned, 1);
+  }
+}

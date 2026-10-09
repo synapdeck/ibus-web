@@ -160,6 +160,18 @@ static void unsupported(void) {
                         "*the page chooses the engine*");
   g_assert_false(ibus_bus_set_global_engine(bus, "mozc-jp"));
   g_test_assert_expected_messages();
+
+  /* ibus_main() returns at once rather than blocking the caller. */
+  g_test_expect_message("IBUS", G_LOG_LEVEL_WARNING,
+                        "*the runtime runs the main context*");
+  ibus_main();
+  g_test_assert_expected_messages();
+  ibus_main();
+
+  g_test_expect_message("IBUS", G_LOG_LEVEL_WARNING,
+                        "*the runtime runs the main context*");
+  ibus_quit();
+  g_test_assert_expected_messages();
 }
 
 static void on_connected(IBusBus *self G_GNUC_UNUSED, gpointer data) {
