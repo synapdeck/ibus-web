@@ -154,6 +154,27 @@ test("anchors below or above the caret and clamps both viewport edges", () => {
   expect(bounds.left).toBeGreaterThanOrEqual(0);
   expect(bounds.top).toBeGreaterThanOrEqual(0);
 });
+test("takes the roomier side of the caret and scrolls when it fits on neither", () => {
+  const { host, element } = setup();
+  const long = table({
+    pageSize: 200,
+    count: 200,
+    cursorPos: 0,
+    page: () => ({ candidates: Array.from({ length: 200 }, (_, i) => text(`candidate-${i}`)), labels: [] }),
+  }).table;
+  for (const y of [innerHeight * 0.4, innerHeight * 0.6]) {
+    host.rect = { x: 40, y, width: 2, height: 20 };
+    show(host, long);
+    const bounds = element.getBoundingClientRect();
+    const caretBottom = host.rect.y + host.rect.height;
+    expect(bounds.top >= caretBottom - 1 || bounds.bottom <= host.rect.y + 1).toBe(true);
+    if (y < innerHeight / 2) expect(bounds.top).toBeCloseTo(caretBottom, 0);
+    else expect(bounds.bottom).toBeCloseTo(host.rect.y, 0);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeLessThanOrEqual(innerHeight + 1);
+    expect(element.scrollHeight).toBeGreaterThan(element.clientHeight);
+  }
+});
 test("renders auxiliary text independently of the table and respects show/hide records", () => {
   const { host, element } = setup();
   host.record({ _tag: "UpdateAuxiliaryText", text: text("help <b>safe</b>"), visible: true });

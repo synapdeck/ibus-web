@@ -27,7 +27,9 @@ send the page-relative index; paging buttons send PageUp/PageDown, and wheel mot
 sends CursorUp/CursorDown.
 
 The candidate window follows the host's viewport caret rectangle, preferring
-below and moving above when space is short. It honors horizontal or vertical
+below and moving above when space is short. When it fits on neither side, it takes
+the side with more room, limits its height to that room and scrolls, so it never
+covers the caret's line. It honors horizontal or vertical
 table orientation; `System` reads the panel schema's
 `lookup-table-orientation` setting. Auxiliary text has its own row. Visible
 properties form a menu with toggle/radio state and disabled groups; the compact

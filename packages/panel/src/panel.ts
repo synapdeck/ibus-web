@@ -67,11 +67,24 @@ export function createPanel(host: PanelHost): Panel {
     const rect = host.caretRect();
     element.hidden = !rect || !((tableVisible && table) || auxiliaryVisible || propertiesMenu.childElementCount);
     if (element.hidden || !rect) return;
+    // Measured at its full height, then fitted: a panel that fits neither
+    // below nor above the caret takes the roomier side and scrolls, rather
+    // than covering the line being composed.
+    element.style.maxHeight = "";
     const bounds = element.getBoundingClientRect();
     const below = rect.y + rect.height;
-    const top = below + bounds.height <= innerHeight ? below : rect.y - bounds.height;
+    const room = { below: innerHeight - below, above: rect.y };
+    let top = below,
+      height = bounds.height;
+    if (height > room.below && height <= room.above) top = rect.y - height;
+    else if (height > room.below) {
+      const side = room.below >= room.above ? "below" : "above";
+      height = Math.max(0, room[side]);
+      element.style.maxHeight = `${height}px`;
+      if (side === "above") top = rect.y - height;
+    }
     element.style.left = `${Math.max(0, Math.min(rect.x, innerWidth - bounds.width))}px`;
-    element.style.top = `${Math.max(0, Math.min(top, innerHeight - bounds.height))}px`;
+    element.style.top = `${Math.max(0, Math.min(top, innerHeight - height))}px`;
   };
   const orient = () => {
     const orientation =
