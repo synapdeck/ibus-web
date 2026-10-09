@@ -204,6 +204,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
           catch: asError,
         });
+
         if (settings.register)
           yield* Effect.tryPromise({
             try: async () => {
@@ -211,9 +212,11 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             },
             catch: asError,
           });
+
         const instances = settingsInstances(metadata);
         entry.instances.clear();
         for (const { schemaId, path } of instances) entry.instances.set(path, schemaId);
+
         const initial = yield* Effect.tryPromise({
           try: () => settings.snapshot(instances),
           catch: asError,
@@ -322,6 +325,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             if (record._tag === "Log") logger.enqueue({ module: name, ic, record });
             else if (record._tag === "SettingWritten") {
               const schemaId = entry.instances.get(record.path);
+
               // The runtime refuses writes under undeclared paths, so this is a runtime fault.
               if (schemaId === undefined)
                 logger.enqueue({
@@ -380,7 +384,9 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               change.origin === entry.origin
             )
               continue;
+
             entry.changes.set(`${change.path}\0${change.key}`, change);
+
             if (entry.snapshot.status === "ready") {
               yield* flushChanges(entry).pipe(Effect.catchCause(() => Effect.void));
             }

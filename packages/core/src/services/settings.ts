@@ -48,11 +48,13 @@ export class SettingsSource extends Context.Service<SettingsSource, SettingsSour
             Object.fromEntries(instances.map(({ path }) => [path, Object.fromEntries(values.get(path) ?? [])])),
           written: (record: SettingsChange) => {
             if (mailbox.isClosed) return;
+
             let instance = values.get(record.path);
             if (!instance) {
               instance = new Map();
               values.set(record.path, instance);
             }
+
             instance.set(record.key, record.value);
             mailbox.enqueue(record);
           },

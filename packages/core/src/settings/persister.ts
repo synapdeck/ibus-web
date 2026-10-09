@@ -12,15 +12,18 @@ import {
 import { SyncMailbox } from "../services/logging.ts";
 import { validateSetting, type SettingsSchema, type SettingValue } from "./api.ts";
 import { decodeSettingsBroadcast, settingsBroadcast, type SettingsBroadcast } from "./broadcast.ts";
+
 interface Job {
   readonly run: () => Promise<readonly SettingsChange[]>;
   readonly resolve?: () => void;
   readonly reject?: (cause: unknown) => void;
 }
+
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((value, i) => value === b[i]);
 const sameKeys = (a: SettingsSchema, b: SettingsSchema) =>
   JSON.stringify(encodeSettingsMetadata({ schemas: [{ ...a, paths: b.paths }] })) ===
   JSON.stringify(encodeSettingsMetadata({ schemas: [b] }));
+
 /** The database is acquired only by the first read or write, never by importing the service. */
 export function indexedDbSettings(): Layer.Layer<SettingsSource> {
   return Layer.effect(
@@ -95,11 +98,13 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
       const schemaOf = (instance: SettingsInstance) => {
         const schema = atPath.get(instance.path)?.has(instance.schemaId) ? schemas.get(instance.schemaId) : undefined;
         if (!schema) throw new Error(`Unknown settings instance: ${instance.schemaId} at ${instance.path}`);
+
         return schema;
       };
       const setting = (instance: SettingsInstance, name: string) => {
         const key = schemaOf(instance).keys.find((key) => key.name === name);
         if (!key) throw new Error(`Unknown setting: ${instance.path}${name}`);
+
         return key;
       };
       const memoryKey = (instance: SettingsInstance, key: string) => `${instance.schemaId}\0${instance.path}\0${key}`;
@@ -112,9 +117,11 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
             ? undefined
             : variant(message.type, decodeValue(message.type, new Uint8Array(message.bytes)));
         const changes: SettingsChange[] = [];
+
         for (const id of atPath.get(message.schemaPath) ?? []) {
           const key = schemas.get(id)!.keys.find((key) => key.name === message.key);
           if (!key) continue;
+
           const value: SettingValue = supplied ?? variant(key.type, key.default);
           try {
             validateSetting(key, value);
@@ -130,11 +137,13 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
             ...(origin === undefined ? {} : { origin }),
           });
         }
+
         return changes;
       };
       const remote = async (input: unknown): Promise<SettingsChange[]> => {
         const changes = destinations(decodeSettingsBroadcast(input));
         for (const change of changes) remember(change);
+
         return changes;
       };
       const broadcast = settingsBroadcast((value) => {
@@ -144,21 +153,25 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
         const key = setting(change, change.key);
         const bytes = validateSetting(key, change.value);
         const reset = sameBytes(bytes, encodeValue(key.type, key.default));
+
         const message: SettingsBroadcast = {
           schemaPath: change.path,
           key: key.name,
           type: key.type,
           bytes: reset ? null : bytes.slice().buffer,
         };
+
         await transaction("readwrite", (store) => {
           if (reset) store.delete([change.path, key.name]);
           else store.put({ type: key.type, bytes: message.bytes }, [change.path, key.name]);
           return () => undefined;
         });
         alive();
+
         const changes = destinations(message, change.origin);
         for (const item of changes) remember(item);
         broadcast.post(message);
+
         return changes;
       };
       yield* Effect.addFinalizer(() =>
@@ -206,6 +219,7 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
         });
       const snapshot = async (instances: readonly SettingsInstance[]): Promise<SettingsSnapshot> => {
         await submit(async () => []);
+
         const selected = instances.map((instance) => ({ instance, schema: schemaOf(instance) }));
         const raw = await transaction("readonly", (store) => {
           const requests = selected.map(({ instance, schema }) => ({
@@ -217,17 +231,21 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
           }));
           return () => requests;
         });
+
         return Object.fromEntries(
           raw.map(({ instance, keys }) => [
             instance.path,
             Object.fromEntries(
               keys.flatMap(({ key, request }) => {
                 if (request.result === undefined) return [];
+
                 const record = request.result as { type?: unknown; bytes?: unknown };
                 if (record.type !== key.type || !(record.bytes instanceof ArrayBuffer))
                   throw new Error(`Invalid stored setting: ${instance.path}${key.name}`);
+
                 const value: SettingValue = variant(key.type, decodeValue(key.type, new Uint8Array(record.bytes)));
                 validateSetting(key, value);
+
                 return [[key.name, value]];
               }),
             ),
@@ -237,17 +255,20 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
       return {
         register: (metadata) => {
           alive();
+
           const validated = decodeSettingsMetadata(encodeSettingsMetadata(metadata));
           for (const schema of validated.schemas) {
             const existing = schemas.get(schema.id);
             if (existing && !sameKeys(existing, schema)) throw new Error(`Conflicting settings schema: ${schema.id}`);
           }
+
           for (const schema of validated.schemas) {
             const existing = schemas.get(schema.id);
             schemas.set(
               schema.id,
               existing ? { ...existing, paths: [...new Set([...existing.paths, ...schema.paths])] } : schema,
             );
+
             for (const path of schema.paths) {
               let ids = atPath.get(path);
               if (!ids) {
@@ -261,6 +282,7 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
         snapshot,
         read: async (instance, key) => {
           await submit(async () => []);
+
           return current.get(memoryKey(instance, key)) ?? (await snapshot([instance]))[instance.path]?.[key];
         },
         written: (change) => {

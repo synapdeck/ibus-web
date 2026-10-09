@@ -116,12 +116,14 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           const schema = (await schemas(module)).find((schema) => schema.paths.includes(path));
           const key = schema?.keys.find((key) => key.name === name);
           if (!schema || !key) throw new Error(`Unknown setting: ${path}${name}`);
+
           return { instance: { schemaId: schema.id, path }, key };
         };
         const set = async (module: string, path: string, name: string, value: SettingValue) => {
           const { instance, key } = await keyFor(module, path, name);
           validateSetting(key, value);
           alive();
+
           const change = { ...instance, key: name, value };
           if (source.write) await source.write(change);
           else source.written(change);
@@ -135,10 +137,12 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
             const stored = source.read
               ? await source.read(instance, name)
               : (await source.snapshot([instance]))[path]?.[name];
+
             return stored ?? variant(key.type, key.default);
           },
           reset: async (module, path, name) => {
             const { key } = await keyFor(module, path, name);
+
             await set(module, path, name, variant(key.type, key.default));
           },
         } satisfies SettingsApiService;

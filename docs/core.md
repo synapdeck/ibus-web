@@ -248,7 +248,9 @@ different schemas at one path. `SettingsSource` supplies
 `snapshot(instances): Promise<SettingsSnapshot>`, `written(change)` and a
 `changes` Stream. Optional `register(metadata)`, `write(change)` and
 `read(instance, key)` hooks support persistent sources while in-memory sources
-remain valid. Snapshot values are typed GVariant variants indexed by path and
+remain valid. The registry reads a module's settings metadata before Init
+whatever the source, so a manifest that lists `settingsSchemas` needs
+`settingsMetadata`. Snapshot values are typed GVariant variants indexed by path and
 key; a change names its schema id, path and key. `settingsInstances(metadata)`
 lists a module's instances. `SettingsSource.layer(initial)` is in-memory;
 `SettingsSource.Default` is a lazy `gsettings` IndexedDB source with
