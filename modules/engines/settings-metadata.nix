@@ -59,11 +59,33 @@
             cc ${../../tools/gschema/metadata.c} $(pkg-config --cflags --libs gio-2.0 json-glib-1.0) -o $out
           '';
 
+      fixturePaths = {
+        "org.test.Relocatable" = [
+          "/org/test/first/"
+          "/org/test/second/"
+        ];
+      };
+
+      fixtureSettings =
+        settingsPaths:
+        config.ibusWeb.engines.mkSettingsMetadata {
+          settingsSchemaDir = "${helper}/schemas";
+          settingsSchemas = [
+            "org.test.Metadata"
+            "org.test.Relocatable"
+          ];
+          inherit settingsPaths;
+        };
+
       fixture = pkgs.writeText "ibus-web-settings-metadata-fixture.json" (
         builtins.toJSON {
           helper = "${helper}/metadata.js";
           schemas = "${helper}/schemas";
           inherit native;
+          settingsFromAttrs = fixtureSettings fixturePaths;
+          settingsFromFile = fixtureSettings (
+            pkgs.writeText "ibus-web-settings-paths-fixture.json" (builtins.toJSON fixturePaths)
+          );
           hangul = config.packages.ibus-web-hangul-dist;
         }
       );

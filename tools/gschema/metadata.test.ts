@@ -8,9 +8,14 @@ import { convertMetadata } from "./metadata.ts";
 
 const fixture = process.env["IBUS_WEB_SETTINGS_FIXTURE"];
 if (!fixture) throw new Error("IBUS_WEB_SETTINGS_FIXTURE is required");
-const paths: { helper: string; schemas: string; native: string; hangul: string } = JSON.parse(
-  readFileSync(fixture, "utf8"),
-);
+const paths: {
+  helper: string;
+  schemas: string;
+  native: string;
+  hangul: string;
+  settingsFromAttrs: string;
+  settingsFromFile: string;
+} = JSON.parse(readFileSync(fixture, "utf8"));
 const raw = JSON.parse(
   execFileSync(process.execPath, [paths.helper, paths.schemas, "org.test.Metadata"], { encoding: "utf8" }),
 );
@@ -67,15 +72,26 @@ test("lists a relocatable schema at each path it is given", () => {
   ]);
 });
 test.each([
-  [["org.test.Relocatable"], "org.test.Relocatable"],
-  [["org.test.Missing"], "org.test.Missing"],
-  [["org.test.Metadata", "org.test.Metadata=/org/test/elsewhere/"], "org.test.Metadata"],
-  [["org.test.Relocatable=/org/test/first/"], "org.test.Relocatable"],
-])("refuses %j before producing metadata", (args, id) => {
+  [["org.test.Relocatable"], "org.test.Relocatable", "needs its paths"],
+  [["org.test.Missing"], "org.test.Missing", "schema missing"],
+  [["org.test.Metadata", "org.test.Metadata=/org/test/elsewhere/"], "org.test.Metadata", "fixed path"],
+  [["org.test.Relocatable=/org/test/first/"], "org.test.Relocatable", "isn't listed"],
+])("refuses %j before producing metadata", (args, id, reason) => {
   const result = spawnSync(process.execPath, [paths.helper, paths.schemas, ...args], { encoding: "utf8" });
   expect(result.status).not.toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain(id);
+  expect(result.stderr).toContain(reason);
+});
+test.each([
+  ["an attribute set", "settingsFromAttrs"],
+  ["a JSON file", "settingsFromFile"],
+] as const)("mkSettingsMetadata takes settingsPaths as %s", (_name, field) => {
+  const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(paths[field], "utf8")));
+  expect(settings.schemas.map((schema) => [schema.id, schema.paths])).toEqual([
+    ["org.test.Metadata", ["/org/test/metadata/"]],
+    ["org.test.Relocatable", ["/org/test/first/", "/org/test/second/"]],
+  ]);
 });
 test("ships Hangul and panel metadata and an accurate manifest asset", () => {
   const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(`${paths.hangul}/settings.json`, "utf8")));
