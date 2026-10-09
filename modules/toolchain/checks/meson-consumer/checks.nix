@@ -28,7 +28,7 @@
           pkgsWasm.meson
           pkgsWasm.ninja
           pkgsWasm.pkg-config
-          pkgsWasm.nodejs
+          config.ibusWeb.typescript.nodejs
         ];
 
         buildInputs = [

@@ -29,7 +29,7 @@
         pkgsWasm.stdenv.mkDerivation {
           name = "ibus-web-toolchain-cross";
           src = ./probes;
-          nativeBuildInputs = [ pkgsWasm.nodejs ];
+          nativeBuildInputs = [ config.ibusWeb.typescript.nodejs ];
 
           buildPhase = ''
             runHook preBuild

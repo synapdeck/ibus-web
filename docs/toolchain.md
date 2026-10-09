@@ -7,7 +7,7 @@ with, the frozen library cache, the minimum browser and Node versions, the cross
 thing built with it, has a page of its own, [glib.md](glib.md).
 
 Versions below are what the current `flake.lock` evaluates to: Emscripten 6.0.9, which nixpkgs
-builds against clang 22.1.8; Node 24.21.0; GLib 2.88.3. Nothing in the build spells them out;
+builds against clang 22.1.8; Node 26.10.0; GLib 2.88.3. Nothing in the build spells them out;
 see [Derive, don't hardcode](#derive-dont-hardcode).
 
 ## Emscripten
@@ -150,12 +150,22 @@ project's hand-written TypeScript assumes (Baseline Widely available).
   was last updated (`lastUpdated` in its `timeline.js`), not the build machine's date, so the
   result moves only when the package does.
 - **Node** is the workspace's Node, `ibusWeb.typescript.nodejs`, encoded as Emscripten writes
-  versions (`major * 10000 + minor * 100 + patch`).
+  versions (`major * 10000 + minor * 100 + patch`). Node runs the tools and the tests, not
+  production, so the workspace takes the newest line nixpkgs has, Node 26. Node 24.21's V8 13.6
+  frees a WebAssembly import wrapper twice when one is tiered up while code garbage collection
+  frees it on another thread ([nodejs/node#66366](https://github.com/nodejs/node/issues/66366),
+  V8 `68210d500a` and `9b8ca54d5a`). Under Node 24 the threaded runtime's host suites aborted
+  in about 2.5% of runs under load, with `Check failed: jit_page.has_value()`, glibc's
+  `corrupted size vs. prev_size` or a segmentation fault; neither `--wasm-wrapper-tiering-budget`
+  nor `--no-wasm-code-gc` prevented it. Node 26's V8 14.6 has both fixes. Everything that runs
+  Emscripten's output takes the same Node: the wrappers of GLib's tools, Meson's cross
+  `exe_wrapper`, the test-program shim and the checks that run what they build. Output written for
+  Node 26 refuses an older one at startup.
 - **Floors** raise a browser's minimum where the design needs more than Baseline gives
   ([below](#the-firefox-floor)).
 
 The derivation (`legacyPackages.<system>.emscriptenMinimumVersions`) holds `date`, `versions.json`
-and `link-flags`. With baseline-browser-mapping 2.11.27 (data of 2026-10-01) and Node 24.21.0 they
+and `link-flags`. With baseline-browser-mapping 2.11.27 (data of 2026-10-01) and Node 26.10.0 they
 are:
 
 | Target  | Minimum | Source                    |
@@ -163,7 +173,7 @@ are:
 | Chrome  | 123     | Baseline Widely available |
 | Firefox | 126     | the floor (Baseline: 124) |
 | Safari  | 17.4    | Baseline Widely available |
-| Node    | 24.21.0 | the workspace's Node      |
+| Node    | 26.10.0 | the workspace's Node      |
 
 ### Only for the environments a link targets
 

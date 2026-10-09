@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: MIT OR Apache-2.0
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  withSystem,
+  ...
+}:
 {
   flake.overlays.glib =
     final: prev:
@@ -48,6 +53,12 @@
           # program name.
           programName = replaceIn [ "\${i##*/}" ] [ "$(basename \"$i\" .js)" ];
           inherit (final) pkgsBuildBuild;
+
+          # Emscripten writes the wrapped tools for the workspace's Node, which
+          # its minimum version comes from.
+          node = withSystem prev.stdenv.buildPlatform.system (
+            { config, ... }: lib.getExe config.ibusWeb.typescript.nodejs
+          );
           buildPkgConfig = lib.getExe' pkgsBuildBuild.pkg-config-unwrapped "pkg-config";
         in
         {
@@ -62,7 +73,7 @@
           postInstall = programName old.postInstall + ''
             for js in $bin/bin/*.js $dev/bin/*.js; do
               if [ -e "''${js%.js}.wasm" ]; then
-                makeWrapper ${lib.getExe pkgsBuildBuild.nodejs} "''${js%.js}" --add-flag "$js"
+                makeWrapper ${node} "''${js%.js}" --add-flag "$js"
               fi
             done
           '';

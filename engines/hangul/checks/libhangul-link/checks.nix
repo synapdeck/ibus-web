@@ -18,7 +18,7 @@
         pkgsWasm.runCommandCC "ibus-web-hangul-libhangul-link"
           {
             nativeBuildInputs = [
-              pkgsWasm.nodejs
+              config.ibusWeb.typescript.nodejs
               pkgsWasm.pkg-config
             ];
             buildInputs = [ libhangul ];

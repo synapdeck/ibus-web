@@ -30,7 +30,7 @@
         # version of their own.
         catalog = {
           "@effect/vitest" = "^4.0.0";
-          "@types/node" = "^24.19.0";
+          "@types/node" = "^26.6.4";
           effect = "^4.0.0";
           # Exactly the driver whose browsers nixpkgs provides.
           playwright = pkgs.playwright-driver.version;

@@ -16,7 +16,7 @@
         pkgsWasm.runCommandCC "ibus-web-glib-smoke"
           {
             nativeBuildInputs = [
-              pkgsWasm.nodejs
+              config.ibusWeb.typescript.nodejs
               pkgsWasm.pkg-config
             ];
             buildInputs = [ pkgsWasm.glib ];

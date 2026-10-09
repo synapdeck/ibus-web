@@ -5,6 +5,7 @@
     { config, lib, ... }:
     let
       inherit (config.ibusWeb.toolchain) pkgsWasm;
+      inherit (config.ibusWeb.typescript) nodejs;
       inherit (pkgsWasm) glib pkgsBuildBuild;
     in
     {
@@ -33,10 +34,10 @@
           runHook preInstall
           grep -qxF "GLIB_COMPILE_SCHEMAS = ${glib.dev}/bin/glib-compile-schemas" Makefile
           grep -qxF "GSETTINGS = ${glib.bin}/bin/gsettings" Makefile
-          # The wrappers run on the build machine, with its shell and Node.
+          # The wrappers run on the build machine, with its shell and the workspace's Node.
           for tool in ${glib.dev}/bin/glib-compile-schemas ${glib.bin}/bin/gsettings; do
             test "$(head -n 1 "$tool")" = "#! ${pkgsBuildBuild.runtimeShell} -e"
-            grep -qF "${lib.getExe pkgsBuildBuild.nodejs}" "$tool"
+            grep -qF "${lib.getExe nodejs}" "$tool"
           done
           make check
           # A tool's failure reaches its caller.

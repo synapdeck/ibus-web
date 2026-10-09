@@ -34,7 +34,7 @@
           pkgsWasm.ninja
           pkgsWasm.pkg-config
           glib
-          pkgsWasm.nodejs
+          config.ibusWeb.typescript.nodejs
         ];
         buildInputs = [ glib ];
         installPhase = ''

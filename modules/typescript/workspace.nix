@@ -157,7 +157,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-7CfoySnqrReRjFHxEu9pFs3Z0D9wL3IRacKzTzTNJsE=";
+        hash = "sha256-O4D4s/4dR24Y2EfFFbXDljF081iFJea8ToHKn72NSMk=";
       };
 
       # Each package's node_modules, and the root's, installed offline
@@ -316,7 +316,7 @@
     in
     {
       ibusWeb.typescript = {
-        nodejs = pkgs.nodejs_24;
+        nodejs = pkgs.nodejs_26;
         inherit
           workspace
           workspaceFor

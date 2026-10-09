@@ -7,14 +7,14 @@
 // workerData.entry. Node runs it from source.
 
 import process from "node:process";
-import { parentPort, type TransferListItem, workerData } from "node:worker_threads";
+import { parentPort, type Transferable, workerData } from "node:worker_threads";
 import { BrowserWorker, type AdapterData } from "./browser-worker.ts";
 
 const port = parentPort!;
 const scope = globalThis as unknown as Record<string, unknown>;
 scope.self = globalThis;
 scope.Worker = BrowserWorker;
-scope.postMessage = (message: unknown, transfer?: readonly TransferListItem[]) => port.postMessage(message, transfer);
+scope.postMessage = (message: unknown, transfer: Transferable[] = []) => port.postMessage(message, transfer);
 
 // A browser holds messages for a Worker until its script has set a handler,
 // which a module does only once it has loaded.

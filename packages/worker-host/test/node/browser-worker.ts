@@ -4,7 +4,7 @@
 // A worker_threads Worker shaped like a browser's dedicated Worker, running
 // a script written for one through the adapter.
 
-import { Worker as NodeWorker, type TransferListItem } from "node:worker_threads";
+import { Worker as NodeWorker, type Transferable } from "node:worker_threads";
 
 export interface AdapterData {
   entry: string;
@@ -48,7 +48,7 @@ export class BrowserWorker {
     }
   }
 
-  postMessage(message: unknown, transfer?: readonly TransferListItem[]): void {
+  postMessage(message: unknown, transfer?: readonly Transferable[]): void {
     this.#worker.postMessage(message, transfer);
   }
 

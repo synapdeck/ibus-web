@@ -53,7 +53,7 @@
 
         trap 'replay; die TERM' TERM
         mkdir "$dir/tmp"
-        TMPDIR=$dir/tmp ${lib.getExe pkgsBuildBuild.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
+        TMPDIR=$dir/tmp ${lib.getExe typescript.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
         wait $!
         status=$?
         replay
@@ -104,7 +104,7 @@
         # The tests of GLib's tools run them under Node themselves.
         nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
           pkgsWasm.python3
-          pkgsWasm.nodejs
+          typescript.nodejs
         ];
 
         outputs = [ "out" ];

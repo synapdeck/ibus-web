@@ -276,7 +276,7 @@ describe("the decoder", () => {
         decompressed(bodyOf(brotliCompressSync("decoded")), "br", forceFallback, (decoder) => used.push(decoder)),
       );
       expect(text).toBe("decoded");
-      // Node 24 decodes Brotli natively.
+      // Node decodes Brotli natively.
       expect(used).toEqual([forceFallback ? "fallback" : "native"]);
     }
   });
