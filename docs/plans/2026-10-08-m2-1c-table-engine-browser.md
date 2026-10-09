@@ -4,48 +4,53 @@
 
 **Goal:** Run the native table engine of phase 2 in the browser: one GObject glue file, the `table.wasm` side module, its distribution and npm package, a real-runtime host check, the table module in the demo with Playwright cases, and the docs, as phase 3 of `docs/specs/2026-10-08-m2-1-table-engine.md` describes.
 
-**Architecture:** `engines/table/src/glue.cpp` is the module's only GObject code: one `IBusEngine` subclass for every engine, whose `engine-name` picks a table, implementing phase 2's `Sink` over IBus's engine API. A `create-engine` handler on the factory parses a table on first use into a module-level map and, when the table doesn't parse, fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, a runtime API Task 1 adds: the runtime sends the reason to the page in a `CreateEngineFailed` record, and the page's `select` rejects with it. `pkgsWasm.ibus-web-table` compiles phase 2's sources and the glue with the runtime's side-module flags, links MARISA statically, and compiles the table and schema directories in as store paths, which makes them its data closure. `mkEngineManifest` packs it with descriptors from `table-describe`; the worker-host's engine suites learn to run any module, which `table-host` uses; the demo serves the module through `ibusWeb.demo.modules`.
+**Architecture:** `engines/table/src/glue.cpp` is the module's only GObject code: one `IBusEngine` subclass for every engine, whose `engine-name` picks a table, implementing phase 2's `Sink` over IBus's engine API. The glue owns the candidate window: it hands IBus a lookup table of only the page the session's cursor is on, and forwards paging, cursor moves and clicks to the session, so opening a LaTeX composition builds 10 `IBusText`s, not 2,749. A `create-engine` handler on the factory parses a table on first use into a module-level map and, when the table doesn't parse, fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, a runtime API Task 1 adds: the runtime sends the reason to the page in a `CreateEngineFailed` record, and the page's `select` rejects with it. `pkgsWasm.ibus-web-table` compiles phase 2's sources and the glue with the runtime's side-module flags, links MARISA statically, and compiles the table and schema directories in as store paths, which makes them its data closure. `mkEngineManifest` packs it with descriptors from `table-describe`; the worker-host's engine suites learn to run any module, which `table-host` uses; the demo serves the module through `ibusWeb.demo.modules`.
 
 **Tech Stack:** C++23 (Emscripten `em++`, libc++ from the runtime), GObject/IBus (`libibus-web`), MARISA 0.3.1, Nix flake-parts with import-tree, Vitest 5 under Node (worker-host suites), Playwright (Chromium, Firefox, WebKit), pnpm, REUSE, hk.
 
 ## Global Constraints
 
-- Work on a branch cut from `master` after Plans A and B are merged: `git switch -c typedrat/m2-1c-table-browser master`.
+- Work on `typedrat/m2-1c-table-browser`, cut from `master` at `c529393`, where Plans A (`6e8de27..0c82ce4`) and B (`7ce7c1c..c529393`) have landed.
 - Run every command inside the dev shell: `nix develop -c <command>`. Never search from `/`.
 - `nix develop -c git add <paths>` every new file before any `nix` command that should see it: the flake reads only tracked files.
 - Stage named paths only; commit with `nix develop -c git commit -m "<type>(<scope>): <summary>" -- <paths>`. hk's pre-commit hook runs then; if it rejects or rewrites files, fix the cause and commit again, never bypass it. No AI attribution in commits.
 - Every new file starts with `SPDX-FileCopyrightText: 2026 Synapdeck, Inc.` and `SPDX-License-Identifier: MIT OR Apache-2.0` in its comment syntax. `package.json` is covered by `REUSE.toml` already.
 - The module's licence is exactly `(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`; `@ibus-web/engine-table`'s `LICENSES/` holds `MIT.txt`, `Apache-2.0.txt` and `W3C.txt` from the repository, and MARISA's own `marisa/COPYING.md` from its source. The repository has no `LICENSES/BSD-2-Clause.txt`: nothing in it is BSD-2-Clause, and `reuse lint` rejects a licence text no file uses.
 - The module ships `org.freedesktop.ibus.panel` as its only settings schema: `settingsSchemas = [ "org.freedesktop.ibus.panel" ]`.
-- Candidate pages hold 10. The preedit is the raw buffer, underlined, in COMMIT mode. FocusOut and Reset clear state and emit nothing.
+- Candidate pages hold 10, and only the cursor's page ever becomes `IBusText`s. The preedit is the raw buffer, underlined, in COMMIT mode. FocusOut and Reset clear state and emit nothing.
 - Comments say why, never what; no history, no references to other files' implementations, plans or pull requests. Separate logical blocks with a blank line; no blank line right after an opening token, right before a closing one, or between a comment and its code.
 - Markdown outside `docs/plans/` is formatted with `nix develop -c oxfmt <file>`. Never run oxfmt on `docs/plans/`.
 - Generated files are never edited by hand. Task 1 changes the protocol's schemas, so it regenerates `packages/protocol/PROTOCOL.md` and `runtime/libibus-web/include/ibus-web/protocol.h` with `nix run .#write-files`; no other task changes a generated file's source.
 - Don't revert, reformat or "fix" changes you didn't make.
 
-## What this plan assumes from Plans A and B
+## What Plans A and B left
 
-These come from the cross-phase contracts. Each task that touches one says so; where the merged code differs, adapt the step to the merged names and keep the behaviour.
+Checked against `master` at `c529393`. Each task that touches one of these says so.
 
 **From B (native engine):**
 
-- `engines/table/src/` holds `keys.hpp`, `table.hpp`/`table.cpp`, `sink.hpp`, `session.hpp`, `command.cpp`, `continuous.cpp`, in namespace `ibusweb::table`, with exactly the contract's declarations: `Table::load(const std::filesystem::path &) -> std::expected<Table, ParseError>`, `ParseError::message()` giving `path:line: reason`, `Candidate { std::string key; std::string output; }`, `class Sink { commit(std::string_view); preedit(std::string_view); candidates(std::span<const Candidate>, std::size_t cursor, bool cursorShown); }`, `inline constexpr std::size_t pageSize = 10;`, `class Session { processKey(std::uint32_t, char32_t, std::uint32_t) -> bool; candidateClicked(std::size_t); pageUp(); pageDown(); cursorUp(); cursorDown(); reset(); }`, `makeSession(const Table &, Sink &) -> std::unique_ptr<Session>`. MARISA appears only in `table.cpp`.
-- `engines/table/options.nix` declares, inside `options.perSystem = flake-parts-lib.mkPerSystemOption { … }`, the set `options.ibusWeb.engines.table` with `tables` (a derivation whose `$out` holds exactly `latex.table` and `xsampa.table`), `tools` (native, with `bin/table-check` and `bin/table-describe`) and `sources` (a sorted list of the `.cpp` file names in `engines/table/src`: `command.cpp continuous.cpp session.cpp table.cpp utf8.cpp`; the side module compiles them from that directory).
-- `engines/table/overlay.nix` defines `flake.overlays.table`, gated on `isEmscriptenWasm`, defining `marisa = final.callPackage ./_marisa.nix { inherit (prev) marisa; };`, where `engines/table/_marisa.nix` applies PR #146 with `fetchpatch`; nothing is vendored.
-- `table-check <file>` exits 1 and prints exactly one line, `<file>:<line>: <reason>`, for a table that doesn't parse, `<file>` being the path as given.
-- `table-describe <file>...` prints a JSON array of `EngineDescriptor`s in argument order.
-- The LaTeX table's frontmatter `name` is `LaTeX`; X-SAMPA's is `X-SAMPA`.
-- `LICENSES/W3C.txt` exists (B's `unicode.xml` fixture uses it); `LICENSES/BSD-2-Clause.txt` does not.
-- `docs/table.md` and its `docs/README.md` Topics row exist (B's) and describe the table format and the native engine; this plan only extends the page.
+- `engines/table/src/` holds `keys.hpp`, `utf8.hpp`/`utf8.cpp`, `table.hpp`/`table.cpp`, `sink.hpp`, `session.hpp`/`session.cpp`, `composition.hpp` (the sessions' shared `CandidateList`, `isPrintable` and `isInert`), `command.cpp` and `continuous.cpp`, in namespace `ibusweb::table`. MARISA appears only in `table.cpp`. `engines/table/native/` holds the tools' `check.cpp` and `describe.cpp`; `engines/table/meson.build` names its sources itself.
+- The contract's declarations, as written: `Table::load(const std::filesystem::path &) -> std::expected<Table, ParseError>`; `ParseError { path; line; reason; }` whose `message()` is `path:line: reason`, or `path: reason` for a file-level error; `Candidate { std::string key; std::string output; }`; `class Sink { commit(std::string_view); preedit(std::string_view); candidates(std::span<const Candidate> all, std::size_t cursor, bool cursorShown); }`; `inline constexpr std::size_t pageSize = 10;` in `session.hpp`; `class Session { processKey(std::uint32_t keyval, char32_t character, std::uint32_t modifiers) -> bool; candidateClicked(std::size_t); pageUp(); pageDown(); cursorUp(); cursorDown(); reset(); }`, where `candidateClicked` takes an absolute index and `reset` emits nothing; `makeSession(const Table &, Sink &) -> std::unique_ptr<Session>`.
+- `Sink::candidates` receives the whole list on every redraw, with an absolute cursor: a bare `\` in LaTeX hands it about 2,749 candidates. `CandidateList` pages by moving the cursor a page (even while it is hidden), and a page is the aligned block of 10 that holds the cursor.
+- `keys.hpp` has the keysyms by value, keypad ones included (`KP_Space`, `KP_Tab`, `KP_Enter`, `KP_Up`, `KP_Down`), and `masks::{Shift, Control, Mod1, Super, Release, passThrough}`, `Release` being IBus's `1 << 30` and `passThrough` `Control | Mod1 | Super`, so IBus's `state` passes to `processKey` unchanged.
+- Command mode: Escape commits the raw buffer and is consumed; Space commits the highlighted candidate and is consumed, or with the cursor hidden commits the raw buffer and passes through; a printable key outside the alphabet commits the highlighted candidate (else the raw buffer) and is then handled as if idle, so `\to,` gives `→,` with the comma passed through. LaTeX keys are `\` and letters only.
+- Continuous mode: an alphabet character is consumed; Escape commits the pending buffer raw and is consumed, and passes through with nothing pending; every other key flushes the buffer with resolution and passes through, so `S@` then Space gives `ʃə` and a native space.
+- `engines/table/options.nix` declares, inside `options.perSystem = flake-parts-lib.mkPerSystemOption { … }`, `options.ibusWeb.engines.table.{tables, tools, sources}`. `engines/table/tables.nix` sets `tables`: a derivation whose `$out` holds exactly `latex.table`, generated from W3C's `unicode.xml` by `tools/latex-table` and never in the tree, and `xsampa.table`. `engines/table/module.nix` sets `tools` (native, `bin/table-check` and `bin/table-describe`) and `sources = lib.filter (lib.hasSuffix ".cpp") (lib.attrNames (builtins.readDir ./src))`: every `.cpp` in `src/`, so once Task 2 adds it, `glue.cpp` too (`command.cpp continuous.cpp glue.cpp session.cpp table.cpp utf8.cpp`). It also sets `clangdPathFlags."engines/table/.*\\.(cpp|hpp)"` to `-std=c++23`, `pkgsWasm.marisa`'s headers and GoogleTest's flags.
+- `engines/table/overlay.nix` is `{ config, lib, ... }:` and defines `flake.overlays.table`, gated on `config.ibusWeb.lib.isEmscriptenWasm prev.stdenv.hostPlatform`, holding only `marisa = final.callPackage ./_marisa.nix { inherit (prev) marisa; };`. `_marisa.nix` applies upstream commit `e31c7ed` (PR #146) with `fetchpatch` and sets `meta.license` to BSD-2-Clause.
+- B's checks: `table-parse`, `table-golden`, `table-marisa` and `tools-latex-table`.
+- `table-check <file>` exits 1 and prints exactly one line on stderr, `ParseError::message()`, for a table that doesn't parse, `<file>` being the path as given. `table-describe <file>...` prints a JSON array of `EngineDescriptor`s in argument order: `latex` (`LaTeX`, `und-Zmth`) and `xsampa` (`X-SAMPA`, `und-fonipa`), both layout `default` with no pass-through keys.
+- `LICENSES/W3C.txt` exists; `LICENSES/BSD-2-Clause.txt` does not.
+- `docs/table.md` exists with `## Table format`, `## Data`, `## The engine`, `## MARISA` and `## Building and checking`, whose table lists `table-parse`, `table-golden`, `table-marisa` and `tools-latex-table`; `docs/README.md` has its Topics row. This plan extends both, never adds a second checks table.
 
-**From A (page side):**
+**From A (page side), and the code around it this plan changes:**
 
-- `@ibus-web/protocol` exports `ModuleManifest` (renamed from `EngineManifest`) and `EngineDescriptor`; every `EngineManifest` in `packages/worker-host/test/` is now `ModuleManifest`.
-- `ibusWeb.engines.mkEngineManifest { name, package, threads, heapBytes, settingsSchemaDir, engines, settingsSchemas }`, with `engines` a list of descriptors or a path to a JSON file holding them.
-- `examples/demo/options.nix` declares `ibusWeb.demo.modules` (`attrsOf package`); the demo serves every entry.
-- `examples/demo/test/e2e/fixtures.ts` exports `test`, whose automatic `healthyDemo` fixture opens the demo for every test with `openDemo(page)`, and `expect`. The demo's typing field is `#input`; its engine picker is `#engine-picker`, a `<select>` labelled `Input method` with an `Off` option (value `""`) and one `<optgroup label="<module>">` per module whose options are labelled with each engine's `displayName`; Ctrl+Space (Playwright `Control+Space`) toggles between `deselect()` and the last selection and is not typed into the field; the Worker host's script is served under `/ibus-web/host/worker/index.js`. `selectionchange` carries `CustomEvent<Selection | null>`, `null` after a deselection.
-- The facade's option is `modules`, and `select(module, engine?)` selects.
-- `packages/core/src/router/router.ts`'s `reconcile` sends `CreateEngine({ name: context.engine })` and returns on a negative reply; `select(module, engine?)` reconciles every surface in its `start`. `packages/core/test/browser/support/dom.ts`'s `run` starts with module `a` (engines `factory` and `other`) selected, and the file exports `record` and `key`; its `DomConnection` holds a request kind with `hold` and settles it with `completeAsync`.
+- `@ibus-web/protocol` exports `ModuleManifest` and `EngineDescriptor`; `packages/worker-host/test/node/config.ts` already imports `ModuleManifest`.
+- `ibusWeb.engines.mkEngineManifest { name, package, threads, heapBytes, settingsSchemaDir, engines, settingsSchemas }`, with `engines` a list of descriptors or a JSON file holding them. It copies `${package}/${name}.wasm`, takes the manifest's licence from `package.meta.license`'s `spdxId`s, and sets `passthru.heapBytes`.
+- `examples/demo/options.nix` declares `ibusWeb.demo.modules` (`attrsOf package`). `examples/demo/module.nix` serves each under `/ibus-web/modules/<name>/` with a `modules.json` in attribute order (`hangul`, then `table`). The page fills `#engine-picker` (a `<select>` labelled `Input method`, with an `Off` option of value `""`) with one `<optgroup label="<module>">` per module, options labelled with each engine's `displayName`; it skips, and reports, a module whose manifest fails to load; it selects the first module's first engine (Hangul) on open. Ctrl+Space (Playwright `Control+Space`), caught on the window, toggles between `deselect()` and the last selection and is never typed. `selectionchange` carries `CustomEvent<Selection | null>` (`null` after a deselection), and the picker follows it, showing `""` when deselected. `#engine` shows the current module's state. The Worker host is `/ibus-web/host/worker/index.js`. The Hangul helpers (`examples/demo/test/e2e/hangul.ts`) select Hangul explicitly through `#engine-picker`, so they don't depend on which module opens first.
+- `examples/demo/test/e2e/fixtures.ts` exports `test`, whose automatic `healthyDemo` fixture opens the demo with `openDemo(page)` and fails the test on a page error, text in `#error` or an `error [` line in `#log`, and `expect`. The panel's candidates are `.ibus-panel [data-candidate]` buttons reading `<label> <candidate text>`.
+- `packages/core/src/router/router.ts`: `request(context, message)` resolves with the connection's `Reply` (`{ ret, outSeq, records }`, exported from `../connection/connection.ts`); `reconcile(surface)` sends `CreateEngine({ name: context.engine })` and does `if (reply.ret < 0) return;`; `select(module, engine?)`'s `start` runs `for (const surface of surfaces.values()) yield* reconcile(surface);`; a selection or override that waited for its manifest passes a failure to `restore(release, error)`, which reconciles every surface again before failing; the mailbox logs a failed reconcile it runs on focus with `Effect.logWarning`.
+- `packages/core/test/browser/support/dom.ts`: `run` starts with module `a` (engines `factory` and `other`) selected and no surface attached, and the file exports `record(value, ic = 1)` and `key`; `DomConnection` holds requests of the kind in `hold` and has `untilSent(tag)`; `FakeConnection.completeAsync(ret, records)` settles the held one.
+- The worker-host's engine suite is Hangul's alone: `config.ts` reads `IBUS_WEB_HANGUL_MANIFEST`, `IBUS_WEB_HANGUL_HEAP_BYTES` and `IBUS_WEB_HANGUL_POOL_BASE` and provides `hangul: { manifest, heapBytes, poolBase }`; `page-session.ts` exports `HANGUL_SCHEMA`, `CAPABILITIES`, `Key`, `HangulBuild` and a `PageSession` whose `start` sends Hangul's Init settings and whose `create(ic)` makes `hangul` and presses the Hangul key. `hangul-host` runs 20 tests.
 
 ## File structure
 
@@ -88,7 +93,7 @@ These come from the cross-phase contracts. Each task that touches one says so; w
 
 **Interfaces:**
 
-- Consumes (A): the router's `reconcile`, which sends `CreateEngine({ name: context.engine })` and returns on a negative reply, and `select(module, engine?)`, whose `start` reconciles every surface in a loop; `InputContext.module`/`.engine`; `packages/core/test/browser/support/dom.ts`'s `run` (module `a` with engines `factory` and `other`, selected at start), `record` and `key`, and `DomConnection.hold`/`untilSent`/`completeAsync`.
+- Consumes (A): the router's `reconcile`, which sends `CreateEngine({ name: context.engine })` through `request` and returns on a negative `Reply.ret`; `select(module, engine?)`, whose `start` reconciles every surface in a loop; `restore(release, error)`, which a selection or override that waited for its manifest fails through; `InputContext.module`/`.engine`/`.ic`; `packages/core/test/browser/support/dom.ts`'s `run` (module `a` with engines `factory` and `other`, selected at start), `record` and `key`, `DomConnection.hold`/`untilSent`, and `FakeConnection.completeAsync`.
 - Produces: record `CreateEngineFailed { message: string }`, kind 35, signature `(s)`, exported from `@ibus-web/protocol`; `IBUSWEB_REC_CREATE_ENGINE_FAILED` in `protocol.h`; `IBUSWEB_API void ibusweb_factory_fail_create(const char *reason)` in `runtime.h`; `CreateEngine` replies `-ESRCH` for an unregistered name and `-EIO` for a registered engine that isn't made; `CreateEngineError` (`_tag`, `module`, `engine`, `reason: string | undefined`) exported from `@ibus-web/core`, with which `select` and `override` reject.
 
 Neither `PROTOCOL_VERSION` nor `IBUSWEB_RUNTIME_ABI` changes: the record and the function are additions, and the page, host and runtime of one build ship together.
@@ -522,6 +527,20 @@ Add after `reconcile`:
 
 and in `select`'s `start`, replace `for (const surface of surfaces.values()) yield* reconcile(surface);` with `yield* reconcileAll();`. `override` reconciles one surface and rejects with its failure as it is; a reconcile the mailbox runs on focus already logs its failure as a warning.
 
+A selection or override that waited for its module's manifest hands its failure to `restore`, which reconciles every surface again, and would send each failed `CreateEngine` a second time. Every surface has just been reconciled when an engine fails, so replace `restore` and the comment above it with:
+
+```ts
+  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it. An engine
+  // fails to start only while every surface is reconciled, so that failure needs no second pass.
+  const restore = (release: () => void, error: Error) =>
+    Effect.gen(function* () {
+      release();
+      if (!(error instanceof CreateEngineError))
+        for (const surface of surfaces.values()) yield* Effect.ignore(reconcile(surface));
+      return yield* Effect.fail(error);
+    });
+```
+
 In `packages/core/src/page/index.ts`, add `CreateEngineError` to the export from `../router/router.ts`.
 
 ```bash
@@ -561,7 +580,7 @@ In `docs/protocol.md`, add after the paragraph that begins `` `Crashed (us)` (ki
 `message` is that reason.
 ```
 
-In `docs/core.md`, add after the paragraph that begins `` `router.select(module, engine?)` selects an engine``:
+In `docs/core.md`, add after the paragraph that begins `A module is one distribution: one manifest, one Worker.` (the one describing `router.select(module, engine?)`):
 
 ```markdown
 Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and the engine's `reason`,
@@ -606,7 +625,7 @@ nix develop -c git commit -m "feat(runtime): fail CreateEngine with the engine's
 
 **Interfaces:**
 
-- Consumes (B): `ibusweb::table::{Table, ParseError, Candidate, Sink, Session, makeSession, pageSize}`; `config.ibusWeb.engines.table.{sources, tables}`; `pkgsWasm.marisa`. Consumes (Task 1): `ibusweb_factory_fail_create`.
+- Consumes (B): `ibusweb::table::{Table, ParseError, Candidate, Sink, Session, makeSession, pageSize}`; `config.ibusWeb.engines.table.{sources, tables}`, `sources` listing `glue.cpp` once it exists; `pkgsWasm.marisa`. Consumes (Task 1): `ibusweb_factory_fail_create`.
 - Produces: `pkgsWasm.ibus-web-table` (a `callPackage` result, so `.override { tables = …; }` works) with `$out/table.wasm` and `passthru` `{ schemas, settingsSchemaDir, tables, auditCflags, auditSources }`; `meta.license.spdxId = "(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C"`; `version = "0.1.0"`. Per-system option `ibusWeb.engines.table.module` (that package) and `packages.ibus-web-table`. Checks `table-imports`, `table-cast-audit`, `table-data-closure`. In the side module: engine names = the `*.table` stems in the table directory; a CreateEngine whose table doesn't parse returns `-EIO` after a `CreateEngineFailed` record on the request's context whose `message` is `ParseError::message()`, and logs nothing.
 
 Facts this task relies on, checked against the repository:
@@ -614,7 +633,8 @@ Facts this task relies on, checked against the repository:
 - `IBusEngine`'s `engine-name` is `G_PARAM_CONSTRUCT_ONLY` (`runtime/libibus-web/src/ibus/ibusengine.c`): it is set after instance init and before `constructed`, so the session, which needs the table the name picks, is made in `constructed`.
 - `ibusweb_factory_create` (`runtime/libibus-web/src/ibus/ibusfactory.c`) emits `create-engine`, a `G_SIGNAL_RUN_LAST` signal whose accumulator continues past a handler that returns `NULL`. A handler that returns `NULL` lets the class handler make the engine; one that calls `ibusweb_factory_fail_create(reason)` (Task 1) stops the emission, so CreateEngine replies `-EIO` after a `CreateEngineFailed` record carrying the reason, and the page's `select` rejects with a `CreateEngineError` whose `reason` it is, leaving the field to native input.
 - `write_log` (`runtime/libibus-web/src/log.c`) turns every `g_warning` into a `Log` record on context 0, `(level, domain, message)`.
-- The panel shows `<label> <candidate text>` and sends a page-relative `CandidateClicked` index (`docs/panel.md`).
+- The panel shows `<label> <candidate text>` and sends a page-relative `CandidateClicked` index (`docs/panel.md`). It never pages on its own: of the table it is sent it draws page `cursorPos / pageSize`, highlights `cursorPos % pageSize` when `cursorVisible`, and its paging buttons and wheel send `PageUp`, `PageDown`, `CursorUp` and `CursorDown` to the engine (`packages/panel/src/panel.ts`). The runtime's `ibus_engine_update_lookup_table` serializes every candidate it is given; `ibus_engine_update_lookup_table_fast` still needs the whole list as `IBusText`s to cut three pages from it.
+- The candidate window's design follows: the glue sends IBus a lookup table holding only the aligned page of `pageSize` that contains the session's cursor, with `page_size` 10 and `cursor_pos` the cursor's place on that page, so the panel shows that page and highlights the right row. It remembers the page's start: a click's page-relative index plus that start is the session's absolute index. PageUp, PageDown, CursorUp and CursorDown go to the session, whose redraw sends the next table. IBus's own paging (`ibus_lookup_table_page_*`) is never used.
 - `checkSideModuleLibraries` (`runtime/ibus-runtime/side-module-libs.sh`) rejects a link library the runtime carries; `-lmarisa` isn't one.
 - Hand-registering the type with `g_type_register_static_simple` and callbacks of exactly `GClassInitFunc`/`GInstanceInitFunc` types leaves no function-pointer cast for the audit; `G_DEFINE_TYPE`'s instance-init adapter would add one.
 
@@ -622,10 +642,11 @@ Facts this task relies on, checked against the repository:
 
 ```bash
 nix develop -c ls engines/table/src/table.hpp engines/table/src/session.hpp engines/table/src/sink.hpp engines/table/_marisa.nix engines/table/options.nix engines/table/overlay.nix LICENSES/W3C.txt docs/table.md
-nix develop -c grep -n "sources\|tables\|tools" engines/table/options.nix
+nix develop -c grep -n "sources\|tables\|tools" engines/table/options.nix engines/table/module.nix
+nix eval --json .#checks.x86_64-linux --apply builtins.attrNames | nix develop -c jq -r '.[]' | grep '^table-'
 ```
 
-Expected: every file listed; `options.nix` declares `sources`, `tables` and `tools`. `options.nix`'s `sources` is `command.cpp continuous.cpp session.cpp table.cpp utf8.cpp`. If a file is missing, stop and reconcile with Plan B.
+Expected: every file listed; `options.nix` declares `sources`, `tables` and `tools`, and `module.nix` sets `sources` from the `.cpp` files in `src/`; the checks are `table-golden`, `table-marisa` and `table-parse`. If a file is missing, stop and reconcile with Plan B.
 
 - [ ] **Step 2: Write the failing check**
 
@@ -738,8 +759,10 @@ public:
                                               IBUS_ENGINE_PREEDIT_COMMIT);
   }
 
-  // Only the cursor's page goes to the panel: a bare trigger completes to
-  // every command in the table, thousands of candidates.
+  // IBus gets only the page holding the cursor, with the cursor's place on
+  // it: a bare trigger completes to every command in the table, thousands of
+  // candidates. The panel draws what it is sent as one page and hands paging
+  // and cursor moves back to the engine, which passes them to the session.
   void candidates(std::span<const Candidate> all, std::size_t cursor,
                   bool cursorShown) override {
     if (all.empty()) {
@@ -950,8 +973,9 @@ let
     "'-DIBUSWEB_SETTINGS_SCHEMA_DIR=\"${settingsSchemaDir}\"'"
   ];
 
-  # Relative to src/, which is the build's working directory.
-  files = sources ++ [ "glue.cpp" ];
+  # Every .cpp in src/, the glue included, by name: src/ is the build's
+  # working directory.
+  files = sources;
   objects = map (file: "${lib.removeSuffix ".cpp" file}.o") files;
 in
 stdenv.mkDerivation {
@@ -1083,7 +1107,6 @@ In `engines/table/options.nix`, add this beside B's `tables`, `tools` and `sourc
       packages.ibus-web-table = table;
 
       ibusWeb.toolchain.clangdPathFlags."engines/table/src/glue\\.cpp" = [
-        "-std=c++23"
         ''-DIBUSWEB_TABLE_DIR="${table.tables}"''
         ''-DIBUSWEB_SETTINGS_SCHEMA_DIR="${table.settingsSchemaDir}"''
       ];
@@ -1150,7 +1173,33 @@ Expected: all four pass. `table-cast-audit`'s report is empty; a finding means a
 
 - [ ] **Step 11: Describe the glue in `docs/table.md`**
 
-Append this section to the end of `docs/table.md`:
+`docs/table.md` already describes the format, the engine and the native build, with one table of checks under `## Building and checking`. Extend that page; don't start a second checks table.
+
+In the opening paragraph, replace `, and the engine's C++ core, which the native checks build and drive.` (it spans a line break) with `, the engine's C++ core, which the native checks build and drive, and the glue and side module that run it in the browser.`
+
+In `## Building and checking`, replace
+
+```markdown
+`ibusWeb.engines.table.sources` lists the `.cpp` files in `engines/table/src` by name, for builds of the engine.
+```
+
+with
+
+```markdown
+`ibusWeb.engines.table.sources` lists the `.cpp` files in `engines/table/src` by name, for builds of the engine. The
+side module compiles all of them; the Meson build names its own and leaves out `glue.cpp`, the only one that needs
+IBus.
+```
+
+and add these rows to its checks table, after the `table-marisa` row:
+
+```markdown
+| `table-imports`      | `table.wasm` imports only what the runtime exports                                         |
+| `table-cast-audit`   | every source, glue included, under `-Wcast-function-type-strict`, with an empty allow-list |
+| `table-data-closure` | the closure is the module, the tables and the compiled schema, all of them data            |
+```
+
+Insert this section before `## Building and checking`:
 
 ```markdown
 ## In the browser
@@ -1173,24 +1222,21 @@ The glue is the session's `Sink`:
 - `commit` commits the text.
 - `preedit` shows the raw buffer, underlined, in COMMIT mode, with the cursor at its end. Empty, it clears and hides
   the preedit.
-- `candidates` sends only the cursor's page of 10, each candidate as its output and key (`α \alpha`), since a bare
-  trigger completes to every command in the table. Empty, it hides the lookup table. The panel's click index counts
-  from the visible page, and the glue adds the page's start; a position no candidate holds is ignored.
+- `candidates` gets the whole list, which a bare `\` makes every command in the LaTeX table, and sends IBus a lookup
+  table of only the page of 10 that holds the cursor, each candidate as its output and key (`α \alpha`), with the
+  cursor's position on that page. The panel draws the table it is sent as one page and leaves paging to the engine,
+  so only those 10 become `IBusText`s. Empty, it hides the lookup table.
 
-A key's character is `ibus_keyval_to_unicode(keyval)`. FocusOut and Reset reset the session, which emits nothing.
-PageUp, PageDown, CursorUp and CursorDown go to the session.
+PageUp, PageDown, CursorUp and CursorDown go to the session, which redraws with the cursor's new page. The panel's
+click index counts from the page it shows, and the glue adds the page's start; a position no candidate holds is
+ignored. A key's character is `ibus_keyval_to_unicode(keyval)`, and its state is the session's modifiers as it is.
+FocusOut and Reset reset the session, which emits nothing.
 
-`pkgsWasm.ibus-web-table` (`engines/table/_package.nix`) compiles `ibusWeb.engines.table.sources` and the glue as
-C++23 with the runtime's toolchain and side-module flags, and links `pkgsWasm.marisa` into `table.wasm` statically;
-the runtime's library guard rejects a library the runtime carries. The table directory and the compiled
+`pkgsWasm.ibus-web-table` (`engines/table/_package.nix`) compiles `ibusWeb.engines.table.sources` as C++23 with the
+runtime's toolchain and side-module flags, and links `pkgsWasm.marisa` into `table.wasm` statically; the runtime's
+library guard rejects a library the runtime carries. The table directory and the compiled
 `org.freedesktop.ibus.panel` schema are compiled in as store paths, which makes them the side module's whole data
 closure.
-
-| Check                | Covers                                                                         |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `table-imports`      | `table.wasm` imports only what the runtime exports                             |
-| `table-cast-audit`   | every source, glue included, under `-Wcast-function-type-strict`, with an empty allow-list |
-| `table-data-closure` | the closure is the module, the tables and the compiled schema, all of them data |
 ```
 
 Then format it:
@@ -1200,7 +1246,7 @@ nix develop -c oxfmt docs/table.md
 nix develop -c hk check -S links
 ```
 
-Expected: oxfmt rewrites the table's padding; the links step passes.
+Expected: oxfmt rewrites the checks table's padding; the links step passes.
 
 - [ ] **Step 12: Commit**
 
@@ -1221,7 +1267,7 @@ The worker-host's Node configuration runs Hangul's suite from three Hangul-speci
 
 **Interfaces:**
 
-- Consumes (A): `ModuleManifest` from `@ibus-web/protocol`.
+- Consumes (A): `ModuleManifest` from `@ibus-web/protocol`. Consumes (existing): `config.ts`'s `IBUS_WEB_HANGUL_*` variables and `hangul` provide; `page-session.ts`'s Hangul-only `PageSession`, `HANGUL_SCHEMA` and `HangulBuild`; `hangul.test.ts`'s `inject("hangul")` and `build.manifest`.
 - Produces: environment variable `IBUS_WEB_MODULE_TESTS`, naming a JSON file `{ "suite": string, "dists": { [name]: dir }, "heapBytes": number, "poolBase": number, "texts": { [name]: file } }`; Vitest's provided `module: ModuleBuild`:
 
   ```ts
@@ -1445,15 +1491,7 @@ Add to the end of the file's opening comment block, after the paragraph ending `
 // distribution, served as module-<NAME>; each text is its FILE's contents.
 ```
 
-Replace the import `import type { EngineManifest } from "@ibus-web/protocol";` (after Plan A: `ModuleManifest`) with
-
-```ts
-import type { ModuleManifest } from "@ibus-web/protocol";
-```
-
-and rename any other `EngineManifest` in the file to `ModuleManifest`.
-
-After `readManifest`, add:
+The file already imports `ModuleManifest`. After `readManifest`, add:
 
 ```ts
 interface ModuleTests {
@@ -1484,7 +1522,7 @@ In `workerHostConfig`, replace
 
 ```ts
   const hangulPath = process.env["IBUS_WEB_HANGUL_MANIFEST"];
-  const hangul = hangulPath === undefined ? undefined : readJson<EngineManifest>(hangulPath);
+  const hangul = hangulPath === undefined ? undefined : readJson<ModuleManifest>(hangulPath);
   const hangulDir = hangulPath === undefined ? undefined : fileURLToPath(new URL(".", pathToFileURL(hangulPath)));
 ```
 
@@ -1804,11 +1842,18 @@ describe.each(h.data.runtimes)("the table module through $name host", (runtime) 
     expect(committed(await session.key(1, ...Key.space))).toBe("α");
   });
 
-  test("a click on the second page commits that page's candidate", async () => {
+  test("only the cursor's page reaches IBus, and a click on the second page commits that page's candidate", async () => {
     const session = await start(latex);
-    const first = last(await typeText(session, 1, "\\a"), "UpdateLookupTable").table;
+    const opened = last(await typeText(session, 1, "\\"), "UpdateLookupTable").table;
+    expect(opened.candidates).toHaveLength(10);
+    expect(opened.cursorVisible).toBe(false);
+
+    const first = last(await typeText(session, 1, "a"), "UpdateLookupTable").table;
     const second = last(await session.request(1, new PageDown({})), "UpdateLookupTable").table;
+    expect(second.candidates.length).toBeLessThanOrEqual(10);
+    expect(second.cursorPos).toBeLessThan(second.candidates.length);
     expect(second.candidates.map(({ text }) => text)).not.toEqual(first.candidates.map(({ text }) => text));
+
     const text = second.candidates[1]!.text;
     const clicked = await session.request(1, new CandidateClicked({ index: 1, button: 1, state: 0 }));
     expect(committed(clicked)).toBe(text.slice(0, text.lastIndexOf(" ")));
@@ -1976,14 +2021,16 @@ records both as `Table released LaTeX load`. There is no target until there is a
 
 replacing FIRST and CACHED with that line's `firstMs` and `cachedMs`, rounded to whole milliseconds (one decimal place below 10).
 
-Append to the `## In the browser` section of `docs/table.md`, after its checks table, one row to that table and a paragraph:
+In `docs/table.md`, add a row to the checks table under `## Building and checking`, after `table-data-closure`:
 
 ```markdown
-| `table-host`         | `table.wasm` in the real runtime under Node: both engines in one Worker, a short trace each, a page-relative click, FocusOut and Reset, and a broken table failing `CreateEngine` with the parser's message |
+| `table-host`         | `table.wasm` in the real runtime under Node: both engines in one Worker, a short trace each, one-page lookup tables and a page-relative click, FocusOut and Reset, and a broken table failing `CreateEngine` with the parser's message |
 ```
 
+and append a paragraph to the end of its `## In the browser` section:
+
 ```markdown
-`table-host` builds a second distribution whose LaTeX table is a fixture with a malformed line, beside the shipped
+`table-host` checks that a bare `\` sends IBus one page of 10. It builds a second distribution whose LaTeX table is a fixture with a malformed line, beside the shipped
 X-SAMPA table, and expects `CreateEngine` to fail with `-EIO` after a `CreateEngineFailed` record, and nothing else,
 whose message is what `table-check` prints for the same file, while X-SAMPA keeps working in that Worker.
 ```
@@ -2191,8 +2238,6 @@ bullet beginning `- Each engine and its patches:` with:
   `unicode.xml`.
 ```
 
-(If Plan B already added a table-engine licence bullet, merge it into this one.)
-
 Append to `docs/engines.md`'s `## The table module` section:
 
 ```markdown
@@ -2224,7 +2269,7 @@ nix develop -c git commit -m "feat(table): pack the module as @ibus-web/engine-t
 
 **Interfaces:**
 
-- Consumes (A): `ibusWeb.demo.modules`; `examples/demo/test/e2e/fixtures.ts`'s `test` (which opens the demo) and `expect`; the `#engine-picker` labelled `Input method`, the `#input` field, the Ctrl+Space toggle.
+- Consumes (A): `ibusWeb.demo.modules`; `examples/demo/test/e2e/fixtures.ts`'s `test` (which opens the demo, on Hangul) and `expect`; `#engine-picker`, whose options are the engines' display names and whose value follows `selectionchange` (`""` once deselected); the `#input` field; the Ctrl+Space toggle; the panel's `.ibus-panel [data-candidate]` buttons. The Hangul cases pick Hangul themselves, so a second module changes nothing for them.
 - Produces: `ibusWeb.demo.modules.table`; Playwright cases in Chromium, Firefox and WebKit.
 
 - [ ] **Step 1: Write the failing cases, `examples/demo/test/e2e/table.spec.ts`**
@@ -2246,10 +2291,11 @@ const probes: Record<Engine, { keys: string; value: string }> = {
 const field = (page: Page) => page.locator("#input");
 
 // Typing stays native until the module's Worker and the field's context are
-// ready, so the probe is retried until the engine makes it. Escape ends
-// whatever a half-native attempt left composing.
+// ready, so the probe is retried until the engine makes it. Escape commits
+// whatever a half-native attempt left composing, and the field is emptied
+// after it.
 const pick = async (page: Page, engine: Engine) => {
-  await page.getByLabel("Input method").selectOption({ label: engine });
+  await page.locator("#engine-picker").selectOption({ label: engine });
   const { keys, value } = probes[engine];
   await expect(async () => {
     await field(page).click();
@@ -2300,6 +2346,7 @@ test("switching between LaTeX and X-SAMPA keeps the module's Worker", async ({ p
 test("deselecting gives plain input", async ({ page }) => {
   await pick(page, "X-SAMPA");
   await page.keyboard.press("Control+Space");
+  await expect(page.locator("#engine-picker")).toHaveValue("");
   await page.keyboard.type("S@ ");
   await expect(field(page)).toHaveValue("S@ ");
 });
@@ -2347,7 +2394,7 @@ nix develop -c git commit -m "test(table): type LaTeX and X-SAMPA in the demo" -
 **Interfaces:**
 
 - Consumes: nothing new.
-- Produces: §12's M2 row split into M2.1 (done) and M2.2; §9's licence rows; the index row for `table.md`.
+- Produces: §12's M2 row split into M2.1 (done) and M2.2; §9's licence rows; the index rows for `engines.md` and `table.md`.
 
 - [ ] **Step 1: Split M2 in §12**
 
@@ -2398,15 +2445,13 @@ with
 
 - [ ] **Step 3: Index `table.md`**
 
-In `docs/README.md`'s Topics table, change the `engines.md` row's description to
-`Engine recipe overrides, FHS data, patch layers, callback audits, Hangul golden tests and the table module`. If the
-table has no `table.md` row (Plan B may have added one), add after the `engines.md` row:
-
-```markdown
-| [table.md](table.md)             | The table engine: its format, the LaTeX and X-SAMPA tables, MARISA, command and continuous modes, the glue and the side module |
-```
-
-If Plan B's row exists, extend its description to mention the glue and the side module.
+In `docs/README.md`'s Topics table, change the `engines.md` row's description from
+`Engine recipe overrides, FHS data, patch layers, callback audits and Hangul golden tests` to
+`Engine recipe overrides, FHS data, patch layers, callback audits, Hangul golden tests and the table module`, and the
+`table.md` row's from
+`The table engine: its table format, the X-SAMPA and LaTeX tables and their sources, command and continuous mode, MARISA, its native checks`
+to
+`The table engine: its table format, the X-SAMPA and LaTeX tables and their sources, command and continuous mode, MARISA, its native checks, and the glue and side module that run it in the browser`.
 
 - [ ] **Step 4: Format and check**
 
