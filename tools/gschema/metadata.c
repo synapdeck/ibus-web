@@ -56,7 +56,10 @@ int main(int argc, char **argv) {
     }
     json_builder_begin_object(json);
     string(json, "id", argv[i]);
-    string(json, "path", g_settings_schema_get_path(schema));
+    json_builder_set_member_name(json, "paths");
+    json_builder_begin_array(json);
+    json_builder_add_string_value(json, g_settings_schema_get_path(schema));
+    json_builder_end_array(json);
     json_builder_set_member_name(json, "keys");
     json_builder_begin_array(json);
     gchar **keys = g_settings_schema_list_keys(schema);

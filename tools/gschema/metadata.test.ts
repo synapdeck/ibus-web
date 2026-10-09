@@ -57,7 +57,7 @@ test("rejects relocatable and missing schemas before producing metadata", () => 
 test("ships Hangul and panel metadata and an accurate manifest asset", () => {
   const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(`${paths.hangul}/settings.json`, "utf8")));
   const hangul = settings.schemas.find((schema) => schema.id === "org.freedesktop.ibus.engine.hangul")!;
-  expect(hangul.path).toBe("/org/freedesktop/ibus/engine/hangul/");
+  expect(hangul.paths[0]).toBe("/org/freedesktop/ibus/engine/hangul/");
   expect(hangul.keys.map((key) => key.name)).toEqual(
     expect.arrayContaining(["hangul-keyboard", "hanja-keys", "initial-input-mode", "auto-reorder", "preedit-mode"]),
   );

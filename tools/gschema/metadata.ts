@@ -12,7 +12,7 @@ interface Bytes {
 interface RawMetadata {
   schemas: Array<{
     id: string;
-    path: string;
+    paths: string[];
     keys: Array<{
       name: string;
       type: string;

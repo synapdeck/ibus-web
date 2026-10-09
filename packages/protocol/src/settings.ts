@@ -47,17 +47,20 @@ const key = Schema.Struct({
   }),
 );
 
+const path = Schema.String.check(
+  Schema.isPattern(/^\/(?:[^/\0]+\/)*$/),
+  Schema.makeFilter(
+    (path) => !path.split("/").some((part) => part === "." || part === "..") || "schema path must be canonical",
+  ),
+);
+
 export const SettingsMetadata = Schema.toCodecJson(
   Schema.Struct({
     schemas: Schema.Array(
       Schema.Struct({
         id: nonEmpty,
-        path: Schema.String.check(
-          Schema.isPattern(/^\/(?:[^/\0]+\/)*$/),
-          Schema.makeFilter(
-            (path) => !path.split("/").some((part) => part === "." || part === "..") || "schema path must be canonical",
-          ),
-        ),
+        // A fixed schema lives at its one path; a relocatable one at each path the build declares.
+        paths: Schema.Array(path).check(Schema.isNonEmpty()),
         keys: Schema.Array(key).check(
           Schema.makeFilter(
             (keys) => new Set(keys.map((key) => key.name)).size === keys.length || "duplicate settings keys",
@@ -68,6 +71,10 @@ export const SettingsMetadata = Schema.toCodecJson(
       Schema.makeFilter(
         (schemas) => new Set(schemas.map((schema) => schema.id)).size === schemas.length || "duplicate schema ids",
       ),
+      Schema.makeFilter((schemas) => {
+        const paths = schemas.flatMap((schema) => schema.paths);
+        return new Set(paths).size === paths.length || "duplicate settings paths";
+      }),
     ),
   }),
 );
