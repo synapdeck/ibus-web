@@ -7,22 +7,22 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 
 ## Topics
 
-| Page                             | Covers                                                                                                                                                                       |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [toolchain.md](toolchain.md)     | Emscripten and its patches, the frozen library cache, the flags every object gets, the `pkgsWasm` cross package set, dynamic linking, the flake layout, the minimum versions |
-| [glib.md](glib.md)               | `pkgsWasm.glib`: the patch series, function-pointer casts, the platform backends, GLib's own tests and their gate                                                            |
-| [runtime.md](runtime.md)         | `libibus-web`, `ibus-runtime.wasm` and side modules; the pump and the wake design; the thread pool and its shares; fixed memory per Worker                                   |
-| [engines.md](engines.md)         | Engine recipe overrides, FHS data, patch layers, callback audits and Hangul golden tests                                                                                     |
-| [table.md](table.md)             | The table engine: its table format, the X-SAMPA and LaTeX tables and their sources, command and continuous mode, MARISA, its native checks                                   |
-| [storage.md](storage.md)         | The WasmFS IndexedDB backend; engine data per version, its locks and installs; the writer lock; durability and costs                                                         |
-| [worker-host.md](worker-host.md) | `@ibus-web/worker-host`: the host's scopes, request loop, relay and pool top-up, failures, storage and engine data, and its test suites                                      |
-| [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the demo                                                                             |
-| [ibus-web.md](ibus-web.md)       | Installing and deploying the facade, its public API, Worker assets and settings                                                                                              |
-| [panel.md](panel.md)             | Framework-free candidate/property panel, actions, placement and stylesheet                                                                                                   |
-| [protocol.md](protocol.md)       | `@ibus-web/protocol`: strict GVariant codecs, schemas, generated artifacts, parity and decode measurements                                                                   |
-| [testing.md](testing.md)         | GoogleTest, g_test and Vitest; the test-program runner; adding a test program; running tests locally                                                                         |
-| [tooling.md](tooling.md)         | The dev shell, hk and its hooks, formatters and linters, TypeScript and pnpm, licenses in packed packages, editor language servers, CI and the binary cache                  |
-| [known-gaps.md](known-gaps.md)   | What is knowingly left open, by area                                                                                                                                         |
+| Page                             | Covers                                                                                                                                                                                              |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [toolchain.md](toolchain.md)     | Emscripten and its patches, the frozen library cache, the flags every object gets, the `pkgsWasm` cross package set, dynamic linking, the flake layout, the minimum versions                        |
+| [glib.md](glib.md)               | `pkgsWasm.glib`: the patch series, function-pointer casts, the platform backends, GLib's own tests and their gate                                                                                   |
+| [runtime.md](runtime.md)         | `libibus-web`, `ibus-runtime.wasm` and side modules; the pump and the wake design; the thread pool and its shares; fixed memory per Worker                                                          |
+| [engines.md](engines.md)         | Engine recipe overrides, FHS data, patch layers, callback audits, Hangul golden tests and the table module                                                                                          |
+| [table.md](table.md)             | The table engine: its table format, the X-SAMPA and LaTeX tables and their sources, command and continuous mode, MARISA, its native checks, and the glue and side module that run it in the browser |
+| [storage.md](storage.md)         | The WasmFS IndexedDB backend; engine data per version, its locks and installs; the writer lock; durability and costs                                                                                |
+| [worker-host.md](worker-host.md) | `@ibus-web/worker-host`: the host's scopes, request loop, relay and pool top-up, failures, storage and engine data, and its test suites                                                             |
+| [core.md](core.md)               | Page layers, key translation, sync/async routing, adapters, client policy, recovery and the demo                                                                                                    |
+| [ibus-web.md](ibus-web.md)       | Installing and deploying the facade, its public API, Worker assets and settings                                                                                                                     |
+| [panel.md](panel.md)             | Framework-free candidate/property panel, actions, placement and stylesheet                                                                                                                          |
+| [protocol.md](protocol.md)       | `@ibus-web/protocol`: strict GVariant codecs, schemas, generated artifacts, parity and decode measurements                                                                                          |
+| [testing.md](testing.md)         | GoogleTest, g_test and Vitest; the test-program runner; adding a test program; running tests locally                                                                                                |
+| [tooling.md](tooling.md)         | The dev shell, hk and its hooks, formatters and linters, TypeScript and pnpm, licenses in packed packages, editor language servers, CI and the binary cache                                         |
+| [known-gaps.md](known-gaps.md)   | What is knowingly left open, by area                                                                                                                                                                |
 
 ## Specs
 
