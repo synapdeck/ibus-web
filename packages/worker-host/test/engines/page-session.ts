@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import {
   CreateEngine,
+  Enable,
   FocusIn,
   IBusCapability,
   Init,
@@ -117,9 +118,12 @@ export class PageSession {
     return [...press, ...release];
   }
 
+  // Activates an engine as the page's router does, enabling it before its
+  // first focus.
   async create(ic: number, engine = this.options.engine): Promise<void> {
     await this.request(ic, new CreateEngine({ name: engine }));
     await this.request(ic, new SetCapabilities({ capabilities: CAPABILITIES }));
+    await this.request(ic, new Enable({}));
     await this.request(ic, new FocusIn({}));
     await this.options.ready?.(this, ic);
   }
