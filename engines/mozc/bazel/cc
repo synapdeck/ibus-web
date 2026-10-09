@@ -5,9 +5,27 @@
 # Bazel runs one program for C and C++ compiles and for links. emcc picks a
 # compile's language from the file's extension, as clang does; a link goes
 # through em++, which brings in the C++ runtime.
+#
+# Each compile is followed by the function-pointer cast audit's pass over
+# the same source with the same flags, which only this build knows.
 for arg; do
   if [ "$arg" = -c ]; then
-    exec @cc@ "$@"
+    @cc@ "$@" || exit
+
+    output=
+    previous=
+    for arg; do
+      if [ "$previous" = -o ]; then output=$arg; fi
+      previous=$arg
+    done
+    report="@castReports@/$(printf '%s' "$output" | tr / %).sarif"
+
+    @cc@ "$@" -fsyntax-only -Wno-everything -Wno-error -Wcast-function-type-strict \
+      -fdiagnostics-format=sarif 2> "$report" || {
+      cat "$report" >&2
+      exit 1
+    }
+    exit 0
   fi
 done
 exec @cxx@ "$@"

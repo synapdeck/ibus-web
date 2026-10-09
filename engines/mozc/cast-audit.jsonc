@@ -1,0 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: BSD-3-Clause
+{
+  "$schema": "../../tools/cast-audit/cast-audit.schema.json",
+  "casts": [],
+}

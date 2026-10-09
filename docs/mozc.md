@@ -25,6 +25,11 @@ The WebAssembly target is a Bazel C++ toolchain of its own, `src/ibus_web_toolch
 links with em++. Bazel actions inherit the client's environment, so the toolchain's hardening flags are the cross
 stdenv's. The build runs with `--config=oss_wasm --compilation_mode=opt --force_pic`.
 
+After each compile, `cc` runs the [cast audit](engines.md#cast-audit)'s pass over the same source with the same flags,
+which exist only inside the Bazel build: `-fsyntax-only -Wno-everything -Wno-error -Wcast-function-type-strict` with
+SARIF diagnostics, one report per object, in a directory the sandbox may write. The install keeps the reports that
+found something, with the sources they name, copied from the execroot after their paths are made relative to it.
+
 Three port patches, in `patches/port`, apply after nixpkgs':
 
 - 0001 adds the `oss_wasm` target: the open-source branding of `oss_linux` with Mozc's WebAssembly handling. Mozc's
@@ -45,8 +50,8 @@ mostly IPAdic, lacks most proper nouns and recent words. The overlay overrides `
 dictionaries, every argument of `mozc-ut` named `mozcdic-ut-*`, since they are data the build reads, and gives `mozc`
 the build machine's `merge-ut-dictionaries`, which merges them.
 
-The derivation has three outputs: `out`, `mozc.wasm` alone; `data`, the data set, `share/mozc/mozc.data`; and
-`check`, the converter check's program. The static stdenv's propagated inputs are cleared, so the module's closure is
+The derivation has four outputs: `out`, `mozc.wasm` alone; `data`, the data set, `share/mozc/mozc.data`; `check`,
+the converter check's program; and `casts`, the cast audit's reports and sources. The static stdenv's propagated inputs are cleared, so the module's closure is
 its data closure.
 
 ## The converter in-process
@@ -108,6 +113,10 @@ SKK-JISYO's GPL-2.0-or-later, and Apache-2.0 for the merge tooling and the other
   composes underlined hiragana, Space converts it and Enter commits it; a second Space opens the candidate window with
   漢字 among the candidates; the direct-input engine passes keys through. It holds the program break and threads to the
   manifest's declaration and records each start, 674–833 ms with the data installed from its archive.
+- `checks.mozc-cast-audit` reports on the build's cast reports and compares the findings with
+  `engines/mozc/cast-audit.jsonc`. All 416 WebAssembly compiles are audited, 139 of them Abseil's, 78 Protocol
+  Buffers' and 15 zlib's; the only findings are casts to `GCallback`, which the audit excludes, so the allow-list is
+  empty.
 - `checks.mozc-imports` checks `mozc.wasm`'s 380 imports against the runtime's export list.
 - `checks.mozc-data-closure` checks that the closure is the data set and the schema, with no libraries, headers or
   modules.

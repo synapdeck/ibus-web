@@ -89,6 +89,31 @@ in
                         install -Dm444 bazel-bin/ibus_web_module/mozc.wasm -t $out
                         install -Dm444 bazel-bin/data_manager/oss/mozc.data -t $data/share/mozc
                         install -Dm444 bazel-bin/ibus_web_converter_check/converter.js -t $check
+
+                        # The cast audit's reports that found something, and the
+                        # sources they name. Clang names a source by its real path,
+                        # under the source tree or an action's execroot; both are
+                        # made relative, which the execroot resolves either way.
+                        mkdir -p $casts/reports $casts/src
+                        execroot=$(find "$bazelOut/execroot" -mindepth 1 -maxdepth 1 -type d)
+                        for report in "$NIX_BUILD_TOP"/casts/*.sarif; do
+                          name=$(basename "$report")
+                          grep -m1 '^{' "$report" \
+                            | sed -e "s|\"uri\":\"file://$PWD/|\"uri\":\"|g" \
+                              -e 's|"uri":"file://[^"]*/execroot/[^/"]*/|"uri":"|g' > "$name"
+                          files=$(jq -r '.runs[] | .artifacts as $artifacts | .results[]?.locations[]?.physicalLocation.artifactLocation
+                            | ($artifacts[.index // -1].location.uri // .uri) // empty' "$name" | sort -u)
+                          if [ -n "$files" ]; then
+                            cp "$name" $casts/reports/
+                          fi
+                          for file in $files; do
+                            case "$file" in
+                              file://*) ;;
+                              *) install -Dm444 "$execroot/$file" "$casts/src/$file" ;;
+                            esac
+                          done
+                          rm "$name"
+                        done
                         runHook postInstall
                       '';
                     };
@@ -101,11 +126,13 @@ in
                 deps = final.pkgsBuildBuild.mozc.deps;
 
                 # The side module alone in out, so that its store references are
-                # its data closure; the converter check's program kept apart.
+                # its data closure; the converter check's program and the cast
+                # audit's reports kept apart.
                 outputs = [
                   "out"
                   "data"
                   "check"
+                  "casts"
                 ];
 
                 patches = (old.patches or [ ]) ++ patchesIn ./patches/port;
@@ -132,7 +159,8 @@ in
                   substitute ${./bazel/cc} src/ibus_web_toolchain/cc \
                     --replace-fail @shell@ "${final.buildPackages.runtimeShell}" \
                     --replace-fail @cc@ "$(command -v $CC)" \
-                    --replace-fail @cxx@ "$(command -v $CXX)"
+                    --replace-fail @cxx@ "$(command -v $CXX)" \
+                    --replace-fail @castReports@ "$NIX_BUILD_TOP/casts"
                   chmod +x src/ibus_web_toolchain/cc
 
                   cp -r --no-preserve=mode ${./in_process} src/ibus_web_in_process
@@ -155,9 +183,14 @@ in
                 # machine, configuring its host toolchain from $CC.
                 depsBuildBuild = (old.depsBuildBuild or [ ]) ++ [ final.buildPackages.stdenv.cc ];
 
+                nativeBuildInputs = old.nativeBuildInputs ++ [ final.buildPackages.jq ];
+
                 preBuild = (old.preBuild or "") + ''
                   export CC=$CC_FOR_BUILD
                   bazelFlagsArray+=("--sandbox_writable_path=$EM_CACHE")
+
+                  mkdir "$NIX_BUILD_TOP/casts"
+                  bazelFlagsArray+=("--sandbox_writable_path=$NIX_BUILD_TOP/casts")
 
                   mkdir -p "$NIX_BUILD_TOP/pkg-config-bin"
                   substitute ${./bazel/pkg-config} "$NIX_BUILD_TOP/pkg-config-bin/pkg-config" \

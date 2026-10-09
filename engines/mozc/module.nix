@@ -4,7 +4,12 @@
   perSystem =
     { config, pkgs, ... }:
     let
-      inherit (config.ibusWeb) engines runtime toolchain;
+      inherit (config.ibusWeb)
+        engines
+        runtime
+        toolchain
+        typescript
+        ;
       mozc = toolchain.pkgsWasm.mozc-ut;
 
       # Mozc's default IBus configuration, which its init registers the
@@ -58,6 +63,24 @@
 
         cp "$closure" $out
       '';
+
+      # Every source compiled into mozc.wasm, Mozc's, Abseil's, Protocol
+      # Buffers' and the module's, audited with the flags its Bazel build
+      # compiled it with. The build keeps the reports that found something and
+      # the sources they name.
+      checks.mozc-cast-audit =
+        let
+          tools = typescript.workspaceFor [ "tools/cast-audit" ];
+          script = "${tools}/tools/cast-audit/cast-audit.ts";
+        in
+        pkgs.runCommand "ibus-web-mozc-cast-audit" { nativeBuildInputs = [ typescript.nodejs ]; } ''
+          mkdir $out
+          shopt -s nullglob
+          cd ${mozc.casts}/src
+          node ${script} report ${mozc.casts}/reports/*.sarif > $out/report.json 2> $out/report.txt
+          cat $out/report.txt
+          node ${script} compare $out/report.json ${./cast-audit.jsonc}
+        '';
 
       checks.mozc-imports = runtime.checkSideModuleImports {
         name = "mozc";

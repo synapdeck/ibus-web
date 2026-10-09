@@ -274,7 +274,9 @@ supplying `config.h` and the Makefile the flags are read from, and over the priv
 configured `config.h` and allow-list (`engines/hangul/libhangul-cast-audit.jsonc`).
 Hangul's unpatched report contains three findings; its patched report and
 allow-list are empty, and libhangul has no findings. A separate import check
-verifies the side module against the runtime's export manifest.
+verifies the side module against the runtime's export manifest. Mozc's flags exist only inside its Bazel build, so
+its audit pass runs there, beside each compile ([mozc.md](mozc.md#build)), and `checks.mozc-cast-audit` compares
+what it found.
 
 ## Golden tests
 
