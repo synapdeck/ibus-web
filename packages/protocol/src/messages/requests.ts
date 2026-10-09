@@ -5,7 +5,7 @@ import { GVariantVariant } from "../gvariant/schema.ts";
 import { Int32, Str, Uint32 } from "../ibus/annotations.ts";
 import { IBusText, KeyEvent } from "../ibus/types.ts";
 
-export const SettingsInstance = Schema.Struct({
+export const SettingsInstanceValues = Schema.Struct({
   schemaId: Str.annotate({ description: "GSettings schema id." }),
   path: Str.annotate({ description: "Path the schema is instantiated at, ending in /." }),
   values: Schema.Record(Str, GVariantVariant).annotate({ description: "The instance's stored values, by key." }),
@@ -15,7 +15,7 @@ export class Init extends Schema.TaggedClass<Init>()(
   "Init",
   {
     version: Uint32.annotate({ description: "Protocol version supported by the host." }),
-    settings: Schema.Array(SettingsInstance).annotate({
+    settings: Schema.Array(SettingsInstanceValues).annotate({
       description: "Every GSettings schema instance the module declares, with its stored values.",
     }),
   },
