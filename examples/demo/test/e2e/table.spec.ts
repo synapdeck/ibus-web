@@ -54,16 +54,19 @@ test("X-SAMPA turns S@ and Space into ʃə", async ({ page }) => {
 });
 
 test("switching between LaTeX and X-SAMPA keeps the module's Worker", async ({ page }) => {
-  await pick(page, "LaTeX");
+  // The demo opens on Hangul, whose Worker already exists, so only Workers
+  // created from the first table selection onward are counted.
   const hosts: string[] = [];
   page.on("worker", (worker) => {
     if (new URL(worker.url()).pathname.endsWith("/host/worker/index.js")) hosts.push(worker.url());
   });
+  await pick(page, "LaTeX");
+  expect(hosts).toHaveLength(1);
   await pick(page, "X-SAMPA");
   await pick(page, "LaTeX");
   await page.keyboard.type("\\to,");
   await expect(field(page)).toHaveValue("→,");
-  expect(hosts).toEqual([]);
+  expect(hosts).toHaveLength(1);
 });
 
 test("deselecting gives plain input", async ({ page }) => {
@@ -75,12 +78,18 @@ test("deselecting gives plain input", async ({ page }) => {
 });
 
 test("the settings form follows the selected module", async ({ page }) => {
-  const controls = page.locator("#settings select, #settings input");
-  await page.locator("#engine-picker").selectOption({ label: "LaTeX" });
-  await expect(controls).toHaveCount(1);
-  await expect(page.locator("#setting-lookup-table-orientation")).toBeVisible();
+  const picker = page.locator("#engine-picker");
+  const orientation = page.locator("#setting-lookup-table-orientation");
+  const hangulKeyboard = page.locator("#setting-hangul-keyboard");
 
-  await page.locator("#engine-picker").selectOption({ label: "Hangul" });
-  await expect(controls.nth(1)).toBeAttached();
-  await expect(controls).not.toHaveCount(1);
+  await picker.selectOption({ label: "LaTeX" });
+  await expect(orientation).toBeVisible();
+  await expect(hangulKeyboard).toHaveCount(0);
+
+  await picker.selectOption({ label: "Hangul" });
+  await expect(hangulKeyboard).toBeVisible();
+
+  await picker.selectOption({ label: "LaTeX" });
+  await expect(orientation).toBeVisible();
+  await expect(hangulKeyboard).toHaveCount(0);
 });
