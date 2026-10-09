@@ -624,17 +624,19 @@ static void simple_and_keymap(void) {
 
 static void keymap_matches_page(void) {
   const gchar *path = g_getenv("IBUSWEB_TEST_US_KEYMAP");
-  if (path == NULL || *path == '\0') {
-    g_test_skip("IBUSWEB_TEST_US_KEYMAP is not set");
-    return;
-  }
+  if (path == NULL || *path == '\0')
+    g_error("IBUSWEB_TEST_US_KEYMAP is not set");
+
   g_autofree gchar *contents = NULL;
   g_assert_true(g_file_get_contents(path, &contents, NULL, NULL));
   IBusKeymap *us = ibus_keymap_get("us");
   g_auto(GStrv) lines = g_strsplit(contents, "\n", -1);
-  guint checked = 0;
+  guint checked = 0, nonempty = 0;
   for (gchar **line = lines; *line != NULL; ++line) {
     guint code, state, keyval;
+    if (**line == '\0')
+      continue;
+    ++nonempty;
     if (sscanf(*line, "%u %u %u", &code, &state, &keyval) != 3)
       continue;
     if (ibus_keymap_lookup_keysym(us, code, state) != keyval)
@@ -643,7 +645,8 @@ static void keymap_matches_page(void) {
     ++checked;
   }
   g_test_message("checked %u vectors", checked);
-  g_assert_cmpuint(checked, >, 1000);
+  g_assert_cmpuint(nonempty, >, 0);
+  g_assert_cmpuint(checked, ==, nonempty);
   g_object_unref(us);
 }
 
