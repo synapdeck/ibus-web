@@ -5,7 +5,7 @@
     { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) engines runtime toolchain;
-      mozc = toolchain.pkgsWasm.mozc;
+      mozc = toolchain.pkgsWasm.mozc-ut;
 
       # Mozc's default IBus configuration, which its init registers the
       # engines from: the first follows the user's chosen input mode, the
@@ -26,11 +26,11 @@
         name = "mozc";
         package = mozc;
 
-        # mozc-host peaks at 39,796,736 bytes asserting and 39,784,448 released,
+        # mozc-host peaks at 73,379,840 bytes asserting and 73,371,648 released,
         # the data set loaded, with one engine thread at most; the manifest
         # builder adds headroom after this whole-MiB declaration.
         threads = 1;
-        heapBytes = 40 * 1024 * 1024;
+        heapBytes = 75 * 1024 * 1024;
 
         inherit (mozc) settingsSchemaDir;
         engines = [

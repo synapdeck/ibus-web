@@ -5,7 +5,7 @@
     { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) toolchain typescript;
-      mozc = toolchain.pkgsWasm.mozc;
+      mozc = toolchain.pkgsWasm.mozc-ut;
     in
     {
       # Mozc's converter and session layer, built for WebAssembly, convert

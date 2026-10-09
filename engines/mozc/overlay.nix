@@ -43,8 +43,9 @@ in
               # can start a process; this keeps the store path out of the module.
               xdg-utils = "/usr";
 
-              # Data the dictionary build reads, so the build machine's copy.
-              inherit (final.buildPackages) jp-zip-codes;
+              # Data the dictionary build reads and the tool that merges the UT
+              # dictionaries, so the build machine's.
+              inherit (final.buildPackages) jp-zip-codes merge-ut-dictionaries;
 
               # In a browser Mozc only ever runs as an IBus engine.
               withIbus = true;
@@ -185,6 +186,25 @@ in
                   inherit schemas settingsSchemaDir;
                 };
               });
+
+          # Mozc with nixpkgs' UT dictionaries merged into its own. They are
+          # data the build reads, so the build machine's; their names are
+          # mozc-ut's own arguments.
+          mozc-ut =
+            let
+              dictionaries = lib.filterAttrs (name: _: lib.hasPrefix "mozcdic-ut-" name) (
+                lib.functionArgs prev.mozc-ut.override
+              );
+              chosen = lib.mapAttrs (name: _: final.buildPackages.${name}) dictionaries;
+            in
+            (prev.mozc-ut.override chosen).overrideAttrs (old: {
+              meta = old.meta // {
+                license = lib.unique (
+                  old.meta.license
+                  ++ lib.concatMap (dictionary: lib.toList dictionary.meta.license) (lib.attrValues chosen)
+                );
+              };
+            });
         }
       )
     );

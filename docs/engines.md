@@ -361,7 +361,7 @@ records both as `Table released LaTeX load`. There is no target until there is a
 
 ## Mozc
 
-`engines/mozc/` is Mozc's converter and its own IBus frontend in one side module, `mozc.wasm`, built through nixpkgs'
+`engines/mozc/` is Mozc's converter, with nixpkgs' UT dictionaries, and its own IBus frontend in one side module, `mozc.wasm`, built through nixpkgs'
 Bazel recipe, with the frontend talking to the converter in-process instead of to `mozc_server`. Its three engines
 are `mozc-jp`, `mozc-on` and `mozc-off`. [mozc.md](mozc.md) describes its build, startup, distribution and checks.
 

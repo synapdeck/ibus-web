@@ -1,7 +1,7 @@
 # Mozc
 
-`engines/mozc/` builds Mozc 2.30.5544.102, Google's open-source Japanese input method, as an engine module: its
-converter, its session layer and its own IBus frontend, ibus-mozc, in one side module, `mozc.wasm`. This page
+`engines/mozc/` builds Mozc 2.30.5544.102, Google's open-source Japanese input method, with nixpkgs' UT dictionaries, as an
+engine module: its converter, its session layer and its own IBus frontend, ibus-mozc, in one side module, `mozc.wasm`. This page
 describes how it is built, how the frontend reaches the converter without `mozc_server`, the distribution and its
 checks.
 
@@ -39,7 +39,13 @@ imports GLib and IBus rather than linking a second copy. Abseil's two debugging 
 `-DSTANDALONE_WASM`, its switch for builds without Emscripten's JavaScript, since their Emscripten stack traces and
 symbolizer call JavaScript functions the runtime doesn't export.
 
-The derivation has three outputs: `out`, `mozc.wasm` alone; `data`, the OSS data set, `share/mozc/mozc.data`; and
+The distribution is built from `mozc-ut`, nixpkgs' `mozc` with the UT dictionaries merged into its own: alt-cannadic,
+EDICT2, jawiki, NEologd, personal names, place names, SKK-JISYO and SudachiDict. Without them the OSS dictionary,
+mostly IPAdic, lacks most proper nouns and recent words. The overlay overrides `mozc-ut` with the build machine's
+dictionaries, every argument of `mozc-ut` named `mozcdic-ut-*`, since they are data the build reads, and gives `mozc`
+the build machine's `merge-ut-dictionaries`, which merges them.
+
+The derivation has three outputs: `out`, `mozc.wasm` alone; `data`, the data set, `share/mozc/mozc.data`; and
 `check`, the converter check's program. The static stdenv's propagated inputs are cleared, so the module's closure is
 its data closure.
 
@@ -81,14 +87,17 @@ the `"default"` keyboard, since romaji input follows the characters typed rather
 | `mozc-off` | Mozc:A\_     | direct input                 |
 
 The data closure is the data set and the compiled `org.freedesktop.ibus.panel` schema, the module's only settings
-schema. The data set is 21,550,753 bytes, 14 MB as Brotli; `mozc.wasm` is 5.3 MB. The manifest declares one engine
-thread and a 40 MiB program break, from `checks.mozc-host`'s peaks of 39,796,736 bytes asserting and 39,784,448
-released, with the data set loaded and at most one engine thread alive; its memory comes to 92 MiB.
+schema. The data set is 54,375,469 bytes, 35 MB as Brotli; `mozc.wasm` is 5.3 MB. Mozc reads the whole data set
+into memory. The manifest declares one engine thread and a 75 MiB program break, from `checks.mozc-host`'s peaks of
+73,367,552 bytes asserting and 73,371,648 released, with the data set loaded and at most one engine thread alive; its
+memory comes to 136 MiB.
 
-The licence is `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015`, from Mozc's own credits:
-Mozc, Protocol Buffers and the Japanese usage dictionary; Abseil; IPAdic; the Tamachi phonetic kanji alphabet; and
-Unicode's JIS tables. The Okinawa dictionary and Japan Post's zip codes are in the public domain, which has no SPDX
-identifier.
+The licence is `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0 AND
+CC-BY-SA-4.0 AND GPL-2.0-or-later`. The first five come from Mozc's own credits: Mozc, Protocol Buffers and the
+Japanese usage dictionary; Abseil; IPAdic; the Tamachi phonetic kanji alphabet; and Unicode's JIS tables. The Okinawa
+dictionary and Japan Post's zip codes are in the public domain, which has no SPDX identifier. The rest are the UT
+dictionaries' licences as nixpkgs declares them: alt-cannadic's GPL-2.0, EDICT2's and jawiki's CC-BY-SA-4.0,
+SKK-JISYO's GPL-2.0-or-later, and Apache-2.0 for the merge tooling and the other dictionaries.
 
 ## Checks
 
@@ -98,7 +107,7 @@ identifier.
 - `checks.mozc-host` runs the distribution through a Node Worker host and the test page, on each runtime build: romaji
   composes underlined hiragana, Space converts it and Enter commits it; a second Space opens the candidate window with
   漢字 among the candidates; the direct-input engine passes keys through. It holds the program break and threads to the
-  manifest's declaration and records each start, 556–707 ms with the data installed from its archive.
+  manifest's declaration and records each start, 674–833 ms with the data installed from its archive.
 - `checks.mozc-imports` checks `mozc.wasm`'s 380 imports against the runtime's export list.
 - `checks.mozc-data-closure` checks that the closure is the data set and the schema, with no libraries, headers or
   modules.
