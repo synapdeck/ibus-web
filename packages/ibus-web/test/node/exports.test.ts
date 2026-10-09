@@ -112,7 +112,7 @@ test("published facade declarations support typed lifecycle, manual input, setti
       source,
       `// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import type { IbusWeb, AsyncKeyResult, SurfaceAdapter } from "ibus-web";
+import { CreateEngineError, type IbusWeb, type AsyncKeyResult, type SurfaceAdapter } from "ibus-web";
 import type { ModuleState, SettingValue } from "ibus-web/effect";
 import { createPanel, type PanelHost } from "ibus-web/panel";
 import workerUrl from "ibus-web/worker";
@@ -149,7 +149,8 @@ export function consumer(app: IbusWeb, adapter: SurfaceAdapter, event: KeyboardE
     "lookup-table-orientation",
   );
   const hostUrl: URL = workerUrl;
-  return { panel, detach, result, setting, hostUrl };
+  const failed = (error: unknown) => error instanceof CreateEngineError && error.reason;
+  return { panel, detach, result, setting, hostUrl, failed };
 }
 `,
     );

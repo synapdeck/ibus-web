@@ -398,8 +398,9 @@ export const makeRouter = Effect.gen(function* () {
       count.decrement();
     };
   };
-  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it. An engine
-  // fails to start only while every surface is reconciled, so that failure needs no second pass.
+  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it. A
+  // CreateEngineError is the exception: the change has applied and the selection stands, and an engine fails to
+  // start only while every surface is reconciled, so that failure needs no second pass.
   const restore = (release: () => void, error: Error) =>
     Effect.gen(function* () {
       release();

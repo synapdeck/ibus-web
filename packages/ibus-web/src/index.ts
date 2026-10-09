@@ -3,6 +3,7 @@
 import { Context, Effect, Layer, Logger as EffectLogger, ManagedRuntime, References, Schema, Stream } from "effect";
 import {
   CoreConfig,
+  CreateEngineError,
   ModuleRegistry,
   Logger,
   PanelEvents,
@@ -26,6 +27,7 @@ import { errorMessage, PanelAction, type EngineDescriptor } from "@ibus-web/prot
 import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, Selection, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
+export { CreateEngineError };
 export type { EngineDescriptor } from "@ibus-web/protocol";
 export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
 export { booleanVariant, int32Variant, stringVariant, variant } from "@ibus-web/protocol";
