@@ -30,21 +30,22 @@ which exist only inside the Bazel build: `-fsyntax-only -Wno-everything -Wno-err
 SARIF diagnostics, one report per object, in a directory the sandbox may write. The install keeps the reports that
 found something, with the sources they name, copied from the execroot after their paths are made relative to it.
 
-Four port patches, in `patches/port`, apply after nixpkgs':
+Five port patches, in `patches/port`, apply after nixpkgs':
 
 - 0001 adds the `oss_wasm` target: the open-source branding of `oss_linux` with Mozc's WebAssembly handling. Mozc's
   own `wasm` target is Google-branded and defines `GOOGLE_JAPANESE_INPUT_BUILD`, which the open-source tree can't
   build. The session watchdog stays off.
 - 0002 builds the Unix IPC client for WebAssembly. Nothing calls it, but the client library links it.
 - 0003 drops `ABSL_ATTRIBUTE_LIFETIME_BOUND` from `PosMatcher::Set`, which clang 22 rejects.
-- 0004 implements ibus-mozc's `page_up`, `page_down`, `cursor_up` and `cursor_down`, which upstream leaves empty, so
-  the candidate panel's page and arrow controls did nothing. Each sends the converter the matching key (Page Up, Page
+- 0004 implements ibus-mozc's `page_up`, `page_down`, `cursor_up` and `cursor_down`, which upstream leaves empty,
+  which would leave the candidate panel's page and arrow controls inert. Each sends the converter the matching key (Page Up, Page
   Down, Up, Down), which does what that key does in the current keymap.
+- 0005 commits a clicked candidate. ibus-mozc sends `SELECT_CANDIDATE`, as Mozc's own candidate windows do, which
+  only puts the candidate in its segment and leaves the conversion open, so a click alone would leave the field
+  unchanged until Enter. It also sends `SUBMIT`, which Enter sends, committing the conversion with the clicked candidate in its
+  segment; the other segments commit with the candidates they have.
 
-A click on a candidate selects it for its segment, as Mozc's own candidate windows do with the same command
-(`SELECT_CANDIDATE`), and leaves the conversion open; Enter commits it. Mozc converts a sentence in segments, so a
-click that committed would commit every segment at once. Mozc sends one page of candidates at a time, and ibus-mozc
-maps the panel's page-relative index into that page.
+Mozc sends one page of candidates at a time, and ibus-mozc maps the panel's page-relative index into that page.
 
 Mozc's `pkg_config_repository` passes what `pkg-config --libs-only-l` names for `@ibus` to the link. The overlay's
 `pkg-config` (`bazel/pkg-config`) leaves out every library the runtime carries, which is all of them: the side module
@@ -155,7 +156,7 @@ names, as `LICENSES/mozc/`, and each UT dictionary's `LICENSE`, from its source,
 - `checks.mozc-host` runs the distribution through a Node Worker host and the test page, on each runtime build: romaji
   composes underlined hiragana, Space converts it and Enter commits it; a second Space opens the candidate window with
   漢字 among the candidates; the panel's cursor, next-page and previous-page controls move through them; a click on the
-  second page selects that page's candidate, which Enter commits; settings from Init and from a later change reach the
+  second page commits that page's candidate; settings from Init and from a later change reach the
   converter, and `active-on-launch` starts `mozc-jp` in hiragana; the direct-input engine passes keys through. It holds the program break and threads to the
   manifest's declaration and records each start, 674–833 ms with the data installed from its archive.
 - `checks.mozc-cast-audit` reports on the build's cast reports and compares the findings with

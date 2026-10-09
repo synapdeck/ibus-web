@@ -35,12 +35,16 @@ test("Mozc composes romaji as hiragana, converts it on Space and commits it on E
   await expect(field(page)).toHaveValue("今日はいい天気です");
 });
 
-test("a second Space opens the candidate panel", async ({ page }) => {
+test("a second Space opens the candidate panel, and a click commits the candidate", async ({ page }) => {
   await pick(page);
   await page.keyboard.type("kanji");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
-  await expect(page.locator(".ibus-panel [data-candidate]").filter({ hasText: "漢字" })).toBeVisible();
+  const candidate = page.locator(".ibus-panel [data-candidate]").filter({ hasText: "漢字" });
+  await expect(candidate).toBeVisible();
+  await candidate.click();
+  await expect(field(page)).toHaveValue("漢字");
+  await expect(page.locator(".ibus-panel")).toBeHidden();
 });
 
 test("the direct-input engine leaves typing to the browser", async ({ page }) => {

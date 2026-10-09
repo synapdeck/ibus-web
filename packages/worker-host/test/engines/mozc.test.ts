@@ -112,10 +112,8 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
   });
 
   // Mozc sends one page of candidates at a time, so the panel's page-relative
-  // index is the index into what Mozc last sent. A click selects the
-  // candidate for the segment, as Mozc's own candidate windows do; Enter
-  // commits it.
-  test("a click on the second page selects that page's candidate", async () => {
+  // index is the index into what Mozc last sent.
+  test("a click on the second page commits that page's candidate", async () => {
     const session = await start(hiragana);
     await typeText(session, 1, "kanji");
     await session.key(1, ...Key.space);
@@ -125,9 +123,21 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
 
     const chosen = second.candidates[1]!.text;
     const clicked = await session.request(1, new CandidateClicked({ index: 1, button: 1, state: 0 }));
-    expect(committed(clicked)).toBe("");
-    expect(last(clicked, "UpdatePreeditText").text.text).toBe(chosen);
-    expect(committed(await session.key(1, ...enter))).toBe(chosen);
+    expect(committed(clicked)).toBe(chosen);
+    const shown = (show: string, hide: string, update: string) =>
+      clicked.reduce<boolean | undefined>(
+        (visible, { record }) =>
+          record._tag === show
+            ? true
+            : record._tag === hide
+              ? false
+              : record._tag === update
+                ? (record as { visible: boolean }).visible
+                : visible,
+        undefined,
+      );
+    expect(shown("ShowPreeditText", "HidePreeditText", "UpdatePreeditText")).toBe(false);
+    expect(shown("ShowLookupTable", "HideLookupTable", "UpdateLookupTable")).toBe(false);
   });
 
   test("Init's punctuation setting reaches the converter", async () => {

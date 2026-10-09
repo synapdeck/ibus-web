@@ -1,0 +1,39 @@
+From c2e28eafe08e392d260d6858da6f3bacae67372e Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 8 Oct 2026 21:38:54 -0700
+Subject: [PATCH] Commit a clicked candidate
+
+ibus-mozc selects a clicked candidate for its segment and leaves the
+conversion open, so the click changes nothing in the field until Enter.
+A click now also submits, as Enter would, committing the conversion
+with the clicked candidate in its segment.
+---
+ src/unix/ibus/mozc_engine.cc | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/unix/ibus/mozc_engine.cc b/src/unix/ibus/mozc_engine.cc
+index cfbce39..d322098 100644
+--- a/src/unix/ibus/mozc_engine.cc
++++ b/src/unix/ibus/mozc_engine.cc
+@@ -264,7 +264,17 @@ void MozcEngine::CandidateClicked(IbusEngineWrapper *engine, uint index,
+   commands::SessionCommand command;
+   command.set_type(commands::SessionCommand::SELECT_CANDIDATE);
+   command.set_id(id);
+-  client_->SendCommand(command, &output);
++  if (!client_->SendCommand(command, &output)) {
++    return;
++  }
++
++  // A click commits, as Enter would after it, with the clicked candidate in
++  // its segment.
++  commands::SessionCommand submit;
++  submit.set_type(commands::SessionCommand::SUBMIT);
++  if (!client_->SendCommand(submit, &output)) {
++    LOG(ERROR) << "SendCommand(SUBMIT) failed";
++  }
+   UpdateAll(engine, output);
+ }
+ 
+-- 
+2.55.0
+
