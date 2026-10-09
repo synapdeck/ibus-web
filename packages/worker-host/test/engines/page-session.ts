@@ -10,7 +10,6 @@ import {
   ReqMode,
   SetCapabilities,
   encodeRequest,
-  stringVariant,
   type DecodedRecord,
   type ModuleManifest,
   type Request,
@@ -19,7 +18,6 @@ import { expect } from "vitest";
 import type { Harness, RuntimeBuild, RunningHost } from "../shared/harness.ts";
 import { HostOp, type HostStats } from "../shared/testing.ts";
 
-export const HANGUL_SCHEMA = "org.freedesktop.ibus.engine.hangul";
 export const CAPABILITIES =
   IBusCapability.PREEDIT_TEXT |
   IBusCapability.AUXILIARY_TEXT |
@@ -34,26 +32,46 @@ export const Key = {
   space: [32, 57],
 } as const;
 
-export interface HangulBuild {
-  manifest: ModuleManifest;
+// What a module's suite runs against: its distributions' manifests by name,
+// with URLs as this environment fetches them, the program break and pool
+// it is held to, and texts its build computed.
+export interface ModuleBuild {
+  manifests: Readonly<Record<string, ModuleManifest>>;
   heapBytes: number;
   poolBase: number;
+  texts: Readonly<Record<string, string>>;
 }
 declare module "vitest" {
   interface ProvidedContext {
-    hangul: HangulBuild;
+    module: ModuleBuild;
   }
 }
 
-// Every exchange checks the output barrier, including requests that emit nothing.
+export interface SessionOptions {
+  settings: Init["settings"];
+  // The engine create() makes unless told another.
+  engine: string;
+  // Runs once a context's engine is created and focused.
+  ready?: (session: PageSession, ic: number) => Promise<unknown>;
+}
+
+// Every exchange checks the output barrier, including requests that emit
+// nothing. A warning, critical or error fails it.
 export class PageSession {
   private lastSeq = 0;
   readonly host: RunningHost;
-  private constructor(host: RunningHost) {
+  private readonly options: SessionOptions;
+  private constructor(host: RunningHost, options: SessionOptions) {
     this.host = host;
+    this.options = options;
   }
 
-  static async start(h: Harness, runtime: RuntimeBuild, manifest: ModuleManifest): Promise<PageSession> {
+  static async start(
+    h: Harness,
+    runtime: RuntimeBuild,
+    manifest: ModuleManifest,
+    options: SessionOptions,
+  ): Promise<PageSession> {
     const engine = { ...manifest, name: `${manifest.name}-${runtime.name}-${crypto.randomUUID()}` };
     const host = await h.start({
       runtime,
@@ -61,17 +79,9 @@ export class PageSession {
       storage: h.storage(engine),
       test: { sides: h.sides.filter((side) => side.name === "settings") },
     });
-    const session = new PageSession(host);
+    const session = new PageSession(host, options);
     try {
-      await session.request(
-        0,
-        new Init({
-          version: PROTOCOL_VERSION,
-          settings: {
-            [HANGUL_SCHEMA]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") },
-          },
-        }),
-      );
+      await session.request(0, new Init({ version: PROTOCOL_VERSION, settings: options.settings }));
       await session.create(1);
       return session;
     } catch (error) {
@@ -106,11 +116,11 @@ export class PageSession {
     return [...press, ...release];
   }
 
-  async create(ic: number): Promise<void> {
-    await this.request(ic, new CreateEngine({ name: "hangul" }));
+  async create(ic: number, engine = this.options.engine): Promise<void> {
+    await this.request(ic, new CreateEngine({ name: engine }));
     await this.request(ic, new SetCapabilities({ capabilities: CAPABILITIES }));
     await this.request(ic, new FocusIn({}));
-    await this.key(ic, ...Key.hangul);
+    await this.options.ready?.(this, ic);
   }
 
   async writeStringSetting(kind: number, schema: string, key: string, value: string): Promise<DecodedRecord[]> {

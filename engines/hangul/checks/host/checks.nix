@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 {
   perSystem =
-    { config, ... }:
+    { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) testing typescript runtime;
       dist = config.packages.ibus-web-hangul-dist;
@@ -13,9 +13,15 @@
         packageDir = "${typescript.workspaceFor [ "packages/worker-host" ]}/packages/worker-host";
         env = {
           IBUS_WEB_WORKER_HOST_TESTS = config.checks.worker-host-node.manifest;
-          IBUS_WEB_HANGUL_MANIFEST = "${dist}/manifest.json";
-          IBUS_WEB_HANGUL_HEAP_BYTES = toString dist.heapBytes;
-          IBUS_WEB_HANGUL_POOL_BASE = toString runtime.threadPool.size;
+          IBUS_WEB_MODULE_TESTS = pkgs.writeText "ibus-web-hangul-host-tests.json" (
+            builtins.toJSON {
+              suite = "hangul";
+              dists.hangul = "${dist}";
+              inherit (dist) heapBytes;
+              poolBase = runtime.threadPool.size;
+              texts = { };
+            }
+          );
         };
         inBrowsers = false;
         limit = 600;

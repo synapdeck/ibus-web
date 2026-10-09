@@ -16,10 +16,18 @@ import {
 } from "@ibus-web/protocol";
 import { afterAll, afterEach, beforeEach, describe, expect, inject, test } from "vitest";
 import { nodeHarness } from "../node/harness.ts";
-import { CAPABILITIES, HANGUL_SCHEMA, Key, PageSession } from "./page-session.ts";
+import { CAPABILITIES, Key, PageSession, type SessionOptions } from "./page-session.ts";
+
+const HANGUL_SCHEMA = "org.freedesktop.ibus.engine.hangul";
 
 const h = await nodeHarness();
-const build = inject("hangul");
+const build = inject("module");
+const manifest = build.manifests["hangul"]!;
+const options: SessionOptions = {
+  settings: { [HANGUL_SCHEMA]: { "hanja-keys": stringVariant("Hangul_Hanja,F9,F8") } },
+  engine: "hangul",
+  ready: (session, ic) => session.key(ic, ...Key.hangul),
+};
 afterAll(() => h.cleanUp());
 const last = <Tag extends OutputRecord["_tag"]>(
   records: DecodedRecord[],
@@ -57,7 +65,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
   let activeThreadsPeak = 0;
   beforeEach(async () => {
     started = false;
-    session = await PageSession.start(h, runtime, build.manifest);
+    session = await PageSession.start(h, runtime, manifest, options);
     started = true;
   });
   afterEach(async () => {
@@ -68,10 +76,10 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       poolWorkersPeak = Math.max(poolWorkersPeak, stats.poolWorkersPeak);
       activeThreadsPeak = Math.max(activeThreadsPeak, stats.activeThreadsPeak);
       expect(stats.activeThreadsAtRuntimeStart).toBe(0);
-      expect(stats.activeThreadsPeak).toBeLessThanOrEqual(build.manifest.threads);
+      expect(stats.activeThreadsPeak).toBeLessThanOrEqual(manifest.threads);
       expect(stats.breakPeak).toBeGreaterThan(0);
       expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
-      expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + build.manifest.threads);
+      expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + manifest.threads);
     } finally {
       await session.host.terminate();
     }
@@ -81,7 +89,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       breakPeak,
       poolWorkersPeak,
       activeThreadsPeak,
-      threads: build.manifest.threads,
+      threads: manifest.threads,
     }),
   );
   const compose = async (ic = 1, keyboard = "2") => {
@@ -222,10 +230,10 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       poolWorkersPeak: stats.poolWorkersPeak,
       idleWorkers: stats.idleWorkers,
       activeThreadsPeak: stats.activeThreadsPeak,
-      threads: build.manifest.threads,
+      threads: manifest.threads,
       heapBytes: build.heapBytes,
     });
-    expect(stats.poolWorkersPeak).toBe(build.poolBase + build.manifest.threads);
+    expect(stats.poolWorkersPeak).toBe(build.poolBase + manifest.threads);
     expect(stats.workersCreated).toBe(0);
     expect(stats).toMatchObject({ activeThreadsAtRuntimeStart: 0, activeThreadsPeak: 0 });
     expect(stats.breakPeak).toBeGreaterThan(0);

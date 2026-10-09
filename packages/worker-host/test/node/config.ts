@@ -17,6 +17,15 @@
 // Node the hosts load all of it from disk but the archives, which they
 // fetch from a server of this process's own; in a browser, from this
 // server, as it is on disk, as are the host's own scripts from dist/.
+//
+// IBUS_WEB_MODULE_TESTS, when set, names a JSON description of an engine
+// module's suite, which then runs under Node in place of the host's own:
+//
+//   { "suite": NAME, "dists": { NAME: DIR }, "heapBytes": N, "poolBase": N,
+//     "texts": { NAME: FILE } }
+//
+// The suite is test/engines/<suite>.test.ts. Each DIR is a module
+// distribution, served as module-<NAME>; each text is its FILE's contents.
 
 import { copyFileSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -59,6 +68,29 @@ const readManifest = (): Manifest => {
   return manifest;
 };
 
+interface ModuleTests {
+  suite: string;
+  dists: Record<string, string>;
+  heapBytes: number;
+  poolBase: number;
+  texts: Record<string, string>;
+}
+
+const readModuleTests = (): ModuleTests | undefined => {
+  const path = process.env["IBUS_WEB_MODULE_TESTS"];
+  return path === undefined ? undefined : readJson<ModuleTests>(path);
+};
+
+// A module distribution's manifest, its files' URLs under base.
+const moduleManifest = (dir: string, base: string): ModuleManifest => {
+  const manifest = readJson<ModuleManifest>(join(dir, "manifest.json"));
+  return {
+    ...manifest,
+    module: { ...manifest.module, url: `${base}${manifest.module.url}` },
+    data: manifest.data.map((entry) => ({ ...entry, url: `${base}${entry.url}` })),
+  };
+};
+
 const prefix = "/@ibus-web-worker-host/";
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
 
@@ -85,9 +117,10 @@ const serveToNode = async (dirs: Readonly<Record<string, string>>): Promise<stri
 
 export const workerHostConfig = async (): Promise<ViteUserConfig> => {
   const manifest = readManifest();
-  const hangulPath = process.env["IBUS_WEB_HANGUL_MANIFEST"];
-  const hangul = hangulPath === undefined ? undefined : readJson<ModuleManifest>(hangulPath);
-  const hangulDir = hangulPath === undefined ? undefined : fileURLToPath(new URL(".", pathToFileURL(hangulPath)));
+  const moduleTests = readModuleTests();
+  const moduleDirs = Object.fromEntries(
+    Object.entries(moduleTests?.dists ?? {}).map(([name, dir]) => [`module-${name}`, dir]),
+  );
 
   const { upgrade, ...tree } = readJson<ArchiveDescription>(join(manifest.archives, "tree.json"));
   const sideFiles = readdirSync(manifest.sides)
@@ -178,7 +211,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
     ? await serveToNode({
         ...manifest.engines,
         archives: manifest.archives,
-        ...(hangulDir === undefined ? {} : { hangul: hangulDir }),
+        ...moduleDirs,
       })
     : undefined;
   if (nodeOrigin !== undefined)
@@ -186,19 +219,23 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       extends: true,
       test: {
         name: "node",
-        include: [hangul === undefined ? "test/node/**/*.test.ts" : "test/engines/**/*.test.ts"],
+        include: [moduleTests === undefined ? "test/node/**/*.test.ts" : `test/engines/${moduleTests.suite}.test.ts`],
         provide: {
-          ...(hangul === undefined
+          ...(moduleTests === undefined
             ? {}
             : {
-                hangul: {
-                  manifest: {
-                    ...hangul,
-                    module: { ...hangul.module, url: `${nodeOrigin}${prefix}hangul/${hangul.module.url}` },
-                    data: hangul.data.map((entry) => ({ ...entry, url: `${nodeOrigin}${prefix}hangul/${entry.url}` })),
-                  },
-                  heapBytes: Number(process.env["IBUS_WEB_HANGUL_HEAP_BYTES"]),
-                  poolBase: Number(process.env["IBUS_WEB_HANGUL_POOL_BASE"]),
+                module: {
+                  manifests: Object.fromEntries(
+                    Object.entries(moduleTests.dists).map(([name, dir]) => [
+                      name,
+                      moduleManifest(dir, `${nodeOrigin}${prefix}module-${name}/`),
+                    ]),
+                  ),
+                  heapBytes: moduleTests.heapBytes,
+                  poolBase: moduleTests.poolBase,
+                  texts: Object.fromEntries(
+                    Object.entries(moduleTests.texts).map(([name, file]) => [name, readFileSync(file, "utf8")]),
+                  ),
                 },
               }),
           workerHost: testData((dir, file) =>

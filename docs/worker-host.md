@@ -550,6 +550,12 @@ and `replyOutSeq`; GLib warning/error/critical records fail. Hanja paging uses
 real GSettings write because upstream Hangul exposes no suitable writing
 action; it verifies `SettingWritten` transport, not an upstream UI action.
 
+An engine module's suite, `test/engines/<suite>.test.ts`, runs under Node in place of the host's own suites when
+`IBUS_WEB_MODULE_TESTS` names its description: the module distributions it starts hosts from, the program break and
+pool it is held to, and texts its build computed. Its `PageSession` takes the Init settings, the engine each context
+creates and what follows creation; a warning, critical or error record fails the exchange that brought it.
+`checks.hangul-host` and `checks.table-host` are such suites.
+
 The measured program break (`sbrk(0)`, which the allocator never lowers)
 peaked at 3,461,120 bytes asserting and 3,452,928 released, below the
 4 MiB `heapBytes` declaration, which the harness checks it against as
