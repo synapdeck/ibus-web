@@ -9,7 +9,6 @@ archives and settings metadata it lists.
 import { createIbusWeb } from "ibus-web";
 
 const ibus = createIbusWeb({
-  hostUrl: new URL("/ibus-web/host/worker/index.js", location.href),
   runtimeUrl: new URL("/ibus-web/runtime/ibus-runtime.js", location.href),
   modules: { table: new URL("/ibus-web/engines/table/manifest.json", location.href) },
 });

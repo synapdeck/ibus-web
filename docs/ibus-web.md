@@ -53,7 +53,7 @@ returns `consumed`, `replayed`, `passthrough` or `cancelled`. A `replayed` fallb
 is already applied exactly once; excluded `passthrough` events are untouched.
 `select(module, engine?)` selects an engine of a module, the module's first when
 `engine` is left out; switching engine within a module reuses its Worker. An
-unknown module or engine rejects before anything changes. When a focused surface's engine fails to start, `select` rejects with a `CreateEngineError` whose message carries the engine's reason (for a table engine, the parser's `path:line: reason`), and that surface stays on native input. `deselect()` returns
+unknown module or engine rejects before anything changes. When a focused surface's engine fails to start, `select` rejects with a `CreateEngineError`, exported from `ibus-web` for `instanceof`, whose message carries the engine's reason (for a table engine, the parser's `path:line: reason`). The selection stands, since the engine failed to start, and that surface stays on native input. `deselect()` returns
 every surface to plain browser input and keeps Workers loaded; hosts bind their own
 shortcut for it, as there are no built-in hotkeys. `selection` is the current
 `{ module, engine }` or `undefined`. `engines(module)` reads and validates a

@@ -42,7 +42,7 @@ selection supersedes a waiting one. `router.selection` is the page's
 Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and the engine's `reason`,
 taken from the runtime's `CreateEngineFailed` record when the engine gave one; otherwise its message names the reply.
 `select` reconciles every surface and then rejects with the first such failure; `override` rejects with its surface's.
-A surface whose engine failed stays on native input, and its next focus tries again. A failure on focus has no caller
+The selection stands, since the engine failed to start rather than the change failing. A surface whose engine failed stays on native input, and its next focus tries again. A failure on focus has no caller
 to reject, so it is logged as a warning. The module stays ready, and its other contexts keep working.
 
 A surface keeps one input context per module, since the host holds one engine per

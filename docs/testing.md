@@ -604,14 +604,15 @@ remain extended work, not a matrix to repeat for every focused change.
 ### Production Playwright integration
 
 `nix build .#playwright-integration` serves the production demo through its Vite
-preview configuration with COOP/COEP and runs nine trusted-input tests in each of
-Chromium, Firefox and WebKit (27 total). The specs are grouped by module, in
+preview configuration with COOP/COEP and runs 15 trusted-input tests in each of
+Chromium, Firefox and WebKit (45 total): Hangul's nine and the table module's six. The specs are grouped by module, in
 `examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's
 spec covers real composition, visible preedit without value/input leakage, focused native
 undo, separate blur commit, Hanja paging/click/digit selection, password exclusion,
 actual Worker restart, native Space reset ordering, 3f settings changes across live
 contexts, tabs and reload, and the picker with its Ctrl+Space toggle, which leaves
-plain input while deselected. It fails on page errors or visible demo errors. The target belongs to
+plain input while deselected. The table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`, keeps one Worker across engine
+switches, gives plain input once deselected, and checks that the settings form follows the module. It fails on page errors or visible demo errors. The target belongs to
 `ibusWeb.testing.extendedChecks.playwright` and the explicit `integration-checks`
 aggregate, outside default `nix flake check`.
 
