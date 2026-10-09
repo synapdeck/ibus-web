@@ -6,6 +6,7 @@
     let
       inherit (config.ibusWeb) engines toolchain;
       inherit (toolchain.pkgsWasm) m17n_lib;
+      m17n = toolchain.pkgsWasm.ibus-engines.m17n;
 
       # The sources of libm17n-core and libm17n, which the module links, with
       # the flags and config.h of the library's own configure run.
@@ -42,7 +43,19 @@
           });
     in
     {
+      packages.ibus-web-m17n-descriptors = m17n.descriptors;
+
+      ibusWeb.engines.m17n = {
+        descriptors = "${m17n.descriptors}/engines.json";
+        settingsPaths = "${m17n.descriptors}/settings-paths.json";
+        settingsSchemas = "${m17n.descriptors}/settings-schemas.json";
+      };
+
       ibusWeb.toolchain.devLibraries = [ m17n_lib ];
+
+      ibusWeb.toolchain.clangdPathFlags."engines/m17n/descriptors/descriptors\\.c" = [
+        "-I${m17n.src}/src"
+      ];
 
       checks.m17n-cast-audit = pkgs.linkFarm "ibus-web-m17n-cast-audit" {
         m17n-lib = libAudit;

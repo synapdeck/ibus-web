@@ -11,6 +11,7 @@
         packages = [
           "packages/*"
           "tools/*"
+          "engines/m17n/descriptors"
           "examples/*"
           "runtime/ibus-runtime"
           "runtime/wasmfs-idb"
