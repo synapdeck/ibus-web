@@ -5,7 +5,7 @@
   options.perSystem = flake-parts-lib.mkPerSystemOption {
     options.ibusWeb.engines.mkSettingsMetadata = lib.mkOption {
       type = lib.types.functionTo lib.types.package;
-      description = "Generate settings.json from fixed-path compiled GSettings schemas using pinned GLib.";
+      description = "Generate settings.json from compiled GSettings schemas using pinned GLib: fixed schemas at their paths, relocatable ones at the paths settingsPaths gives.";
     };
   };
   config.perSystem =
@@ -70,13 +70,33 @@
     in
     {
       ibusWeb.engines.mkSettingsMetadata =
-        { settingsSchemaDir, settingsSchemas }:
-        pkgs.runCommand "ibus-web-settings.json" { nativeBuildInputs = [ typescript.nodejs ]; } ''
-          node ${helper}/metadata.js ${lib.escapeShellArg settingsSchemaDir} ${lib.escapeShellArgs settingsSchemas} > raw.json
-          node ${../../tools/gschema/metadata.ts} ${
-            typescript.workspaceFor [ "packages/protocol" ]
-          }/packages/protocol/dist/index.js raw.json $out
-        '';
+        {
+          settingsSchemaDir,
+          settingsSchemas,
+          settingsPaths ? { },
+        }:
+        let
+          # A derivation building the paths is itself an attribute set.
+          pathsFile =
+            if builtins.isAttrs settingsPaths && !lib.isDerivation settingsPaths then
+              pkgs.writeText "ibus-web-settings-paths.json" (builtins.toJSON settingsPaths)
+            else
+              settingsPaths;
+        in
+        pkgs.runCommand "ibus-web-settings.json"
+          {
+            nativeBuildInputs = [
+              typescript.nodejs
+              pkgs.jq
+            ];
+          }
+          ''
+            mapfile -t instances < <(jq -r 'to_entries[] | .key as $id | .value[] | "\($id)=\(.)"' ${pathsFile})
+            node ${helper}/metadata.js ${lib.escapeShellArg settingsSchemaDir} ${lib.escapeShellArgs settingsSchemas} "''${instances[@]}" > raw.json
+            node ${../../tools/gschema/metadata.ts} ${
+              typescript.workspaceFor [ "packages/protocol" ]
+            }/packages/protocol/dist/index.js raw.json $out
+          '';
 
       ibusWeb.toolchain.clangdPathFlags."tools/gschema/.*\\.c" = [
         "-I${config.ibusWeb.engines.jsonGlib}/include/json-glib-1.0"

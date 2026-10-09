@@ -102,8 +102,8 @@ type EngineDescriptor = {
 
 `settings.json` comes from the compiled schema directory via pinned GLib running
 under WebAssembly, then the strict TypeScript GVariant decoder. It records each
-listed schema's fixed path, key names/types, defaults, descriptions and any
-range/choices supplied by GLib; relocatable schemas fail the build. The page
+listed schema's paths (a fixed schema's own path; a relocatable schema's paths from the manifest's `settingsPaths`, which the build fails without), key names/types, defaults, descriptions and any
+range/choices supplied by GLib. The page
 fetches it through `settingsMetadata` before Init, validates settings and
 constructs a metadata-driven form. Hangul's keyboard key has no generated
 choices. An engine's `keyboard.layout = "us"` translates physical `event.code`

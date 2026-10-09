@@ -46,18 +46,41 @@ test("preserves summaries, ranges, choices and enums", () => {
   expect(keys["choice"]!.choices).toEqual(["two", "three"]);
   expect(keys["mode"]!.choices).toEqual(["first", "second"]);
 });
-test("rejects relocatable and missing schemas before producing metadata", () => {
-  for (const id of ["org.test.Relocatable", "org.test.Missing"]) {
-    const result = spawnSync(process.execPath, [paths.helper, paths.schemas, id], { encoding: "utf8" });
-    expect(result.status).not.toBe(0);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain(id);
-  }
+test("lists a relocatable schema at each path it is given", () => {
+  const output = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        paths.helper,
+        paths.schemas,
+        "org.test.Metadata",
+        "org.test.Relocatable",
+        "org.test.Relocatable=/org/test/first/",
+        "org.test.Relocatable=/org/test/second/",
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  expect(output.schemas.map((schema: { id: string; paths: string[] }) => [schema.id, schema.paths])).toEqual([
+    ["org.test.Metadata", ["/org/test/metadata/"]],
+    ["org.test.Relocatable", ["/org/test/first/", "/org/test/second/"]],
+  ]);
+});
+test.each([
+  [["org.test.Relocatable"], "org.test.Relocatable"],
+  [["org.test.Missing"], "org.test.Missing"],
+  [["org.test.Metadata", "org.test.Metadata=/org/test/elsewhere/"], "org.test.Metadata"],
+  [["org.test.Relocatable=/org/test/first/"], "org.test.Relocatable"],
+])("refuses %j before producing metadata", (args, id) => {
+  const result = spawnSync(process.execPath, [paths.helper, paths.schemas, ...args], { encoding: "utf8" });
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain(id);
 });
 test("ships Hangul and panel metadata and an accurate manifest asset", () => {
   const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(`${paths.hangul}/settings.json`, "utf8")));
   const hangul = settings.schemas.find((schema) => schema.id === "org.freedesktop.ibus.engine.hangul")!;
-  expect(hangul.paths[0]).toBe("/org/freedesktop/ibus/engine/hangul/");
+  expect(hangul.paths).toEqual(["/org/freedesktop/ibus/engine/hangul/"]);
   expect(hangul.keys.map((key) => key.name)).toEqual(
     expect.arrayContaining(["hangul-keyboard", "hanja-keys", "initial-input-mode", "auto-reorder", "preedit-mode"]),
   );

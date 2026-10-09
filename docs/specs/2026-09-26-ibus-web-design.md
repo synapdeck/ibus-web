@@ -1552,13 +1552,13 @@ stream of changes, including those the engine writes itself. `SettingsApi`
 offers `schemas(module)`, `get`, `set`, `reset` and the `changes` stream;
 the facade offers the first four as Promise methods.
 
-- **Metadata.** Each key's schema path, GVariant type, default, description,
+- **Metadata.** Each key's schema paths, GVariant type, default, description,
   range and choices come from the engine's `settings.json`, which the page
   fetches through the manifest's `settingsMetadata` (§5.4.4). A build-time
   tool, compiled to WASM against `pkgsWasm.glib`, writes it by asking
   GLib about the compiled schemas, so nothing parses schema XML or GVariant
-  text, at build time or in the browser. A relocatable schema fails the
-  build, since it has no fixed path. A key carries only what its schema
+  text, at build time or in the browser. A relocatable schema lists the paths the build declares for it, and fails the
+  build without any. A key carries only what its schema
   declares: Hangul's `keyboard` is a plain string, so it has no choices.
 - **The source service.** Storage sits behind `SettingsSource`: `snapshot`
   supplies `Init`'s values, `written` receives the engine's writes, and a
