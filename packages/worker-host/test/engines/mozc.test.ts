@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import {
+  CandidateClicked,
+  CursorDown,
+  PageDown,
+  PageUp,
   SettingChanged,
   booleanVariant,
   stringVariant,
@@ -87,6 +91,43 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
     expect(visible).toBe(true);
     expect(table.candidates.length).toBeGreaterThan(1);
     expect(table.candidates.map(({ text }) => text)).toContain("漢字");
+  });
+
+  const texts = (table: { readonly candidates: readonly { readonly text: string }[] }) =>
+    table.candidates.map(({ text }) => text);
+
+  test("the panel's page and cursor controls page and move through Mozc's candidates", async () => {
+    const session = await start(hiragana);
+    await typeText(session, 1, "kanji");
+    await session.key(1, ...Key.space);
+    const first = last(await session.key(1, ...Key.space), "UpdateLookupTable").table;
+
+    const moved = last(await session.request(1, new CursorDown({})), "UpdateLookupTable").table;
+    expect(moved.cursorPos).toBe(first.cursorPos + 1);
+
+    const second = last(await session.request(1, new PageDown({})), "UpdateLookupTable").table;
+    expect(texts(second)).not.toEqual(texts(first));
+    const back = last(await session.request(1, new PageUp({})), "UpdateLookupTable").table;
+    expect(texts(back)).toEqual(texts(first));
+  });
+
+  // Mozc sends one page of candidates at a time, so the panel's page-relative
+  // index is the index into what Mozc last sent. A click selects the
+  // candidate for the segment, as Mozc's own candidate windows do; Enter
+  // commits it.
+  test("a click on the second page selects that page's candidate", async () => {
+    const session = await start(hiragana);
+    await typeText(session, 1, "kanji");
+    await session.key(1, ...Key.space);
+    const first = last(await session.key(1, ...Key.space), "UpdateLookupTable").table;
+    const second = last(await session.request(1, new PageDown({})), "UpdateLookupTable").table;
+    expect(texts(second)).not.toEqual(texts(first));
+
+    const chosen = second.candidates[1]!.text;
+    const clicked = await session.request(1, new CandidateClicked({ index: 1, button: 1, state: 0 }));
+    expect(committed(clicked)).toBe("");
+    expect(last(clicked, "UpdatePreeditText").text.text).toBe(chosen);
+    expect(committed(await session.key(1, ...enter))).toBe(chosen);
   });
 
   test("Init's punctuation setting reaches the converter", async () => {

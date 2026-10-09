@@ -1,0 +1,86 @@
+From a498c822e1b137e4b03d35d47352ead405cc5d8b Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Thu, 8 Oct 2026 21:09:12 -0700
+Subject: [PATCH] Implement the candidate window's paging and cursor controls
+
+ibus-mozc's page_up, page_down, cursor_up and cursor_down handlers are
+empty, so the arrows and page buttons of IBus's candidate window do
+nothing. Each now sends the converter the matching key, Page Up, Page
+Down, Up or Down, so it does what that key does in the current keymap.
+---
+ src/unix/ibus/mozc_engine.cc | 31 +++++++++++++++++++++++++------
+ src/unix/ibus/mozc_engine.h  |  3 +++
+ 2 files changed, 28 insertions(+), 6 deletions(-)
+
+diff --git a/src/unix/ibus/mozc_engine.cc b/src/unix/ibus/mozc_engine.cc
+index b4fc934..cfbce39 100644
+--- a/src/unix/ibus/mozc_engine.cc
++++ b/src/unix/ibus/mozc_engine.cc
+@@ -269,11 +269,11 @@ void MozcEngine::CandidateClicked(IbusEngineWrapper *engine, uint index,
+ }
+ 
+ void MozcEngine::CursorDown(IbusEngineWrapper *engine) {
+-  // TODO(mazda): Implement this.
++  SendSpecialKey(engine, commands::KeyEvent::DOWN);
+ }
+ 
+ void MozcEngine::CursorUp(IbusEngineWrapper *engine) {
+-  // TODO(mazda): Implement this.
++  SendSpecialKey(engine, commands::KeyEvent::UP);
+ }
+ 
+ void MozcEngine::Disable(IbusEngineWrapper *engine) {
+@@ -359,13 +359,32 @@ void MozcEngine::FocusOut(IbusEngineWrapper *engine) {
+ }
+ 
+ void MozcEngine::PageDown(IbusEngineWrapper *engine) {
+-  // TODO(mazda,yusukes): Implement this to support arrow icons inside the Gtk+
+-  // candidate window.
++  SendSpecialKey(engine, commands::KeyEvent::PAGE_DOWN);
+ }
+ 
+ void MozcEngine::PageUp(IbusEngineWrapper *engine) {
+-  // TODO(mazda,yusukes): Implement this to support arrow icons inside the Gtk+
+-  // candidate window.
++  SendSpecialKey(engine, commands::KeyEvent::PAGE_UP);
++}
++
++// The candidate window's arrow and page controls do what the matching key
++// does in the current keymap.
++void MozcEngine::SendSpecialKey(IbusEngineWrapper *engine,
++                                commands::KeyEvent::SpecialKey special_key) {
++  if (property_handler_->IsDisabled() || !property_handler_->IsActivated()) {
++    return;
++  }
++
++  commands::KeyEvent key;
++  key.set_special_key(special_key);
++  key.set_activated(true);
++  key.set_mode(property_handler_->GetOriginalCompositionMode());
++
++  commands::Output output;
++  if (!client_->SendKey(key, &output)) {
++    LOG(ERROR) << "SendKey failed";
++    return;
++  }
++  UpdateAll(engine, output);
+ }
+ 
+ bool MozcEngine::ProcessKeyEvent(IbusEngineWrapper *engine, uint keyval,
+diff --git a/src/unix/ibus/mozc_engine.h b/src/unix/ibus/mozc_engine.h
+index 78afdb8..f6cad84 100644
+--- a/src/unix/ibus/mozc_engine.h
++++ b/src/unix/ibus/mozc_engine.h
+@@ -100,6 +100,9 @@ class MozcEngine : public EngineInterface {
+                       uint hints) override;
+ 
+  private:
++  // Sends `special_key` to the converter as a key press would.
++  void SendSpecialKey(IbusEngineWrapper *engine,
++                      commands::KeyEvent::SpecialKey special_key);
+   // Updates the preedit text and the candidate window and inserts result
+   // based on the content of |output|.
+   bool UpdateAll(IbusEngineWrapper *engine, const commands::Output &output);
+-- 
+2.55.0
+
