@@ -64,7 +64,11 @@ const manifest: ModuleManifest = {
   settingsSchemas: ["test.settings", "test.relocatable"],
   settingsMetadata: { url: "settings.json", size: 1 },
 };
-const options = {
+const options: {
+  modules: Record<string, URL>;
+  loadManifest: (url: URL) => Promise<unknown>;
+  loadMetadata: (url: URL) => Promise<unknown>;
+} = {
   modules: { a: new URL("/a/manifest.json", location.href), b: new URL("/b/manifest.json", location.href) },
   loadManifest: async (url: URL) => ({ ...manifest, name: url.pathname.split("/")[1] }),
   loadMetadata: async () => encodeSettingsMetadata(metadata),
@@ -104,6 +108,7 @@ const run = (
     connections: DomConnection[],
   ) => Promise<void>,
   source = indexedDbSettings(),
+  moduleOptions = options,
 ) =>
   Effect.runPromise(
     Effect.scoped(
@@ -112,7 +117,7 @@ const run = (
         const settings = yield* SettingsSource;
         const connections: DomConnection[] = [];
         const registry = yield* makeModuleRegistry({
-          ...options,
+          ...moduleOptions,
           hostUrl: new URL("/host", location.href),
           runtimeUrl: new URL("/runtime", location.href),
           start: async () => {
@@ -122,7 +127,7 @@ const run = (
           },
         });
         yield* Effect.promise(() => body(api, settings, registry, connections));
-      }).pipe(Effect.provide(SettingsApi.layer(options)), Effect.provide(Layer.mergeAll(base, source))),
+      }).pipe(Effect.provide(SettingsApi.layer(moduleOptions)), Effect.provide(Layer.mergeAll(base, source))),
     ),
   );
 
@@ -567,3 +572,50 @@ test("shared-path deletion notifies each local and remote alias with its own def
       }
     });
   }));
+
+// Module b declares the same path as module a under a schema that rejects "remote".
+const otherMetadata: SettingsMetadata = {
+  schemas: [
+    {
+      id: "test.other",
+      paths: [PATH],
+      keys: [{ name: "mode", type: "s", default: { _tag: "s", value: "default" }, choices: ["default", "chosen"] }],
+    },
+  ],
+};
+const differingOptions = {
+  ...options,
+  loadManifest: async (url: URL) => ({
+    ...manifest,
+    name: url.pathname.split("/")[1],
+    settingsSchemas: url.pathname.startsWith("/b/") ? ["test.other"] : manifest.settingsSchemas,
+  }),
+  loadMetadata: async (url: URL) => encodeSettingsMetadata(url.pathname.startsWith("/b/") ? otherMetadata : metadata),
+};
+test("modules declaring different schemas at one path each receive only their own schema's changes", () =>
+  run(
+    async (api, _source, registry, connections) => {
+      await Effect.runPromise(registry.ensure("a"));
+      await Effect.runPromise(registry.ensure("b"));
+      const changed = (connection: DomConnection) =>
+        connection.sent
+          .map(({ request }) => request)
+          .filter((request) => request._tag === "SettingChanged")
+          .map(({ path, key, value }) => ({ path, key, value }));
+      connections[0]!.sent.length = 0;
+      connections[1]!.sent.length = 0;
+      // Only module a's schema accepts "remote".
+      await api.set("a", PATH, "mode", stringVariant("remote"));
+      await connections[0]!.untilSent("SettingChanged");
+      await api.set("a", PATH, "mode", stringVariant("chosen"));
+      await connections[1]!.untilSent("SettingChanged");
+      await vi.waitFor(() => expect(changed(connections[0]!)).toHaveLength(2));
+      expect(changed(connections[0]!)).toEqual([
+        { path: PATH, key: "mode", value: stringVariant("remote") },
+        { path: PATH, key: "mode", value: stringVariant("chosen") },
+      ]);
+      expect(changed(connections[1]!)).toEqual([{ path: PATH, key: "mode", value: stringVariant("chosen") }]);
+    },
+    undefined,
+    differingOptions,
+  ));

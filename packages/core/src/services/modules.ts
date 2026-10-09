@@ -76,7 +76,7 @@ interface Entry {
   readonly snapshot: ModuleSnapshot;
   readonly router: KeyRouter;
   readonly changes: Map<string, SettingsChange>;
-  // The module's settings instances: path to schema id.
+  // SettingWritten carries only a path; this maps it back to the schema the persister keys on.
   readonly instances: Map<string, string>;
   readonly watchers: Set<() => void>;
   crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
