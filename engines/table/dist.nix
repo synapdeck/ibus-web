@@ -28,5 +28,7 @@
         engines = descriptors;
         settingsSchemas = [ "org.freedesktop.ibus.panel" ];
       };
+
+      ibusWeb.demo.modules.table = config.packages.ibus-web-table-dist;
     };
 }

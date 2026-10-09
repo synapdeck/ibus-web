@@ -1,0 +1,86 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+import type { Page } from "playwright/test";
+import { expect, test } from "./fixtures.ts";
+
+type Engine = "LaTeX" | "X-SAMPA";
+
+// A composition each engine makes at once, and what it leaves in the field.
+const probes: Record<Engine, { keys: string; value: string }> = {
+  LaTeX: { keys: "\\alpha ", value: "α" },
+  "X-SAMPA": { keys: "S@ ", value: "ʃə " },
+};
+
+const field = (page: Page) => page.locator("#input");
+
+// Typing stays native until the module's Worker and the field's context are
+// ready, so the probe is retried until the engine makes it. Escape commits
+// whatever a half-native attempt left composing, and the field is emptied
+// after it.
+const pick = async (page: Page, engine: Engine) => {
+  await page.locator("#engine-picker").selectOption({ label: engine });
+  const { keys, value } = probes[engine];
+  await expect(async () => {
+    await field(page).click();
+    await page.keyboard.press("Escape");
+    await field(page).fill("");
+    await page.keyboard.type(keys);
+    await expect(field(page)).toHaveValue(value, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await field(page).fill("");
+};
+
+test("LaTeX turns \\alpha and Space into α", async ({ page }) => {
+  await pick(page, "LaTeX");
+  await page.keyboard.type("\\alpha");
+  await expect(page.locator("[data-ibus-preedit]").filter({ hasText: "\\alpha" })).toBeVisible();
+  await expect(page.locator(".ibus-panel [data-candidate]").first()).toContainText("α \\alpha");
+  await expect(field(page)).toHaveValue("");
+  await page.keyboard.press("Space");
+  await expect(field(page)).toHaveValue("α");
+});
+
+test("LaTeX commits \\to before the comma that ends it", async ({ page }) => {
+  await pick(page, "LaTeX");
+  await page.keyboard.type("\\to,");
+  await expect(field(page)).toHaveValue("→,");
+});
+
+test("X-SAMPA turns S@ and Space into ʃə", async ({ page }) => {
+  await pick(page, "X-SAMPA");
+  await page.keyboard.type("S@");
+  await page.keyboard.press("Space");
+  await expect(field(page)).toHaveValue("ʃə ");
+});
+
+test("switching between LaTeX and X-SAMPA keeps the module's Worker", async ({ page }) => {
+  await pick(page, "LaTeX");
+  const hosts: string[] = [];
+  page.on("worker", (worker) => {
+    if (new URL(worker.url()).pathname.endsWith("/host/worker/index.js")) hosts.push(worker.url());
+  });
+  await pick(page, "X-SAMPA");
+  await pick(page, "LaTeX");
+  await page.keyboard.type("\\to,");
+  await expect(field(page)).toHaveValue("→,");
+  expect(hosts).toEqual([]);
+});
+
+test("deselecting gives plain input", async ({ page }) => {
+  await pick(page, "X-SAMPA");
+  await page.keyboard.press("Control+Space");
+  await expect(page.locator("#engine-picker")).toHaveValue("");
+  await page.keyboard.type("S@ ");
+  await expect(field(page)).toHaveValue("S@ ");
+});
+
+test("the settings form follows the selected module", async ({ page }) => {
+  const controls = page.locator("#settings select, #settings input");
+  await page.locator("#engine-picker").selectOption({ label: "LaTeX" });
+  await expect(controls).toHaveCount(1);
+  await expect(page.locator("#setting-lookup-table-orientation")).toBeVisible();
+
+  await page.locator("#engine-picker").selectOption({ label: "Hangul" });
+  await expect(controls.nth(1)).toBeAttached();
+  await expect(controls).not.toHaveCount(1);
+});
