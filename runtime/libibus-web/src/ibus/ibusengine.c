@@ -145,6 +145,9 @@ static void destroy(IBusObject *object) {
 static void ibus_engine_init(IBusEngine *engine) {
   engine->priv = ibus_engine_get_instance_private(engine);
   engine->priv->surrounding_text = g_object_ref(text_empty);
+  /* An engine can emit from its own instance init or constructor, before the
+   * factory returns it; those records belong to the context it is made for. */
+  engine->priv->ic = ibusweb_factory_creating_ic();
 }
 static void ibus_engine_class_init(IBusEngineClass *klass) {
   GObjectClass *gobject_class = G_OBJECT_CLASS(klass);

@@ -96,6 +96,10 @@ gboolean ibusweb_factory_fail(const char *reason) {
   return TRUE;
 }
 
+uint32_t ibusweb_factory_creating_ic(void) {
+  return runtime_factory != NULL ? runtime_factory->priv->creating_ic : 0;
+}
+
 IBusEngine *ibusweb_factory_create(uint32_t ic, const char *name, int *error) {
   if (error != NULL)
     *error = -ESRCH;

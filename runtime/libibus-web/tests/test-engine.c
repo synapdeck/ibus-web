@@ -371,6 +371,30 @@ typedef struct {
 } TestEngineClass;
 G_DEFINE_TYPE(TestEngine, test_engine, IBUS_TYPE_ENGINE)
 
+typedef struct {
+  IBusEngine parent;
+} ConstructingEngine;
+typedef struct {
+  IBusEngineClass parent;
+} ConstructingEngineClass;
+G_DEFINE_TYPE(ConstructingEngine, constructing_engine, IBUS_TYPE_ENGINE)
+
+/* Emits while it is being made, from its instance init and its constructor,
+ * as ibus-m17n's engines do. */
+static GObject *constructing_engine_constructor(GType type, guint n,
+                                                GObjectConstructParam *params) {
+  GObject *object = G_OBJECT_CLASS(constructing_engine_parent_class)
+                        ->constructor(type, n, params);
+  ibus_engine_hide_auxiliary_text(IBUS_ENGINE(object));
+  return object;
+}
+static void constructing_engine_class_init(ConstructingEngineClass *klass) {
+  G_OBJECT_CLASS(klass)->constructor = constructing_engine_constructor;
+}
+static void constructing_engine_init(ConstructingEngine *engine) {
+  ibus_engine_hide_preedit_text(IBUS_ENGINE(engine));
+}
+
 static IBusEngine *observed_engine;
 static const char *called;
 static guint arguments[4];
@@ -583,6 +607,33 @@ static void factory(void) {
   g_assert_cmpstr(ibus_service_get_object_path(IBUS_SERVICE(engine)), ==,
                   "/org/freedesktop/IBus/Engine/19");
   g_object_unref(engine);
+
+  ibus_factory_add_engine(factory, "constructing",
+                          constructing_engine_get_type());
+  clear_output();
+  uint32_t seq = ibusweb_output_last_seq(), size;
+  engine = ibusweb_factory_create(21, "constructing", &error);
+  g_assert_cmpint(error, ==, 0);
+  g_variant_unref(
+      first_record(IBUSWEB_REC_HIDE_PREEDIT_TEXT, 21, ++seq, &size));
+  ibusweb_output_consume(size);
+  g_variant_unref(
+      first_record(IBUSWEB_REC_HIDE_AUXILIARY_TEXT, 21, ++seq, &size));
+  ibusweb_output_consume(size);
+  g_object_unref(engine);
+
+  /* Made outside a CreateEngine, an engine has no context yet. */
+  clear_output();
+  seq = ibusweb_output_last_seq();
+  engine =
+      g_object_ref_sink(g_object_new(constructing_engine_get_type(), NULL));
+  g_variant_unref(first_record(IBUSWEB_REC_HIDE_PREEDIT_TEXT, 0, ++seq, &size));
+  ibusweb_output_consume(size);
+  g_variant_unref(
+      first_record(IBUSWEB_REC_HIDE_AUXILIARY_TEXT, 0, ++seq, &size));
+  ibusweb_output_consume(size);
+  g_object_unref(engine);
+
   g_assert_null(ibusweb_factory_create(20, "missing", &error));
   g_assert_cmpint(error, ==, -ESRCH);
   g_test_expect_message("IBUS", G_LOG_LEVEL_CRITICAL, "*one factory*");

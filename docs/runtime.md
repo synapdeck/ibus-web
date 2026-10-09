@@ -139,6 +139,11 @@ reason fails the creation even when its handler also returned an engine. A creat
 any other reason replies `-EIO` with no record. Called outside a `create-engine` emission, the function logs a
 critical.
 
+An engine belongs to its context while it is being made: `IBusEngine`'s instance init takes the context of the
+`CreateEngine` under way, so records an engine emits from its own instance init or constructor, as ibus-m17n's do
+when its first context opens the input method, reach that context rather than context 0. An engine made outside a
+`create-engine` emission starts on context 0.
+
 `-ECANCELED` means the runtime is unusable. The exception unwound through
 GLib's signal emission, skipping its cleanup and leaking the engine's
 reference; the C++ frame that caught it logs a warning, but nothing undoes
