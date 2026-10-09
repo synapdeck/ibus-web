@@ -59,8 +59,13 @@ not implemented. `ibus_init()` registers the serializable types;
 ([known gaps](known-gaps.md#runtime)).
 
 `IBusEngineSimple` is a minimal base: compose, Ctrl+Shift+U and emoji input are
-not implemented. `ibus_keymap_get()` returns `NULL`; keymap lookup returns the
-input keyval because the page supplies translated keysyms.
+not implemented. `ibus_keymap_get("us")` returns a shared US keymap and any
+other name `NULL`. Its lookup maps an evdev code and modifier state to the
+keysym the page's `us` translation would give: NumLock alone selects keypad
+levels, Shift and Lock invert each other for letters, Shift selects the second
+level for other keys, and Mod5 is ignored. Its table is generated from the same
+xkeyboard-config export as the page's (`us-keymap.generated.h`), and the
+`engine` test checks it against vectors the page's translation writes.
 
 The [source inventory](../runtime/libibus-web/src/ibus/README.md) records each
 file's origin and adaptations. To update IBus, compare the new release with the

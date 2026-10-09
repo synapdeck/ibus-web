@@ -91,7 +91,7 @@ An item leaves this page when it is fixed or decided.
 - **IBus API scope.** The runtime supplies engine/data types, components and engine
   descriptions, a local bus, emitters, the framed dispatcher and settings backend.
   `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji; Latin mode therefore leaves
-  ordinary typing to the browser. Keymap lookup uses page-provided keysyms. `IBusConfig`,
+  ordinary typing to the browser. Only the US keymap exists. `IBusConfig`,
   `IBusInputContext` and `IBusProxy` are declared, for `ibusbus.h`, but not implemented, and
   the bus's daemon- and application-side requests warn once and fail
   ([runtime.md](runtime.md#ibus-layer)).

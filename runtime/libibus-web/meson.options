@@ -24,3 +24,9 @@ option(
   value: '',
   description: 'The directory of archives the install tests extract',
 )
+option(
+  'test_us_keymap',
+  type: 'string',
+  value: '',
+  description: 'Expected US keymap lookups, which the engine tests check',
+)

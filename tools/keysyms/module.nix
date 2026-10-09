@@ -11,7 +11,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) typescript testing;
+      inherit (config.ibusWeb) typescript testing toolchain;
 
       # DEPS.src is the exact source revision of nixpkgs' Chromium build.
       chromiumInfo = lib.importJSON (
@@ -77,6 +77,11 @@
             tar -xOf ${pkgs.xkeyboard_config.src} xkeyboard-config-${pkgs.xkeyboard_config.version}/COPYING > $out
           '';
 
+      keysymsWorkspace = typescript.workspaceFor [
+        "tools/keysyms"
+        "packages/core"
+      ];
+
       keysymdef = "${pkgs.xorgproto}/include/X11/keysymdef.h";
 
       # oxfmt picks its parser from fileName's extension.
@@ -109,6 +114,17 @@
         generate "us.generated.ts" ./us.ts
           xkbExport;
 
+      files.file."runtime/libibus-web/src/ibus/us-keymap.generated.h".source =
+        pkgs.runCommand "ibus-web-us-keymap.generated.h" { }
+          ''
+            ${typescript.nodejs}/bin/node ${keysymsWorkspace}/tools/keysyms/us-c.ts ${xkbExport} ${domCodes} \
+              | ${toolchain.emscripten.llvmEnv}/bin/clang-format --assume-filename=us-keymap.generated.h > $out
+          '';
+
+      ibusWeb.keysyms.usKeymapVectors = pkgs.runCommand "ibus-web-us-keymap-vectors.txt" { } ''
+        ${typescript.nodejs}/bin/node ${keysymsWorkspace}/tools/keysyms/us-vectors.ts ${domCodes} > $out
+      '';
+
       files.file."NOTICES/keysymdef.txt".source = notice "keysymdef" keysymdef;
       files.file."NOTICES/chromium.txt".source = notice "chromium" chromiumLicense;
       files.file."LICENSES/LicenseRef-xkeyboard-config.txt".source = xkbNotice;
@@ -129,12 +145,7 @@
 
       checks.tools-keysyms = testing.vitestCheck {
         name = "tools-keysyms";
-        packageDir = "${
-          typescript.workspaceFor [
-            "tools/keysyms"
-            "packages/core"
-          ]
-        }/tools/keysyms";
+        packageDir = "${keysymsWorkspace}/tools/keysyms";
         limit = 120;
         inBrowsers = false;
         env = sourcesEnv;

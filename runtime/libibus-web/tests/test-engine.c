@@ -7,6 +7,7 @@
 #include <ibus-web/protocol.h>
 #include <ibus-web/runtime.h>
 #include <ibus.h>
+#include <stdio.h>
 #include <string.h>
 
 static int32_t wake_word;
@@ -596,9 +597,54 @@ static void simple_and_keymap(void) {
   gboolean handled = TRUE;
   g_signal_emit_by_name(engine, "process-key-event", IBUS_a, 38u, 0u, &handled);
   g_assert_false(handled);
-  g_assert_null(ibus_keymap_get("us"));
-  g_assert_cmpuint(ibus_keymap_lookup_keysym(NULL, IBUS_a, 0), ==, IBUS_a);
   g_object_unref(engine);
+
+  g_assert_null(ibus_keymap_get("de"));
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(NULL, 30, 0), ==, IBUS_VoidSymbol);
+  IBusKeymap *us = ibus_keymap_get("us");
+  g_assert_nonnull(us);
+  g_assert_true(ibus_keymap_get("us") == us);
+  g_object_unref(us);
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(us, 30, 0), ==, IBUS_a);
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(us, 30, IBUS_SHIFT_MASK), ==,
+                   IBUS_A);
+  g_assert_cmpuint(
+      ibus_keymap_lookup_keysym(us, 30, IBUS_SHIFT_MASK | IBUS_LOCK_MASK), ==,
+      IBUS_a);
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(us, 2, IBUS_LOCK_MASK), ==,
+                   IBUS_1);
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(us, 79, IBUS_MOD2_MASK), ==,
+                   IBUS_KP_1);
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(us, 79, IBUS_SHIFT_MASK), ==,
+                   IBUS_KP_End);
+  g_assert_cmpuint(ibus_keymap_lookup_keysym(us, 0xfff, 0), ==,
+                   IBUS_VoidSymbol);
+  g_object_unref(us);
+}
+
+static void keymap_matches_page(void) {
+  const gchar *path = g_getenv("IBUSWEB_TEST_US_KEYMAP");
+  if (path == NULL || *path == '\0') {
+    g_test_skip("IBUSWEB_TEST_US_KEYMAP is not set");
+    return;
+  }
+  g_autofree gchar *contents = NULL;
+  g_assert_true(g_file_get_contents(path, &contents, NULL, NULL));
+  IBusKeymap *us = ibus_keymap_get("us");
+  g_auto(GStrv) lines = g_strsplit(contents, "\n", -1);
+  guint checked = 0;
+  for (gchar **line = lines; *line != NULL; ++line) {
+    guint code, state, keyval;
+    if (sscanf(*line, "%u %u %u", &code, &state, &keyval) != 3)
+      continue;
+    if (ibus_keymap_lookup_keysym(us, code, state) != keyval)
+      g_error("evdev %u, state %u: expected 0x%x, got 0x%x", code, state,
+              keyval, ibus_keymap_lookup_keysym(us, code, state));
+    ++checked;
+  }
+  g_test_message("checked %u vectors", checked);
+  g_assert_cmpuint(checked, >, 1000);
+  g_object_unref(us);
 }
 
 static void simple_hides_preedit_on_focus_out_and_reset(void) {
@@ -645,6 +691,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/engine/signals", signal_dispatch);
   g_test_add_func("/engine/factory", factory);
   g_test_add_func("/engine/simple-keymap", simple_and_keymap);
+  g_test_add_func("/engine/keymap-matches-page", keymap_matches_page);
   g_test_add_func("/engine/log-domain", log_domain);
   g_test_add_func("/engine/simple-preedit-lifecycle",
                   simple_hides_preedit_on_focus_out_and_reset);

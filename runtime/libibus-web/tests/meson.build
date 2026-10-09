@@ -74,7 +74,9 @@ test_engine = executable(
   dependencies: libibus_web_dep,
   link_args: get_option('test_main_link_args'),
 )
-test('engine', test_engine, protocol: 'tap')
+engine_env = environment()
+engine_env.set('IBUSWEB_TEST_US_KEYMAP', get_option('test_us_keymap'))
+test('engine', test_engine, protocol: 'tap', env: engine_env)
 
 test_dispatch = executable(
   'test-dispatch',
