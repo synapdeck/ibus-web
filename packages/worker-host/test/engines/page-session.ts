@@ -26,6 +26,7 @@ export const CAPABILITIES =
   IBusCapability.SURROUNDING_TEXT;
 export const Key = {
   hangul: [0xff31, 122],
+  escape: [0xff1b, 1],
   f8: [0xffc5, 66],
   f9: [0xffc6, 67],
   pageDown: [0xff56, 109],

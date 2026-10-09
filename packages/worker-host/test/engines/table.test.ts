@@ -100,6 +100,19 @@ describe.each(h.data.runtimes)("the table module through $name host", (runtime) 
     expect(committed(await session.key(1, ...Key.space))).toBe("α");
   });
 
+  test("X-SAMPA's Escape commits the pending buffer raw and is consumed, and passes through when nothing is pending", async () => {
+    const session = await start(xsampa);
+    const typed = await typeText(session, 1, "S@");
+    expect(committed(typed)).toBe("ʃ");
+    expect(last(typed, "UpdatePreeditText").text.text).toBe("@");
+
+    const escaped = await session.key(1, ...Key.escape);
+    expect(committed(escaped)).toBe("@");
+    expect(last(escaped, "UpdatePreeditText").visible).toBe(false);
+
+    expect(tags(await session.key(1, ...Key.escape, 0))).toEqual([]);
+  });
+
   test("only the cursor's page reaches IBus, and a click on the second page commits that page's candidate", async () => {
     const session = await start(latex);
     const opened = last(await typeText(session, 1, "\\"), "UpdateLookupTable").table;
