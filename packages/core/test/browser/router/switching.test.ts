@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { Effect, Fiber, Stream } from "effect";
 import { run, select, key, preedit, record } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
@@ -213,6 +213,41 @@ test.each([
     expect(key(f.element).defaultPrevented).toBe(false);
   }),
 );
+test("a focus reconcile and a same-tick select each send CreateEngine; the select rejects and the focus failure is logged", () =>
+  run(async ({ router, connections, field }) => {
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const f = field();
+      const a = connections.a[0]!;
+      a.hold = "CreateEngine";
+      const createEngines = () => a.sent.filter((x) => x.request._tag === "CreateEngine");
+      const refusal = [record({ _tag: "CreateEngineFailed", message: "other.table:9: line 9 has no tab" })];
+
+      // The focus queues a reconcile; the select lands behind it in the same tick and queues its own.
+      f.element.focus();
+      const selecting = Effect.runPromise(router.select("a", "other"));
+      const rejected = expect(selecting).rejects.toMatchObject({
+        _tag: "CreateEngineError",
+        module: "a",
+        engine: "other",
+        reason: "other.table:9: line 9 has no tab",
+      });
+
+      await expect.poll(createEngines).toHaveLength(1);
+      a.completeAsync(-29, refusal);
+      await expect.poll(createEngines).toHaveLength(2);
+      a.completeAsync(-29, refusal);
+      await rejected;
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(createEngines()).toHaveLength(2);
+      const warnings = logged.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("WARN"));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("could not be created: other.table:9: line 9 has no tab");
+    } finally {
+      logged.mockRestore();
+    }
+  }));
 test("hotkeys start empty, can consume a custom binding, and unregister", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
