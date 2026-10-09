@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 9 Oct 2026 16:56:13 -0700
+Subject: [PATCH] Terminate the UTF-8 buffer before converting it to UCS-4
+
+ibus_m17n_mtext_to_ucs4 encodes into a buffer sized for the worst case
+and converts the whole buffer, which g_utf8_to_ucs4_fast reads up to
+its first nul byte. Nothing wrote one after the encoded text, so
+whatever the allocation held before became extra characters: a lookup
+table built from an M-text candidate group gained candidates that were
+never in it. Terminate the text as ibus_m17n_mtext_to_utf8 does.
+---
+ src/m17nutil.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/m17nutil.c b/src/m17nutil.c
+index 96955a9..7c7a4e0 100644
+--- a/src/m17nutil.c
++++ b/src/m17nutil.c
+@@ -86,6 +86,7 @@ ibus_m17n_mtext_to_ucs4 (MText *text, glong *nchars)
+         g_free (buf);
+         return NULL;
+     }
++    buf [utf8_converter->nbytes] = 0;
+     ucs = g_utf8_to_ucs4_fast (buf, bufsize, nchars);
+     g_free (buf);
+     return ucs;

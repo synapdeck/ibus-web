@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 9 Oct 2026 16:56:13 -0700
+Subject: [PATCH] Use the declared GObject callback types
+
+WebAssembly traps on an indirect call through a function type that
+differs from the callee's. GLib calls the class and instance
+initializers as GClassInitFunc and GInstanceInitFunc, which take a
+second argument these definitions lacked, and IBusObject calls destroy
+as IBusObjectDestroyFunc, whose parameter is an IBusObject pointer.
+---
+ src/engine.c | 25 ++++++++++++++++---------
+ 1 file changed, 16 insertions(+), 9 deletions(-)
+
+diff --git a/src/engine.c b/src/engine.c
+index bd54e58..900e58e 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -51,7 +51,8 @@ struct _IBusM17NEngineClass {
+ };
+ 
+ /* functions prototype */
+-static void ibus_m17n_engine_class_init     (IBusM17NEngineClass    *klass);
++static void ibus_m17n_engine_class_init     (gpointer                g_class,
++                                             gpointer                class_data);
+ static void ibus_m17n_config_value_changed  (GSettings              *gsettings,
+                                              const gchar            *key,
+                                              IBusM17NEngineClass    *klass);
+@@ -60,8 +61,9 @@ static GObject*
+             ibus_m17n_engine_constructor    (GType                   type,
+                                              guint                   n_construct_params,
+                                              GObjectConstructParam  *construct_params);
+-static void ibus_m17n_engine_init           (IBusM17NEngine         *m17n);
+-static void ibus_m17n_engine_destroy        (IBusM17NEngine         *m17n);
++static void ibus_m17n_engine_init           (GTypeInstance          *instance,
++                                             gpointer                g_class);
++static void ibus_m17n_engine_destroy        (IBusObject             *object);
+ static gboolean
+             ibus_m17n_engine_process_key_event
+                                             (IBusEngine             *engine,
+@@ -167,12 +169,12 @@ ibus_m17n_engine_get_type_for_name (const gchar *engine_name)
+         sizeof (IBusM17NEngineClass),
+         (GBaseInitFunc)      NULL,
+         (GBaseFinalizeFunc)  NULL,
+-        (GClassInitFunc)     ibus_m17n_engine_class_init,
++        ibus_m17n_engine_class_init,
+         (GClassFinalizeFunc) NULL,
+         NULL,
+         sizeof (IBusM17NEngine),
+         0,
+-        (GInstanceInitFunc)  ibus_m17n_engine_init,
++        ibus_m17n_engine_init,
+     };
+ 
+     if (!ibus_m17n_scan_engine_name (engine_name, &lang, &name)) {
+@@ -207,8 +209,10 @@ ibus_m17n_engine_get_type_for_name (const gchar *engine_name)
+ }
+ 
+ static void
+-ibus_m17n_engine_class_init (IBusM17NEngineClass *klass)
++ibus_m17n_engine_class_init (gpointer g_class,
++                             gpointer class_data G_GNUC_UNUSED)
+ {
++    IBusM17NEngineClass *klass = (IBusM17NEngineClass *) g_class;
+     GObjectClass *object_class = G_OBJECT_CLASS (klass);
+     IBusObjectClass *ibus_object_class = IBUS_OBJECT_CLASS (klass);
+     IBusEngineClass *engine_class = IBUS_ENGINE_CLASS (klass);
+@@ -219,7 +223,7 @@ ibus_m17n_engine_class_init (IBusM17NEngineClass *klass)
+         parent_class = (IBusEngineSimpleClass *) g_type_class_peek_parent (klass);
+ 
+     object_class->constructor = ibus_m17n_engine_constructor;
+-    ibus_object_class->destroy = (IBusObjectDestroyFunc) ibus_m17n_engine_destroy;
++    ibus_object_class->destroy = ibus_m17n_engine_destroy;
+ 
+     engine_class->process_key_event = ibus_m17n_engine_process_key_event;
+ 
+@@ -395,8 +399,10 @@ ibus_m17n_config_value_changed (GSettings           *gsettings,
+ }
+ 
+ static void
+-ibus_m17n_engine_init (IBusM17NEngine *m17n)
++ibus_m17n_engine_init (GTypeInstance *instance,
++                       gpointer       g_class G_GNUC_UNUSED)
+ {
++    IBusM17NEngine *m17n = (IBusM17NEngine *) instance;
+     IBusText* label;
+     IBusText* tooltip;
+     IBusM17NEngineClass *klass = (IBusM17NEngineClass *) G_OBJECT_GET_CLASS (m17n);
+@@ -509,8 +515,9 @@ ibus_m17n_engine_constructor (GType                   type,
+ }
+ 
+ static void
+-ibus_m17n_engine_destroy (IBusM17NEngine *m17n)
++ibus_m17n_engine_destroy (IBusObject *object)
+ {
++    IBusM17NEngine *m17n = (IBusM17NEngine *) object;
+     if (m17n->prop_list) {
+         g_object_unref (m17n->prop_list);
+         m17n->prop_list = NULL;

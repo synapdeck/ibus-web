@@ -44,6 +44,7 @@ ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
 | [`modules/emscripten/patches/README.md`](../modules/emscripten/patches/README.md)     | Each Emscripten patch: what it fixes, upstream status, when it can go    |
 | [`modules/glib/patches/README.md`](../modules/glib/patches/README.md)                 | GLib's patch series                                                      |
 | [`engines/hangul/patches/README.md`](../engines/hangul/patches/README.md)             | ibus-hangul's and libhangul's patch layers                               |
+| [`engines/m17n/patches/README.md`](../engines/m17n/patches/README.md)                 | m17n-lib's and ibus-m17n's patch layers                                  |
 | [`runtime/libibus-web/src/ibus/README.md`](../runtime/libibus-web/src/ibus/README.md) | Which IBus sources are vendored and which are reimplemented              |
 | [upstream/](upstream/README.md)                                                       | Draft reports for Emscripten, V8 and Node, and the order to post them in |
 

@@ -379,3 +379,15 @@ are `mozc-jp`, `mozc-on` and `mozc-off`. [mozc.md](mozc.md) describes its build,
 nix build .#ibus-web-mozc-dist
 nix build .#checks.x86_64-linux.mozc-host
 ```
+
+## m17n
+
+`engines/m17n/` is ibus-m17n with m17n-lib and m17n-db in one side module, `m17n.wasm`, built through nixpkgs'
+Autotools recipes. Its 197 engines, `m17n:<lang>:<name>`, are the input methods ibus-m17n lists, and their descriptors
+come from that same listing, run at build time. [m17n.md](m17n.md) describes its build, startup, engines, settings and
+checks.
+
+```sh
+nix build .#ibus-web-m17n
+nix build .#checks.x86_64-linux.m17n-imports
+```
