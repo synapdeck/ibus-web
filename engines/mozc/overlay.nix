@@ -34,6 +34,8 @@ in
               # Data the dictionary build reads, so the build machine's copy.
               inherit (final.buildPackages) jp-zip-codes;
 
+              # In a browser Mozc only ever runs as an IBus engine.
+              withIbus = true;
               ibus = final.libibus-web;
 
               buildBazelPackage =
@@ -59,6 +61,7 @@ in
                       "//session:session_handler"
                       "//engine:engine_factory"
                       "//client:client"
+                      "//unix/ibus:ibus_mozc_lib"
                       "//ibus_web_converter_check:converter.js"
                     ];
 
