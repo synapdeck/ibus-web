@@ -16,6 +16,7 @@ typedef struct {
 } DispatchEngineClass;
 G_DEFINE_TYPE(DispatchEngine, dispatch_engine, IBUS_TYPE_ENGINE)
 static IBusEngine *last_created;
+static guint engines_constructed, engines_finalized;
 
 extern gboolean test_throwing_key_event(IBusEngine *, guint, guint, guint);
 
@@ -78,13 +79,19 @@ static void connected_content(IBusEngine *engine, guint purpose, guint hints,
   content_callback(engine, purpose, hints);
 }
 
+static void dispatch_engine_finalize(GObject *object) {
+  ++engines_finalized;
+  G_OBJECT_CLASS(dispatch_engine_parent_class)->finalize(object);
+}
 static void dispatch_engine_class_init(DispatchEngineClass *klass) {
+  G_OBJECT_CLASS(klass)->finalize = dispatch_engine_finalize;
   IBUS_ENGINE_CLASS(klass)->set_cursor_location = cursor_callback;
   IBUS_ENGINE_CLASS(klass)->set_capabilities = capabilities_callback;
   IBUS_ENGINE_CLASS(klass)->set_content_type = content_callback;
   IBUS_ENGINE_CLASS(klass)->process_key_event = process_key;
 }
 static void dispatch_engine_init(DispatchEngine *engine) {
+  ++engines_constructed;
   last_created = IBUS_ENGINE(engine);
   g_object_add_weak_pointer(G_OBJECT(engine), (gpointer *)&last_created);
 }
@@ -478,18 +485,30 @@ static IBusEngine *refuse(IBusFactory *factory, const gchar *name,
     ibusweb_factory_fail_create("refused.table:9: line 9 has no tab");
   else if (g_str_equal(name, "silent"))
     g_signal_stop_emission_by_name(factory, "create-engine");
+  else if (g_str_equal(name, "refused-with-engine")) {
+    IBusEngine *engine = ibus_engine_new_with_type(
+        dispatch_engine_get_type(), name, "/org/freedesktop/IBus/Engine/99",
+        ibus_service_get_connection(IBUS_SERVICE(factory)));
+    ibusweb_factory_fail_create("handler refused after building an engine");
+    return engine;
+  }
   return NULL;
 }
 
 /* Registered engines that aren't made: a handler's reason reaches the host
  * on the request's context ahead of the reply, and stops the factory from
- * making the engine anyway. */
+ * making the engine anyway. An engine the failing handler built is destroyed
+ * rather than adopted. */
 static void refusals(void) {
+  guint constructed = engines_constructed;
+  guint finalized = engines_finalized;
+
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 9, g_variant_new("(s)", "refused")), ==,
       -EIO);
   skip_debug_logs();
   expect_create_failed(9, "refused.table:9: line 9 has no tab");
+  g_assert_cmpuint(engines_constructed, ==, constructed);
 
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 9, g_variant_new("(s)", "silent")), ==,
@@ -497,6 +516,16 @@ static void refusals(void) {
   skip_debug_logs();
   empty_output();
   g_assert_null(last_created);
+  g_assert_cmpuint(engines_constructed, ==, constructed);
+
+  g_assert_cmpint(send(IBUSWEB_REQ_CREATE_ENGINE, 9,
+                       g_variant_new("(s)", "refused-with-engine")),
+                  ==, -EIO);
+  skip_debug_logs();
+  expect_create_failed(9, "handler refused after building an engine");
+  g_assert_null(last_created);
+  g_assert_cmpuint(engines_constructed, ==, constructed + 1);
+  g_assert_cmpuint(engines_finalized, ==, finalized + 1);
 
   ibusweb_factory_fail_create("outside");
   expect_log(G_LOG_LEVEL_CRITICAL, "ibus-web", "outside a CreateEngine");
@@ -525,6 +554,8 @@ static void protocol(void) {
   ibus_factory_add_engine(factory, "test", dispatch_engine_get_type());
   ibus_factory_add_engine(factory, "refused", dispatch_engine_get_type());
   ibus_factory_add_engine(factory, "silent", dispatch_engine_get_type());
+  ibus_factory_add_engine(factory, "refused-with-engine",
+                          dispatch_engine_get_type());
   g_signal_connect(factory, "create-engine", G_CALLBACK(refuse), NULL);
   g_object_unref(factory);
   refusals();
