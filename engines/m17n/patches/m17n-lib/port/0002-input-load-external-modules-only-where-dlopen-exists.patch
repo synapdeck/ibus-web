@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 9 Oct 2026 16:39:10 -0700
+Subject: [PATCH] input: load external modules only where dlopen exists
+
+input.c, part of the core input-method library, loads an input
+method's external modules with dlopen, but configure checked for dlopen
+only inside the GUI block and input.c called it unconditionally. Check
+for it whatever the GUI setting, and without it treat every external
+module as one that fails to load, as a missing module file already does.
+---
+ configure.ac | 4 ++--
+ src/input.c  | 6 ++++++
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index 9f0192b..5aba938 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -104,14 +104,14 @@ AM_CONDITIONAL(WITH_GUI, test x$with_gui != xno)
+ PKG_PROG_PKG_CONFIG
+ AM_CONDITIONAL([HAVE_PKG_CONFIG], [test "x$PKG_CONFIG" != x])
+ 
+-if test x$with_gui != xno; then
+-
+ dnl Checks if dlopen exists, and if it's in libc or libdl.
+ 
+ AC_SEARCH_LIBS(dlopen, dl,
+ 	       AC_DEFINE(HAVE_DLOPEN, 1,
+ 	       [Define to 1 if you have the function dlopen.]))
+ 
++if test x$with_gui != xno; then
++
+ dnl Check several libraries without adding -lxxx to LIBS, without
+ dnl defining HAVE_LIBXXX nor HAVE_XXX_H because they are used only by
+ dnl some libraries (e.g. libm17n-X.so).  Instead, define XXX_LD_FLAGS
+diff --git a/src/input.c b/src/input.c
+index a36d2fc..683ea45 100644
+--- a/src/input.c
++++ b/src/input.c
+@@ -1256,6 +1256,7 @@ load_macros (MInputMethodInfo *im_info, MPlist *plist)
+ static MIMExternalModule *
+ load_external_module (MPlist *plist)
+ {
++#ifdef HAVE_DLOPEN
+   void *handle;
+   MSymbol module;
+   char *module_file;
+@@ -1297,12 +1298,17 @@ load_external_module (MPlist *plist)
+   M17N_OBJECT_UNREF (func_list);
+   dlclose (handle);
+   return NULL;
++#else  /* not HAVE_DLOPEN */
++  return NULL;
++#endif	/* not HAVE_DLOPEN */
+ }
+ 
+ static void
+ unload_external_module (MIMExternalModule *external)
+ {
++#ifdef HAVE_DLOPEN
+   dlclose (external->handle);
++#endif
+   M17N_OBJECT_UNREF (external->func_list);
+   free (external);
+ }

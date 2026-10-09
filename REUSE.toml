@@ -20,6 +20,29 @@ SPDX-FileCopyrightText = ["2005-2009 Choe Hwanjin", "2026 Synapdeck, Inc."]
 SPDX-License-Identifier = "LGPL-2.1-or-later"
 precedence = "override"
 
+# Matches the upstream ibus-engines.m17n recipe's meta.license.
+[[annotations]]
+path = "engines/m17n/**"
+SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
+SPDX-License-Identifier = "GPL-2.0-or-later"
+precedence = "override"
+
+[[annotations]]
+path = "engines/m17n/patches/**/*.patch"
+SPDX-FileCopyrightText = ["The ibus-m17n authors", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# m17n-lib's own licence, which the engine-wide annotations above would
+# otherwise override; the last matching annotation wins.
+[[annotations]]
+path = "engines/m17n/patches/m17n-lib/**/*.patch"
+SPDX-FileCopyrightText = [
+  "National Institute of Advanced Industrial Science and Technology (AIST)",
+  "2026 Synapdeck, Inc.",
+]
+SPDX-License-Identifier = "LGPL-2.1-or-later"
+precedence = "override"
+
 [[annotations]]
 path = "engines/mozc/patches/**/*.patch"
 SPDX-FileCopyrightText = ["Google Inc.", "2026 Synapdeck, Inc."]

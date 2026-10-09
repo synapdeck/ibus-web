@@ -1,0 +1,56 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: GPL-2.0-or-later
+{
+  "$schema": "../../tools/cast-audit/cast-audit.schema.json",
+  "casts": [
+    {
+      "file": "input.c",
+      "function": null,
+      "from": "M17NFunc",
+      "to": "MIMExternalFunc",
+      "reason": "External-module functions come from dlsym() and are called as MIMExternalFunc, their real type; M17NFunc is only the storage type. No module can be loaded here, so the calls are unreachable.",
+    },
+    {
+      "file": "input.c",
+      "function": null,
+      "from": "M17NFunc",
+      "to": "MIMExternalFunc",
+      "reason": "External-module functions come from dlsym() and are called as MIMExternalFunc, their real type; M17NFunc is only the storage type. No module can be loaded here, so the calls are unreachable.",
+    },
+    {
+      "file": "input.c",
+      "function": null,
+      "from": "M17NFunc",
+      "to": "MIMExternalFunc",
+      "reason": "External-module functions come from dlsym() and are called as MIMExternalFunc, their real type; M17NFunc is only the storage type. No module can be loaded here, so the calls are unreachable.",
+    },
+    {
+      "file": "input.c",
+      "function": null,
+      "from": "void (*)(MInputContext *, MSymbol)",
+      "to": "M17NFunc",
+      "reason": "A round trip through M17NFunc, the storage type: the function is stored from, and called as, its real type. reset_ic is called back as MInputCallbackFunc.",
+    },
+    {
+      "file": "input.c",
+      "function": null,
+      "from": "M17NFunc",
+      "to": "MInputCallbackFunc",
+      "reason": "A round trip through M17NFunc, the storage type: the function is stored from, and called as, its real type. Callbacks are registered as MInputCallbackFunc.",
+    },
+    {
+      "file": "language.c",
+      "function": null,
+      "from": "MTextPropSerializeFunc",
+      "to": "M17NFunc",
+      "reason": "A round trip through M17NFunc, the storage type: the function is stored from, and called as, its real type.",
+    },
+    {
+      "file": "language.c",
+      "function": null,
+      "from": "MTextPropDeserializeFunc",
+      "to": "M17NFunc",
+      "reason": "A round trip through M17NFunc, the storage type: the function is stored from, and called as, its real type.",
+    },
+  ],
+}

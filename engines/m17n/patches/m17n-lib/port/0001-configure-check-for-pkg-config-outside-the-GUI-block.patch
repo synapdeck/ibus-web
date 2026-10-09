@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 9 Oct 2026 16:39:10 -0700
+Subject: [PATCH] configure: check for pkg-config outside the GUI block
+
+AM_CONDITIONAL([HAVE_PKG_CONFIG]) and PKG_PROG_PKG_CONFIG sat inside the
+GUI block, so a build configured --without-gui stopped with
+"conditional HAVE_PKG_CONFIG was never defined", and never looked for
+the pkg-config whose presence decides between the .pc files and
+m17n-config.
+---
+ configure.ac | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index 2348512..9f0192b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -101,6 +101,9 @@ AC_ARG_ENABLE(gui,
+ 
+ AM_CONDITIONAL(WITH_GUI, test x$with_gui != xno)
+ 
++PKG_PROG_PKG_CONFIG
++AM_CONDITIONAL([HAVE_PKG_CONFIG], [test "x$PKG_CONFIG" != x])
++
+ if test x$with_gui != xno; then
+ 
+ dnl Checks if dlopen exists, and if it's in libc or libdl.
+@@ -117,9 +120,6 @@ dnl augmented.
+ 
+ M17N_EXT_LIBS=
+ 
+-PKG_PROG_PKG_CONFIG
+-AM_CONDITIONAL([HAVE_PKG_CONFIG], [test "x$PKG_CONFIG" != x])
+-
+ if test "x$no_x" != "xyes"; then
+   AC_DEFINE(HAVE_X11, 1, [Define to 1 if you have X11.])
+   X11_LD_FLAGS="-lXt -lX11"
