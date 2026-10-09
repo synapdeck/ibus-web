@@ -59,3 +59,19 @@ test("the settings form's punctuation choice reaches Mozc", async ({ page }) => 
   await page.keyboard.press("Enter");
   await expect(field(page)).toHaveValue("あ，");
 });
+
+test("the properties menu beside the picker switches Mozc's input mode, and the candidate window stays hidden", async ({
+  page,
+}) => {
+  await pick(page);
+  await expect(page.locator(".ibus-panel")).toBeHidden();
+  const properties = page.locator(".toolbar .ibus-panel-properties");
+  await properties.locator("[data-indicator]").click();
+  await properties.getByRole("menuitemradio", { name: "Katakana", exact: true }).click();
+  await expect(properties.getByRole("menu")).toBeHidden();
+  await field(page).click();
+  await page.keyboard.type("a");
+  await page.keyboard.press("Enter");
+  await expect(field(page)).toHaveValue("ア");
+  await expect(page.locator(".ibus-panel")).toBeHidden();
+});

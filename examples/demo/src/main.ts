@@ -59,6 +59,8 @@ const app = createIbusWeb({
   logger,
 });
 const panel = createPanel(app);
+// The focused engine's properties, Mozc's input modes among them, sit beside the picker.
+picker.after(panel.properties);
 let detaches = fields.map((field) => app.attach(field));
 
 // Every engine of every module, in manifest order; the picker's option values index it.

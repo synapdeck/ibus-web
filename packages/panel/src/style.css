@@ -1,11 +1,9 @@
 /* SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
  * SPDX-License-Identifier: MIT OR Apache-2.0 */
-.ibus-panel {
-  position: fixed;
+.ibus-panel,
+.ibus-panel-properties [role="menu"] {
   z-index: var(--ibus-panel-z-index, 2147483647);
   box-sizing: border-box;
-  max-width: 100vw;
-  max-height: 100vh;
   overflow: auto;
   padding: var(--ibus-panel-padding, 6px);
   border: 1px solid var(--ibus-panel-border, #767676);
@@ -15,11 +13,24 @@
   font: var(--ibus-panel-font, 14px/1.4 system-ui, sans-serif);
   box-shadow: var(--ibus-panel-shadow, 0 2px 8px #0003);
 }
-.ibus-panel [hidden],
-.ibus-panel[hidden] {
-  display: none;
+.ibus-panel {
+  position: fixed;
+  max-width: 100vw;
+  max-height: 100vh;
 }
-.ibus-panel button {
+.ibus-panel-properties {
+  position: relative;
+  display: inline-block;
+}
+.ibus-panel-properties [role="menu"] {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: max-content;
+  max-height: 70vh;
+}
+.ibus-panel button,
+.ibus-panel-properties [role="menu"] button {
   font: inherit;
   color: inherit;
   background: transparent;
@@ -28,10 +39,12 @@
   cursor: pointer;
   text-align: start;
 }
-.ibus-panel button:hover {
+.ibus-panel button:hover,
+.ibus-panel-properties [role="menu"] button:hover {
   background: var(--ibus-panel-hover, #eee);
 }
-.ibus-panel button:disabled {
+.ibus-panel button:disabled,
+.ibus-panel-properties button:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -39,15 +52,15 @@
   background: var(--ibus-panel-selection-background, #174ea6);
   color: var(--ibus-panel-selection-color, #fff);
 }
-.ibus-panel [aria-checked="true"]::before {
+.ibus-panel-properties [aria-checked="true"]::before {
   content: "✓ ";
 }
-.ibus-panel [aria-checked="mixed"]::before {
+.ibus-panel-properties [aria-checked="mixed"]::before {
   content: "− ";
 }
 .ibus-panel-candidates,
-.ibus-panel [role="menu"],
-.ibus-panel [role="group"] {
+.ibus-panel-properties [role="menu"],
+.ibus-panel-properties [role="group"] {
   display: flex;
   flex-direction: column;
 }
@@ -59,7 +72,13 @@
   display: flex;
   justify-content: space-between;
 }
-.ibus-panel [data-auxiliary],
-.ibus-panel [data-indicator] {
+.ibus-panel [data-auxiliary] {
   padding: 4px 8px;
+}
+/* Last, so that no display rule above outranks it. */
+.ibus-panel [hidden],
+.ibus-panel[hidden],
+.ibus-panel-properties [hidden],
+.ibus-panel-properties[hidden] {
+  display: none;
 }

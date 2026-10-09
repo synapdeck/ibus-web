@@ -1,7 +1,8 @@
 # Default panel
 
 `@ibus-web/panel` exports `createPanel(host)` and a disposable `Panel`. Creation
-appends its `element` to `document.body`. The panel uses DOM APIs and only the
+appends its candidate window, `element`, to `document.body`; its `properties`
+element is left for the host to place in its own UI. The panel uses DOM APIs and only the
 public `PanelHost` facade contract; hosts may replace it. Import its stylesheet separately:
 
 ```ts
@@ -14,6 +15,7 @@ const ibus = createIbusWeb({
   modules: { hangul: new URL("/assets/hangul/manifest.json", location.href) },
 });
 const panel = createPanel(ibus);
+toolbar.append(panel.properties);
 // Later: panel.dispose(); await ibus.dispose();
 ```
 
@@ -31,11 +33,19 @@ below and moving above when space is short. When it fits on neither side, it tak
 the side with more room, limits its height to that room and scrolls, so it never
 covers the caret's line. It honors horizontal or vertical
 table orientation; `System` reads the panel schema's
-`lookup-table-orientation` setting. Auxiliary text has its own row. Visible
-properties form a menu with toggle/radio state and disabled groups; the compact
-indicator uses the first visible toggle/radio symbol. Toggle and radio properties
-send `PropertyActivate` only when state changes; Normal actions activate every time.
-Pointer interaction keeps focus in the composing field. The stylesheet exposes
+`lookup-table-orientation` setting. Auxiliary text has its own row. The window
+shows only while candidates or auxiliary text are up.
+
+The engine's properties are not in the candidate window, which a long property
+list such as Mozc's input modes would make taller and keep on screen after the
+candidates close. They are in the `properties` element, like IBus's menu on the
+desktop: a button showing the first visible toggle/radio symbol (or "Input
+method"), which opens a menu of the visible properties with toggle/radio state and
+disabled groups. Choosing an item, Escape, or a pointer press outside closes it.
+The element is hidden while the focused engine has no visible properties, and
+cleared with the rest on FocusOut. Toggle and radio properties send
+`PropertyActivate` only when state changes; Normal actions activate every time.
+Pointer interaction with either element keeps focus in the composing field. The stylesheet exposes
 `--ibus-panel-*` theme variables;
 the panel module itself does not inject CSS. ResizeObserver placement is
 coalesced on an owned animation frame to avoid observed WebKit resize feedback;

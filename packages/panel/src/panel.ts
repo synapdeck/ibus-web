@@ -6,10 +6,18 @@ import { propertyIndicator, renderProperties, replaceProperty } from "./properti
 
 export interface Panel {
   readonly element: HTMLDivElement;
+  /**
+   * The focused engine's properties: a button showing its input mode, which opens their menu. It isn't attached; the
+   * host places it in its own UI. Hidden while the engine has none.
+   */
+  readonly properties: HTMLDivElement;
   dispose(): void;
 }
 
-/** Mount a panel. Import @ibus-web/panel/style.css to apply its overridable default theme. */
+/**
+ * Mount a panel: the candidate window, attached to the document, and its properties element, for the host to place.
+ * Import @ibus-web/panel/style.css to apply its overridable default theme.
+ */
 export function createPanel(host: PanelHost): Panel {
   const element = document.createElement("div");
   element.className = "ibus-panel";
@@ -23,13 +31,22 @@ export function createPanel(host: PanelHost): Panel {
   candidates.setAttribute("aria-label", "Candidates");
   const navigation = document.createElement("div");
   navigation.className = "ibus-panel-navigation";
-  const indicator = document.createElement("span");
+  element.append(auxiliary, candidates, navigation);
+  document.body.append(element);
+
+  const propertiesElement = document.createElement("div");
+  propertiesElement.className = "ibus-panel-properties";
+  propertiesElement.hidden = true;
+  const indicator = document.createElement("button");
+  indicator.type = "button";
   indicator.dataset.indicator = "";
+  indicator.setAttribute("aria-haspopup", "menu");
+  indicator.setAttribute("aria-expanded", "false");
   const propertiesMenu = document.createElement("div");
   propertiesMenu.setAttribute("role", "menu");
   propertiesMenu.setAttribute("aria-label", "Input method properties");
-  element.append(auxiliary, candidates, navigation, indicator, propertiesMenu);
-  document.body.append(element);
+  propertiesMenu.hidden = true;
+  propertiesElement.append(indicator, propertiesMenu);
   let context: { readonly module: string; readonly ic: number } | undefined;
   let table: LazyLookupTable | undefined;
   let page: LookupPage | undefined;
@@ -38,6 +55,12 @@ export function createPanel(host: PanelHost): Panel {
     disposed = false;
   let properties: readonly IBusProperty[] = [];
 
+  let menuOpen = false;
+  const openMenu = (open: boolean) => {
+    menuOpen = open;
+    propertiesMenu.hidden = !open;
+    indicator.setAttribute("aria-expanded", String(open));
+  };
   const clear = () => {
     table = undefined;
     page = undefined;
@@ -47,8 +70,9 @@ export function createPanel(host: PanelHost): Panel {
     propertiesMenu.replaceChildren();
     auxiliary.textContent = "";
     indicator.textContent = "";
-    element.hidden = true;
-    auxiliary.hidden = candidates.hidden = navigation.hidden = propertiesMenu.hidden = indicator.hidden = true;
+    element.hidden = propertiesElement.hidden = true;
+    auxiliary.hidden = candidates.hidden = navigation.hidden = true;
+    openMenu(false);
   };
   // EventTarget does not deliver listener exceptions to dispatchEvent's caller.
   const guard = (run: () => void) => {
@@ -65,7 +89,7 @@ export function createPanel(host: PanelHost): Panel {
   };
   const place = () => {
     const rect = host.caretRect();
-    element.hidden = !rect || !((tableVisible && table) || auxiliaryVisible || propertiesMenu.childElementCount);
+    element.hidden = !rect || !((tableVisible && table) || auxiliaryVisible);
     if (element.hidden || !rect) return;
     // Measured at its full height, then fitted: a panel that fits neither
     // below nor above the caret takes the roomier side and scrolls, rather
@@ -95,17 +119,18 @@ export function createPanel(host: PanelHost): Panel {
     renderProperties(
       propertiesMenu,
       properties,
-      send,
+      (action) => {
+        send(action);
+        openMenu(false);
+      },
       (update) => {
         properties = replaceProperty(properties, update, true);
         drawProperties();
-        place();
       },
       guard,
     );
-    indicator.textContent = propertyIndicator(properties);
-    indicator.hidden = !indicator.textContent;
-    propertiesMenu.hidden = !propertiesMenu.childElementCount;
+    indicator.textContent = propertyIndicator(properties) || "Input method";
+    propertiesElement.hidden = !propertiesMenu.childElementCount;
   };
   const drawTable = () => {
     candidates.replaceChildren();
@@ -200,9 +225,23 @@ export function createPanel(host: PanelHost): Panel {
     button.addEventListener("click", () => guard(() => send({ _tag: tag })));
     navigation.append(button);
   }
+  indicator.addEventListener("click", () => guard(() => openMenu(!menuOpen)));
+  propertiesElement.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && menuOpen) {
+      event.preventDefault();
+      openMenu(false);
+    }
+  });
+  const dismiss = (event: Event) => {
+    if (!propertiesElement.contains(event.target as Node)) openMenu(false);
+  };
+  document.addEventListener("pointerdown", dismiss, true);
+
   // Cancel the focus-changing default before it can end the field's composition.
-  element.addEventListener("pointerdown", (event) => event.preventDefault());
-  element.addEventListener("mousedown", (event) => event.preventDefault());
+  for (const target of [element, propertiesElement]) {
+    target.addEventListener("pointerdown", (event) => event.preventDefault());
+    target.addEventListener("mousedown", (event) => event.preventDefault());
+  }
   element.addEventListener(
     "wheel",
     (event) =>
@@ -229,6 +268,7 @@ export function createPanel(host: PanelHost): Panel {
   window.addEventListener("scroll", relocate, true);
   return {
     element,
+    properties: propertiesElement,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -238,8 +278,10 @@ export function createPanel(host: PanelHost): Panel {
       host.removeEventListener("panel", receive);
       window.removeEventListener("resize", relocate);
       window.removeEventListener("scroll", relocate, true);
+      document.removeEventListener("pointerdown", dismiss, true);
       clear();
       element.remove();
+      propertiesElement.remove();
     },
   };
 }

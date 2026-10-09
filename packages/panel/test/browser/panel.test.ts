@@ -69,6 +69,7 @@ afterEach(() => {
 function setup() {
   const host = new Host();
   const panel = createPanel(host);
+  document.body.append(panel.properties);
   dispose.push(panel.dispose);
   return { host, ...panel };
 }
@@ -190,7 +191,7 @@ test("renders auxiliary text independently of the table and respects show/hide r
   expect(element.hidden).toBe(false);
 });
 test("lists visible nested properties, reflects toggles and radios and uses the first eligible symbol", () => {
-  const { host, element } = setup();
+  const { host, properties } = setup();
   host.record({
     _tag: "RegisterProperties",
     properties: {
@@ -207,39 +208,75 @@ test("lists visible nested properties, reflects toggles and radios and uses the 
       ],
     },
   });
-  expect(element.querySelector("[data-indicator]")?.textContent).toBe("한");
-  expect(element.textContent).not.toContain("hidden");
-  expect(element.querySelector('[data-property="mode"]')?.getAttribute("aria-checked")).toBe("true");
-  click(element, '[data-property="mode"]');
+  expect(properties.querySelector("[data-indicator]")?.textContent).toBe("한");
+  expect(properties.textContent).not.toContain("hidden");
+  expect(properties.querySelector('[data-property="mode"]')?.getAttribute("aria-checked")).toBe("true");
+  click(properties, '[data-property="mode"]');
   expect(host.sendPanelAction).not.toHaveBeenCalled();
-  click(element, '[data-property="toggle"]');
+  click(properties, '[data-property="toggle"]');
   expect(host.sendPanelAction).toHaveBeenLastCalledWith("test", 1, {
     _tag: "PropertyActivate",
     name: "toggle",
     state: 1,
   });
-  click(element, '[data-property="toggle"]');
+  click(properties, '[data-property="toggle"]');
   expect(host.sendPanelAction).toHaveBeenLastCalledWith("test", 1, {
     _tag: "PropertyActivate",
     name: "toggle",
     state: 0,
   });
-  click(element, '[data-property="disabled"]');
+  click(properties, '[data-property="disabled"]');
   expect(host.sendPanelAction).toHaveBeenCalledTimes(2);
   host.record({ _tag: "UpdateProperty", property: property("mode", { type: 2, visible: false }) });
-  expect(element.querySelector("[data-indicator]")?.textContent).toBe("EN");
+  expect(properties.querySelector("[data-indicator]")?.textContent).toBe("EN");
+});
+test("keeps the properties out of the candidate window, in a menu their indicator opens", () => {
+  const { host, element, properties } = setup();
+  const menu = properties.querySelector<HTMLElement>('[role="menu"]')!;
+  const indicator = properties.querySelector<HTMLButtonElement>("[data-indicator]")!;
+  expect(properties.hidden).toBe(true);
+
+  host.record({
+    _tag: "RegisterProperties",
+    properties: { attachments: {}, properties: [property("mode", { type: 2, symbol: text("あ") })] },
+  });
+  expect(properties.hidden).toBe(false);
+  expect(element.hidden).toBe(true);
+  expect(element.querySelector("[data-property], [data-indicator]")).toBeNull();
+  expect(indicator.textContent).toBe("あ");
+  expect(menu.hidden).toBe(true);
+
+  indicator.click();
+  expect(menu.hidden).toBe(false);
+  expect(indicator.getAttribute("aria-expanded")).toBe("true");
+  click(properties, '[data-property="mode"]');
+  expect(host.sendPanelAction).toHaveBeenCalledOnce();
+  expect(menu.hidden).toBe(true);
+
+  indicator.click();
+  menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  expect(menu.hidden).toBe(true);
+  indicator.click();
+  document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  expect(menu.hidden).toBe(true);
+
+  show(host);
+  host.record({ _tag: "HideLookupTable" });
+  expect(element.hidden).toBe(true);
+  host.notify("hide");
+  expect(properties.hidden).toBe(true);
 });
 test("suppresses duplicate radio activation until an authoritative property update", () => {
-  const { host, element } = setup();
+  const { host, properties } = setup();
   host.record({
     _tag: "RegisterProperties",
     properties: { attachments: {}, properties: [property("radio", { type: 2 })] },
   });
-  click(element, '[data-property="radio"]');
-  click(element, '[data-property="radio"]');
+  click(properties, '[data-property="radio"]');
+  click(properties, '[data-property="radio"]');
   expect(host.sendPanelAction).toHaveBeenCalledTimes(1);
   host.record({ _tag: "UpdateProperty", property: property("radio", { type: 2, state: 0 }) });
-  click(element, '[data-property="radio"]');
+  click(properties, '[data-property="radio"]');
   expect(host.sendPanelAction).toHaveBeenCalledTimes(2);
 });
 test("clears output on FocusOut/crash hides and does not revive stale output", () => {
@@ -292,13 +329,14 @@ test("preserves the composing field's focus, value and selection during trusted 
   input.setSelectionRange(3, 3);
   const blur = vi.fn();
   input.addEventListener("blur", blur);
-  const { host, element } = setup();
+  const { host, element, properties } = setup();
   host.rect = { x: 300, y: 100, width: 2, height: 20 };
   show(host);
   await userEvent.click(buttons(element)[0]);
   await userEvent.click(element.querySelector('[data-action="next"]')!);
   host.record({ _tag: "RegisterProperties", properties: { attachments: {}, properties: [property("mode")] } });
-  await userEvent.click(element.querySelector('[data-property="mode"]')!);
+  await userEvent.click(properties.querySelector("[data-indicator]")!);
+  await userEvent.click(properties.querySelector('[data-property="mode"]')!);
   expect(document.activeElement).toBe(input);
   expect(blur).not.toHaveBeenCalled();
   expect(input.value).toBe("composition");
@@ -314,7 +352,7 @@ test("disposes listeners and DOM and allows host CSS custom properties", () => {
   expect(element.isConnected).toBe(false);
 });
 test("disables nested menu actions", () => {
-  const { host, element } = setup();
+  const { host, properties } = setup();
   host.record({
     _tag: "RegisterProperties",
     properties: {
@@ -324,22 +362,22 @@ test("disables nested menu actions", () => {
       ],
     },
   });
-  expect(element.querySelector<HTMLButtonElement>('[data-property="child"]')!.disabled).toBe(true);
+  expect(properties.querySelector<HTMLButtonElement>('[data-property="child"]')!.disabled).toBe(true);
 });
 test("guards property callback failures and hides paging when no table exists", () => {
-  const { host, element } = setup();
+  const { host, element, properties } = setup();
   host.record({ _tag: "RegisterProperties", properties: { attachments: {}, properties: [property("toggle")] } });
   expect.soft(element.querySelector<HTMLElement>('[data-action="next"]')!.parentElement!.hidden).toBe(true);
   const failure = new Error("property host closed");
   host.sendPanelAction.mockImplementation(() => {
     throw failure;
   });
-  click(element, '[data-property="toggle"]');
+  click(properties, '[data-property="toggle"]');
   expect(host.reportPanelError).toHaveBeenCalledWith(failure);
   expect(element.hidden).toBe(true);
 });
 test("uses all sixteen fallback labels and shows at most one selected radio per group", () => {
-  const { host, element } = setup();
+  const { host, element, properties } = setup();
   show(
     host,
     table({
@@ -356,12 +394,12 @@ test("uses all sixteen fallback labels and shows at most one selected radio per 
       properties: [property("radio1", { type: 2, state: 1 }), property("radio2", { type: 2 })],
     },
   });
-  click(element, '[data-property="radio2"]');
-  expect(element.querySelector('[data-property="radio1"]')!.getAttribute("aria-checked")).toBe("false");
-  expect(element.querySelector('[data-property="radio2"]')!.getAttribute("aria-checked")).toBe("true");
+  click(properties, '[data-property="radio2"]');
+  expect(properties.querySelector('[data-property="radio1"]')!.getAttribute("aria-checked")).toBe("false");
+  expect(properties.querySelector('[data-property="radio2"]')!.getAttribute("aria-checked")).toBe("true");
 });
 test.each([0, 1, 3, 4])("preserves separate radio groups across non-radio type %i", (type) => {
-  const { host, element } = setup();
+  const { host, properties } = setup();
   host.record({
     _tag: "RegisterProperties",
     properties: {
@@ -375,16 +413,16 @@ test.each([0, 1, 3, 4])("preserves separate radio groups across non-radio type %
       ],
     },
   });
-  click(element, '[data-property="B"]');
-  expect(element.querySelector('[data-property="A"]')!.getAttribute("aria-checked")).toBe("false");
-  expect(element.querySelector('[data-property="B"]')!.getAttribute("aria-checked")).toBe("true");
-  expect.soft(element.querySelector('[data-property="C"]')!.getAttribute("aria-checked")).toBe("true");
-  expect(element.querySelector('[data-property="D"]')!.getAttribute("aria-checked")).toBe("false");
-  click(element, '[data-property="C"]');
+  click(properties, '[data-property="B"]');
+  expect(properties.querySelector('[data-property="A"]')!.getAttribute("aria-checked")).toBe("false");
+  expect(properties.querySelector('[data-property="B"]')!.getAttribute("aria-checked")).toBe("true");
+  expect.soft(properties.querySelector('[data-property="C"]')!.getAttribute("aria-checked")).toBe("true");
+  expect(properties.querySelector('[data-property="D"]')!.getAttribute("aria-checked")).toBe("false");
+  click(properties, '[data-property="C"]');
   expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
 });
 test("keeps nested radio groups independent from parent and separated nested groups", () => {
-  const { host, element } = setup();
+  const { host, properties } = setup();
   host.record({
     _tag: "RegisterProperties",
     properties: {
@@ -407,12 +445,12 @@ test("keeps nested radio groups independent from parent and separated nested gro
       ],
     },
   });
-  click(element, '[data-property="B"]');
-  expect(element.querySelector('[data-property="A"]')!.getAttribute("aria-checked")).toBe("false");
-  expect(element.querySelector('[data-property="B"]')!.getAttribute("aria-checked")).toBe("true");
-  expect(element.querySelector('[data-property="parent"]')!.getAttribute("aria-checked")).toBe("true");
-  expect.soft(element.querySelector('[data-property="C"]')!.getAttribute("aria-checked")).toBe("true");
-  click(element, '[data-property="C"]');
+  click(properties, '[data-property="B"]');
+  expect(properties.querySelector('[data-property="A"]')!.getAttribute("aria-checked")).toBe("false");
+  expect(properties.querySelector('[data-property="B"]')!.getAttribute("aria-checked")).toBe("true");
+  expect(properties.querySelector('[data-property="parent"]')!.getAttribute("aria-checked")).toBe("true");
+  expect.soft(properties.querySelector('[data-property="C"]')!.getAttribute("aria-checked")).toBe("true");
+  click(properties, '[data-property="C"]');
   expect(host.sendPanelAction.mock.calls).toEqual([["test", 1, { _tag: "PropertyActivate", name: "B", state: 1 }]]);
 });
 test("defers resize feedback to one frame and cancels pending placement on disposal", () => {
