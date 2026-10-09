@@ -46,6 +46,8 @@
         settingsSchemas = [ "org.freedesktop.ibus.panel" ];
       };
 
+      ibusWeb.demo.modules.mozc = config.packages.ibus-web-mozc-dist;
+
       # The data closure is the data set and the compiled schema, nothing else.
       checks.mozc-data-closure = pkgs.runCommand "ibus-web-mozc-data-closure" { } ''
         closure=${pkgs.closureInfo { rootPaths = [ mozc ]; }}/store-paths

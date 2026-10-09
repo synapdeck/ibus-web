@@ -117,6 +117,8 @@ SKK-JISYO's GPL-2.0-or-later, and Apache-2.0 for the merge tooling and the other
   `engines/mozc/cast-audit.jsonc`. All 416 WebAssembly compiles are audited, 139 of them Abseil's, 78 Protocol
   Buffers' and 15 zlib's; the only findings are casts to `GCallback`, which the audit excludes, so the allow-list is
   empty.
+- The demo serves the distribution, and `examples/demo/test/e2e/mozc.spec.ts` types through it in Chromium, Firefox
+  and WebKit: the same conversion, the candidate panel opening on a second Space, and direct input.
 - `checks.mozc-imports` checks `mozc.wasm`'s 380 imports against the runtime's export list.
 - `checks.mozc-data-closure` checks that the closure is the data set and the schema, with no libraries, headers or
   modules.
