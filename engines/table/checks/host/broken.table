@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# A command table whose second mapping has no output.
+name = Broken
+languages = und
+mode = command
+trigger = \
+---
+\a	α
+\b

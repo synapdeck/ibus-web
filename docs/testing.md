@@ -476,6 +476,7 @@ figures.
 nix build .#checks.x86_64-linux.worker-host-node
 nix build .#checks.x86_64-linux.worker-host-browser
 nix build .#checks.x86_64-linux.hangul-host
+nix build .#checks.x86_64-linux.table-host
 nix build .#checks.x86_64-linux.tools-engine-manifest
 nix build .#checks.x86_64-linux.hangul-data-closure
 ```
@@ -550,6 +551,10 @@ comes from build metadata. These workload results guard declarations
 without establishing universal resource bounds. The 16-case C golden harness (17 reported tests including completion)
 and native differential traces remain independent checks. Browser host checks
 exercise the transport, not a live page router or panel.
+
+`table-host` runs the table module's distribution the same way: 14 cases across both builds, with both engines in one
+Worker, a page-relative click on the second page, FocusOut and Reset emitting nothing, the LaTeX table's load time,
+and a distribution with a malformed table, whose `CreateEngine` must fail with the native parser's message.
 
 Install-lock liveness tests distinguish a slow installer announcing progress
 from a silent holder. In "a wait for the install lock outlives the lock

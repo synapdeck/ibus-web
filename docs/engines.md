@@ -332,3 +332,24 @@ is a separate Node check: ten scenarios on each asserting/released build,
 real engine through SAB requests and records rather than calling WASM directly,
 and guards the declared program break and thread share. Neither harness establishes
 live browser UI behavior or device input behavior.
+
+## The table module
+
+`engines/table/` is ibus-web's own module: two engines, `latex` and `xsampa`, over one C++23 side module.
+[table.md](table.md) describes the table format, the engine and its glue.
+
+```sh
+nix build .#ibus-web-table-dist
+nix build .#checks.x86_64-linux.table-host
+```
+
+`ibus-web-table-dist` is `mkEngineManifest` over `table.wasm`. Its engine descriptors come from the tables'
+frontmatter: `table-describe` prints them as JSON and the manifest build reads that file, so Nix needs no build output
+at evaluation time. `latex` comes first and is the module's default. The data closure is the two tables and the
+compiled `org.freedesktop.ibus.panel` schema, the module's only settings schema. The manifest's licence is
+`(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`: the engine, MARISA linked into it, and the LaTeX table's data. It
+declares no engine threads and a program break that `checks.table-host` checks with both tables loaded.
+
+The first `CreateEngine` of `latex` in a Worker parses the LaTeX table and builds its MARISA trie: 7.5 ms under Node
+on the released runtime, against 1.1 ms for a second context, which shares the parsed table. `checks.table-host`
+records both as `Table released LaTeX load`. There is no target until there is a baseline; this is the baseline.

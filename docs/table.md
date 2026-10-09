@@ -198,8 +198,9 @@ the factory's `create-engine` signal runs before the factory makes the engine: i
 use and keeps it in a module-level map for the Worker's life, shared by every context of that engine. A table that
 doesn't parse fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, which
 stops the emission: the reply is `-EIO`, the page receives the reason in a `CreateEngineFailed` record and `select`
-rejects with it, and the field stays on native input. No exception crosses GLib's signal emission, which would leave
-the runtime faulted.
+rejects with it, and the field stays on native input. That handler lets no exception out into GLib's signal emission.
+The key and paging handlers catch nothing: an exception from one of them unwinds through the emission and faults the
+runtime, which the host treats as a crash ([runtime.md](runtime.md#protocol-dispatch-and-output)).
 
 The glue is the session's `Sink`:
 
@@ -213,7 +214,8 @@ The glue is the session's `Sink`:
 
 PageUp, PageDown, CursorUp and CursorDown go to the session, which redraws with the cursor's new page. The panel's
 click index counts from the page it shows, and the glue adds the page's start; a position no candidate holds is
-ignored. A key's character is `ibus_keyval_to_unicode(keyval)`, and its state is the session's modifiers as it is.
+ignored. A key's character is `ibus_keyval_to_unicode(keyval)`, and IBus's `state` is passed through as the
+session's modifiers.
 FocusOut and Reset reset the session, which emits nothing.
 
 `pkgsWasm.ibus-web-table` (`engines/table/_package.nix`) compiles `ibusWeb.engines.table.sources` as C++23 with the
@@ -221,6 +223,11 @@ runtime's toolchain and side-module flags, and links `pkgsWasm.marisa` into `tab
 library guard rejects a library the runtime carries. The table directory and the compiled
 `org.freedesktop.ibus.panel` schema are compiled in as store paths, which makes them the side module's whole data
 closure.
+
+`table-host` checks that a bare `\` sends IBus one page of 10. It builds a second distribution whose LaTeX table is a
+fixture with a malformed line, beside the shipped X-SAMPA table, and expects `CreateEngine` to fail with `-EIO` after a
+`CreateEngineFailed` record, and nothing else, whose message is what `table-check` prints for the same file, while
+X-SAMPA keeps working in that Worker.
 
 ## Building and checking
 
@@ -235,14 +242,15 @@ the engine as a static library and two tools, `ibusWeb.engines.table.tools`:
 side module compiles all of them; the Meson build names its own and leaves out `glue.cpp`, the only one that needs
 IBus.
 
-| Check                | Covers                                                                                                                  |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `table-parse`        | Both shipped tables parse and describe their engines; one malformed table per error class fails with its exact message  |
-| `table-golden`       | GoogleTest, native, through a recording `Sink`: the table queries and every rule of both modes, and the shipped X-SAMPA |
-| `table-marisa`       | Upstream MARISA's tests in the patched native build                                                                     |
-| `table-imports`      | `table.wasm` imports only what the runtime exports                                                                      |
-| `table-cast-audit`   | every source, glue included, under `-Wcast-function-type-strict`, with an empty allow-list                              |
-| `table-data-closure` | the closure is the module, the tables and the compiled schema, all of them data                                         |
-| `tools-latex-table`  | Vitest: a cut-down `unicode.xml` gives an exact table, every generator rule and both alias failures, and the 24 aliases |
+| Check                | Covers                                                                                                                                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `table-parse`        | Both shipped tables parse and describe their engines; one malformed table per error class fails with its exact message                                                                                                                 |
+| `table-golden`       | GoogleTest, native, through a recording `Sink`: the table queries and every rule of both modes, and the shipped X-SAMPA                                                                                                                |
+| `table-marisa`       | Upstream MARISA's tests in the patched native build                                                                                                                                                                                    |
+| `table-imports`      | `table.wasm` imports only what the runtime exports                                                                                                                                                                                     |
+| `table-cast-audit`   | every source, glue included, under `-Wcast-function-type-strict`, with an empty allow-list                                                                                                                                             |
+| `table-data-closure` | the closure is the module, the tables and the compiled schema, all of them data                                                                                                                                                        |
+| `table-host`         | `table.wasm` in the real runtime under Node: both engines in one Worker, a short trace each, one-page lookup tables and a page-relative click, FocusOut and Reset, and a broken table failing `CreateEngine` with the parser's message |
+| `tools-latex-table`  | Vitest: a cut-down `unicode.xml` gives an exact table, every generator rule and both alias failures, and the 24 aliases                                                                                                                |
 
 Each is a flake check, run as `nix build .#checks.x86_64-linux.<name> -L`.
