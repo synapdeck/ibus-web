@@ -390,13 +390,14 @@ test("automatic async adapters and native sync attachments preserve independent 
 
 test("settings load without Workers and publish orientation snapshots with context identity", async () => {
   const schema = "org.freedesktop.ibus.panel",
+    path = "/desktop/ibus/panel/",
     name = "lookup-table-orientation";
   const values: Record<string, Record<string, { _tag: "v"; type: string; value: { _tag: "i"; value: number } }>> = {};
   const source: SettingsSourceService = {
     ...settings,
     snapshot: async () => values,
     written: (change) => {
-      values[change.schemaId] = {
+      values[change.path] = {
         [change.key]: change.value as { _tag: "v"; type: string; value: { _tag: "i"; value: number } },
       };
     },
@@ -406,7 +407,7 @@ test("settings load without Workers and publish orientation snapshots with conte
     schemas: [
       {
         id: schema,
-        path: "/desktop/ibus/panel/",
+        paths: [path],
         keys: [
           {
             name,
@@ -427,16 +428,16 @@ test("settings load without Workers and publish orientation snapshots with conte
   );
   expect(await f.app.settings.schemas("test")).toEqual(metadata.schemas);
   expect(f.start).not.toHaveBeenCalled();
-  expect(await f.app.settings.get("test", schema, name)).toMatchObject({ value: { value: 1 } });
+  expect(await f.app.settings.get("test", path, name)).toMatchObject({ value: { value: 1 } });
   f.app.attach(f.native);
   f.native.focus();
   await f.app.select("test");
   const horizontal = nextEvent(f.app, "panel", (event) => event._tag === "orientation");
-  await f.app.settings.set("test", schema, name, int32Variant(0));
+  await f.app.settings.set("test", path, name, int32Variant(0));
   expect((await horizontal).detail).toEqual({ _tag: "orientation", module: "test", ic: 1 });
   expect(f.app.lookupTableOrientation("test")).toBe(0);
-  await expect(f.app.settings.set("test", schema, name, int32Variant(3))).rejects.toThrow();
-  await f.app.settings.reset("test", schema, name);
+  await expect(f.app.settings.set("test", path, name, int32Variant(3))).rejects.toThrow();
+  await f.app.settings.reset("test", path, name);
   expect(f.app.lookupTableOrientation("test")).toBe(1);
 });
 test("dispose during lazy runtime acquisition rejects selection without starting a Worker", async () => {

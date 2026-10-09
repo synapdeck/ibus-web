@@ -91,6 +91,7 @@ interface Services {
 }
 class FacadeServices extends Context.Service<FacadeServices, Services>()("ibus-web/FacadeServices") {}
 const panelSchema = "org.freedesktop.ibus.panel",
+  panelPath = "/desktop/ibus/panel/",
   orientationKey = "lookup-table-orientation";
 const decodePanelAction = Schema.decodeUnknownSync(PanelAction);
 const levels: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -136,12 +137,12 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       !schemas.some(
         (schema) =>
           schema.id === panelSchema &&
-          schema.path === "/desktop/ibus/panel/" &&
+          schema.paths.includes(panelPath) &&
           schema.keys.some((key) => key.name === orientationKey),
       )
     )
       return;
-    const value = await api.get(module, panelSchema, orientationKey);
+    const value = await api.get(module, panelPath, orientationKey);
     orientation(module, "value" in value.value ? value.value.value : undefined);
   };
   const base = Layer.mergeAll(
@@ -193,7 +194,7 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       yield* settings.changes.pipe(
         Stream.runForEach((change) =>
           Effect.sync(() => {
-            if (change.schemaId !== panelSchema || change.key !== orientationKey) return;
+            if (change.schemaId !== panelSchema || change.path !== panelPath || change.key !== orientationKey) return;
             for (const module of orientations.keys())
               orientation(module, "value" in change.value.value ? change.value.value.value : undefined);
           }),
@@ -288,18 +289,18 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         await refreshOrientation(module, current.settings);
         return schemas;
       },
-      get: async (module: string, schema: string, key: string) => {
+      get: async (module: string, path: string, key: string) => {
         const current = await initialize();
-        return current.settings.get(module, schema, key);
+        return current.settings.get(module, path, key);
       },
-      set: async (module: string, schema: string, key: string, value: Parameters<SettingsApiService["set"]>[3]) => {
+      set: async (module: string, path: string, key: string, value: Parameters<SettingsApiService["set"]>[3]) => {
         const current = await initialize();
-        await current.settings.set(module, schema, key, value);
+        await current.settings.set(module, path, key, value);
         await refreshOrientation(module, current.settings);
       },
-      reset: async (module: string, schema: string, key: string) => {
+      reset: async (module: string, path: string, key: string) => {
         const current = await initialize();
-        await current.settings.reset(module, schema, key);
+        await current.settings.reset(module, path, key);
         await refreshOrientation(module, current.settings);
       },
     },

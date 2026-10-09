@@ -166,7 +166,7 @@ form.closest("form")!.addEventListener("submit", (event) => event.preventDefault
 const panelSchema = "org.freedesktop.ibus.panel";
 const panelKeys = new Set(["lookup-table-orientation"]);
 const editable = new Set(["b", "i", "s"]);
-const controls: { schema: string; key: SettingsKey; control: HTMLInputElement | HTMLSelectElement }[] = [];
+const controls: { path: string; key: SettingsKey; control: HTMLInputElement | HTMLSelectElement }[] = [];
 const scalar = (value: SettingsKey["default"]) => ("value" in value ? String(value.value) : "");
 const display = (control: HTMLInputElement | HTMLSelectElement, value: SettingValue) => {
   if (control instanceof HTMLInputElement && control.type === "checkbox")
@@ -182,9 +182,9 @@ const refreshSettings = async () => {
   if (refreshing || disposed || module === undefined) return;
   refreshing = true;
   try {
-    for (const { schema, key, control } of controls) {
+    for (const { path, key, control } of controls) {
       if (control.disabled || control === document.activeElement) continue;
-      const value = await app.settings.get(module, schema, key.name);
+      const value = await app.settings.get(module, path, key.name);
       if (!disposed && module === shownSettings && !control.disabled && control !== document.activeElement)
         display(control, value);
     }
@@ -199,59 +199,65 @@ const loadSettings = async (module: string, generation: number) => {
     const keys = schema.keys.filter(
       (key) => editable.has(key.type) && (schema.id !== panelSchema || panelKeys.has(key.name)),
     );
-    for (const key of keys) {
-      const label = document.createElement("label");
-      label.className = "setting";
-      const title = document.createElement("span");
-      title.textContent = key.summary || key.name;
-      const control = key.choices ? document.createElement("select") : document.createElement("input");
-      // Key names repeat across schemas; the first keeps the plain id, later ones are qualified.
-      control.id = ids.has(`setting-${key.name}`) ? `setting-${schema.id}-${key.name}` : `setting-${key.name}`;
-      ids.add(control.id);
-      control.name = key.name;
-      if (control instanceof HTMLSelectElement) {
-        for (const choice of key.choices!) control.add(new Option(choice, choice));
-      } else {
-        control.type = key.type === "b" ? "checkbox" : key.type === "i" ? "number" : "text";
-        control.required = key.type === "i";
-        if (key.range) {
-          control.min = scalar(key.range.min);
-          control.max = scalar(key.range.max);
+    for (const path of schema.paths) {
+      for (const key of keys) {
+        const label = document.createElement("label");
+        label.className = "setting";
+        const title = document.createElement("span");
+        title.textContent = key.summary || key.name;
+        const control = key.choices ? document.createElement("select") : document.createElement("input");
+        // Key names repeat across schemas and instances; the first keeps the plain id, later ones are qualified.
+        const qualified =
+          schema.paths.length > 1
+            ? `setting-${schema.id}-${schema.paths.indexOf(path)}-${key.name}`
+            : `setting-${schema.id}-${key.name}`;
+        control.id = ids.has(`setting-${key.name}`) ? qualified : `setting-${key.name}`;
+        ids.add(control.id);
+        control.name = key.name;
+        if (control instanceof HTMLSelectElement) {
+          for (const choice of key.choices!) control.add(new Option(choice, choice));
+        } else {
+          control.type = key.type === "b" ? "checkbox" : key.type === "i" ? "number" : "text";
+          control.required = key.type === "i";
+          if (key.range) {
+            control.min = scalar(key.range.min);
+            control.max = scalar(key.range.max);
+          }
         }
+        const help = document.createElement("small");
+        help.id = `${control.id}-help`;
+        help.textContent = `${key.description ? `${key.description} ` : ""}Default: ${scalar(key.default)}${key.range ? `; range: ${scalar(key.range.min)}–${scalar(key.range.max)}` : ""}`;
+        control.setAttribute("aria-describedby", help.id);
+        const value = await app.settings.get(module, path, key.name);
+        if (generation !== settingsGeneration) return;
+        display(control, value);
+        controls.push({ path, key, control });
+        control.addEventListener("change", () => {
+          if (!control.reportValidity()) return;
+          const value: SettingValue =
+            key.type === "b"
+              ? booleanVariant((control as HTMLInputElement).checked)
+              : key.type === "i"
+                ? int32Variant(Number(control.value))
+                : stringVariant(control.value);
+          control.disabled = true;
+          settingsState.textContent = "Saving…";
+          void app.settings.set(module, path, key.name, value).then(
+            () => {
+              control.disabled = false;
+              settingsState.textContent = "Saved; applies live and across tabs.";
+            },
+            (cause: unknown) => {
+              control.disabled = false;
+              settingsState.textContent = "Save failed";
+              failure(`Could not save ${key.name}`, cause);
+              void refreshSettings().catch((cause: unknown) => failure("Settings refresh failed", cause));
+            },
+          );
+        });
+        label.append(title, control, help);
+        form.append(label);
       }
-      const help = document.createElement("small");
-      help.id = `${control.id}-help`;
-      help.textContent = `${key.description ? `${key.description} ` : ""}Default: ${scalar(key.default)}${key.range ? `; range: ${scalar(key.range.min)}–${scalar(key.range.max)}` : ""}`;
-      control.setAttribute("aria-describedby", help.id);
-      const value = await app.settings.get(module, schema.id, key.name);
-      if (generation !== settingsGeneration) return;
-      display(control, value);
-      controls.push({ schema: schema.id, key, control });
-      control.addEventListener("change", () => {
-        if (!control.reportValidity()) return;
-        const value: SettingValue =
-          key.type === "b"
-            ? booleanVariant((control as HTMLInputElement).checked)
-            : key.type === "i"
-              ? int32Variant(Number(control.value))
-              : stringVariant(control.value);
-        control.disabled = true;
-        settingsState.textContent = "Saving…";
-        void app.settings.set(module, schema.id, key.name, value).then(
-          () => {
-            control.disabled = false;
-            settingsState.textContent = "Saved; applies live and across tabs.";
-          },
-          (cause: unknown) => {
-            control.disabled = false;
-            settingsState.textContent = "Save failed";
-            failure(`Could not save ${key.name}`, cause);
-            void refreshSettings().catch((cause: unknown) => failure("Settings refresh failed", cause));
-          },
-        );
-      });
-      label.append(title, control, help);
-      form.append(label);
     }
   }
   form.disabled = false;
