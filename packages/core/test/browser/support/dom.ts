@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger as EffectLogger } from "effect";
 import type { DecodedLazyRecord, ModuleManifest, LazyOutputRecord, Request } from "@ibus-web/protocol";
 import { makeRouter } from "../../../src/router/router.ts";
 import { makeModuleRegistry, ModuleRegistry } from "../../../src/services/modules.ts";
@@ -80,6 +80,7 @@ export const run = (
       seen: unknown[];
     };
   }) => Promise<void>,
+  logger?: EffectLogger.Logger<unknown, void>,
 ) =>
   Effect.runPromise(
     Effect.scoped(
@@ -112,7 +113,15 @@ export const run = (
         yield* Effect.promise(() => test({ router, registry, connections, field }));
       }),
     ).pipe(
-      Effect.provide(Layer.mergeAll(CoreConfig.Default, SettingsSource.layer(), Logger.Default, PanelEvents.Default)),
+      Effect.provide(
+        Layer.mergeAll(
+          CoreConfig.Default,
+          SettingsSource.layer(),
+          Logger.Default,
+          PanelEvents.Default,
+          logger ? EffectLogger.layer([logger]) : Layer.empty,
+        ),
+      ),
     ),
   );
 export const select = (router: Effect.Success<typeof makeRouter>, name = "a") => Effect.runPromise(router.select(name));
