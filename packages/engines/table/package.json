@@ -1,0 +1,40 @@
+{
+  "name": "@ibus-web/engine-table",
+  "version": "0.0.0",
+  "description": "ibus-web's table engines, LaTeX to Unicode and X-SAMPA to IPA: their WebAssembly module, tables and manifest.",
+  "keywords": [
+    "ibus",
+    "ime",
+    "input-method",
+    "ipa",
+    "latex",
+    "unicode",
+    "webassembly",
+    "x-sampa"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/table.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/engines/table"
+  },
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./manifest.json": "./dist/manifest.json",
+    "./table.wasm": "./dist/table.wasm",
+    "./settings.json": "./dist/settings.json",
+    "./data/*": "./dist/data/*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "ibusWeb": {
+    "nixBuilt": true
+  }
+}

@@ -15,7 +15,7 @@ text fields, and shows its candidates.
   the default panel.
 
 The two halves talk only through a versioned protocol over a dedicated `SharedArrayBuffer`. That boundary is also the
-licensing boundary. Engines are GPL, but the page packages are MIT OR Apache-2.0: the page's bundle never contains Worker,
+licensing boundary. Engines can be GPL, as Hangul is, but the page packages are MIT OR Apache-2.0: the page's bundle never contains Worker,
 runtime or engine code, which load by URL from the Worker assets. The runtime (`@ibus-web/runtime`, LGPL-2.1-or-later)
 and each engine (such as `@ibus-web/engine-hangul`, under the engine's license) ship in packages of their own, which
 hold files a page serves, never code the page imports, so any page can use the page packages. A page using ibus-web
@@ -37,15 +37,16 @@ while. [examples/demo](examples/demo/README.md) has the demo's other options.
 
 ## Packages
 
-| Package                                              | What it is                                                                    |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [`ibus-web`](packages/ibus-web)                      | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts |
-| [`@ibus-web/core`](packages/core)                    | Key translation, routing, adapters and the Effect services under the facade   |
-| [`@ibus-web/panel`](packages/panel)                  | The framework-free candidate and property panel                               |
-| [`@ibus-web/protocol`](packages/protocol)            | The wire protocol and its strict GVariant codec                               |
-| [`@ibus-web/worker-host`](packages/worker-host)      | The TypeScript that runs inside each engine's Worker                          |
-| [`@ibus-web/runtime`](packages/runtime)              | The WebAssembly runtime every engine's Worker loads, built by Nix             |
-| [`@ibus-web/engine-hangul`](packages/engines/hangul) | The Hangul engine's WebAssembly module, data and manifest, built by Nix       |
+| Package                                              | What it is                                                                                 |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [`ibus-web`](packages/ibus-web)                      | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts              |
+| [`@ibus-web/core`](packages/core)                    | Key translation, routing, adapters and the Effect services under the facade                |
+| [`@ibus-web/panel`](packages/panel)                  | The framework-free candidate and property panel                                            |
+| [`@ibus-web/protocol`](packages/protocol)            | The wire protocol and its strict GVariant codec                                            |
+| [`@ibus-web/worker-host`](packages/worker-host)      | The TypeScript that runs inside each engine's Worker                                       |
+| [`@ibus-web/runtime`](packages/runtime)              | The WebAssembly runtime every engine's Worker loads, built by Nix                          |
+| [`@ibus-web/engine-hangul`](packages/engines/hangul) | The Hangul engine's WebAssembly module, data and manifest, built by Nix                    |
+| [`@ibus-web/engine-table`](packages/engines/table)   | The LaTeX and X-SAMPA table engines' WebAssembly module, tables and manifest, built by Nix |
 
 They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how to build, pack and use them.
 
@@ -77,8 +78,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [
   your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
 - `libibus-web` and the GLib patches: LGPL-2.1-or-later.
 - The Emscripten patches: Emscripten's MIT OR NCSA.
-- Each engine and its patches: the engine's own license (ibus-hangul is GPL-2.0-or-later; its libhangul patch is
-  LGPL-2.1-or-later, as libhangul is).
+- Each engine and its patches: the engine's own license. ibus-hangul is GPL-2.0-or-later, and its libhangul patch is
+  LGPL-2.1-or-later, as libhangul is. The table engine is MIT OR Apache-2.0; its packed module is
+  `(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`, for MARISA, linked in, and the LaTeX table's data from W3C's
+  `unicode.xml`.
 
 [REUSE.toml](REUSE.toml) is the authoritative per-path mapping, and every license text is in [LICENSES/](LICENSES).
 Copyright 2026 Synapdeck, Inc.

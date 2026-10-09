@@ -353,3 +353,8 @@ declares no engine threads and a program break that `checks.table-host` checks w
 The first `CreateEngine` of `latex` in a Worker parses the LaTeX table and builds its MARISA trie: 7.5 ms under Node
 on the released runtime, against 1.1 ms for a second context, which shares the parsed table. `checks.table-host`
 records both as `Table released LaTeX load`. There is no target until there is a baseline; this is the baseline.
+
+`packages/engines/table/` is `@ibus-web/engine-table`, packed as Hangul's is: `nix build .#npm.engine-table` copies
+`ibus-web-table-dist` in as `dist/` and adds the MIT, Apache-2.0 and W3C texts to `LICENSES/` and MARISA's own
+`COPYING.md`, taken from its source, as `LICENSES/marisa/COPYING.md`, and `npmTarball` fails unless `package.json`'s
+`license` is the module's. It exports `manifest.json`, `table.wasm`, `settings.json` and `data/*`.
