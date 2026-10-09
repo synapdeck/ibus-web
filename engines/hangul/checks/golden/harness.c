@@ -217,6 +217,7 @@ void golden_init(const gchar *schemas_dir, const gchar *module) {
   g_setenv("G_MESSAGES_DEBUG", "all", TRUE);
   static gint32 wake_word;
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
+
   GVariantBuilder keys, instances;
   g_variant_builder_init(&keys, G_VARIANT_TYPE("a{sv}"));
   g_variant_builder_add(&keys, "{sv}", "hanja-keys",
@@ -226,6 +227,7 @@ void golden_init(const gchar *schemas_dir, const gchar *module) {
                         g_variant_builder_end(&keys));
   g_variant_builder_add_parsed(&instances, "(%s, %s, @a{sv} {})", PANEL_SCHEMA,
                                PANEL_PATH);
+
   Fixture fixture = {.records = g_ptr_array_new_with_free_func(record_free)};
   g_assert_cmpint(
       golden_request(&fixture, IBUSWEB_REQ_INIT,

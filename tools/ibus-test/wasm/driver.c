@@ -350,6 +350,7 @@ static GVariant *settings_snapshot(JsonArray *settings, GError **error) {
                           json_object_get_string_member(setting, "key"), value);
     g_variant_unref(value);
   }
+
   GVariantBuilder snapshot;
   g_variant_builder_init(&snapshot, G_VARIANT_TYPE("a(ssa{sv})"));
   GSettingsSchemaSource *source = g_settings_schema_source_get_default();
@@ -360,9 +361,11 @@ static GVariant *settings_snapshot(JsonArray *settings, GError **error) {
     g_autoptr(GSettingsSchema) found =
         source == NULL ? NULL
                        : g_settings_schema_source_lookup(source, schema, TRUE);
+
     /* An unknown schema still goes to Init, which refuses it with the
      * runtime's own diagnostic. */
     const gchar *path = found == NULL ? "/" : g_settings_schema_get_path(found);
+
     if (path == NULL) {
       g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                   "trace settings schema %s has no fixed path",
@@ -374,6 +377,7 @@ static GVariant *settings_snapshot(JsonArray *settings, GError **error) {
                           g_variant_builder_end(keys));
   }
   g_hash_table_unref(schemas);
+
   if (!ok) {
     g_variant_builder_clear(&snapshot);
     return NULL;
