@@ -1,0 +1,38 @@
+{
+  "name": "@ibus-web/engine-mozc",
+  "version": "0.0.0",
+  "description": "Mozc, Google's open-source Japanese input method, with the UT dictionaries, for ibus-web: its WebAssembly module, data and manifest.",
+  "keywords": [
+    "ibus",
+    "ime",
+    "input-method",
+    "japanese",
+    "mozc",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/mozc.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0 AND CC-BY-SA-4.0 AND GPL-2.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/engines/mozc"
+  },
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./manifest.json": "./dist/manifest.json",
+    "./mozc.wasm": "./dist/mozc.wasm",
+    "./settings.json": "./dist/settings.json",
+    "./data/*": "./dist/data/*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "ibusWeb": {
+    "nixBuilt": true
+  }
+}

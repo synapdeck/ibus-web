@@ -237,6 +237,10 @@ in
                   ++ lib.concatMap (dictionary: lib.toList dictionary.meta.license) (lib.attrValues chosen)
                 );
               };
+
+              passthru = old.passthru // {
+                dictionaries = chosen;
+              };
             });
         }
       )

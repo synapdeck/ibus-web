@@ -104,6 +104,13 @@ dictionary and Japan Post's zip codes are in the public domain, which has no SPD
 dictionaries' licences as nixpkgs declares them: alt-cannadic's GPL-2.0, EDICT2's and jawiki's CC-BY-SA-4.0,
 SKK-JISYO's GPL-2.0-or-later, and Apache-2.0 for the merge tooling and the other dictionaries.
 
+The module ships as `@ibus-web/engine-mozc` (`packages/engines/mozc/`): `nix build .#npm.engine-mozc` copies
+`ibus-web-mozc-dist` in as `dist/` and adds to `LICENSES/` the texts the repository has (BSD-3-Clause, Apache-2.0, MIT,
+GPL-2.0-or-later), Mozc's `LICENSE` and its credits, `credits_en.html`, which carry the notices of every component it
+names, as `LICENSES/mozc/`, and each UT dictionary's `LICENSE`, from its source, as
+`LICENSES/mozcdic-ut-<name>/LICENSE`. `npmTarball` fails unless `package.json`'s `license` is the module's. It exports
+`manifest.json`, `mozc.wasm`, `settings.json` and `data/*`; the tarball is 36 MB.
+
 ## Checks
 
 - `checks.mozc-converter` runs the converter check's program under Node: Mozc's real `client::Client`, through the
