@@ -74,6 +74,17 @@ let last: Selection | undefined,
 // Each module's engine names, which say which settings paths belong to an engine.
 const moduleEngines = new Map<string, readonly string[]>();
 const languageNames = new Intl.DisplayNames(["en"], { type: "language" });
+// Engines group by language subtag, so scripts and variants of one language share a group. "und" and
+// an unparsable code mean the engine names no language.
+const languageOf = (code: string | undefined) => {
+  if (code === undefined) return "";
+  try {
+    const { language } = new Intl.Locale(code);
+    return language === "und" ? "" : language;
+  } catch {
+    return code;
+  }
+};
 // A code Intl can't parse keeps its own spelling.
 const languageName = (code: string) => {
   try {
@@ -207,11 +218,15 @@ const refreshSettings = async () => {
     refreshing = false;
   }
 };
-// An engine owns the settings at paths holding its name's components as consecutive segments, as
-// m17n:hi:inscript owns /org/freedesktop/ibus/engine/m17n/hi/inscript/ and the variables below it. Paths
-// are compared in lower case because m17n:sa:IAST-vedic lives at .../sa/iast-vedic/.
-const ownedBy = (path: string, engine: string) =>
-  path.toLowerCase().includes(`/${engine.split(":").join("/").toLowerCase()}/`);
+// An engine owns the settings at the path ending in its name's components, as m17n:hi:inscript owns
+// /org/freedesktop/ibus/engine/m17n/hi/inscript/ and the variables/ below it. Paths are compared in lower
+// case because m17n:sa:IAST-vedic lives at .../sa/iast-vedic/.
+const ownedBy = (path: string, engine: string) => {
+  const segments = path.toLowerCase().split("/").filter(Boolean);
+  if (segments.at(-1) === "variables") segments.pop();
+  const name = engine.toLowerCase().split(":");
+  return name.every((part, index) => segments.at(index - name.length) === part);
+};
 const loadSettings = async (module: string, engine: string, generation: number) => {
   const schemas = await app.settings.schemas(module);
   if (generation !== settingsGeneration) return;
@@ -301,6 +316,8 @@ const loadSettings = async (module: string, engine: string, generation: number) 
 const showSettings = (module: string, engine: string) => {
   shownSettings = module;
   shownEngine = engine;
+  // Until the schemas say otherwise, any engine change reloads, so a switch made mid-load is not skipped.
+  enginesOwnSettings = true;
   const generation = ++settingsGeneration;
   controls.length = 0;
   form.disabled = true;
@@ -338,10 +355,10 @@ const start = async () => {
     );
 
     // A module whose engines span languages gets a group per language, in the order its manifest first lists each.
-    const byLanguage = new Set(engines.map((engine) => engine.languages[0] ?? "")).size > 1;
+    const byLanguage = new Set(engines.map((engine) => languageOf(engine.languages[0]))).size > 1;
     const groups = new Map<string, HTMLOptGroupElement>();
     for (const engine of engines) {
-      const language = byLanguage ? (engine.languages[0] ?? "") : "";
+      const language = byLanguage ? languageOf(engine.languages[0]) : "";
       let group = groups.get(language);
       if (group === undefined) {
         group = document.createElement("optgroup");

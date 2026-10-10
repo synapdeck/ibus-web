@@ -77,6 +77,15 @@ test("deselecting gives plain input", async ({ page }) => {
   await expect(field(page)).toHaveValue("S@ ");
 });
 
+// The engines' languages are und-Zmth and und-fonipa, which name no language,
+// so the module stays one group under its own name.
+test("the picker lists the table engines in one group under the module's name", async ({ page }) => {
+  const group = page.locator("#engine-picker optgroup").filter({ has: page.locator("option", { hasText: "LaTeX" }) });
+  await expect(group).toHaveCount(1);
+  await expect(group.locator("option", { hasText: "X-SAMPA" })).toHaveCount(1);
+  expect(await group.getAttribute("label")).not.toContain("·");
+});
+
 test("the settings form follows the selected module", async ({ page }) => {
   const picker = page.locator("#engine-picker");
   const orientation = page.locator("#setting-lookup-table-orientation");
