@@ -10,6 +10,8 @@ static void setup(Fixture *fixture, gconstpointer data) {
   golden_setup(fixture, data);
   for (guint i = 0; i < G_N_ELEMENTS(changed_paths); i++)
     golden_reset(fixture, changed_paths[i]);
+  golden_setting(fixture, VARIABLES_PATH("vi", "telex"), "tone-mark-on-last",
+                 g_variant_new_int32(1));
   golden_clear(fixture);
 }
 
@@ -197,14 +199,63 @@ static void variable_from_init(Fixture *fixture,
   committed(fixture, "hòa ");
 }
 
-/* m17n takes a variable's new value when it next opens the input method,
- * which for VIQR, never made before this case, is its first context. */
+/* A change reaches every context made afterwards, including those of an
+ * input method that is already open, and VIQR was never open before this
+ * case. */
 static void variable_changed(Fixture *fixture,
                              gconstpointer data G_GNUC_UNUSED) {
   golden_setting(fixture, VARIABLES_PATH("vi", "viqr"), "tone-mark-on-last",
                  g_variant_new_int32(1));
   golden_create(fixture, "m17n:vi:viqr");
   golden_type(fixture, "hoa` ");
+  committed(fixture, "hoà ");
+}
+
+/* The input method is open, with a live context, when the value changes; a
+ * context made afterwards still gets the new one. */
+static void variable_to_new_context(Fixture *fixture,
+                                    gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "m17n:vi:telex");
+  guint32 first_ic = fixture->ic;
+  IBusEngine *first_engine = fixture->engine;
+
+  golden_setting(fixture, VARIABLES_PATH("vi", "telex"), "tone-mark-on-last",
+                 g_variant_new_int32(0));
+  golden_create(fixture, "m17n:vi:telex");
+  golden_type(fixture, "hoaf ");
+  committed(fixture, "hòa ");
+  golden_destroy(fixture);
+
+  fixture->ic = first_ic;
+  fixture->engine = first_engine;
+}
+
+/* A context copies the input method's variables when it is made and again
+ * when it is reset, which focus-out does, so the change waits for that. */
+static void variable_to_existing_context(Fixture *fixture,
+                                         gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "m17n:vi:telex");
+  golden_setting(fixture, VARIABLES_PATH("vi", "telex"), "tone-mark-on-last",
+                 g_variant_new_int32(0));
+  golden_type(fixture, "hoaf ");
+  committed(fixture, "hoà ");
+  golden_clear(fixture);
+
+  golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_OUT);
+  golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_IN);
+  golden_clear(fixture);
+  golden_type(fixture, "hoaf ");
+  committed(fixture, "hòa ");
+  golden_clear(fixture);
+
+  golden_setting(fixture, VARIABLES_PATH("vi", "telex"), "tone-mark-on-last",
+                 g_variant_new_int32(1));
+  golden_type(fixture, "hoaf ");
+  committed(fixture, "hòa ");
+  golden_clear(fixture);
+
+  golden_empty_request(fixture, IBUSWEB_REQ_RESET);
+  golden_type(fixture, "hoaf ");
   committed(fixture, "hoà ");
 }
 
@@ -259,5 +310,9 @@ int main(int argc, char **argv) {
              variable_from_init, golden_teardown);
   g_test_add("/m17n/variable-changed", Fixture, NULL, setup, variable_changed,
              golden_teardown);
+  g_test_add("/m17n/variable-to-new-context", Fixture, NULL, setup,
+             variable_to_new_context, golden_teardown);
+  g_test_add("/m17n/variable-to-existing-context", Fixture, NULL, setup,
+             variable_to_existing_context, golden_teardown);
   return g_test_run();
 }

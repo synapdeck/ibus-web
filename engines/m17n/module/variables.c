@@ -22,11 +22,11 @@ typedef struct {
 static const Variable variables[] = {IBUSWEB_M17N_VARIABLES(VARIABLE)};
 #undef VARIABLE
 
-/* m17n gives a configured value to the input methods it opens afterwards.
- * ibus-m17n opens each engine's once, with its first context, so a value
- * reaches an engine whose input method is already open only when the module
- * next starts. The configuration is never saved: the page's settings are its
- * only store. */
+/* m17n copies the configured values into each input context when it is made
+ * and again when it is reset, so a value reaches contexts made afterwards and
+ * an existing one at its next focus-out or reset; a composition under way
+ * keeps the old value. The configuration is never saved: the page's settings
+ * are its only store. */
 static void configure(const Variable *variable, GSettings *settings) {
   g_autoptr(GVariant) value = g_settings_get_value(settings, variable->key);
   MPlist *plist = mplist();
