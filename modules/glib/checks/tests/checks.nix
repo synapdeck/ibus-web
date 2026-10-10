@@ -24,21 +24,18 @@
 
       setupExcludes = ./setup-excludes.py;
 
-      # Node writes the test's output to files, which the wrapper replays
-      # once the test exits, or when Meson's timeout sends SIGTERM, so a
-      # timed-out test still shows how far it got. Node runs in the background because bash
-      # only handles a signal once its foreground child has exited; without
-      # the explicit redirection a background job reads /dev/null. A test
-      # killed by a signal is reported the same way, by the wrapper dying of
-      # it too, so Meson doesn't take it for an exit status. Each test gets a
-      # TMPDIR of its own, and what it leaves there goes with the rest,
-      # however it set the modes.
-      nodeToFiles = pkgsBuildBuild.writeShellScript "ibus-web-node-to-files" ''
+      # Runs a test under Node with a TMPDIR of its own, removed afterwards
+      # however the test set its modes. Node runs in the background because
+      # bash only handles a signal once its foreground child has exited, and
+      # without the explicit redirection a background job reads /dev/null.
+      # Meson's timeout sends SIGTERM, which goes on to Node so that nothing
+      # outlives the wrapper. A test killed by a signal is reported the same
+      # way, by the wrapper dying of it too, so Meson doesn't take it for an
+      # exit status.
+      nodeWithTmpdir = pkgsBuildBuild.writeShellScript "ibus-web-node-with-tmpdir" ''
         dir=$(mktemp -d)
 
-        replay() {
-          cat "$dir/stdout"
-          cat "$dir/stderr" >&2
+        cleanup() {
           chmod -R u+rwx "$dir"
           rm -r "$dir"
         }
@@ -48,12 +45,12 @@
           kill -s "$1" $$
         }
 
-        trap 'replay; die TERM' TERM
-        mkdir "$dir/tmp"
-        TMPDIR=$dir/tmp ${lib.getExe typescript.nodejs} "$@" <&0 > "$dir/stdout" 2> "$dir/stderr" &
-        wait $!
+        trap 'kill -s TERM "$node" 2> /dev/null; wait "$node"; cleanup; die TERM' TERM
+        TMPDIR=$dir ${lib.getExe typescript.nodejs} "$@" <&0 &
+        node=$!
+        wait "$node"
         status=$?
-        replay
+        cleanup
 
         if [ "$status" -gt 128 ] && sig=$(kill -l "$status" 2> /dev/null); then
           die "$sig"
@@ -67,7 +64,7 @@
 
       testsCrossFile = pkgsBuildBuild.writeText "ibus-web-glib-tests-cross.ini" ''
         [binaries]
-        exe_wrapper = ['${nodeToFiles}']
+        exe_wrapper = ['${nodeWithTmpdir}']
       '';
     in
     {
