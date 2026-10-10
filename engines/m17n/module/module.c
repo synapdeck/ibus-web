@@ -11,8 +11,8 @@
  * the side module's data closure. */
 const char ibusweb_m17n_settings_schema_dir[] = IBUSWEB_SETTINGS_SCHEMA_DIR;
 
-/* What ibus-m17n's start_component does, without a bus. The runtime keeps
- * the factory. */
+/* The factory has no bus connection and the runtime's registry keeps it, so
+ * the module drops its own reference once the engines are added. */
 void ibusweb_module_init(IBusWebModule *module G_GNUC_UNUSED) {
   ibus_m17n_init_common();
 
@@ -21,8 +21,12 @@ void ibusweb_module_init(IBusWebModule *module G_GNUC_UNUSED) {
   GList *engines = ibus_component_get_engines(component);
   for (GList *p = engines; p != NULL; p = p->next) {
     const gchar *name = ibus_engine_desc_get_name(p->data);
-    ibus_factory_add_engine(factory, name,
-                            ibus_m17n_engine_get_type_for_name(name));
+    GType type = ibus_m17n_engine_get_type_for_name(name);
+    if (type == G_TYPE_INVALID) {
+      continue;
+    }
+
+    ibus_factory_add_engine(factory, name, type);
   }
 
   g_list_free(engines);
