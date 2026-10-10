@@ -106,16 +106,30 @@ export class PageSession {
   }
 
   async request(ic: number, request: Request, ret = 0): Promise<DecodedRecord[]> {
+    const reply = await this.exchange(ic, request);
+    expect(reply.ret, request._tag).toBe(ret);
+    return reply.records;
+  }
+
+  private async exchange(ic: number, request: Request): Promise<{ ret: number; records: DecodedRecord[] }> {
     this.host.client.page.post(encodeRequest(ic, request), ReqMode.sync);
     const reply = await this.host.client.page.waitForReply();
-    expect(reply.ret, request._tag).toBe(ret);
-    return this.checkRecords(reply.outSeq);
+    return { ret: reply.ret, records: this.checkRecords(reply.outSeq) };
   }
 
   async key(ic: number, keyval: number, keycode: number, ret = 1): Promise<DecodedRecord[]> {
     const press = await this.request(ic, new ProcessKeyEvent({ keyval, keycode, state: 0 }), ret);
     const release = await this.request(ic, new ProcessKeyEvent({ keyval, keycode, state: 1 << 30 }), 0);
     return [...press, ...release];
+  }
+
+  // A key as the router sends it, whether or not the engine takes it: a
+  // declined press is one the browser still acts on.
+  async press(ic: number, keyval: number, keycode: number): Promise<{ handled: boolean; records: DecodedRecord[] }> {
+    const press = await this.exchange(ic, new ProcessKeyEvent({ keyval, keycode, state: 0 }));
+    expect([0, 1], "ProcessKeyEvent").toContain(press.ret);
+    const release = await this.request(ic, new ProcessKeyEvent({ keyval, keycode, state: 1 << 30 }), 0);
+    return { handled: press.ret === 1, records: [...press.records, ...release] };
   }
 
   // Activates an engine as the page's router does, enabling it before its

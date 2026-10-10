@@ -17,11 +17,12 @@
           settingsPaths
           ;
 
-        # A test program with all 197 engines open peaks at about 26.5 MB
-        # under Node; the declaration leaves several MiB above that, and the
-        # manifest builder adds headroom after it.
+        # m17n-host peaks at 27,656,192 bytes asserting and 27,648,000
+        # released with every engine open in one Worker; the declaration
+        # leaves several MiB above that, and the manifest builder adds
+        # headroom after it.
         threads = 0;
-        heapBytes = 32 * 1024 * 1024;
+        heapBytes = 31 * 1024 * 1024;
 
         engines = m17n.descriptors;
       };
