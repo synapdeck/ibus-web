@@ -77,16 +77,28 @@ test("the settings form shows the selected engine's own settings and the panel's
   await expect(setting(page, "lookup-table-orientation")).toHaveCount(2);
 });
 
-// The textarea's context was made before the change; it takes the value when
-// focus-out resets it, which clicking away from the field to save does.
-test("a variable saved in the form reaches the field at its next focus", async ({ page }) => {
+// A context takes configured values when it resets, which focus-out and Reset
+// do and focus-in does not. Saving moves focus off the field before the value
+// is stored, so that focus-out resets with the old value; once the save is
+// confirmed, focusing the field and leaving it again resets with the new one.
+// Typing stays native until the refocused field's context is ready, which the
+// panel's indicator shows by getting its label back after focus-out cleared it.
+test("a variable saved in the form reaches the field after it loses focus", async ({ page }) => {
+  const indicator = page.locator("[data-indicator]");
   await pick(page, "Vietnamese (telex)", "hoaf ", "hòa ");
   await settingsReady(page);
   await setting(page, "tone-mark-on-last").fill("1");
   await page.locator("h1").click();
   await expect(page.locator("#settings-state")).toHaveText("Saved; applies live and across tabs.");
 
-  await probe(page, "hoaf ", "hoà ");
+  await field(page).click();
+  await expect(indicator).toHaveText("Input method");
+  await page.locator("h1").click();
+  await expect(indicator).toHaveText("");
+  await field(page).click();
+  await expect(indicator).toHaveText("Input method");
+  await page.keyboard.type("hoaf ");
+  await expect(field(page)).toHaveValue("hoà ");
 });
 
 // The first start installs the data; a restarted Worker reads it, and every
@@ -96,6 +108,7 @@ test("the module starts again from IndexedDB", async ({ page, browser, browserNa
   test.setTimeout(120_000);
   await pick(page, "Hindi (inscript)", "k", "क");
   await expect(page.locator("#engine")).toHaveText("ready");
+  await expect(page.locator("#storage")).toHaveText("persistent (writable)");
 
   const milliseconds = await page.evaluate(
     () =>
