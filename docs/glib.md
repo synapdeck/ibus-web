@@ -109,7 +109,7 @@ absorb them so the engine needs no patch (spec §5.1.2).
 **Hangul's M1.1 result:** one cast patch fixes three strict-audit findings: two hand-written GType init functions lack
 their second argument, and the destroy callback uses a different pointer parameter type. The latter is not a WASM arity
 mismatch, but matching its declaration keeps the allow-list empty. No connected Hangul handler needs fewer parameters,
-so Hangul does not require the lazy arity lookup. The decision remains open for m17n, libpinyin and Rime.
+so Hangul does not require the lazy arity lookup. The decision remains open for m17n and Rime.
 
 The settings tests did expose a GLib call-site bug: its backend listener closure called all callbacks through a
 five-argument type, although the vtable declares three, four or five arguments. Patch 0018 copies the typed vtable into

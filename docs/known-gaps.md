@@ -155,7 +155,7 @@ decided.
 - **Link targets of at most 100 bytes.** Data archives are plain ustar, whose link-target field holds 100 bytes, and the
   installer refuses extended headers, so a closure with a longer symbolic-link target fails its distribution's build.
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
-  handler's arity. Hangul needs no lazy arity bridge; libpinyin and Rime still need their own audits.
+  handler's arity. Hangul needs no lazy arity bridge; Rime still needs its own audit.
 - **Hangul setup.** The `setup` property does not launch an application.
 - **Hangul preedit-mode updates.** Module settings stay current even with no live engines. `preedit-mode` takes effect
   in an existing engine on refocus or a capabilities update.
