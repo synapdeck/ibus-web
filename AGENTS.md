@@ -88,5 +88,7 @@ the tracked copy differs.
   right before a closing one, nor between a comment and the code it describes.
 - **Docs** in `docs/` describe the code as it is. Update the page a change affects in the same commit, and format
   Markdown with `nix develop -c oxfmt <file>`. `hk check -S links` must pass.
+- **Put non-Latin sample text in code spans** in Markdown. oxfmt's prose wrapping drops the space between CJK and Latin
+  text when it rejoins a line, so `漢字` written bare can run into the word beside it.
 - **Never run oxfmt on `docs/plans/`.** The plans quote code verbatim as before/after snippets, which formatting would
   rewrite; hk excludes them.
