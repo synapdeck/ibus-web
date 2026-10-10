@@ -15,6 +15,8 @@ const paths: {
   hangul: string;
   settingsFromAttrs: string;
   settingsFromFile: string;
+  settingsSchemasFromFile: string;
+  hangulSchemasFromFile: string;
 } = JSON.parse(readFileSync(fixture, "utf8"));
 const raw = JSON.parse(
   execFileSync(process.execPath, [paths.helper, paths.schemas, "org.test.Metadata"], { encoding: "utf8" }),
@@ -92,6 +94,16 @@ test.each([
     ["org.test.Metadata", ["/org/test/metadata/"]],
     ["org.test.Relocatable", ["/org/test/first/", "/org/test/second/"]],
   ]);
+});
+test("mkSettingsMetadata takes settingsSchemas as a JSON file", () => {
+  expect(readFileSync(paths.settingsSchemasFromFile, "utf8")).toBe(readFileSync(paths.settingsFromAttrs, "utf8"));
+});
+test("mkEngineManifest takes settingsSchemas as a JSON file and lists them in the manifest", () => {
+  const manifest = (dir: string) => JSON.parse(readFileSync(`${dir}/manifest.json`, "utf8"));
+  expect(manifest(paths.hangulSchemasFromFile).settingsSchemas).toEqual(manifest(paths.hangul).settingsSchemas);
+  expect(readFileSync(`${paths.hangulSchemasFromFile}/settings.json`, "utf8")).toBe(
+    readFileSync(`${paths.hangul}/settings.json`, "utf8"),
+  );
 });
 test("ships Hangul and panel metadata and an accurate manifest asset", () => {
   const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(`${paths.hangul}/settings.json`, "utf8")));

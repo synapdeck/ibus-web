@@ -66,26 +66,48 @@
         ];
       };
 
+      fixtureSchemas = [
+        "org.test.Metadata"
+        "org.test.Relocatable"
+      ];
+
       fixtureSettings =
-        settingsPaths:
+        settingsSchemas: settingsPaths:
         config.ibusWeb.engines.mkSettingsMetadata {
           settingsSchemaDir = "${helper}/schemas";
-          settingsSchemas = [
-            "org.test.Metadata"
-            "org.test.Relocatable"
-          ];
-          inherit settingsPaths;
+          inherit settingsSchemas settingsPaths;
         };
+
+      # Hangul's distribution again, with its schema list from another
+      # derivation's build.
+      hangulDist = config.packages.ibus-web-hangul-dist;
+      hangulSchemasFromFile = config.ibusWeb.engines.mkEngineManifest {
+        name = "hangul";
+        package = config.ibusWeb.engines.hangul;
+        threads = 0;
+        inherit (hangulDist) heapBytes;
+        inherit (config.ibusWeb.engines.hangul) settingsSchemaDir;
+        engines = pkgs.runCommand "ibus-web-hangul-engines.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
+          jq .engines ${hangulDist}/manifest.json > $out
+        '';
+        settingsSchemas =
+          pkgs.runCommand "ibus-web-hangul-settings-schemas.json" { nativeBuildInputs = [ pkgs.jq ]; }
+            ''
+              jq .settingsSchemas ${hangulDist}/manifest.json > $out
+            '';
+      };
 
       fixture = pkgs.writeText "ibus-web-settings-metadata-fixture.json" (
         builtins.toJSON {
           helper = "${helper}/metadata.js";
           schemas = "${helper}/schemas";
           inherit native;
-          settingsFromAttrs = fixtureSettings fixturePaths;
-          settingsFromFile = fixtureSettings (
+          settingsFromAttrs = fixtureSettings fixtureSchemas fixturePaths;
+          settingsFromFile = fixtureSettings fixtureSchemas (
             pkgs.writeText "ibus-web-settings-paths-fixture.json" (builtins.toJSON fixturePaths)
           );
+          settingsSchemasFromFile = fixtureSettings (pkgs.writeText "ibus-web-settings-schemas-fixture.json" (builtins.toJSON fixtureSchemas)) fixturePaths;
+          inherit hangulSchemasFromFile;
           hangul = config.packages.ibus-web-hangul-dist;
         }
       );
@@ -104,6 +126,12 @@
               pkgs.writeText "ibus-web-settings-paths.json" (builtins.toJSON settingsPaths)
             else
               settingsPaths;
+
+          schemasFile =
+            if builtins.isList settingsSchemas then
+              pkgs.writeText "ibus-web-settings-schemas.json" (builtins.toJSON settingsSchemas)
+            else
+              settingsSchemas;
         in
         pkgs.runCommand "ibus-web-settings.json"
           {
@@ -114,7 +142,8 @@
           }
           ''
             mapfile -t instances < <(jq -r 'to_entries[] | .key as $id | .value[] | "\($id)=\(.)"' ${pathsFile})
-            node ${helper}/metadata.js ${lib.escapeShellArg settingsSchemaDir} ${lib.escapeShellArgs settingsSchemas} "''${instances[@]}" > raw.json
+            mapfile -t schemas < <(jq -r '.[]' ${schemasFile})
+            node ${helper}/metadata.js ${lib.escapeShellArg settingsSchemaDir} "''${schemas[@]}" "''${instances[@]}" > raw.json
             node ${../../tools/gschema/metadata.ts} ${
               typescript.workspaceFor [ "packages/protocol" ]
             }/packages/protocol/dist/index.js raw.json $out

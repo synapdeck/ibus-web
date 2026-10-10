@@ -41,15 +41,15 @@ first lookup.
 ### Distribution manifest
 
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`, `heapBytes`, `settingsSchemaDir`, `engines`,
-`settingsSchemas` and `settingsPaths` (an attrset from schema id to its paths, or a JSON file a derivation builds).
-`engines` is the module's engine descriptors, as a Nix list or as a JSON file another derivation builds; the manifest's
-own check validates them, so evaluation never reads a build output. It derives license and the upstream version from the
-package, runtime ABI and protocol from the build, and static memory from the module's `dylink.0` section. The license is
-the conjunction of the package's `meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's
-`license-expression` over the SPDX ids, which writes each license once under its current identifier (`GPL-2.0` becomes
-`GPL-2.0-only`) and fails on an id SPDX doesn't know. It merges no license into another:
-`GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the expression records what the contents carry, not the terms
-they can be passed on under. Build:
+`settingsSchemas` and, for relocatable schemas, `settingsPaths`. `engines`, the module's engine descriptors, and
+`settingsSchemas`, its schema ids, are each a Nix list or a JSON file another derivation builds, as `settingsPaths` is
+an attribute set (schema id to its paths) or such a file; the manifest's own check validates them, so evaluation never
+reads a build output. It derives license and the upstream version from the package, runtime ABI and protocol from the
+build, and static memory from the module's `dylink.0` section. The license is the conjunction of the package's
+`meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the SPDX ids,
+which writes each license once under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an id SPDX
+doesn't know. It merges no license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the
+expression records what the contents carry, not the terms they can be passed on under. Build:
 
 ```sh
 nix build .#ibus-web-hangul-dist

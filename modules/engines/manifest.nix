@@ -38,14 +38,16 @@
             else
               engines;
 
+          # The schema list, too, can come from another derivation's build.
+          schemasFile =
+            if builtins.isList settingsSchemas then
+              pkgs.writeText "ibus-web-${name}-settings-schemas.json" (builtins.toJSON settingsSchemas)
+            else
+              settingsSchemas;
+
           description = pkgs.writeText "ibus-web-${name}-manifest-fields.json" (
             builtins.toJSON {
-              inherit
-                name
-                threads
-                settingsSchemaDir
-                settingsSchemas
-                ;
+              inherit name threads settingsSchemaDir;
               inherit (package) version;
             }
           );
@@ -103,8 +105,8 @@
               --arg url './${name}.wasm' --argjson size "$(stat -c%s $out/${name}.wasm)" \
               --rawfile license ${license} \
               --argjson settingsMetadata "$(jq -nc --arg url ./settings.json --argjson size "$(stat -c%s $out/settings.json)" '{ $url, $size }')" \
-              --slurpfile data data.jsonl --slurpfile engines ${enginesFile} \
-              '.version += "+nix." + $identity | . + { $license, $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], $settingsMetadata }' \
+              --slurpfile data data.jsonl --slurpfile engines ${enginesFile} --slurpfile settingsSchemas ${schemasFile} \
+              '.version += "+nix." + $identity | . + { $license, $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], settingsSchemas: $settingsSchemas[0], $settingsMetadata }' \
               ${description} > $out/manifest.json
             node ${../../tools/engine-manifest/protocol.ts} check ${
               typescript.workspaceFor [ "packages/protocol" ]
