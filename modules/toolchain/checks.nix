@@ -75,8 +75,11 @@
             fi
             test "$(node probe-node.js)" = "probe 7"
 
-            # Every compile is optimized unless the package asks otherwise.
-            echo | $CC -dM -E -x c - | grep -q "__OPTIMIZE__"
+            # Every compile is optimized unless the package asks otherwise. The
+            # macros go to files first: grep -q stops reading at its match,
+            # and the compiler then fails writing the rest into a closed pipe.
+            echo | $CC -dM -E -x c - > default.h
+            grep -q "__OPTIMIZE__" default.h
             echo | $CC -O0 -dM -E -x c - > O0.h
             if grep -q "__OPTIMIZE__" O0.h; then
               echo "a package's -O0 must override the common -O2" >&2
