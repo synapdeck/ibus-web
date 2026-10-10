@@ -172,9 +172,13 @@ decided.
   and its per-user `~/.m17n.d` customisation file are not exposed on the page; only input-method variables are
   ([m17n.md](m17n.md#settings-and-variables)).
 - **m17n reads every input method at each start.** Listing m17n's input methods parses each `.mim`, so module init reads
-  about 212 files, 2.5 MB, at every start: a start from IndexedDB takes 1014–2906 ms in all in the browsers
+  about 212 files, 2.5 MB, at every start: a start from IndexedDB takes 1014–2906 ms in the browsers
   ([m17n.md](m17n.md#in-the-browser)). m17n keeps no index of its own; a cached list, or each input method read on first
   use, would need changes to m17n-lib or ibus-m17n's listing.
+- **`Init` carries every settings instance.** m17n's `Init` declares each of its 232 instances, 22,378 bytes with
+  nothing stored, of the 64 KiB request slot ([m17n.md](m17n.md#checks)). A user who stores many values across m17n's
+  per-engine instances could push `Init` past the slot, which `Connection.requestAsync` rejects with a `RangeError`, and
+  the module would fail to start.
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
