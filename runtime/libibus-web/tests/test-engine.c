@@ -379,8 +379,7 @@ typedef struct {
 } ConstructingEngineClass;
 G_DEFINE_TYPE(ConstructingEngine, constructing_engine, IBUS_TYPE_ENGINE)
 
-/* Emits while it is being made, from its instance init and its constructor,
- * as ibus-m17n's engines do. */
+/* Emits while it is being made, from its instance init and its constructor. */
 static GObject *constructing_engine_constructor(GType type, guint n,
                                                 GObjectConstructParam *params) {
   GObject *object = G_OBJECT_CLASS(constructing_engine_parent_class)
