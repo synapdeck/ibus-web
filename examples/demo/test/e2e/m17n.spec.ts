@@ -92,7 +92,7 @@ test("a variable saved in the form reaches the field at its next focus", async (
 // The first start installs the data; a restarted Worker reads it, and every
 // input method m17n lists, from IndexedDB. Timed in the page, from the click
 // to the module reading ready again.
-test("the module starts again from IndexedDB", async ({ page, browserName }) => {
+test("the module starts again from IndexedDB", async ({ page, browser, browserName }) => {
   test.setTimeout(120_000);
   await pick(page, "Hindi (inscript)", "k", "क");
   await expect(page.locator("#engine")).toHaveText("ready");
@@ -117,6 +117,7 @@ test("the module starts again from IndexedDB", async ({ page, browserName }) => 
     JSON.stringify({
       metric: "m17n start from IndexedDB, Restart module to ready",
       browser: browserName,
+      version: browser.version(),
       milliseconds,
       cpu: cpus()[0]?.model,
       logicalCpus: cpus().length,
