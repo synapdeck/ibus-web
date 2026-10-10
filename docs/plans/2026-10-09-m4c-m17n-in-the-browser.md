@@ -17,7 +17,7 @@
   - the package's passthru `m17n_lib`, `schemas`, `settingsSchemaDir`, `descriptorProgram`, `descriptors`; `packages.ibus-web-m17n` and `packages.ibus-web-m17n-descriptors`;
   - the descriptor program `engines/m17n/descriptors/descriptors.c` and its step `@ibus-web/m17n-descriptors`;
   - checks `m17n-golden`, `m17n-engines`, `m17n-descriptors`, `m17n-imports`, `m17n-data-closure`, `m17n-cast-audit`;
-  - the docs it writes: `docs/m17n.md` (Build, Startup, Engines, Settings and variables, Checks), `docs/runtime.md`, the `## m17n` section of `docs/engines.md`, the `m17n.md` row of `docs/README.md` and the known-gaps entry **m17n variable changes that wait for a restart**;
+  - the docs it writes: `docs/m17n.md` (Build, Startup, Engines, Settings and variables, Checks), `docs/runtime.md`, the `## m17n` section of `docs/engines.md`, the `m17n.md` row of `docs/README.md` and an m17n entry under `docs/known-gaps.md`'s `## Engines and page integration` (m17n's key bindings and per-user customisation file not exposed; its exact title is phase 2's);
   - ibus-m17n's port patch 0001, which terminates `ibus_m17n_mtext_to_ucs4`'s buffer so a lookup table built from a candidate group holds only its own candidates.
 - Names other work relies on: `packages.ibus-web-m17n-dist`; `checks.m17n-host`; `legacyPackages.<system>.npm.engine-m17n`; `ibusWeb.demo.modules.m17n`; `PageSession.press` in `packages/worker-host/test/engines/page-session.ts`; `settingsSchemas` accepted as a list or a JSON file by `mkEngineManifest` and `mkSettingsMetadata`.
 - Run every command inside the dev shell (`nix develop -c …`) from the branch's checkout. `git add` a new file before any `nix` command that should see it: the flake reads only files git tracks.
@@ -36,12 +36,12 @@
 - **`heapBytes`.** The distribution starts from phase 2's figure: a test program with all 197 engines open peaked at about 26.5 MB under Node, so Task 1 declares 32 MiB. `m17n-host` then measures the distribution itself, with every engine open in one Worker, and Task 2 declares `ceil(max(peak asserting, peak released) / 1 MiB) + 4` MiB: several MiB above the measured peak, not the next whole MiB.
 - **What `m17n-host` declares in `Init`.** Every instance the distribution's `settings.json` lists, with values only where a test gives them, as the page does. The check passes the metadata to the suite through the module-test `texts` (`texts.settings`). A separate case records the encoded `Init`'s size and holds it below the transport's 64 KiB request slot.
 - **Keys the engine may decline.** m17n passes some keys through. `PageSession.press` reports whether the engine took a key; the m17n suite's `typeText` models the field a browser would hold: commits, plus each declined key's character.
-- **The variable case.** Phase 2's verified one: Telex with `tone-mark-on-last` 1 from `Init` turns `h o a f Space` into `hoà `. At its default, Telex puts the tone of `oa` on the first vowel (`hòa `), from `vi-telex.mim`'s own description of the variable.
+- **The variable case.** Phase 2's verified one: Telex with `tone-mark-on-last` 1 turns `h o a f Space` into `hoà `. At its default, Telex puts the tone of `oa` on the first vowel (`hòa `), from `vi-telex.mim`'s own description of the variable.
+- **When a variable change arrives.** As the spec says: m17n keeps configured values per input method, and every m17n input context takes them when it is made and again when it is reset; ibus-m17n resets its context on focus-out and `Reset`. `m17n-host` checks a value from `Init`, a `SettingChanged` reaching a context made afterwards, and one reaching an existing context after `FocusOut`/`FocusIn`; Playwright checks a value saved in the demo's form reaching the textarea after it loses and regains focus. Variable controls in the demo behave like every other setting.
 - **Thai.** From `th-kesmanee.mim`'s WTT 2.0 rules at the default level 1: a tone mark (`h`, ้) after nothing is rejected, after a consonant from the surrounding text (ก) it is committed. `m17n-host` checks both; Playwright checks the accepted case in the textarea (a rejected key leaves nothing to wait for).
 - **Candidates.** No test here pages through candidates; `zh:cangjie`'s first page in `m17n-host` and any paging in the demo rely on phase 2's port patch 0001.
 - **The picker.** A module whose engines declare more than one distinct first language gets one `<optgroup>` per language, labelled `<module> · <English language name>` (`Intl.DisplayNames`), in the order the manifest first lists each; engines without a language stay in a group labelled with the module's name. Every other module keeps its single group, so Hangul, Mozc and the table module's pickers don't change.
 - **The settings form.** An engine owns the settings paths that contain its name's components as consecutive path segments (`m17n:hi:inscript` owns `/org/freedesktop/ibus/engine/m17n/hi/inscript/` and `…/hi/inscript/variables/`). The form shows the paths the selected engine owns and those no engine of the module owns (the panel's, Mozc's), and reloads on an engine change only in a module where some engine owns a path. Control ids keep phase 1's scheme, so `#setting-hangul-keyboard` and `#setting-punctuation-method` are unchanged.
-- **The variables' save message.** A control whose schema id starts `org.freedesktop.ibus.engine.m17n.` (a variable schema, never ibus-m17n's own `org.freedesktop.ibus.engine.m17n`) reports `Saved; applies to engines not yet opened, and to the rest after Restart module.`; every other control keeps `Saved; applies live and across tabs.`
 - **Start time from IndexedDB.** Measured in each browser by `m17n.spec.ts`: after the first start has installed the data, the test clicks Restart module and times, in the page, from the click to the module's state reading `ready` again, observing `#engine` with a `MutationObserver`. It logs one JSON line per browser; the figures go in `docs/m17n.md`, the design spec's M4 row and `docs/known-gaps.md`. The test asserts no figure: there is no baseline yet.
 - **Known gaps.** The startup reads (every `.mim` parsed at each start) get a known-gaps entry whatever their measured cost, since nothing in M4 reduces them.
 - **The root README** lists every published engine package; Mozc's row is missing, so Task 3 adds it beside m17n's.
@@ -61,7 +61,7 @@
 | `packages/worker-host/test/engines/page-session.ts` | `press`, a key the engine may decline |
 | `packages/worker-host/test/engines/m17n.test.ts` | Create: the m17n host suite |
 | `packages/engines/m17n/package.json`, `README.md`, `module.nix` | Create: `@ibus-web/engine-m17n` |
-| `examples/demo/src/main.ts` | Picker groups by language; engine-owned settings; the variables' save message |
+| `examples/demo/src/main.ts` | Picker groups by language; engine-owned settings |
 | `examples/demo/README.md` | The picker and the settings form |
 | `examples/demo/test/e2e/m17n.spec.ts` | Create: the m17n Playwright spec |
 | `docs/m17n.md` | Distribution, In the browser, Checks bullets |
@@ -92,10 +92,10 @@ for check in m17n-golden m17n-engines m17n-descriptors m17n-imports m17n-data-cl
 done
 grep -n '^## ' docs/m17n.md
 grep -n '^## m17n' docs/engines.md
-grep -n 'm17n variable changes that wait for a restart' docs/known-gaps.md
+sed -n '/^## Engines and page integration/,/^## /p' docs/known-gaps.md | grep -n 'm17n'
 ```
 
-Expected: six options; the descriptor program exists; the package's and each check's derivation name print; `docs/m17n.md` has `## Build`, `## Startup`, `## Engines`, `## Settings and variables` and `## Checks`; `docs/engines.md` has `## m17n`; the known-gaps entry exists. Any difference is a mismatch with phase 2's plan: stop and resolve it there before going on.
+Expected: six options; the descriptor program exists; the package's and each check's derivation name print; `docs/m17n.md` has `## Build`, `## Startup`, `## Engines`, `## Settings and variables` and `## Checks`; `docs/engines.md` has `## m17n`; `## Engines and page integration` in `docs/known-gaps.md` has an m17n item (whatever its title). Any difference is a mismatch with phase 2's plan: stop and resolve it there before going on.
 
 ---
 
@@ -442,6 +442,8 @@ Create `packages/worker-host/test/engines/m17n.test.ts`:
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import {
   CreateEngine,
+  FocusIn,
+  FocusOut,
   IBusAttrType,
   Init,
   PROTOCOL_VERSION,
@@ -592,6 +594,28 @@ describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
     expect((await typeText(session, 1, "hoaf ")).field).toBe("hoà ");
   });
 
+  const toneOnLast = () =>
+    new SettingChanged({ path: variablesPath("m17n:vi:telex"), key: "tone-mark-on-last", value: int32Variant(1) });
+
+  test("a variable change reaches a context made afterwards", async () => {
+    const session = await start("m17n:t:latn-post");
+    await session.request(0, toneOnLast());
+    await session.create(2, "m17n:vi:telex");
+    expect((await typeText(session, 2, "hoaf ")).field).toBe("hoà ");
+  });
+
+  // ibus-m17n resets its m17n context on focus-out, and a reset takes the
+  // input method's configured values again.
+  test("a variable change reaches an existing context at its next focus-out", async () => {
+    const session = await start("m17n:vi:telex");
+    expect((await typeText(session, 1, "hoaf ")).field).toBe("hòa ");
+
+    await session.request(0, toneOnLast());
+    await session.request(1, new FocusOut({}));
+    await session.request(1, new FocusIn({}));
+    expect((await typeText(session, 1, "hoaf ")).field).toBe("hoà ");
+  });
+
   test("th:kesmanee takes a tone mark only after the consonant before the caret", async () => {
     const session = await start("m17n:th:kesmanee");
     expect((await typeText(session, 1, "h")).field).toBe("");
@@ -665,7 +689,7 @@ describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
 });
 ```
 
-The expectations for `t:latn-post`, `hi:inscript`, `vi:telex` (`vieetj `), `th:kesmanee` with ก and `zh:cangjie` are the spike's measured outputs; `hoaf ` → `hoà ` with the variable at 1 is `m17n-golden`'s verified case. `hoaf ` → `hòa ` at the default and the rejected tone mark follow from `vi-telex.mim`'s and `th-kesmanee.mim`'s own rules.
+The expectations for `t:latn-post`, `hi:inscript`, `vi:telex` (`vieetj `), `th:kesmanee` with ก and `zh:cangjie` are the spike's measured outputs; `hoaf ` → `hoà ` with the variable at 1 is `m17n-golden`'s verified case, and the timing of a `SettingChanged` is the one phase 2's golden cases pin. `hoaf ` → `hòa ` at the default and the rejected tone mark follow from `vi-telex.mim`'s and `th-kesmanee.mim`'s own rules.
 
 - [ ] **Step 3: Write the check**
 
@@ -714,9 +738,9 @@ out=$(nix build .#checks.x86_64-linux.m17n-host --no-link --print-out-paths -L)
 grep -E 'm17n Init:|m17n (asserting|released) (start|suite peaks|every engine):' "$out/output.txt"
 ```
 
-Expected: PASS, 1 + 11 × 2 = 23 tests. The grep prints the `Init` size, each start's milliseconds, each runtime's every-engine break and each runtime's suite peaks.
+Expected: PASS, 1 + 13 × 2 = 27 tests. The grep prints the `Init` size, each start's milliseconds, each runtime's every-engine break and each runtime's suite peaks.
 
-A failure that contradicts an expectation drawn from the `.mim` rules (`hòa ` at the default, the rejected tone mark) is a fact about m17n, not a bug to work around: read the input method's rules again, correct the expectation, and describe the corrected behaviour where Step 6's docs do. A failure on `breakPeak <= heapBytes` means 32 MiB is too small: set `heapBytes = 64 * 1024 * 1024;` for the measuring run, then Step 5 sets the real figure. Any other failure (a warning `Log`, records off the new context during `CreateEngine`, a change reaching `vi:telex`) is a defect in phase 2's runtime or module: fix it there, in a commit of its own, before going on.
+A failure that contradicts an expectation drawn from the `.mim` rules (`hòa ` at the default, the rejected tone mark) or from the spec's variable timing is a fact about m17n, not a bug to work around: read the input method's rules again, correct the expectation, and describe the corrected behaviour where Step 6's docs do. A failure on `breakPeak <= heapBytes` means 32 MiB is too small: set `heapBytes = 64 * 1024 * 1024;` for the measuring run, then Step 5 sets the real figure. Any other failure (a warning `Log`, records off the new context during `CreateEngine`, a change reaching `vi:telex`) is a defect in phase 2's runtime or module: fix it there, in a commit of its own, before going on.
 
 Run the other module suites too, since `page-session.ts` changed: `nix build .#checks.x86_64-linux.mozc-host .#checks.x86_64-linux.hangul-host .#checks.x86_64-linux.table-host -L`. Expected: PASS.
 
@@ -762,7 +786,8 @@ and append to the list in `## Checks`:
   `Init` declaring every instance the metadata lists, {{instances}} of them in {{initBytes}} bytes, within the
   transport's 64 KiB request slot. `t:latn-post` composes á and commits it with the Space; `hi:inscript` commits क;
   `vi:telex` makes việt, and puts the tone of `hoaf` on the first vowel unless `tone-mark-on-last` from `Init` puts it
-  on the last; `th:kesmanee` refuses a tone mark with nothing before the caret and takes it after the surrounding
+  on the last, a change to it reaching a context made afterwards and an existing one after a focus-out;
+  `th:kesmanee` refuses a tone mark with nothing before the caret and takes it after the surrounding
   text's ก; `zh:cangjie` lists 日 and 曰 for `a` and commits 日. A relocatable instance's value from `Init`, and a
   `SettingChanged` at `t:latn-post`'s path, reach that engine and not `vi:telex` beside it; what an engine emits while
   being made reaches the context it is made for. Every engine open in one Worker stays within the declared break, with
@@ -915,8 +940,8 @@ Each engine keeps ibus-m17n's name, `m17n:<lang>:<name>`; the default is `m17n:t
 diacritics, which works on any keyboard. `ibus.engines("m17n")` lists them with their display names, such as
 "Hindi (inscript)", and languages. Each engine's settings live at its own path,
 `/org/freedesktop/ibus/engine/m17n/<lang>/<name>/`, and an input method's variables, where it has any, below it at
-`variables/`. A variable change reaches engines not yet opened in the module's Worker, and the rest when the module
-next starts.
+`variables/`. A variable change reaches every input context made afterwards, and an existing one at its next focus-out
+or reset; only a composition already under way keeps the old value.
 
 Serve `dist/` as it is: the manifest names its files by relative URL, and the data archives are already
 Brotli-compressed, so they must be served without `Content-Encoding: br`. The data is {{brotliMB}} MB compressed and
@@ -994,7 +1019,7 @@ nix develop -c git commit -m "feat(m17n): pack @ibus-web/engine-m17n" -- package
 - Docs: `docs/m17n.md`, `docs/core.md`
 
 **Interfaces:**
-- Consumes: `ibusWeb.demo.modules`; the facade's `engines(module)` (`EngineDescriptor { name, displayName, languages, keyboard }`), `settings.schemas(module)` (`{ id, paths, keys }`), `settings.get/set(module, path, key…)`, `debugRestart` behind the Restart module button.
+- Consumes: `ibusWeb.demo.modules`; the facade's `engines(module)` (`EngineDescriptor { name, displayName, languages, keyboard }`), `settings.schemas(module)` (`{ id, paths, keys }`), `settings.get/set(module, path, key…)`.
 - Produces: the demo rules in the decisions above; `#settings [name='<key>']` controls as the e2e selectors.
 
 - [ ] **Step 1: Write the failing spec**
@@ -1080,20 +1105,15 @@ test("the settings form shows the selected engine's own settings and the panel's
   await expect(setting(page, "lookup-table-orientation")).toHaveCount(2);
 });
 
-// Telex's input method is already open, so the variable reaches it only once
-// the module starts again.
-test("a variable saved in the form applies after Restart module", async ({ page }) => {
-  test.setTimeout(120_000);
+// The textarea's context was made before the change; it takes the value when
+// focus-out resets it, which clicking away from the field to save does.
+test("a variable saved in the form reaches the field at its next focus", async ({ page }) => {
   await pick(page, "Vietnamese (telex)", "hoaf ", "hòa ");
   await settingsReady(page);
   await setting(page, "tone-mark-on-last").fill("1");
   await page.locator("h1").click();
-  await expect(page.locator("#settings-state")).toHaveText(
-    "Saved; applies to engines not yet opened, and to the rest after Restart module.",
-  );
+  await expect(page.locator("#settings-state")).toHaveText("Saved; applies live and across tabs.");
 
-  await page.locator("#restart").click();
-  await expect(page.locator("#engine")).toHaveText("ready");
   await probe(page, "hoaf ", "hoà ");
 });
 ```
@@ -1171,8 +1191,6 @@ Replace the whole `loadSettings` function and `showSettings` with:
 // An engine owns the settings at paths holding its name's components as consecutive segments, as
 // m17n:hi:inscript owns /org/freedesktop/ibus/engine/m17n/hi/inscript/ and the variables below it.
 const ownedBy = (path: string, engine: string) => path.includes(`/${engine.split(":").join("/")}/`);
-// m17n gives a variable to the input methods it opens after the change, and opens each engine's once.
-const variableSchema = (id: string) => id.startsWith("org.freedesktop.ibus.engine.m17n.");
 const loadSettings = async (module: string, engine: string, generation: number) => {
   const schemas = await app.settings.schemas(module);
   if (generation !== settingsGeneration) return;
@@ -1188,9 +1206,6 @@ const loadSettings = async (module: string, engine: string, generation: number) 
     const keys = schema.keys.filter(
       (key) => editable.has(key.type) && (schema.id !== panelSchema || panelKeys.has(key.name)),
     );
-    const saved = variableSchema(schema.id)
-      ? "Saved; applies to engines not yet opened, and to the rest after Restart module."
-      : "Saved; applies live and across tabs.";
     for (const path of schema.paths.filter(shown)) {
       for (const key of keys) {
         const label = document.createElement("label");
@@ -1237,7 +1252,7 @@ const loadSettings = async (module: string, engine: string, generation: number) 
           void app.settings.set(module, path, key.name, value).then(
             () => {
               control.disabled = false;
-              settingsState.textContent = saved;
+              settingsState.textContent = "Saved; applies live and across tabs.";
             },
             (cause: unknown) => {
               control.disabled = false;
@@ -1271,7 +1286,7 @@ const showSettings = (module: string, engine: string) => {
 };
 ```
 
-Compare the body with phase 1's version before replacing it: the only intended differences are the `engine` parameter, the `generation` check after `schemas`, `enginesOwnSettings`, `shown`, `keys` and `saved` computed once per schema, `schema.paths.filter(shown)` and `settingsState.textContent = saved`. If phase 1's version differs elsewhere (a later fix to the form), keep that difference.
+Compare the body with phase 1's version before replacing it: the only intended differences are the `engine` parameter, the `generation` check after `schemas`, `enginesOwnSettings`, `shown`, `keys` computed once per schema, and `schema.paths.filter(shown)`. If phase 1's version differs elsewhere (a later fix to the form), keep that difference.
 
 In `start`, replace
 
@@ -1361,8 +1376,8 @@ or off. While a module starts, the fields accept native input.
 
 The settings form shows the selected module's settings. A setting at a path that holds an engine's name, such as
 m17n's `/org/freedesktop/ibus/engine/m17n/hi/inscript/` for `m17n:hi:inscript`, shows only while that engine is
-selected. m17n's input-method variables, at `variables/` below an engine's path, reach engines not yet opened in the
-module's Worker and the rest after Restart module, as the form says when one is saved.
+selected. m17n's input-method variables, at `variables/` below an engine's path, reach a field's composition the next
+time the field loses focus or is reset; a composition already under way keeps the old value.
 
 A module joins the demo when its Nix module sets `ibusWeb.demo.modules.<name>` to its distribution. The page opens on the
 default engine of the first module in name order. Each module's end-to-end tests are in `test/e2e/<name>.spec.ts`, with
@@ -1411,8 +1426,9 @@ labelled `m17n · <language>` with the language's English name from `Intl.Displa
 first lists each; the `t:*` methods, which declare no language, stay under `m17n`. Its settings form shows, of the
 paths an engine owns (those holding the engine name's components as consecutive segments), only the selected
 engine's: its instance of `org.freedesktop.ibus.engine.m17n` and, where its input method has variables, their schema
-at `variables/` below it. The panel's schema, which no engine owns, is always shown. A saved variable reports that it
-applies to engines not yet opened and to the rest after Restart module.
+at `variables/` below it. The panel's schema, which no engine owns, is always shown. A saved variable reaches each
+field's input context the next time it loses focus, since ibus-m17n resets its m17n context then and a reset takes the
+input method's configured values.
 ```
 
 and append to its `## Checks` list:
@@ -1422,7 +1438,7 @@ and append to its `## Checks` list:
   m17n's language groups in the picker; Hindi from inscript's keys; Vietnamese composed and committed on Space; a Thai
   tone mark on a consonant already in the textarea, which reaches the engine only as surrounding text; a settings form
   holding the selected engine's instance and variables, not another's; and Telex's `tone-mark-on-last` saved in the
-  form and applied after Restart module.
+  form and reaching the textarea once it has lost and regained focus.
 ```
 
 Format and check:
@@ -1518,7 +1534,7 @@ Playwright on {{cpu}} ({{logicalCpus}} logical CPUs), against {{startMin}}–{{s
 installed from its archive. One run each; there is no target until there is a baseline.
 ```
 
-and in its Playwright bullet in `## Checks`, replace `form and applied after Restart module.` with `form and applied after Restart module; it times a restart from IndexedDB.`
+and in its Playwright bullet in `## Checks`, replace `once it has lost and regained focus.` with `once it has lost and regained focus; it times a restart from IndexedDB.`
 
 Replace the placeholders (`{{startMin}}`/`{{startMax}}` are Task 2's), then `nix develop -c oxfmt docs/m17n.md && grep -n '{{' docs/m17n.md`; expected: the grep prints nothing.
 
@@ -1576,14 +1592,14 @@ Chromium, Firefox and WebKit ({{all}} total): Hangul's {{hangul}}, the table mod
 and m17n's {{m17n}}.
 ```
 
-and after the sentence ending `checks that the settings form follows the module.`, add: ``The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi, Vietnamese and a Thai tone mark on the field's own consonant, checks that the settings form holds only the selected engine's instance, applies a variable after Restart module, and times a restart from IndexedDB.`` If the section's wording already differs (another branch updated it), apply the same counts to its current wording.
+and after the sentence ending `checks that the settings form follows the module.`, add: ``The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi, Vietnamese and a Thai tone mark on the field's own consonant, checks that the settings form holds only the selected engine's instance, shows a variable saved in the form reaching the field at its next focus, and times a restart from IndexedDB.`` If the section's wording already differs (another branch updated it), apply the same counts to its current wording.
 
 - [ ] **Step 4: `docs/known-gaps.md`**
 
 Under `## Engines and page integration`:
 
 - If the list still says `m17n, libpinyin and Rime still need their own audits.`, replace it with `libpinyin and Rime still need their own audits.` (`m17n-cast-audit` covers m17n).
-- Append after phase 2's **m17n variable changes that wait for a restart.** item:
+- Append, after phase 2's m17n item in that section (whatever its title):
 
 ```markdown
 - **m17n reads every input method at each start.** Listing m17n's input methods parses each `.mim`, so module init
