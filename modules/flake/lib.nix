@@ -45,6 +45,15 @@ in
     # gate on the platform because it can be read without evaluating the
     # compiler.
     isEmscriptenWasm = platform: platform.isWasm && (platform.useEmscripten or false);
+
+    # Shell words for the flags automake compiles a configured source
+    # directory's files with, read from its Makefile, which holds them only
+    # as make variables. They start with the options configure added to CC
+    # (the C standard). `target` is the Makefile variable of the per-target
+    # flags, such as AM_CFLAGS or libinternal_a_CFLAGS.
+    makeCflags =
+      target:
+      "$(make -s --no-print-directory -f Makefile -f - print-cflags <<< 'print-cflags: ; @echo $(wordlist 2,$(words $(CC)),$(CC)) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(${target}) $(CFLAGS)')";
   };
 
   config.perSystem =
@@ -84,7 +93,7 @@ in
         '';
 
       ibusWeb.lib = {
-        inherit (flakeLib) patchesIn isEmscriptenWasm;
+        inherit (flakeLib) patchesIn isEmscriptenWasm makeCflags;
 
         # Emscripten's installed tree: its system libraries' sources, its
         # JavaScript libraries and its tools.

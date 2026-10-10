@@ -5,7 +5,7 @@
     { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) engines runtime toolchain;
-      inherit (config.ibusWeb.lib) emscriptenRoot;
+      inherit (config.ibusWeb.lib) emscriptenRoot makeCflags;
       inherit (toolchain.pkgsWasm) m17n_lib ibus-web-m17n-db;
       m17n = toolchain.pkgsWasm.ibus-engines.m17n;
 
@@ -50,7 +50,7 @@
             "locale.c"
             "m17n.c"
           ];
-          cflags = "$(make -s --no-print-directory -f Makefile -f - print-cflags <<< 'print-cflags: ; @echo $(wordlist 2,$(words $(CC)),$(CC)) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)')";
+          cflags = makeCflags "AM_CFLAGS";
           allowList = ./m17n-lib-cast-audit.jsonc;
         }).overrideAttrs
           (old: {

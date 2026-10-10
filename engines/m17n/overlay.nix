@@ -7,7 +7,7 @@
   ...
 }:
 let
-  inherit (config.ibusWeb.lib) isEmscriptenWasm patchesIn;
+  inherit (config.ibusWeb.lib) isEmscriptenWasm makeCflags patchesIn;
 in
 {
   flake.overlays.m17n =
@@ -40,10 +40,6 @@ in
           m17nDbProgram = pkgs.writeShellScriptBin "m17n-db" ''
             echo ${m17nDb}/share/m17n
           '';
-
-          # The flags automake compiles a configured src/'s sources with, as
-          # shell words, starting with the options configure added to CC.
-          makeCflags = "$(make -s --no-print-directory -f Makefile -f - print-cflags <<< 'print-cflags: ; @echo $(wordlist 2,$(words $(CC)),$(CC)) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)')";
 
           # ibus-m17n's configured tree, from which the descriptor program and
           # the side module each build their part.
@@ -97,7 +93,7 @@ in
               runHook preBuild
               cd src
               make libm17ncommon.la
-              $CC ${makeCflags} -c descriptors.c -o descriptors.o
+              $CC ${makeCflags "AM_CFLAGS"} -c descriptors.c -o descriptors.o
 
               libs=$($PKG_CONFIG --static --libs libibus-web m17n-shell | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ')
               $CXX ${toString config.ibusWeb.lib.testLinkFlagsWithoutNodeFs} -sSTACK_SIZE=1MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB \
@@ -194,7 +190,7 @@ in
                 # libm17ncommon, plus the schema directory module.c keeps in
                 # the store closure and the table variables.c reads.
                 cflags = lib.concatStringsSep " " [
-                  makeCflags
+                  (makeCflags "AM_CFLAGS")
                   "'-DIBUSWEB_SETTINGS_SCHEMA_DIR=\"${settingsSchemaDir}\"'"
                   "-I${descriptors}"
                 ];

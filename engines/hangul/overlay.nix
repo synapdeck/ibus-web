@@ -7,7 +7,7 @@
   ...
 }:
 let
-  inherit (config.ibusWeb.lib) isEmscriptenWasm patchesIn;
+  inherit (config.ibusWeb.lib) isEmscriptenWasm makeCflags patchesIn;
 in
 {
   flake.overlays.hangul =
@@ -52,7 +52,7 @@ in
                 # them too, plus the schema directory it keeps in the store
                 # closure.
                 cflags = lib.concatStringsSep " " [
-                  "$(make -s --no-print-directory -f Makefile -f - print-cflags <<< 'print-cflags: ; @echo $(wordlist 2,$(words $(CC)),$(CC)) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libinternal_a_CFLAGS) $(CFLAGS)')"
+                  (makeCflags "libinternal_a_CFLAGS")
                   "'-DIBUSWEB_SETTINGS_SCHEMA_DIR=\"${settingsSchemaDir}\"'"
                 ];
 
