@@ -155,7 +155,7 @@ decided.
 - **Link targets of at most 100 bytes.** Data archives are plain ustar, whose link-target field holds 100 bytes, and the
   installer refuses extended headers, so a closure with a longer symbolic-link target fails its distribution's build.
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
-  handler's arity. Hangul needs no lazy arity bridge; m17n, libpinyin and Rime still need their own audits.
+  handler's arity. Hangul needs no lazy arity bridge; libpinyin and Rime still need their own audits.
 - **Hangul setup.** The `setup` property does not launch an application.
 - **Hangul preedit-mode updates.** Module settings stay current even with no live engines. `preedit-mode` takes effect
   in an existing engine on refocus or a capabilities update.
@@ -171,6 +171,10 @@ decided.
 - **m17n key bindings and the per-user customisation file.** m17n's key-binding customisation (`minput_config_command`)
   and its per-user `~/.m17n.d` customisation file are not exposed on the page; only input-method variables are
   ([m17n.md](m17n.md#settings-and-variables)).
+- **m17n reads every input method at each start.** Listing m17n's input methods parses each `.mim`, so module init reads
+  about 212 files, 2.5 MB, at every start: a start from IndexedDB takes 1014–2906 ms in all in the browsers
+  ([m17n.md](m17n.md#in-the-browser)). m17n keeps no index of its own; a cached list, or each input method read on first
+  use, would need changes to m17n-lib or ibus-m17n's listing.
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
