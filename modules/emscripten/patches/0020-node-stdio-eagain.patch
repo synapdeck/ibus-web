@@ -1,0 +1,164 @@
+Node: wait for a slow reader on stdout and stderr instead of failing
+
+Node makes a pipe or socket on stdout or stderr non-blocking once it
+opens process.stdout or process.stderr on it, and it does that for
+every Worker it constructs, to forward the Worker's stdio. A program
+with pthreads starts Workers before main(), so from then on its output
+is written synchronously to a non-blocking descriptor: out() and err()
+(and with them printf() on every file system, and dbg()) through
+fs.writeSync() on fds 1 and 2, and NODERAWFS's writes to its standard
+streams. Once the reader falls 64 KiB behind, a write either goes
+through in part, and out() drops the rest, or throws EAGAIN, which
+aborts the program; under NODERAWFS write() fails with EAGAIN on a
+descriptor the program never made non-blocking.
+
+Write everything out() and err() are given, and under NODERAWFS retry a
+write that fails with EAGAIN unless the program set O_NONBLOCK on its
+stream itself. Node can't wait for a descriptor to become writable
+synchronously, so both sleep 1 ms with Atomics.wait() and try again.
+This works the same on a pthread's Worker, whose writes to fds 1 and 2
+reach the process's own descriptors.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-node-stdio-eagain.md
+
+diff --git a/src/lib/libnoderawfs.js b/src/lib/libnoderawfs.js
+index ce4afbd..a3908ab 100644
+--- a/src/lib/libnoderawfs.js
++++ b/src/lib/libnoderawfs.js
+@@ -261,7 +261,18 @@ addToLibrary({
+       }
+       var seeking = typeof position != 'undefined';
+       if (!seeking && stream.seekable) position = stream.position;
+-      var bytesWritten = fs.writeSync(stream.nfd, buffer, offset, length, position);
++      var bytesWritten;
++      while (true) {
++        try {
++          bytesWritten = fs.writeSync(stream.nfd, buffer, offset, length, position);
++          break;
++        } catch (e) {
++          // Node can make stdout and stderr non-blocking behind the program's
++          // back; only a stream the program made non-blocking may fail.
++          if (e.code != 'EAGAIN' || (stream.flags & {{{ cDefs.O_NONBLOCK }}})) throw e;
++          nodeWaitForWritable();
++        }
++      }
+       // update position marker when non-seeking
+       if (!seeking) stream.position += bytesWritten;
+       return bytesWritten;
+diff --git a/src/node_shell_write.js b/src/node_shell_write.js
+new file mode 100644
+index 0000000..5b6fce5
+--- /dev/null
++++ b/src/node_shell_write.js
+@@ -0,0 +1,37 @@
++/**
++ * @license
++ * Copyright 2026 The Emscripten Authors
++ * SPDX-License-Identifier: MIT
++ */
++
++// Node makes a pipe or socket on stdout or stderr non-blocking as soon as it
++// opens `process.stdout` or `process.stderr` on it, which it does for every
++// Worker it constructs, to forward the Worker's stdio.  From then on a
++// synchronous write there writes only part of its data, or fails with EAGAIN,
++// whenever the reader has fallen behind, though the program never asked for
++// non-blocking output.  Node has no synchronous way to wait until a descriptor
++// is writable, so these wait a moment and try again.
++
++var nodeWaitCell;
++
++function nodeWaitForWritable() {
++  nodeWaitCell ??= new Int32Array(new SharedArrayBuffer(4));
++  Atomics.wait(nodeWaitCell, 0, 0, 1);
++}
++
++// Writes all of `str` to `fd`, as a blocking write would.
++function nodeWriteAllSync(fd, str) {
++  var fs = require('node:fs');
++  var length = Buffer.byteLength(str);
++  var written = 0;
++  var buf;
++  while (written < length) {
++    try {
++      // Only resuming part-way through needs the string's bytes.
++      written += written ? fs.writeSync(fd, buf ??= Buffer.from(str), written) : fs.writeSync(fd, str);
++    } catch (e) {
++      if (e.code != 'EAGAIN') throw e;
++      nodeWaitForWritable();
++    }
++  }
++}
+diff --git a/src/runtime_debug.js b/src/runtime_debug.js
+index 79f2f13..9801808 100644
+--- a/src/runtime_debug.js
++++ b/src/runtime_debug.js
+@@ -15,7 +15,6 @@ function dbg(...args) {
+   // See https://github.com/emscripten-core/emscripten/issues/14804
+   if (ENVIRONMENT_IS_NODE) {
+     // TODO(sbc): Unify with err/out implementation in shell.sh.
+-    var fs = require('node:fs');
+     var utils = require('node:util');
+     function stringify(a) {
+       switch (typeof a) {
+@@ -24,7 +23,7 @@ function dbg(...args) {
+       }
+       return a;
+     }
+-    fs.writeSync(2, args.map(stringify).join(' ') + '\n');
++    nodeWriteAllSync(2, args.map(stringify).join(' ') + '\n');
+   } else
+ #endif
+   // TODO(sbc): Make this configurable somehow.  Its not always convenient for
+diff --git a/src/shell.js b/src/shell.js
+index 050ca6f..e23535b 100644
+--- a/src/shell.js
++++ b/src/shell.js
+@@ -329,6 +329,10 @@ if (!ENVIRONMENT_IS_AUDIO_WORKLET)
+ #endif // ASSERTIONS
+ }
+ 
++#if ENVIRONMENT_MAY_BE_NODE && (PTHREADS || WASM_WORKERS || NODERAWFS)
++#include "node_shell_write.js"
++#endif
++
+ #if ENVIRONMENT_MAY_BE_NODE && (PTHREADS || WASM_WORKERS)
+ // Set up the out() and err() hooks, which are how we can print to stdout or
+ // stderr, respectively.
+@@ -341,8 +345,8 @@ var defaultPrintErr = console.error.bind(console);
+ if (ENVIRONMENT_IS_NODE) {
+   var utils = require('node:util');
+   var stringify = (a) => typeof a == 'object' ? utils.inspect(a) : a;
+-  defaultPrint = (...args) => fs.writeSync(1, args.map(stringify).join(' ') + '\n');
+-  defaultPrintErr = (...args) => fs.writeSync(2, args.map(stringify).join(' ') + '\n');
++  defaultPrint = (...args) => nodeWriteAllSync(1, args.map(stringify).join(' ') + '\n');
++  defaultPrintErr = (...args) => nodeWriteAllSync(2, args.map(stringify).join(' ') + '\n');
+ }
+ {{{ makeModuleReceiveWithVar('out', 'print',    'defaultPrint') }}}
+ {{{ makeModuleReceiveWithVar('err', 'printErr', 'defaultPrintErr') }}}
+diff --git a/src/shell_minimal.js b/src/shell_minimal.js
+index 9615ea8..84fc69c 100644
+--- a/src/shell_minimal.js
++++ b/src/shell_minimal.js
+@@ -94,6 +94,10 @@ if (ENVIRONMENT_IS_NODE && ENVIRONMENT_IS_SHELL) {
+ // and build with --closure 1 to get Closure optimize out all the uses
+ // altogether.
+ 
++#if ENVIRONMENT_MAY_BE_NODE && (PTHREADS || WASM_WORKERS || NODERAWFS)
++#include "node_shell_write.js"
++#endif
++
+ #if ENVIRONMENT_MAY_BE_NODE && PTHREADS
+ // Set up the out() and err() hooks, which are how we can print to stdout or
+ // stderr, respectively.
+@@ -105,8 +109,8 @@ var defaultPrint = console.log.bind(console);
+ var defaultPrintErr = console.error.bind(console);
+ if (ENVIRONMENT_IS_NODE) {
+   var fs = require('node:fs');
+-  defaultPrint = (...args) => fs.writeSync(1, args.join(' ') + '\n');
+-  defaultPrintErr = (...args) => fs.writeSync(2, args.join(' ') + '\n');
++  defaultPrint = (...args) => nodeWriteAllSync(1, args.join(' ') + '\n');
++  defaultPrintErr = (...args) => nodeWriteAllSync(2, args.join(' ') + '\n');
+ }
+ var out = defaultPrint;
+ var err = defaultPrintErr;

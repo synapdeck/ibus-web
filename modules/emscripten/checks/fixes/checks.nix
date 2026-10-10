@@ -101,6 +101,27 @@
             echo ${toString mib} > $out/${name}.args
           '';
 
+      # A burst to stdout or stderr under each of the program file systems,
+      # with a thread pool started, which only the test file can read slowly
+      # enough: the path of its JavaScript.
+      stdioBurst =
+        name: linkFlags:
+        let
+          burst = program {
+            name = "stdio-burst-${name}";
+            sources = [ "stdio-burst.c" ];
+            format = null;
+            inherit linkFlags;
+          };
+        in
+        "${burst}/stdio-burst-${name}.js";
+
+      stdioBursts = {
+        stdioBurstJsfs = stdioBurst "jsfs" "-sASSERTIONS=1 -sPTHREAD_POOL_SIZE=1 -sEXIT_RUNTIME=1";
+        stdioBurstWasmfs = stdioBurst "wasmfs" testing.nodeLinkFlags;
+        stdioBurstNoderawfs = stdioBurst "noderawfs" "-sASSERTIONS=1 -sNODERAWFS=1 -sFORCE_FILESYSTEM=1 -sPTHREAD_POOL_SIZE=1 -sEXIT_RUNTIME=1";
+      };
+
       # Its exit status is the evidence, which only the test file sees.
       dlsyncExit = program {
         name = "dlsync-exit";
@@ -130,7 +151,8 @@
       # threads under a main thread that never returns to its event loop or
       # that loads a module while they run, for the Worker a destroyed WasmFS
       # backend thread leaves in the pool, and for a memory imported, without
-      # growth, at a size between its initial size and its maximum.
+      # growth, at a size between its initial size and its maximum, and for
+      # output that a reader takes in more slowly than the program writes it.
       checks.emscripten-fixes = testing.programs {
         name = "emscripten-fixes";
 
@@ -170,7 +192,8 @@
           dlsyncSide = "${dlsyncExit}/dlsync-side.wasm";
           importedMemoryWasm = "${importedMemoryModule}/imported-memory-maximum.wasm";
           importedMemoryMaximumMiB = toString maximumMiB;
-        };
+        }
+        // stdioBursts;
       };
     };
 }

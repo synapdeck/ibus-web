@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // The fixes whose evidence lies outside what a program reports on itself:
-// the status a program exits with, and a memory its module refuses.
+// the status a program exits with, a memory its module refuses, and the
+// output a reader that falls behind receives.
 
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -57,4 +58,72 @@ describe("Patch0016", () => {
   test("MemoryAboveMaximumIsRefused", async () => {
     await expect(instantiate(maximumMiB + 16)).rejects.toThrow(WebAssembly.LinkError);
   });
+});
+
+describe("Patch0020", () => {
+  const stallMs = 500;
+
+  // What stdio-burst writes.
+  const expected = (() => {
+    const longLine = Array.from({ length: 256 * 1024 - 1 }, (_, i) => String.fromCharCode(97 + (i % 26))).join("");
+    const lines = Array.from({ length: 2048 }, (_, i) => `${String(i).padStart(4, "0")}${"x".repeat(507)}\n`);
+    return `${longLine}\n${lines.join("")}end\n`;
+  })();
+
+  // Everything the program writes to each stream, and its status. Neither
+  // stream is read for stallMs, so the pipe fills while the program writes.
+  const burst = (
+    program: string,
+    args: readonly string[],
+  ): Promise<{ stdout: string; stderr: string; status: number | null }> =>
+    new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [program, ...args], {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: exitTimeoutMs,
+        killSignal: "SIGKILL",
+      });
+      const chunks = { stdout: [] as Buffer[], stderr: [] as Buffer[] };
+      const ended = Promise.all(
+        (["stdout", "stderr"] as const).map(
+          (name) =>
+            new Promise<void>((done) => {
+              setTimeout(() => child[name].on("data", (chunk: Buffer) => chunks[name].push(chunk)), stallMs);
+              child[name].once("end", done);
+            }),
+        ),
+      );
+
+      child.once("error", reject);
+      child.once("close", (status) => {
+        void ended.then(() =>
+          resolve({
+            stdout: Buffer.concat(chunks.stdout).toString(),
+            stderr: Buffer.concat(chunks.stderr).toString(),
+            status,
+          }),
+        );
+      });
+    });
+
+  // The program's own file system: Emscripten's JavaScript one, WasmFS, or
+  // NODERAWFS, whose writes reach the descriptor without going through out().
+  const programs = ["stdioBurstJsfs", "stdioBurstWasmfs", "stdioBurstNoderawfs"];
+  const cases = programs.flatMap((program) =>
+    (["stdout", "stderr"] as const).flatMap((stream) =>
+      (["main", "thread"] as const).map((thread) => ({ program, stream, thread })),
+    ),
+  );
+
+  test.for(cases)(
+    "WritesWaitForTheReader $program $stream $thread",
+    { timeout: exitTimeoutMs + 10_000 },
+    async ({ program, stream, thread }) => {
+      const result = await burst(data(program), [stream, thread]);
+      const other = stream === "stdout" ? "stderr" : "stdout";
+      expect(result.status, result[other]).toBe(0);
+      expect(result[other]).toBe("");
+      expect(result[stream].length).toBe(expected.length);
+      expect(result[stream] === expected).toBe(true);
+    },
+  );
 });

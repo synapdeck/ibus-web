@@ -34,6 +34,7 @@ patch rebuilds the cache and everything in `pkgsWasm`. `checks.emscripten-fixes`
 | 0017 `wasmfs-symlink-errors`         | any backend failure to make a symlink is reported as `EPERM`; the Node backend now reports the host's error                                                                                                                                                                                                                                                                                                                                | not filed; draft `emscripten-wasmfs-symlink-errors.md`                                                                                                                                                                                        | a release contains the fix                          |
 | 0018 `wasmfs-proxy-worker-heartbeat` | WasmFS backends on a thread of their own (OPFS, fetch, or any built on `ProxyWorker`): the thread's 50 ms heartbeat timer outlives it, so once the backend is destroyed, at exit or before, the Worker its thread ran on runs the freed queue from the pool, failing an assertion when idle and touching freed memory otherwise                                                                                                            | [#27858](https://github.com/emscripten-core/emscripten/issues/27858); draft `emscripten-wasmfs-proxy-worker-heartbeat.md`                                                                                                                     | a release contains the fix                          |
 | 0019 `wasmfs-lookup-errors`          | any backend failure to look up a file is reported as `ENOENT`, so `mkdir()`, `symlink()` and `open(O_CREAT)` go on to create it; the Node backend now reports the host's error, and the OPFS backend its `EIO` or `ENOTDIR`                                                                                                                                                                                                                | not filed; draft `emscripten-wasmfs-lookup-errors.md`                                                                                                                                                                                         | a release contains the fix                          |
+| 0020 `node-stdio-eagain`             | Node: once a pthread's Worker exists (or anything opens `process.stdout`), a pipe on stdout or stderr is non-blocking, so `out()`/`err()` (`printf()` on every file system, `dbg()`) drop the rest of a write the reader isn't ready for or abort with `EAGAIN`, and NODERAWFS's `write()` fails with `EAGAIN` on a stream the program never made non-blocking                                                                             | not filed; draft `emscripten-node-stdio-eagain.md`                                                                                                                                                                                            | a release contains the fix                          |
 
 As of 6.0.11 (marked released 2026-10-02) #27632 (0001, since 6.0.10) and #27842 (0004) are in a release, and #27862
 (0016) is on `main` for the next one. Checked against `main` 5977ecc on 2026-10-02: 0001 and 0004 reverse-apply, the
@@ -115,6 +116,17 @@ program supplies its own root, whose lookups can't fail. The IndexedDB backend r
 database is `EIO`, never `ENOENT`. `checks.emscripten-fixes` looks up a file in a directory the host won't let it
 search, with `stat()` and `open()`, and expects `EACCES`; its draft carries `other.test_wasmfs_node_lookup_errors` in
 the suite's format (also as `*.tests.patch` beside it), which fails on stock 6.0.9 and passes with the stack.
+
+0020 changes only JavaScript: `src/shell.js`, `src/shell_minimal.js`, `src/runtime_debug.js` and
+`src/lib/libnoderawfs.js`, and adds `src/node_shell_write.js`, which both shells include for Node builds with threads or
+NODERAWFS. Node constructs a Worker with its stdio forwarded through `process.stdout` and `process.stderr`, and opening
+those makes a pipe or socket under them non-blocking for the whole process. `out()` and `err()` write their whole line,
+sleeping 1 ms with `Atomics.wait()` whenever the write comes up short or fails with `EAGAIN`; NODERAWFS's `write()` does
+the same on `EAGAIN` unless the program set `O_NONBLOCK` on the stream, and passes a short count on to its caller. A
+line's first write hands `fs.writeSync()` the string itself, which is what the worker-host and runtime tests' captures
+of fds 1 and 2 intercept. `checks.emscripten-fixes` writes 1.25 MiB to stdout and to stderr, from the main thread and
+from a pthread, on Emscripten's JavaScript file system, WasmFS and NODERAWFS, with neither stream read for the first
+half second, and expects every byte and status 0; unpatched, each of the twelve fails.
 
 Not carried, by decision: pipe capacity, and end of file on a JavaScript-file-system pipe whose writers have closed.
 Their drafts stay in `docs/upstream/`.
