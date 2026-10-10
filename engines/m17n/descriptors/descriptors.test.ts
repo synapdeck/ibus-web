@@ -189,6 +189,16 @@ describe("variable schemas", () => {
     );
   });
 
+  test("escape what would end an attribute value", () => {
+    const schema = {
+      ...variableSchema(telex),
+      keys: [{ name: "quote", type: "symbol" as const, default: 'a"b', choices: ['a"b', "c&<d>"] }],
+    };
+    const out = gschema([schema]);
+    expect(out).toContain('<choice value="a&quot;b"/>');
+    expect(out).toContain('<choice value="c&amp;&lt;d&gt;"/>');
+  });
+
   test("are listed for variables.c with each variable's type", () => {
     expect(header([variableSchema(telex), variableSchema(unicode)])).toBe(
       [
