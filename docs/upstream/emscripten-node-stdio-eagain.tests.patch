@@ -1,0 +1,72 @@
+diff --git a/test/test_other.py b/test/test_other.py
+--- a/test/test_other.py
++++ b/test/test_other.py
+@@ -14062,6 +14062,68 @@
+     create_file('js_backend_files/file.dat', 'data')
+     self.do_runf_out_file('wasmfs/wasmfs_before_preload.c', cflags=['--preload-file', 'js_backend_files/file.dat'])
+ 
++  @requires_node
++  @parameterized({
++    '': ([],),
++    'thread': (['-DFROM_THREAD'],),
++    'stderr': (['-DTO_STDERR'],),
++    'wasmfs': (['-sWASMFS'],),
++    'wasmfs_thread': (['-sWASMFS', '-DFROM_THREAD'],),
++    'noderawfs': (['-sNODERAWFS', '-sFORCE_FILESYSTEM'],),
++    'minimal_runtime': (['-sMINIMAL_RUNTIME'],),
++  })
++  def test_node_stdio_slow_reader(self, args):
++    # Constructing the pool's Worker makes Node turn a pipe on stdout or
++    # stderr non-blocking. Output must still wait for a reader that falls
++    # behind, rather than be cut short or fail with EAGAIN.
++    create_file('main.c', r'''
++      #include <pthread.h>
++      #include <stdio.h>
++      #include <string.h>
++
++      #ifdef TO_STDERR
++      #define OUT stderr
++      #define OTHER stdout
++      #else
++      #define OUT stdout
++      #define OTHER stderr
++      #endif
++
++      static void* burst(void* arg) {
++        static char line[1024 * 1024 + 1];
++        memset(line, 'x', sizeof(line) - 1);
++        fprintf(OUT, "%s\n", line);
++        for (int i = 0; i < 10000; i++) {
++          fprintf(OUT, "line %d\n", i);
++        }
++        return NULL;
++      }
++
++      int main() {
++      #ifdef FROM_THREAD
++        pthread_t thread;
++        pthread_create(&thread, NULL, burst, NULL);
++        pthread_join(thread, NULL);
++      #else
++        burst(NULL);
++      #endif
++        fprintf(OTHER, "done\n");
++        return 0;
++      }
++    ''')
++    self.run_process([EMCC, 'main.c', '-o', 'main.js', '-pthread', '-sPTHREAD_POOL_SIZE=1', '-sEXIT_RUNTIME'] + args)
++    proc = subprocess.Popen(config.NODE_JS_TEST + ['main.js'], stdout=PIPE, stderr=PIPE)
++    # Read nothing until the program has filled the pipe.
++    time.sleep(1)
++    out, err = proc.communicate()
++    if '-DTO_STDERR' in args:
++      out, err = err, out
++    expected = 'x' * (1024 * 1024) + '\n' + ''.join(f'line {i}\n' for i in range(10000))
++    self.assertEqual(err.decode(), 'done\n')
++    self.assertEqual(proc.returncode, 0)
++    self.assertEqual(len(out), len(expected))
++    self.assertEqual(out.decode(), expected)
++
+   def test_hello_world_above_2gb(self):
+     self.do_runf_out_file('hello_world.c', cflags=['-sGLOBAL_BASE=2GB', '-sINITIAL_MEMORY=3GB'])
+ 
