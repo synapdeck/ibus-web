@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+import { cpus } from "node:os";
 import type { Page } from "playwright/test";
 import { expect, test } from "./fixtures.ts";
 
@@ -86,4 +87,41 @@ test("a variable saved in the form reaches the field at its next focus", async (
   await expect(page.locator("#settings-state")).toHaveText("Saved; applies live and across tabs.");
 
   await probe(page, "hoaf ", "hoà ");
+});
+
+// The first start installs the data; a restarted Worker reads it, and every
+// input method m17n lists, from IndexedDB. Timed in the page, from the click
+// to the module reading ready again.
+test("the module starts again from IndexedDB", async ({ page, browserName }) => {
+  test.setTimeout(120_000);
+  await pick(page, "Hindi (inscript)", "k", "क");
+  await expect(page.locator("#engine")).toHaveText("ready");
+
+  const milliseconds = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const state = document.querySelector("#engine")!;
+        let left = false;
+        const begin = performance.now();
+        new MutationObserver((_, observer) => {
+          if (state.textContent !== "ready") left = true;
+          else if (left) {
+            observer.disconnect();
+            resolve(performance.now() - begin);
+          }
+        }).observe(state, { childList: true, characterData: true, subtree: true });
+        document.querySelector<HTMLButtonElement>("#restart")!.click();
+      }),
+  );
+  console.log(
+    JSON.stringify({
+      metric: "m17n start from IndexedDB, Restart module to ready",
+      browser: browserName,
+      milliseconds,
+      cpu: cpus()[0]?.model,
+      logicalCpus: cpus().length,
+    }),
+  );
+  expect(milliseconds).toBeGreaterThan(0);
+  await probe(page, "k", "क");
 });
