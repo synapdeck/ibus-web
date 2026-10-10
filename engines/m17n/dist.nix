@@ -26,5 +26,7 @@
 
         engines = m17n.descriptors;
       };
+
+      ibusWeb.demo.modules.m17n = config.packages.ibus-web-m17n-dist;
     };
 }

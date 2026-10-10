@@ -273,13 +273,15 @@ Chromium smoke. Preview serves copied Brotli archives as opaque bytes without Co
 every module under `/ibus-web/modules/<name>/`, beside a `modules.json` map from module name to manifest that the page
 reads.
 
-The page lists every engine of every module through `engines(module)` in its picker and opens on the first module's
-default engine. Ctrl+Space, which the page binds itself, toggles between `deselect()` and the last selection. For
-Hangul, press Shift+Space to switch to Hangul input, type gks for 한 and press F9 for Hanja candidates. Preedit appears
-over the field until committed. The page uses the facade, candidate/property panel and a metadata-driven persistent
-settings form for the selected module; its attachment control leaves native input usable while disabled or starting.
-Restart starts a fresh Worker with default EN mode, then a trusted toggle resumes Hangul. IBusEngineSimple has no
-compose implementation, so Latin mode delegates ordinary typing to the browser.
+The page lists every engine of every module through `engines(module)` in its picker, in one group per language for a
+module whose engines span several, and opens on the first module's default engine. Ctrl+Space, which the page binds
+itself, toggles between `deselect()` and the last selection. For Hangul, press Shift+Space to switch to Hangul input,
+type gks for 한 and press F9 for Hanja candidates. Preedit appears over the field until committed. The page uses the
+facade, candidate/property panel and a metadata-driven persistent settings form for the selected module. Of the settings
+paths that hold an engine's name, as m17n's per-engine paths do, the form shows only the selected engine's. Its
+attachment control leaves native input usable while disabled or starting. Restart starts a fresh Worker with default EN
+mode, then a trusted toggle resumes Hangul. IBusEngineSimple has no compose implementation, so Latin mode delegates
+ordinary typing to the browser.
 
 Core Node and Chromium/Firefox browser gates cover router policy and synthetic DOM integration. The separate production
 Playwright suite uses trusted input in Chromium, Firefox and pinned Linux WebKit 26.6, including focused native undo and

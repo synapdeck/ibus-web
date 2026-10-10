@@ -67,7 +67,21 @@ let detaches = fields.map((field) => app.attach(field));
 const choices: Selection[] = [];
 let last: Selection | undefined,
   shownSettings: string | undefined,
+  shownEngine: string | undefined,
+  // Whether some engine of the shown module owns settings, so the form follows the engine too.
+  enginesOwnSettings = false,
   restarting = false;
+// Each module's engine names, which say which settings paths belong to an engine.
+const moduleEngines = new Map<string, readonly string[]>();
+const languageNames = new Intl.DisplayNames(["en"], { type: "language" });
+// A code Intl can't parse keeps its own spelling.
+const languageName = (code: string) => {
+  try {
+    return languageNames.of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
 const states = new Map<string, string>();
 const storages = new Map<string, { text: string; reported: boolean }>();
 
@@ -102,7 +116,8 @@ app.addEventListener("selectionchange", ({ detail }) => {
   if (detail) last = detail;
   syncPicker(detail);
   render();
-  if (detail && detail.module !== shownSettings) showSettings(detail.module);
+  if (detail && (detail.module !== shownSettings || (enginesOwnSettings && detail.engine !== shownEngine)))
+    showSettings(detail.module, detail.engine);
 });
 app.addEventListener("panel", ({ detail }) => {
   if (detail._tag === "hide") mode.textContent = "—";
@@ -192,14 +207,27 @@ const refreshSettings = async () => {
     refreshing = false;
   }
 };
-const loadSettings = async (module: string, generation: number) => {
+// An engine owns the settings at paths holding its name's components as consecutive segments, as
+// m17n:hi:inscript owns /org/freedesktop/ibus/engine/m17n/hi/inscript/ and the variables below it. Paths
+// are compared in lower case because m17n:sa:IAST-vedic lives at .../sa/iast-vedic/.
+const ownedBy = (path: string, engine: string) =>
+  path.toLowerCase().includes(`/${engine.split(":").join("/").toLowerCase()}/`);
+const loadSettings = async (module: string, engine: string, generation: number) => {
   const schemas = await app.settings.schemas(module);
+  if (generation !== settingsGeneration) return;
+  const engines = moduleEngines.get(module) ?? [];
+  enginesOwnSettings = schemas.some((schema) =>
+    schema.paths.some((path) => engines.some((other) => ownedBy(path, other))),
+  );
+  // Of the paths an engine owns, only the selected engine's are shown.
+  const shown = (path: string) => ownedBy(path, engine) || !engines.some((other) => ownedBy(path, other));
+
   const ids = new Set<string>();
   for (const schema of schemas) {
     const keys = schema.keys.filter(
       (key) => editable.has(key.type) && (schema.id !== panelSchema || panelKeys.has(key.name)),
     );
-    for (const path of schema.paths) {
+    for (const path of schema.paths.filter(shown)) {
       for (const key of keys) {
         const label = document.createElement("label");
         label.className = "setting";
@@ -270,14 +298,15 @@ const loadSettings = async (module: string, generation: number) => {
   form.disabled = false;
   settingsState.textContent = "Settings ready; changes save automatically.";
 };
-const showSettings = (module: string) => {
+const showSettings = (module: string, engine: string) => {
   shownSettings = module;
+  shownEngine = engine;
   const generation = ++settingsGeneration;
   controls.length = 0;
   form.disabled = true;
   form.replaceChildren(form.querySelector("legend")!);
   settingsState.textContent = "Loading settings…";
-  void loadSettings(module, generation).catch((cause: unknown) => {
+  void loadSettings(module, engine, generation).catch((cause: unknown) => {
     if (generation !== settingsGeneration) return;
     settingsState.textContent = "Settings unavailable";
     failure("Settings initialization failed", cause);
@@ -303,18 +332,31 @@ const start = async () => {
       failure(`Could not list ${module}`, cause);
       continue;
     }
-    const group = document.createElement("optgroup");
-    group.label = module;
+    moduleEngines.set(
+      module,
+      engines.map((engine) => engine.name),
+    );
+
+    // A module whose engines span languages gets a group per language, in the order its manifest first lists each.
+    const byLanguage = new Set(engines.map((engine) => engine.languages[0] ?? "")).size > 1;
+    const groups = new Map<string, HTMLOptGroupElement>();
     for (const engine of engines) {
+      const language = byLanguage ? (engine.languages[0] ?? "") : "";
+      let group = groups.get(language);
+      if (group === undefined) {
+        group = document.createElement("optgroup");
+        group.label = language === "" ? module : `${module} · ${languageName(language)}`;
+        groups.set(language, group);
+        picker.append(group);
+      }
       group.append(new Option(engine.displayName, String(choices.length)));
       choices.push({ module, engine: engine.name });
     }
-    picker.append(group);
   }
   const first = choices[0];
   if (!first) throw new Error("No module could be loaded");
   picker.disabled = false;
-  showSettings(first.module);
+  showSettings(first.module, first.engine);
   await app.select(first.module, first.engine);
   enabled.disabled = false;
 };
