@@ -240,6 +240,15 @@ in
                   runHook postInstall
                 '';
 
+                # m17n-lib is linked into the module and m17n-db's input
+                # methods are its data, both LGPL-2.1-or-later.
+                meta = old.meta // {
+                  license = with lib.licenses; [
+                    gpl2Plus
+                    lgpl21Plus
+                  ];
+                };
+
                 passthru = (old.passthru or { }) // {
                   inherit
                     m17n_lib
