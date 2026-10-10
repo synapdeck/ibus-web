@@ -15,11 +15,11 @@ text fields, and shows its candidates.
   the default panel.
 
 The two halves talk only through a versioned protocol over a dedicated `SharedArrayBuffer`. That boundary is also the
-licensing boundary. Engines can be GPL, as Hangul is, but the page packages are MIT OR Apache-2.0: the page's bundle never contains Worker,
-runtime or engine code, which load by URL from the Worker assets. The runtime (`@ibus-web/runtime`, LGPL-2.1-or-later)
-and each engine (such as `@ibus-web/engine-hangul`, under the engine's license) ship in packages of their own, which
-hold files a page serves, never code the page imports, so any page can use the page packages. A page using ibus-web
-must be cross-origin isolated (COOP `same-origin`, COEP `require-corp`).
+licensing boundary. Engines can be GPL, as Hangul is, but the page packages are MIT OR Apache-2.0: the page's bundle
+never contains Worker, runtime or engine code, which load by URL from the Worker assets. The runtime
+(`@ibus-web/runtime`, LGPL-2.1-or-later) and each engine (such as `@ibus-web/engine-hangul`, under the engine's license)
+ship in packages of their own, which hold files a page serves, never code the page imports, so any page can use the page
+packages. A page using ibus-web must be cross-origin isolated (COOP `same-origin`, COEP `require-corp`).
 
 ## Try it
 

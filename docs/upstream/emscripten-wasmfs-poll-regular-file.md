@@ -1,16 +1,13 @@
 # WasmFS: `poll()` reports empty regular files and devices as not readable
 
-**Posted: don't post again.** Filed as
-[#27828](https://github.com/emscripten-core/emscripten/issues/27828)
-(2026-10-01, no replies yet). The fix (0003) can follow as a PR.
+**Posted: don't post again.** Filed as [#27828](https://github.com/emscripten-core/emscripten/issues/27828) (2026-10-01,
+no replies yet). The fix (0003) can follow as a PR.
 
-Checked against `main` 5977ecc (2026-10-02): `__syscall_poll` still sets
-`POLLIN` on a data file only for a non-zero size, and 0003 applies there
-alone with a 17-line offset (#27815 added lines above it).
+Checked against `main` 5977ecc (2026-10-02): `__syscall_poll` still sets `POLLIN` on a data file only for a non-zero
+size, and 0003 applies there alone with a 17-line offset (#27815 added lines above it).
 
-**Draft: new issue.** No existing issue covers it. #20615 ("WasmFS: real
-poll/select support") and #26736 ("WASMFS missing support for blocking
-select/poll") are about blocking and timeouts, not readiness.
+**Draft: new issue.** No existing issue covers it. #20615 ("WasmFS: real poll/select support") and #26736 ("WASMFS
+missing support for blocking select/poll") are about blocking and timeouts, not readiness.
 
 ## Issue title
 
@@ -20,12 +17,10 @@ WasmFS: poll() does not report POLLIN for an empty regular file, /dev/null or /d
 
 ---
 
-POSIX says regular files always poll true for reading and writing, and Linux
-reports `/dev/null` and `/dev/random` readable too. Under WasmFS, `poll()` sets
-`POLLIN` on a data file only when its size is non-zero. So an empty regular
-file, `/dev/null` and `/dev/random` (whose sizes are always 0) never poll
-readable. A caller that polls before reading, such as an event loop watching a
-file descriptor, waits forever instead of reading EOF or random bytes.
+POSIX says regular files always poll true for reading and writing, and Linux reports `/dev/null` and `/dev/random`
+readable too. Under WasmFS, `poll()` sets `POLLIN` on a data file only when its size is non-zero. So an empty regular
+file, `/dev/null` and `/dev/random` (whose sizes are always 0) never poll readable. A caller that polls before reading,
+such as an event loop watching a file descriptor, waits forever instead of reading EOF or random bytes.
 
 **Version of emscripten/emsdk:**
 
@@ -37,8 +32,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`poll_empty_file.c`):
 
@@ -127,11 +122,10 @@ End of search list.
 
 **Where:** `__syscall_poll` sets `POLLIN` only when `getSize() > 0`
 ([syscalls.cpp#L1425-L1434](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1425-L1434)).
-That suits a pipe, whose size is its queued byte count, but no other data file.
-`NullFile` and `RandomFile` always report size 0
+That suits a pipe, whose size is its queued byte count, but no other data file. `NullFile` and `RandomFile` always
+report size 0
 ([special_files.cpp](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/special_files.cpp)).
-Seekability doesn't separate pipes from the rest either: stdin, stdout, stderr
-and `/dev/random` are non-seekable too
+Seekability doesn't separate pipes from the rest either: stdin, stdout, stderr and `/dev/random` are non-seekable too
 ([special_files.cpp#L64](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/special_files.cpp#L64),
 [#L110](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/special_files.cpp#L110),
 [#L166](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/special_files.cpp#L166)).
@@ -197,65 +191,49 @@ empty file               poll=1 POLLIN=1
 /dev/random              poll=1 POLLIN=1
 ```
 
-Pipes keep their behaviour (`pipe_poll.c` polls an empty pipe, then one with a
-byte in it):
+Pipes keep their behaviour (`pipe_poll.c` polls an empty pipe, then one with a byte in it):
 
 ```
 empty pipe           POLLIN=0
 pipe with data       POLLIN=1
 ```
 
-One thing changes beyond the test case. Stdin never polled readable before
-(size 0); now it always does, since `StdinFile` keeps the default. That matches
-the JS file system, where TTY streams have no poll handler and so report
+One thing changes beyond the test case. Stdin never polled readable before (size 0); now it always does, since
+`StdinFile` keeps the default. That matches the JS file system, where TTY streams have no poll handler and so report
 `POLLIN|POLLOUT`
 ([libsyscall.js#L611-L613](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libsyscall.js#L611-L613)).
-The consequence: a poll-driven loop that watches stdin will now go on to read
-it. That read is synchronous: a blocking `fs.readSync` under Node, and
-`window.prompt()` in a browser. If that's unwanted, `StdinFile` can override
-the hook to return false.
+The consequence: a poll-driven loop that watches stdin will now go on to read it. That read is synchronous: a blocking
+`fs.readSync` under Node, and `window.prompt()` in a browser. If that's unwanted, `StdinFile` can override the hook to
+return false.
 
-The hook also answers the TODO above the check: for a regular file, the
-position doesn't matter. A similar hook could later let pipes report
-`POLLHUP`.
+The hook also answers the TODO above the check: for a regular file, the position doesn't matter. A similar hook could
+later let pipes report `POLLHUP`.
 
 ---
 
 ## Evidence
 
-- **Scope.** Covers everything the patch set out to fix: empty regular files,
-  `/dev/null` and `/dev/random`. Stdin, stdout and stderr fall under the
-  default (readable). That's a judgement call the body states openly; it was
-  not tested against a terminal. Directories were already readable (their size
-  is 4096), and still are.
-- **Testing.** The fixed run used a 6.0.9 tree with all of this set's
-  candidate fixes applied at once, including the pipe `S_IFIFO` change.
-  `test/core/test_pipe_pollhup.c`, `test/unistd/pipe.c` and
-  `test/core/test_pipe_select.c` gave the same results with and without the
-  patch, under the JS FS and under WasmFS. The `test/wasmfs/*.c` programs also
-  matched, apart from wasm offsets in stack traces of tests that already fail
-  outside the harness.
-- **FAQ.** Nothing in the FAQ covers `poll` or WasmFS readiness. Run at `-O0`
-  and `-O2`, with the same result. No test in `test/` polls a regular file or a
-  device under WasmFS.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out because the fault is in `libwasmfs`.
-- **Duplicate search.** "wasmfs poll", "wasmfs poll regular file", "poll
-  regular file POLLIN", "poll empty file", "poll returns 0 for file", "poll
-  regular", "select regular file wasmfs" and "poll", plus a scan of all open
-  "wasmfs" issues, turned up #20615, #26736, #25759, #27683, #19447 and #16704,
-  all about blocking or sockets. None is this bug.
-- **Why it matters to us.** GLib's `/mainloop/nfds` watches an empty temp file
-  through a `GIOChannel`; our GLib test patch writes one byte first to get
-  around this. `/mainloop/unix-file-poll`, `/mainloop/unix-fd-priority` and
-  `/closure/fd` skip on WebAssembly because `/dev/null` and `/dev/random` never
-  poll readable. The body says "an event loop watching a file descriptor"
-  without naming GLib; add the name if it helps.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `file.h`, `pipe_backend.h` and `special_files.cpp` are unchanged between 6.0.9
-  and `main` (2151200, 139 commits later). `syscalls.cpp` changed only in
-  `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the
-  cited code is unchanged, a few lines further down. The latest release, 6.0.10
-  (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
+- **Scope.** Covers everything the patch set out to fix: empty regular files, `/dev/null` and `/dev/random`. Stdin,
+  stdout and stderr fall under the default (readable). That's a judgement call the body states openly; it was not tested
+  against a terminal. Directories were already readable (their size is 4096), and still are.
+- **Testing.** The fixed run used a 6.0.9 tree with all of this set's candidate fixes applied at once, including the
+  pipe `S_IFIFO` change. `test/core/test_pipe_pollhup.c`, `test/unistd/pipe.c` and `test/core/test_pipe_select.c` gave
+  the same results with and without the patch, under the JS FS and under WasmFS. The `test/wasmfs/*.c` programs also
+  matched, apart from wasm offsets in stack traces of tests that already fail outside the harness.
+- **FAQ.** Nothing in the FAQ covers `poll` or WasmFS readiness. Run at `-O0` and `-O2`, with the same result. No test
+  in `test/` polls a regular file or a device under WasmFS.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because
+  the fault is in `libwasmfs`.
+- **Duplicate search.** "wasmfs poll", "wasmfs poll regular file", "poll regular file POLLIN", "poll empty file", "poll
+  returns 0 for file", "poll regular", "select regular file wasmfs" and "poll", plus a scan of all open "wasmfs" issues,
+  turned up #20615, #26736, #25759, #27683, #19447 and #16704, all about blocking or sockets. None is this bug.
+- **Why it matters to us.** GLib's `/mainloop/nfds` watches an empty temp file through a `GIOChannel`; our GLib test
+  patch writes one byte first to get around this. `/mainloop/unix-file-poll`, `/mainloop/unix-fd-priority` and
+  `/closure/fd` skip on WebAssembly because `/dev/null` and `/dev/random` never poll readable. The body says "an event
+  loop watching a file descriptor" without naming GLib; add the name if it helps.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `file.h`, `pipe_backend.h` and
+  `special_files.cpp` are unchanged between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only
+  in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines
+  further down. The latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
   wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0003-wasmfs-poll-regular-file.patch`.

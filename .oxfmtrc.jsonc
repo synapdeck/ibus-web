@@ -4,4 +4,5 @@
   "$schema": "https://unpkg.com/oxfmt/configuration_schema.json",
   "printWidth": 120,
   "tabWidth": 2,
+  "proseWrap": "always",
 }

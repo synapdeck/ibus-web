@@ -1,19 +1,16 @@
 # WasmFS: `fstat()` on a pipe reports `S_IFREG`, not `S_IFIFO`
 
-**Done upstream: don't post.** Filed as
-[#27827](https://github.com/emscripten-core/emscripten/issues/27827) and
-fixed by [#27842](https://github.com/emscripten-core/emscripten/pull/27842)
-("[WasmFS] Report pipes as S_IFIFO", merged 2026-10-02 as a0014542110d, with
-`test/unistd/pipe.c` asserting `S_ISFIFO()` on both ends). That commit is
-the 6.0.11 release (marked released on `main` 2026-10-02; emsdk's 6.0.11
-builds it), so drop patch 0004 once nixpkgs packages 6.0.11 or later.
+**Done upstream: don't post.** Filed as [#27827](https://github.com/emscripten-core/emscripten/issues/27827) and fixed
+by [#27842](https://github.com/emscripten-core/emscripten/pull/27842) ("[WasmFS] Report pipes as S_IFIFO", merged
+2026-10-02 as a0014542110d, with `test/unistd/pipe.c` asserting `S_ISFIFO()` on both ends). That commit is the 6.0.11
+release (marked released on `main` 2026-10-02; emsdk's 6.0.11 builds it), so drop patch 0004 once nixpkgs packages
+6.0.11 or later.
 
-Checked against `main` 5977ecc (2026-10-02): 0004 reverse-applies cleanly
-(`git apply -R --check`); `main` makes the same one-line change.
+Checked against `main` 5977ecc (2026-10-02): 0004 reverse-applies cleanly (`git apply -R --check`); `main` makes the
+same one-line change.
 
-**Draft: new issue.** No existing issue covers it. #16158 ("mkfifo() and
-mknod() create regular file with NODERAWFS=1", open) is a different code path:
-NODERAWFS's `mknod`, not WasmFS's `pipe()`.
+**Draft: new issue.** No existing issue covers it. #16158 ("mkfifo() and mknod() create regular file with NODERAWFS=1",
+open) is a different code path: NODERAWFS's `mknod`, not WasmFS's `pipe()`.
 
 ## Issue title
 
@@ -23,10 +20,9 @@ WasmFS: fstat() on a pipe() end reports S_IFREG instead of S_IFIFO
 
 ---
 
-Under WasmFS, both ends of a `pipe()` report a regular file's type from
-`fstat()`. Code that tells pipes from files by `S_ISFIFO` (to decide whether an
-fd can be polled, can seek, or gets a size) takes a WasmFS pipe for a regular
-file. The JS file system and Linux report `S_IFIFO`.
+Under WasmFS, both ends of a `pipe()` report a regular file's type from `fstat()`. Code that tells pipes from files by
+`S_ISFIFO` (to decide whether an fd can be polled, can seek, or gets a size) takes a WasmFS pipe for a regular file. The
+JS file system and Linux report `S_IFIFO`.
 
 **Version of emscripten/emsdk:**
 
@@ -38,8 +34,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`pipe_mode.c`):
 
@@ -133,34 +129,25 @@ With this applied to 6.0.9, the test case prints:
 S_ISFIFO=1 S_ISREG=0
 ```
 
-Nothing in `system/lib/wasmfs` tests a data file's type bits (`S_ISREG`
-appears only in the Node backend's lookup of host files), so the change
-affects only what `fstat()` reports.
+Nothing in `system/lib/wasmfs` tests a data file's type bits (`S_ISREG` appears only in the Node backend's lookup of
+host files), so the change affects only what `fstat()` reports.
 
 ---
 
 ## Evidence
 
-- **FAQ.** Nothing in the FAQ covers pipe types. Run at `-O0` and `-O2`, with
-  the same result.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested
-  one-line fix are included. Bitcode is left out because the fault is in
-  `libwasmfs`. A natural one-line PR, with an `S_ISFIFO` assertion added to a
-  WasmFS pipe test.
-- **Testing.** The fixed run used a 6.0.9 tree with all of this set's
-  candidate fixes applied at once. `test/unistd/pipe.c` (WasmFS variant),
-  `test/core/test_pipe_select.c` and the `test/wasmfs/*.c` programs gave the
-  same results with and without it.
-- **Duplicate search.** "S_IFIFO", "pipe fstat", "pipe S_ISFIFO" and "pipe",
-  plus a scan of all open "wasmfs" issues, turned up only #16158 (NODERAWFS
-  `mkfifo`/`mknod`) and #16269 ("WasmFS: Allow backends to implement readv to
-  support pipes"). Neither is this bug.
-- **Why it matters to us.** GLib's `_g_fd_is_pollable()` decides by
-  `S_ISFIFO`. Our GLib patches had to add "or an unseekable file that isn't a
-  character device" to recognise WasmFS pipes.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `pipe_backend.h` and `file.h` are unchanged between 6.0.9 and `main`
-  (2151200, 139 commits later). The latest release, 6.0.10 (tagged 2026-09-18),
-  matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build
-  is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **FAQ.** Nothing in the FAQ covers pipe types. Run at `-O0` and `-O2`, with the same result.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested one-line fix are included. Bitcode is left out
+  because the fault is in `libwasmfs`. A natural one-line PR, with an `S_ISFIFO` assertion added to a WasmFS pipe test.
+- **Testing.** The fixed run used a 6.0.9 tree with all of this set's candidate fixes applied at once.
+  `test/unistd/pipe.c` (WasmFS variant), `test/core/test_pipe_select.c` and the `test/wasmfs/*.c` programs gave the same
+  results with and without it.
+- **Duplicate search.** "S_IFIFO", "pipe fstat", "pipe S_ISFIFO" and "pipe", plus a scan of all open "wasmfs" issues,
+  turned up only #16158 (NODERAWFS `mkfifo`/`mknod`) and #16269 ("WasmFS: Allow backends to implement readv to support
+  pipes"). Neither is this bug.
+- **Why it matters to us.** GLib's `_g_fd_is_pollable()` decides by `S_ISFIFO`. Our GLib patches had to add "or an
+  unseekable file that isn't a character device" to recognise WasmFS pipes.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `pipe_backend.h` and `file.h` are unchanged
+  between 6.0.9 and `main` (2151200, 139 commits later). The latest release, 6.0.10 (tagged 2026-09-18), matches. The
+  conclusion comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0004-wasmfs-pipe-fifo-mode.patch`.

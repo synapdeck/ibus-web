@@ -1,26 +1,20 @@
 # WasmFS: backend failures to look up a file are reported as `ENOENT`
 
 **Still to post.** The create-`EIO` report went up as
-[#27832](https://github.com/emscripten-core/emscripten/issues/27832)
-(2026-10-01) without the symlink and lookup halves, so post this as its own
-issue citing #27832, after the symlink report; its PR goes on top of theirs.
-No issue or PR filed since covers it (searches for "wasmfs getChild",
-"wasmfs lookup ENOENT", "wasmfs EACCES", "wasmfs ENOENT", 2026-10-02).
+[#27832](https://github.com/emscripten-core/emscripten/issues/27832) (2026-10-01) without the symlink and lookup halves,
+so post this as its own issue citing #27832, after the symlink report; its PR goes on top of theirs. No issue or PR
+filed since covers it (searches for "wasmfs getChild", "wasmfs lookup ENOENT", "wasmfs EACCES", "wasmfs ENOENT",
+2026-10-02).
 
-Checked against `main` 5977ecc (2026-10-02): `getChild()` still returns a
-bare `std::shared_ptr`, and 0019 applies on `main` after 0002–0018 (not
-0004, 0016) with offsets only (+2 lines); it doesn't apply alone, since it
-builds on 0012 and 0017. With Emscripten's runner, emsdk's toolchain for
-`main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b,
-Binaryen 133) and Node 24.21.0, `other.test_wasmfs_node_lookup_errors` fails
-on `main` (`No such file or directory` for both calls) and passes with that
-stack.
+Checked against `main` 5977ecc (2026-10-02): `getChild()` still returns a bare `std::shared_ptr`, and 0019 applies on
+`main` after 0002–0018 (not 0004, 0016) with offsets only (+2 lines); it doesn't apply alone, since it builds on 0012
+and 0017. With Emscripten's runner, emsdk's toolchain for `main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git
+d3e9891b, Binaryen 133) and Node 24.21.0, `other.test_wasmfs_node_lookup_errors` fails on `main`
+(`No such file or directory` for both calls) and passes with that stack.
 
-**Draft: new issue, with a PR.** No existing issue covers it. It is the
-lookup half of the reports on `EIO` from failed creates
-(`emscripten-wasmfs-node-create-eio.md`) and `EPERM` from failed symlinks
-(`emscripten-wasmfs-symlink-errors.md`), and its fix builds on theirs; file
-the three together, or fold this into them.
+**Draft: new issue, with a PR.** No existing issue covers it. It is the lookup half of the reports on `EIO` from failed
+creates (`emscripten-wasmfs-node-create-eio.md`) and `EPERM` from failed symlinks
+(`emscripten-wasmfs-symlink-errors.md`), and its fix builds on theirs; file the three together, or fold this into them.
 
 ## Issue title
 
@@ -30,16 +24,13 @@ WasmFS: a backend can't fail a lookup with anything but ENOENT (e.g. EACCES from
 
 ---
 
-`Directory::getChild()` returns a bare `std::shared_ptr<File>`, and every
-caller takes null for "no such file". So a lookup that fails for any other
-reason reads as a missing file: `stat()` and `open()` say `ENOENT`, and
-`mkdir()`, `symlink()` and `open(O_CREAT)` go on to try to create the file.
-With the Node backend, a host `EACCES` (or `ENOTDIR`, `ENAMETOOLONG`, `EIO`,
-…) comes back as "No such file or directory"; the OPFS backend drops the
-`EIO` it has in hand (`// TODO: More fine-grained error reporting.`). A
-backend of one's own over storage that can fail (a closed database, a
-network) can't say so either, and callers that branch on `ENOENT` (create
-the file, fall back to defaults) then act on a file that may well exist.
+`Directory::getChild()` returns a bare `std::shared_ptr<File>`, and every caller takes null for "no such file". So a
+lookup that fails for any other reason reads as a missing file: `stat()` and `open()` say `ENOENT`, and `mkdir()`,
+`symlink()` and `open(O_CREAT)` go on to try to create the file. With the Node backend, a host `EACCES` (or `ENOTDIR`,
+`ENAMETOOLONG`, `EIO`, …) comes back as "No such file or directory"; the OPFS backend drops the `EIO` it has in hand
+(`// TODO: More fine-grained error reporting.`). A backend of one's own over storage that can fail (a closed database, a
+network) can't say so either, and callers that branch on `ENOENT` (create the file, fall back to defaults) then act on a
+file that may well exist.
 
 **Version of emscripten/emsdk:**
 
@@ -51,11 +42,10 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.19.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.19.0, x86_64 Linux.
 
-**Test case** (`node_lookup_enoent.c`; `argv[1]` is a host directory holding
-an empty directory `shut`):
+**Test case** (`node_lookup_enoent.c`; `argv[1]` is a host directory holding an empty directory `shut`):
 
 ```c
 #include <emscripten/emscripten.h>
@@ -132,14 +122,12 @@ End of search list.
 
 **Where:**
 
-- `Directory::getChild()`, the backend's hook, and `Directory::Handle::getChild()`
-  return a bare `std::shared_ptr<File>`
+- `Directory::getChild()`, the backend's hook, and `Directory::Handle::getChild()` return a bare `std::shared_ptr<File>`
   ([file.h#L209](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/file.h#L209),
   [file.h#L391](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/file.h#L391)).
 - Path parsing turns null into `-ENOENT`
   ([paths.cpp#L41-L44](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/paths.cpp#L41-L44)),
-  as do `open()`, `unlinkat()`, the unmount syscall and `rename()`;
-  `mkdir()` and `symlink()` go on to create
+  as do `open()`, `unlinkat()`, the unmount syscall and `rename()`; `mkdir()` and `symlink()` go on to create
   ([syscalls.cpp#L454](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L454),
   [#L624](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L624),
   [#L847](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L847),
@@ -153,28 +141,21 @@ End of search list.
 - The OPFS backend has the lookup's error and drops it
   ([opfs_backend.cpp#L276-L285](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/opfs_backend.cpp#L276-L285)).
 
-**Suggested fix:** let `getChild()` return a `MaybeFile`, as suggested for
-the inserts in the reports on `EIO` from failed creates and `EPERM` from
-failed symlinks: still a `std::shared_ptr`, but able to carry a negative
-error code. Null with no code keeps meaning "no such file", so backends that
-return plain null are unchanged, and callers ask for `getError(-ENOENT)`.
-Path parsing, `unlinkat()`, the unmount syscall and `rename()` (for the
-source) return the code; `open()`, `mkdir()`, `symlink()` and `rename()`
-(for the target) fail with it rather than take the file for missing.
-`FS.writeFile` fails too instead of creating the file, but
-`_wasmfs_write_file` returns only 0 for a failure, so the code goes no
-further. The Node backend's `_wasmfs_node_get_mode` returns the host's
-errno (`EIO` for a host code with none) and `getChild()` passes it on; the
-OPFS backend passes on everything but its "not found". The memory, fetch,
-ignore-case and virtual directories change only their signatures. The
-preload loop in `wasmfs.cpp` still asks only whether a child exists: it
-runs at start-up, before anything can be mounted, so it only looks in the
-root directory's backend, which is the memory backend unless the program
-supplies its own root, and a memory directory's lookup can't fail.
+**Suggested fix:** let `getChild()` return a `MaybeFile`, as suggested for the inserts in the reports on `EIO` from
+failed creates and `EPERM` from failed symlinks: still a `std::shared_ptr`, but able to carry a negative error code.
+Null with no code keeps meaning "no such file", so backends that return plain null are unchanged, and callers ask for
+`getError(-ENOENT)`. Path parsing, `unlinkat()`, the unmount syscall and `rename()` (for the source) return the code;
+`open()`, `mkdir()`, `symlink()` and `rename()` (for the target) fail with it rather than take the file for missing.
+`FS.writeFile` fails too instead of creating the file, but `_wasmfs_write_file` returns only 0 for a failure, so the
+code goes no further. The Node backend's `_wasmfs_node_get_mode` returns the host's errno (`EIO` for a host code with
+none) and `getChild()` passes it on; the OPFS backend passes on everything but its "not found". The memory, fetch,
+ignore-case and virtual directories change only their signatures. The preload loop in `wasmfs.cpp` still asks only
+whether a child exists: it runs at start-up, before anything can be mounted, so it only looks in the root directory's
+backend, which is the memory backend unless the program supplies its own root, and a memory directory's lookup can't
+fail.
 
-The diff applies on top of the ones in those two reports, which add
-`MaybeFile` and `getError(unexplained)`. It was made on a tree carrying
-other fixes too, so some hunks sit at other lines on plain 6.0.9:
+The diff applies on top of the ones in those two reports, which add `MaybeFile` and `getError(unexplained)`. It was made
+on a tree carrying other fixes too, so some hunks sit at other lines on plain 6.0.9:
 
 ```diff
 --- a/src/lib/libwasmfs_node.js
@@ -492,8 +473,7 @@ stat = -1 (Permission denied)
 open = -1 (Permission denied)
 ```
 
-**Test for the PR,** in the suite's format (also as
-`emscripten-wasmfs-lookup-errors.tests.patch` beside this draft):
+**Test for the PR,** in the suite's format (also as `emscripten-wasmfs-lookup-errors.tests.patch` beside this draft):
 
 ```diff
 --- a/test/test_other.py
@@ -548,35 +528,24 @@ open = -1 (Permission denied)
 
 ## Evidence
 
-- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the
-  same result, on nixpkgs' stock 6.0.9 and on ibus-web's toolchain with
-  patches 0001–0018; with 0019 as well, `EACCES`.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms, a tested fix and
-  a test are included. Testing beyond the test case: the test above passes
-  on Emscripten's own runner with ibus-web's whole stack (0001–0019) and
-  fails on stock 6.0.9; a 192-test WasmFS selection (`other.test_wasmfs*`,
-  `other.test_unistd*`, `wasmfs.test_unistd*`, `test_fcntl*`, `test_stat*`,
-  `test_fs_*`, `test_dirent*`) has the same eleven failures on both, all
-  from the environment, and no others. Those runs predate the Node
-  backend's `EIO` fallback and a reworded comment in `js_api.cpp`; the
-  fallback changes nothing on a host code that has an errno. ibus-web's
-  `checks.emscripten-fixes` runs the same case under Node, and the
-  IndexedDB backend's browser tests check that a lookup in a closed
-  database is `EIO`.
-- **Depends on the create-EIO and symlink reports.** The diff uses their
-  `MaybeFile` and `getError(unexplained)`. Filed alone, it would have to add
-  them itself.
+- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same result, on nixpkgs' stock 6.0.9 and on
+  ibus-web's toolchain with patches 0001–0018; with 0019 as well, `EACCES`.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms, a tested fix and a test are included. Testing beyond the
+  test case: the test above passes on Emscripten's own runner with ibus-web's whole stack (0001–0019) and fails on stock
+  6.0.9; a 192-test WasmFS selection (`other.test_wasmfs*`, `other.test_unistd*`, `wasmfs.test_unistd*`, `test_fcntl*`,
+  `test_stat*`, `test_fs_*`, `test_dirent*`) has the same eleven failures on both, all from the environment, and no
+  others. Those runs predate the Node backend's `EIO` fallback and a reworded comment in `js_api.cpp`; the fallback
+  changes nothing on a host code that has an errno. ibus-web's `checks.emscripten-fixes` runs the same case under Node,
+  and the IndexedDB backend's browser tests check that a lookup in a closed database is `EIO`.
+- **Depends on the create-EIO and symlink reports.** The diff uses their `MaybeFile` and `getError(unexplained)`. Filed
+  alone, it would have to add them itself.
 - **Test needs a non-root user.** Root searches the directory anyway.
-- **Duplicate search.** "wasmfs getChild", "wasmfs ENOENT", "wasmfs EACCES"
-  and "wasmfs lookup error" turned up nothing; #17773 ("WasmFS: Error
-  handling in OPFS backend", closed) is the nearest.
-- **Why it matters to us.** ibus-web's IndexedDB backend fails every call
-  with `EIO` once its database closes for a version change. Without this,
-  a lookup there says `ENOENT`, and an engine would create a file that
-  exists, fall back to defaults, or start an empty user dictionary.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-02:
-  both `getChild()` declarations in `file.h`, the `-ENOENT` in `paths.cpp`
-  and `_wasmfs_node_get_mode`'s `return 1` are unchanged on `main`
-  (fd9124b, 160 commits after 6.0.9) and in 6.0.10. The conclusion comes
-  from the source; `main` wasn't rebuilt.
+- **Duplicate search.** "wasmfs getChild", "wasmfs ENOENT", "wasmfs EACCES" and "wasmfs lookup error" turned up nothing;
+  #17773 ("WasmFS: Error handling in OPFS backend", closed) is the nearest.
+- **Why it matters to us.** ibus-web's IndexedDB backend fails every call with `EIO` once its database closes for a
+  version change. Without this, a lookup there says `ENOENT`, and an engine would create a file that exists, fall back
+  to defaults, or start an empty user dictionary.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-02: both `getChild()` declarations in `file.h`,
+  the `-ENOENT` in `paths.cpp` and `_wasmfs_node_get_mode`'s `return 1` are unchanged on `main` (fd9124b, 160 commits
+  after 6.0.9) and in 6.0.10. The conclusion comes from the source; `main` wasn't rebuilt.
 - ibus-web carries this fix as `modules/emscripten/patches/0019-wasmfs-lookup-errors.patch`.

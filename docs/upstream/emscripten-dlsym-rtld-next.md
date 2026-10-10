@@ -1,35 +1,27 @@
 # `dlsym(RTLD_NEXT, …)` aborts in dynamic-linking builds
 
-**Posted: don't post again.** Filed as
-[#27830](https://github.com/emscripten-core/emscripten/issues/27830)
-(2026-10-01); the fix is PR
-[#27838](https://github.com/emscripten-core/emscripten/pull/27838) ("[dylink]
-Fail dlsym(RTLD_NEXT) cleanly rather than aborting"), approved by sbc100 on
-2026-10-01 and not merged yet. ibus-web carries no patch for it.
+**Posted: don't post again.** Filed as [#27830](https://github.com/emscripten-core/emscripten/issues/27830)
+(2026-10-01); the fix is PR [#27838](https://github.com/emscripten-core/emscripten/pull/27838) ("[dylink] Fail
+dlsym(RTLD_NEXT) cleanly rather than aborting"), approved by sbc100 on 2026-10-01 and not merged yet. ibus-web carries
+no patch for it.
 
-Checked against `main` 5977ecc (2026-10-02): `__dlsym` in `dynlink.c` and
-`_dlsym_js`'s assertion are unchanged since 6.0.9, so the abort stands until
-#27838 lands.
+Checked against `main` 5977ecc (2026-10-02): `__dlsym` in `dynlink.c` and `_dlsym_js`'s assertion are unchanged since
+6.0.9, so the abort stands until #27838 lands.
 
-**As posted** (what #27830 says, kept for reference): a new issue, reframed. The bug we found, "`HAVE_RTLD_NEXT` is detected
-but `dlsym(RTLD_NEXT, …)` returns NULL in static links", is **not** filed:
+**As posted** (what #27830 says, kept for reference): a new issue, reframed. The bug we found, "`HAVE_RTLD_NEXT` is
+detected but `dlsym(RTLD_NEXT, …)` returns NULL in static links", is **not** filed:
 
-- In a static link `dlsym()` is a stub that returns NULL with "dynamic linking
-  not enabled" for every handle, `RTLD_DEFAULT` included
-  (`emscripten_libc_stubs.c:233`). musl's own static `dlsym` behaves the same
-  way.
-- A maintainer has already said that `RTLD_NEXT` is unsupported and "simply
-  cannot work" with static linking
-  ([#23302](https://github.com/emscripten-core/emscripten/issues/23302#issuecomment-2571756300),
-  sbc100: "Emscripten does not current support `RTLD_NEXT`, and furthermore we
-  strongly prefer static linking where `RTLD_NEXT` simply cannot work").
-- `HAVE_RTLD_NEXT` is set by GLib's `meson.build`, which only checks that
-  `dlfcn.h` defines the macro. That is GLib's to fix (or ours, in the patch
-  series), not Emscripten's.
+- In a static link `dlsym()` is a stub that returns NULL with "dynamic linking not enabled" for every handle,
+  `RTLD_DEFAULT` included (`emscripten_libc_stubs.c:233`). musl's own static `dlsym` behaves the same way.
+- A maintainer has already said that `RTLD_NEXT` is unsupported and "simply cannot work" with static linking
+  ([#23302](https://github.com/emscripten-core/emscripten/issues/23302#issuecomment-2571756300), sbc100: "Emscripten
+  does not current support `RTLD_NEXT`, and furthermore we strongly prefer static linking where `RTLD_NEXT` simply
+  cannot work").
+- `HAVE_RTLD_NEXT` is set by GLib's `meson.build`, which only checks that `dlfcn.h` defines the macro. That is GLib's to
+  fix (or ours, in the patch series), not Emscripten's.
 
-The reproduction did turn up a narrower Emscripten bug. With `-sMAIN_MODULE`,
-`dlsym(RTLD_NEXT, …)` doesn't fail cleanly: it aborts on an assertion, or
-without assertions it throws a `TypeError`. The issue below reports only that.
+The reproduction did turn up a narrower Emscripten bug. With `-sMAIN_MODULE`, `dlsym(RTLD_NEXT, …)` doesn't fail
+cleanly: it aborts on an assertion, or without assertions it throws a `TypeError`. The issue below reports only that.
 
 ## Issue title
 
@@ -39,14 +31,12 @@ dlsym(RTLD_NEXT, ...) aborts with "Tried to dlsym() from an unopened handle: -1"
 
 ---
 
-With dynamic linking enabled, `dlsym(RTLD_NEXT, name)` crashes the program
-instead of returning NULL. With assertions it aborts with `Tried to dlsym() from
-an unopened handle: -1`. At `-O2` it throws
-`TypeError: Cannot read properties of undefined (reading 'exports')`. Per #23302
-`RTLD_NEXT` isn't supported, which is fine. But `<dlfcn.h>` defines it, so code
-that probes for it at run time (an interposing `malloc` wrapper, say) should get
-NULL and a `dlerror()` message, not an abort. In a static link it already gets
-NULL with "dynamic linking not enabled".
+With dynamic linking enabled, `dlsym(RTLD_NEXT, name)` crashes the program instead of returning NULL. With assertions it
+aborts with `Tried to dlsym() from an unopened handle: -1`. At `-O2` it throws
+`TypeError: Cannot read properties of undefined (reading 'exports')`. Per #23302 `RTLD_NEXT` isn't supported, which is
+fine. But `<dlfcn.h>` defines it, so code that probes for it at run time (an interposing `malloc` wrapper, say) should
+get NULL and a `dlerror()` message, not an abort. In a static link it already gets NULL with "dynamic linking not
+enabled".
 
 **Version of emscripten/emsdk:**
 
@@ -58,8 +48,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`rtld_next.c`):
 
@@ -165,13 +155,12 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
 
 - `__dlsym` deliberately lets `RTLD_NEXT` past the handle check
   ([dynlink.c#L630](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/libc/dynlink.c#L630)).
-- It then passes `RTLD_NEXT`, `(void *)-1`, to `_dlsym_js`, which looks it up in
-  `LDSO.loadedLibsByHandle`, finds nothing, and asserts
+- It then passes `RTLD_NEXT`, `(void *)-1`, to `_dlsym_js`, which looks it up in `LDSO.loadedLibsByHandle`, finds
+  nothing, and asserts
   ([libdylink.js#L1362-L1366](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libdylink.js#L1362-L1366)).
 - musl's `dlsym` always passes a null return address
-  ([dlsym.c#L6](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/libc/musl/src/ldso/dlsym.c#L6)),
-  so `__dlsym` couldn't find "the next object after the caller" even if it
-  tried.
+  ([dlsym.c#L6](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/libc/musl/src/ldso/dlsym.c#L6)), so
+  `__dlsym` couldn't find "the next object after the caller" even if it tried.
 
 **Suggested fix:** fail `RTLD_NEXT` explicitly.
 
@@ -209,46 +198,34 @@ dlsym(RTLD_NEXT, "puts") = 0 (RTLD_NEXT is not supported)
 dlsym(RTLD_DEFAULT, "puts") = 0x3f (no error)
 ```
 
-(The `RTLD_DEFAULT` lookup fails under `MAIN_MODULE=2` only because `puts`
-isn't exported there.)
+(The `RTLD_DEFAULT` lookup fails under `MAIN_MODULE=2` only because `puts` isn't exported there.)
 
-Treating `RTLD_NEXT` as `RTLD_DEFAULT` would be the wrong fallback. The usual
-caller is an interposer, such as a `malloc` that looks up "the real `malloc`".
-`RTLD_DEFAULT` would hand that caller its own function back, and it would
+Treating `RTLD_NEXT` as `RTLD_DEFAULT` would be the wrong fallback. The usual caller is an interposer, such as a
+`malloc` that looks up "the real `malloc`". `RTLD_DEFAULT` would hand that caller its own function back, and it would
 recurse forever.
 
 ---
 
 ## Evidence
 
-- **FAQ.** The FAQ says nothing about `dlsym` or `RTLD_NEXT`. The static
-  behaviour is reframed out because a maintainer called it a known limitation
-  in #23302, not because of the FAQ. As the FAQ suggests, the case was run at
-  `-O0` (assertion message) and `-O2` (`TypeError`). No test in `test/`
-  mentions `RTLD_NEXT`.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out: the fault is in `__dlsym`/`_dlsym_js`, and the
-  test's `.o` adds nothing. The diff is small enough to send as a PR instead,
-  which the guide prefers.
-- **Duplicate search.** "RTLD_NEXT", "dlsym RTLD_NEXT", "unopened handle", the
-  exact assertion text, "dlsym RTLD_DEFAULT static", "dynamic linking not
-  enabled dlsym", "dlsym abort", "dlsym assertion", "RTLD_NEXT abort" and
-  "dlsym" turned up only #23302 (a question about interposing libc calls, where
-  the maintainer explains `RTLD_NEXT` is unsupported). Nobody has reported the
-  abort.
-- **Is it worth filing?** It's a crash on an unsupported call, in a
-  configuration (`MAIN_MODULE`) our runtime uses. The GLib cases we hit
-  (socket-listener's mocks, messages-low-memory's `malloc` wrapper) are static
-  links. They get NULL and then call through it, which is the GLib-side bug.
-  Skip this one if a crash in a corner of `MAIN_MODULE` isn't worth a
-  maintainer's time.
-- **GLib side.** GLib's `meson.build` sets `HAVE_RTLD_NEXT` because musl's
-  `dlfcn.h` defines `RTLD_NEXT`. Turning it off for Emscripten in our patch
-  series is a one-line alternative to the per-test guards.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `dynlink.c`, `emscripten_libc_stubs.c` and musl's `dlsym.c` are unchanged
-  between 6.0.9 and `main` (2151200, 139 commits later). `libdylink.js` changed
-  elsewhere (the preload plugin, a `dylink.0` architecture check, `dlopen`
-  callbacks), but `_dlsym_js` and its assertion didn't. The latest release,
-  6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff;
-  `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **FAQ.** The FAQ says nothing about `dlsym` or `RTLD_NEXT`. The static behaviour is reframed out because a maintainer
+  called it a known limitation in #23302, not because of the FAQ. As the FAQ suggests, the case was run at `-O0`
+  (assertion message) and `-O2` (`TypeError`). No test in `test/` mentions `RTLD_NEXT`.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out: the fault
+  is in `__dlsym`/`_dlsym_js`, and the test's `.o` adds nothing. The diff is small enough to send as a PR instead, which
+  the guide prefers.
+- **Duplicate search.** "RTLD_NEXT", "dlsym RTLD_NEXT", "unopened handle", the exact assertion text, "dlsym RTLD_DEFAULT
+  static", "dynamic linking not enabled dlsym", "dlsym abort", "dlsym assertion", "RTLD_NEXT abort" and "dlsym" turned
+  up only #23302 (a question about interposing libc calls, where the maintainer explains `RTLD_NEXT` is unsupported).
+  Nobody has reported the abort.
+- **Is it worth filing?** It's a crash on an unsupported call, in a configuration (`MAIN_MODULE`) our runtime uses. The
+  GLib cases we hit (socket-listener's mocks, messages-low-memory's `malloc` wrapper) are static links. They get NULL
+  and then call through it, which is the GLib-side bug. Skip this one if a crash in a corner of `MAIN_MODULE` isn't
+  worth a maintainer's time.
+- **GLib side.** GLib's `meson.build` sets `HAVE_RTLD_NEXT` because musl's `dlfcn.h` defines `RTLD_NEXT`. Turning it off
+  for Emscripten in our patch series is a one-line alternative to the per-test guards.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `dynlink.c`, `emscripten_libc_stubs.c` and
+  musl's `dlsym.c` are unchanged between 6.0.9 and `main` (2151200, 139 commits later). `libdylink.js` changed elsewhere
+  (the preload plugin, a `dylink.0` architecture check, `dlopen` callbacks), but `_dlsym_js` and its assertion didn't.
+  The latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main` wasn't rebuilt.
+  Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

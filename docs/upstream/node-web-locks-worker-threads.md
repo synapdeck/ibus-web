@@ -1,23 +1,17 @@
 # Node: Web Locks grant one exclusive lock to two worker_threads at once
 
-**Draft: new issue, for the user to file.** Not posted. We found no existing
-report: on 2026-10-02, `gh search issues --repo nodejs/node` for "web locks",
-"navigator.locks", "LockManager", "locks worker_threads", "locks.request",
-"node_locks", "exclusive lock worker", "lock granted worker_threads", "locks
-race" and "steal lock" (and `gh search prs` for "web locks", "LockManager",
-"locks") turned up only #59142 (a flaky WPT test, closed), #62644 ("locks.request
-live lock", closed) and its fix #65520 ("src: fix live lock between
-environments with blocked requests", merged 2026-09-02, in 26.9.0), which
-changes which environments `ProcessQueue()` wakes, not which requests it
-grants. Rerun the same day, the double grant is still there on Node 26.10.0,
-which has #65520 (table below).
+**Draft: new issue, for the user to file.** Not posted. We found no existing report: on 2026-10-02,
+`gh search issues --repo nodejs/node` for "web locks", "navigator.locks", "LockManager", "locks worker_threads",
+"locks.request", "node_locks", "exclusive lock worker", "lock granted worker_threads", "locks race" and "steal lock"
+(and `gh search prs` for "web locks", "LockManager", "locks") turned up only #59142 (a flaky WPT test, closed), #62644
+("locks.request live lock", closed) and its fix #65520 ("src: fix live lock between environments with blocked requests",
+merged 2026-09-02, in 26.9.0), which changes which environments `ProcessQueue()` wakes, not which requests it grants.
+Rerun the same day, the double grant is still there on Node 26.10.0, which has #65520 (table below).
 
-Node's `navigator.locks` is shared by every thread of a process. When two
-`worker_threads` request the same exclusive lock at the same moment, both
-are sometimes granted it, and each callback runs while the other still holds
-the lock. This happens with `ifAvailable: true` and with ordinary queued
-requests alike. Nothing in ibus-web works around it: Node hosts are only used
-in tests, and tests don't start them concurrently on shared storage.
+Node's `navigator.locks` is shared by every thread of a process. When two `worker_threads` request the same exclusive
+lock at the same moment, both are sometimes granted it, and each callback runs while the other still holds the lock.
+This happens with `ifAvailable: true` and with ordinary queued requests alike. Nothing in ibus-web works around it: Node
+hosts are only used in tests, and tests don't start them concurrently on shared storage.
 
 ## Issue title
 
@@ -35,10 +29,9 @@ Web Locks: an exclusive lock is sometimes granted to two worker_threads at once
 
 ### What steps will reproduce the bug?
 
-Each round starts two Workers. They spin on a shared counter so that both
-request the same lock name at once. Each Worker reports whether its request
-was granted, and a granted Worker holds the lock forever. Exactly one should
-ever be granted.
+Each round starts two Workers. They spin on a shared counter so that both request the same lock name at once. Each
+Worker reports whether its request was granted, and a granted Worker holds the lock forever. Exactly one should ever be
+granted.
 
 `ifavailable.mjs`:
 
@@ -67,8 +60,8 @@ if (isMainThread) {
 }
 ```
 
-`queued.mjs` is the same, except that the Worker's request is queued rather
-than `ifAvailable`. The request that loses gives up after 2 s:
+`queued.mjs` is the same, except that the Worker's request is queued rather than `ifAvailable`. The request that loses
+gives up after 2 s:
 
 ```js
 const c = new AbortController();
@@ -90,8 +83,7 @@ double grants: 8 of 300
 
 ### How often does it reproduce? Is there a required condition?
 
-It reproduces in a few percent of rounds. Each figure is double grants in
-300 rounds, from a separate run:
+It reproduces in a few percent of rounds. Each figure is double grants in 300 rounds, from a separate run:
 
 | Node    | Run                                 | Double grants |
 | ------- | ----------------------------------- | ------------- |
@@ -106,10 +98,9 @@ Both requests have to come from different threads at nearly the same time.
 
 ### What is the expected behavior? Why is that the expected behavior?
 
-`double grants: 0 of 300`. An exclusive lock is held by at most one request
-at a time: Web Locks API, "request a lock" and "lock is grantable", for
-`"exclusive"` mode. Under `ifAvailable` the second request should be granted
-`null`. A queued request should wait until the holder lets go.
+`double grants: 0 of 300`. An exclusive lock is held by at most one request at a time: Web Locks API, "request a lock"
+and "lock is grantable", for `"exclusive"` mode. Under `ifAvailable` the second request should be granted `null`. A
+queued request should wait until the holder lets go.
 
 ### What do you see instead?
 
@@ -117,8 +108,7 @@ Both Workers' callbacks run with a lock, and both hold it at the same time.
 
 ### Additional information
 
-We found it in a test suite where several Worker hosts share a directory and
-use an exclusive Web Lock to decide which one writes. Browsers (Chromium,
-Firefox) never showed it in the same suite.
+We found it in a test suite where several Worker hosts share a directory and use an exclusive Web Lock to decide which
+one writes. Browsers (Chromium, Firefox) never showed it in the same suite.
 
 ---

@@ -1,17 +1,14 @@
 # WasmFS: directory search (execute) permission is never checked
 
-**Posted: don't post again.** Filed as
-[#27829](https://github.com/emscripten-core/emscripten/issues/27829)
-(2026-10-01, no replies yet). The fix (0006) can follow as a PR.
+**Posted: don't post again.** Filed as [#27829](https://github.com/emscripten-core/emscripten/issues/27829) (2026-10-01,
+no replies yet). The fix (0006) can follow as a PR.
 
-Checked against `main` 5977ecc (2026-10-02): path lookup and `chdir()` still
-check no search permission, and 0006 applies there alone with a 2-line
-offset.
+Checked against `main` 5977ecc (2026-10-02): path lookup and `chdir()` still check no search permission, and 0006
+applies there alone with a 2-line offset.
 
-**Draft: new issue.** No existing issue covers it. The closest is #18033 (a file
-can be created in a read-only directory; see the companion draft
-`emscripten-wasmfs-create-permission.md`). There a maintainer noted "the
-permissions checking is a bit spotty overall."
+**Draft: new issue.** No existing issue covers it. The closest is #18033 (a file can be created in a read-only
+directory; see the companion draft `emscripten-wasmfs-create-permission.md`). There a maintainer noted "the permissions
+checking is a bit spotty overall."
 
 ## Issue title
 
@@ -21,10 +18,9 @@ WasmFS: chdir() and path lookup ignore directory search (execute) permission
 
 ---
 
-WasmFS never checks search (execute) permission on directories. `chdir()` into
-a directory without `x` succeeds, and so does any lookup through one (`stat`,
-`open`, …). The JS file system returns `EACCES` for all of these. So does
-WasmFS's own `access(dir, X_OK)`, which disagrees with what `chdir()` then does.
+WasmFS never checks search (execute) permission on directories. `chdir()` into a directory without `x` succeeds, and so
+does any lookup through one (`stat`, `open`, …). The JS file system returns `EACCES` for all of these. So does WasmFS's
+own `access(dir, X_OK)`, which disagrees with what `chdir()` then does.
 
 **Version of emscripten/emsdk:**
 
@@ -36,8 +32,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`search_perm.c`):
 
@@ -98,10 +94,9 @@ access("/d", X_OK)                       Permission denied
 chdir("/d")                              Permission denied
 ```
 
-Both file systems report uid 0. Linux would let root through, but Emscripten
-enforces permission bits regardless (the JS FS here, and WasmFS's own `open`,
-`mkdir`, `unlink` and `access`), ignoring ownership. So this is about WasmFS
-being consistent with itself and with the JS FS.
+Both file systems report uid 0. Linux would let root through, but Emscripten enforces permission bits regardless (the JS
+FS here, and WasmFS's own `open`, `mkdir`, `unlink` and `access`), ignoring ownership. So this is about WasmFS being
+consistent with itself and with the JS FS.
 
 <details>
 <summary>Full compile and link output with <code>-v</code> appended (cache and scratch paths shortened)</summary>
@@ -141,9 +136,8 @@ End of search list.
 - `access()` does check `X_OK`
   ([syscalls.cpp#L1266](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1266)).
 
-**Suggested fix:** check search permission on every directory a lookup passes
-through, including the one the last component is looked up in, and on the
-target of `chdir`/`fchdir`.
+**Suggested fix:** check search permission on every directory a lookup passes through, including the one the last
+component is looked up in, and on the target of `chdir`/`fchdir`.
 
 ```diff
 --- a/system/lib/wasmfs/paths.cpp
@@ -195,45 +189,33 @@ access("/d", X_OK)                       Permission denied
 chdir("/d")                              Permission denied
 ```
 
-Several `test/wasmfs/*.c` programs (`chdir`, `mkdir`, `dup`, `getdents`, `seek`,
-`open_append`, `fdatasync`, `chown`) and `test/unistd/access.c` give the same
-results with and without the patch. We didn't run the full suite.
+Several `test/wasmfs/*.c` programs (`chdir`, `mkdir`, `dup`, `getdents`, `seek`, `open_append`, `fdatasync`, `chown`)
+and `test/unistd/access.c` give the same results with and without the patch. We didn't run the full suite.
 
 ---
 
 ## Evidence
 
-- **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page
-  says user and group permissions "are defined but ignored" and that "the
-  caller is always treated as the owner", which is about which bits apply, not
-  about skipping checks. The test clears every execute bit (mode `0666`), so
-  it doesn't depend on ownership, which WasmFS ignores. Run at `-O0` and
-  `-O2`, with the same result.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out because the fault is in `libwasmfs`. Small
-  enough to send as a PR (with a `test/wasmfs` case) if preferred.
-- **The patch is a sketch.** It runs one more lock-and-check per path component.
-  We haven't checked whether internal callers (preloading, `wasmfs_create_*`,
-  the JS API) resolve paths through directories created without `x`. The full
+- **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page says user and group permissions "are
+  defined but ignored" and that "the caller is always treated as the owner", which is about which bits apply, not about
+  skipping checks. The test clears every execute bit (mode `0666`), so it doesn't depend on ownership, which WasmFS
+  ignores. Run at `-O0` and `-O2`, with the same result.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because
+  the fault is in `libwasmfs`. Small enough to send as a PR (with a `test/wasmfs` case) if preferred.
+- **The patch is a sketch.** It runs one more lock-and-check per path component. We haven't checked whether internal
+  callers (preloading, `wasmfs_create_*`, the JS API) resolve paths through directories created without `x`. The full
   test suite wasn't run; the programs listed in the body were.
-- **Duplicate search.** "wasmfs permission", "wasmfs chdir permission", "wasmfs
-  search permission directory", "WASMFS permissions", "permissions intermediate
-  directories", "execute permission directory", "chdir EACCES", "chdir
-  permission", "directory search permission", "permission traversal", "wasmfs
-  access X_OK" and "EACCES", plus a scan of all open "wasmfs" issues, turned up
-  only #18033 (create in a read-only directory), #14866 (JS FS read/write
-  permission handling) and #26709 (`ftruncate` on a writable fd). None is this
-  bug.
-- **Why it matters to us.** GLib's `/fileutils/stdio-wrappers` (`chdir` into a
-  `0666` directory) fails on WasmFS because of this.
-  `/fileutils/set-contents-full/read-only-directory` (rewriting a file in a
-  mode-0 directory) fails because of this together with the create-permission
-  gap. Both hold in the browser too.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `paths.cpp` (with its TODO) is unchanged between 6.0.9 and `main` (2151200,
-  139 commits later). `syscalls.cpp` changed only in `fdatasync`'s error sign
-  (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a
-  few lines further down. The latest release, 6.0.10 (tagged 2026-09-18),
-  matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build
-  is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Duplicate search.** "wasmfs permission", "wasmfs chdir permission", "wasmfs search permission directory", "WASMFS
+  permissions", "permissions intermediate directories", "execute permission directory", "chdir EACCES", "chdir
+  permission", "directory search permission", "permission traversal", "wasmfs access X_OK" and "EACCES", plus a scan of
+  all open "wasmfs" issues, turned up only #18033 (create in a read-only directory), #14866 (JS FS read/write permission
+  handling) and #26709 (`ftruncate` on a writable fd). None is this bug.
+- **Why it matters to us.** GLib's `/fileutils/stdio-wrappers` (`chdir` into a `0666` directory) fails on WasmFS because
+  of this. `/fileutils/set-contents-full/read-only-directory` (rewriting a file in a mode-0 directory) fails because of
+  this together with the create-permission gap. Both hold in the browser too.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `paths.cpp` (with its TODO) is unchanged
+  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s error sign
+  (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines further down. The latest
+  release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build is
+  nixpkgs' 6.0.9 with LLVM 22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0006-wasmfs-search-permission.patch`.

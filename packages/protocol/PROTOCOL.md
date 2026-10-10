@@ -9,17 +9,22 @@ Protocol version: **1**.
 
 Header fields and GVariant payloads are little-endian.
 
-A request is 8 bytes of header (`kind`, `flags`, `ic`) followed by its payload, the GVariant normal form of a value of its kind's signature. No payload is empty (the empty tuple `()` is one zero byte), so a request of the header alone is malformed and `ibusweb_dispatch` returns -EBADMSG, as it does for a payload that isn't normal form.
+A request is 8 bytes of header (`kind`, `flags`, `ic`) followed by its payload, the GVariant normal form of a value of
+its kind's signature. No payload is empty (the empty tuple `()` is one zero byte), so a request of the header alone is
+malformed and `ibusweb_dispatch` returns -EBADMSG, as it does for a payload that isn't normal form.
 
-A record is 16 bytes of header (`seq`, `ic`, `kind`, `flags`, `len`) followed by `len` bytes of payload in GVariant normal form, zero-padded to a multiple of 8 bytes.
+A record is 16 bytes of header (`seq`, `ic`, `kind`, `flags`, `len`) followed by `len` bytes of payload in GVariant
+normal form, zero-padded to a multiple of 8 bytes.
 
 `Log` and `SettingWritten` records belong to no input context: their `ic` is 0.
 
-The runtime writes record flags as zero. `CONTINUATION` (`0x0001`) is the only flag; only the host sets it, when it fragments a record.
+The runtime writes record flags as zero. `CONTINUATION` (`0x0001`) is the only flag; only the host sets it, when it
+fragments a record.
 
 ## Transport
 
-Shared memory contains a 64-byte control header, a 65536-byte request slot and a 262144-byte ring by default. Slot and ring sizes are multiples of 8; the ring is a power of two from 64 to 2³¹ bytes.
+Shared memory contains a 64-byte control header, a 65536-byte request slot and a 262144-byte ring by default. Slot and
+ring sizes are multiples of 8; the ring is a power of two from 64 to 2³¹ bytes.
 
 | Index | Word          | Written by | Meaning                                                                                                                                                         |
 | ----- | ------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -35,11 +40,24 @@ Shared memory contains a 64-byte control header, a 65536-byte request slot and a
 | 9     | `wake`        | page       | Bumped and notified after requests and freeing space for a waiting host.                                                                                        |
 | 10    | `reqMode`     | both       | SYNC 0, ASYNC 1, ABANDONED 2.                                                                                                                                   |
 
-Ring counters count bytes modulo 2³²; free space is ringBytes minus the unsigned difference of ringWrite and ringRead. Bytes are published before ringWrite advances. Records have a 16-byte header and zero padding to multiples of 8 and never wrap. A tail shorter than 16 bytes is skipped; otherwise a padding record fills an unusable tail (kind, seq, ic and flags zero; len equals tail bytes minus 16). Kind 0 is reserved in both directions.
+Ring counters count bytes modulo 2³²; free space is ringBytes minus the unsigned difference of ringWrite and ringRead.
+Bytes are published before ringWrite advances. Records have a 16-byte header and zero padding to multiples of 8 and
+never wrap. A tail shorter than 16 bytes is skipped; otherwise a padding record fills an unusable tail (kind, seq, ic
+and flags zero; len equals tail bytes minus 16). Kind 0 is reserved in both directions.
 
-When a record exceeds the free space, the writer emits the largest fragment that fits in it. Every fragment but the last carries CONTINUATION and at least 8 payload bytes, a multiple of 8; the last carries flags zero and the rest of the payload, which may be shorter. The writer never shortens a fragment to fit before the ring's end: it pads to the end and writes the fragment at the start. All fragments share seq, ic and kind and remain consecutive, apart from padding. The reader concatenates payloads and returns one framed record with flags zero. On full, resume with the same immutable record; needBytes is the least free space with which the next write publishes a fragment, counting any padding or skip before the ring's end. After consuming bytes the reader clears ringWaiting and bumps and notifies wake if a writer was waiting. A writer waiting for space sets ringWaiting to 1, samples wake and re-checks: it waits only while space is still short and ringWaiting is still 1; a read between setting ringWaiting and sampling wake clears it and spends its wake before the sample, so a cleared ringWaiting means starting over.
+When a record exceeds the free space, the writer emits the largest fragment that fits in it. Every fragment but the last
+carries CONTINUATION and at least 8 payload bytes, a multiple of 8; the last carries flags zero and the rest of the
+payload, which may be shorter. The writer never shortens a fragment to fit before the ring's end: it pads to the end and
+writes the fragment at the start. All fragments share seq, ic and kind and remain consecutive, apart from padding. The
+reader concatenates payloads and returns one framed record with flags zero. On full, resume with the same immutable
+record; needBytes is the least free space with which the next write publishes a fragment, counting any padding or skip
+before the ring's end. After consuming bytes the reader clears ringWaiting and bumps and notifies wake if a writer was
+waiting. A writer waiting for space sets ringWaiting to 1, samples wake and re-checks: it waits only while space is
+still short and ringWaiting is still 1; a read between setting ringWaiting and sampling wake clears it and spends its
+wake before the sample, so a cleared ringWaiting means starting over.
 
-Host records use seq and ic zero and do not advance replyOutSeq. Runtime sequences skip zero on wrap. The control state is authoritative for crashes; Crashed is a best-effort host record.
+Host records use seq and ic zero and do not advance replyOutSeq. Runtime sequences skip zero on wrap. The control state
+is authoritative for crashes; Crashed is a best-effort host record.
 
 ## Request header
 
@@ -109,7 +127,8 @@ Kind: **16**. Signature: `(uuu)`.
 
 Process a key event and reply whether the engine handled it.
 
-Reply: `ibusweb_dispatch` returns 1 if the engine handled the key and 0 if not; the reply is that return value, not a GVariant payload.
+Reply: `ibusweb_dispatch` returns 1 if the engine handled the key and 0 if not; the reply is that return value, not a
+GVariant payload.
 
 | Name      | GVariant type | Description                    |
 | --------- | ------------- | ------------------------------ |
@@ -467,7 +486,8 @@ Explain a CreateEngine that the engine failed: written on the request's input co
 
 ## IBus types
 
-Serializable tuples begin with their type name and attachments. Nested serializables occupy GVariant variant (`v`) slots.
+Serializable tuples begin with their type name and attachments. Nested serializables occupy GVariant variant (`v`)
+slots.
 
 ### IBusAttribute
 

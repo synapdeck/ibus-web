@@ -3,34 +3,27 @@
 
 # IBus source inventory
 
-Imported from IBus 1.5.34, released at
-<https://github.com/ibus/ibus/archive/refs/tags/1.5.34.tar.gz>.
-The locked nixpkgs fetcher's unpacked-source hash is
-`sha256-MCxzMnG+g2FC4pZtDOP2c7vSRG5Zk6EfrkGnEyFvBfQ=`.
-Upstream files were committed unchanged before adaptation. Paths below are
-relative to `runtime/libibus-web`; generated build outputs are not vendored.
+Imported from IBus 1.5.34, released at <https://github.com/ibus/ibus/archive/refs/tags/1.5.34.tar.gz>. The locked
+nixpkgs fetcher's unpacked-source hash is `sha256-MCxzMnG+g2FC4pZtDOP2c7vSRG5Zk6EfrkGnEyFvBfQ=`. Upstream files were
+committed unchanged before adaptation. Paths below are relative to `runtime/libibus-web`; generated build outputs are
+not vendored.
 
-Callback changes preserve layouts and serialization. Explicit callbacks use
-the base class's actual function type and convert object pointers inside the
-function. The hand-written serializable GType initializers take both arguments
-GLib passes. The cast-audit allow-list documents the GLib-generated
-adapters whose pointer parameters have identical WASM signatures.
+Callback changes preserve layouts and serialization. Explicit callbacks use the base class's actual function type and
+convert object pointers inside the function. The hand-written serializable GType initializers take both arguments GLib
+passes. The cast-audit allow-list documents the GLib-generated adapters whose pointer parameters have identical WASM
+signatures.
 
-Meson generates enums and marshallers with the cross GLib tools. Its explicit
-IBus identifier and symbol prefixes replace upstream's post-generation sed
-renaming. The generated marshallers use their callback-specific typedefs.
+Meson generates enums and marshallers with the cross GLib tools. Its explicit IBus identifier and symbol prefixes
+replace upstream's post-generation sed renaming. The generated marshallers use their callback-specific typedefs.
 
-Files marked ours are reimplementations written for the runtime, not
-adaptations: some share a name with an upstream file, but diffing them
-against it shows nothing useful. `checks.libibus-web-vendored` holds the rest
-to this table: files marked unchanged must be byte-identical to the IBus
-source the build uses, adapted ones must differ from theirs, the generated
-version header must be what upstream's template gives for the release above,
-and that release and hash must be the build's IBus source's.
+Files marked ours are reimplementations written for the runtime, not adaptations: some share a name with an upstream
+file, but diffing them against it shows nothing useful. `checks.libibus-web-vendored` holds the rest to this table:
+files marked unchanged must be byte-identical to the IBus source the build uses, adapted ones must differ from theirs,
+the generated version header must be what upstream's template gives for the release above, and that release and hash
+must be the build's IBus source's.
 
-To review the adaptations against an unpacked release, set `IBUS_SOURCE` to
-its directory and run this from the repository root. A diff exit status of 1
-means that an adapted file differs.
+To review the adaptations against an unpacked release, set `IBUS_SOURCE` to its directory and run this from the
+repository root. A diff exit status of 1 means that an adapted file differs.
 
 ```sh
 cd runtime/libibus-web

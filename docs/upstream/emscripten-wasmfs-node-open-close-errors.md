@@ -1,38 +1,33 @@
 # WasmFS Node backend: a failed host `open` becomes a file descriptor; `close` errors trip an assertion
 
-**Posted: don't post again.** Filed as
-[#27825](https://github.com/emscripten-core/emscripten/issues/27825)
-(2026-10-01, no replies yet). A related report filed the same day,
-[#27847](https://github.com/emscripten-core/emscripten/issues/27847) ("Node
-backend can't open a write-only (0200) file for writing"), cites it; no
-draft here covers that one, and no patch fixes it. The fix (0010) can
-follow as a PR; the create-`EIO` (0012) and chmod (0013) fixes build on it.
+**Posted: don't post again.** Filed as [#27825](https://github.com/emscripten-core/emscripten/issues/27825) (2026-10-01,
+no replies yet). A related report filed the same day,
+[#27847](https://github.com/emscripten-core/emscripten/issues/27847) ("Node backend can't open a write-only (0200) file
+for writing"), cites it; no draft here covers that one, and no patch fixes it. The fix (0010) can follow as a PR; the
+create-`EIO` (0012) and chmod (0013) fixes build on it.
 
-Checked against `main` 5977ecc (2026-10-02): `NodeState::open` and
-`NodeState::close` are unchanged since 6.0.9, and 0010 applies there alone
-with offsets only.
+Checked against `main` 5977ecc (2026-10-02): `NodeState::open` and `NodeState::close` are unchanged since 6.0.9, and
+0010 applies there alone with offsets only.
 
-**Draft: new issue.** No existing issue covers it. #26598 (merged) fixed the
-same sign mix-up for `insertMove`.
+**Draft: new issue.** No existing issue covers it. #26598 (merged) fixed the same sign mix-up for `insertMove`.
 
 ## Issue title
 
-WasmFS Node backend: host open() errors are used as file descriptors, and close() errors are returned with the wrong sign
+WasmFS Node backend: host open() errors are used as file descriptors, and close() errors are returned with the wrong
+sign
 
 ## Issue body
 
 ---
 
-The Node backend's JS helpers report errors as **positive** errno values
-(`wasmfsTry`). Two callers in `node_backend.cpp` expect something else:
+The Node backend's JS helpers report errors as **positive** errno values (`wasmfsTry`). Two callers in
+`node_backend.cpp` expect something else:
 
-1. `NodeState::open` treats any non-negative result of `_wasmfs_node_open` as a
-   host file descriptor. A failed host open returns the errno, which is
-   positive, so it is taken for a descriptor and `open()` succeeds. `EACCES`
-   (2) becomes fd 2, Node's stderr. `ENOENT` (44) becomes fd 44, usually
-   unopened.
-2. `NodeState::close` returns `_wasmfs_node_close`'s positive errno as is.
-   `__wasi_fd_close` negates it and asserts the result is `>= 0`.
+1. `NodeState::open` treats any non-negative result of `_wasmfs_node_open` as a host file descriptor. A failed host open
+   returns the errno, which is positive, so it is taken for a descriptor and `open()` succeeds. `EACCES` (2) becomes fd
+   2, Node's stderr. `ENOENT` (44) becomes fd 44, usually unopened.
+2. `NodeState::close` returns `_wasmfs_node_close`'s positive errno as is. `__wasi_fd_close` negates it and asserts the
+   result is `>= 0`.
 
 **Version of emscripten/emsdk:**
 
@@ -44,11 +39,10 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
-**Test case 1** (`node_open_error.c`): opening a root-owned, mode-0644 file for
-writing, as a normal user:
+**Test case 1** (`node_open_error.c`): opening a root-owned, mode-0644 file for writing, as a normal user:
 
 ```c
 #include <emscripten/wasmfs.h>
@@ -91,15 +85,14 @@ close = 0 (no error)
 written to /etc/passwd?
 ```
 
-The host's `EACCES` (2) is taken for fd 2. `open()` succeeds, the write lands
-on stderr, and `close()` closes Node's own stderr. Expected:
-`open("/etc/passwd", O_WRONLY) = -1 (Permission denied)`.
+The host's `EACCES` (2) is taken for fd 2. `open()` succeeds, the write lands on stderr, and `close()` closes Node's own
+stderr. Expected: `open("/etc/passwd", O_WRONLY) = -1 (Permission denied)`.
 
-WasmFS's own permission check passes here: it accepts any write bit (`0222`) and
-ignores ownership. The host refuses because the caller doesn't own the file.
+WasmFS's own permission check passes here: it accepts any write bit (`0222`) and ignores ownership. The host refuses
+because the caller doesn't own the file.
 
-**Test case 2** (`node_close_errno.c`): a host `open` that fails with `ENOENT`.
-The easiest way to get one is the stale path a `rename` leaves behind (#NNNN):
+**Test case 2** (`node_close_errno.c`): a host `open` that fails with `ENOENT`. The easiest way to get one is the stale
+path a `rename` leaves behind (#NNNN):
 
 ```c
 #include <emscripten/wasmfs.h>
@@ -156,9 +149,8 @@ Node.js v24.20.0
 [exit status 1]
 ```
 
-At `-O2` the assertion is compiled out. `__wasi_fd_close` then returns -8 as a
-`uint16_t` `__wasi_errno_t`, so `close()` fails with errno 65528, which prints
-as "Unknown error":
+At `-O2` the assertion is compiled out. `__wasi_fd_close` then returns -8 as a `uint16_t` `__wasi_errno_t`, so `close()`
+fails with errno 65528, which prints as "Unknown error":
 
 ```
 $ emcc -O2 -sWASMFS node_close_errno.c -o node_close_errno.js && mkdir host && node node_close_errno.js "$PWD/host"
@@ -210,22 +202,17 @@ End of search list.
 - `__wasi_fd_close` asserts on it
   ([syscalls.cpp#L304-L305](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L304-L305)).
 
-**Suggested fix:** an fd and an errno can't share the positive range, so
-`_wasmfs_node_open` returns a negated errno. `close` negates its helper's
-result like the other callers do.
+**Suggested fix:** an fd and an errno can't share the positive range, so `_wasmfs_node_open` returns a negated errno.
+`close` negates its helper's result like the other callers do.
 
-Reporting a failed `open` uncovers a second bug that the bogus descriptor
-hid. `insertDataFile` creates the file with `'ax'` and closes it, then the
-`open()` that follows reopens it by path, where the new file's own mode can
-refuse it: `open(path, O_CREAT | O_RDONLY, 0)` gets `EACCES`, though POSIX
-lets the creating open through whatever the mode. Fixed alone, the sign
-change makes `wasmfs.test_fcntl_open_nodefs`, `wasmfs.test_fcntl_open_rawfs`
-and `other.test_wasmfs_getdents_node` fail on that. So the file is created
-with `'wx+'`, read-write, and that descriptor is kept for the first open.
-`mknod()` creates a file without opening it, so `doOpen` opens and closes
-a file it created when it returns no descriptor, which lets the kept one
-go (a no-op for backends that keep nothing). That also drops `'a'`, which
-would make every `pwrite` to the descriptor append on Linux.
+Reporting a failed `open` uncovers a second bug that the bogus descriptor hid. `insertDataFile` creates the file with
+`'ax'` and closes it, then the `open()` that follows reopens it by path, where the new file's own mode can refuse it:
+`open(path, O_CREAT | O_RDONLY, 0)` gets `EACCES`, though POSIX lets the creating open through whatever the mode. Fixed
+alone, the sign change makes `wasmfs.test_fcntl_open_nodefs`, `wasmfs.test_fcntl_open_rawfs` and
+`other.test_wasmfs_getdents_node` fail on that. So the file is created with `'wx+'`, read-write, and that descriptor is
+kept for the first open. `mknod()` creates a file without opening it, so `doOpen` opens and closes a file it created
+when it returns no descriptor, which lets the kept one go (a no-op for backends that keep nothing). That also drops
+`'a'`, which would make every `pwrite` to the descriptor append on Linux.
 
 ```diff
 --- a/src/lib/libwasmfs_node.js
@@ -388,53 +375,41 @@ open("/etc/passwd", O_WRONLY) = -1 (Permission denied)
 --- stderr:
 ```
 
-The header comment on `_wasmfs_node_open` in `node_backend.h` ("Open the file
-and return the underlying file descriptor") could say so too.
+The header comment on `_wasmfs_node_open` in `node_backend.h` ("Open the file and return the underlying file
+descriptor") could say so too.
 
 ---
 
 ## Evidence
 
-- **Fill in #NNNN.** It is the issue number of
-  `emscripten-wasmfs-node-rename.md` once that's posted. Or reword "(#NNNN)" to
-  "(reported separately)".
-- **Test case 1 needs a non-root user** and a root-owned, mode-0644
-  `/etc/passwd`, which is true on ordinary Linux systems. It doesn't write to
-  `/etc/passwd`: the write goes to stderr, which is the bug. It does close the
-  Node process's real fd 2, which is harmless at the end of the program.
-- **The `close` half wasn't exercised.** The fixed tree also has the `rename`
-  fix, so test case 2's `open` reaches the right host file and succeeds. The
-  fixed run printed open = 3, read = 0, close = 0. With no host
-  error, `close` never sees one. The `close` change is by inspection: every
-  other helper caller negates.
-- **How the fix was tested.** The "with this applied" run used a 6.0.9 tree
-  with all of this set's candidate fixes applied at once. With the
-  creation change, the three tests above pass again, and a 96-test WasmFS
-  selection (stat, chmod, utime, access, links, `fcntl_open`, readdir,
-  `unistd_*`, `other.test_wasmfs_*`, ...) gives results identical to
+- **Fill in #NNNN.** It is the issue number of `emscripten-wasmfs-node-rename.md` once that's posted. Or reword
+  "(#NNNN)" to "(reported separately)".
+- **Test case 1 needs a non-root user** and a root-owned, mode-0644 `/etc/passwd`, which is true on ordinary Linux
+  systems. It doesn't write to `/etc/passwd`: the write goes to stderr, which is the bug. It does close the Node
+  process's real fd 2, which is harmless at the end of the program.
+- **The `close` half wasn't exercised.** The fixed tree also has the `rename` fix, so test case 2's `open` reaches the
+  right host file and succeeds. The fixed run printed open = 3, read = 0, close = 0. With no host error, `close` never
+  sees one. The `close` change is by inspection: every other helper caller negates.
+- **How the fix was tested.** The "with this applied" run used a 6.0.9 tree with all of this set's candidate fixes
+  applied at once. With the creation change, the three tests above pass again, and a 96-test WasmFS selection (stat,
+  chmod, utime, access, links, `fcntl_open`, readdir, `unistd_*`, `other.test_wasmfs_*`, ...) gives results identical to
   unpatched 6.0.9.
-- **Latent, not fixed here:** `NodeState::open` maps `O_WRONLY` to `"r+"` (the
-  TODO says so), so a write-only file (mode `0200`) can't be opened for
-  writing once it exists. A fix would pass numeric flags to `fs.openSync`.
-- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`: the open
-  mix-up shows the same at both, and the `close` assertion shows only at `-O0`.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out because the fault is in `libwasmfs`. A natural
-  small PR, in the same spirit as #26598.
-- **Duplicate search.** "wasmfs node fd_close assertion", "__wasi_fd_close
-  assertion", "ret >= 0 fd_close", "insertMove", "node_backend.cpp" and
-  "wasmfs node backend", plus a scan of all open "wasmfs" issues, turned up
-  #26598 (merged: the same sign fix for `insertMove`, open/close untouched),
-  #23618 ("WASMFS + NODERAWFS fails a bunch of test", closed) and #24830/#19417
-  (WasmFS NODERAWFS design). None reports this.
-- **Why it matters to us.** Every GLib test failure we traced to the
-  `fd_close` assertion reaches it this way, after a `rename`.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `node_backend.cpp`, `node_backend.h` and `libwasmfs_node.js` are unchanged
-  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed
-  only in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp
-  rounding; the cited code is unchanged, a few lines further down. The only sign
-  fix since 6.0.9 is #27806, for `fdatasync`. The latest release, 6.0.10 (tagged
-  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
-  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Latent, not fixed here:** `NodeState::open` maps `O_WRONLY` to `"r+"` (the TODO says so), so a write-only file (mode
+  `0200`) can't be opened for writing once it exists. A fix would pass numeric flags to `fs.openSync`.
+- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`: the open mix-up shows the same at both, and the `close`
+  assertion shows only at `-O0`.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because
+  the fault is in `libwasmfs`. A natural small PR, in the same spirit as #26598.
+- **Duplicate search.** "wasmfs node fd_close assertion", "__wasi_fd_close assertion", "ret >= 0 fd_close",
+  "insertMove", "node_backend.cpp" and "wasmfs node backend", plus a scan of all open "wasmfs" issues, turned up #26598
+  (merged: the same sign fix for `insertMove`, open/close untouched), #23618 ("WASMFS + NODERAWFS fails a bunch of
+  test", closed) and #24830/#19417 (WasmFS NODERAWFS design). None reports this.
+- **Why it matters to us.** Every GLib test failure we traced to the `fd_close` assertion reaches it this way, after a
+  `rename`.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `node_backend.cpp`, `node_backend.h` and
+  `libwasmfs_node.js` are unchanged between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only
+  in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines
+  further down. The only sign fix since 6.0.9 is #27806, for `fdatasync`. The latest release, 6.0.10 (tagged
+  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM
+  22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0010-wasmfs-node-open-close-errors.patch`.

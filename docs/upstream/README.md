@@ -1,25 +1,21 @@
 # Upstream reports
 
-Draft reports for the projects ibus-web depends on: Emscripten, V8 and
-Node. Each Emscripten draft backs a patch the toolchain carries in
-`modules/emscripten/patches/` (its README says which), or explains why none
-is carried. A draft keeps its title and body as they would be posted, the
-evidence behind them under "Evidence", and a status block at the
-top: what has been posted where, and the last check against Emscripten's
-`main`. Once an issue is filed, its number goes into the matching patch's
-header.
+Draft reports for the projects ibus-web depends on: Emscripten, V8 and Node. Each Emscripten draft backs a patch the
+toolchain carries in `modules/emscripten/patches/` (its README says which), or explains why none is carried. A draft
+keeps its title and body as they would be posted, the evidence behind them under "Evidence", and a status block at the
+top: what has been posted where, and the last check against Emscripten's `main`. Once an issue is filed, its number goes
+into the matching patch's header.
 
-Last checked 2026-10-02, against Emscripten `main` 5977ecc (6.0.12-git;
-6.0.11 is a0014542110d, marked released that day). The suite-format tests
-ran with Emscripten's runner on `main`, using emsdk's toolchain for it
-(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133)
-and Node 24.21.0. The toolchain's own LLVM 22.1.8 can't build `main`'s libc,
-or 6.0.10's: `__builtin_wasm_memory_fill` (#27631) is unknown to clang 22
-and 23.1.0.
+Last checked 2026-10-02, against Emscripten `main` 5977ecc (6.0.12-git; 6.0.11 is a0014542110d, marked released that
+day). The suite-format tests ran with Emscripten's runner on `main`, using emsdk's toolchain for it
+(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133) and Node 24.21.0. The toolchain's own LLVM
+22.1.8 can't build `main`'s libc, or 6.0.10's: `__builtin_wasm_memory_fill` (#27631) is unknown to clang 22 and 23.1.0.
 
 ## Status
 
-The not-yet-posted drafts come first, in the order to post them. Fixes for filed issues go up as PRs once a maintainer has answered, each one a patch here rebased onto `main`; 0017 and 0019 (the symlink and lookup issues) build on 0012, and 0012 on 0010.
+The not-yet-posted drafts come first, in the order to post them. Fixes for filed issues go up as PRs once a maintainer
+has answered, each one a patch here rebased onto `main`; 0017 and 0019 (the symlink and lookup issues) build on 0012,
+and 0012 on 0010.
 
 | Draft                                         | Status                                                                                                                                                                                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

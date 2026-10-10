@@ -1,35 +1,30 @@
 # WasmFS Node backend: a renamed file or directory keeps its old host path
 
-**Posted: don't post again.** Filed as
-[#27824](https://github.com/emscripten-core/emscripten/issues/27824)
+**Posted: don't post again.** Filed as [#27824](https://github.com/emscripten-core/emscripten/issues/27824)
 (2026-10-01), with the fix (0011, directories included) and a test as PR
-[#27849](https://github.com/emscripten-core/emscripten/pull/27849) ("[WasmFS]
-Update host paths of renamed files in the Node backend", open, no review
-yet). #27849 explains how its locks sit with
-[#27685](https://github.com/emscripten-core/emscripten/pull/27685) (someone
-else's open fix for a lock-order deadlock in `renameat`, #27684): neither
-depends on the other.
+[#27849](https://github.com/emscripten-core/emscripten/pull/27849) ("[WasmFS] Update host paths of renamed files in the
+Node backend", open, no review yet). #27849 explains how its locks sit with
+[#27685](https://github.com/emscripten-core/emscripten/pull/27685) (someone else's open fix for a lock-order deadlock in
+`renameat`, #27684): neither depends on the other.
 
-Checked against `main` 5977ecc (2026-10-02): the Node backend and
-`renameat` are unchanged since 6.0.9 (#27685 isn't merged), and 0011
-applies there alone with offsets only.
+Checked against `main` 5977ecc (2026-10-02): the Node backend and `renameat` are unchanged since 6.0.9 (#27685 isn't
+merged), and 0011 applies there alone with offsets only.
 
 **Draft: new issue.** No existing issue covers it.
 
 ## Issue title
 
-WasmFS Node backend: after rename(), a file (or anything already looked up under a renamed directory) still refers to its old host path
+WasmFS Node backend: after rename(), a file (or anything already looked up under a renamed directory) still refers to
+its old host path
 
 ## Issue body
 
 ---
 
-After `rename("/host/a", "/host/b")` on a `wasmfs_create_node_backend()`
-directory, the host file is renamed, but WasmFS's `File` object for it still
-holds the host path `…/a`. Every later open of `/host/b` opens the host's `…/a`.
-If nothing is at `…/a`, the open fails on the host (which then surfaces
-confusingly, see below). If something new has been created at `…/a`, reads and
-writes through `/host/b` silently go to that other file.
+After `rename("/host/a", "/host/b")` on a `wasmfs_create_node_backend()` directory, the host file is renamed, but
+WasmFS's `File` object for it still holds the host path `…/a`. Every later open of `/host/b` opens the host's `…/a`. If
+nothing is at `…/a`, the open fails on the host (which then surfaces confusingly, see below). If something new has been
+created at `…/a`, reads and writes through `/host/b` silently go to that other file.
 
 **Version of emscripten/emsdk:**
 
@@ -41,8 +36,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`node_rename.c`; `argv[1]` is an existing host directory):
 
@@ -91,8 +86,7 @@ contents of a
 
 Expected `read("/host/b") = 14: contents of a`.
 
-Renaming a directory leaves its already-looked-up children pointing at the old
-directory too (`node_rename_dir.c`):
+Renaming a directory leaves its already-looked-up children pointing at the old directory too (`node_rename_dir.c`):
 
 ```c
 #include <emscripten/wasmfs.h>
@@ -157,20 +151,17 @@ End of search list.
 
 **Where:**
 
-- `NodeDirectory::insertMove` renames on the host but never updates the moved
-  file's `state.path`
+- `NodeDirectory::insertMove` renames on the host but never updates the moved file's `state.path`
   ([node_backend.cpp#L247-L260](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L247-L260)).
 - `NodeState::open` then opens that stale path
   ([node_backend.cpp#L39-L88](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L39-L88)).
-- Node directories don't maintain file identity, so the moved `File` stays in
-  the new parent's dcache, path and all.
-- A directory's cached children each carry a full host path built from the
-  directory's old path, and so do theirs, all the way down.
+- Node directories don't maintain file identity, so the moved `File` stays in the new parent's dcache, path and all.
+- A directory's cached children each carry a full host path built from the directory's old path, and so do theirs, all
+  the way down.
 - Moving a symlink takes the `else` branch and casts it to `NodeDirectory`.
 
-**Suggested fix:** rewrite the cached host path of the moved file and of
-every file the backend has already loaded below it, with all of them locked
-across the host's rename.
+**Suggested fix:** rewrite the cached host path of the moved file and of every file the backend has already loaded below
+it, with all of them locked across the host's rename.
 
 ```diff
 --- a/system/lib/wasmfs/backends/node_backend.cpp
@@ -269,38 +260,27 @@ across the host's rename.
 
 Why this shape:
 
-- **Rewriting rather than deriving.** The other way to fix it is to stop
-  caching absolute host paths and build each one from the parent chain when
-  it's needed. But an operation on a file runs with the file locked, and
-  reading its parent and its name in the parent's dcache would then lock
-  the parent too: child before parent, the order #27684 shows deadlocking
-  against path lookups. It would also deadlock against `rename()` itself,
-  which holds both parents and then locks the moved file. Rewriting touches
-  only `insertMove`, and only a rename pays for it.
-- **Mount points.** A mount point inside a Node directory reaches
-  `insertMove` too, as a file of another backend; casting it to a Node type
-  would write through the wrong object. It fails with `EBUSY`, Linux's
-  answer for renaming a mount point (6.0.9 asks the host to rename a path
-  that doesn't exist and gets `ENOENT`, after a cast that is undefined
+- **Rewriting rather than deriving.** The other way to fix it is to stop caching absolute host paths and build each one
+  from the parent chain when it's needed. But an operation on a file runs with the file locked, and reading its parent
+  and its name in the parent's dcache would then lock the parent too: child before parent, the order #27684 shows
+  deadlocking against path lookups. It would also deadlock against `rename()` itself, which holds both parents and then
+  locks the moved file. Rewriting touches only `insertMove`, and only a rename pays for it.
+- **Mount points.** A mount point inside a Node directory reaches `insertMove` too, as a file of another backend;
+  casting it to a Node type would write through the wrong object. It fails with `EBUSY`, Linux's answer for renaming a
+  mount point (6.0.9 asks the host to rename a path that doesn't exist and gets `ENOENT`, after a cast that is undefined
   behaviour).
-- **The walk.** Node directories don't maintain file identity, so every
-  file the backend has handed out that is still linked is in its parent's
-  dcache. `Directory`'s dcache is private, so the patch adds a protected
-  `getLoadedChildren()` for backends. Mount points are skipped: they belong
-  to other backends and carry their own paths.
-- **Locking.** `lockLoaded` locks the moved file and then each loaded file
-  below it, each before its children: the order path lookups use (and the
-  order #27685 moves `renameat` to). `renameat` already holds both parents
-  and serializes renames. Holding the locks across the host's `rename`
-  means an operation already running on one of those files finishes with
-  the old path, and one that starts afterwards sees the new one. Rewriting
-  the paths after the host's rename, each under its own lock, isn't enough:
-  in the racing part of the test below, 876 of the reader's lookups failed
-  with `ENOENT` in one run.
+- **The walk.** Node directories don't maintain file identity, so every file the backend has handed out that is still
+  linked is in its parent's dcache. `Directory`'s dcache is private, so the patch adds a protected `getLoadedChildren()`
+  for backends. Mount points are skipped: they belong to other backends and carry their own paths.
+- **Locking.** `lockLoaded` locks the moved file and then each loaded file below it, each before its children: the order
+  path lookups use (and the order #27685 moves `renameat` to). `renameat` already holds both parents and serializes
+  renames. Holding the locks across the host's `rename` means an operation already running on one of those files
+  finishes with the old path, and one that starts afterwards sees the new one. Rewriting the paths after the host's
+  rename, each under its own lock, isn't enough: in the racing part of the test below, 876 of the reader's lookups
+  failed with `ENOENT` in one run.
 
-With this applied to 6.0.9 (together with the `fsync` fix and the
-`open`/`close` fix reported separately, which the third test uses), the
-first test case prints:
+With this applied to 6.0.9 (together with the `fsync` fix and the `open`/`close` fix reported separately, which the
+third test uses), the first test case prints:
 
 ```
 rename("/host/a", "/host/b") = 0
@@ -314,12 +294,10 @@ rename dir = 0
 read("/host/e/f") = 5 (ok) in f
 ```
 
-and this test (`node_rename_tree.c`), which renames a directory holding open
-and closed files, a symlink, subdirectories and the working directory, then
-reads, writes and stats through the old descriptors and through fresh
-opens, checks with Node's own `fs` that the old names are gone, does nested
-and cross-directory renames, and finally renames a directory back and forth
-2000 times while another thread opens a file relative to it:
+and this test (`node_rename_tree.c`), which renames a directory holding open and closed files, a symlink, subdirectories
+and the working directory, then reads, writes and stats through the old descriptors and through fresh opens, checks with
+Node's own `fs` that the old names are gone, does nested and cross-directory renames, and finally renames a directory
+back and forth 2000 times while another thread opens a file relative to it:
 
 <details>
 <summary><code>node_rename_tree.c</code></summary>
@@ -517,55 +495,39 @@ racing renames: 2000, reader failures: 0
 PASSED (0 failures)
 ```
 
-The same at `-O2`, and 20 runs of each passed. With only the moved file's
-own path updated, it fails 54 checks after the first directory rename and
-the reader fails 1418 lookups.
+The same at `-O2`, and 20 runs of each passed. With only the moved file's own path updated, it fails 54 checks after the
+first directory rename and the reader fails 1418 lookups.
 
-**Related symptom:** when the stale path doesn't exist, the failed host `open`
-isn't reported as a failure. `open()` returns a descriptor, `read()` then fails
-with `EBADF`, and `close()` trips `assert(ret >= 0)` in `__wasi_fd_close`. That
-is a separate bug in how the backend handles host errors, reported in #NNNN.
+**Related symptom:** when the stale path doesn't exist, the failed host `open` isn't reported as a failure. `open()`
+returns a descriptor, `read()` then fails with `EBADF`, and `close()` trips `assert(ret >= 0)` in `__wasi_fd_close`.
+That is a separate bug in how the backend handles host errors, reported in #NNNN.
 
 ---
 
 ## Evidence
 
-- **Fill in #NNNN.** It is the issue number of
-  `emscripten-wasmfs-node-open-close-errors.md` once that's posted. Or drop the
-  paragraph if you post this one first.
-- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same
-  result.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix,
-  for files and directories, are included. Bitcode is left out because the
-  fault is in `libwasmfs`. A PR would want `node_rename_tree.c` as a
-  `test/wasmfs` case.
-- **The fix was tested** on a 6.0.9 tree with all of our carried fixes, at
-  `-O0` and `-O2`, 20 runs each, and is part of the toolchain whose GLib
-  test suite runs on it. The racing part distinguishes the locking: the
-  unlocked rewrite failed 876 lookups in one run, the files-only fix 1418.
-- **#27684/#27685.** The lock-order deadlock in `renameat`'s ancestor walk
-  is separate and pre-existing; the fix here locks only downward from the
-  moved file, so it neither needs nor conflicts with #27685.
+- **Fill in #NNNN.** It is the issue number of `emscripten-wasmfs-node-open-close-errors.md` once that's posted. Or drop
+  the paragraph if you post this one first.
+- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same result.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix, for files and directories, are included.
+  Bitcode is left out because the fault is in `libwasmfs`. A PR would want `node_rename_tree.c` as a `test/wasmfs` case.
+- **The fix was tested** on a 6.0.9 tree with all of our carried fixes, at `-O0` and `-O2`, 20 runs each, and is part of
+  the toolchain whose GLib test suite runs on it. The racing part distinguishes the locking: the unlocked rewrite failed
+  876 lookups in one run, the files-only fix 1418.
+- **#27684/#27685.** The lock-order deadlock in `renameat`'s ancestor walk is separate and pre-existing; the fix here
+  locks only downward from the moved file, so it neither needs nor conflicts with #27685.
 - ibus-web carries this fix as `modules/emscripten/patches/0011-wasmfs-node-rename.patch`.
-- **Duplicate search.** "wasmfs node backend rename", "wasmfs rename node",
-  "wasmfs rename", "insertMove", "wasmfs node backend" and "node_backend.cpp",
-  plus a scan of all open "wasmfs" issues, turned up:
-  - #26598 (merged), which fixed the sign of `insertMove`'s return value but
-    not the path.
+- **Duplicate search.** "wasmfs node backend rename", "wasmfs rename node", "wasmfs rename", "insertMove", "wasmfs node
+  backend" and "node_backend.cpp", plus a scan of all open "wasmfs" issues, turned up:
+  - #26598 (merged), which fixed the sign of `insertMove`'s return value but not the path.
   - #24162 and #27684/#27685, which are about OPFS and lock-order rename bugs.
-  - #15943 (closed, rename cycles).
-    None is this bug.
-- **Why it matters to us.** GLib's `g_file_set_contents()` writes a temporary
-  file and renames it over the target. Under Node with host temp files,
-  `bookmarkfile`, `keyfile`, `mappedfile`, `sandbox` and
-  `async-splice-output-stream` hit it (through the `fd_close` assertion), and
-  so did the GLib smoke test. The tests kept `TMPDIR` in memory to avoid it;
+  - #15943 (closed, rename cycles). None is this bug.
+- **Why it matters to us.** GLib's `g_file_set_contents()` writes a temporary file and renames it over the target. Under
+  Node with host temp files, `bookmarkfile`, `keyfile`, `mappedfile`, `sandbox` and `async-splice-output-stream` hit it
+  (through the `fd_close` assertion), and so did the GLib smoke test. The tests kept `TMPDIR` in memory to avoid it;
   with this fix and the other Node backend ones, they use a host `TMPDIR`.
-- **Caveat maintainers may raise.** #19417 notes that WasmFS assumes it has
-  complete control over the file system. The reproduction changes files only
-  through WasmFS, so it doesn't depend on outside changes.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `node_backend.cpp` and `libwasmfs_node.js` are unchanged between 6.0.9 and
-  `main` (2151200, 139 commits later). The latest release, 6.0.10 (tagged
-  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
-  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Caveat maintainers may raise.** #19417 notes that WasmFS assumes it has complete control over the file system. The
+  reproduction changes files only through WasmFS, so it doesn't depend on outside changes.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `node_backend.cpp` and `libwasmfs_node.js`
+  are unchanged between 6.0.9 and `main` (2151200, 139 commits later). The latest release, 6.0.10 (tagged 2026-09-18),
+  matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

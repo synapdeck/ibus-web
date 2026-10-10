@@ -1,18 +1,14 @@
 # WasmFS Node backend: `chmod()` (and `utimensat()`) never reach the host
 
-**Posted: don't post again.** Filed as
-[#27823](https://github.com/emscripten-core/emscripten/issues/27823)
-(2026-10-01, no replies yet). The `futimens()` fix at its end (patch 0008) is
-PR [#27845](https://github.com/emscripten-core/emscripten/pull/27845),
-approved by sbc100 on 2026-10-01 and not merged yet. The chmod/utimensat fix
-itself (0013) can follow as a PR once #27825's and #27832's are in, since it
-builds on 0010 and 0012.
+**Posted: don't post again.** Filed as [#27823](https://github.com/emscripten-core/emscripten/issues/27823) (2026-10-01,
+no replies yet). The `futimens()` fix at its end (patch 0008) is PR
+[#27845](https://github.com/emscripten-core/emscripten/pull/27845), approved by sbc100 on 2026-10-01 and not merged yet.
+The chmod/utimensat fix itself (0013) can follow as a PR once #27825's and #27832's are in, since it builds on 0010
+and 0012.
 
-Checked against `main` 5977ecc (2026-10-02): the Node backend is unchanged
-since 6.0.9; `utimensat()`'s timestamp conversion was reworked (#27786,
-#27794), not its effect on the host. 0008 applies alone exactly; 0013
-applies after 0002–0012 (not 0004) with 5-line offsets and not alone (it
-needs 0009's `libsigs.js` lines).
+Checked against `main` 5977ecc (2026-10-02): the Node backend is unchanged since 6.0.9; `utimensat()`'s timestamp
+conversion was reworked (#27786, #27794), not its effect on the host. 0008 applies alone exactly; 0013 applies after
+0002–0012 (not 0004) with 5-line offsets and not alone (it needs 0009's `libsigs.js` lines).
 
 **As posted** (what #27823 says, kept for reference). When drafted, no existing issue covered it.
 
@@ -24,11 +20,10 @@ WasmFS Node backend: chmod() and utimensat() only change WasmFS's in-memory meta
 
 ---
 
-On a directory backed by `wasmfs_create_node_backend()`, `chmod()` succeeds, and
-`stat()` through WasmFS shows the new mode. But the file on the host keeps its
-old mode. A later process (or this one, once WasmFS forgets the file) sees the
-old mode. `utimensat()` behaves the same way. The legacy NODEFS and NODERAWFS
-pass both through to the host (`fs.chmodSync`, `fs.utimesSync`).
+On a directory backed by `wasmfs_create_node_backend()`, `chmod()` succeeds, and `stat()` through WasmFS shows the new
+mode. But the file on the host keeps its old mode. A later process (or this one, once WasmFS forgets the file) sees the
+old mode. `utimensat()` behaves the same way. The legacy NODEFS and NODERAWFS pass both through to the host
+(`fs.chmodSync`, `fs.utimesSync`).
 
 **Version of emscripten/emsdk:**
 
@@ -40,8 +35,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`node_chmod.c`; `argv[1]` is an existing host directory):
 
@@ -134,26 +129,20 @@ End of search list.
 
 **Where:**
 
-- `chmod`/`fchmod` only call `File::Handle::setMode`, which updates the
-  in-memory `mode`
+- `chmod`/`fchmod` only call `File::Handle::setMode`, which updates the in-memory `mode`
   ([syscalls.cpp#L1188-L1217](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1188-L1217),
   [file.h#L312-L316](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/file.h#L312-L316)).
 - `utimensat` likewise sets only the in-memory times.
-- There is no backend hook for metadata changes, so `NodeFile` and
-  `NodeDirectory` never hear about them. The Node backend reads the mode from
-  the host once, when it first looks the file up
+- There is no backend hook for metadata changes, so `NodeFile` and `NodeDirectory` never hear about them. The Node
+  backend reads the mode from the host once, when it first looks the file up
   ([node_backend.cpp#L191](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L191)).
 
-**Suggested fix:** give `File` virtual `setMode` and `setTimes` hooks that
-backends can override and that may fail; the default keeps today's
-behaviour. `File::Handle::setMode` and a new `setTimes` call the hook first
-and change WasmFS's record only once the backend has accepted the change,
-and `chmod`, `fchmod` and `utimensat` return its error. The Node backend
-implements the hooks with `fs.(f)chmodSync` and `fs.(f)utimesSync`,
-through the open descriptor when there is one (so a file whose path has
-been unlinked still works). Node can't leave one of the two times alone,
-so an omitted time (`UTIME_OMIT`) is read back from the host and set again.
-The new imports get their `libsigs.js` signatures.
+**Suggested fix:** give `File` virtual `setMode` and `setTimes` hooks that backends can override and that may fail; the
+default keeps today's behaviour. `File::Handle::setMode` and a new `setTimes` call the hook first and change WasmFS's
+record only once the backend has accepted the change, and `chmod`, `fchmod` and `utimensat` return its error. The Node
+backend implements the hooks with `fs.(f)chmodSync` and `fs.(f)utimesSync`, through the open descriptor when there is
+one (so a file whose path has been unlinked still works). Node can't leave one of the two times alone, so an omitted
+time (`UTIME_OMIT`) is read back from the host and set again. The new imports get their `libsigs.js` signatures.
 
 ```diff
 --- a/src/lib/libsigs.js
@@ -395,11 +384,9 @@ The new imports get their `libsigs.js` signatures.
  }
 ```
 
-A separate one-line fix turned up on the way: musl's `futimens()` calls
-`utimensat(fd, NULL, …)`, and `__syscall_utimensat` builds a
-`std::string_view` from that null path, which libc++'s hardening assertions
-reject (`-O0`), so `futimens()` never worked under WasmFS with assertions.
-It deserves its own PR:
+A separate one-line fix turned up on the way: musl's `futimens()` calls `utimensat(fd, NULL, …)`, and
+`__syscall_utimensat` builds a `std::string_view` from that null path, which libc++'s hardening assertions reject
+(`-O0`), so `futimens()` never worked under WasmFS with assertions. It deserves its own PR:
 
 ```diff
 --- a/system/lib/wasmfs/syscalls.cpp
@@ -426,8 +413,7 @@ It deserves its own PR:
    }
 ```
 
-With both applied to 6.0.9 (and the other WasmFS fixes reported
-separately), the test cases print, at `-O0` and `-O2`:
+With both applied to 6.0.9 (and the other WasmFS fixes reported separately), the test cases print, at `-O0` and `-O2`:
 
 ```
 chmod("/host/file", 0600) = 0; WasmFS now reports 600
@@ -436,51 +422,39 @@ utimensat = 0; WasmFS now reports mtime 1000000000
 host mtime: 1000000000
 ```
 
-They were also tested with `fchmod` and `futimens` on open files, on
-directories, with each of `UTIME_OMIT` and `UTIME_NOW`, and with host
-errors (`EPERM` on a root-owned file, `EROFS` on a read-only mount), which
-now come back to the caller with WasmFS's record unchanged. Emscripten's
-own WasmFS tests (a 96-test selection) give the same results as without
-it, and `other.test_gen_sig_info` passes.
+They were also tested with `fchmod` and `futimens` on open files, on directories, with each of `UTIME_OMIT` and
+`UTIME_NOW`, and with host errors (`EPERM` on a root-owned file, `EROFS` on a read-only mount), which now come back to
+the caller with WasmFS's record unchanged. Emscripten's own WasmFS tests (a 96-test selection) give the same results as
+without it, and `other.test_gen_sig_info` passes.
 
 ---
 
 ## Evidence
 
-- **FAQ and docs.** The FAQ doesn't cover the WasmFS Node backend. The File
-  System API page says WasmFS is "not yet feature-complete with the old FS",
-  which arguably covers this. But nothing documents that metadata changes stay
-  in memory, and NODEFS/NODERAWFS do pass them through. So this reads as a
-  missing feature worth an issue, not a bug report against documented
-  behaviour. Run at `-O0` and `-O2`, with the same result.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
-  are included. It adds to the backend interface, which the maintainers may
-  want to shape differently; symlinks themselves aren't covered.
-- **Limitations.** `UTIME_NOW` is sent as an explicit time, so on a file the
-  user can write but doesn't own the host refuses with `EPERM`, as legacy
-  NODEFS does. Carry it with the `open`/`close` fix: without it a failed
-  open yields fd 2 and `fchmod` would reach the host's real stderr.
-- **Duplicate search.** "wasmfs chmod", "wasmfs node chmod", "chmod node host",
-  "chmod not persisted", "NODEFS chmod", "wasmfs node mode", "wasmfs node
-  backend", "wasmfs_create_node_backend", "node_backend.cpp" and "chmod", plus a
-  scan of all open "wasmfs" issues, turned up #15967 ("WasmFS: `chmod`",
-  closed, the original implementation), #19427 (JS API `chmod`), #15335 and
-  #14866 (JS FS). None is this bug. #19417 and #24830 discuss rebuilding
-  NODERAWFS outside WasmFS. A maintainer noted there that WasmFS "caches a
-  bunch of information … and assumes that it has complete control over the
-  file system". These reproductions change files only through WasmFS, so that
-  caveat doesn't apply, but expect it to come up.
-- **Why it matters to us.** Under Node, GLib's `/fileutils/stdio-wrappers` hit
-  this: `chmod(0777)` on a Node-backed directory never reached the host, and
-  the next `g_creat()` there failed. With the fix it runs as upstream has it,
-  and GLib's tests keep their temporary files on the host.
-  `modules/toolchain/node-host-fs.c` no longer `chmod`s the WasmFS root to
-  the host's mode.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `node_backend.cpp` and `file.h` are unchanged between 6.0.9 and `main`
-  (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s
-  error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is
-  unchanged, a few lines further down. The latest release, 6.0.10 (tagged
-  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
-  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
-- ibus-web carries this fix as `modules/emscripten/patches/0013-wasmfs-node-chmod.patch`, and the `futimens` fix as `modules/emscripten/patches/0008-wasmfs-futimens-null-path.patch`.
+- **FAQ and docs.** The FAQ doesn't cover the WasmFS Node backend. The File System API page says WasmFS is "not yet
+  feature-complete with the old FS", which arguably covers this. But nothing documents that metadata changes stay in
+  memory, and NODEFS/NODERAWFS do pass them through. So this reads as a missing feature worth an issue, not a bug report
+  against documented behaviour. Run at `-O0` and `-O2`, with the same result.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. It adds to the backend
+  interface, which the maintainers may want to shape differently; symlinks themselves aren't covered.
+- **Limitations.** `UTIME_NOW` is sent as an explicit time, so on a file the user can write but doesn't own the host
+  refuses with `EPERM`, as legacy NODEFS does. Carry it with the `open`/`close` fix: without it a failed open yields fd
+  2 and `fchmod` would reach the host's real stderr.
+- **Duplicate search.** "wasmfs chmod", "wasmfs node chmod", "chmod node host", "chmod not persisted", "NODEFS chmod",
+  "wasmfs node mode", "wasmfs node backend", "wasmfs_create_node_backend", "node_backend.cpp" and "chmod", plus a scan
+  of all open "wasmfs" issues, turned up #15967 ("WasmFS: `chmod`", closed, the original implementation), #19427 (JS API
+  `chmod`), #15335 and #14866 (JS FS). None is this bug. #19417 and #24830 discuss rebuilding NODERAWFS outside WasmFS.
+  A maintainer noted there that WasmFS "caches a bunch of information … and assumes that it has complete control over
+  the file system". These reproductions change files only through WasmFS, so that caveat doesn't apply, but expect it to
+  come up.
+- **Why it matters to us.** Under Node, GLib's `/fileutils/stdio-wrappers` hit this: `chmod(0777)` on a Node-backed
+  directory never reached the host, and the next `g_creat()` there failed. With the fix it runs as upstream has it, and
+  GLib's tests keep their temporary files on the host. `modules/toolchain/node-host-fs.c` no longer `chmod`s the WasmFS
+  root to the host's mode.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `node_backend.cpp` and `file.h` are unchanged
+  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s error sign
+  (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines further down. The latest
+  release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build is
+  nixpkgs' 6.0.9 with LLVM 22.1.8.
+- ibus-web carries this fix as `modules/emscripten/patches/0013-wasmfs-node-chmod.patch`, and the `futimens` fix as
+  `modules/emscripten/patches/0008-wasmfs-futimens-null-path.patch`.

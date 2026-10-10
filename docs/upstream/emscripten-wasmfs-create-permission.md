@@ -1,27 +1,23 @@
 # WasmFS: `open(O_CREAT)` ignores the parent directory's write permission
 
-**Posted: don't post again.** The comment below went on #18033 on
-2026-10-01; no reply yet. Its suggested fix (patch 0007) can follow as a PR
-once a maintainer answers.
+**Posted: don't post again.** The comment below went on #18033 on 2026-10-01; no reply yet. Its suggested fix
+(patch 0007) can follow as a PR once a maintainer answers.
 
-Checked against `main` 5977ecc (2026-10-02): `doOpen()`'s create path still
-skips the parent's write check, and 0007 applies there with a 2-line offset.
+Checked against `main` 5977ecc (2026-10-02): `doOpen()`'s create path still skips the parent's write check, and 0007
+applies there with a 2-line offset.
 
 **Draft: do not post as a new issue.** This is already reported as
-[#18033](https://github.com/emscripten-core/emscripten/issues/18033) ("WasmFS: A
-file can be created in a read-only directory", open since 2022; one maintainer
-comment: "I think the permissions checking is a bit spotty overall."). Post the
-text below as a **comment on #18033**.
+[#18033](https://github.com/emscripten-core/emscripten/issues/18033) ("WasmFS: A file can be created in a read-only
+directory", open since 2022; one maintainer comment: "I think the permissions checking is a bit spotty overall."). Post
+the text below as a **comment on #18033**.
 
 ## Comment for #18033
 
 ---
 
-This still reproduces on 6.0.9. It's specific to file creation through `open`
-(and `mknod`, which goes through the same `doOpen`). In the same read-only
-directory, `mkdir` and `unlink` already fail with `EACCES` (`rename` has the
-same check in the source), and the JS file system rejects all three calls the
-test makes.
+This still reproduces on 6.0.9. It's specific to file creation through `open` (and `mknod`, which goes through the same
+`doOpen`). In the same read-only directory, `mkdir` and `unlink` already fail with `EACCES` (`rename` has the same check
+in the source), and the JS file system rejects all three calls the test makes.
 
 **Version of emscripten/emsdk:**
 
@@ -33,8 +29,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`create_perm.c`):
 
@@ -123,14 +119,12 @@ End of search list.
 
 </details>
 
-**Where:** `doOpen` has `// TODO: Check write permissions on the parent
-directory.` where it creates the file
+**Where:** `doOpen` has `// TODO: Check write permissions on the parent directory.` where it creates the file
 ([syscalls.cpp#L478](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L478)).
 `doMkdir` does the check
 ([syscalls.cpp#L634-L636](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L634-L636)),
 and so do `unlink`
-([#L873](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L873))
-and `rename`
+([#L873](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L873)) and `rename`
 ([#L1045](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1045)).
 
 **Suggested fix:** the same check as `doMkdir`.
@@ -165,33 +159,23 @@ open("/ro/new", O_CREAT|O_WRONLY)        Permission denied
 
 ## Evidence
 
-- **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page
-  says only owner permissions apply. WasmFS's code checks for any write bit
-  (`0222`) and ignores ownership. The test clears every write bit (mode `0555`),
-  so it doesn't depend on that difference. Run at `-O0` and `-O2`, with the same
-  result.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out because the fault is in `libwasmfs`. The guide
-  prefers a PR: this is a three-line change plus a test, so offering one in the
+- **FAQ and docs.** The FAQ doesn't cover permissions. The File System API page says only owner permissions apply.
+  WasmFS's code checks for any write bit (`0222`) and ignores ownership. The test clears every write bit (mode `0555`),
+  so it doesn't depend on that difference. Run at `-O0` and `-O2`, with the same result.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because
+  the fault is in `libwasmfs`. The guide prefers a PR: this is a three-line change plus a test, so offering one in the
   comment would likely move it faster.
-- **Interaction with the Node backend.** With the check missing, `open(O_CREAT)`
-  in a host directory the user can't write reaches the host. The host refuses,
-  and WasmFS reports `EIO` (see `emscripten-wasmfs-node-create-eio.md`). With
-  this fix, WasmFS answers `EACCES` itself whenever its idea of the directory's
-  mode is right.
-- **Duplicate search.** "wasmfs O_CREAT permission", "permission check parent
-  directory create", "wasmfs EACCES", "EACCES" and "wasmfs permission", plus a
-  scan of all open "wasmfs" issues, turned up #18033 (this bug) and nothing
+- **Interaction with the Node backend.** With the check missing, `open(O_CREAT)` in a host directory the user can't
+  write reaches the host. The host refuses, and WasmFS reports `EIO` (see `emscripten-wasmfs-node-create-eio.md`). With
+  this fix, WasmFS answers `EACCES` itself whenever its idea of the directory's mode is right.
+- **Duplicate search.** "wasmfs O_CREAT permission", "permission check parent directory create", "wasmfs EACCES",
+  "EACCES" and "wasmfs permission", plus a scan of all open "wasmfs" issues, turned up #18033 (this bug) and nothing
   else close.
-- **Why it matters to us.** GLib's
-  `/fileutils/set-contents-full/read-only-directory` fails on WasmFS, partly
-  because of this (see also `emscripten-wasmfs-search-permission.md`).
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: the
-  cited `doOpen` and `doMkdir` code is unchanged between 6.0.9 and `main`
-  (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s
-  error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is
-  unchanged, a few lines further down. The latest release, 6.0.10 (tagged
-  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
-  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8. #18033 was open on
-  2026-09-30.
+- **Why it matters to us.** GLib's `/fileutils/set-contents-full/read-only-directory` fails on WasmFS, partly because of
+  this (see also `emscripten-wasmfs-search-permission.md`).
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: the cited `doOpen` and `doMkdir` code is
+  unchanged between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s error
+  sign (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines further down. The latest
+  release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build is
+  nixpkgs' 6.0.9 with LLVM 22.1.8. #18033 was open on 2026-09-30.
 - ibus-web carries this fix as `modules/emscripten/patches/0007-wasmfs-create-permission.patch`.

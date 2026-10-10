@@ -1,9 +1,8 @@
 # @ibus-web/engine-mozc
 
-Mozc, Google's open-source Japanese input method, built for the browser with nixpkgs' UT dictionaries: its converter
-and its own IBus frontend in one module, which runs in one Worker. The package holds no JavaScript: it is the files a
-host serves and points ibus-web at, `manifest.json` and the WebAssembly module, data archives and settings metadata it
-lists.
+Mozc, Google's open-source Japanese input method, built for the browser with nixpkgs' UT dictionaries: its converter and
+its own IBus frontend in one module, which runs in one Worker. The package holds no JavaScript: it is the files a host
+serves and points ibus-web at, `manifest.json` and the WebAssembly module, data archives and settings metadata it lists.
 
 ```ts
 import { createIbusWeb } from "ibus-web";
@@ -27,7 +26,8 @@ module's Worker takes 136 MiB of memory. Details are in
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-mozc` packs the
 tarball.
 
-Licensed under `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0-only AND CC-BY-SA-4.0
-AND GPL-2.0-or-later`: Mozc and the components its own credits name, and the UT dictionaries, each under its own
-terms. `LICENSES/` holds the texts the repository has, Mozc's licence and credits in `LICENSES/mozc/`, and each UT
-dictionary's licence in `LICENSES/mozcdic-ut-<name>/LICENSE`.
+Licensed under
+`BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0-only AND CC-BY-SA-4.0 AND GPL-2.0-or-later`:
+Mozc and the components its own credits name, and the UT dictionaries, each under its own terms. `LICENSES/` holds the
+texts the repository has, Mozc's licence and credits in `LICENSES/mozc/`, and each UT dictionary's licence in
+`LICENSES/mozcdic-ut-<name>/LICENSE`.

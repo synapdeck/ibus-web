@@ -1,9 +1,9 @@
 # The table engine
 
-`engines/table/` is an engine module whose engines are driven by tables: `latex` turns LaTeX commands into Unicode,
-and `xsampa` turns X-SAMPA into IPA. Its code is MIT OR Apache-2.0, and no table carries a copyleft licence. This page
-describes the table format, where the two tables come from, the engine's C++ core, which the native checks build
-and drive, and the glue and side module that run it in the browser.
+`engines/table/` is an engine module whose engines are driven by tables: `latex` turns LaTeX commands into Unicode, and
+`xsampa` turns X-SAMPA into IPA. Its code is MIT OR Apache-2.0, and no table carries a copyleft licence. This page
+describes the table format, where the two tables come from, the engine's C++ core, which the native checks build and
+drive, and the glue and side module that run it in the browser.
 
 The format and behaviour are the engine's own, compatible with neither ibus-table nor SCIM. There is no ordinary table
 mode (type a code, pick a candidate) and no wildcards: methods that need one, such as Cangjie, Quick or Wubi, come with
@@ -13,9 +13,8 @@ precompiled bundle could go behind the same loader if a table grows large enough
 
 ## Table format
 
-A table is a UTF-8 file with LF line endings, named `<engine>.table`; the engine's name is the file's stem.
-Frontmatter of `key = value` lines ends at a line that is exactly `---`. The body is one mapping per line,
-`key<TAB>output`.
+A table is a UTF-8 file with LF line endings, named `<engine>.table`; the engine's name is the file's stem. Frontmatter
+of `key = value` lines ends at a line that is exactly `---`. The body is one mapping per line, `key<TAB>output`.
 
 ```
 # X-SAMPA to IPA.
@@ -43,17 +42,17 @@ mode = continuous
 | `layout`    | no              | `default` (the default) or `us`: the engine's keyboard translation |
 
 A key may appear on several lines, giving several candidates in file order; in continuous mode keys are unique. The
-**alphabet** is every character after the trigger in command mode, and every character of every key in continuous
-mode. A key can't contain a space, which ends a composition, nor, in command mode, the trigger after its start, which
-opens the next one.
+**alphabet** is every character after the trigger in command mode, and every character of every key in continuous mode.
+A key can't contain a space, which ends a composition, nor, in command mode, the trigger after its start, which opens
+the next one.
 
 **Completions** of a prefix are the keys starting with it, the prefix included, ordered by key length in code points,
 then by key in code point order, then by file order within one key: `\al` offers `\aleph` before `\alpha`.
 
 ### Errors
 
-The parser stops at the first error and reports it as `path:line: reason`, or `path: reason` when the file can't be
-read at all. `table-parse` holds one malformed table for each:
+The parser stops at the first error and reports it as `path:line: reason`, or `path: reason` when the file can't be read
+at all. `table-parse` holds one malformed table for each:
 
 | Reason                                                 | Where                                                                |
 | ------------------------------------------------------ | -------------------------------------------------------------------- |
@@ -90,12 +89,12 @@ read at all. `table-parse` holds one malformed table for each:
 
 `xsampa.table` follows J. C. Wells'
 [summary chart](https://web.archive.org/web/20110709014830/http://www.phon.ucl.ac.uk/home/sampa/x-sampa.htm) (the
-original page is offline; this is the Internet Archive's copy), section by section. Where the chart gives an
-alternative spelling (`v\` for `P`, `_j` for `'`, `_=` for `=`, `_~` for `~`), both are keys. Lower-case letters that
-are already IPA symbols aren't listed; continuous mode types them as they are. Keys are literal per the chart, so `g`
-stays an ASCII `g` rather than becoming the IPA `ɡ`. Three plosives the summary leaves to SAMPA
-and the full chart (`J\`, `G\`, `?`) are added, and since Unicode has no implosive diacritic, the chart's `_<` is
-written out for the five implosives (`b_<`, `d_<`, `J\_<`, `g_<`, `G\_<`).
+original page is offline; this is the Internet Archive's copy), section by section. Where the chart gives an alternative
+spelling (`v\` for `P`, `_j` for `'`, `_=` for `=`, `_~` for `~`), both are keys. Lower-case letters that are already
+IPA symbols aren't listed; continuous mode types them as they are. Keys are literal per the chart, so `g` stays an ASCII
+`g` rather than becoming the IPA `ɡ`. Three plosives the summary leaves to SAMPA and the full chart (`J\`, `G\`, `?`)
+are added, and since Unicode has no implosive diacritic, the chart's `_<` is written out for the five implosives (`b_<`,
+`d_<`, `J\_<`, `g_<`, `G\_<`).
 
 ### LaTeX
 
@@ -120,12 +119,12 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
 
 - **`Table`** (`table.hpp`) is a parsed table, immutable and shared by every session of its engine. It holds a
   `marisa::Trie` of the UTF-8 keys, each key's outputs by key ID, the frontmatter and the sorted alphabet. Its queries
-  are `exact(key)`, `completions(prefix)`, `extendable(prefix)` (a longer key starts with it) and
-  `longestPrefix(text)`. MARISA's predictive and common-prefix searches find the keys; key IDs never decide order.
+  are `exact(key)`, `completions(prefix)`, `extendable(prefix)` (a longer key starts with it) and `longestPrefix(text)`.
+  MARISA's predictive and common-prefix searches find the keys; key IDs never decide order.
 - **`Sink`** (`sink.hpp`) is what a session writes to: `commit(text)`, `preedit(text)` (empty hides it) and
-  `candidates(all, cursor, cursorShown)` (empty hides them). Sessions pass the whole list; a page is the aligned
-  block of 10 candidates that contains the cursor. Within one call into a session, a commit comes before the preedit and candidates that
-  follow it.
+  `candidates(all, cursor, cursorShown)` (empty hides them). Sessions pass the whole list; a page is the aligned block
+  of 10 candidates that contains the cursor. Within one call into a session, a commit comes before the preedit and
+  candidates that follow it.
 - **`Session`** (`session.hpp`) is one context's composition. `makeSession(table, sink)` returns a command or a
   continuous session by the table's mode. `processKey(keyval, character, modifiers)` takes the key's X11 keysym, its
   Unicode value (0 if none) and IBus's modifier mask, and returns whether it consumed the key. `candidateClicked`,
@@ -147,8 +146,8 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
 `latex` uses command mode with the trigger `\`.
 
 - **Idle**, the trigger opens a composition with the buffer `\` and is consumed. Every other key passes through.
-- **Candidates** are the buffer's completions. If the buffer is a key, the cursor is shown on its first output, which
-  is the first completion; otherwise the cursor is hidden.
+- **Candidates** are the buffer's completions. If the buffer is a key, the cursor is shown on its first output, which is
+  the first completion; otherwise the cursor is hidden.
 - **An alphabet character** is appended, even when no key starts with the result: `\alphabet` stays as typed, with no
   candidates.
 - **Space** commits the highlighted candidate if the cursor is shown, and is consumed. Otherwise it commits the raw
@@ -157,8 +156,8 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
 - **Any other printable key** (a digit, punctuation, another `\`) commits the highlighted candidate if the cursor is
   shown, otherwise the raw buffer, and is then handled as if idle: `\alpha,` gives `α,`, and `\alpha\beta` gives `α`
   followed by an open `\beta`.
-- **Up, Down, Tab and Shift+Tab** move the cursor and show it; a hidden cursor is first shown where it is, on the
-  first candidate of its page. **Page Up and Page Down** move it by a page.
+- **Up, Down, Tab and Shift+Tab** move the cursor and show it; a hidden cursor is first shown where it is, on the first
+  candidate of its page. **Page Up and Page Down** move it by a page.
 - **Backspace** deletes the last character. Deleting the trigger ends the composition and commits nothing.
 - **Escape** commits the raw buffer and is consumed.
 - **Left, Right, Home and End**, and every other key that types nothing (Delete, Insert, F1, …), commit the raw buffer
@@ -168,16 +167,16 @@ The engine is C++23 in `engines/table/src/`, in namespace `ibusweb::table`, with
 
 `xsampa` uses continuous mode.
 
-- **An alphabet character** is appended, then the buffer is resolved. While the buffer is non-empty and not
-  extendable, the longest key it starts with is committed and removed from its front; if no key matches, its first
-  character is committed as typed. What remains can still extend, and stays as the preedit.
-- **Flushing** runs the same loop as if nothing could extend, leaving the buffer empty. Several commits from one key
-  are joined into one.
+- **An alphabet character** is appended, then the buffer is resolved. While the buffer is non-empty and not extendable,
+  the longest key it starts with is committed and removed from its front; if no key matches, its first character is
+  committed as typed. What remains can still extend, and stays as the preedit.
+- **Flushing** runs the same loop as if nothing could extend, leaving the buffer empty. Several commits from one key are
+  joined into one.
 - **Escape** commits the pending buffer raw, unresolved, and is consumed; with nothing pending it passes through.
 - **Any other key** (Space, Enter, arrows, characters outside the alphabet) flushes, then passes through.
 - **Backspace** deletes the last pending character, or passes through when nothing is pending.
-- **Candidates** are the pending buffer's completions, a guide to what it can still become, with the cursor hidden.
-  They can be clicked and paged; `cursorUp` and `cursorDown` do nothing.
+- **Candidates** are the pending buffer's completions, a guide to what it can still become, with the cursor hidden. They
+  can be clicked and paged; `cursorUp` and `cursorDown` do nothing.
 
 Enter differs between the modes on purpose. A command composition is explicit, so Enter ends it like any composition.
 Continuous input has no visible composition step, so Enter keeps its ordinary meaning.
@@ -185,50 +184,48 @@ Continuous input has no visible composition step, so Enter keeps its ordinary me
 ## MARISA
 
 `engines/table/_marisa.nix` overrides nixpkgs' MARISA 0.3.1 for both builds: `pkgsWasm.marisa`, through the table
-overlay, and the native one the tools link. It adds upstream
-[PR #146](https://github.com/s-yata/marisa-trie/pull/146) (commit `e31c7ed`) with `fetchpatch`: 0.3.1 reads
-uninitialized units while packing a `FlatVector`. It turns off tuning for the build machine (`ENABLE_NATIVE_CODE`) and
-the command-line tools, which the engine doesn't use, and records the BSD-2-Clause option of MARISA's dual licence.
-Upstream's tests run in the check phase wherever the build can run them, which is the native build: that build is the
-`table-marisa` check, which also asserts that the WebAssembly build carries the same patches.
+overlay, and the native one the tools link. It adds upstream [PR #146](https://github.com/s-yata/marisa-trie/pull/146)
+(commit `e31c7ed`) with `fetchpatch`: 0.3.1 reads uninitialized units while packing a `FlatVector`. It turns off tuning
+for the build machine (`ENABLE_NATIVE_CODE`) and the command-line tools, which the engine doesn't use, and records the
+BSD-2-Clause option of MARISA's dual licence. Upstream's tests run in the check phase wherever the build can run them,
+which is the native build: that build is the `table-marisa` check, which also asserts that the WebAssembly build carries
+the same patches.
 
 ## In the browser
 
-`engines/table/src/glue.cpp` is the module's only GObject code. One `IBusEngine` subclass, `IBusWebTableEngine`,
-serves every engine, and its `engine-name` picks the table. That name is a construct property, set after instance
-init, so an instance makes its session in `constructed` and destroys it in `finalize`. The type is registered by hand
-with callbacks of exactly the types GLib calls them through, which leaves the cast audit nothing to allow.
+`engines/table/src/glue.cpp` is the module's only GObject code. One `IBusEngine` subclass, `IBusWebTableEngine`, serves
+every engine, and its `engine-name` picks the table. That name is a construct property, set after instance init, so an
+instance makes its session in `constructed` and destroys it in `finalize`. The type is registered by hand with callbacks
+of exactly the types GLib calls them through, which leaves the cast audit nothing to allow.
 
 `ibusweb_module_init` registers an engine for every `*.table` in the table directory, named for its file. A handler on
-the factory's `create-engine` signal runs before the factory makes the engine: it parses the engine's table on first
-use and keeps it in a module-level map for the Worker's life, shared by every context of that engine. A table that
-doesn't parse fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, which
-stops the emission: the reply is `-EIO`, the page receives the reason in a `CreateEngineFailed` record and `select`
-rejects with it, and the field stays on native input. That handler lets no exception out into GLib's signal emission.
-The key and paging handlers catch nothing: an exception from one of them unwinds through the emission and faults the
-runtime, which the host treats as a crash ([runtime.md](runtime.md#protocol-dispatch-and-output)).
+the factory's `create-engine` signal runs before the factory makes the engine: it parses the engine's table on first use
+and keeps it in a module-level map for the Worker's life, shared by every context of that engine. A table that doesn't
+parse fails `CreateEngine` with the parser's `path:line: reason` through `ibusweb_factory_fail_create`, which stops the
+emission: the reply is `-EIO`, the page receives the reason in a `CreateEngineFailed` record and `select` rejects with
+it, and the field stays on native input. That handler lets no exception out into GLib's signal emission. The key and
+paging handlers catch nothing: an exception from one of them unwinds through the emission and faults the runtime, which
+the host treats as a crash ([runtime.md](runtime.md#protocol-dispatch-and-output)).
 
 The glue is the session's `Sink`:
 
 - `commit` commits the text.
-- `preedit` shows the raw buffer, underlined, in COMMIT mode, with the cursor at its end. Empty, it clears and hides
-  the preedit.
+- `preedit` shows the raw buffer, underlined, in COMMIT mode, with the cursor at its end. Empty, it clears and hides the
+  preedit.
 - `candidates` gets the whole list, which a bare `\` makes every command in the LaTeX table, and sends IBus a lookup
   table of only the page of 10 that holds the cursor, each candidate as its output and key (`α \alpha`), with the
-  cursor's position on that page. The panel draws the table it is sent as one page and leaves paging to the engine,
-  so only those 10 become `IBusText`s. Empty, it hides the lookup table.
+  cursor's position on that page. The panel draws the table it is sent as one page and leaves paging to the engine, so
+  only those 10 become `IBusText`s. Empty, it hides the lookup table.
 
-PageUp, PageDown, CursorUp and CursorDown go to the session, which redraws with the cursor's new page. The panel's
-click index counts from the page it shows, and the glue adds the page's start; a position no candidate holds is
-ignored. A key's character is `ibus_keyval_to_unicode(keyval)`, and IBus's `state` is passed through as the
-session's modifiers.
+PageUp, PageDown, CursorUp and CursorDown go to the session, which redraws with the cursor's new page. The panel's click
+index counts from the page it shows, and the glue adds the page's start; a position no candidate holds is ignored. A
+key's character is `ibus_keyval_to_unicode(keyval)`, and IBus's `state` is passed through as the session's modifiers.
 FocusOut and Reset reset the session, which emits nothing.
 
 `pkgsWasm.ibus-web-table` (`engines/table/_package.nix`) compiles `ibusWeb.engines.table.sources` as C++23 with the
 runtime's toolchain and side-module flags, and links `pkgsWasm.marisa` into `table.wasm` statically; the runtime's
-library guard rejects a library the runtime carries. The table directory and the compiled
-`org.freedesktop.ibus.panel` schema are compiled in as store paths, which makes them the side module's whole data
-closure.
+library guard rejects a library the runtime carries. The table directory and the compiled `org.freedesktop.ibus.panel`
+schema are compiled in as store paths, which makes them the side module's whole data closure.
 
 `table-host` checks that a bare `\` sends IBus one page of 10. It builds a second distribution whose LaTeX table is a
 fixture with a malformed line, beside the shipped X-SAMPA table, and expects `CreateEngine` to fail with `-EIO` after a
@@ -245,8 +242,7 @@ the engine as a static library and two tools, `ibusWeb.engines.table.tools`:
   stem, with the frontmatter's display name, languages and layout, and no pass-through keys.
 
 `ibusWeb.engines.table.sources` lists the `.cpp` files in `engines/table/src` by name, for builds of the engine. The
-side module compiles all of them; the Meson build names its own and leaves out `glue.cpp`, the only one that needs
-IBus.
+side module compiles all of them; the Meson build names its own and leaves out `glue.cpp`, the only one that needs IBus.
 
 | Check                | Covers                                                                                                                                                                                                                                 |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

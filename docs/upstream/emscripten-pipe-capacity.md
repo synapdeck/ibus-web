@@ -1,22 +1,17 @@
 # Pipes have no capacity: a non-blocking writer never sees `EAGAIN`
 
-**Posted: don't post again.** Filed as
-[#27831](https://github.com/emscripten-core/emscripten/issues/27831)
-(2026-10-01, no replies yet). ibus-web doesn't carry a fix, by decision.
+**Posted: don't post again.** Filed as [#27831](https://github.com/emscripten-core/emscripten/issues/27831) (2026-10-01,
+no replies yet). ibus-web doesn't carry a fix, by decision.
 
-Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged
-since 6.0.9 and `pipe_backend.h` still queues without limit (its only change
-is #27842's `S_IFIFO`), so the report stands. #27815 lets WasmFS's `pipe2()`
-take `O_NONBLOCK`, which makes a non-blocking pipe easier to get but adds no
-capacity.
+Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged since 6.0.9 and `pipe_backend.h` still queues
+without limit (its only change is #27842's `S_IFIFO`), so the report stands. #27815 lets WasmFS's `pipe2()` take
+`O_NONBLOCK`, which makes a non-blocking pipe easier to get but adds no capacity.
 
-**As posted** (what #27831 says, kept for reference). When drafted, no existing issue covered it. Unbounded
-pipes look partly deliberate. `pipe_backend.h` has "TODO: Consider switching to
-a ring buffer … if we don't need unbounded pipes", and Emscripten pipes can't
-block, which is the usual reason to have a capacity. So the report asks only
-for a capacity that **non-blocking** writers see, which no current program can
-rely on being absent. Drop it if that framing still reads as a feature
-request. It affects both file systems, so it isn't WasmFS-only.
+**As posted** (what #27831 says, kept for reference). When drafted, no existing issue covered it. Unbounded pipes look
+partly deliberate. `pipe_backend.h` has "TODO: Consider switching to a ring buffer … if we don't need unbounded pipes",
+and Emscripten pipes can't block, which is the usual reason to have a capacity. So the report asks only for a capacity
+that **non-blocking** writers see, which no current program can rely on being absent. Drop it if that framing still
+reads as a feature request. It affects both file systems, so it isn't WasmFS-only.
 
 ## Issue title
 
@@ -26,15 +21,13 @@ Pipes are unbounded: a non-blocking writer never gets EAGAIN (and WasmFS runs ou
 
 ---
 
-On Linux a pipe holds 64 KiB; past that, a non-blocking `write()` fails with
-`EAGAIN`. Emscripten's pipes have no limit under either file system. Code that
-fills a pipe until `EAGAIN` (to test back-pressure, or to detect a full pipe)
-never stops:
+On Linux a pipe holds 64 KiB; past that, a non-blocking `write()` fails with `EAGAIN`. Emscripten's pipes have no limit
+under either file system. Code that fills a pipe until `EAGAIN` (to test back-pressure, or to detect a full pipe) never
+stops:
 
 - Under the JS file system the bytes pile up in JS memory.
-- Under WasmFS they go into a `std::queue` on the wasm heap. Without
-  `ALLOW_MEMORY_GROWTH` that is an OOM abort; with it, the heap grows until
-  something gives.
+- Under WasmFS they go into a `std::queue` on the wasm heap. Without `ALLOW_MEMORY_GROWTH` that is an OOM abort; with
+  it, the heap grows until something gives.
 
 **Version of emscripten/emsdk:**
 
@@ -46,8 +39,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`pipe_capacity.c`, which gives up at 16 MiB):
 
@@ -148,17 +141,14 @@ End of search list.
 
 **Where:**
 
-- JS FS: `PIPEFS.stream_ops.write` accepts every write, adding buckets without
-  limit
+- JS FS: `PIPEFS.stream_ops.write` accepts every write, adding buckets without limit
   ([libpipefs.js#L205-L277](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpipefs.js#L205-L277)).
-- WasmFS: `PipeFile::write` pushes every byte onto an unbounded
-  `std::queue<uint8_t>`
+- WasmFS: `PipeFile::write` pushes every byte onto an unbounded `std::queue<uint8_t>`
   ([pipe_backend.h#L18](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/pipe_backend.h#L18),
   [#L29-L34](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/pipe_backend.h#L29-L34)).
 
-**Suggested fix (JS FS):** give non-blocking writers Linux's 64 KiB capacity,
-with `PIPE_BUF`'s all-or-nothing rule for small writes. Blocking writers keep
-today's unbounded behaviour, since they can't wait for a reader.
+**Suggested fix (JS FS):** give non-blocking writers Linux's 64 KiB capacity, with `PIPE_BUF`'s all-or-nothing rule for
+small writes. Blocking writers keep today's unbounded behaviour, since they can't wait for a reader.
 
 ```diff
 --- a/src/lib/libpipefs.js
@@ -203,40 +193,29 @@ fcntl(F_SETFL, O_NONBLOCK) = 0
 wrote 65536 bytes; last write: Resource temporarily unavailable
 ```
 
-**WasmFS** would need the same check. `DataFile::write` doesn't see the open
-file's flags, so the check belongs in the syscall layer, which has the
-`OpenFileState`. Alternatively, `PipeFile` could take the flags at write time.
-We haven't written that part.
+**WasmFS** would need the same check. `DataFile::write` doesn't see the open file's flags, so the check belongs in the
+syscall layer, which has the `OpenFileState`. Alternatively, `PipeFile` could take the flags at write time. We haven't
+written that part.
 
 ---
 
 ## Evidence
 
-- **Judgement call.** A maintainer may answer that unbounded pipes are
-  intended, since writers can't block. The draft pre-empts that by limiting
-  the request to `O_NONBLOCK` writers. If the answer is still no, the useful
-  outcome is a documented limitation. The WasmFS OOM abort is the strongest
-  argument.
-- **FAQ.** Nothing in the FAQ covers pipe capacity. Run at `-O0` (both FS) and
-  at `-O2` with memory growth (WasmFS).
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested JS FS
-  fix are included. The WasmFS fix is a sketch. Bitcode is left out because the
-  fault is in the runtime libraries.
-- **Testing.** The fixed JS FS run used a 6.0.9 tree with all of this set's
-  candidate fixes applied at once. `test/core/test_pipe_pollhup.c`,
-  `test/unistd/pipe.c` and `test/core/test_pipe_select.c` gave the same results
-  with and without it. `unistd/pipe.c` never has more than about 33 KiB
-  queued and makes only the read end non-blocking, so the cap doesn't reach
-  it.
-- **Duplicate search.** "pipe capacity", "pipe full", "pipe buffer size",
-  "PIPE_BUF", "F_GETPIPE_SZ" and "pipe", plus a scan of all open "wasmfs"
-  issues, turned up only blocking-pipe issues (#13214, #22029, #27683) and an
-  unrelated 2013 issue. None is about capacity.
-- **Why it matters to us.** GLib's `/mainloop/unix-fd` fills a pipe with
-  `fill_a_pipe()` until `EAGAIN`. Under WasmFS it ran the heap out at 2 GiB, so
-  our GLib test patch skips it.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `libpipefs.js` and `pipe_backend.h` are unchanged between 6.0.9 and `main`
-  (2151200, 139 commits later). The latest release, 6.0.10 (tagged
-  2026-09-18), matches. The conclusion comes from the diff; `main` wasn't
-  rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Judgement call.** A maintainer may answer that unbounded pipes are intended, since writers can't block. The draft
+  pre-empts that by limiting the request to `O_NONBLOCK` writers. If the answer is still no, the useful outcome is a
+  documented limitation. The WasmFS OOM abort is the strongest argument.
+- **FAQ.** Nothing in the FAQ covers pipe capacity. Run at `-O0` (both FS) and at `-O2` with memory growth (WasmFS).
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested JS FS fix are included. The WasmFS fix is a
+  sketch. Bitcode is left out because the fault is in the runtime libraries.
+- **Testing.** The fixed JS FS run used a 6.0.9 tree with all of this set's candidate fixes applied at once.
+  `test/core/test_pipe_pollhup.c`, `test/unistd/pipe.c` and `test/core/test_pipe_select.c` gave the same results with
+  and without it. `unistd/pipe.c` never has more than about 33 KiB queued and makes only the read end non-blocking, so
+  the cap doesn't reach it.
+- **Duplicate search.** "pipe capacity", "pipe full", "pipe buffer size", "PIPE_BUF", "F_GETPIPE_SZ" and "pipe", plus a
+  scan of all open "wasmfs" issues, turned up only blocking-pipe issues (#13214, #22029, #27683) and an unrelated 2013
+  issue. None is about capacity.
+- **Why it matters to us.** GLib's `/mainloop/unix-fd` fills a pipe with `fill_a_pipe()` until `EAGAIN`. Under WasmFS it
+  ran the heap out at 2 GiB, so our GLib test patch skips it.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `libpipefs.js` and `pipe_backend.h` are
+  unchanged between 6.0.9 and `main` (2151200, 139 commits later). The latest release, 6.0.10 (tagged 2026-09-18),
+  matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.

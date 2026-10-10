@@ -1,22 +1,17 @@
 # WasmFS: backend failures to create a symlink are reported as `EPERM`
 
 **Still to post.** The create-`EIO` report went up as
-[#27832](https://github.com/emscripten-core/emscripten/issues/27832)
-(2026-10-01) without this half, so post this as its own issue citing #27832
-(or as a comment there); the lookup report follows it. No issue or PR filed
-since covers it (searches for "wasmfs symlink EPERM", "symlinkat EPERM",
-"insertSymlink", 2026-10-02).
+[#27832](https://github.com/emscripten-core/emscripten/issues/27832) (2026-10-01) without this half, so post this as its
+own issue citing #27832 (or as a comment there); the lookup report follows it. No issue or PR filed since covers it
+(searches for "wasmfs symlink EPERM", "symlinkat EPERM", "insertSymlink", 2026-10-02).
 
-Checked against `main` 5977ecc (2026-10-02): `__syscall_symlinkat` still
-turns any null from `insertSymlink()` into `EPERM`, and 0017 applies on
-`main` after 0002–0015 (without 0004) with a 2-line offset; alone it
-doesn't, since it builds on 0012. The draft has no suite-format test, so
-nothing was run for it on `main`.
+Checked against `main` 5977ecc (2026-10-02): `__syscall_symlinkat` still turns any null from `insertSymlink()` into
+`EPERM`, and 0017 applies on `main` after 0002–0015 (without 0004) with a 2-line offset; alone it doesn't, since it
+builds on 0012. The draft has no suite-format test, so nothing was run for it on `main`.
 
-**Draft: new issue (low priority).** No existing issue covers it. It is the
-symlink half of the report on `EIO` from failed creates
-(`emscripten-wasmfs-node-create-eio.md`) and its fix builds on that one's;
-file the two together, or fold this into it.
+**Draft: new issue (low priority).** No existing issue covers it. It is the symlink half of the report on `EIO` from
+failed creates (`emscripten-wasmfs-node-create-eio.md`) and its fix builds on that one's; file the two together, or fold
+this into it.
 
 ## Issue title
 
@@ -26,11 +21,9 @@ WasmFS: symlink() reports EPERM for any backend failure (e.g. EACCES from the No
 
 ---
 
-When a backend fails to create a symlink, WasmFS returns `EPERM` whatever
-the cause. With the Node backend, a host `EACCES` (or `EROFS`, `ENOSPC`,
-`EDQUOT`, …) comes back as "Operation not permitted", which for `symlink()`
-means "this file system does not support symbolic links". A backend of
-one's own has no way to say anything else either.
+When a backend fails to create a symlink, WasmFS returns `EPERM` whatever the cause. With the Node backend, a host
+`EACCES` (or `EROFS`, `ENOSPC`, `EDQUOT`, …) comes back as "Operation not permitted", which for `symlink()` means "this
+file system does not support symbolic links". A backend of one's own has no way to say anything else either.
 
 **Version of emscripten/emsdk:**
 
@@ -42,11 +35,10 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.19.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.19.0, x86_64 Linux.
 
-**Test case** (`node_symlink_eperm.c`; `argv[1]` is a host directory the
-non-root user can't write to):
+**Test case** (`node_symlink_eperm.c`; `argv[1]` is a host directory the non-root user can't write to):
 
 ```c
 #include <emscripten/wasmfs.h>
@@ -109,26 +101,20 @@ End of search list.
 
 **Where:**
 
-- `__syscall_symlinkat` turns a null result from the backend's
-  `insertSymlink` into `-EPERM`
+- `__syscall_symlinkat` turns a null result from the backend's `insertSymlink` into `-EPERM`
   ([syscalls.cpp#L1107-L1109](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1107-L1109)).
-- `Directory::Handle::insertSymlink` returns null for an unlinked directory
-  too, which is `ENOENT` on Linux
+- `Directory::Handle::insertSymlink` returns null for an unlinked directory too, which is `ENOENT` on Linux
   ([file.cpp#L121-L131](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/file.cpp#L121-L131)).
 - The Node backend has the host's errno in hand and drops it
   ([node_backend.cpp#L238-L244](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L238-L244)).
-- The OPFS backend, which has no symlinks, notes
-  `// TODO: Propagate EPERM specifically.`
+- The OPFS backend, which has no symlinks, notes `// TODO: Propagate EPERM specifically.`
   ([opfs_backend.cpp#L322-L327](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/opfs_backend.cpp#L322-L327)).
 
-**Suggested fix:** let `insertSymlink` return a `MaybeFile`, as suggested
-for `insertDataFile` and `insertDirectory` in the report on `EIO` from
-failed creates: still a `std::shared_ptr`, but able to carry a negative
-error code. `__syscall_symlinkat` returns that code. A backend that returns
-plain null keeps getting `EPERM`, so `MaybeFile::getError()` takes the code
-to use for an unexplained null. The Node backend passes the host's errno
-through, the OPFS backend returns `-EPERM` itself, and inserting into an
-unlinked directory is `ENOENT`.
+**Suggested fix:** let `insertSymlink` return a `MaybeFile`, as suggested for `insertDataFile` and `insertDirectory` in
+the report on `EIO` from failed creates: still a `std::shared_ptr`, but able to carry a negative error code.
+`__syscall_symlinkat` returns that code. A backend that returns plain null keeps getting `EPERM`, so
+`MaybeFile::getError()` takes the code to use for an unexplained null. The Node backend passes the host's errno through,
+the OPFS backend returns `-EPERM` itself, and inserting into an unlinked directory is `ENOENT`.
 
 The diff applies on top of the one in that report, which adds `MaybeFile`:
 
@@ -309,27 +295,20 @@ symlink = -1 (Permission denied)
 
 ## Evidence
 
-- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the
-  same result, on nixpkgs' stock 6.0.9 and on ibus-web's patched one.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
-  are included. Testing beyond the test case: ibus-web's
-  `checks.emscripten-fixes` (the same `EACCES` case, under Node) and the
-  IndexedDB backend's browser tests, where a read-only mount's `symlink()`
-  gives `EROFS`, a quota failure `ENOSPC` and a closed database `EIO`.
+- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same result, on nixpkgs' stock 6.0.9 and on
+  ibus-web's patched one.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Testing beyond the test case:
+  ibus-web's `checks.emscripten-fixes` (the same `EACCES` case, under Node) and the IndexedDB backend's browser tests,
+  where a read-only mount's `symlink()` gives `EROFS`, a quota failure `ENOSPC` and a closed database `EIO`.
   Emscripten's own test suite was not run with this patch.
-- **Depends on the create-EIO report.** The diff uses its `MaybeFile` and
-  extends its `getError()`. Filed alone, it would have to add the type
-  itself.
+- **Depends on the create-EIO report.** The diff uses its `MaybeFile` and extends its `getError()`. Filed alone, it
+  would have to add the type itself.
 - **Test needs a non-root user.** Root would create the symlink.
-- **Duplicate search.** "wasmfs symlink", "symlinkat EPERM" and
-  "wasmfs EPERM" turned up nothing about symlink errors; #17773 ("WasmFS:
-  Error handling in OPFS backend", closed) is the nearest.
-- **Why it matters to us.** ibus-web's IndexedDB backend refuses every
-  change on a read-only mount with `EROFS`, and a write over the quota with
-  `ENOSPC`; without this, `symlink()` alone says `EPERM` for both.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-02:
-  `__syscall_symlinkat` and the `insertSymlink` declarations in `file.h`
-  are unchanged on `main` (a001454, 155 commits after 6.0.9) and in 6.0.10,
-  two lines further down in `syscalls.cpp` on `main`. The conclusion comes
-  from the source; `main` wasn't rebuilt.
+- **Duplicate search.** "wasmfs symlink", "symlinkat EPERM" and "wasmfs EPERM" turned up nothing about symlink errors;
+  #17773 ("WasmFS: Error handling in OPFS backend", closed) is the nearest.
+- **Why it matters to us.** ibus-web's IndexedDB backend refuses every change on a read-only mount with `EROFS`, and a
+  write over the quota with `ENOSPC`; without this, `symlink()` alone says `EPERM` for both.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-02: `__syscall_symlinkat` and the `insertSymlink`
+  declarations in `file.h` are unchanged on `main` (a001454, 155 commits after 6.0.9) and in 6.0.10, two lines further
+  down in `syscalls.cpp` on `main`. The conclusion comes from the source; `main` wasn't rebuilt.
 - ibus-web carries this fix as `modules/emscripten/patches/0017-wasmfs-symlink-errors.patch`.

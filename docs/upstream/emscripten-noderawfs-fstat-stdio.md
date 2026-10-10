@@ -1,21 +1,17 @@
 # `-sNODERAWFS`: `fstat()` on fds 0–2 throws a TypeError
 
 **Draft: do not post.** This is already reported and fixed upstream:
-[#27628](https://github.com/emscripten-core/emscripten/issues/27628) ("`fstat` on
-stdin/stdout/stderr stream crashes with NODERAWFS", closed as completed on
-2026-09-01) was fixed by
-[#27632](https://github.com/emscripten-core/emscripten/pull/27632) ("Fix fstat
-on stdio streams under NODERAWFS", merged 2026-09-01). #27632 gives the standard
-streams a synthetic node and adds `test_fs_fstat_stdio`, which covers fds 0–2
-on every file system. **It's fixed in 6.0.10** (tagged 2026-09-18), whose
-`libnoderawfs.js` has #27632's `createStandardStreams`. Emscripten 6.0.9 as
-packaged by nixpkgs predates the fix. Nothing needs to go upstream. When nixpkgs
-moves to 6.0.10 or later, re-run the reproduction below to confirm.
+[#27628](https://github.com/emscripten-core/emscripten/issues/27628) ("`fstat` on stdin/stdout/stderr stream crashes
+with NODERAWFS", closed as completed on 2026-09-01) was fixed by
+[#27632](https://github.com/emscripten-core/emscripten/pull/27632) ("Fix fstat on stdio streams under NODERAWFS", merged
+2026-09-01). #27632 gives the standard streams a synthetic node and adds `test_fs_fstat_stdio`, which covers fds 0–2 on
+every file system. **It's fixed in 6.0.10** (tagged 2026-09-18), whose `libnoderawfs.js` has #27632's
+`createStandardStreams`. Emscripten 6.0.9 as packaged by nixpkgs predates the fix. Nothing needs to go upstream. When
+nixpkgs moves to 6.0.10 or later, re-run the reproduction below to confirm.
 
-Checked against `main` 5977ecc (2026-10-02): patch 0001 reverse-applies
-cleanly there (`git apply -R --check`), so `main` has the same
-`libnoderawfs.js` change and nothing more is needed. Keep 0001 until nixpkgs
-packages 6.0.10 or later.
+Checked against `main` 5977ecc (2026-10-02): patch 0001 reverse-applies cleanly there (`git apply -R --check`), so
+`main` has the same `libnoderawfs.js` change and nothing more is needed. Keep 0001 until nixpkgs packages 6.0.10 or
+later.
 
 The rest of this file records what we saw, so the check is quick.
 
@@ -96,8 +92,7 @@ Node.js v24.20.0
 [exit status 1]
 ```
 
-Without `-sNODERAWFS`, or with `-sWASMFS`, all three calls succeed (the browser
-never hits this):
+Without `-sNODERAWFS`, or with `-sWASMFS`, all three calls succeed (the browser never hits this):
 
 ```
 $ emcc -O0 fstat_stdio.c -o fstat_stdio.js && node fstat_stdio.js < /dev/null
@@ -139,31 +134,25 @@ End of search list.
 
 </details>
 
-**Cause in 6.0.9:** NODERAWFS's `createStandardStreams` creates fds 0–2 with no
-`node`
+**Cause in 6.0.9:** NODERAWFS's `createStandardStreams` creates fds 0–2 with no `node`
 ([libnoderawfs.js#L67-L73](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libnoderawfs.js#L67-L73)).
 Its `fstat` then reads `stream.node.node_ops`
-([libnoderawfs.js#L112](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libnoderawfs.js#L112)).
-The getattr dispatch came in with #27305; #27632 describes the regression the
-same way. Changing `stream.node.node_ops` to `stream.node?.node_ops` in the
-generated JavaScript made all three calls succeed, reporting the host's types
-(`/dev/null` as a character device, a pipe as a FIFO). #27632 fixes it the other
-way, by giving the streams a node.
+([libnoderawfs.js#L112](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libnoderawfs.js#L112)). The
+getattr dispatch came in with #27305; #27632 describes the regression the same way. Changing `stream.node.node_ops` to
+`stream.node?.node_ops` in the generated JavaScript made all three calls succeed, reporting the host's types
+(`/dev/null` as a character device, a pipe as a FIFO). #27632 fixes it the other way, by giving the streams a node.
 
 ## Evidence
 
-- **FAQ / bug_reports.rst.** The FAQ doesn't mention NODERAWFS or `fstat`. The
-  guide's checklist doesn't apply, since there is nothing to file.
-- **Duplicate search.** "NODERAWFS fstat", "NODERAWFS stdin", "node_ops
-  undefined", the exact TypeError text, "fstat stdin NODERAWFS" and "NODERAWFS
-  fstat stdout" turned up #27628 and its fix #27632, plus #27305 (the change
-  that introduced the dereference).
-- **Where we hit it.** GLib's `/mainloop/blocked_child_sources` hit this while
-  the tests ran on NODERAWFS. They run on WasmFS now, where `fstat(0)` works.
-  We haven't checked whether the GLib tools, which still link with NODERAWFS,
-  ever `fstat` a standard stream.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: both
-  6.0.10 and `main` (2151200) carry #27632's change to `libnoderawfs.js`. That
-  it fixes our case is inferred from the code and #27632's test; neither was
+- **FAQ / bug_reports.rst.** The FAQ doesn't mention NODERAWFS or `fstat`. The guide's checklist doesn't apply, since
+  there is nothing to file.
+- **Duplicate search.** "NODERAWFS fstat", "NODERAWFS stdin", "node_ops undefined", the exact TypeError text, "fstat
+  stdin NODERAWFS" and "NODERAWFS fstat stdout" turned up #27628 and its fix #27632, plus #27305 (the change that
+  introduced the dereference).
+- **Where we hit it.** GLib's `/mainloop/blocked_child_sources` hit this while the tests ran on NODERAWFS. They run on
+  WasmFS now, where `fstat(0)` works. We haven't checked whether the GLib tools, which still link with NODERAWFS, ever
+  `fstat` a standard stream.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: both 6.0.10 and `main` (2151200) carry
+  #27632's change to `libnoderawfs.js`. That it fixes our case is inferred from the code and #27632's test; neither was
   built here.
 - ibus-web carries this fix as `modules/emscripten/patches/0001-noderawfs-fstat-stdio.patch`.

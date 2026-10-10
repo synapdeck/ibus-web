@@ -18,6 +18,6 @@ Inside `nix develop`, `pnpm --dir examples/demo dev --port 5174` uses the same r
 method in the picker; <kbd>Ctrl+Space</kbd> turns input methods off and back on. The checkbox turns ibus-web handling on
 or off. While a module starts, the fields accept native input.
 
-A module joins the demo when its Nix module sets `ibusWeb.demo.modules.<name>` to its distribution. The page opens on the
-default engine of the first module in name order. Each module's end-to-end tests are in `test/e2e/<name>.spec.ts`, with
-their helpers beside them.
+A module joins the demo when its Nix module sets `ibusWeb.demo.modules.<name>` to its distribution. The page opens on
+the default engine of the first module in name order. Each module's end-to-end tests are in `test/e2e/<name>.spec.ts`,
+with their helpers beside them.

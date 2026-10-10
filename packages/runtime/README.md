@@ -18,5 +18,5 @@ are in [docs/runtime.md](https://github.com/synapdeck/ibus-web/blob/master/docs/
 
 `dist/` comes from the Nix build of the runtime, never from this directory: `nix build .#npm.runtime` packs the tarball.
 
-Licensed under LGPL-2.1-or-later, which covers the runtime as a whole; the runtime is a separate file a host can replace.
-It links pcre2, zlib and libffi, whose licenses are in `LICENSES/` with GLib's and ibus-web's own.
+Licensed under LGPL-2.1-or-later, which covers the runtime as a whole; the runtime is a separate file a host can
+replace. It links pcre2, zlib and libffi, whose licenses are in `LICENSES/` with GLib's and ibus-web's own.

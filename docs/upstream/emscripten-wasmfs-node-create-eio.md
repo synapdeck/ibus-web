@@ -1,19 +1,14 @@
 # WasmFS: backend failures to create a file or directory are reported as `EIO`
 
-**Posted: don't post again.** Filed as
-[#27832](https://github.com/emscripten-core/emscripten/issues/27832)
-(2026-10-01, no replies yet), without the symlink and lookup halves, which
-are still to post (`emscripten-wasmfs-symlink-errors.md`,
-`emscripten-wasmfs-lookup-errors.md`). The fix (0012) can follow as a PR
-after #27825's, since it builds on 0010.
+**Posted: don't post again.** Filed as [#27832](https://github.com/emscripten-core/emscripten/issues/27832) (2026-10-01,
+no replies yet), without the symlink and lookup halves, which are still to post (`emscripten-wasmfs-symlink-errors.md`,
+`emscripten-wasmfs-lookup-errors.md`). The fix (0012) can follow as a PR after #27825's, since it builds on 0010.
 
-Checked against `main` 5977ecc (2026-10-02): the `EIO` TODOs in `doOpen()`
-and `doMkdir()` and the Node backend's inserts are unchanged; 0012 applies
-on `main` after 0007 and 0010 with 2-line offsets, and not alone.
+Checked against `main` 5977ecc (2026-10-02): the `EIO` TODOs in `doOpen()` and `doMkdir()` and the Node backend's
+inserts are unchanged; 0012 applies on `main` after 0007 and 0010 with 2-line offsets, and not alone.
 
-**As posted** (what #27832 says, kept for reference). When drafted, no
-existing issue covered it; the source already admits the gap with a TODO at
-each site, so it was filed together with the other Node backend reports.
+**As posted** (what #27832 says, kept for reference). When drafted, no existing issue covered it; the source already
+admits the gap with a TODO at each site, so it was filed together with the other Node backend reports.
 
 ## Issue title
 
@@ -23,9 +18,8 @@ WasmFS: mkdir()/open(O_CREAT) report EIO for any backend failure (e.g. EACCES fr
 
 ---
 
-When a backend fails to create a file or directory, WasmFS returns `EIO`
-whatever the cause. With the Node backend, a host `EACCES` (or `EROFS`,
-`ENOSPC`, `EDQUOT`, …) comes back as "I/O error". Callers that handle
+When a backend fails to create a file or directory, WasmFS returns `EIO` whatever the cause. With the Node backend, a
+host `EACCES` (or `EROFS`, `ENOSPC`, `EDQUOT`, …) comes back as "I/O error". Callers that handle
 `EACCES`/`EEXIST`/`ENOSPC` specially can't tell what happened.
 
 **Version of emscripten/emsdk:**
@@ -38,11 +32,10 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
-**Test case** (`node_create_eio.c`; `argv[1]` is a host directory the
-non-root user can't write to):
+**Test case** (`node_create_eio.c`; `argv[1]` is a host directory the non-root user can't write to):
 
 ```c
 #include <emscripten/wasmfs.h>
@@ -79,10 +72,9 @@ open(O_CREAT) = -1 (I/O error)
 
 Expected `EACCES` for both, which is what the host returned.
 
-WasmFS's own permission check doesn't catch this. The mount point's mode is the
-`0777` given to `wasmfs_create_directory`, not the host's `0555`. The same
-happens in host directories owned by another user: WasmFS's check passes if any
-write bit (`0222`) is set, ignoring ownership.
+WasmFS's own permission check doesn't catch this. The mount point's mode is the `0777` given to
+`wasmfs_create_directory`, not the host's `0555`. The same happens in host directories owned by another user: WasmFS's
+check passes if any write bit (`0222`) is set, ignoring ownership.
 
 <details>
 <summary>Full compile and link output with <code>-v</code> appended (cache and scratch paths shortened)</summary>
@@ -115,21 +107,18 @@ End of search list.
 
 **Where:**
 
-- `doOpen` and `doMkdir` turn a null result from the backend's
-  `insertDataFile`/`insertDirectory` (or `createFile`/`createDirectory`) into
-  `-EIO`, under `// TODO Receive a specific error code, and report it here`
+- `doOpen` and `doMkdir` turn a null result from the backend's `insertDataFile`/`insertDirectory` (or
+  `createFile`/`createDirectory`) into `-EIO`, under `// TODO Receive a specific error code, and report it here`
   ([syscalls.cpp#L480-L493](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L480-L493),
   [#L645-L657](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L645-L657)).
 - The Node backend has the host's errno in hand and drops it
   ([node_backend.cpp#L220-L236](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L220-L236)).
 
-**Suggested fix:** let `Directory`'s insert functions return a
-`MaybeFile`: still a `std::shared_ptr`, so callers that only check for null
-don't change, but able to carry a negative error code, much as `getEntries`
-returns `MaybeEntries`. `doOpen` and `doMkdir` return that code; a backend
-that returns plain null still gets `EIO`. The Node backend passes the host's
-errno through, and inserting into an unlinked directory is `ENOENT`.
-`Backend::create*` (used for mounts) is left alone.
+**Suggested fix:** let `Directory`'s insert functions return a `MaybeFile`: still a `std::shared_ptr`, so callers that
+only check for null don't change, but able to carry a negative error code, much as `getEntries` returns `MaybeEntries`.
+`doOpen` and `doMkdir` return that code; a backend that returns plain null still gets `EIO`. The Node backend passes the
+host's errno through, and inserting into an unlinked directory is `ENOENT`. `Backend::create*` (used for mounts) is left
+alone.
 
 ```diff
 --- a/system/lib/wasmfs/backends/fetch_backend.cpp
@@ -430,9 +419,8 @@ errno through, and inserting into an unlinked directory is `ENOENT`.
    virtual std::shared_ptr<Symlink>
 ```
 
-(The Node backend's `insertDataFile` here builds on the `open`/`close` fix
-reported separately, where `_wasmfs_node_insert_file` returns the
-descriptor that created the file, or a negated errno.)
+(The Node backend's `insertDataFile` here builds on the `open`/`close` fix reported separately, where
+`_wasmfs_node_insert_file` returns the descriptor that created the file, or a negated errno.)
 
 With this applied to 6.0.9, the test case prints, at `-O0` and `-O2`:
 
@@ -442,42 +430,31 @@ mkdir = -1 (Permission denied)
 open(O_CREAT) = -1 (Permission denied)
 ```
 
-It was also tested for `EROFS` (a read-only mount), `EEXIST` (a FIFO in the
-way, which WasmFS doesn't list), `ENOENT` (a parent removed behind WasmFS's
-back, and an unlinked directory), `ENAMETOOLONG` and `ENOSPC` (a full
-tmpfs). Emscripten's own WasmFS tests (a 96-test selection) give the same
-results as without it.
+It was also tested for `EROFS` (a read-only mount), `EEXIST` (a FIFO in the way, which WasmFS doesn't list), `ENOENT` (a
+parent removed behind WasmFS's back, and an unlinked directory), `ENAMETOOLONG` and `ENOSPC` (a full tmpfs).
+Emscripten's own WasmFS tests (a 96-test selection) give the same results as without it.
 
 ---
 
 ## Evidence
 
-- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same
-  result. The TODOs show the maintainers know. Whether a tracking issue is
-  welcome is a judgement call; `bug_reports.rst` doesn't say.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
-  are included. The `MaybeFile` type is one way to shape the interface
-  change; maintainers may prefer another.
+- **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`, with the same result. The TODOs show the maintainers
+  know. Whether a tracking issue is welcome is a judgement call; `bug_reports.rst` doesn't say.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. The `MaybeFile` type is one
+  way to shape the interface change; maintainers may prefer another.
 - **Test needs a non-root user.** Root would create the files.
-- **Overlap with other drafts.** For `open(O_CREAT)`, fixing #18033 (see
-  `emscripten-wasmfs-create-permission.md`) makes WasmFS answer `EACCES` itself
-  whenever its idea of the directory's mode is right. This report covers the
-  rest: mount points, directories owned by someone else (WasmFS ignores
-  ownership) and non-permission errors.
-- **Duplicate search.** "wasmfs EIO", "wasmfs I/O error", "wasmfs mkdir EIO",
-  "Receive a specific error code", "wasmfs node backend" and "EACCES", plus a
-  scan of all open "wasmfs" issues, turned up #17773 ("WasmFS: Error handling
-  in OPFS backend", closed) and nothing about creation errors.
-- **Why it matters to us.** GLib's `/fileutils/mkdir-with-parents` expects
-  `EACCES` creating under `/usr` in the build sandbox. It got `EIO` until
-  `modules/toolchain/node-host-fs.c` started `chmod`ing the WasmFS root to the
-  host's mode; with this fix that emulation is gone, and the chmod fix
-  needs this one, or the test gets `EIO` again.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `node_backend.cpp` and `libwasmfs_node.js` are unchanged between 6.0.9 and
-  `main` (2151200, 139 commits later). `syscalls.cpp` changed only in
-  `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the
-  cited code is unchanged, a few lines further down. The latest release, 6.0.10
-  (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
-  wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Overlap with other drafts.** For `open(O_CREAT)`, fixing #18033 (see `emscripten-wasmfs-create-permission.md`) makes
+  WasmFS answer `EACCES` itself whenever its idea of the directory's mode is right. This report covers the rest: mount
+  points, directories owned by someone else (WasmFS ignores ownership) and non-permission errors.
+- **Duplicate search.** "wasmfs EIO", "wasmfs I/O error", "wasmfs mkdir EIO", "Receive a specific error code", "wasmfs
+  node backend" and "EACCES", plus a scan of all open "wasmfs" issues, turned up #17773 ("WasmFS: Error handling in OPFS
+  backend", closed) and nothing about creation errors.
+- **Why it matters to us.** GLib's `/fileutils/mkdir-with-parents` expects `EACCES` creating under `/usr` in the build
+  sandbox. It got `EIO` until `modules/toolchain/node-host-fs.c` started `chmod`ing the WasmFS root to the host's mode;
+  with this fix that emulation is gone, and the chmod fix needs this one, or the test gets `EIO` again.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `node_backend.cpp` and `libwasmfs_node.js`
+  are unchanged between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only in `fdatasync`'s
+  error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines further down. The
+  latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main` wasn't rebuilt. Our
+  build is nixpkgs' 6.0.9 with LLVM 22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0012-wasmfs-node-create-eio.patch`.

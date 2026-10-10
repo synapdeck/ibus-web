@@ -1,9 +1,9 @@
 # ibus-web documentation
 
-How ibus-web works, the constraints it lives under, and the evidence behind each choice. Each page
-keeps its reasons beside the decisions they support, with measurements summarised along with the
-conditions they were taken under. Start with the repository's [README](../README.md) for what
-ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to work on it.
+How ibus-web works, the constraints it lives under, and the evidence behind each choice. Each page keeps its reasons
+beside the decisions they support, with measurements summarised along with the conditions they were taken under. Start
+with the repository's [README](../README.md) for what ibus-web is, and [CONTRIBUTING](../CONTRIBUTING.md) for how to
+work on it.
 
 ## Topics
 

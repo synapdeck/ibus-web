@@ -1,31 +1,25 @@
 # WasmFS: `getcwd()` drops the name of a mount point in a memory directory
 
-**Posted: don't post again.** The comment below went on #18112 on
-2026-10-01, with a pointer to it on #23756 the same day; no replies yet, and
-#23756 is still open and unmerged.
+**Posted: don't post again.** The comment below went on #18112 on 2026-10-01, with a pointer to it on #23756 the same
+day; no replies yet, and #23756 is still open and unmerged.
 
-Checked against `main` 5977ecc (2026-10-02): the code is unchanged, and 0002
-applies there exactly.
+Checked against `main` 5977ecc (2026-10-02): the code is unchanged, and 0002 applies there exactly.
 
 **Draft: do not post as a new issue.** This is already reported as
-[#18112](https://github.com/emscripten-core/emscripten/issues/18112) ("WasmFS:
-Current directory ignores custom backend", open since 2022). A fix is open as
-[#23756](https://github.com/emscripten-core/emscripten/pull/23756) ("Fix
-retrieval of mounted directory names"), stalled since March 2025 on whether the
-fix belongs in the backends. On #24141 ("getcwd returns incorrect answer using
-OPFS with WASMFS"), a maintainer asked whether it duplicates #18112. Post the
-text below as a **comment on #18112**. It answers the open question on #23756,
-so linking to it from there would help too.
+[#18112](https://github.com/emscripten-core/emscripten/issues/18112) ("WasmFS: Current directory ignores custom
+backend", open since 2022). A fix is open as [#23756](https://github.com/emscripten-core/emscripten/pull/23756) ("Fix
+retrieval of mounted directory names"), stalled since March 2025 on whether the fix belongs in the backends. On #24141
+("getcwd returns incorrect answer using OPFS with WASMFS"), a maintainer asked whether it duplicates #18112. Post the
+text below as a **comment on #18112**. It answers the open question on #23756, so linking to it from there would help
+too.
 
 ## Comment for #18112
 
 ---
 
-This still reproduces on 6.0.9. As the `wasmfs_mounted_cwd.c` test in #23756
-already shows, it needs nothing but the memory backend: any directory created
-with `wasmfs_create_directory()` under the (memory) root loses its name in
-`getcwd()`. The test case below is the same idea with a subdirectory added,
-which shows the `//sub` form too.
+This still reproduces on 6.0.9. As the `wasmfs_mounted_cwd.c` test in #23756 already shows, it needs nothing but the
+memory backend: any directory created with `wasmfs_create_directory()` under the (memory) root loses its name in
+`getcwd()`. The test case below is the same idea with a subdirectory added, which shows the `//sub` form too.
 
 **Version of emscripten/emsdk:**
 
@@ -37,8 +31,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`getcwd_mount.c`):
 
@@ -116,23 +110,20 @@ End of search list.
 
 **On the question in #23756 (fix the backends, or `Directory::Handle`?):**
 
-- A mount point is never one of its parent backend's entries. `mountChild`
-  puts it only in the parent's dcache, as `DCacheKind::Mount`
+- A mount point is never one of its parent backend's entries. `mountChild` puts it only in the parent's dcache, as
+  `DCacheKind::Mount`
   ([syscalls.cpp#L658](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L658),
   [file.cpp#L43](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/file.cpp#L43)).
-- So no backend can name it, including one that implements `getName` as
-  `file.h` asks.
-- `MemoryDirectory::getName` searches its own `entries`, correctly, and returns
-  `""`
+- So no backend can name it, including one that implements `getName` as `file.h` asks.
+- `MemoryDirectory::getName` searches its own `entries`, correctly, and returns `""`
   ([memory_backend.cpp#L86-L95](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/memory_backend.cpp#L86-L95)).
-- `Directory::Handle::getName` returns that `""` without looking at the dcache,
-  because the memory directory maintains file identity
+- `Directory::Handle::getName` returns that `""` without looking at the dcache, because the memory directory maintains
+  file identity
   ([file.cpp#L209-L220](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/file.cpp#L209-L220)).
-- Mounts are a `Directory::Handle`-level concept, so that seems the right place
-  to resolve their names.
+- Mounts are a `Directory::Handle`-level concept, so that seems the right place to resolve their names.
 
-Checking the dcache first is enough. For identity-maintaining directories the
-dcache holds only mounts, so the extra scan is short:
+Checking the dcache first is enough. For identity-maintaining directories the dcache holds only mounts, so the extra
+scan is short:
 
 ```diff
 --- a/system/lib/wasmfs/file.cpp
@@ -168,9 +159,8 @@ chdir("/mnt") -> getcwd() = "/mnt"
 chdir("/mnt/sub") -> getcwd() = "/mnt/sub"
 ```
 
-#23756 gets the same result by falling back to the dcache when the backend
-returns `""`. Either way works. The dcache-first order just doesn't depend on
-the backend returning `""` for a file it doesn't know.
+#23756 gets the same result by falling back to the dcache when the backend returns `""`. Either way works. The
+dcache-first order just doesn't depend on the backend returning `""` for a file it doesn't know.
 
 `getcwd()` isn't the only caller.
 [emscripten.cpp#L47](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/emscripten.cpp#L47)
@@ -180,33 +170,23 @@ builds a `FILE*`'s path the same way, and the fix covers both.
 
 ## Evidence
 
-- **Why it matters to us.** The runtime mounts OPFS at `/engines/<name>/` inside
-  the memory root, so `getcwd()` there returns `/engines//…`. Under Node,
-  `modules/toolchain/node-host-fs.c` avoids it by rooting WasmFS in the Node
-  backend.
-- **FAQ.** The FAQ doesn't mention WasmFS or `getcwd`. The File System API page
-  calls WasmFS "Stable, but not yet feature-complete with the old FS". That
-  doesn't make wrong `getcwd()` results intended. As the FAQ suggests, the case
-  was run at `-O0` and `-O2` (identical). The test suite already skips
-  `test_unistd_unlink` under WasmFS+NODEFS for #18112
-  (`test/test_core.py:6257`).
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out because the fault is in `libwasmfs`, not the
-  test. The guide prefers a PR. #23756 already exists, so the comment offers the
-  analysis rather than a competing PR. Alternatively, offer to take over #23756
-  if its author has gone quiet.
-- **Credit.** #23756 already has a memory-backend-only reproduction
-  (`test/wasmfs/wasmfs_mounted_cwd.c`). The comment credits it, not ours, as
-  the minimal case.
-- **Duplicate search.** "wasmfs getcwd", "wasmfs getcwd mount", "wasmfs mount
-  getName", "getcwd mounted directory", "getcwd empty name", "getcwd opfs",
-  "WASMFS chdir" and "getcwd", plus a scan of all open issues and PRs matching
+- **Why it matters to us.** The runtime mounts OPFS at `/engines/<name>/` inside the memory root, so `getcwd()` there
+  returns `/engines//…`. Under Node, `modules/toolchain/node-host-fs.c` avoids it by rooting WasmFS in the Node backend.
+- **FAQ.** The FAQ doesn't mention WasmFS or `getcwd`. The File System API page calls WasmFS "Stable, but not yet
+  feature-complete with the old FS". That doesn't make wrong `getcwd()` results intended. As the FAQ suggests, the case
+  was run at `-O0` and `-O2` (identical). The test suite already skips `test_unistd_unlink` under WasmFS+NODEFS for
+  #18112 (`test/test_core.py:6257`).
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because
+  the fault is in `libwasmfs`, not the test. The guide prefers a PR. #23756 already exists, so the comment offers the
+  analysis rather than a competing PR. Alternatively, offer to take over #23756 if its author has gone quiet.
+- **Credit.** #23756 already has a memory-backend-only reproduction (`test/wasmfs/wasmfs_mounted_cwd.c`). The comment
+  credits it, not ours, as the minimal case.
+- **Duplicate search.** "wasmfs getcwd", "wasmfs getcwd mount", "wasmfs mount getName", "getcwd mounted directory",
+  "getcwd empty name", "getcwd opfs", "WASMFS chdir" and "getcwd", plus a scan of all open issues and PRs matching
   "wasmfs", turned up #18112, #24141 and #23756. Nothing else is close.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `file.cpp`, `file.h`, `memory_backend.cpp` and `emscripten.cpp` are unchanged
-  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed
-  only in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp
-  rounding; the cited `getcwd` code is unchanged, two lines further down. The
-  latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from
-  the diff; `main` wasn't rebuilt. #18112 and #23756 were open on 2026-09-30.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `file.cpp`, `file.h`, `memory_backend.cpp`
+  and `emscripten.cpp` are unchanged between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only
+  in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the cited `getcwd` code is unchanged, two
+  lines further down. The latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff;
+  `main` wasn't rebuilt. #18112 and #23756 were open on 2026-09-30.
 - ibus-web carries this fix as `modules/emscripten/patches/0002-wasmfs-getcwd-mount.patch`.

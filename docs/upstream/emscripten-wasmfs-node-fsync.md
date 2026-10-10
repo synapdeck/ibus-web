@@ -1,13 +1,11 @@
 # WasmFS Node backend: `fsync()` traps (`NodeFile::flush` is unreachable)
 
-**Posted: don't post again.** Filed as
-[#27822](https://github.com/emscripten-core/emscripten/issues/27822)
-(2026-10-01), with the fix and a test as PR
-[#27844](https://github.com/emscripten-core/emscripten/pull/27844) ("[WasmFS]
-Implement fsync for the Node backend", open, no review yet).
+**Posted: don't post again.** Filed as [#27822](https://github.com/emscripten-core/emscripten/issues/27822)
+(2026-10-01), with the fix and a test as PR [#27844](https://github.com/emscripten-core/emscripten/pull/27844)
+("[WasmFS] Implement fsync for the Node backend", open, no review yet).
 
-Checked against `main` 5977ecc (2026-10-02): `NodeFile::flush` is still
-`WASMFS_UNREACHABLE`, and 0009 applies there alone exactly.
+Checked against `main` 5977ecc (2026-10-02): `NodeFile::flush` is still `WASMFS_UNREACHABLE`, and 0009 applies there
+alone exactly.
 
 **Draft: new issue.** No existing issue covers it.
 
@@ -19,11 +17,10 @@ WasmFS Node backend: fsync() aborts with "TODO: implement NodeFile::flush"
 
 ---
 
-`fsync()` (or `fdatasync()`) on a file in a `wasmfs_create_node_backend()`
-directory kills the program. Without assertions it is a bare
-`RuntimeError: unreachable`. Writing a file and `fsync`ing it before a `rename`
-is the usual way to replace a file safely, so ordinary programs hit this. GLib's
-`g_file_set_contents()` does it whenever it replaces a non-empty file.
+`fsync()` (or `fdatasync()`) on a file in a `wasmfs_create_node_backend()` directory kills the program. Without
+assertions it is a bare `RuntimeError: unreachable`. Writing a file and `fsync`ing it before a `rename` is the usual way
+to replace a file safely, so ordinary programs hit this. GLib's `g_file_set_contents()` does it whenever it replaces a
+non-empty file.
 
 **Version of emscripten/emsdk:**
 
@@ -35,8 +32,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`node_fsync.c`; `argv[1]` is an existing host directory):
 
@@ -125,8 +122,7 @@ End of search list.
 
 </details>
 
-**Where:** `NodeFile::flush` is `WASMFS_UNREACHABLE("TODO: implement
-NodeFile::flush")`
+**Where:** `NodeFile::flush` is `WASMFS_UNREACHABLE("TODO: implement NodeFile::flush")`
 ([node_backend.cpp#L153-L155](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/backends/node_backend.cpp#L153-L155)).
 `__wasi_fd_sync` calls it for every data file
 ([syscalls.cpp#L311-L328](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L311-L328)).
@@ -200,39 +196,28 @@ data
 
 ## Evidence
 
-- **How the fix was tested.** The "with this applied" run used a 6.0.9 tree
-  with all of this set's candidate fixes applied at once (this one, the
-  `rename` and `open`/`close` fixes for the Node backend, and the others). The
-  program here doesn't touch the code the others change.
-- **FAQ.** Nothing in the FAQ covers this. A `WASMFS_UNREACHABLE` with a TODO
-  is plainly unimplemented, not intended. Run at `-O0` and `-O2`, which crash
-  the same way.
-- **`libsigs.js`.** The new import needs its signature there, which
-  `tools/maint/gen_sig_info.py` would add; without it `other.test_gen_sig_info`
-  fails and wasm64 builds break. The hunk includes it, and the test passes.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are
-  included. Bitcode is left out because the fault is in `libwasmfs`. The fix is
-  small and could go straight to a PR, with a `test/` case that `fsync`s a
+- **How the fix was tested.** The "with this applied" run used a 6.0.9 tree with all of this set's candidate fixes
+  applied at once (this one, the `rename` and `open`/`close` fixes for the Node backend, and the others). The program
+  here doesn't touch the code the others change.
+- **FAQ.** Nothing in the FAQ covers this. A `WASMFS_UNREACHABLE` with a TODO is plainly unimplemented, not intended.
+  Run at `-O0` and `-O2`, which crash the same way.
+- **`libsigs.js`.** The new import needs its signature there, which `tools/maint/gen_sig_info.py` would add; without it
+  `other.test_gen_sig_info` fails and wasm64 builds break. The hunk includes it, and the test passes.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because
+  the fault is in `libwasmfs`. The fix is small and could go straight to a PR, with a `test/` case that `fsync`s a
   NODEFS file under WasmFS.
-- **Duplicate search.** "WasmFS fsync node", "NodeFile::flush", "implement
-  NodeFile::flush", "fsync unreachable", "UNREACHABLE wasmfs", "wasmfs fsync"
-  and "fsync", plus a scan of all open "wasmfs" issues, turned up:
-  - #19903 (open PR, "WasmFS JS API: Implement syncfs"), which mentions
-    `NodeFile::flush` but doesn't implement it.
-  - #18491 ("[WasmFS] Flush not reaching backend", closed), which is about
-    whether flushes reach backends at all.
-  - #27806 (merged 2026-09-30), which fixes `fdatasync`'s error sign and
-    doesn't touch the Node backend.
-    None reports this trap.
-- **Why it matters to us.** Under WasmFS, `glib-compile-schemas` run twice
-  into one directory traps here. With the fix it runs twice cleanly; the
-  GLib tools still stay on NODERAWFS for another reason (WasmFS's stdout
-  turns a NUL byte into a line break).
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `node_backend.cpp`, `node_backend.h` and `libwasmfs_node.js` are unchanged
-  between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed
-  only in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp
-  rounding; the cited code is unchanged, a few lines further down. The latest
-  release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the
-  diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Duplicate search.** "WasmFS fsync node", "NodeFile::flush", "implement NodeFile::flush", "fsync unreachable",
+  "UNREACHABLE wasmfs", "wasmfs fsync" and "fsync", plus a scan of all open "wasmfs" issues, turned up:
+  - #19903 (open PR, "WasmFS JS API: Implement syncfs"), which mentions `NodeFile::flush` but doesn't implement it.
+  - #18491 ("[WasmFS] Flush not reaching backend", closed), which is about whether flushes reach backends at all.
+  - #27806 (merged 2026-09-30), which fixes `fdatasync`'s error sign and doesn't touch the Node backend. None reports
+    this trap.
+- **Why it matters to us.** Under WasmFS, `glib-compile-schemas` run twice into one directory traps here. With the fix
+  it runs twice cleanly; the GLib tools still stay on NODERAWFS for another reason (WasmFS's stdout turns a NUL byte
+  into a line break).
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `node_backend.cpp`, `node_backend.h` and
+  `libwasmfs_node.js` are unchanged between 6.0.9 and `main` (2151200, 139 commits later). `syscalls.cpp` changed only
+  in `fdatasync`'s error sign (#27806) and `utimensat`'s timestamp rounding; the cited code is unchanged, a few lines
+  further down. The latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff; `main`
+  wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0009-wasmfs-node-fsync.patch`.

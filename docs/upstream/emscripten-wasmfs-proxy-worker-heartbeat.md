@@ -1,55 +1,45 @@
 # WasmFS: a destroyed ProxyWorker's heartbeat keeps running its freed queue
 
 **Issue posted; the PR is still to post.** The issue went up as
-[#27858](https://github.com/emscripten-core/emscripten/issues/27858)
-(2026-10-02, no replies yet). Post the fix (patch 0018) as a PR with
-`other.test_wasmfs_proxy_worker_exit` from
-`emscripten-wasmfs-proxy-worker-heartbeat.tests.patch`, saying "Fixes:
-#27858".
+[#27858](https://github.com/emscripten-core/emscripten/issues/27858) (2026-10-02, no replies yet). Post the fix
+(patch 0018) as a PR with `other.test_wasmfs_proxy_worker_exit` from
+`emscripten-wasmfs-proxy-worker-heartbeat.tests.patch`, saying "Fixes: #27858".
 
-Checked against `main` 5977ecc (2026-10-02): `thread_utils.h` and the
-heartbeat are unchanged, and 0018 applies there alone with offsets only (-5
-and -23 lines). With Emscripten's runner, emsdk's toolchain for `main`
-(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133)
-and Node 24.21.0, `other.test_wasmfs_proxy_worker_exit` fails on `main`
-(`Assertion failed: pthread_self()` in `emscripten_proxy_execute_queue`) and
-passes on `main` with 0018 alone and with the whole stack;
+Checked against `main` 5977ecc (2026-10-02): `thread_utils.h` and the heartbeat are unchanged, and 0018 applies there
+alone with offsets only (-5 and -23 lines). With Emscripten's runner, emsdk's toolchain for `main`
+(`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133) and Node 24.21.0,
+`other.test_wasmfs_proxy_worker_exit` fails on `main` (`Assertion failed: pthread_self()` in
+`emscripten_proxy_execute_queue`) and passes on `main` with 0018 alone and with the whole stack;
 `other.test_gen_sig_info` passes with 0018.
 
 **Draft: new issue, with a PR.**
 
 ## Issue title
 
-WasmFS: ProxyWorker's 50 ms heartbeat outlives its thread and runs the freed queue on a pooled Worker (`Assertion failed: pthread_self()` in `emscripten_proxy_execute_queue`)
+WasmFS: ProxyWorker's 50 ms heartbeat outlives its thread and runs the freed queue on a pooled Worker
+(`Assertion failed: pthread_self()` in `emscripten_proxy_execute_queue`)
 
 ## Issue body
 
 ---
 
-`emscripten::ProxyWorker` (`system/lib/wasmfs/thread_utils.h`), which the
-OPFS and fetch backends use for their dedicated thread, starts a heartbeat
-on that thread: `_wasmfs_thread_utils_heartbeat()` sets a 50 ms
-`setInterval` that calls `emscripten_proxy_execute_queue()` on the
-ProxyWorker's queue. Nothing stops it except `ABORT`.
+`emscripten::ProxyWorker` (`system/lib/wasmfs/thread_utils.h`), which the OPFS and fetch backends use for their
+dedicated thread, starts a heartbeat on that thread: `_wasmfs_thread_utils_heartbeat()` sets a 50 ms `setInterval` that
+calls `emscripten_proxy_execute_queue()` on the ProxyWorker's queue. Nothing stops it except `ABORT`.
 
-`~ProxyWorker()` cancels and joins the thread, and the queue (a member) is
-freed after that. The Worker the thread ran on goes back to the pool, not
-terminated, and its JavaScript timers go with it. So every 50 ms the
-Worker calls `emscripten_proxy_execute_queue()` with a freed queue:
+`~ProxyWorker()` cancels and joins the thread, and the queue (a member) is freed after that. The Worker the thread ran
+on goes back to the pool, not terminated, and its JavaScript timers go with it. So every 50 ms the Worker calls
+`emscripten_proxy_execute_queue()` with a freed queue:
 
-- while the Worker is idle, `pthread_self()` is null and, with assertions,
-  `assert(pthread_self())` aborts the program;
-- without assertions, or once the pool hands the Worker to another thread,
-  it locks the freed queue's mutex and walks its freed task queues.
+- while the Worker is idle, `pthread_self()` is null and, with assertions, `assert(pthread_self())` aborts the program;
+- without assertions, or once the pool hands the Worker to another thread, it locks the freed queue's mutex and walks
+  its freed task queues.
 
-Backends are destroyed with the `WasmFS` object at exit (`EXIT_RUNTIME`),
-so any program with an OPFS or fetch backend can abort at exit if a
-heartbeat fires on a Worker whose backend thread has already been joined
-while the main thread is still destroying the others or shutting down. We
-hit it in about 1 run in 6 of a program with four backends of our own,
-built on `ProxyWorker`, in headless Chromium under load (0 in 250 on an
-idle machine), and every time once a destroyed backend's Worker stays idle
-for 50 ms before the program exits.
+Backends are destroyed with the `WasmFS` object at exit (`EXIT_RUNTIME`), so any program with an OPFS or fetch backend
+can abort at exit if a heartbeat fires on a Worker whose backend thread has already been joined while the main thread is
+still destroying the others or shutting down. We hit it in about 1 run in 6 of a program with four backends of our own,
+built on `ProxyWorker`, in headless Chromium under load (0 in 250 on an idle machine), and every time once a destroyed
+backend's Worker stays idle for 50 ms before the program exits.
 
 **Version of emscripten/emsdk:**
 
@@ -61,12 +51,11 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs, built against its own
-LLVM 22.1.8, so there is no commit hash. Node.js v24.19.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs, built against its own LLVM 22.1.8, so there is no commit hash.
+Node.js v24.19.0, x86_64 Linux.
 
-**Test case** (`proxy_worker_exit.cpp`). It includes the internal header
-directly, as a backend does, and the headers `thread_utils.h` uses without
-including them (`<assert.h>`, `<mutex>`, `<condition_variable>`):
+**Test case** (`proxy_worker_exit.cpp`). It includes the internal header directly, as a backend does, and the headers
+`thread_utils.h` uses without including them (`<assert.h>`, `<mutex>`, `<condition_variable>`):
 
 ```c++
 #include <emscripten/emscripten.h>
@@ -130,8 +119,8 @@ RuntimeError: Aborted(Assertion failed: pthread_self(), at: /emsdk/emscripten/sy
 [exit status 1]
 ```
 
-It fails 10 times in 10. Without `-sASSERTIONS` it prints `done`: the
-freed queue is still readable and empty, so nothing shows.
+It fails 10 times in 10. Without `-sASSERTIONS` it prints `done`: the freed queue is still readable and empty, so
+nothing shows.
 
 **Where:**
 
@@ -149,12 +138,10 @@ freed queue is still readable and empty, so nothing shows.
 - The next tick fails here
   ([proxying.c#L113](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/proxying.c#L113)).
 
-**Suggested fix:** stop the heartbeat before the thread is cancelled. A
-Worker hosts one thread at a time, so it needs only one variable for the
-timer, and `~ProxyWorker()` clears it with a synchronous call proxied to the
-thread (only the thread can reach its Worker's timers) before it cancels and
-joins it, so no tick can follow the queue being freed. 25 lines added, 3
-removed:
+**Suggested fix:** stop the heartbeat before the thread is cancelled. A Worker hosts one thread at a time, so it needs
+only one variable for the timer, and `~ProxyWorker()` clears it with a synchronous call proxied to the thread (only the
+thread can reach its Worker's timers) before it cancels and joins it, so no tick can follow the queue being freed. 25
+lines added, 3 removed:
 
 ```diff
 diff --git a/src/lib/libsigs.js b/src/lib/libsigs.js
@@ -232,46 +219,33 @@ diff --git a/system/lib/wasmfs/thread_utils.h b/system/lib/wasmfs/thread_utils.h
    }
 ```
 
-With this applied the test case prints `done` and exits 0, 10 times in 10.
-`setInterval()` returns an object in Node, which is why the timer stays in
-JavaScript rather than being handed to C++ to clear.
+With this applied the test case prints `done` and exits 0, 10 times in 10. `setInterval()` returns an object in Node,
+which is why the timer stays in JavaScript rather than being handed to C++ to clear.
 
-The stop can't overtake the heartbeat's start: a ProxyWorker's thread
-runs its queue only from its event loop (the heartbeat's ticks included),
-which it enters after starting the heartbeat, so a destructor that runs as
-soon as the constructor returns still queues the stop behind the start.
-`proxySync()` fails only when the task can't be queued (no memory for it)
-or its thread ends before running it, and this thread takes proxied work
-until the destructor cancels it, so the destructor asserts that the stop
-ran.
+The stop can't overtake the heartbeat's start: a ProxyWorker's thread runs its queue only from its event loop (the
+heartbeat's ticks included), which it enters after starting the heartbeat, so a destructor that runs as soon as the
+constructor returns still queues the stop behind the start. `proxySync()` fails only when the task can't be queued (no
+memory for it) or its thread ends before running it, and this thread takes proxied work until the destructor cancels it,
+so the destructor asserts that the stop ran.
 
-The proxied call costs one more round trip to the thread when a backend is
-destroyed; the join already waits for one. It also changes when the thread
-is canceled: the stop runs after whatever the thread is running and
-anything queued before it, so the destructor now lets that work finish
-before it cancels the thread, where a cancel alone could end the thread at
-a cancellation point inside it. A backend is destroyed once nothing is
-using it, so there is normally nothing to wait for; work that never
-finishes now holds up the destructor rather than being cut short. While
-the program runs, the destructor is the only way a ProxyWorker's thread
-ends, so stopping the heartbeat there covers every case. Alternatives
+The proxied call costs one more round trip to the thread when a backend is destroyed; the join already waits for one. It
+also changes when the thread is canceled: the stop runs after whatever the thread is running and anything queued before
+it, so the destructor now lets that work finish before it cancels the thread, where a cancel alone could end the thread
+at a cancellation point inside it. A backend is destroyed once nothing is using it, so there is normally nothing to wait
+for; work that never finishes now holds up the destructor rather than being cut short. While the program runs, the
+destructor is the only way a ProxyWorker's thread ends, so stopping the heartbeat there covers every case. Alternatives
 considered:
 
-- A `thread_local` whose destructor stops the heartbeat as the thread exits
-  (thread-specific data destructors run on cancellation too). It also
-  covers a thread that ends some other way, but leans on libc++abi's
-  `__cxa_thread_atexit` key, and has to be registered before the heartbeat
-  starts: registering can block on a lock, and a blocked pthread acts on a
-  pending cancel, which a destructor running just after the constructor
-  returns can send.
-- Checking in each tick that `pthread_self()` is still the thread that
-  started the heartbeat. The pool often hands the same Worker to a new
-  thread whose `pthread_t` is the freed one's address.
+- A `thread_local` whose destructor stops the heartbeat as the thread exits (thread-specific data destructors run on
+  cancellation too). It also covers a thread that ends some other way, but leans on libc++abi's `__cxa_thread_atexit`
+  key, and has to be registered before the heartbeat starts: registering can block on a lock, and a blocked pthread acts
+  on a pending cancel, which a destructor running just after the constructor returns can send.
+- Checking in each tick that `pthread_self()` is still the thread that started the heartbeat. The pool often hands the
+  same Worker to a new thread whose `pthread_t` is the freed one's address.
 
-**Test for the PR,** in the suite's format (also as
-`emscripten-wasmfs-proxy-worker-heartbeat.tests.patch` beside this draft):
-`other.test_wasmfs_proxy_worker_exit` is the test case above. It fails on
-6.0.9 with the assertion and passes with the fix:
+**Test for the PR,** in the suite's format (also as `emscripten-wasmfs-proxy-worker-heartbeat.tests.patch` beside this
+draft): `other.test_wasmfs_proxy_worker_exit` is the test case above. It fails on 6.0.9 with the assertion and passes
+with the fix:
 
 ```diff
 diff --git a/test/test_other.py b/test/test_other.py
@@ -296,42 +270,30 @@ diff --git a/test/test_other.py b/test/test_other.py
 
 ```
 
-(`test/wasmfs/wasmfs_proxy_worker_exit.cpp` is the test case above, with a
-comment at the top.)
+(`test/wasmfs/wasmfs_proxy_worker_exit.cpp` is the test case above, with a comment at the top.)
 
 ---
 
 ## Evidence
 
 - **How the fix was tested.**
-  - The test case on nixpkgs' 6.0.9 with our stack (0001–0017, none of which
-    touches `thread_utils.h` or the heartbeat): 10 of 10 runs abort; with
-    0018, 10 of 10 print `done`.
-  - `other.test_wasmfs_proxy_worker_exit` and `other.test_gen_sig_info`
-    with Emscripten's runner, on a writable copy of the tree: the first
-    FAILs without 0018 (the assertion) and both are ok with it.
-    `tools/maint/gen_sig_info.py` reproduces `libsigs.js` exactly with the
-    new `_wasmfs_thread_utils_heartbeat_stop__sig: 'v'` entry.
+  - The test case on nixpkgs' 6.0.9 with our stack (0001–0017, none of which touches `thread_utils.h` or the heartbeat):
+    10 of 10 runs abort; with 0018, 10 of 10 print `done`.
+  - `other.test_wasmfs_proxy_worker_exit` and `other.test_gen_sig_info` with Emscripten's runner, on a writable copy of
+    the tree: the first FAILs without 0018 (the assertion) and both are ok with it. `tools/maint/gen_sig_info.py`
+    reproduces `libsigs.js` exactly with the new `_wasmfs_thread_utils_heartbeat_stop__sig: 'v'` entry.
   - Our `checks.emscripten-fixes` runs the same program on our test link
-    (`modules/emscripten/checks/fixes/proxy-worker.cpp`): red 20 of
-    20 without 0018, green 20 of 20 with it.
-  - Our IndexedDB backend's browser tests: `sweep.1`/`sweep.2` 201 times in
-    headless Chromium with every core busy: 39 of 402 programs aborted at
-    exit (`RuntimeError: unreachable` after they had reported success)
-    without 0018, 0 with it. On an idle machine, 0 of 250 failed even
-    without it, which is why the browser rate in the issue is hedged.
+    (`modules/emscripten/checks/fixes/proxy-worker.cpp`): red 20 of 20 without 0018, green 20 of 20 with it.
+  - Our IndexedDB backend's browser tests: `sweep.1`/`sweep.2` 201 times in headless Chromium with every core busy: 39
+    of 402 programs aborted at exit (`RuntimeError: unreachable` after they had reported success) without 0018, 0 with
+    it. On an idle machine, 0 of 250 failed even without it, which is why the browser rate in the issue is hedged.
   - The browser OPFS and fetch tests weren't run.
-- **The patch applies to `main`** (a0014542110d, 2026-10-02) with offsets
-  only (`git apply --check`); `thread_utils.h` and the heartbeat are
-  byte-identical on 6.0.9, 6.0.10 and `main`.
-- **Duplicate search.** `gh` searches of issues and PRs for "heartbeat",
-  "ProxyWorker", "_wasmfs_thread_utils_heartbeat" and "OPFS backend destroy
-  worker crash" turned up only the PRs that made the heartbeat: #17869 ("Add
-  a hack to work around deadlocks"), #19697 (moved it to JS) and #19836 (a
-  missing dep), plus #24370/#25114 (a race in the ProxyWorker's
-  construction). None reports this.
-- ibus-web carries this fix as
-  `modules/emscripten/patches/0018-wasmfs-proxy-worker-heartbeat.patch`. It
-  matters to us because a backend whose database fails to open is torn down
-  at once, leaving its Worker idle in the pool, and every backend is
-  destroyed at exit.
+- **The patch applies to `main`** (a0014542110d, 2026-10-02) with offsets only (`git apply --check`); `thread_utils.h`
+  and the heartbeat are byte-identical on 6.0.9, 6.0.10 and `main`.
+- **Duplicate search.** `gh` searches of issues and PRs for "heartbeat", "ProxyWorker", "_wasmfs_thread_utils_heartbeat"
+  and "OPFS backend destroy worker crash" turned up only the PRs that made the heartbeat: #17869 ("Add a hack to work
+  around deadlocks"), #19697 (moved it to JS) and #19836 (a missing dep), plus #24370/#25114 (a race in the
+  ProxyWorker's construction). None reports this.
+- ibus-web carries this fix as `modules/emscripten/patches/0018-wasmfs-proxy-worker-heartbeat.patch`. It matters to us
+  because a backend whose database fails to open is torn down at once, leaving its Worker idle in the pool, and every
+  backend is destroyed at exit.

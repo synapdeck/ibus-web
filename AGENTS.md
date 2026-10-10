@@ -11,14 +11,14 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
 
 ## Layout
 
-- Every directory holding TypeScript is a pnpm workspace package whose `package.json` declares exactly what it
-  imports. The root `package.json` has no dependencies; don't add any.
+- Every directory holding TypeScript is a pnpm workspace package whose `package.json` declares exactly what it imports.
+  The root `package.json` has no dependencies; don't add any.
 - tsconfigs sit only at package roots, one per compile configuration: `tsconfig.json` (a solution file that only
   references the others) and files such as `tsconfig.<target>.json`, `tsconfig.test.json`, `tsconfig.test-browser.json`
   and `tsconfig.config.json`. A package with one configuration has only `tsconfig.json`. Each extends a preset from
   `@ibus-web/tsconfig` (`base`, `dom`, `worker`, `node`, `emscripten-js`) or another config of its own package, never
-  the solution `tsconfig.json` (`runtime/wasmfs-idb/tsconfig.library-types.json` extends `./tsconfig.worker.json`);
-  hk's `tsconfig-extends` step enforces this.
+  the solution `tsconfig.json` (`runtime/wasmfs-idb/tsconfig.library-types.json` extends `./tsconfig.worker.json`); hk's
+  `tsconfig-extends` step enforces this.
 - A tool is a package `tools/<name>/` (`@ibus-web/<name>`, private) with its own `package.json` and `tsconfig.json`, a
   `vitest.config.ts` when it has tests, and `checks.nix` when it only has checks or `module.nix` when it also provides
   something. `tools/claude/` is the exception: it holds Claude Code plugin manifests and isn't a package.
@@ -43,8 +43,8 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
 - A helper two modules need goes in `ibusWeb.lib` (declared in `modules/flake/lib.nix`), not into a copy.
 - Derivations are named `ibus-web-<what>`, except the project's own artifacts (`libibus-web`, `wasmfs-idb`,
   `ibus-runtime`), upstream packages and command wrappers. Checks are named `<area>-<what>`, the area being the
-  component's directory: `hangul-golden`, `tools-cast-audit`, `glib-settings-listeners`. The `files:<path>` checks from the files module are the exception: they are named for the
-  generated file they guard.
+  component's directory: `hangul-golden`, `tools-cast-audit`, `glib-settings-listeners`. The `files:<path>` checks from
+  the files module are the exception: they are named for the generated file they guard.
 
 ## Generated files: never edit by hand
 
@@ -81,9 +81,8 @@ the tracked copy differs.
 
 ## Writing
 
-- **Comments** explain why, never what. Don't narrate history ("now", "previously", "was changed to"), compare with
-  or reference other files' implementations, or point at plans or pull requests. Match the surrounding comment
-  density.
+- **Comments** explain why, never what. Don't narrate history ("now", "previously", "was changed to"), compare with or
+  reference other files' implementations, or point at plans or pull requests. Match the surrounding comment density.
 - **Readability:** separate logical blocks with a blank line (groups of related bindings, the steps of a function,
   sections of an attribute set or script, imports and body). Never put a blank line right after an opening token or
   right before a closing one, nor between a comment and the code it describes.

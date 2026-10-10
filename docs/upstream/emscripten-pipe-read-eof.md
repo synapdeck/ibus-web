@@ -1,34 +1,29 @@
 # Pipe `read()` at EOF fails with EAGAIN while `poll()` reports POLLHUP
 
-**Posted: don't post again.** The comment below went on #26708 on
-2026-10-01; no reply yet, and neither #26708 nor #22032 has moved since.
-ibus-web doesn't carry a fix, by decision.
+**Posted: don't post again.** The comment below went on #26708 on 2026-10-01; no reply yet, and neither #26708 nor
+#22032 has moved since. ibus-web doesn't carry a fix, by decision.
 
-Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged
-since 6.0.9, so `read()` still fails with `EAGAIN` at EOF.
+Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged since 6.0.9, so `read()` still fails with
+`EAGAIN` at EOF.
 
 **Draft: do not post as a new issue.** This is already reported as
-[#26708](https://github.com/emscripten-core/emscripten/issues/26708) ("read() on
-a pipe returns -1 instead of 0 after the write end is closed", open, no comments
-yet). [#22032](https://github.com/emscripten-core/emscripten/issues/22032) is
-the same bug: its reopening comment shows the closed-writer case returning
-`EAGAIN` on 3.1.54. Post the text below as a **comment on #26708**. It cites
-#22032 and suggests closing one as a duplicate of the other.
+[#26708](https://github.com/emscripten-core/emscripten/issues/26708) ("read() on a pipe returns -1 instead of 0 after
+the write end is closed", open, no comments yet). [#22032](https://github.com/emscripten-core/emscripten/issues/22032)
+is the same bug: its reopening comment shows the closed-writer case returning `EAGAIN` on 3.1.54. Post the text below as
+a **comment on #26708**. It cites #22032 and suggests closing one as a duplicate of the other.
 
 ## Comment for #26708
 
 ---
 
-This still reproduces on 6.0.9. Since #27298, `poll()` reports `POLLHUP|POLLIN`
-on the read end once every write end is closed, but `read()` still fails with
-`EAGAIN` there. So `read()` and `poll()` now disagree at EOF. A reader that polls,
-sees `POLLIN`, and reads until `read()` returns 0 never gets its EOF. It spins on
-`EAGAIN` instead. We hit this in GLib's test suite.
+This still reproduces on 6.0.9. Since #27298, `poll()` reports `POLLHUP|POLLIN` on the read end once every write end is
+closed, but `read()` still fails with `EAGAIN` there. So `read()` and `poll()` now disagree at EOF. A reader that polls,
+sees `POLLIN`, and reads until `read()` returns 0 never gets its EOF. It spins on `EAGAIN` instead. We hit this in
+GLib's test suite.
 
 This is also the case in #22032: see the
-[reopening comment](https://github.com/emscripten-core/emscripten/issues/22032#issuecomment-2148298075),
-where the writer is closed before the read. One of the two could be closed as
-a duplicate.
+[reopening comment](https://github.com/emscripten-core/emscripten/issues/22032#issuecomment-2148298075), where the
+writer is closed before the read. One of the two could be closed as a duplicate.
 
 **Version of emscripten/emsdk:**
 
@@ -40,8 +35,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`pipe_eof.c`):
 
@@ -87,8 +82,7 @@ poll at EOF:      1, revents POLLIN=1 POLLHUP=1
 read at EOF:      -1 (errno 6: Resource temporarily unavailable)
 ```
 
-The result is the same at `-O2` and with `-sNODERAWFS`, which leaves pipes to
-PIPEFS. Native Linux, for comparison:
+The result is the same at `-O2` and with `-sNODERAWFS`, which leaves pipes to PIPEFS. Native Linux, for comparison:
 
 ```
 $ cc pipe_eof.c -o pipe_eof && ./pipe_eof
@@ -126,11 +120,9 @@ End of search list.
 
 </details>
 
-**Where:** `PIPEFS.stream_ops.read` throws `EAGAIN` whenever the pipe is empty,
-without looking at `pipe.writeClosed`
-([libpipefs.js#L162-L165](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpipefs.js#L162-L165)).
-Its `poll` already treats `writeClosed` as EOF; the comment there says "readable
-(read returns 0)"
+**Where:** `PIPEFS.stream_ops.read` throws `EAGAIN` whenever the pipe is empty, without looking at `pipe.writeClosed`
+([libpipefs.js#L162-L165](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpipefs.js#L162-L165)). Its
+`poll` already treats `writeClosed` as EOF; the comment there says "readable (read returns 0)"
 ([libpipefs.js#L112-L116](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpipefs.js#L112-L116)).
 `test/core/test_pipe_pollhup.c` checks the `poll()` side but never reads at EOF.
 
@@ -160,18 +152,14 @@ poll at EOF:      1, revents POLLIN=1 POLLHUP=1
 read at EOF:      0 (errno 0: -)
 ```
 
-`test/core/test_pipe_pollhup.c`, `test/unistd/pipe.c` and
-`test/core/test_pipe_select.c` still pass with the change. Adding
-`assert(read(p[0], buf, sizeof(buf)) == 0);` after the drain in
-`test_pipe_pollhup.c` would cover this.
+`test/core/test_pipe_pollhup.c`, `test/unistd/pipe.c` and `test/core/test_pipe_select.c` still pass with the change.
+Adding `assert(read(p[0], buf, sizeof(buf)) == 0);` after the drain in `test_pipe_pollhup.c` would cover this.
 
-**WasmFS** has the opposite problem. A WasmFS pipe's `read()` returns 0 whenever
-the pipe is empty, so the EOF case above works there. But an empty pipe whose
-writer is still open also reads as EOF (native gives `EAGAIN`, errno 11), and
+**WasmFS** has the opposite problem. A WasmFS pipe's `read()` returns 0 whenever the pipe is empty, so the EOF case
+above works there. But an empty pipe whose writer is still open also reads as EOF (native gives `EAGAIN`, errno 11), and
 `poll()` never reports `POLLHUP`
 ([syscalls.cpp#L1437-L1438](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/wasmfs/syscalls.cpp#L1437-L1438)
-is a TODO for this). `pipe_open_empty.c` reads an empty non-blocking pipe whose
-writer is still open:
+is a TODO for this). `pipe_open_empty.c` reads an empty non-blocking pipe whose writer is still open:
 
 ```c
 #include <errno.h>
@@ -202,42 +190,29 @@ empty, writer open: 0 errno 0
 
 ## Evidence
 
-- **FAQ.** Nothing in the FAQ covers pipes or documents this behaviour. Following
-  its "I tried something: why doesn't it work?" advice, the case was run at `-O0`
-  (assertions on) as well as `-O2`, with the same result, and the test suite was
-  checked for coverage: `test_pipe_pollhup.c` exists but stops short of reading
-  at EOF. `emcc --check` passes; it prints only the version line.
-- **bug_reports.rst.** It asks for the original source, `emcc -v`, the symptoms
-  and a proposed solution; all are included. It also asks for generated bitcode
-  (`.o`/`.bc`). That is left out because the bug is in the JavaScript library,
-  not in compiled code; the `.o` or `EMCC_DEBUG=1` temp files can be attached if
-  asked for. The guide prefers a pull request: the diff above is tested and could
-  be sent as one.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30:
-  `libpipefs.js` is unchanged between 6.0.9 and `main` (2151200, 139 commits
-  later), and in the latest release, 6.0.10 (tagged 2026-09-18). The conclusion
-  comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with
-  LLVM 22.1.8, not emsdk's LLVM.
-- **Duplicate search.** `gh search issues --repo emscripten-core/emscripten
---include-prs` with "pipe EOF", "pipe read EOF", "pipe POLLHUP", "PIPEFS
-  EAGAIN", "pipe EAGAIN EOF", "pipe read returns 0 writer closed" and "pipe"
-  turned up:
+- **FAQ.** Nothing in the FAQ covers pipes or documents this behaviour. Following its "I tried something: why doesn't it
+  work?" advice, the case was run at `-O0` (assertions on) as well as `-O2`, with the same result, and the test suite
+  was checked for coverage: `test_pipe_pollhup.c` exists but stops short of reading at EOF. `emcc --check` passes; it
+  prints only the version line.
+- **bug_reports.rst.** It asks for the original source, `emcc -v`, the symptoms and a proposed solution; all are
+  included. It also asks for generated bitcode (`.o`/`.bc`). That is left out because the bug is in the JavaScript
+  library, not in compiled code; the `.o` or `EMCC_DEBUG=1` temp files can be attached if asked for. The guide prefers a
+  pull request: the diff above is tested and could be sent as one.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: `libpipefs.js` is unchanged between 6.0.9 and
+  `main` (2151200, 139 commits later), and in the latest release, 6.0.10 (tagged 2026-09-18). The conclusion comes from
+  the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8, not emsdk's LLVM.
+- **Duplicate search.** `gh search issues --repo emscripten-core/emscripten --include-prs` with "pipe EOF", "pipe read
+  EOF", "pipe POLLHUP", "PIPEFS EAGAIN", "pipe EAGAIN EOF", "pipe read returns 0 writer closed" and "pipe" turned up:
   - #26708, the exact bug: reported on 5.0.6, open.
-  - #27298 (merged), which added the `POLLHUP` that makes the disagreement
-    visible. Its description says "read returns EOF", but it doesn't change
-    `read`.
-  - #22032 ("Got Resource temporarily unavailable when reading empty pipe",
-    3.1.54, reopened). It opened as the empty-pipe/writer-open case, which a
-    maintainer called a duplicate of #22029, but the reopening comment by
-    hly2019 is exactly this EOF case. The comment cites it and suggests closing
-    one as a duplicate.
-  - #13214 ("pipe() doesn't create a blocking pipe") and #27683 ("Pipe read()
-    never blocks, and poll() ignores timeouts"). These are about blocking on an
-    empty pipe whose writer is still open, which is a different issue.
-- **Linux detail left out of the comment.** Linux reports only `POLLHUP` (not
-  `POLLIN`) on an empty pipe at EOF, as the native output shows. Emscripten's
-  `POLLHUP|POLLIN` is deliberate (#27298) and harmless, so the comment doesn't
-  raise it.
-- **Other WasmFS pipe gaps** are drafted separately:
-  `emscripten-wasmfs-pipe-fifo-mode.md` (pipes report `S_IFREG`) and
+  - #27298 (merged), which added the `POLLHUP` that makes the disagreement visible. Its description says "read returns
+    EOF", but it doesn't change `read`.
+  - #22032 ("Got Resource temporarily unavailable when reading empty pipe", 3.1.54, reopened). It opened as the
+    empty-pipe/writer-open case, which a maintainer called a duplicate of #22029, but the reopening comment by hly2019
+    is exactly this EOF case. The comment cites it and suggests closing one as a duplicate.
+  - #13214 ("pipe() doesn't create a blocking pipe") and #27683 ("Pipe read() never blocks, and poll() ignores
+    timeouts"). These are about blocking on an empty pipe whose writer is still open, which is a different issue.
+- **Linux detail left out of the comment.** Linux reports only `POLLHUP` (not `POLLIN`) on an empty pipe at EOF, as the
+  native output shows. Emscripten's `POLLHUP|POLLIN` is deliberate (#27298) and harmless, so the comment doesn't raise
+  it.
+- **Other WasmFS pipe gaps** are drafted separately: `emscripten-wasmfs-pipe-fifo-mode.md` (pipes report `S_IFREG`) and
   `emscripten-pipe-capacity.md` (pipes have no capacity).

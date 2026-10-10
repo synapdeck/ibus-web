@@ -1,20 +1,17 @@
 # WasmFS: `open()` with `O_NOCTTY` aborts on an assertion in `doOpen`
 
-**Posted: don't post again.** Filed as
-[#27826](https://github.com/emscripten-core/emscripten/issues/27826)
-(2026-10-01), with a fix and test as PR
-[#27843](https://github.com/emscripten-core/emscripten/pull/27843) ("[WasmFS]
+**Posted: don't post again.** Filed as [#27826](https://github.com/emscripten-core/emscripten/issues/27826)
+(2026-10-01), with a fix and test as PR [#27843](https://github.com/emscripten-core/emscripten/pull/27843) ("[WasmFS]
 Accept O_NOCTTY, O_SYNC and O_DSYNC in open()", open, no review yet).
 
-Checked against `main` 5977ecc (2026-10-02): `doOpen()`'s flag assertion is
-unchanged, and 0005 applies there with a 2-line offset.
+Checked against `main` 5977ecc (2026-10-02): `doOpen()`'s flag assertion is unchanged, and 0005 applies there with a
+2-line offset.
 
 **Draft: new issue.** No existing issue covers the WasmFS side.
-[#11927](https://github.com/emscripten-core/emscripten/issues/11927) ("NODEFS.flagsForNode
-does not support O_NOCTTY", closed 2020) was the same flag in the legacy NODEFS,
-fixed by #12492. [#15524](https://github.com/emscripten-core/emscripten/issues/15524)
-("Open USB device", closed 2021) passes `O_NOCTTY` under NODERAWFS, but its
-problem was `tcgetattr` on a non-tty stream. Neither touches WasmFS.
+[#11927](https://github.com/emscripten-core/emscripten/issues/11927) ("NODEFS.flagsForNode does not support O_NOCTTY",
+closed 2020) was the same flag in the legacy NODEFS, fixed by #12492.
+[#15524](https://github.com/emscripten-core/emscripten/issues/15524) ("Open USB device", closed 2021) passes `O_NOCTTY`
+under NODERAWFS, but its problem was `tcgetattr` on a non-tty stream. Neither touches WasmFS.
 
 ## Issue title
 
@@ -24,13 +21,10 @@ WasmFS: open() with O_NOCTTY (or O_SYNC/O_DSYNC) aborts on the flag assertion in
 
 ---
 
-With assertions enabled (`-O0`, or `-sASSERTIONS`), WasmFS aborts any `open()`
-whose flags include something outside a fixed list. `O_NOCTTY` is the common
-case: musl's `openpty()` passes it, and so does plenty of portable code
-(gzip, serial-port code). It means nothing in WasmFS, which has no controlling
-terminals. Release builds skip the assertion and ignore the flag, so the same
-program behaves differently depending on `ASSERTIONS`. The JS file system
-accepts the flag.
+With assertions enabled (`-O0`, or `-sASSERTIONS`), WasmFS aborts any `open()` whose flags include something outside a
+fixed list. `O_NOCTTY` is the common case: musl's `openpty()` passes it, and so does plenty of portable code (gzip,
+serial-port code). It means nothing in WasmFS, which has no controlling terminals. Release builds skip the assertion and
+ignore the flag, so the same program behaves differently depending on `ASSERTIONS`. The JS file system accepts the flag.
 
 **Version of emscripten/emsdk:**
 
@@ -42,8 +36,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`open_noctty.c`):
 
@@ -114,8 +108,7 @@ opening with O_NOCTTY
 open = 3 (no error)
 ```
 
-`O_SYNC`, `O_DSYNC` and `O_RSYNC` (all outside the list) trip the same
-assertion; only `O_SYNC` was run.
+`O_SYNC`, `O_DSYNC` and `O_RSYNC` (all outside the list) trip the same assertion; only `O_SYNC` was run.
 
 <details>
 <summary>Full compile and link output with <code>-v</code> appended (cache and scratch paths shortened)</summary>
@@ -173,41 +166,31 @@ opening with O_NOCTTY
 open = 3 (no error)
 ```
 
-For `O_SYNC`/`O_DSYNC` the choice is less obvious. They could be ignored,
-which is fine for the memory backend but not durable on the Node or OPFS
-backends. They could flush after each write. Or `open` could fail with
-`EINVAL`. Any of these beats an abort that only debug builds hit. More
-generally, Linux ignores open flags it doesn't know, so the assertion could
-become "ignore unknown flags" outright.
+For `O_SYNC`/`O_DSYNC` the choice is less obvious. They could be ignored, which is fine for the memory backend but not
+durable on the Node or OPFS backends. They could flush after each write. Or `open` could fail with `EINVAL`. Any of
+these beats an abort that only debug builds hit. More generally, Linux ignores open flags it doesn't know, so the
+assertion could become "ignore unknown flags" outright.
 
 ---
 
 ## Evidence
 
-- **FAQ.** Nothing in the FAQ covers open flags. The FAQ's advice to try `-O0`
-  is what exposes this: release builds hide it.
-- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix
-  for `O_NOCTTY` are included. Bitcode is left out because the fault is in
-  `libwasmfs`. The `O_SYNC` part is left to the maintainers.
-- **Duplicate search.** "O_NOCTTY", "O_NOCTTY wasmfs", "doOpen assert",
-  "openpty" and "remove assert when all functionality", plus a scan of all open
-  "wasmfs" issues, turned up:
+- **FAQ.** Nothing in the FAQ covers open flags. The FAQ's advice to try `-O0` is what exposes this: release builds hide
+  it.
+- **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix for `O_NOCTTY` are included. Bitcode is left
+  out because the fault is in `libwasmfs`. The `O_SYNC` part is left to the maintainers.
+- **Duplicate search.** "O_NOCTTY", "O_NOCTTY wasmfs", "doOpen assert", "openpty" and "remove assert when all
+  functionality", plus a scan of all open "wasmfs" issues, turned up:
   - #11927 and #12492/#12053: NODEFS `O_NOCTTY`, fixed in 2020.
   - #15524: NODERAWFS `tcgetattr`, unrelated.
-  - #26728 (merged): `fcntl(F_SETFL)` flag masking, which quotes `O_NOCTTY` in
-    the man page but doesn't touch `open`.
+  - #26728 (merged): `fcntl(F_SETFL)` flag masking, which quotes `O_NOCTTY` in the man page but doesn't touch `open`.
     None covers WasmFS's assertion.
-- **Why it matters to us.** GLib's `/pollable/unix/pty` calls `openpty()`. musl
-  opens `/dev/ptmx` with `O_NOCTTY`, and under `-sASSERTIONS` the test aborts
-  instead of failing cleanly. Our GLib test patch skips the subtest. With the
-  fix, `openpty()` fails with `ENOENT` (checked: WasmFS has no `/dev/ptmx`), which the
-  test could report.
-- **Testing.** The fixed run used a 6.0.9 tree with all of this set's
-  candidate fixes applied at once.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: the
-  assertion is unchanged on `main` (2151200, 139 commits past 6.0.9), at
-  `syscalls.cpp:440-443`. `syscalls.cpp` changed only in `fdatasync`'s error
-  sign (#27806) and `utimensat`'s timestamp rounding. The latest release,
-  6.0.10 (tagged 2026-09-18), matches. The conclusion comes from the diff;
-  `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
+- **Why it matters to us.** GLib's `/pollable/unix/pty` calls `openpty()`. musl opens `/dev/ptmx` with `O_NOCTTY`, and
+  under `-sASSERTIONS` the test aborts instead of failing cleanly. Our GLib test patch skips the subtest. With the fix,
+  `openpty()` fails with `ENOENT` (checked: WasmFS has no `/dev/ptmx`), which the test could report.
+- **Testing.** The fixed run used a 6.0.9 tree with all of this set's candidate fixes applied at once.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-09-30: the assertion is unchanged on `main`
+  (2151200, 139 commits past 6.0.9), at `syscalls.cpp:440-443`. `syscalls.cpp` changed only in `fdatasync`'s error sign
+  (#27806) and `utimensat`'s timestamp rounding. The latest release, 6.0.10 (tagged 2026-09-18), matches. The conclusion
+  comes from the diff; `main` wasn't rebuilt. Our build is nixpkgs' 6.0.9 with LLVM 22.1.8.
 - ibus-web carries this fix as `modules/emscripten/patches/0005-wasmfs-open-noctty.patch`.

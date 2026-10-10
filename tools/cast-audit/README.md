@@ -1,26 +1,25 @@
 # Function-pointer cast audit
 
-`cast-audit.ts report <sarif...>` reads Clang diagnostics from the current source directory.
-It writes normalized JSON to stdout and a readable report to stderr.
-`cast-audit.ts compare <report.json> <allow.jsonc>` requires multiset equality, ignoring line numbers
-and allowance explanations. Both new casts and stale allowances fail the check.
-The allow-list is validated against `cast-audit.schema.json` with Ajv before comparing, so a
-misspelled or extra field, or an entry without a `reason`, fails with a message naming the entry.
+`cast-audit.ts report <sarif...>` reads Clang diagnostics from the current source directory. It writes normalized JSON
+to stdout and a readable report to stderr. `cast-audit.ts compare <report.json> <allow.jsonc>` requires multiset
+equality, ignoring line numbers and allowance explanations. Both new casts and stale allowances fail the check. The
+allow-list is validated against `cast-audit.schema.json` with Ajv before comparing, so a misspelled or extra field, or
+an entry without a `reason`, fails with a message naming the entry.
 
-The SARIF object model, URI reconstruction, and line indexing come from `@microsoft/sarif`.
-The native `tree-sitter` binding parses source with the official C and C++ grammars. Only an
-identifier directly used as a cast operand gets a function name; expressions and macro expansions
-are reported with `null`. The compiler remains responsible for deciding whether types mismatch.
+The SARIF object model, URI reconstruction, and line indexing come from `@microsoft/sarif`. The native `tree-sitter`
+binding parses source with the official C and C++ grammars. Only an identifier directly used as a cast operand gets a
+function name; expressions and macro expansions are reported with `null`. The compiler remains responsible for deciding
+whether types mismatch.
 
-Clang currently gives SARIF diagnostics numeric rule IDs and empty names. The audit recognizes
-its incompatible-function-type message, which also supplies the displayed types. Casts to
-`GCallback` are excluded because that cast alone cannot establish handler arity.
-Generic `void (*)(void)` casts are audited, including directly invoked mismatches. Malformed compiler output fails the audit.
+Clang currently gives SARIF diagnostics numeric rule IDs and empty names. The audit recognizes its
+incompatible-function-type message, which also supplies the displayed types. Casts to `GCallback` are excluded because
+that cast alone cannot establish handler arity. Generic `void (*)(void)` casts are audited, including directly invoked
+mismatches. Malformed compiler output fails the audit.
 
-Run the unit tests with `pnpm --dir tools test`. The Nix checks are `tools-cast-audit`
-and `engines-cast-audit-fixture`; the latter compiles the fixture with the project's WASM
-compiler and checks its explicit allowances and rejection by an empty allow-list, including the direct
-zero-argument call in isolation, which `select.ts <report.json> <function>` extracts from the report.
+Run the unit tests with `pnpm --dir tools test`. The Nix checks are `tools-cast-audit` and `engines-cast-audit-fixture`;
+the latter compiles the fixture with the project's WASM compiler and checks its explicit allowances and rejection by an
+empty allow-list, including the direct zero-argument call in isolation, which `select.ts <report.json> <function>`
+extracts from the report.
 
 ## Refreshing the compiler fixture
 

@@ -1,27 +1,19 @@
 # pthreads + dynamic linking: a late "finished" mark makes dlopen() skip a running thread
 
-**Posted: don't post again.** Filed as
-[#27841](https://github.com/emscripten-core/emscripten/issues/27841)
-(2026-10-01), with the fix and its test as PR
-[#27846](https://github.com/emscripten-core/emscripten/pull/27846) ("[pthread]
-Don't let a stale "finished" message mark a reused thread in dlopen sync",
-open, no review yet).
+**Posted: don't post again.** Filed as [#27841](https://github.com/emscripten-core/emscripten/issues/27841)
+(2026-10-01), with the fix and its test as PR [#27846](https://github.com/emscripten-core/emscripten/pull/27846)
+("[pthread] Don't let a stale "finished" message mark a reused thread in dlopen sync", open, no review yet).
 
-Checked against `main` 5977ecc (2026-10-02): the message handler,
-`markAsFinished()`, `cleanupThread()` and the dlsync loops are unchanged, and
-0015 applies there alone with offsets only. With Emscripten's runner, emsdk's
-toolchain for `main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git
-d3e9891b, Binaryen 133) and Node 24.21.0,
-`core2.test_pthread_dlsync_reused` fails on `main` ("table index is out of
-bounds") and on `main` with 0014 alone, and passes on `main` with 0015 alone
-and with the whole stack.
+Checked against `main` 5977ecc (2026-10-02): the message handler, `markAsFinished()`, `cleanupThread()` and the dlsync
+loops are unchanged, and 0015 applies there alone with offsets only. With Emscripten's runner, emsdk's toolchain for
+`main` (`test/emsdk_version.txt` dbaebb43: clang 24.0.0git d3e9891b, Binaryen 133) and Node 24.21.0,
+`core2.test_pthread_dlsync_reused` fails on `main` ("table index is out of bounds") and on `main` with 0014 alone, and
+passes on `main` with 0015 alone and with the whole stack.
 
-**Draft: new issue, with a PR.** Separate from
-`emscripten-pthread-cleanup-blocked-main.md` on purpose: this bug is in stock
-6.0.9 with nothing else applied, the fix is 15 lines and applies to `main`
-with or without that other change, and it can be reviewed and tested on its
-own. The other fix makes the bug easier to hit, which its PR should mention
-with a link to this one.
+**Draft: new issue, with a PR.** Separate from `emscripten-pthread-cleanup-blocked-main.md` on purpose: this bug is in
+stock 6.0.9 with nothing else applied, the fix is 15 lines and applies to `main` with or without that other change, and
+it can be reviewed and tested on its own. The other fix makes the bug easier to hit, which its PR should mention with a
+link to this one.
 
 ## Issue title
 
@@ -31,21 +23,16 @@ dlopen() skips a running thread whose pthread_t was reused from a just-joined th
 
 ---
 
-With `-pthread -sMAIN_MODULE`, a joinable thread posts
-`CMD_MARK_AS_FINISHED` to the main thread as it exits, and the main thread
-adds it to `PThread.finishedThreads`, which `dlopen()`'s sync skips. But a
-join cleans the thread up as soon as it returns, removing it from that set,
-while the message may still be queued. If a new thread is created at the
-same address in the meantime (malloc readily hands back the block it just
-freed), the late message marks the **new, running** thread finished. Every
-later `dlopen()` skips it, and when it calls into a module loaded after it
-started, it traps with "table index is out of bounds" (or "null function or
-function signature mismatch").
+With `-pthread -sMAIN_MODULE`, a joinable thread posts `CMD_MARK_AS_FINISHED` to the main thread as it exits, and the
+main thread adds it to `PThread.finishedThreads`, which `dlopen()`'s sync skips. But a join cleans the thread up as soon
+as it returns, removing it from that set, while the message may still be queued. If a new thread is created at the same
+address in the meantime (malloc readily hands back the block it just freed), the late message marks the **new, running**
+thread finished. Every later `dlopen()` skips it, and when it calls into a module loaded after it started, it traps with
+"table index is out of bounds" (or "null function or function signature mismatch").
 
-It takes no unusual code: join a thread on the main thread, create another
-one before returning to the event loop, then `dlopen()` a module the new
-thread uses. Joins on other threads hit it too, as soon as their cleanup can
-run before the main thread's event loop does.
+It takes no unusual code: join a thread on the main thread, create another one before returning to the event loop, then
+`dlopen()` a module the new thread uses. Joins on other threads hit it too, as soon as their cleanup can run before the
+main thread's event loop does.
 
 **Version of emscripten/emsdk:**
 
@@ -57,8 +44,8 @@ Thread model: posix
 InstalledDir: /nix/store/a0h9ym1ai9yawkmymx2wp0vnh64hsv0r-clang-22.1.8/bin
 ```
 
-This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against
-its own LLVM 22.1.8, so there is no commit hash. Node.js v24.20.0, x86_64 Linux.
+This is the 6.0.9 release tag as packaged by nixpkgs. nixpkgs builds it against its own LLVM 22.1.8, so there is no
+commit hash. Node.js v24.20.0, x86_64 Linux.
 
 **Test case** (`side.c` and `reused.c`):
 
@@ -201,7 +188,8 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
 
 - The exiting thread posts the message
   ([libpthread.js#L1212-L1218](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpthread.js#L1212-L1218),
-  from [pthread_create.c#L384](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/pthread_create.c#L384)),
+  from
+  [pthread_create.c#L384](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/pthread_create.c#L384)),
   before it publishes `DT_EXITED`
   ([pthread_create.c#L388](https://github.com/emscripten-core/emscripten/blob/6.0.9/system/lib/pthread/pthread_create.c#L388)).
 - A join cleans the thread up at once
@@ -214,12 +202,10 @@ wasm-ld: warning: dynamic imports are not yet stable (--unresolved-symbols=impor
   ([libpthread.js#L1259](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpthread.js#L1259),
   [#L1293](https://github.com/emscripten-core/emscripten/blob/6.0.9/src/lib/libpthread.js#L1293)).
 
-**Suggested fix:** when the message arrives, mark the thread only if it is
-still known and has actually exited (`detach_state` is `DT_EXITING` or
-`DT_EXITED`). A late message for a cleaned-up thread is then dropped, and one
-whose address a running thread now holds doesn't mark it. If the new thread
-has itself exited by then, marking it is right anyway. 15 lines added, 1
-removed.
+**Suggested fix:** when the message arrives, mark the thread only if it is still known and has actually exited
+(`detach_state` is `DT_EXITING` or `DT_EXITED`). A late message for a cleaned-up thread is then dropped, and one whose
+address a running thread now holds doesn't mark it. If the new thread has itself exited by then, marking it is right
+anyway. 15 lines added, 1 removed.
 
 ```diff
 diff --git a/src/lib/libpthread.js b/src/lib/libpthread.js
@@ -285,18 +271,14 @@ thread: side_value() = 42
 [exit status 0]
 ```
 
-A guard on the sending Worker (`worker.pthread_ptr == d.thread`) would not
-be enough: the pool hands the Worker just returned straight back out, so the
-new thread often runs on the same Worker at the same address.
+A guard on the sending Worker (`worker.pthread_ptr == d.thread`) would not be enough: the pool hands the Worker just
+returned straight back out, so the new thread often runs on the same Worker at the same address.
 
-**Test for the PR,** in the suite's format (also as
-`emscripten-pthread-finished-mark-reused.tests.patch` beside this draft).
-`core.test_pthread_dlsync_reused` (`@needs_dylink`, built like
-`test_pthread_dlopen` with `build_dlfcn_lib`/`prep_dlfcn_main`) is the test
-case above, with a retry, up to ten times, until the new thread does get the
-joined thread's `pthread_t`, so that it can't pass without testing anything.
-It covers `dlopen()` on the main thread; the change is in the message
-handler, so it applies whichever sync runs afterwards:
+**Test for the PR,** in the suite's format (also as `emscripten-pthread-finished-mark-reused.tests.patch` beside this
+draft). `core.test_pthread_dlsync_reused` (`@needs_dylink`, built like `test_pthread_dlopen` with
+`build_dlfcn_lib`/`prep_dlfcn_main`) is the test case above, with a retry, up to ten times, until the new thread does
+get the joined thread's `pthread_t`, so that it can't pass without testing anything. It covers `dlopen()` on the main
+thread; the change is in the message handler, so it applies whichever sync runs afterwards:
 
 ```diff
 diff --git a/test/core/pthread/test_pthread_dlsync_reused.c b/test/core/pthread/test_pthread_dlsync_reused.c
@@ -411,45 +393,32 @@ diff --git a/test/test_core.py b/test/test_core.py
 ## Evidence
 
 - **How the fix was tested.**
-  - The test case above on nixpkgs' 6.0.9: it fails without the fix, and
-    passes with the fix applied alone to stock 6.0.9 (a copy of the tree
-    with only this patch, its system libraries rebuilt), as well as on top
-    of our stack (0001–0014).
-  - `core.test_pthread_dlsync_reused`, run with Emscripten's runner (`core2`):
-    FAIL on stock 6.0.9 (the trap), ok on stock 6.0.9 plus this patch
-    alone, ok on our full stack.
-  - Our `checks.emscripten-fixes` runs a stricter version
-    (`modules/emscripten/checks/fixes/dlsync-reused.cpp`) on our test link
-    (`MAIN_MODULE=1`, WasmFS, assertions). It also checks
-    `PThread.finishedThreads` directly before the `dlopen()`, and fails if no
-    `pthread_t` gets reused in ten attempts, so it can't pass vacuously. Every
-    run so far reused one on the first attempt. With 0014 alone: "the
-    running thread is marked finished", then the trap. With 0015: 0 failures.
-  - Emscripten's own test runner, the same 198-test pthread selection as for
-    0014, with 0014 and 0015 applied: the same results as unpatched 6.0.9.
+  - The test case above on nixpkgs' 6.0.9: it fails without the fix, and passes with the fix applied alone to stock
+    6.0.9 (a copy of the tree with only this patch, its system libraries rebuilt), as well as on top of our stack
+    (0001–0014).
+  - `core.test_pthread_dlsync_reused`, run with Emscripten's runner (`core2`): FAIL on stock 6.0.9 (the trap), ok on
+    stock 6.0.9 plus this patch alone, ok on our full stack.
+  - Our `checks.emscripten-fixes` runs a stricter version (`modules/emscripten/checks/fixes/dlsync-reused.cpp`) on our
+    test link (`MAIN_MODULE=1`, WasmFS, assertions). It also checks `PThread.finishedThreads` directly before the
+    `dlopen()`, and fails if no `pthread_t` gets reused in ten attempts, so it can't pass vacuously. Every run so far
+    reused one on the first attempt. With 0014 alone: "the running thread is marked finished", then the trap. With 0015:
+    0 failures.
+  - Emscripten's own test runner, the same 198-test pthread selection as for 0014, with 0014 and 0015 applied: the same
+    results as unpatched 6.0.9.
   - GLib's test suite and our runtime checks, with both patches.
-- **Why a separate draft.** It reproduces on stock 6.0.9 with a join on the
-  main thread, so it doesn't depend on the other fix. It is small, has its
-  own test, and applies to `main` alone or after the other one (`patch
---dry-run`). Upstream can take it without the bigger review the other
-  needs. The other fix's PR should link here, since it adds a second way to
-  hit the bug (joins on other threads whose cleanup runs early).
-- **Duplicate search.** `gh` searches of the repository for
-  "finishedThreads", "markAsFinished", "CMD_MARK_AS_FINISHED",
-  "dlsync pthread_t reuse", "dlsync skipped thread" and "dlopen thread table
-  index out of bounds" turned up:
-  - #18376 ("Block in dlopen until all threads have loaded the module",
-    merged): the change that added `finishedThreads`.
-  - #19425 (open, 3.1.34): "table index out of bounds" when a thread created
-    from a side module calls into it. It may be this bug or the older
-    new-thread sync gap, and the report has no test case to tell.
-  - #18631: a design discussion of shutdown handlers, not this bug.
-    None reports this race.
-- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-01:
-  the handler, `markAsFinished()`, `cleanupThread()` and the dlsync loops
-  are unchanged on `main` (04df3de), a few lines up. 6.0.10 doesn't touch
-  them. `main` wasn't rebuilt.
-- ibus-web carries this fix as
-  `modules/emscripten/patches/0015-pthread-finished-mark-reused.patch`. It
-  matters to us because `ibusweb_load_module()` `dlopen`s engines while GLib's
-  pool and GTask threads may be alive.
+- **Why a separate draft.** It reproduces on stock 6.0.9 with a join on the main thread, so it doesn't depend on the
+  other fix. It is small, has its own test, and applies to `main` alone or after the other one (`patch --dry-run`).
+  Upstream can take it without the bigger review the other needs. The other fix's PR should link here, since it adds a
+  second way to hit the bug (joins on other threads whose cleanup runs early).
+- **Duplicate search.** `gh` searches of the repository for "finishedThreads", "markAsFinished", "CMD_MARK_AS_FINISHED",
+  "dlsync pthread_t reuse", "dlsync skipped thread" and "dlopen thread table index out of bounds" turned up:
+  - #18376 ("Block in dlopen until all threads have loaded the module", merged): the change that added
+    `finishedThreads`.
+  - #19425 (open, 3.1.34): "table index out of bounds" when a thread created from a side module calls into it. It may be
+    this bug or the older new-thread sync gap, and the report has no test case to tell.
+  - #18631: a design discussion of shutdown handlers, not this bug. None reports this race.
+- **Tip-of-tree.** Checked read-only through the GitHub API on 2026-10-01: the handler, `markAsFinished()`,
+  `cleanupThread()` and the dlsync loops are unchanged on `main` (04df3de), a few lines up. 6.0.10 doesn't touch them.
+  `main` wasn't rebuilt.
+- ibus-web carries this fix as `modules/emscripten/patches/0015-pthread-finished-mark-reused.patch`. It matters to us
+  because `ibusweb_load_module()` `dlopen`s engines while GLib's pool and GTask threads may be alive.
