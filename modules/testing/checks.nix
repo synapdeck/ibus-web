@@ -88,6 +88,10 @@
           browserLinkFlags = "-sPTHREAD_POOL_SIZE=1";
         }
         {
+          name = "large-output";
+          format = "tap";
+        }
+        {
           name = "no-report";
           format = "gtest-json";
         }
@@ -181,6 +185,12 @@
           "output"
         ])
         (run "pthread-output" "passed")
+        (case "passed" [
+          "large-output"
+          "large"
+          "listed"
+        ])
+        (run "large-output" "passed")
         # It lists nothing.
         (run "no-report" "failed")
         (case "failed" [
