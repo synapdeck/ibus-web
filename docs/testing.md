@@ -106,8 +106,9 @@ each environment.
 - **node** — Vitest's node pool with a custom runner (`dist/node/runner.js`). Each program runs as a child
   `node NAME.js`, with `IBUS_WEB_TEST_REPORT` set and the timeout enforced with `SIGKILL`. Its stdout and stderr are
   pipes, which the child makes blocking before the program starts (`--import` of `dist/node/blocking-stdio.js`):
-  Emscripten writes output with `fs.writeSync`, and Node turns a pipe non-blocking once a pthread's Worker forwards its
-  output, after which a burst the shim hasn't read yet comes out short or fails with `EAGAIN`. TAP on stdout is parsed
+  Emscripten writes output with `fs.writeSync`, and Node turns a pipe non-blocking once a pthread's Worker is
+  constructed, since it opens `process.stdout` and `process.stderr` to forward the Worker's stdio whether or not it ever
+  prints, after which a burst the shim hasn't read yet comes out short or fails with `EAGAIN`. TAP on stdout is parsed
   with `tap-parser`.
 - **chromium**, **firefox** — Vitest browser mode with the Playwright provider, headless. Each program runs in a
   dedicated module Worker (`new Worker(url, { type: "module" })`) on a page served with cross-origin isolation; the
