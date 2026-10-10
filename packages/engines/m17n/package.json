@@ -1,0 +1,40 @@
+{
+  "name": "@ibus-web/engine-m17n",
+  "version": "0.0.0",
+  "description": "ibus-m17n with every m17n-db input method it offers, for ibus-web: its WebAssembly module, data and manifest.",
+  "keywords": [
+    "ibus",
+    "ime",
+    "indic",
+    "input-method",
+    "m17n",
+    "thai",
+    "vietnamese",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/m17n.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/engines/m17n"
+  },
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./manifest.json": "./dist/manifest.json",
+    "./m17n.wasm": "./dist/m17n.wasm",
+    "./settings.json": "./dist/settings.json",
+    "./data/*": "./dist/data/*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "ibusWeb": {
+    "nixBuilt": true
+  }
+}

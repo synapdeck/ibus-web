@@ -37,16 +37,18 @@ while. [examples/demo](examples/demo/README.md) has the demo's other options.
 
 ## Packages
 
-| Package                                              | What it is                                                                                 |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [`ibus-web`](packages/ibus-web)                      | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts              |
-| [`@ibus-web/core`](packages/core)                    | Key translation, routing, adapters and the Effect services under the facade                |
-| [`@ibus-web/panel`](packages/panel)                  | The framework-free candidate and property panel                                            |
-| [`@ibus-web/protocol`](packages/protocol)            | The wire protocol and its strict GVariant codec                                            |
-| [`@ibus-web/worker-host`](packages/worker-host)      | The TypeScript that runs inside each engine's Worker                                       |
-| [`@ibus-web/runtime`](packages/runtime)              | The WebAssembly runtime every engine's Worker loads, built by Nix                          |
-| [`@ibus-web/engine-hangul`](packages/engines/hangul) | The Hangul engine's WebAssembly module, data and manifest, built by Nix                    |
-| [`@ibus-web/engine-table`](packages/engines/table)   | The LaTeX and X-SAMPA table engines' WebAssembly module, tables and manifest, built by Nix |
+| Package                                              | What it is                                                                                      |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`ibus-web`](packages/ibus-web)                      | The facade most pages use: `createIbusWeb`, the panel, and the Worker scripts                   |
+| [`@ibus-web/core`](packages/core)                    | Key translation, routing, adapters and the Effect services under the facade                     |
+| [`@ibus-web/panel`](packages/panel)                  | The framework-free candidate and property panel                                                 |
+| [`@ibus-web/protocol`](packages/protocol)            | The wire protocol and its strict GVariant codec                                                 |
+| [`@ibus-web/worker-host`](packages/worker-host)      | The TypeScript that runs inside each engine's Worker                                            |
+| [`@ibus-web/runtime`](packages/runtime)              | The WebAssembly runtime every engine's Worker loads, built by Nix                               |
+| [`@ibus-web/engine-hangul`](packages/engines/hangul) | The Hangul engine's WebAssembly module, data and manifest, built by Nix                         |
+| [`@ibus-web/engine-table`](packages/engines/table)   | The LaTeX and X-SAMPA table engines' WebAssembly module, tables and manifest, built by Nix      |
+| [`@ibus-web/engine-mozc`](packages/engines/mozc)     | Mozc with nixpkgs' UT dictionaries: its WebAssembly module, data and manifest, built by Nix     |
+| [`@ibus-web/engine-m17n`](packages/engines/m17n)     | ibus-m17n with m17n-db's input methods: its WebAssembly module, data and manifest, built by Nix |
 
 They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how to build, pack and use them.
 
@@ -81,7 +83,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [
 - Each engine and its patches: the engine's own license. ibus-hangul is GPL-2.0-or-later, and its libhangul patch is
   LGPL-2.1-or-later, as libhangul is. The table engine is MIT OR Apache-2.0; its packed module is
   `(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`, for MARISA, linked in, and the LaTeX table's data from W3C's
-  `unicode.xml`.
+  `unicode.xml`. ibus-m17n is GPL-2.0-or-later; its packed module is `GPL-2.0-or-later AND LGPL-2.1-or-later`, for
+  m17n-lib, linked in, and m17n-db's input methods.
 
 [REUSE.toml](REUSE.toml) is the authoritative per-path mapping, and every license text is in [LICENSES/](LICENSES).
 Copyright 2026 Synapdeck, Inc.
