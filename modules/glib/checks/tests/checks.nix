@@ -24,12 +24,9 @@
 
       setupExcludes = ./setup-excludes.py;
 
-      # Node makes its stdout non-blocking once a program starts its thread
-      # pool, and a write that meets a full pipe fails with EAGAIN instead of
-      # waiting, so a test writing faster than Meson reads loses TAP lines.
-      # Files never fill up; the wrapper replays them once the test exits,
-      # or when Meson's timeout sends SIGTERM, so a timed-out test still
-      # shows how far it got. Node runs in the background because bash
+      # Node writes the test's output to files, which the wrapper replays
+      # once the test exits, or when Meson's timeout sends SIGTERM, so a
+      # timed-out test still shows how far it got. Node runs in the background because bash
       # only handles a signal once its foreground child has exited; without
       # the explicit redirection a background job reads /dev/null. A test
       # killed by a signal is reported the same way, by the wrapper dying of

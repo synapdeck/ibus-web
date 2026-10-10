@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Runs a program under Node: `node NAME.js ARGS...`, its stdout and stderr
-// pipes made blocking first, in a working directory that stands for its
-// storage, with IBUS_WEB_TEST_REPORT naming the file a GoogleTest program
-// writes its report to.
+// Runs a program under Node: `node NAME.js ARGS...` in a working directory
+// that stands for its storage, with IBUS_WEB_TEST_REPORT naming the file a
+// GoogleTest program writes its report to.
 
 import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
@@ -12,8 +11,6 @@ import { join } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline";
 import type { OutputLine, Program, ProgramRun } from "../shared/protocol.ts";
-
-const blockingStdio = new URL("./blocking-stdio.js", import.meta.url).href;
 
 export const runNode = async (
   program: Program,
@@ -25,8 +22,7 @@ export const runNode = async (
   await rm(reportPath, { force: true });
   const output: OutputLine[] = [];
   const start = performance.now();
-  const script = join(program.dir, `${program.name}.js`);
-  const child = spawn(process.execPath, ["--import", blockingStdio, script, ...program.args, ...args], {
+  const child = spawn(process.execPath, [join(program.dir, `${program.name}.js`), ...program.args, ...args], {
     cwd,
     env: { ...process.env, IBUS_WEB_TEST_REPORT: reportPath },
     stdio: ["ignore", "pipe", "pipe"],

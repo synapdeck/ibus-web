@@ -311,11 +311,8 @@ binaries, so the check runs them itself.
   reproduction has been found. Measured with growth, the largest peaks are `mainloop` 280 MiB, `gvariant` 265 MiB,
   `slice` 149 MiB, `thread-pool-slow` 140 MiB and the many-thread tests around 103 MiB; everything else stays under 52
   MiB. The evaluation asserts the overlay's link still names both settings it replaces.
-- **Output through files.** Node makes its stdout non-blocking once a program starts its thread pool, and a write that
-  meets a full pipe fails with `EAGAIN` instead of waiting, so a test writing faster than Meson reads lost TAP lines
-  (`unicode` failed for that alone). The tests' own exe wrapper runs Node with stdout and stderr in files and replays
-  them when the test exits or when Meson's timeout kills it, and dies of the same signal as the test so Meson reports it
-  as one.
+- **Output through files.** The tests' own exe wrapper runs Node with stdout and stderr in files and replays them when
+  the test exits or when Meson's timeout kills it, and dies of the same signal as the test so Meson reports it as one.
 - Meson's timeouts are multiplied by 4, and the `pkg-config` tests use the unwrapped `pkg-config`, since nixpkgs'
   wrapper replaces the search path they set.
 - GLib's tool tests (`gobject-query.py`, `gio-tool.py`, `gdbus-tool.py`) run the `.js` tools under Node, and expect
