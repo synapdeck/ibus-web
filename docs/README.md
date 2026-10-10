@@ -31,7 +31,6 @@ work on it.
 | Spec                                              | Covers                                                                       |
 | ------------------------------------------------- | ---------------------------------------------------------------------------- |
 | [The design](specs/2026-09-26-ibus-web-design.md) | Goals, architecture, protocol, licensing, build and the remaining milestones |
-| [M4: m17n](specs/2026-10-09-m4-m17n.md)           | The m17n module; settings addressed by path; the runtime's US keymap         |
 
 ## Beside the code
 
