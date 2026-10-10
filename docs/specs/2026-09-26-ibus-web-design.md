@@ -1547,7 +1547,10 @@ in `legacyPackages` too. Only packages nixpkgs lacks (`libibus-web`, the custom 
 
 - **Rime:** `rime-data`, plus any other `rime-*` data packages, chosen through the same `rimeDataPkgs` parameter
   nixpkgs' `ibus-rime` uses. The YAML sources are compiled at build time by the WASM build of `rime_deployer` under
-  Node, so compiled dictionaries come from the librime build that reads them.
+  Node, so compiled dictionaries come from the librime build that reads them. Rime data nixpkgs lacks comes from
+  xddxdd's NUR (`github:xddxdd/nur-packages`), where the Rime community packages it: `rime-zhwiki`, `rime-moegirl`,
+  `rime-aurora-pinyin` and others. Only data whose license allows redistribution in a published package ships, which
+  rules out its `unfree` dictionaries and `rime-moegirl`'s CC-BY-NC-SA.
 - **m17n:** `ibus-web-m17n-db`, the native `m17n_db` output's `share/m17n` alone, without the `bin/` and `scripts/` that
   would bring bash and gawk; m17n-lib compiles in its store path as `M17NDIR`. It is text data.
 - **Hangul:** the Hanja tables from nixpkgs' native `libhangul` output; also text.
@@ -1977,10 +1980,13 @@ and method are in `docs/testing.md` and `docs/protocol.md`.
   `checks.toolchain-exnref` reads exnref's minimum versions from Emscripten's feature matrix (`tools/feature_matrix.py`)
   and fails, asking for the switch, once the derived minimum versions all reach them.
 - **R19. Rime's sentence conversion.** With `rime-data`'s `luna_pinyin`, Rime converts long pinyin sentences noticeably
-  worse than ibus-libpinyin's bigram model, which is the gap that dropping libpinyin (D2) opens. nixpkgs has `rime-ice`,
-  a larger pinyin dictionary, and its `librime` builds `librime-octagram`, which ranks sentences with a grammar model;
-  whether nixpkgs has a grammar model to give it is unchecked. Decided in M5, by comparing conversions of the same
-  sentences with ibus-libpinyin on the desktop.
+  worse than ibus-libpinyin's bigram model, which is the gap that dropping libpinyin (D2) opens. Larger dictionaries
+  close part of it: `rime-ice` from nixpkgs, and wiki-derived ones from xddxdd's NUR (§10.2). The rest needs
+  `librime-octagram`, which nixpkgs' `librime` builds and which ranks sentences with a grammar model, but neither
+  nixpkgs nor the NUR packages a model. The one the Rime community uses, RIME-LMDG's `wanxiang-lts-zh-hans.gram`
+  (CC-BY-4.0), is 398 MB, a heavy download for each user, and the cost of reading it lazily on each keystroke is
+  unmeasured. Decided in M5, by comparing conversions of the same sentences with ibus-libpinyin on the desktop, with and
+  without a grammar model; the options without one are dictionaries alone or a smaller model built for the purpose.
 
 ## 14. References
 
