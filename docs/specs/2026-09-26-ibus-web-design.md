@@ -1548,9 +1548,10 @@ in `legacyPackages` too. Only packages nixpkgs lacks (`libibus-web`, the custom 
 - **Rime:** `rime-data`, plus any other `rime-*` data packages, chosen through the same `rimeDataPkgs` parameter
   nixpkgs' `ibus-rime` uses. The YAML sources are compiled at build time by the WASM build of `rime_deployer` under
   Node, so compiled dictionaries come from the librime build that reads them. Rime data nixpkgs lacks comes from
-  xddxdd's NUR (`github:xddxdd/nur-packages`), where the Rime community packages it: `rime-zhwiki`, `rime-moegirl`,
-  `rime-aurora-pinyin` and others. Only data whose license allows redistribution in a published package ships, which
-  rules out its `unfree` dictionaries and `rime-moegirl`'s CC-BY-NC-SA.
+  xddxdd's NUR, where the Rime community packages it (`rime-zhwiki`, `rime-moegirl`, `rime-aurora-pinyin` and others).
+  The NUR is a flake input, `github:xddxdd/nur-packages`, whose `nixpkgs`, `flake-parts` and `devshell` follow ours, so
+  its recipes build against the same nixpkgs. Only data whose license allows redistribution in a published package
+  ships, which rules out its `unfree` dictionaries and `rime-moegirl`'s CC-BY-NC-SA.
 - **m17n:** `ibus-web-m17n-db`, the native `m17n_db` output's `share/m17n` alone, without the `bin/` and `scripts/` that
   would bring bash and gawk; m17n-lib compiles in its store path as `M17NDIR`. It is text data.
 - **Hangul:** the Hanja tables from nixpkgs' native `libhangul` output; also text.
