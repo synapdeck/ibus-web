@@ -162,6 +162,52 @@ static void settings_apart(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   committed(fixture, "क");
 }
 
+/* candidates-group-size is 2 from Init, so 瀛's six candidates take three
+ * pages. */
+static void cangjie_paging(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "m17n:zh:cangjie");
+  golden_type(fixture, "eyrn");
+  preedit(fixture, "瀛");
+  candidates(fixture, (const gchar *[]){"瀛", "渟", NULL}, "( 1 / 3 )");
+
+  golden_empty_request(fixture, IBUSWEB_REQ_PAGE_DOWN);
+  preedit(fixture, "涥");
+  candidates(fixture, (const gchar *[]){"涥", "灜", NULL}, "( 2 / 3 )");
+  golden_empty_request(fixture, IBUSWEB_REQ_PAGE_UP);
+  preedit(fixture, "瀛");
+  candidates(fixture, (const gchar *[]){"瀛", "渟", NULL}, "( 1 / 3 )");
+  golden_empty_request(fixture, IBUSWEB_REQ_PAGE_DOWN);
+
+  golden_clear(fixture);
+  golden_type(fixture, " ");
+  committed(fixture, "涥");
+}
+
+/* tone-mark-on-last is 1 for Telex from Init and 0, its default, for VNI:
+ * an equivocal "oa" takes its tone on the last vowel only in Telex. */
+static void variable_from_init(Fixture *fixture,
+                               gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "m17n:vi:telex");
+  golden_type(fixture, "hoaf ");
+  committed(fixture, "hoà ");
+  golden_destroy(fixture);
+
+  golden_create(fixture, "m17n:vi:vni");
+  golden_type(fixture, "hoa2 ");
+  committed(fixture, "hòa ");
+}
+
+/* m17n takes a variable's new value when it next opens the input method,
+ * which for VIQR, never made before this case, is its first context. */
+static void variable_changed(Fixture *fixture,
+                             gconstpointer data G_GNUC_UNUSED) {
+  golden_setting(fixture, VARIABLES_PATH("vi", "viqr"), "tone-mark-on-last",
+                 g_variant_new_int32(1));
+  golden_create(fixture, "m17n:vi:viqr");
+  golden_type(fixture, "hoa` ");
+  committed(fixture, "hoà ");
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   gchar *schemas_dir = NULL, *module = NULL, *instances = NULL;
@@ -182,7 +228,13 @@ int main(int argc, char **argv) {
   g_assert_nonnull(module);
   g_assert_nonnull(instances);
 
-  golden_init(schemas_dir, module, instances, NULL, 0);
+  const GoldenSeed seeds[] = {
+      {VARIABLES_PATH("vi", "telex"), "tone-mark-on-last",
+       g_variant_new_int32(1)},
+      {VARIABLES_PATH("zh", "cangjie"), "candidates-group-size",
+       g_variant_new_int32(2)},
+  };
+  golden_init(schemas_dir, module, instances, seeds, G_N_ELEMENTS(seeds));
   g_free(schemas_dir);
   g_free(module);
   g_free(instances);
@@ -200,6 +252,12 @@ int main(int argc, char **argv) {
   g_test_add("/m17n/us-layout", Fixture, NULL, setup, us_layout,
              golden_teardown);
   g_test_add("/m17n/settings-apart", Fixture, NULL, setup, settings_apart,
+             golden_teardown);
+  g_test_add("/m17n/cangjie-paging", Fixture, NULL, setup, cangjie_paging,
+             golden_teardown);
+  g_test_add("/m17n/variable-from-init", Fixture, NULL, setup,
+             variable_from_init, golden_teardown);
+  g_test_add("/m17n/variable-changed", Fixture, NULL, setup, variable_changed,
              golden_teardown);
   return g_test_run();
 }

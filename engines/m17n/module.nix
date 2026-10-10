@@ -76,6 +76,7 @@
 
       ibusWeb.toolchain.clangdPathFlags."engines/m17n/module/.*\\.c" = [
         "-I${m17n.src}/src"
+        "-I${m17n.descriptors}"
         ''-DIBUSWEB_SETTINGS_SCHEMA_DIR="${m17n.settingsSchemaDir}"''
       ];
       ibusWeb.toolchain.clangdPathFlags."engines/m17n/descriptors/descriptors\\.c" = [

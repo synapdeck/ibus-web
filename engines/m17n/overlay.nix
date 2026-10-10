@@ -192,10 +192,11 @@ in
 
                 # Our sources compile with the flags make used for
                 # libm17ncommon, plus the schema directory module.c keeps in
-                # the store closure.
+                # the store closure and the table variables.c reads.
                 cflags = lib.concatStringsSep " " [
                   makeCflags
                   "'-DIBUSWEB_SETTINGS_SCHEMA_DIR=\"${settingsSchemaDir}\"'"
+                  "-I${descriptors}"
                 ];
 
                 # Relative to src/, where the flags' include paths resolve.
@@ -203,11 +204,14 @@ in
                   "m17nutil.c"
                   "engine.c"
                   "module.c"
+                  "variables.c"
                 ];
               in
               base.overrideAttrs (old: {
                 postPatch = (old.postPatch or "") + ''
                   cp ${./module/module.c} src/module.c
+                  cp ${./module/variables.c} src/variables.c
+                  cp ${./module/variables.h} src/variables.h
                 '';
 
                 # ibus-engine-m17n is a desktop process; the side module needs
@@ -218,6 +222,7 @@ in
                   make libm17ncommon.la
                   $CC ${cflags} -c engine.c -o engine.o
                   $CC ${cflags} -c module.c -o module.o
+                  $CC ${cflags} -c variables.c -o variables.o
 
                   libs="$($PKG_CONFIG --static --libs m17n-shell)"
                   source ${runtime.sideModuleLibraryGuard}
@@ -226,7 +231,7 @@ in
                   # The archive is the engine's own code, not a library to
                   # pick members from.
                   $CC ${toolchain.sideModuleFlags} -g0 -Wl,--whole-archive .libs/libm17ncommon.a -Wl,--no-whole-archive \
-                    engine.o module.o $libs -o m17n.wasm
+                    engine.o module.o variables.o $libs -o m17n.wasm
 
                   cd ..
                   runHook postBuild

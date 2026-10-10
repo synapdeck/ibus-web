@@ -204,6 +204,10 @@ An item leaves this page when it is fixed or decided.
   effect when the module next starts, and a switch between romaji and kana at the next focus
   ([mozc.md](mozc.md#settings)). Mozc's keymap and romaji table editors and its user dictionary tool have no
   equivalent on the page.
+- **m17n variable changes that wait for a restart.** m17n gives a changed input-method variable to the input methods
+  it opens afterwards, and ibus-m17n opens each engine's once, with its first context, so a change reaches an engine
+  already used in the Worker only when the module next starts ([m17n.md](m17n.md#settings-and-variables)). m17n's
+  key bindings (`minput_config_command`) and its per-user customisation file have no equivalent on the page.
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
