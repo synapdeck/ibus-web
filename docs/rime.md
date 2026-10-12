@@ -303,7 +303,7 @@ and stroke, all `zh`; `rime · Cantonese` for `jyut6ping3` and `jyutping`; `rime
 in Chromium, whose language names have none for Wu); and a group for each further language the gloss table gives the
 dialect, IPA and Middle Chinese schemas (`rime · ltc` for `sampheng` and `zyenpheng`, Middle Chinese, which none of the
 three browsers names), with any schema it gives no language under `rime`: the IPA schemas, `und-fonipa`. The status
-line's Data field follows the facade's `install` events: an engine's first selection shows its dictionaries downloading
+line's Data field follows the facade's `install` events: an engine's first selection shows its dictionaries installing
 and what it installed, and a later one, in the page or after a reload, shows nothing. The settings form shows
 `org.freedesktop.ibus.engine.rime` and, of the relocatable `org.freedesktop.ibus.engine.rime.schema`, only the selected
 engine's instance. A change starts Rime's maintenance; keys pass through until it ends, and the next key uses the

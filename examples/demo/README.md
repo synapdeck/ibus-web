@@ -19,8 +19,9 @@ Inside `nix develop`, `pnpm --dir examples/demo dev --port 5174` uses the same r
 method in the picker; <kbd>Ctrl+Space</kbd> turns input methods off and back on. The checkbox turns ibus-web handling on
 or off. While a module starts, the fields accept native input.
 
-The status line's Data field shows an engine's own data downloading the first time the engine is selected, as Rime's
-dictionaries do, and what it installed; a later selection, in the same page or after a reload, installs nothing.
+The status line's Data field shows an engine's own data installing the first time the engine is selected, as Rime's
+dictionaries do, and what it installed, or that it was not installed if the install failed; a later selection, in the
+same page or after a reload, installs nothing.
 
 Opened as `/?properties=page` (`http://127.0.0.1:5173/?properties=page`), the page places none of the panel's properties
 and draws the focused engine's toggle properties as switches of its own beside the picker, as a page that styles its own

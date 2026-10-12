@@ -7,6 +7,7 @@ import {
   stringVariant,
   type IbusWeb,
   type LogEntry,
+  PrepareEngineError,
   type PanelUpdate,
   type Selection,
 } from "ibus-web";
@@ -125,13 +126,18 @@ app.addEventListener("storage", ({ detail }) => {
 });
 const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 // An engine's own data downloads the first time it is made; a later selection, here or after a reload, finds it
-// installed and reports nothing.
+// installed and reports nothing. Progress reaches the total only once all of it is installed.
 app.addEventListener("install", ({ detail }) => {
   install.textContent =
     detail.bytes < detail.total
       ? `Installing ${detail.engine}: ${megabytes(detail.bytes)} of ${megabytes(detail.total)}`
       : `Installed ${detail.engine}: ${megabytes(detail.total)}`;
 });
+// A failed install ends without reaching the total, so the field would go on saying it is installing.
+const switchingFailed = (cause: unknown) => {
+  if (cause instanceof PrepareEngineError) install.textContent = `Not installed ${cause.engine}`;
+  failure("Switching failed", cause);
+};
 const syncPicker = (selection: Selection | null | undefined) => {
   const index = selection
     ? choices.findIndex((choice) => choice.module === selection.module && choice.engine === selection.engine)
@@ -158,15 +164,21 @@ app.addEventListener("panel", ({ detail }) => {
   if (property) mode.textContent = property.symbol.text;
 });
 
-// The focused context's toggle properties, wherever they sit in its property tree, and the context they belong to.
+// The focused context's registered properties, the updates it has sent for them since by key, and the context they
+// belong to. The switches are drawn from both, so an update can show or hide a toggle as well as change it.
 let switchContext: { readonly module: string; readonly ic: number } | undefined,
-  toggles: Property[] = [];
+  registered: readonly Property[] = [];
+const updates = new Map<string, Property>();
+// The visible toggles wherever they sit in the property tree. An update without sub-properties keeps the registered
+// ones.
 const togglesIn = (properties: readonly Property[]): Property[] =>
-  properties.flatMap((property) => [
-    ...(property.type === 1 && property.visible ? [property] : []),
-    ...togglesIn(property.subProps.properties),
-  ]);
+  properties.flatMap((registeredProperty) => {
+    const property = updates.get(registeredProperty.key) ?? registeredProperty;
+    const children = property.subProps.properties.length > 0 ? property : registeredProperty;
+    return [...(property.type === 1 && property.visible ? [property] : []), ...togglesIn(children.subProps.properties)];
+  });
 const renderSwitches = () => {
+  const toggles = togglesIn(registered);
   switches.replaceChildren(
     ...toggles.map((property) => {
       const button = document.createElement("button");
@@ -195,34 +207,34 @@ const renderSwitches = () => {
 for (const type of ["pointerdown", "mousedown"]) switches.addEventListener(type, (event) => event.preventDefault());
 app.addEventListener("panel", ({ detail }) => {
   if (!ownSwitches) return;
+  const ours = detail.module === switchContext?.module && detail.ic === switchContext.ic;
+
+  // A hide for another context leaves these switches alone.
   if (detail._tag === "hide") {
+    if (!ours) return;
     switchContext = undefined;
-    toggles = [];
+    registered = [];
+    updates.clear();
     renderSwitches();
     return;
   }
+
   if (detail._tag !== "record") return;
   const record = detail.record;
   if (record._tag === "RegisterProperties") {
     switchContext = { module: detail.module, ic: detail.ic };
-    toggles = togglesIn(record.properties.properties);
+    registered = record.properties.properties;
+    updates.clear();
     renderSwitches();
-  } else if (
-    record._tag === "UpdateProperty" &&
-    detail.module === switchContext?.module &&
-    detail.ic === switchContext.ic &&
-    toggles.some((property) => property.key === record.property.key)
-  ) {
-    toggles = toggles.map((property) => (property.key === record.property.key ? record.property : property));
+  } else if (record._tag === "UpdateProperty" && ours) {
+    updates.set(record.property.key, record.property);
     renderSwitches();
   }
 });
 
 const toggle = () => {
   const target = app.selection ? undefined : last;
-  void (target ? app.select(target.module, target.engine) : app.deselect()).catch((cause: unknown) =>
-    failure("Switching failed", cause),
-  );
+  void (target ? app.select(target.module, target.engine) : app.deselect()).catch(switchingFailed);
 };
 // Capturing on the window runs before the fields' own listeners, so no engine sees the shortcut.
 const shortcut = (event: KeyboardEvent) => {
@@ -238,7 +250,7 @@ picker.addEventListener("change", () => {
   const choice = picker.value === "" ? undefined : choices[Number(picker.value)];
   void (choice ? app.select(choice.module, choice.engine) : app.deselect()).catch((cause: unknown) => {
     syncPicker(app.selection);
-    failure("Switching failed", cause);
+    switchingFailed(cause);
   });
 });
 enabled.addEventListener("change", () => {
