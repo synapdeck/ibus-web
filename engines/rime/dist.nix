@@ -115,17 +115,23 @@
             settingsSchemas = "${descriptors}/settings-schemas.json";
             settingsPaths = "${descriptors}/settings-paths.json";
 
-            # rime-host peaks at 124,395,520 bytes asserting and 124,329,984
-            # released, with rime_ice and luna_pinyin open in one Worker, whose
-            # tables Rime maps into memory. A page-size change's redeployment
-            # sets the peak, which varies from run to run (96 to 124 MB) with how
-            # the deployer's work overlaps the open session's. The workload runs
-            # one engine thread at a time, the deployer's; LevelDB's compaction
-            # thread stays once started, so a deployment after it needs a second.
-            # The declaration leaves several MiB above the break, and the
-            # manifest builder adds headroom after it.
+            # Rime maps its tables, which WasmFS serves as copies in memory, and
+            # dlmalloc never lowers the break. A settings change's redeployment
+            # loads each schema's table to check it, rime_ice's 60.7 MB copy
+            # once for every schema that uses it, and the next key opens a
+            # session that loads it again. Where those copies land among the
+            # blocks that outlive them differs from run to run: in the runs
+            # traced, rime-host's page-size change ended its redeployment at 84
+            # to 125 MB and its session added nothing or 8.4 MB, while the
+            # highest peak measured, 152,223,744 bytes, had the session's table
+            # above it all. Without the change the workload peaks at 102.2 MB,
+            # with rime_ice and luna_pinyin open in one Worker. The
+            # workload runs one engine thread at a time, the deployer's;
+            # LevelDB's compaction thread stays once started, so a deployment
+            # after it needs a second. The declaration leaves several MB above
+            # the highest peak, and the manifest builder adds headroom after it.
             threads = 2;
-            heapBytes = 123 * 1024 * 1024;
+            heapBytes = 150 * 1024 * 1024;
           };
         in
         manifest.overrideAttrs (old: {

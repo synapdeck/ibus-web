@@ -31,7 +31,7 @@ writes Rime's YAML from them. Each schema's switches, such as simplified and tra
 characters, are IBus properties, `rime:option:<name>`, which a page can draw with its own controls.
 
 Serve `dist/` as it is: the manifest names its files by relative URL, and the data archives are already
-Brotli-compressed, so they must be served without `Content-Encoding: br`. The module's Worker takes 197 MiB of memory.
+Brotli-compressed, so they must be served without `Content-Encoding: br`. The module's Worker takes 231 MiB of memory.
 Details are in [docs/rime.md](https://github.com/synapdeck/ibus-web/blob/master/docs/rime.md).
 
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-rime` packs the

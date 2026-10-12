@@ -255,7 +255,7 @@ first time a page prepares or selects the engine. Of its 24 archives, two are ba
 schemas, 4,030,506 bytes installed and 998,854 as Brotli. The 22 dictionary paths are lazy, 289,631,136 bytes and
 82,153,014 as Brotli. `rime:rime_ice`'s own come to 75,939,528 bytes and 23,865,433 as Brotli; `rime:jyut6ping3` and
 `rime:jyut6ping3_ipa` name the most, 82,951,852 bytes. A dictionary several engines name, as the double-pinyin engines
-name `rime_ice`'s, is installed once. `rime.wasm` is 3,932,032 bytes, and the module's memory comes to 197 MiB.
+name `rime_ice`'s, is installed once. `rime.wasm` is 3,932,032 bytes, and the module's memory comes to 231 MiB.
 
 Every schema of `rime-data`, `rime-loengfan` and `rime-ice` ships, 47 engines. The distribution is a function of the
 schema list: `ibus-web-rime-dist.override { schemas = [ "rime_ice" "luna_pinyin" ]; }` passes the list to the module's
@@ -288,11 +288,14 @@ MB, the dictionaries of every schema most of it. `npm.engine-rime.override { sch
 built with the same override, which `rime-dist-schemas` checks; its README, description, licence and notices stay the
 full module's, so it is a check's build, not a package to publish.
 
-It declares 2 engine threads and a 123 MiB program break: `rime-host` peaked at 124,395,520 bytes asserting and
-124,329,984 released with `rime:rime_ice` and `rime:luna_pinyin` open in one Worker, since Rime maps its tables, which
-WasmFS serves as copies in memory, so the break counts every dictionary the workload has open. A page-size change's
-redeployment sets the peak, which varies from run to run, from 96 MB to 124 MB, with how the deployer's work overlaps
-the open session's; without it the workload peaks at 102.2 MB. The workload runs one engine thread at a time, the
+It declares 2 engine threads and a 150 MiB program break, several MB above the highest `rime-host` peak measured,
+152,223,744 bytes. Rime maps its tables, which WasmFS serves as copies in memory, so the break counts every dictionary
+the workload has open, and dlmalloc never lowers it. A page-size change sets the peak: the redeployment loads each
+schema's table to check it, a 60.7 MB copy of `rime_ice`'s for every schema that uses that dictionary, and the next key
+opens a session that loads it again. Where those copies land among the blocks that outlive them differs from run to run,
+and in the runs traced the redeployment ended with the break at 84 MB to 125 MB and the session added nothing or 8.4 MB;
+the highest peak had the session's table above it all. Without the change the workload peaks at 102.2 MB, with
+`rime:rime_ice` and `rime:luna_pinyin` open in one Worker. The workload runs one engine thread at a time, the
 deployer's, but LevelDB's compaction thread stays once started, so a deployment after a compaction needs a second.
 
 ## In the browser
