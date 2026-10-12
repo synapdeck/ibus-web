@@ -31,6 +31,9 @@ libibus_web = static_library(
   'src/dispatch.c',
   'src/log.c',
   'src/call-op.cpp',
+  # The runtime includes ibus.h, which includes the generated enum header, so
+  # it must exist before these compile.
+  ibus_enums[1],
   include_directories: [include_directories('include'), ibus_includes],
   c_args: ['-DG_LOG_DOMAIN="ibus-web"'] + (get_option('tests') ? ['-DIBUSWEB_TESTS'] : []),
   cpp_args: '-DG_LOG_DOMAIN="ibus-web"',
