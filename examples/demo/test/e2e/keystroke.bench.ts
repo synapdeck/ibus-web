@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { cpus, platform, release, arch, totalmem } from "node:os";
+import type { Browser, Page } from "playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { hangul } from "./hangul.ts";
+import { candidates, rime } from "./rime.ts";
 interface Sample {
   key: string;
   milliseconds: number;
@@ -14,11 +16,21 @@ declare global {
   }
 }
 
-test("500 trusted keydowns to observed application", async ({ page, browser, browserName }) => {
-  test.setTimeout(180_000);
-  await hangul(page);
+interface Case {
+  readonly engine: string;
+  readonly ready: (page: Page) => Promise<void>;
+  // Typed round and round, each key once per round.
+  readonly sequence: string;
+  readonly warmup: number;
+  // What the field holds after this many keys of the sequence.
+  readonly value: (keys: number) => string;
+  readonly after: (page: Page) => Promise<void>;
+}
+
+const measure = async (page: Page, browser: Browser, browserName: string, bench: Case) => {
+  await bench.ready(page);
   await expect(page.locator("#engine")).toHaveText("ready");
-  await page.locator("#input").evaluate((element) => {
+  await page.locator("#input").evaluate((element, keys) => {
     const field = element as HTMLTextAreaElement;
     const snapshot = () =>
       JSON.stringify({
@@ -65,7 +77,7 @@ test("500 trusted keydowns to observed application", async ({ page, browser, bro
     window.addEventListener(
       "keydown",
       (event) => {
-        if (event.target !== field || !event.isTrusted || !"gksrmf ".includes(event.key)) return;
+        if (event.target !== field || !event.isTrusted || !keys.includes(event.key)) return;
         if (active) {
           state.error = "Overlapping measured keydowns";
           return;
@@ -88,13 +100,12 @@ test("500 trusted keydowns to observed application", async ({ page, browser, bro
       },
       true,
     );
-  });
-  const sequence = "gksrmf ";
+  }, bench.sequence);
+  let typed = 0;
   const applyKeys = async (count: number) => {
-    for (let index = 0; index < count; index++) {
-      await page.keyboard.press(
-        sequence[index % sequence.length] === " " ? "Space" : sequence[index % sequence.length]!,
-      );
+    for (let index = 0; index < count; index++, typed++) {
+      const key = bench.sequence[typed % bench.sequence.length]!;
+      await page.keyboard.press(key === " " ? "Space" : key);
       await page.waitForFunction(
         (expected) => window.ibusBench.samples.length === expected || !!window.ibusBench.error,
         index + 1,
@@ -103,14 +114,14 @@ test("500 trusted keydowns to observed application", async ({ page, browser, bro
   };
   // Warmup obeys the same applied-state sequencing as measurement. A flood of
   // unacknowledged keys can overrun an abandoned synchronous request's replay queue.
-  await applyKeys(70);
-  await expect(page.locator("#input")).toHaveValue("한글 ".repeat(10));
+  await applyKeys(bench.warmup);
+  await expect(page.locator("#input")).toHaveValue(bench.value(typed));
   await page.evaluate(() => {
     window.ibusBench.samples.length = 0;
   });
   await applyKeys(500);
-  await expect(page.locator("#input")).toHaveValue("한글 ".repeat(81));
-  await expect(page.locator("[data-ibus-preedit]").filter({ hasText: "한" })).toBeVisible();
+  await expect(page.locator("#input")).toHaveValue(bench.value(typed));
+  await bench.after(page);
   const result = await page.evaluate(() => window.ibusBench);
   expect(result.error).toBeUndefined();
   expect(result.pending).toBe(false);
@@ -121,6 +132,7 @@ test("500 trusted keydowns to observed application", async ({ page, browser, bro
     JSON.stringify({
       metric:
         "trusted keydown capture to observed value/selection/preedit application; paint excluded; later-observer samples include observer delivery overhead",
+      engine: bench.engine,
       browser: browserName,
       version: browser.version(),
       node: process.version,
@@ -141,4 +153,31 @@ test("500 trusted keydowns to observed application", async ({ page, browser, bro
       samples: result.samples,
     }),
   );
+};
+
+test("500 trusted keydowns to observed application, Hangul", async ({ page, browser, browserName }) => {
+  test.setTimeout(180_000);
+  await measure(page, browser, browserName, {
+    engine: "hangul",
+    ready: hangul,
+    sequence: "gksrmf ",
+    warmup: 70,
+    // Each round commits 한글 and a space; a round under way leaves its syllables in the preedit.
+    value: (keys) => "한글 ".repeat(Math.floor(keys / 7)),
+    after: (page) => expect(page.locator("[data-ibus-preedit]").filter({ hasText: "한" })).toBeVisible(),
+  });
+});
+
+test("500 trusted keydowns to observed application, rime_ice", async ({ page, browser, browserName }) => {
+  test.setTimeout(300_000);
+  await measure(page, browser, browserName, {
+    engine: "rime:rime_ice",
+    ready: (page) => rime(page, "rime:rime_ice"),
+    sequence: "nihao ",
+    warmup: 72,
+    // The Space commits each round's first candidate, 你好.
+    value: (keys) => "你好".repeat(Math.floor(keys / 6)),
+    // 500 keys end two into a round, its ni still composing.
+    after: (page) => expect(candidates(page).first()).toBeVisible(),
+  });
 });

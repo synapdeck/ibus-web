@@ -572,6 +572,18 @@ Chromium's 72 later-observer endpoints among 500 samples are not all identified 
 metric is separate from the Node protocol framed-record-to-visible-page measurement in
 [protocol.md](protocol.md#lookup-decode-measurement).
 
+The same benchmark has a `rime_ice` case: `nihao ` typed round and round, 72 warm-up keys, then 500 measured, each
+round's Space committing `你好`, with Rime's dictionaries already installed by the case's first selection. One run on an
+AMD Ryzen 9 9950X3D 16-Core Processor (32 logical CPUs), Linux 6.18.55-xanmod1, Node 26.10.0:
+
+| Browser                | p50 ms | p99 ms | max ms |
+| ---------------------- | -----: | -----: | -----: |
+| Chromium 153.0.8010.12 |  1.590 |  3.315 | 15.165 |
+| Firefox 155.0          |  2.620 |  6.120 |  7.780 |
+| Linux WebKit 26.6      |  5.340 | 53.200 | 55.540 |
+
+Each case logs `engine` with its figures; `nix run .#keystroke-bench -- -g rime_ice` runs one case.
+
 ### Bundle boundary
 
 `checks.tools-bundle-scan` is a default gate. It fully bundles all seven published page entries (`ibus-web`, its

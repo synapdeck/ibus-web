@@ -325,6 +325,9 @@ its common data and Rime's maintenance, and `rime_ice`'s 75.9 MB of dictionaries
 AMD Ryzen 9 9950X3D 16-Core Processor (32 logical CPUs), with the rest of the suite running beside it. There is no
 target until there is a baseline.
 
+The keystroke benchmark's `rime_ice` case is in [testing.md](testing.md#keystroke-measurements): 1.590, 2.620 and 5.340
+ms at the median in Chromium, Firefox and WebKit.
+
 ## Checks
 
 | Check                    | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
