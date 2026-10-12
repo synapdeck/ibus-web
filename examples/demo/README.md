@@ -1,7 +1,7 @@
 # The demo
 
 One page for every input method module the repository builds. Its picker lists each module's engines: one group per
-module, or one per language for a module whose engines span several languages, as m17n's do.
+module, or one per language for a module whose engines span several languages, as m17n's and Rime's do.
 
 From inside the checkout, run:
 

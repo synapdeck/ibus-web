@@ -137,5 +137,7 @@
     in
     {
       packages.ibus-web-rime-dist = dist;
+
+      ibusWeb.demo.modules.rime = dist;
     };
 }

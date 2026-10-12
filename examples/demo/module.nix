@@ -88,7 +88,8 @@
             export IBUS_WEB_TEST_REPORT=$out/results.json
             export IBUS_WEB_TEST_OUTPUT=$out/artifacts
             set -o pipefail
-            timeout --kill-after=10 600 ${playwrightTest} 2>&1 | tee "$out/output.txt"
+            # Each of Rime's tests installs tens of MB of dictionaries in a fresh browser context.
+            timeout --kill-after=10 1800 ${playwrightTest} 2>&1 | tee "$out/output.txt"
           '';
     in
     {
