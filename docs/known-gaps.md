@@ -185,9 +185,6 @@ decided.
   so changing `page-size`, `switcher-hotkeys` or `ascii-toggle-key` recompiles them all and rebuilds every installed
   dictionary's prisms in the user's directory, about 3 s on Rime's deployer thread under Node, during which keys pass
   through ([rime.md](rime.md#settings)).
-- **Rime's links are longer than a data archive holds.** The common path's links into the dictionary paths reach 114
-  bytes, past ustar's 100 (above), so a Rime distribution needs archives and an installer that carry longer link targets
-  ([rime.md](rime.md#deployment)).
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
