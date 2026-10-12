@@ -184,6 +184,7 @@ using Patch0012 = Fixes;
 using Patch0013 = Fixes;
 using Patch0017 = Fixes;
 using Patch0019 = Fixes;
+using Patch0023 = Fixes;
 
 class Patch0011 : public Fixes {
 protected:
@@ -482,6 +483,25 @@ TEST_F(Patch0010, CreateIsNotBoundByItsMode) {
   ASSERT_GE(fd, 0) << strerror(errno);
   EXPECT_EQ(write(fd, "x", 1), 1) << strerror(errno);
   EXPECT_EQ(close(fd), 0) << strerror(errno);
+}
+
+// The host refuses to open a write-only file for reading, so a write-only
+// open must ask it for writing alone.
+TEST_F(Patch0023, OpenWriteOnlyFile) {
+  if (host_ignores_permissions_here())
+    GTEST_SKIP() << "the host ignores file permissions here";
+  const std::string path = at("write-only");
+  put(path, "abc");
+  ASSERT_EQ(chmod(path.c_str(), 0200), 0) << strerror(errno);
+  const int fd = open(path.c_str(), O_WRONLY);
+  const int error = errno;
+  if (fd >= 0) {
+    EXPECT_EQ(write(fd, "xyz", 3), 3) << strerror(errno);
+    EXPECT_EQ(close(fd), 0) << strerror(errno);
+  }
+  host_chmod(path.c_str(), 0644);
+  ASSERT_GE(fd, 0) << strerror(error);
+  expect_host("write-only", "xyz");
 }
 
 TEST_F(Patch0010, MknodKeepsNoDescriptor) {

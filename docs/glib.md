@@ -257,8 +257,10 @@ installs, every `.js` with a `.wasm` beside it, not a hand-kept one, and the bui
 the `.pc` files names an installed program. Features the tools reach through Unix facilities WebAssembly doesn't have
 (`gio launch`, `gtester`'s report pipe, `gapplication list`) report themselves unsupported.
 
-The tools keep Emscripten's `-sNODERAWFS` rather than WasmFS, because WasmFS's stdout turns a NUL byte into a line break
-(`gresource extract` of `a\0b\nc` prints `a\nb\nc\n`).
+The tools keep Emscripten's `-sNODERAWFS` rather than WasmFS, because NODERAWFS writes stdout to the process's own
+descriptor and WasmFS's is a text console: it decodes each line as UTF-8, replacing bytes that aren't, and ends a last
+line with a line break, so `gresource extract` of a binary resource would come out changed. (The toolchain's patch 0024
+keeps NUL bytes, which WasmFS's console otherwise turns into line breaks.)
 
 **In consumers' builds.** A cross build runs its tools on the build machine, whose GLib is nixpkgs' native, unpatched
 one: its `gdbus-codegen` emits one-argument interface init functions, which WebAssembly traps on calling. So:
@@ -402,11 +404,11 @@ The suite was the main test of the series, and its failures were root-caused one
   [host errors from `open()` and `close()`](upstream/emscripten-wasmfs-node-open-close-errors.md),
   [renames](upstream/emscripten-wasmfs-node-rename.md), [create errors](upstream/emscripten-wasmfs-node-create-eio.md)
   and [`chmod()`/`utimensat()` reaching the host](upstream/emscripten-wasmfs-node-chmod.md) (with `futimens()`'s null
-  path); and, backported from 6.0.10, `-sNODERAWFS` `fstat()` on the standard streams
-  ([draft](upstream/emscripten-noderawfs-fstat-stdio.md)). Each removed a workaround or a skip from GLib's tests. The
-  full list is in the [patches' README](../modules/emscripten/patches/README.md).
-- **Emscripten behaviour not carried as fixes:** pipes have no capacity ([draft](upstream/emscripten-pipe-capacity.md));
-  a pipe on the JavaScript file systems whose writers have closed reads as `EAGAIN`, not end of file
-  ([draft](upstream/emscripten-pipe-read-eof.md)); `dlsym(RTLD_NEXT)` aborts under `-sMAIN_MODULE`
-  ([draft](upstream/emscripten-dlsym-rtld-next.md)); WasmFS's stdout turns a NUL byte into a line break. Open items are
-  collected in [known-gaps.md](known-gaps.md#glib).
+  path), [write-only opens](upstream/emscripten-wasmfs-node-open-wronly.md); on both file systems,
+  [pipe capacity](upstream/emscripten-pipe-capacity.md), and on the JavaScript ones
+  [end of file on a pipe](upstream/emscripten-pipe-read-eof.md); and, backported from 6.0.10, `-sNODERAWFS` `fstat()` on
+  the standard streams ([draft](upstream/emscripten-noderawfs-fstat-stdio.md)). Most removed a workaround or a skip from
+  GLib's tests. The full list is in the [patches' README](../modules/emscripten/patches/README.md).
+- **Emscripten behaviour not carried as fixes:** `dlsym(RTLD_NEXT)` aborts under `-sMAIN_MODULE`
+  ([draft](upstream/emscripten-dlsym-rtld-next.md)); WasmFS's stdout is a text console, and an empty WasmFS pipe whose
+  writer is open reads as end of file. Open items are collected in [known-gaps.md](known-gaps.md#glib).

@@ -3,8 +3,8 @@
 **Posted: don't post again.** Filed as [#27825](https://github.com/emscripten-core/emscripten/issues/27825) (2026-10-01,
 no replies yet). A related report filed the same day,
 [#27847](https://github.com/emscripten-core/emscripten/issues/27847) ("Node backend can't open a write-only (0200) file
-for writing"), cites it; no draft here covers that one, and no patch fixes it. The fix (0010) can follow as a PR; the
-create-`EIO` (0012) and chmod (0013) fixes build on it.
+for writing"), cites it; its draft is `emscripten-wasmfs-node-open-wronly.md`, and 0023 fixes it. The fix (0010) can
+follow as a PR; the create-`EIO` (0012) and chmod (0013) fixes build on it.
 
 Checked against `main` 5977ecc (2026-10-02): `NodeState::open` and `NodeState::close` are unchanged since 6.0.9, and
 0010 applies there alone with offsets only.
@@ -395,7 +395,8 @@ descriptor") could say so too.
   chmod, utime, access, links, `fcntl_open`, readdir, `unistd_*`, `other.test_wasmfs_*`, ...) gives results identical to
   unpatched 6.0.9.
 - **Latent, not fixed here:** `NodeState::open` maps `O_WRONLY` to `"r+"` (the TODO says so), so a write-only file (mode
-  `0200`) can't be opened for writing once it exists. A fix would pass numeric flags to `fs.openSync`.
+  `0200`) can't be opened for writing once it exists. Reported as #27847 and fixed by 0023
+  (`emscripten-wasmfs-node-open-wronly.md`), which passes numeric flags to `fs.openSync`.
 - **FAQ.** Nothing in the FAQ covers it. Run at `-O0` and `-O2`: the open mix-up shows the same at both, and the `close`
   assertion shows only at `-O0`.
 - **bug_reports.rst.** The source, `emcc -v`, the symptoms and a tested fix are included. Bitcode is left out because

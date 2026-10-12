@@ -35,11 +35,17 @@ patch rebuilds the cache and everything in `pkgsWasm`. `checks.emscripten-fixes`
 | 0018 `wasmfs-proxy-worker-heartbeat` | WasmFS backends on a thread of their own (OPFS, fetch, or any built on `ProxyWorker`): the thread's 50 ms heartbeat timer outlives it, so once the backend is destroyed, at exit or before, the Worker its thread ran on runs the freed queue from the pool, failing an assertion when idle and touching freed memory otherwise                                                                                                            | [#27858](https://github.com/emscripten-core/emscripten/issues/27858); draft `emscripten-wasmfs-proxy-worker-heartbeat.md`                                                                                                                     | a release contains the fix                          |
 | 0019 `wasmfs-lookup-errors`          | any backend failure to look up a file is reported as `ENOENT`, so `mkdir()`, `symlink()` and `open(O_CREAT)` go on to create it; the Node backend now reports the host's error, and the OPFS backend its `EIO` or `ENOTDIR`                                                                                                                                                                                                                | not filed; draft `emscripten-wasmfs-lookup-errors.md`                                                                                                                                                                                         | a release contains the fix                          |
 | 0020 `node-stdio-eagain`             | Node: once a pthread's Worker exists (or anything opens `process.stdout`), a pipe on stdout or stderr is non-blocking, so `out()`/`err()` (`printf()` on every file system, `dbg()`) drop the rest of a write the reader isn't ready for or abort with `EAGAIN`, and NODERAWFS's `write()` fails with `EAGAIN` on a stream the program never made non-blocking                                                                             | not filed; draft `emscripten-node-stdio-eagain.md`                                                                                                                                                                                            | a release contains the fix                          |
+| 0021 `pipe-capacity`                 | pipes on both file systems take every write without limit (WasmFS's until the heap runs out), so a non-blocking writer never sees `EAGAIN` and `poll()` always reports the write end writable; non-blocking writers now see Linux's 64 KiB capacity                                                                                                                                                                                        | [#27831](https://github.com/emscripten-core/emscripten/issues/27831); draft `emscripten-pipe-capacity.md`                                                                                                                                     | a release contains the fix                          |
+| 0022 `pipe-read-eof`                 | JavaScript file systems: `read()` on an empty pipe whose writers have all closed fails with `EAGAIN` instead of returning 0, though `poll()` reports `POLLHUP`                                                                                                                                                                                                                                                                             | [#26708](https://github.com/emscripten-core/emscripten/issues/26708) (and [#22032](https://github.com/emscripten-core/emscripten/issues/22032)); draft `emscripten-pipe-read-eof.md`                                                          | a release contains the fix                          |
+| 0023 `wasmfs-node-open-wronly`       | Node backend: `O_WRONLY` opens the host's file read-write, so an existing write-only (`0200`) file can't be opened for writing                                                                                                                                                                                                                                                                                                             | [#27847](https://github.com/emscripten-core/emscripten/issues/27847); draft `emscripten-wasmfs-node-open-wronly.md`                                                                                                                           | a release contains the fix                          |
+| 0024 `wasmfs-stdout-nul`             | WasmFS's stdout and stderr end a line at a NUL byte, so it comes out as a line break                                                                                                                                                                                                                                                                                                                                                       | not filed; draft `emscripten-wasmfs-stdout-nul.md`                                                                                                                                                                                            | a release contains the fix                          |
 
 As of 6.0.11 (marked released 2026-10-02) #27632 (0001, since 6.0.10) and #27842 (0004) are in a release, and #27862
 (0016) is on `main` for the next one. Checked against `main` 5977ecc on 2026-10-02: 0001 and 0004 reverse-apply, the
 rest apply in order without 0001, 0004 and 0016 with offsets only, and the suite-format tests of 0014, 0015, 0018 and
 0019 fail on `main` and pass with that stack (each draft's status, and `docs/upstream/README.md`).
+
+0021–0024 apply on `main` 0479680 (2026-10-12) after 0002, 0003, 0005–0015 and 0017–0019, with offsets only.
 
 0014 changes `src/lib/libpthread.js` and `system/lib/pthread`, so every threaded link and the libc the cache builds
 carry it. A thread that ends unjoined adds itself to a lock-free list and wakes the main thread, which drains the list
@@ -74,9 +80,10 @@ without it.
 Tested beyond `checks.emscripten-fixes`, with the whole stack on Emscripten's own test runner:
 `other.test_gen_sig_info`, `other.test_wasmfs_getdents_node` and `wasmfs.test_fcntl_open_{nodefs,rawfs}` pass, and a
 96-test WasmFS selection (stat, chmod, utime, access, links, `fcntl_open`, readdir, `unistd_*`, `other.test_wasmfs_*`,
-...) gives the same results as unpatched 6.0.9. `test_stat_chmod`, which skips on WasmFS with the Node backend, still
-fails there when un-skipped: it opens a write-only (`0200`) file with `O_WRONLY`, which the Node backend opens as
-`"r+"`.
+...) gives the same results as unpatched 6.0.9. `test_stat_chmod`, which skips on WasmFS with the Node backend, gets
+past its write-only (`0200`) `O_WRONLY` open with 0023 when un-skipped, and fails further on: it expects
+`fchmodat(AT_SYMLINK_NOFOLLOW)` of a symlink to fail with `ENOTSUP` there, as NODEFS and NODERAWFS do, and WasmFS
+changes the link instead.
 
 0011 goes further than its draft's first, files-only hunk: a renamed directory's loaded descendants are rewritten too,
 with the moved file and every loaded file below it locked (each before its children) across the host's rename. An
@@ -128,5 +135,32 @@ of fds 1 and 2 intercept. `checks.emscripten-fixes` writes 1.25 MiB to stdout an
 from a pthread, on Emscripten's JavaScript file system, WasmFS and NODERAWFS, with neither stream read for the first
 half second, and expects every byte and status 0; unpatched, each of the twelve fails.
 
-Not carried, by decision: pipe capacity, and end of file on a JavaScript-file-system pipe whose writers have closed.
-Their drafts stay in `docs/upstream/`.
+0021 changes `src/lib/libpipefs.js` and, in WasmFS, `file.h`, `pipe_backend.h` and `syscalls.cpp`. A blocking writer
+can't wait for a reader, so it still queues everything; only a writer with `O_NONBLOCK` is held to the capacity, with
+`PIPE_BUF`'s rule that a write of up to 4096 bytes goes in whole or fails with `EAGAIN`, and a larger one is cut short
+at the room left. `poll()` reports the write end writable only while a `PIPE_BUF` write fits, on both file systems, so a
+writer that polls before each write stops at the capacity whether or not it is non-blocking (GLib's `/mainloop/unix-fd`
+fills a pipe that way), and a PIPEFS read wakes a writer waiting in `poll()`. WasmFS's `DataFile` gains a
+`getWriteRoom()` hook beside 0003's `isReadReady()`, which pipes implement; the syscall layer, which has the open file's
+flags, applies it to `write()` and `writev()` as a whole. Its JavaScript write check is the one #27831 suggests; the
+`poll()` side and WasmFS's half go further than the issue. `checks.emscripten-fixes` runs the same cases on WasmFS and
+on NODERAWFS, whose pipes are PIPEFS: a non-blocking fill stops at 64 KiB with `EAGAIN`, a large write is cut short, a
+small one that doesn't fit is refused whole, and `poll()` follows the room while a blocking writer overfills.
+
+0022 changes only `PIPEFS.stream_ops.read`, exactly as the comment on #26708 suggests. WasmFS's pipes already read 0
+there; they read 0 also while a writer is open, which this leaves alone. `checks.emscripten-fixes` reads a pipe to its
+end on both file systems.
+
+0023 sits on 0010, whose `NodeState::open()` it changes. `_wasmfs_node_open()` takes the access mode (`O_RDONLY`,
+`O_WRONLY` or `O_RDWR`) in place of a mode string, so its signature in `libsigs.js` changes, and passes Node's own
+constants to `fs.openSync()`. An open that needs more access than the host descriptor already shared by the file's other
+opens still reopens it read-write. `checks.emscripten-fixes` makes a file write-only and opens it with `O_WRONLY`;
+unpatched, the host refuses with `EACCES`.
+
+0024 changes `system/lib/wasmfs/special_files.cpp`, `wasmfs_internal.h` and `src/lib/libwasmfs.js` (with the new
+import's signature in `libsigs.js`). Each line goes to `out()` or `err()` with its length, through
+`UTF8ToString(..., ignoreNul)`, so a NUL byte reaches the console as one; `flush()` writes the buffered line instead of
+a NUL. The streams stay a line-buffered text console: bytes that aren't UTF-8 are replaced, and `out()` ends a last line
+without a line break with one. Programs linked without a file system (`libwasmfs_no_fs`) print through the JavaScript
+`fd_write`, which still breaks lines at a NUL. `checks.emscripten-fixes` writes a NUL inside a line to stdout and to
+stderr and expects it back.

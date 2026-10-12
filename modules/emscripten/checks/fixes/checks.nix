@@ -122,6 +122,14 @@
         stdioBurstNoderawfs = stdioBurst "noderawfs" "-sASSERTIONS=1 -sNODERAWFS=1 -sFORCE_FILESYSTEM=1 -sPTHREAD_POOL_SIZE=1 -sEXIT_RUNTIME=1";
       };
 
+      # Its output is the evidence, which only the test file sees.
+      stdoutNul = program {
+        name = "stdout-nul";
+        sources = [ "stdout-nul.c" ];
+        format = null;
+        linkFlags = testing.nodeLinkFlags;
+      };
+
       # Its exit status is the evidence, which only the test file sees.
       dlsyncExit = program {
         name = "dlsync-exit";
@@ -151,8 +159,10 @@
       # threads under a main thread that never returns to its event loop or
       # that loads a module while they run, for the Worker a destroyed WasmFS
       # backend thread leaves in the pool, and for a memory imported, without
-      # growth, at a size between its initial size and its maximum, and for
-      # output that a reader takes in more slowly than the program writes it.
+      # growth, at a size between its initial size and its maximum, for
+      # output that a reader takes in more slowly than the program writes it,
+      # for pipes on both file systems, and for a NUL byte written to WasmFS's
+      # standard streams.
       checks.emscripten-fixes = testing.programs {
         name = "emscripten-fixes";
 
@@ -164,6 +174,16 @@
           })
           (program {
             name = "fstat-stdio";
+            linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
+          })
+          (program {
+            name = "pipes-wasmfs";
+            sources = [ "pipes.cpp" ];
+            linkFlags = testing.nodeLinkFlags;
+          })
+          (program {
+            name = "pipes-noderawfs";
+            sources = [ "pipes.cpp" ];
             linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
           })
           (program {
@@ -189,6 +209,7 @@
         nodeTests = ./.;
         nodeTestData = {
           dlsyncExit = "${dlsyncExit}/dlsync-exit.js";
+          stdoutNul = "${stdoutNul}/stdout-nul.js";
           dlsyncSide = "${dlsyncExit}/dlsync-side.wasm";
           importedMemoryWasm = "${importedMemoryModule}/imported-memory-maximum.wasm";
           importedMemoryMaximumMiB = toString maximumMiB;

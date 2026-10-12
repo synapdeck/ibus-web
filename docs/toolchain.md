@@ -25,11 +25,11 @@ patch rebuilds the cache and everything in `pkgsWasm`.
 
 Each patch is a small fix tracked upstream: by an issue or pull request where one exists, otherwise by a draft report
 under [`docs/upstream/`](upstream/). Each is dropped once an Emscripten release has it. They fix WasmFS (path lookup,
-permissions, `poll()`, pipes, error codes), its Node backend, pthreads with a blocked main thread and with dynamic
-linking, and an imported memory's maximum. The patches' own README,
-[`modules/emscripten/patches/README.md`](../modules/emscripten/patches/README.md), lists each one with what it fixes,
-its upstream reference and the release to drop it at, and explains how they stack. `checks.emscripten-fixes` checks the
-behaviour each one restores.
+permissions, `poll()`, pipes, error codes, NUL bytes on its standard streams), its Node backend, the JavaScript file
+system's pipes, pthreads with a blocked main thread and with dynamic linking, and an imported memory's maximum. The
+patches' own README, [`modules/emscripten/patches/README.md`](../modules/emscripten/patches/README.md), lists each one
+with what it fixes, its upstream reference and the release to drop it at, and explains how they stack.
+`checks.emscripten-fixes` checks the behaviour each one restores.
 
 Most of the WasmFS fixes came out of GLib's test run ([glib.md](glib.md#what-the-test-run-found)); the pthread and
 memory ones out of the runtime's Worker design ([runtime.md](runtime.md)); the lookup, symlink and heartbeat ones out of

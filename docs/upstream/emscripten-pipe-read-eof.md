@@ -1,10 +1,11 @@
 # Pipe `read()` at EOF fails with EAGAIN while `poll()` reports POLLHUP
 
 **Posted: don't post again.** The comment below went on #26708 on 2026-10-01; no reply yet, and neither #26708 nor
-#22032 has moved since. ibus-web doesn't carry a fix, by decision.
+#22032 has moved since. ibus-web carries the suggested fix as 0022, unchanged; it can follow as a PR, with the assertion
+the comment proposes for `test_pipe_pollhup.c`.
 
-Checked against `main` 5977ecc (2026-10-02): `libpipefs.js` is unchanged since 6.0.9, so `read()` still fails with
-`EAGAIN` at EOF.
+Checked against `main` 0479680 (2026-10-12): `PIPEFS.stream_ops.read` still fails with `EAGAIN` at EOF, and 0022 applies
+there.
 
 **Draft: do not post as a new issue.** This is already reported as
 [#26708](https://github.com/emscripten-core/emscripten/issues/26708) ("read() on a pipe returns -1 instead of 0 after
@@ -216,3 +217,6 @@ empty, writer open: 0 errno 0
   it.
 - **Other WasmFS pipe gaps** are drafted separately: `emscripten-wasmfs-pipe-fifo-mode.md` (pipes report `S_IFREG`) and
   `emscripten-pipe-capacity.md` (pipes have no capacity).
+- ibus-web carries this fix as `modules/emscripten/patches/0022-pipe-read-eof.patch`; `checks.emscripten-fixes` reads a
+  pipe to its end on PIPEFS (under NODERAWFS) and on WasmFS. WasmFS's own behaviour, an empty pipe reading 0 while a
+  writer is open, is left as it is: GLib's `test-printf` still waits for its writer before reading.

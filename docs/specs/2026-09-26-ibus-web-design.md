@@ -863,15 +863,15 @@ them through its own loggers with engine and domain annotations (§7.4).
 - **Node.** Node, where the runtime runs for tests, has no IndexedDB at all, and that is not this fallback: there
   `/engines/<name>/` is WasmFS's Node backend (`wasmfs_create_node_backend`) over `<dir>/user/` of a directory the Node
   host is given, and each version's data over `<dir>/data/<version>/`. The backend runs `fs.*Sync` on the calling
-  thread, so nothing is proxied and no pool thread is taken, and works from pthreads under `worker_threads`; its limits
-  (32-bit file sizes, `O_WRONLY` opening `"r+"`) don't matter to engine data. A version's marker is the file
-  `<version>.installed` beside its directory, written as `<version>.marking`, synced and renamed over it, with the
-  directory synced after; one that doesn't parse counts as absent, and removal deletes the marker first. The host takes
-  the same locks and reports the same states, but the Node backend has no read-only mode, so neither a read-only mount
-  nor a seal refuses writes there. Node hosts are for tests. Web Locks coordinate the threads of one Node process only,
-  so two processes sharing a directory are not coordinated, and not reliably even those threads: Node can grant one
-  exclusive lock to two `worker_threads` at once (`docs/upstream/node-web-locks-worker-threads.md`). Node hosts sharing
-  a directory must therefore not be started concurrently.
+  thread, so nothing is proxied and no pool thread is taken, and works from pthreads under `worker_threads`; its limit
+  (32-bit file sizes) doesn't matter to engine data. A version's marker is the file `<version>.installed` beside its
+  directory, written as `<version>.marking`, synced and renamed over it, with the directory synced after; one that
+  doesn't parse counts as absent, and removal deletes the marker first. The host takes the same locks and reports the
+  same states, but the Node backend has no read-only mode, so neither a read-only mount nor a seal refuses writes there.
+  Node hosts are for tests. Web Locks coordinate the threads of one Node process only, so two processes sharing a
+  directory are not coordinated, and not reliably even those threads: Node can grant one exclusive lock to two
+  `worker_threads` at once (`docs/upstream/node-web-locks-worker-threads.md`). Node hosts sharing a directory must
+  therefore not be started concurrently.
 - **Host API.** Usage report, export (a tar of the engine directory) and reset.
 
 ## 6. The Worker-boundary protocol
@@ -1689,9 +1689,10 @@ How the toolchain and GLib are built as they are now, and the evidence for each 
     executables link with
     `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`;
     the libraries don't see these. The tools keep Node's raw filesystem, one of Emscripten's JavaScript file systems,
-    because WasmFS's stdout turns a NUL byte into a line break (`gresource extract` of `a\0b\nc` prints `a\nb\nc\n`).
-    Its Node backend's `fsync()` trap, which a second `glib-compile-schemas` into the same directory hit, is fixed by
-    the toolchain's Emscripten patches.
+    because it writes stdout to the process's own descriptor, where WasmFS's is a text console that decodes each line as
+    UTF-8 and ends a last line with a line break, which would change `gresource extract`'s binary output. Its Node
+    backend's `fsync()` trap, which a second `glib-compile-schemas` into the same directory hit, is fixed by the
+    toolchain's Emscripten patches.
   - **Tests' file system.** `checks.glib-tests` links GLib's tests with WasmFS, the file system the runtime ships, in
     place of `-sNODERAWFS=1`: `ibusWeb.toolchain.nodeHostFsFlags` is `-sWASMFS=1 -sNODE_HOST_ENV=1` and an object that
     roots WasmFS at the host's `/` through its Node backend and starts in Node's working directory. Emscripten's

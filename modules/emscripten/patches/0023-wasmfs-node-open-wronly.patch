@@ -1,0 +1,97 @@
+WasmFS Node backend: open O_WRONLY write-only on the host
+
+NodeState::open() opened the host's file with an fopen-style mode
+string, and since Node's only write-only strings ("w", "a") truncate or
+append, O_WRONLY opened it read-write ("r+"). The host refuses that for
+a file that may be written but not read, so an existing write-only
+(0200) file couldn't be opened for writing. _wasmfs_node_open() now
+takes the access mode and passes the host's own O_RDONLY, O_WRONLY or
+O_RDWR to fs.openSync().
+
+Upstream: https://github.com/emscripten-core/emscripten/issues/27847 (open)
+Draft: docs/upstream/emscripten-wasmfs-node-open-wronly.md
+
+diff --git a/src/lib/libsigs.js b/src/lib/libsigs.js
+index c8b5de7..338c487 100644
+--- a/src/lib/libsigs.js
++++ b/src/lib/libsigs.js
+@@ -429,7 +429,7 @@ sigs = {
+   _wasmfs_node_get_mode__sig: 'ipp',
+   _wasmfs_node_insert_directory__sig: 'ipi',
+   _wasmfs_node_insert_file__sig: 'ipi',
+-  _wasmfs_node_open__sig: 'ipp',
++  _wasmfs_node_open__sig: 'ipi',
+   _wasmfs_node_read__sig: 'iipiip',
+   _wasmfs_node_readdir__sig: 'ipp',
+   _wasmfs_node_readlink__sig: 'ippi',
+diff --git a/src/lib/libwasmfs_node.js b/src/lib/libwasmfs_node.js
+index 60a1422..15bec76 100644
+--- a/src/lib/libwasmfs_node.js
++++ b/src/lib/libwasmfs_node.js
+@@ -201,10 +201,15 @@ var wasmFSNodeLibrary = {
+   },
+ 
+   _wasmfs_node_open__deps: ['$wasmfsNodeConvertNodeCode'],
+-  _wasmfs_node_open: (path_p, mode_p) => {
++  _wasmfs_node_open: (path_p, accessMode) => {
++    // Node's mode strings have no write-only open that neither truncates nor
++    // appends, so the host's own flags are passed instead.
++    var flags = accessMode == {{{ cDefs.O_WRONLY }}} ? fs.constants.O_WRONLY :
++                accessMode == {{{ cDefs.O_RDWR }}} ? fs.constants.O_RDWR :
++                fs.constants.O_RDONLY;
+     // A file descriptor on success, a negated errno on failure.
+     try {
+-      return fs.openSync(UTF8ToString(path_p), UTF8ToString(mode_p));
++      return fs.openSync(UTF8ToString(path_p), flags);
+     } catch (e) {
+       if (!e.code) throw e;
+       return -wasmfsNodeConvertNodeCode(e);
+diff --git a/system/lib/wasmfs/backends/node_backend.cpp b/system/lib/wasmfs/backends/node_backend.cpp
+index 64de405..2231039 100644
+--- a/system/lib/wasmfs/backends/node_backend.cpp
++++ b/system/lib/wasmfs/backends/node_backend.cpp
+@@ -63,18 +63,9 @@ public:
+       // No existing fd, so open a fresh one.
+       switch (flags) {
+         case O_RDONLY:
+-          result = _wasmfs_node_open(path.c_str(), "r");
+-          break;
+         case O_WRONLY:
+-          // TODO(sbc): Specific handling of O_WRONLY.
+-          // There is no simple way to map O_WRONLY to an fopen-style
+-          // mode string since the only two modes that are write only
+-          // are `w` and `a`.  The problem with the former is that it
+-          // truncates to file.  The problem with the latter is that it
+-          // opens for appending.  For now simply opening in O_RDWR
+-          // mode is enough to pass all our tests.
+         case O_RDWR:
+-          result = _wasmfs_node_open(path.c_str(), "r+");
++          result = _wasmfs_node_open(path.c_str(), flags);
+           break;
+         default:
+           WASMFS_UNREACHABLE("Unexpected open access mode");
+@@ -89,7 +80,7 @@ public:
+                 (flags == O_RDONLY || flags == O_RDWR))) {
+       // We already have a file descriptor, but we need to replace it with a new
+       // fd with more access.
+-      result = _wasmfs_node_open(path.c_str(), "r+");
++      result = _wasmfs_node_open(path.c_str(), O_RDWR);
+       if (result < 0) {
+         return result;
+       }
+diff --git a/system/lib/wasmfs/backends/node_backend.h b/system/lib/wasmfs/backends/node_backend.h
+index 8037982..270bc7b 100644
+--- a/system/lib/wasmfs/backends/node_backend.h
++++ b/system/lib/wasmfs/backends/node_backend.h
+@@ -46,8 +46,9 @@ int _wasmfs_node_symlink(const char *target, const char *linkpath);
+ 
+ int _wasmfs_node_readlink(const char *path, const char *buf, int bufsize);
+ 
+-// Open the file and return the underlying file descriptor.
+-[[nodiscard]] int _wasmfs_node_open(const char* path, const char* mode);
++// Open the file with the given access mode (O_RDONLY, O_WRONLY or O_RDWR) and
++// return the underlying file descriptor.
++[[nodiscard]] int _wasmfs_node_open(const char* path, int accessMode);
+ 
+ // Close the underlying file descriptor.
+ [[nodiscard]] int _wasmfs_node_close(int fd);

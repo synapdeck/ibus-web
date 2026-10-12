@@ -1,0 +1,184 @@
+WasmFS: keep a NUL byte written to stdout or stderr
+
+The standard streams buffered output a line at a time and ended a line
+on a NUL byte as well as on a line break, since each line went to
+emscripten_out() or emscripten_err() as a C string; flush() wrote a NUL
+to push out the last line. So a NUL byte came out as a line break, and
+"a\0b\n" printed "a\nb\n". End lines only on a line break, hand each one
+to out() or err() with its length, NUL bytes included, and have flush()
+write the buffered line directly.
+
+Upstream: not filed yet
+Draft: docs/upstream/emscripten-wasmfs-stdout-nul.md
+
+diff --git a/src/lib/libsigs.js b/src/lib/libsigs.js
+index 338c487..fa6cd71 100644
+--- a/src/lib/libsigs.js
++++ b/src/lib/libsigs.js
+@@ -466,6 +466,7 @@ sigs = {
+   _wasmfs_stdin_get_char__sig: 'i',
+   _wasmfs_thread_utils_heartbeat__sig: 'vp',
+   _wasmfs_thread_utils_heartbeat_stop__sig: 'v',
++  _wasmfs_write_std_line__sig: 'vipp',
+   alBuffer3f__sig: 'viifff',
+   alBuffer3i__sig: 'viiiii',
+   alBufferData__sig: 'viipii',
+diff --git a/src/lib/libwasmfs.js b/src/lib/libwasmfs.js
+index d4d7cd3..6f2ac97 100644
+--- a/src/lib/libwasmfs.js
++++ b/src/lib/libwasmfs.js
+@@ -629,5 +629,18 @@ addToLibrary({
+       return c;
+     }
+     return -1;
+-  }
++  },
++
++  _wasmfs_write_std_line__deps: ['$UTF8ToString'],
++  _wasmfs_write_std_line: (fd, str, len) => {
++    // out() and err() rather than console.log(), which under Node loses output
++    // from workers (https://github.com/emscripten-core/emscripten/issues/14804,
++    // https://github.com/nodejs/node/issues/40961).
++    var line = UTF8ToString(str, len, /*ignoreNul=*/true);
++    if (fd == 1) {
++      out(line);
++    } else {
++      err(line);
++    }
++  },
+ });
+diff --git a/system/lib/wasmfs/special_files.cpp b/system/lib/wasmfs/special_files.cpp
+index 62cff29..e2f61b3 100644
+--- a/system/lib/wasmfs/special_files.cpp
++++ b/system/lib/wasmfs/special_files.cpp
+@@ -64,9 +64,11 @@ public:
+   StdinFile() : DataFile(S_IRUGO, NullBackend, S_IFCHR) { seekable = false; }
+ };
+ 
+-// A standard stream that writes: stdout or stderr.
++// A standard stream that writes: stdout or stderr. Output goes to the console
++// a line at a time; a NUL byte is part of its line, like any other byte.
+ class WritingStdFile : public DataFile {
+-protected:
++  // The standard stream's descriptor, which picks the console function.
++  int fd;
+   std::vector<char> writeBuffer;
+ 
+   int open(oflags_t) override { return 0; }
+@@ -76,69 +78,38 @@ protected:
+     return -__WASI_ERRNO_INVAL;
+   };
+ 
+-  int flush() override {
+-    // Write a null to flush the output if we have content.
+-    if (!writeBuffer.empty()) {
+-      const uint8_t nothing = '\0';
+-      write(&nothing, 1, 0);
+-    }
+-    return 0;
++  void writeLine() {
++    _wasmfs_write_std_line(fd, writeBuffer.data(), writeBuffer.size());
++    writeBuffer.clear();
+   }
+ 
+-  off_t getSize() override { return 0; }
+-  int setSize(off_t size) override { return -EPERM; }
+-
+-  ssize_t writeToJS(const uint8_t* buf,
+-                    size_t len,
+-                    void (*console_write)(const char*),
+-                    std::vector<char>& fd_write_buffer) {
++  ssize_t write(const uint8_t* buf, size_t len, off_t offset) override {
+     for (size_t j = 0; j < len; j++) {
+       uint8_t current = buf[j];
+-      // Flush on either a null or a newline.
+-      if (current == '\0' || current == '\n') {
+-        fd_write_buffer.push_back('\0'); // for null-terminated C strings
+-        console_write(fd_write_buffer.data());
+-        fd_write_buffer.clear();
++      if (current == '\n') {
++        writeLine();
+       } else {
+-        fd_write_buffer.push_back(current);
++        writeBuffer.push_back(current);
+       }
+     }
+     return len;
+   }
+ 
+-public:
+-  WritingStdFile() : DataFile(S_IWUGO, NullBackend, S_IFCHR) {
+-    seekable = false;
++  int flush() override {
++    // Write out a last line that has no line break of its own.
++    if (!writeBuffer.empty()) {
++      writeLine();
++    }
++    return 0;
+   }
+-};
+ 
+-class StdoutFile : public WritingStdFile {
+-  ssize_t write(const uint8_t* buf, size_t len, off_t offset) override {
+-    // Node and worker threads issue in Emscripten:
+-    // https://github.com/emscripten-core/emscripten/issues/14804.
+-    // Issue filed in Node: https://github.com/nodejs/node/issues/40961
+-    // This is confirmed to occur when running with EXIT_RUNTIME and
+-    // PROXY_TO_PTHREAD. This results in only a single console.log statement
+-    // being outputted. The solution for now is to use out() and err() instead.
+-    return writeToJS(buf, len, &emscripten_out, writeBuffer);
+-  }
++  off_t getSize() override { return 0; }
++  int setSize(off_t size) override { return -EPERM; }
+ 
+ public:
+-  StdoutFile() {}
+-};
+-
+-class StderrFile : public WritingStdFile {
+-  ssize_t write(const uint8_t* buf, size_t len, off_t offset) override {
+-    // Similar issue with Node and worker threads as emscripten_out.
+-    // TODO: May not want to proxy stderr (fd == 2) to the main thread, as
+-    //       emscripten_err does.
+-    //       This will not show in HTML - a console.warn in a worker is
+-    //       sufficient. This would be a change from the current FS.
+-    return writeToJS(buf, len, &emscripten_err, writeBuffer);
++  WritingStdFile(int fd) : DataFile(S_IWUGO, NullBackend, S_IFCHR), fd(fd) {
++    seekable = false;
+   }
+-
+-public:
+-  StderrFile() {}
+ };
+ 
+ class RandomFile : public DataFile {
+@@ -179,12 +150,12 @@ std::shared_ptr<DataFile> getStdin() {
+ }
+ 
+ std::shared_ptr<DataFile> getStdout() {
+-  static auto stdout = std::make_shared<StdoutFile>();
++  static auto stdout = std::make_shared<WritingStdFile>(STDOUT_FILENO);
+   return stdout;
+ }
+ 
+ std::shared_ptr<DataFile> getStderr() {
+-  static auto stderr = std::make_shared<StderrFile>();
++  static auto stderr = std::make_shared<WritingStdFile>(STDERR_FILENO);
+   return stderr;
+ }
+ 
+diff --git a/system/lib/wasmfs/wasmfs_internal.h b/system/lib/wasmfs/wasmfs_internal.h
+index 784b1cd..c920455 100644
+--- a/system/lib/wasmfs/wasmfs_internal.h
++++ b/system/lib/wasmfs/wasmfs_internal.h
+@@ -21,6 +21,10 @@ void _wasmfs_copy_preloaded_file_data(uint32_t index, uint8_t* data);
+ // Returns the next character from stdin, or -1 on EOF.
+ int _wasmfs_stdin_get_char(void);
+ 
++// Writes a line of len bytes, NUL bytes included and with no line break of its
++// own, to stdout (fd 1) or stderr (fd 2): out() or err().
++void _wasmfs_write_std_line(int fd, const char* str, size_t len);
++
+ #ifdef __cplusplus
+ }
+ #endif

@@ -579,8 +579,8 @@ take no pool thread.
 Node, where the runtime runs for tests, has no IndexedDB; that is not the fallback. There `/engines/<name>/` is WasmFS's
 Node backend (`wasmfs_create_node_backend`) over `<dir>/user/` of a directory the Node host is given, and each version's
 data over `<dir>/data/<version>/`. The backend runs `fs.*Sync` on the calling thread, so nothing is proxied and no pool
-thread is taken, and works from pthreads under `worker_threads`. Its limits (32-bit file sizes, `O_WRONLY` opening
-`"r+"`) don't matter to engine data.
+thread is taken, and works from pthreads under `worker_threads`. Its limit of 32-bit file sizes doesn't matter to engine
+data.
 
 - **The marker** is the file `<version>.installed` beside the version's directory, outside the tree the engine sees:
   written as `<version>.marking`, synced, renamed over it, the directory synced after where the platform allows. One

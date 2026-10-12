@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // The fixes whose evidence lies outside what a program reports on itself:
-// the status a program exits with, a memory its module refuses, and the
-// output a reader that falls behind receives.
+// the status a program exits with, a memory its module refuses, the output
+// a reader that falls behind receives, and the bytes a program writes to
+// its standard streams.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { nodeTestData as data } from "@ibus-web/test-programs/node-tests";
@@ -126,4 +127,15 @@ describe("Patch0020", () => {
       expect(result[stream] === expected).toBe(true);
     },
   );
+});
+
+describe("Patch0024", () => {
+  // A NUL byte is part of its line on WasmFS's stdout and stderr, not the
+  // end of it.
+  test("NulStaysInItsLine", () => {
+    const result = spawnSync(process.execPath, [data("stdoutNul")], { timeout: exitTimeoutMs });
+    expect(result.status, result.stderr.toString()).toBe(0);
+    expect(result.stdout).toEqual(Buffer.from("a\0b\n"));
+    expect(result.stderr).toEqual(Buffer.from("c\0d\n"));
+  });
 });

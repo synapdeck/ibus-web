@@ -58,11 +58,10 @@ decided.
   `pipe()` on WebAssembly.
 - **The musl `iconv()` workaround (0015) isn't proposed upstream.** It would serve musl and NetBSD users; per-character
   conversion costs one or a few `iconv()` calls per character, on musl only.
-- **WasmFS behaviour accepted, not carried as patches**: pipes have no capacity, so a writer never sees one full; the
-  Node backend opens `O_WRONLY` as `"r+"`, so an existing write-only (`0200`) file can't be opened for writing; a
-  JavaScript-file-system pipe whose writers have closed reads `EAGAIN`, not end of file; WasmFS's stdout turns a NUL
-  byte into a line break, which keeps GLib's tools on `-sNODERAWFS`. The first three have
-  [upstream drafts](upstream/README.md); the stdout one has none.
+- **WasmFS behaviour accepted, not carried as patches**: its stdout and stderr are a line-buffered text console, so
+  bytes that aren't UTF-8 are replaced and a last line without a line break gets one, which keeps GLib's tools on
+  `-sNODERAWFS`; an empty pipe whose writer is still open reads as end of file, so test-printf's reader waits for its
+  writer (0016). A byte-exact stdout under Node would mean writing to the process's descriptors, past `Module.print`.
 - **The wake hook (0017).** Under `G_DISABLE_CHECKS` a `NULL` hook is installed and its signal calls `NULL`; the
   documentation doesn't say that a context must outlive concurrent wakeups, which the hook call widens; the smoke test's
   log handler counts in a plain `int` and leaves parameters unused.

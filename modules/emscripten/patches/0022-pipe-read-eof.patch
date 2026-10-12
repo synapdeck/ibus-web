@@ -1,0 +1,25 @@
+PIPEFS: read() at end of file returns 0 instead of failing with EAGAIN
+
+A PIPEFS read of an empty pipe failed with EAGAIN even once every write
+end had closed, while poll() already reported POLLHUP there, so a reader
+that polled and read until end of file spun on EAGAIN instead. Return 0
+when the pipe is empty and its writers have closed.
+
+Upstream: https://github.com/emscripten-core/emscripten/issues/26708 (open)
+Draft: docs/upstream/emscripten-pipe-read-eof.md
+
+diff --git a/src/lib/libpipefs.js b/src/lib/libpipefs.js
+index 05b8295..f694f08 100644
+--- a/src/lib/libpipefs.js
++++ b/src/lib/libpipefs.js
+@@ -168,6 +168,10 @@ addToLibrary({
+           return 0;
+         }
+         if (currentLength == 0) {
++          // With every write end closed the pipe is at EOF.
++          if (pipe.writeClosed) {
++            return 0;
++          }
+           // Behave as if the read end is always non-blocking
+           throw new FS.ErrnoError({{{ cDefs.EAGAIN }}});
+         }
