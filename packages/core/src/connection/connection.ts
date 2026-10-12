@@ -17,11 +17,13 @@ import {
 import {
   createControl,
   controlViews,
+  postMail,
   postRequest,
   takeReply,
   type HostInit,
   type HostMessage,
   type ControlViews,
+  type PrepareEngine,
   type StorageState,
 } from "@ibus-web/worker-host";
 import { crashFromRecord, type CrashInfo } from "./crash.ts";
@@ -46,6 +48,15 @@ export interface ConnectionOptions {
   development?: boolean;
   /** Storage status arrives before startup completes as well as during operation. */
   onStorage?: (message: { state: StorageState; message: string }) => void;
+}
+/** The host couldn't install an engine's own data; the message is the host's reason. */
+export class PrepareFailed extends Error {}
+/** Hears the bytes of an engine's own data written so far, of the total the host's storage lacked. */
+export type PrepareProgress = (bytes: number, total: number) => void;
+interface PendingPrepare {
+  readonly resolve: () => void;
+  readonly reject: (cause: unknown) => void;
+  readonly progress: PrepareProgress | undefined;
 }
 export type SyncOutcome =
   | { _tag: "reply"; ret: number; records: DecodedLazyRecord[] }
@@ -90,6 +101,8 @@ export class Connection {
   private readonly doorbells = new Set<() => void>();
   private readonly crashes = new Set<(crash: CrashInfo) => void>();
   private readonly queue: QueuedRequest[] = [];
+  // By engine, in the order they were posted: the host answers each engine's in turn.
+  private readonly preparing = new Map<string, PendingPrepare[]>();
   private current: QueuedRequest | undefined;
   private inFlight = false;
   private crash: CrashInfo | undefined;
@@ -249,6 +262,25 @@ export class Connection {
     });
   }
   /**
+   * Has the host install the engine's own data, where its storage lacks it, before the engine is first made.
+   * Outside the request slot, so keys and requests go on meanwhile. Rejects with PrepareFailed for the host's
+   * reason, or with the connection's crash.
+   */
+  prepare(engine: string, progress?: PrepareProgress): Promise<void> {
+    if (this.crash) return Promise.reject(this.crash);
+    return new Promise((resolve, reject) => {
+      const pending = this.preparing.get(engine) ?? [];
+      pending.push({ resolve, reject, progress });
+      this.preparing.set(engine, pending);
+      try {
+        this.worker.postMessage({ type: "prepare-engine", engine } satisfies PrepareEngine);
+        postMail(this.control);
+      } catch (error) {
+        this.fail({ reason: "worker", message: String(error) });
+      }
+    });
+  }
+  /**
    * Settle an asynchronous request whose reply is already in shared memory, without waiting for the doorbell
    * message, which can trail the reply by a frame. Never waits for a reply that is not there yet.
    */
@@ -379,6 +411,17 @@ export class Connection {
       case "doorbell":
         this.doorbell();
         break;
+      case "prepare-progress":
+        for (const pending of this.preparing.get(message.engine) ?? [])
+          pending.progress?.(message.bytes, message.total);
+        break;
+      case "prepared": {
+        const pending = this.preparing.get(message.engine)?.shift();
+        if (this.preparing.get(message.engine)?.length === 0) this.preparing.delete(message.engine);
+        if (message.error === undefined) pending?.resolve();
+        else pending?.reject(new PrepareFailed(message.error));
+        break;
+      }
     }
   };
   private doorbell(): void {
@@ -439,6 +482,8 @@ export class Connection {
     this.current?.reject(crash);
     this.current = undefined;
     for (const pending of this.queue.splice(0)) pending.reject(crash);
+    for (const pending of [...this.preparing.values()].flat()) pending.reject(crash);
+    this.preparing.clear();
     for (const listener of this.crashes) listener(crash);
   }
 }

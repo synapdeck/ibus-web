@@ -8,6 +8,7 @@ import {
   type HostInit,
   type HostMessage,
   type ControlViews,
+  type PrepareEngine,
 } from "@ibus-web/worker-host";
 
 export function record(
@@ -44,6 +45,8 @@ export class FakeWorker extends EventTarget {
   now = 0;
   terminated = false;
   requests: Uint8Array[] = [];
+  // The engines the page has posted PrepareEngine for, and the mail word as it read after each.
+  prepares: { engine: string; mail: number }[] = [];
   scripts: Script[] = [];
   onTick: (() => void) | undefined;
   private active: { script: Script; due: number; records: Uint8Array[]; replied: boolean } | undefined;
@@ -52,7 +55,15 @@ export class FakeWorker extends EventTarget {
   asWorker(): Worker {
     return this as unknown as Worker;
   }
-  postMessage(init: HostInit) {
+  postMessage(message: HostInit | PrepareEngine) {
+    if ("type" in message) {
+      // The page bumps the mail word only once the message is posted.
+      queueMicrotask(() =>
+        this.prepares.push({ engine: message.engine, mail: Atomics.load(this.views.words, Word.mail) }),
+      );
+      return;
+    }
+    const init = message;
     this.init = init;
     const layout = init.layout ?? transportLayout();
     this.views = controlViews(init.control, layout);

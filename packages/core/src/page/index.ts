@@ -3,7 +3,9 @@
 export {
   Connection,
   ConnectionBusyError,
+  PrepareFailed,
   type ConnectionOptions,
+  type PrepareProgress,
   type CrashInfo,
   type Reply,
   type SyncOutcome,

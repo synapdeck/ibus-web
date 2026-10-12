@@ -22,7 +22,7 @@ import { toTree } from "../../../../protocol/src/ibus/walk.ts";
 import { InputContext } from "../../../src/router/contexts.ts";
 import { fixture as routerFixture } from "../../shared/router.ts";
 import { postReply } from "@ibus-web/worker-host";
-import { Connection, type ConnectionOptions } from "../../../src/connection/connection.ts";
+import { Connection, PrepareFailed, type ConnectionOptions } from "../../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";
 function deferred<A>() {
   let resolve!: (value: A) => void;
@@ -695,6 +695,46 @@ describe("output records", () => {
       else expect(lazy.page(1).candidates.map((item) => item.text)).toEqual(["invisible"]);
     },
   );
+});
+
+describe("preparing an engine", () => {
+  test("posts PrepareEngine outside the request slot, counts it in the mail word and hears its progress", async () => {
+    const connection = await start();
+    const progress: [number, number][] = [];
+    const prepared = connection.prepare("lazy", (bytes, total) => progress.push([bytes, total]));
+    await Promise.resolve();
+    expect(host.prepares).toEqual([{ engine: "lazy", mail: 1 }]);
+    expect(Atomics.load(host.views.words, Word.state)).toBe(State.idle);
+    expect(connection.busy).toBe(false);
+    host.message({ type: "prepare-progress", engine: "lazy", bytes: 0, total: 10 });
+    host.message({ type: "prepare-progress", engine: "other", bytes: 5, total: 5 });
+    host.message({ type: "prepare-progress", engine: "lazy", bytes: 10, total: 10 });
+    host.message({ type: "prepared", engine: "lazy" });
+    await expect(prepared).resolves.toBeUndefined();
+    expect(progress).toEqual([
+      [0, 10],
+      [10, 10],
+    ]);
+  });
+  test("answers each engine's prepares in the order they were posted", async () => {
+    const connection = await start();
+    const first = connection.prepare("lazy");
+    const second = connection.prepare("lazy");
+    const other = connection.prepare("other");
+    host.message({ type: "prepared", engine: "other" });
+    host.message({ type: "prepared", engine: "lazy", error: "no space" });
+    host.message({ type: "prepared", engine: "lazy" });
+    await expect(other).resolves.toBeUndefined();
+    await expect(first).rejects.toEqual(new PrepareFailed("no space"));
+    await expect(second).resolves.toBeUndefined();
+  });
+  test("a crash rejects the prepares it cut short, and later ones at once", async () => {
+    const connection = await start();
+    const pending = connection.prepare("lazy");
+    host.message({ type: "crashed", message: "trap" });
+    await expect(pending).rejects.toMatchObject({ reason: "host", message: "trap" });
+    await expect(connection.prepare("lazy")).rejects.toMatchObject({ reason: "host" });
+  });
 });
 
 describe("crashes and hangs", () => {

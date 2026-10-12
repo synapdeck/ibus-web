@@ -7,7 +7,7 @@ import { ReplayQueue, type KeySink, type KeyResult, type AsyncKeyResult, type Su
 export type ModuleState = "starting" | "ready" | "busy" | "restarting" | "failed" | "unloaded";
 export type KeyConnection = Pick<
   Connection,
-  "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate"
+  "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate" | "prepare"
 > &
   Partial<Pick<Connection, "poll">>;
 export interface KeyboardPolicy {

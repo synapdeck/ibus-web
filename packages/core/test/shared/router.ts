@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import type { Request, DecodedLazyRecord } from "@ibus-web/protocol";
-import type { Reply, SyncOutcome, CrashInfo } from "../../src/connection/connection.ts";
+import type { Reply, SyncOutcome, CrashInfo, PrepareProgress } from "../../src/connection/connection.ts";
 import { KeyRouter, type ModuleSnapshot, type KeyContext, type KeyConnection } from "../../src/router/keystroke.ts";
 import type { SurfaceAdapter } from "../../src/router/replay.ts";
 export const key = (value: string): KeyboardEvent =>
@@ -44,6 +44,13 @@ export class FakeConnection implements KeyConnection {
     ready?: Reply;
   }[] = [];
   polls = 0;
+  // The engines prepared, in order; prepareWith answers each.
+  prepared: string[] = [];
+  prepareWith: (engine: string, progress: PrepareProgress | undefined) => Promise<void> = async () => {};
+  prepare(engine: string, progress?: PrepareProgress): Promise<void> {
+    this.prepared.push(engine);
+    return this.prepareWith(engine, progress);
+  }
   onDoorbell(f: () => void) {
     this.bells.add(f);
     return () => {
