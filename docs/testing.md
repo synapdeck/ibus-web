@@ -532,19 +532,25 @@ and `integration-checks` aggregate above remain extended work, not a matrix to r
 ### Production Playwright integration
 
 `nix build .#playwright-integration` serves the production demo through its Vite preview configuration with COOP/COEP
-and runs 28 trusted-input tests in each of Chromium, Firefox and WebKit (84 total): Hangul's nine, the table module's
-seven, Mozc's five and m17n's seven. The specs are grouped by module, in `examples/demo/test/e2e/<module>.spec.ts` with
-their helpers beside them. Hangul's spec covers real composition, visible preedit without value/input leakage, focused
-native undo, separate blur commit, Hanja paging/click/digit selection, password exclusion, actual Worker restart, native
-Space reset ordering, 3f settings changes across live contexts, tabs and reload, and the picker with its Ctrl+Space
-toggle, which leaves plain input while deselected. The table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`,
-keeps one Worker across engine switches, gives plain input once deselected, checks that its engines stay in one picker
-group, and checks that the settings form follows the module. The m17n spec (`m17n.spec.ts`) checks the picker's language
-groups, types Hindi, Vietnamese and a Thai tone mark on the field's own consonant, checks that the settings form holds
-only the selected engine's instance, shows a variable saved in the form reaching the field once the field has lost focus
-after the save and regained it, and times a restart from IndexedDB once the page shows persistent storage. It fails on
-page errors or visible demo errors. The target belongs to `ibusWeb.testing.extendedChecks.playwright` and the explicit
-`integration-checks` aggregate, outside default `nix flake check`.
+and runs 36 trusted-input tests in each of Chromium, Firefox and WebKit (108 total): Hangul's ten, the table module's
+seven, Mozc's five, m17n's seven and Rime's seven. The specs are grouped by module, in
+`examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's spec covers real composition, visible
+preedit without value/input leakage, focused native undo, separate blur commit, Hanja paging/click/digit selection,
+password exclusion, actual Worker restart, native Space reset ordering, 3f settings changes across live contexts, tabs
+and reload, and the picker with its Ctrl+Space toggle, which leaves plain input while deselected. It also opens the page
+as `/?properties=page` and turns Hangul input on with the page's own switch, the panel's properties not placed. The
+table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`, keeps one Worker across engine switches, gives plain input
+once deselected, checks that its engines stay in one picker group, and checks that the settings form follows the module.
+The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi, Vietnamese and a Thai tone mark on the
+field's own consonant, checks that the settings form holds only the selected engine's instance, shows a variable saved
+in the form reaching the field once the field has lost focus after the save and regained it, and times a restart from
+IndexedDB once the page shows persistent storage. The Rime spec (`rime.spec.ts`) checks the picker's language groups,
+installs `rime_ice`'s dictionaries on its first selection and nothing on its second, timing it, converts a phrase, types
+Cangjie, turns `luna_pinyin`'s simplification on with the page's own switch, finds a chosen candidate first after a
+reload, and checks that the settings form holds the selected engine's switches and that the page size reaches the panel;
+each test takes up to 300 s, and the run's limit is 1800 s. It fails on page errors or visible demo errors. The target
+belongs to `ibusWeb.testing.extendedChecks.playwright` and the explicit `integration-checks` aggregate, outside default
+`nix flake check`.
 
 Pinned Playwright 1.63.0 runs Linux WebKit 26.6 (revision 2359) in the Nix sandbox using pinned Mesa 26.2.3 software EGL
 and an Ubuntu 24.04 Playwright platform override. No CI browser fallback is needed. This is Linux WebKit evidence, not

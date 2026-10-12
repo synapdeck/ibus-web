@@ -350,11 +350,11 @@ nix build .#checks.x86_64-linux.m17n-host
 `rime.wasm`, built through nixpkgs' CMake recipes, with `rime-data`, `rime-loengfan` and `rime-ice` deployed at build
 time by librime's own deployer, built for WebAssembly. Its 47 engines, `rime:<schema_id>`, are the schemas that type,
 and their descriptors come from the deployed configs, read through librime. [rime.md](rime.md) describes its build,
-deployment, startup, engines, settings, switches as properties and checks.
+deployment, startup, engines, settings, switches as properties, per-engine data, the distribution and npm package, the
+browser and the checks.
 
 ```sh
-nix build .#ibus-web-rime
 nix build .#ibus-web-rime-dist
-nix build .#checks.x86_64-linux.rime-golden
 nix build .#checks.x86_64-linux.rime-host
+nix build .#npm.engine-rime
 ```

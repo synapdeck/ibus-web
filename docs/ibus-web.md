@@ -1,7 +1,7 @@
 # Using ibus-web
 
 The packages aren't on npm yet. To try them, build their tarballs from this repository with `nix build .#npm.all`, which
-holds one for each of `protocol`, `worker-host`, `core`, `panel` and `ibus-web`, the runtime's and the Hangul engine's.
+holds one for each of `protocol`, `worker-host`, `core`, `panel` and `ibus-web`, the runtime's and each engine's.
 Install the five page packages' tarballs and the runtime's together, with `effect`, their peer dependency.
 
 The runtime and the engines are files the page serves, not code it imports, and `ibus-web` doesn't carry them: serve
@@ -70,6 +70,13 @@ generated choices: hosts should render a typed input rather than inventing an en
 origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and
 `install` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection.
 `logLevel` filters both `log` events and the optional logger callback.
+
+Rime's switches, such as simplified or traditional output (`rime:option:simplification`) and full-width characters
+(`rime:option:full_shape`), are IBus properties: a page with its own controls reads them from `panel` events'
+`RegisterProperties` and `UpdateProperty` records, sets one with
+`sendPanelAction(module, ic, { _tag: "PropertyActivate", name, state })` for the focused context while the field keeps
+the focus, and leaves `panel.properties` unplaced. [rime.md](rime.md#in-the-browser) has the details, and the demo does
+it when opened as `/?properties=page`.
 
 Subpaths: `ibus-web/effect` exposes the core services, adapters and protocol schemas/types; `ibus-web/panel` exposes the
 framework-free panel and its `style.css`; `ibus-web/worker` exports URL constants (`workerUrl`, `relayUrl`,
