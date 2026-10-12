@@ -15,8 +15,6 @@ decided.
   but the combination stays a risk (spec R3).
 - **Emscripten and LLVM are paired by nixpkgs** (6.0.9 on clang 22.1.8), which tests that pairing with little more than
   hello-world (spec R12); our own checks are the evidence.
-- **No CMake recipe is built in `pkgsWasm` yet**; configuring CMake through the cross set is untried until an engine
-  needs it.
 - **Autotools configure scripts can't run their test programs**: autotools configures as a cross build, and only Meson
   has an exe wrapper (Node), so a recipe that needs run-time configure checks will meet it.
 - **The dev shell's `.emcache` is never refreshed.** It is copied from the frozen cache only when it doesn't exist, so
@@ -94,7 +92,7 @@ decided.
   [the test adapter](../tools/ibus-test/README.md).
 - **An engine's C++ exception poisons the runtime.** The exception unwinds through GLib's signal emission, so
   `ibusweb_dispatch` latches a fault and returns `-ECANCELED`, and the host treats it as a crash. The page must restart
-  the engine. Containing it needs a small GLib patch, once a C++ engine is in scope: hook the `marshal(...)` call in
+  the engine. Mozc and Rime are C++, so containing it needs a small GLib patch: hook the `marshal(...)` call in
   `g_closure_invoke` and `_g_closure_invoke_va` (`gobject/gclosure.c`) and the source dispatch call in `g_main_dispatch`
   through a C++ `try`/`catch` trampoline that libibus-web sets, so GLib's bookkeeping completes and only the engine
   module is marked faulted. Engine-internal C frames between the catch and the throw would still skip their cleanup, and
@@ -182,6 +180,26 @@ decided.
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
   larger `heapBytes`.
 
+- **Rime in a second tab is nearly unusable.** Only one tab holds a module's writer lock, so the data is safe, but a
+  read-only Rime can't open its user dictionaries: LevelDB opens its `LOCK` file read-write, which the read-only mount
+  refuses. Rime then runs a recovery task, which fails too, and the module resets every session on that failure:
+  compositions are cut off mid-word, nothing learned shows, and "Rime has encountered an error." repeats. Mozc in a
+  second tab loads the writer's data but silently loses its own learning.
+- **Rime's user dictionary recovery can discard learning.** If the writer's LevelDB open ever fails (`EIO`, IndexedDB
+  closing, a full quota, corruption LevelDB can't repair), librime renames the database to `.old` and starts it empty,
+  restoring only from a sync snapshot, which nothing makes; a second failure deletes the live database.
+- **A failed held log write is only logged.** The module holds a user dictionary's log writes back until input pauses
+  ([rime.md](rime.md#learning)); when one then fails, it logs a warning, but LevelDB, told earlier that the write
+  succeeded, never enters its error state.
+- **Rime's heap in the worst case passes 150 MiB.** A redeployment that ends with the break at 125 MB, followed by a
+  session that loads `rime_ice`'s 60.7 MB table above it, would pass the declared 150 MiB. The traced sessions added
+  nothing or 8.4 MB, and none of 36 runs reached it ([rime.md](rime.md#distribution)).
+- **Backspace can't take a commit back after `Persist`.** Hiding the tab sends `Persist`, which commits Rime's learning,
+  so a Backspace afterwards takes nothing back.
+- **WebKit's `unload()` and `dispose()` with unsaved learning** wait `hangMs` (2 s by default) and still lose it:
+  WebKit's Workers reach IndexedDB through the page's main thread, which the wait holds
+  ([core.md](core.md#layers-and-page-lifetime)).
+
 ## Storage
 
 - **A shared content-addressed store (future design).** Today every module version installs its whole closure into its
@@ -206,8 +224,8 @@ decided.
   change while the engine is idle goes unreported until a request or a GLib source wakes it. The relay could wake it, or
   the page could restart the Worker on its own `versionchange`.
 - **A writer that unlinks a file another tab has open** deletes its inode at once: open counts are per connection, so
-  the reader's next read fails with `ENOENT`. Harmless for engine data, which nobody unlinks; user data that readers in
-  other tabs keep open, such as Rime's LevelDB user dictionaries, has no such rule yet.
+  the reader's next read fails with `ENOENT`. No current engine meets it: engine data is never unlinked, a read-only
+  Rime fails at LevelDB's `LOCK` before it opens any of a user dictionary's files, and Mozc reads its files whole.
 
 - **The backend's internals are runtime exports.** `_wasmfs_idb_record_entry` and `_wasmfs_idb_set_string` are
   `EMSCRIPTEN_KEEPALIVE`; only the export manifest keeps side modules off them.
@@ -229,7 +247,8 @@ decided.
 - **Measurements on one machine.** The fsync and storage figures come from one host's ZFS. Chromium's 64 KiB cliff is
   attributed to Blink's value wrapping, not traced; Firefox's out-of-line threshold is measured (between 768 and 896
   KiB), not read from its source.
-- **WebKit's IndexedDB in Workers** is unchecked (spec R5, R13).
+- **WebKit's IndexedDB in Workers** is checked only through Rime's browser tests (spec R5, R13): the backend's own
+  programs (`checks.wasmfs-idb-browser`) run in Chromium and Firefox.
 - **The backend's costs**: every `open()` costs one read-only transaction; the open/unlink race is argued in a comment,
   not tested.
 - **Installing writes in 64 KiB pieces.** Each piece of a file's data is one write transaction at a 64 KiB boundary of
@@ -254,8 +273,9 @@ decided.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't removed; the Node
   archive server in the Vitest config process is `unref`'d, not closed; Vite's unanalyzable-import warning is filtered
   by its text.
-- **`pnpmDeps`' hash is verified on x86_64-linux only**; rolldown's native binding is a per-platform optional
-  dependency.
+- **WebKit IndexedDB stalls for other engines.** In WebKit a Worker reaches IndexedDB through the page's main thread,
+  which spins on a key's reply; a key whose work waits on IndexedDB waits until the page gives up on the reply. Rime
+  holds its writes back until input pauses, but no host guard lets the page stop waiting for other engines.
 
 ## Testing
 
