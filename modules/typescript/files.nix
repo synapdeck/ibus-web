@@ -12,6 +12,7 @@
           "packages/*"
           "tools/*"
           "engines/m17n/descriptors"
+          "engines/rime/descriptors"
           "examples/*"
           "runtime/ibus-runtime"
           "runtime/wasmfs-idb"

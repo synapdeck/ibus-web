@@ -98,11 +98,35 @@ without their sources; it rebuilds the prisms of the schemas whose compiled conf
 Deploying every schema takes about 35 s under Node and peaks near 900 MB; its output is reproducible
 (`nix build --rebuild` finds the same bytes).
 
+### Descriptors
+
+The descriptor program (`descriptors/descriptors.cc`), a WebAssembly program run under Node at build time, reads every
+schema the deployment compiled through librime's API and prints, as JSON, its id, name, dictionary, dependencies,
+switches (each a name or a list of options, with the states' labels) and spelling algebra. `descriptors.ts`
+(`@ibus-web/rime-descriptors`) checks every deployed schema against the schema table and writes the module's files:
+
+| File                    | Holds                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `engines.json`          | A descriptor per shipped schema, in the order shipped: `rime:<id>`, `<name> (<gloss>)`, the table's languages, the US layout    |
+| `engine-data.json`      | Each engine's dictionary paths: its own schema's, then its dependencies', declared or not, each once                            |
+| `settings-paths.json`   | Each engine's path for `org.freedesktop.ibus.engine.rime.schema`, `/org/freedesktop/ibus/engine/rime/<id>/`                     |
+| `settings-schemas.json` | Rime's fixed and relocatable schemas and the panel's                                                                            |
+| `instances.txt`         | Every settings instance, for test harnesses                                                                                     |
+| `rime-tables.h`         | The shipped schemas, the switches the settings set (by index among a schema's switches), and rime-ice's Pinyin schemas' algebra |
+
+The schema table, `engines/rime/_schemas.nix`, gives each schema the data can deploy its English gloss, languages,
+package, dictionary and dependencies, as its deployed config names them, a dependency it reads but doesn't name
+(`array30` reads `array30_query`'s dictionary) and whether it is an engine. Nix needs the dictionaries and dependencies
+before anything is deployed, to make one derivation per dictionary; the step fails if a deployed config disagrees with
+the table, if a schema has no gloss, or if a dependency isn't deployed. `engine-data.json` is a file of its own because
+`EngineDescriptor` doesn't take `data`.
+
 ## Checks
 
-| Check             | Covers                                                                                                                                         |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rime-cast-audit` | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA, Lua and ibus-rime, each against its own allow-list, all empty |
+| Check              | Covers                                                                                                                                                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rime-descriptors` | Vitest: the table checked against deployed configs, dependency resolution into `engine-data.json`, ordering, glosses, the switch and algebra tables, and what fails the build; the default build's outputs and a build of three schemas |
+| `rime-cast-audit`  | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA, Lua and ibus-rime, each against its own allow-list, all empty                                                                                          |
 
 A CMake library is audited with the flags its own configure gives the target that builds it, from the target's
 `flags.make`, over the sources `compile_commands.json` lists for the target.

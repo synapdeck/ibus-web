@@ -175,6 +175,30 @@ in
             dontFixup = true;
           };
 
+          # Built apart from rime.wasm, so that what rime.wasm compiles in can
+          # come from what it prints.
+          ibus-web-rime-descriptor-program = final.stdenv.mkDerivation {
+            pname = "ibus-web-rime-descriptor-program";
+            inherit (final.librime) version;
+            src = ./descriptors;
+            nativeBuildInputs = [ final.buildPackages.pkg-config ];
+            buildInputs = [ final.librime ];
+            dontConfigure = true;
+            buildPhase = ''
+              runHook preBuild
+              $CXX -std=c++17 $($PKG_CONFIG --cflags rime) -c descriptors.cc -o descriptors.o
+              $CXX ${toString config.ibusWeb.lib.testLinkFlagsWithoutNodeFs} -sSTACK_SIZE=1MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB \
+                descriptors.o $($PKG_CONFIG --static --libs rime) -o descriptors.js
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              install -Dm644 -t $out descriptors.js descriptors.wasm
+              runHook postInstall
+            '';
+            dontFixup = true;
+          };
+
           # ibus-rime's engine, compiled with its CMake build's flags. Its
           # program, rime_main.c, connects to the bus, so the side module
           # takes only the engine and the settings it reads.

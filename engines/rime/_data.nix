@@ -7,6 +7,7 @@
   nodejs,
   ibus-engines,
   ibus-web-rime-tools,
+  ibus-web-rime-descriptor-program,
   rime-data,
   rime-ice,
   rime-loengfan,
@@ -100,6 +101,11 @@ let
     rm -f $out/build/user.yaml
   '';
 
+  # What the descriptor program reads from the deployed configs.
+  raw = runCommand "ibus-web-rime-raw-descriptors" { nativeBuildInputs = [ nodejs ]; } ''
+    node ${ibus-web-rime-descriptor-program}/descriptors.js ${source} ${deployment}/build > $out
+  '';
+
   # A dictionary's tables and the prisms of the schemas that read it.
   dictionaryFiles =
     name:
@@ -147,6 +153,19 @@ let
       fi
     done
   '';
+
+  plan = writeText "ibus-web-rime-plan.json" (
+    builtins.toJSON {
+      schemas = shipped;
+      table = lib.genAttrs deployed (id: table.${id});
+      dictionaries = lib.mapAttrs (_: path: "${path}") dicts;
+    }
+  );
+
+  descriptors = runCommand "ibus-web-rime-descriptors" { nativeBuildInputs = [ nodejs ]; } ''
+    node ${./descriptors/descriptors.ts} ${raw} ${plan} $out
+    cp ${raw} $out/raw.json
+  '';
 in
 {
   schemas = shipped;
@@ -155,5 +174,6 @@ in
     deployment
     dicts
     common
+    descriptors
     ;
 }
