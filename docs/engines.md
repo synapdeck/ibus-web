@@ -261,6 +261,17 @@ scenarios on each asserting/released build, 20 reported tests. It runs the real 
 rather than calling WASM directly, and guards the declared program break and thread share. Neither harness establishes
 live browser UI behavior or device input behavior.
 
+## MARISA
+
+`modules/marisa/_marisa.nix` overrides nixpkgs' MARISA 0.3.1 for two builds: `pkgsWasm.marisa`, through
+`flake.overlays.marisa`, which the table engine and librime link, and the build machine's, `ibusWeb.marisa`, which
+native tools such as the table engine's link. It adds upstream [PR #146](https://github.com/s-yata/marisa-trie/pull/146)
+(commit `e31c7ed`) with `fetchpatch`: 0.3.1 reads uninitialized units while packing a `FlatVector`. It turns off tuning
+for the build machine (`ENABLE_NATIVE_CODE`) and the command-line tools, which no module uses, and records the
+BSD-2-Clause option of MARISA's dual licence. Upstream's tests run in the check phase wherever the build can run them,
+which is the native build: that build is the `marisa-tests` check, which also asserts that the WebAssembly build carries
+the same patches. Each side module still links its own static copy.
+
 ## The table module
 
 `engines/table/` is ibus-web's own module: two engines, `latex` and `xsampa`, over one C++23 side module.

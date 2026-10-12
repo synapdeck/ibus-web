@@ -9,9 +9,7 @@
       ...
     }:
     let
-      inherit (config.ibusWeb) testing toolchain;
-
-      marisa = pkgs.callPackage ./_marisa.nix { };
+      inherit (config.ibusWeb) marisa testing toolchain;
 
       tools = pkgs.stdenv.mkDerivation {
         pname = "ibus-web-table-tools";

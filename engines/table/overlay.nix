@@ -19,8 +19,6 @@ in
           inherit (config.ibusWeb) runtime toolchain;
         in
         {
-          marisa = final.callPackage ./_marisa.nix { inherit (prev) marisa; };
-
           ibus-web-table = final.callPackage ./_package.nix {
             inherit (toolchain) sideModuleFlags;
             inherit (runtime) sideModuleLibraryGuard;

@@ -183,13 +183,8 @@ Continuous input has no visible composition step, so Enter keeps its ordinary me
 
 ## MARISA
 
-`engines/table/_marisa.nix` overrides nixpkgs' MARISA 0.3.1 for both builds: `pkgsWasm.marisa`, through the table
-overlay, and the native one the tools link. It adds upstream [PR #146](https://github.com/s-yata/marisa-trie/pull/146)
-(commit `e31c7ed`) with `fetchpatch`: 0.3.1 reads uninitialized units while packing a `FlatVector`. It turns off tuning
-for the build machine (`ENABLE_NATIVE_CODE`) and the command-line tools, which the engine doesn't use, and records the
-BSD-2-Clause option of MARISA's dual licence. Upstream's tests run in the check phase wherever the build can run them,
-which is the native build: that build is the `table-marisa` check, which also asserts that the WebAssembly build carries
-the same patches.
+The engine links MARISA 0.3.1, the one package every module that uses it shares ([engines.md](engines.md#marisa)); the
+native build the tools link is the same recipe.
 
 ## In the browser
 
@@ -248,7 +243,6 @@ side module compiles all of them; the Meson build names its own and leaves out `
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `table-parse`        | Both shipped tables parse and describe their engines; one malformed table per error class fails with its exact message                                                                                                                 |
 | `table-golden`       | GoogleTest, native, through a recording `Sink`: the table queries and every rule of both modes, and the shipped X-SAMPA                                                                                                                |
-| `table-marisa`       | Upstream MARISA's tests in the patched native build                                                                                                                                                                                    |
 | `table-imports`      | `table.wasm` imports only what the runtime exports                                                                                                                                                                                     |
 | `table-cast-audit`   | every source, glue included, under `-Wcast-function-type-strict`, with an empty allow-list                                                                                                                                             |
 | `table-data-closure` | the closure is the module, the tables and the compiled schema, all of them data                                                                                                                                                        |
