@@ -11,6 +11,7 @@
     let
       inherit (config.ibusWeb) engines toolchain;
       inherit (toolchain) pkgsWasm;
+      ibus-rime = pkgsWasm.ibus-engines.rime;
 
       # The sources compile_commands.json lists for a target, in one
       # language.
@@ -127,6 +128,29 @@
           sourcesFrom = "ls src/*.c | grep -v -e '^src/lua\\.c$' -e '^src/luac\\.c$'";
           allowList = ./cast-audit/lua.jsonc;
         };
+
+        ibus-rime =
+          (engines.castAudit {
+            name = "rime-ibus-rime";
+            inherit (ibus-rime) src;
+            buildInputs = [
+              pkgsWasm.libibus-web
+              pkgsWasm.librime
+            ];
+            cflags = "$(< $TMPDIR/cflags)";
+            sources = [
+              "rime_engine.c"
+              "rime_settings.c"
+            ];
+            allowList = ./cast-audit/ibus-rime.jsonc;
+          }).overrideAttrs
+            (old: {
+              inherit (ibus-rime) patches;
+              preBuild = ''
+                eval "printf '%s\n' $(< ${ibus-rime}/lib/ibus-rime/cflags)" > $TMPDIR/cflags
+                echo "-I${ibus-rime}/include/ibus-rime" >> $TMPDIR/cflags
+              '';
+            });
       };
     in
     {

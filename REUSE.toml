@@ -65,6 +65,11 @@ SPDX-License-Identifier = "BSD-3-Clause"
 precedence = "override"
 
 [[annotations]]
+path = "engines/rime/patches/ibus-rime/**/*.patch"
+SPDX-FileCopyrightText = ["The ibus-rime authors", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
 path = "engines/mozc/patches/**/*.patch"
 SPDX-FileCopyrightText = ["Google Inc.", "2026 Synapdeck, Inc."]
 SPDX-License-Identifier = "BSD-3-Clause"

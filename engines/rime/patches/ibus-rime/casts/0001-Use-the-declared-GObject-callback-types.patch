@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 14:29:17 -0700
+Subject: [PATCH] Use the declared GObject callback types
+
+WebAssembly traps on an indirect call through a function type that
+differs from the callee's. GLib calls the class and instance
+initializers as GClassInitFunc and GInstanceInitFunc, and
+G_DEFINE_TYPE reaches the instance initializer through a cast, so the
+type registers them itself with those types. IBusObject calls destroy as
+IBusObjectDestroyFunc, whose parameter is an IBusObject pointer.
+---
+ rime_engine.c | 47 +++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 39 insertions(+), 8 deletions(-)
+
+diff --git a/rime_engine.c b/rime_engine.c
+index e19aef8..3d79767 100644
+--- a/rime_engine.c
++++ b/rime_engine.c
+@@ -37,10 +37,12 @@ struct _IBusRimeEngineClass {
+ };
+ 
+ /* functions prototype */
+-static void ibus_rime_engine_class_init (IBusRimeEngineClass *klass);
+-static void ibus_rime_engine_init (IBusRimeEngine *rime_engine);
++static void ibus_rime_engine_class_init (gpointer g_class,
++                                         gpointer class_data);
++static void ibus_rime_engine_init (GTypeInstance *instance,
++                                   gpointer g_class);
+ static void ibus_rime_engine_constructed (GObject *object);
+-static void ibus_rime_engine_destroy (IBusRimeEngine *rime_engine);
++static void ibus_rime_engine_destroy (IBusObject *object);
+ static gboolean ibus_rime_engine_process_key_event (IBusEngine *engine,
+                                                     guint keyval,
+                                                     guint keycode,
+@@ -75,17 +77,44 @@ static void ibus_rime_engine_property_hide (IBusEngine *engine,
+ 
+ static void ibus_rime_engine_update (IBusRimeEngine *rime_engine);
+ 
+-G_DEFINE_TYPE (IBusRimeEngine, ibus_rime_engine, IBUS_TYPE_ENGINE)
++static gpointer ibus_rime_engine_parent_class = NULL;
++
++GType
++ibus_rime_engine_get_type ()
++{
++  static GType type = 0;
++  if (type == 0) {
++    static const GTypeInfo info = {
++      sizeof (IBusRimeEngineClass),
++      NULL,
++      NULL,
++      ibus_rime_engine_class_init,
++      NULL,
++      NULL,
++      sizeof (IBusRimeEngine),
++      0,
++      ibus_rime_engine_init,
++      NULL,
++    };
++    type = g_type_register_static (IBUS_TYPE_ENGINE,
++                                   "IBusRimeEngine",
++                                   &info,
++                                   0);
++  }
++  return type;
++}
+ 
+ static void
+-ibus_rime_engine_class_init (IBusRimeEngineClass *klass)
++ibus_rime_engine_class_init (gpointer g_class, gpointer class_data)
+ {
++  IBusRimeEngineClass *klass = g_class;
++  ibus_rime_engine_parent_class = g_type_class_peek_parent (klass);
+   GObjectClass *object_class = G_OBJECT_CLASS (klass);
+   IBusObjectClass *ibus_object_class = IBUS_OBJECT_CLASS (klass);
+   IBusEngineClass *engine_class = IBUS_ENGINE_CLASS (klass);
+ 
+   object_class->constructed = ibus_rime_engine_constructed;
+-  ibus_object_class->destroy = (IBusObjectDestroyFunc) ibus_rime_engine_destroy;
++  ibus_object_class->destroy = ibus_rime_engine_destroy;
+ 
+   engine_class->process_key_event = ibus_rime_engine_process_key_event;
+   engine_class->focus_in = ibus_rime_engine_focus_in;
+@@ -342,8 +371,9 @@ ibus_rime_engine_option_changed (RimeSessionId session_id, const char* option)
+ }
+ 
+ static void
+-ibus_rime_engine_init (IBusRimeEngine *rime_engine)
++ibus_rime_engine_init (GTypeInstance *instance, gpointer g_class)
+ {
++  IBusRimeEngine *rime_engine = (IBusRimeEngine *)instance;
+   RIME_STRUCT_INIT(RimeStatus, rime_engine->status);
+   RIME_STRUCT_CLEAR(rime_engine->status);
+ 
+@@ -404,8 +434,9 @@ ibus_rime_engine_constructed (GObject *object)
+ }
+ 
+ static void
+-ibus_rime_engine_destroy (IBusRimeEngine *rime_engine)
++ibus_rime_engine_destroy (IBusObject *object)
+ {
++  IBusRimeEngine *rime_engine = (IBusRimeEngine *)object;
+   ibus_rime_forget_session(rime_engine);
+   if (rime_engine->session_id) {
+     rime_api->destroy_session(rime_engine->session_id);

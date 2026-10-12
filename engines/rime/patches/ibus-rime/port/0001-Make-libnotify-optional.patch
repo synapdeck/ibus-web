@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 12:47:37 -0700
+Subject: [PATCH] Make libnotify optional
+
+ibus-rime shows Rime's deployment messages as desktop notifications,
+which needs libnotify and a notification daemon. Builds without a desktop
+can turn that off with -DENABLE_LIBNOTIFY=OFF; the messages are then
+logged.
+---
+ CMakeLists.txt |  8 +++++---
+ rime_main.c    | 10 ++++++++++
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4a22bbc..1545c1f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -16,11 +16,13 @@ if(IBus_FOUND)
+   link_directories(${IBus_LIBRARY_DIRS})
+ endif(IBus_FOUND)
+ 
+-pkg_check_modules(LIBNOTIFY REQUIRED libnotify)
+-if (LIBNOTIFY_FOUND)
++option(ENABLE_LIBNOTIFY "Show Rime's deployment messages as desktop notifications" ON)
++if(ENABLE_LIBNOTIFY)
++  pkg_check_modules(LIBNOTIFY REQUIRED libnotify)
+   include_directories(${LIBNOTIFY_INCLUDE_DIRS})
+   link_directories(${LIBNOTIFY_LIBRARY_DIRS})
+-endif(LIBNOTIFY_FOUND)
++  add_definitions(-DIBUS_RIME_ENABLE_LIBNOTIFY)
++endif(ENABLE_LIBNOTIFY)
+ 
+ find_package(Rime REQUIRED)
+ if(Rime_FOUND)
+diff --git a/rime_main.c b/rime_main.c
+index 0706daa..2f7ab17 100644
+--- a/rime_main.c
++++ b/rime_main.c
+@@ -8,7 +8,9 @@
+ #include <glib-object.h>
+ #include <glib/gstdio.h>
+ #include <ibus.h>
++#ifdef IBUS_RIME_ENABLE_LIBNOTIFY
+ #include <libnotify/notify.h>
++#endif
+ #include <rime_api.h>
+ #include "rime_engine.h"
+ #include "rime_settings.h"
+@@ -30,9 +32,13 @@ static const char* get_ibus_rime_user_data_dir(char *path) {
+ }
+ 
+ static void show_message(const char* summary, const char* details) {
++#ifdef IBUS_RIME_ENABLE_LIBNOTIFY
+   NotifyNotification* notice = notify_notification_new(summary, details, NULL);
+   notify_notification_show(notice, NULL);
+   g_object_unref(notice);
++#else
++  g_message("%s%s%s", summary, details ? " " : "", details ? details : "");
++#endif
+ }
+ 
+ static void notification_handler(void* context_object,
+@@ -112,10 +118,12 @@ static void rime_with_ibus() {
+     exit(1);
+   }
+ 
++#ifdef IBUS_RIME_ENABLE_LIBNOTIFY
+   if (!notify_init("ibus-rime")) {
+     g_error("notify_init failed");
+     exit(1);
+   }
++#endif
+   rime_api->set_notification_handler(notification_handler, NULL);
+ 
+   RIME_STRUCT(RimeTraits, ibus_rime_traits);
+@@ -129,7 +137,9 @@ static void rime_with_ibus() {
+   ibus_main();
+ 
+   ibus_rime_stop();
++#ifdef IBUS_RIME_ENABLE_LIBNOTIFY
+   notify_uninit();
++#endif
+ 
+   g_object_unref(factory);
+   g_object_unref(bus);

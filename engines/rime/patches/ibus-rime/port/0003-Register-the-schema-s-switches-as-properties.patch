@@ -1,0 +1,359 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 12:50:18 -0700
+Subject: [PATCH] Register the schema's switches as properties
+
+Each of the schema's switches becomes a property, so a panel or a page
+can show and set them without Rime's own menu: a switch of two states is
+a toggle keyed rime:option:<name>, and one of several options a menu of
+radio properties keyed rime:option:<option>. Their labels are the
+schema's state labels. Rime's option notifications update them, and
+activating one sets the option.
+---
+ rime_engine.c | 255 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ rime_engine.h |   6 ++
+ rime_main.c   |   4 +
+ 3 files changed, 265 insertions(+)
+
+diff --git a/rime_engine.c b/rime_engine.c
+index d8ad5f9..e19aef8 100644
+--- a/rime_engine.c
++++ b/rime_engine.c
+@@ -7,8 +7,18 @@
+ // TODO:
+ #define _(x) (x)
+ 
++// Properties for Rime's switches are keyed by this and the switch's name, or
++// for a switch of several options, each option's name.
++#define IBUS_RIME_OPTION_PREFIX "rime:option:"
++
++// ibus-rime's own properties, which come before the switches'.
++#define IBUS_RIME_BASE_PROPERTIES 3
++
+ extern RimeApi *rime_api;
+ 
++// The engine each session belongs to, for Rime's option notifications.
++static GHashTable* engines_by_session = NULL;
++
+ typedef struct _IBusRimeEngine IBusRimeEngine;
+ typedef struct _IBusRimeEngineClass IBusRimeEngineClass;
+ 
+@@ -101,9 +111,21 @@ ibus_rime_engine_schema (IBusRimeEngine *rime_engine)
+   return NULL;
+ }
+ 
++static void
++ibus_rime_forget_session (IBusRimeEngine *rime_engine)
++{
++  if (engines_by_session && rime_engine->session_id) {
++    g_hash_table_remove(engines_by_session,
++                        GSIZE_TO_POINTER(rime_engine->session_id));
++  }
++}
++
++static void ibus_rime_engine_load_switches (IBusRimeEngine *rime_engine);
++
+ static void
+ ibus_rime_create_session (IBusRimeEngine *rime_engine)
+ {
++  ibus_rime_forget_session(rime_engine);
+   rime_engine->session_id = rime_api->create_session();
+   const char* schema_id = ibus_rime_engine_schema(rime_engine);
+   if (rime_engine->session_id && schema_id) {
+@@ -114,6 +136,209 @@ ibus_rime_create_session (IBusRimeEngine *rime_engine)
+       g_ibus_rime_settings.preedit_style == PREEDIT_STYLE_COMPOSITION &&
+       g_ibus_rime_settings.cursor_type == CURSOR_TYPE_INSERT;
+   rime_api->set_option(rime_engine->session_id, "soft_cursor", !inline_caret);
++  if (rime_engine->session_id) {
++    if (!engines_by_session) {
++      engines_by_session = g_hash_table_new(NULL, NULL);
++    }
++    g_hash_table_insert(engines_by_session,
++                        GSIZE_TO_POINTER(rime_engine->session_id),
++                        rime_engine);
++    ibus_rime_engine_load_switches(rime_engine);
++  }
++}
++
++static IBusProperty*
++ibus_rime_find_property (IBusPropList* props, const gchar* key)
++{
++  IBusProperty* prop;
++  for (guint i = 0; (prop = ibus_prop_list_get(props, i)) != NULL; ++i) {
++    if (!g_strcmp0(ibus_property_get_key(prop), key)) {
++      return prop;
++    }
++    IBusPropList* sub_props = ibus_property_get_sub_props(prop);
++    IBusProperty* found =
++        sub_props ? ibus_rime_find_property(sub_props, key) : NULL;
++    if (found) {
++      return found;
++    }
++  }
++  return NULL;
++}
++
++static void
++ibus_rime_free_states (gpointer states)
++{
++  g_strfreev(states);
++}
++
++// A switch's state labels, from its schema, kept on its property so that
++// option notifications can relabel it.
++static gchar**
++ibus_rime_switch_states (RimeConfig* config, size_t index)
++{
++  gchar* path = g_strdup_printf("switches/@%zu/states", index);
++  size_t count = rime_api->config_list_size(config, path);
++  g_free(path);
++  gchar** states = g_new0(gchar*, count + 1);
++  for (size_t i = 0; i < count; ++i) {
++    path = g_strdup_printf("switches/@%zu/states/@%zu", index, i);
++    const char* state = rime_api->config_get_cstring(config, path);
++    g_free(path);
++    states[i] = g_strdup(state ? state : "");
++  }
++  return states;
++}
++
++static IBusText*
++ibus_rime_state_label (gchar** states, guint state, const char* fallback)
++{
++  if (state < g_strv_length(states) && states[state][0]) {
++    return ibus_text_new_from_string(states[state]);
++  }
++  return ibus_text_new_from_string(fallback);
++}
++
++// Registers the schema's switches as properties after ibus-rime's own: a
++// switch of two states as a toggle keyed by its name, one of several
++// options as a menu of radio properties keyed by each option.
++static void
++ibus_rime_engine_load_switches (IBusRimeEngine *rime_engine)
++{
++  IBusPropList* props = ibus_prop_list_new();
++  g_object_ref_sink(props);
++  for (guint i = 0; i < IBUS_RIME_BASE_PROPERTIES; ++i) {
++    ibus_prop_list_append(props, ibus_prop_list_get(rime_engine->props, i));
++  }
++  g_object_unref(rime_engine->props);
++  rime_engine->props = props;
++
++  RIME_STRUCT(RimeStatus, status);
++  RimeConfig config = {0};
++  gboolean opened = FALSE;
++  if (rime_api->get_status(rime_engine->session_id, &status)) {
++    opened = status.schema_id &&
++             rime_api->schema_open(status.schema_id, &config);
++    rime_api->free_status(&status);
++  }
++  if (opened) {
++    size_t count = rime_api->config_list_size(&config, "switches");
++    for (size_t i = 0; i < count; ++i) {
++      gchar** states = ibus_rime_switch_states(&config, i);
++      gchar* path = g_strdup_printf("switches/@%zu/name", i);
++      const char* name = rime_api->config_get_cstring(&config, path);
++      g_free(path);
++      if (name) {
++        Bool on = rime_api->get_option(rime_engine->session_id, name);
++        gchar* key = g_strconcat(IBUS_RIME_OPTION_PREFIX, name, NULL);
++        IBusProperty* prop =
++            ibus_property_new(key,
++                              PROP_TYPE_TOGGLE,
++                              ibus_rime_state_label(states, on, name),
++                              NULL,
++                              NULL,
++                              TRUE,
++                              TRUE,
++                              on ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
++                              NULL);
++        g_free(key);
++        g_object_set_data_full(G_OBJECT(prop), "ibus-rime-states", states,
++                               ibus_rime_free_states);
++        ibus_prop_list_append(props, prop);
++        continue;
++      }
++
++      path = g_strdup_printf("switches/@%zu/options", i);
++      size_t n_options = rime_api->config_list_size(&config, path);
++      g_free(path);
++      if (n_options == 0) {
++        g_strfreev(states);
++        continue;
++      }
++      IBusPropList* options = ibus_prop_list_new();
++      IBusText* current = NULL;
++      for (size_t j = 0; j < n_options; ++j) {
++        path = g_strdup_printf("switches/@%zu/options/@%zu", i, j);
++        const char* option = rime_api->config_get_cstring(&config, path);
++        g_free(path);
++        if (!option) {
++          continue;
++        }
++        Bool on = rime_api->get_option(rime_engine->session_id, option);
++        gchar* key = g_strconcat(IBUS_RIME_OPTION_PREFIX, option, NULL);
++        IBusProperty* prop =
++            ibus_property_new(key,
++                              PROP_TYPE_RADIO,
++                              ibus_rime_state_label(states, j, option),
++                              NULL,
++                              NULL,
++                              TRUE,
++                              TRUE,
++                              on ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
++                              NULL);
++        g_free(key);
++        if (on || !current) {
++          current = ibus_property_get_label(prop);
++        }
++        ibus_prop_list_append(options, prop);
++      }
++      gchar* key = g_strdup_printf("rime:options:%zu", i);
++      IBusProperty* menu =
++          ibus_property_new(key,
++                            PROP_TYPE_MENU,
++                            ibus_text_new_from_string(
++                                current ? ibus_text_get_text(current) : ""),
++                            NULL,
++                            NULL,
++                            TRUE,
++                            TRUE,
++                            PROP_STATE_UNCHECKED,
++                            options);
++      g_free(key);
++      IBusProperty* option;
++      for (guint j = 0; (option = ibus_prop_list_get(options, j)) != NULL; ++j) {
++        g_object_set_data(G_OBJECT(option), "ibus-rime-menu", menu);
++      }
++      g_strfreev(states);
++      ibus_prop_list_append(props, menu);
++    }
++    rime_api->config_close(&config);
++  }
++  ibus_engine_register_properties((IBusEngine *)rime_engine, props);
++}
++
++void
++ibus_rime_engine_option_changed (RimeSessionId session_id, const char* option)
++{
++  IBusRimeEngine* rime_engine =
++      engines_by_session
++          ? g_hash_table_lookup(engines_by_session, GSIZE_TO_POINTER(session_id))
++          : NULL;
++  if (!rime_engine || !option) {
++    return;
++  }
++  gboolean on = option[0] != '!';
++  gchar* key = g_strconcat(IBUS_RIME_OPTION_PREFIX, on ? option : option + 1,
++                           NULL);
++  IBusProperty* prop = ibus_rime_find_property(rime_engine->props, key);
++  g_free(key);
++  if (!prop) {
++    return;
++  }
++  ibus_property_set_state(prop, on ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED);
++  gchar** states = g_object_get_data(G_OBJECT(prop), "ibus-rime-states");
++  if (states) {
++    ibus_property_set_label(
++        prop, ibus_rime_state_label(states, on, ibus_property_get_key(prop)));
++  }
++  ibus_engine_update_property((IBusEngine *)rime_engine, prop);
++
++  IBusProperty* menu = g_object_get_data(G_OBJECT(prop), "ibus-rime-menu");
++  if (menu && on) {
++    ibus_property_set_label(
++        menu, ibus_text_new_from_string(
++                  ibus_text_get_text(ibus_property_get_label(prop))));
++    ibus_engine_update_property((IBusEngine *)rime_engine, menu);
++  }
+ }
+ 
+ static void
+@@ -181,6 +406,7 @@ ibus_rime_engine_constructed (GObject *object)
+ static void
+ ibus_rime_engine_destroy (IBusRimeEngine *rime_engine)
+ {
++  ibus_rime_forget_session(rime_engine);
+   if (rime_engine->session_id) {
+     rime_api->destroy_session(rime_engine->session_id);
+     rime_engine->session_id = 0;
+@@ -247,6 +473,7 @@ static void
+ ibus_rime_engine_disable (IBusEngine *engine)
+ {
+   IBusRimeEngine *rime_engine = (IBusRimeEngine *)engine;
++  ibus_rime_forget_session(rime_engine);
+   if (rime_engine->session_id) {
+     rime_api->destroy_session(rime_engine->session_id);
+     rime_engine->session_id = 0;
+@@ -598,6 +825,34 @@ static void ibus_rime_engine_property_activate (IBusEngine *engine,
+         !rime_api->get_option(rime_engine->session_id, "ascii_mode"));
+     ibus_rime_engine_update(rime_engine);
+   }
++  else if (g_str_has_prefix(prop_name, IBUS_RIME_OPTION_PREFIX)) {
++    const char* option = prop_name + strlen(IBUS_RIME_OPTION_PREFIX);
++    IBusProperty* prop = ibus_rime_find_property(rime_engine->props, prop_name);
++    IBusProperty* menu =
++        prop ? g_object_get_data(G_OBJECT(prop), "ibus-rime-menu") : NULL;
++    if (menu) {
++      // Choosing one of a switch's options turns the others off.
++      if (prop_state == PROP_STATE_CHECKED) {
++        IBusPropList* options = ibus_property_get_sub_props(menu);
++        IBusProperty* other;
++        for (guint i = 0; (other = ibus_prop_list_get(options, i)) != NULL;
++             ++i) {
++          if (other != prop) {
++            rime_api->set_option(
++                rime_engine->session_id,
++                ibus_property_get_key(other) + strlen(IBUS_RIME_OPTION_PREFIX),
++                False);
++          }
++        }
++        rime_api->set_option(rime_engine->session_id, option, True);
++      }
++    }
++    else {
++      rime_api->set_option(rime_engine->session_id, option,
++                           prop_state == PROP_STATE_CHECKED);
++    }
++    ibus_rime_engine_update(rime_engine);
++  }
+ }
+ 
+ static void ibus_rime_engine_candidate_clicked (IBusEngine *engine,
+diff --git a/rime_engine.h b/rime_engine.h
+index 52d2df6..c73a68d 100644
+--- a/rime_engine.h
++++ b/rime_engine.h
+@@ -2,10 +2,16 @@
+ #define __IBUS_RIME_ENGINE_H__
+ 
+ #include <ibus.h>
++#include <rime_api.h>
+ 
+ #define IBUS_TYPE_RIME_ENGINE \
+         (ibus_rime_engine_get_type())
+ 
+ GType ibus_rime_engine_get_type();
+ 
++// Reflects a Rime "option" notification, "<option>" or "!<option>", in the
++// property of the session's engine.
++void ibus_rime_engine_option_changed(RimeSessionId session_id,
++                                     const char* option);
++
+ #endif
+diff --git a/rime_main.c b/rime_main.c
+index 2f7ab17..4b4cd41 100644
+--- a/rime_main.c
++++ b/rime_main.c
+@@ -59,6 +59,10 @@ static void notification_handler(void* context_object,
+     }
+     return;
+   }
++  if (!strcmp(message_type, "option")) {
++    ibus_rime_engine_option_changed(session_id, message_value);
++    return;
++  }
+ }
+ 
+ static void fill_traits(RimeTraits *traits) {

@@ -66,11 +66,19 @@ librime's port patches: 0001 logs a missing dictionary source at INFO, since dep
 their sources logged an error per dictionary; 0002 lets a front end filter the schema list the switcher offers and new
 sessions start from (`Switcher::SetSchemaListFilter`).
 
+### ibus-rime
+
+`ibus-engines.rime` is configured with CMake, with its port patch 0001's `ENABLE_LIBNOTIFY` off, so the build needs no
+libnotify, and its data and icon directories outside the store, so nothing built from it refers to its output. From the
+configured tree, `rime_engine.c` and `rime_settings.c` compile with the flags CMake wrote for the program (read from its
+`flags.make`); `rime_main.c`, which connects to the bus, isn't built. The package holds the two objects, their flags,
+ibus-rime's headers and `ibus_rime.yaml`.
+
 ## Checks
 
-| Check             | Covers                                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `rime-cast-audit` | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA and Lua, each against its own allow-list, all empty |
+| Check             | Covers                                                                                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rime-cast-audit` | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA, Lua and ibus-rime, each against its own allow-list, all empty |
 
 A CMake library is audited with the flags its own configure gives the target that builds it, from the target's
 `flags.make`, over the sources `compile_commands.json` lists for the target.

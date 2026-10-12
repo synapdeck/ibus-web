@@ -175,6 +175,57 @@ in
             dontFixup = true;
           };
 
+          # ibus-rime's engine, compiled with its CMake build's flags. Its
+          # program, rime_main.c, connects to the bus, so the side module
+          # takes only the engine and the settings it reads.
+          ibus-engines = prev.ibus-engines // {
+            rime = prev.ibus-engines.rime.overrideAttrs (old: {
+              patches = (old.patches or [ ]) ++ patchesFor "ibus-rime";
+
+              nativeBuildInputs = with final.buildPackages; [
+                cmake
+                pkg-config
+              ];
+              buildInputs = [
+                final.libibus-web
+                final.librime
+              ];
+              propagatedBuildInputs = [ ];
+
+              # Rime's data directories are the module's traits; icons are
+              # paths no page loads. Outside the store, neither makes the
+              # module refer to this output.
+              cmakeFlags = [
+                "-DENABLE_LIBNOTIFY=OFF"
+                "-DRIME_DATA_DIR=/usr/share/rime-data"
+                "-DCMAKE_INSTALL_DATADIR=/usr/share"
+              ];
+
+              buildPhase = ''
+                runHook preBuild
+                # The flags as make holds them, quoted for the shell that runs
+                # the compile command it writes.
+                make -s -f CMakeFiles/ibus-engine-rime.dir/flags.make -f - print-cflags > cflags \
+                  <<< 'print-cflags: ; $(info $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS))@:'
+                for source in rime_engine rime_settings; do
+                  eval "$CC $(< cflags) -c ../$source.c -o $source.o"
+                done
+                runHook postBuild
+              '';
+
+              installPhase = ''
+                runHook preInstall
+                install -Dm644 -t $out/lib/ibus-rime rime_engine.o rime_settings.o cflags
+                install -Dm644 -t $out/include/ibus-rime rime_config.h ../rime_engine.h ../rime_settings.h
+                install -Dm644 -t $out/share/rime-data ../ibus_rime.yaml
+                runHook postInstall
+              '';
+
+              postInstall = "";
+              dontFixup = true;
+            });
+          };
+
           ibus-web-boost-headers = pkgs.runCommand "ibus-web-boost-headers-${pkgs.boost.version}" { } ''
             mkdir -p $out/lib/cmake
             cp -r ${pkgs.boost.dev}/include $out/include
