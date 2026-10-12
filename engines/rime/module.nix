@@ -32,11 +32,16 @@
 
       ibusWeb.toolchain.devLibraries = [ toolchain.pkgsWasm.librime ];
 
-      ibusWeb.toolchain.clangdPathFlags."engines/rime/module/.*\\.c" = [
-        "-I${rime.descriptors}"
-        ''-DIBUSWEB_RIME_SHARED_DATA_DIR="${rime.common}"''
-        ''-DIBUSWEB_SETTINGS_SCHEMA_DIR="${rime.settingsSchemaDir}"''
-      ];
+      ibusWeb.toolchain.clangdPathFlags = {
+        "engines/rime/module/.*\\.(c|cc|h)" = [
+          "-I${rime.descriptors}"
+          "-I${toolchain.pkgsWasm.ibus-engines.rime}/include/ibus-rime"
+          "-isystem${toolchain.pkgsWasm.ibus-web-boost-headers}/include"
+          ''-DIBUSWEB_RIME_SHARED_DATA_DIR="${rime.common}"''
+          ''-DIBUSWEB_SETTINGS_SCHEMA_DIR="${rime.settingsSchemaDir}"''
+        ];
+        "engines/rime/module/.*\\.cc" = [ "-std=c++17" ];
+      };
 
       checks.rime-imports =
         pkgs.runCommand "ibus-web-rime-imports" { nativeBuildInputs = [ pkgs.python3 ]; }
