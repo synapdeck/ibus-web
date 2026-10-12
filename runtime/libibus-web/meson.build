@@ -31,7 +31,6 @@ libibus_web = static_library(
   'src/dispatch.c',
   'src/log.c',
   'src/call-op.cpp',
-  'src/install.c',
   include_directories: [include_directories('include'), ibus_includes],
   c_args: ['-DG_LOG_DOMAIN="ibus-web"'] + (get_option('tests') ? ['-DIBUSWEB_TESTS'] : []),
   cpp_args: '-DG_LOG_DOMAIN="ibus-web"',

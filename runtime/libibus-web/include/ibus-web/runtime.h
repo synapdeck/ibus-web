@@ -163,66 +163,6 @@ IBUSWEB_API int32_t ibusweb_test_dispatch(const uint8_t *request,
                                           uint32_t request_len, uint8_t *reply,
                                           uint32_t reply_cap);
 
-/* A streaming extractor of an engine's data: a POSIX ustar archive,
- * uncompressed, fed in pieces of any size as they arrive and written
- * through the file system as it goes.
- *
- * It takes regular files, directories and symbolic links. A hard link fails
- * the install with -EOPNOTSUPP. A device, a FIFO, an extended header, a
- * name that is absolute or has a ".." component, a link with data or no
- * target, a header whose checksum doesn't match, or one that isn't ustar's
- * fails it with -EINVAL, as does an archive that ends before its
- * end-of-archive blocks. A link keeps its target as the archive has it,
- * unresolved. Nothing is written through a link: a member under one fails
- * with -ENOTDIR, and a file or link member replaces a link already at its
- * name; a link member also replaces a file there, and fails with -EISDIR
- * on a directory. Files and directories take the
- * archive's permission bits, plus the owner's read and write (and search,
- * for a directory), so that an install can always redo what an earlier one
- * wrote; a file that exists already is truncated and rewritten, a directory
- * that exists already is kept, both take the archive's mode as new ones do,
- * and missing parents are created, so installing again over a tree an
- * earlier install left half-written completes it. Nothing the archive lacks
- * is removed. Entries already written before a failure stay. Each file is
- * fsync()ed once written.
- *
- * Call it on one thread at a time; the file system's own calls may block,
- * as the IndexedDB backend's do. */
-typedef struct _IBusWebInstall IBusWebInstall;
-
-/* Starts extracting into `dir` (which must exist). Returns 0, -EINVAL
- * without dir or out, -ENOENT or -ENOTDIR if dir isn't a directory, or
- * -ENOMEM. */
-IBUSWEB_API int ibusweb_install_begin(const char *dir, IBusWebInstall **out);
-
-/* Caps the cumulative regular-file bytes. Call before the first feed;
- * otherwise returns -EINVAL. The default is UINT64_MAX. A member exceeding
- * the remaining budget fails feed with -EFBIG before creating its parents
- * or opening/sizing the file. Headers, padding and filesystem metadata do
- * not count toward this limit; the caller checks the final count for exact
- * equality when the declaration is also an expected size. */
-IBUSWEB_API int ibusweb_install_set_limit(IBusWebInstall *install,
-                                          uint64_t bytes);
-
-/* Feeds the next `len` bytes of the archive; returns 0 or a negative errno.
- * Once a feed has failed, every later one fails the same way; NULL data with
- * a length fails it with -EINVAL. Bytes after the end-of-archive blocks are
- * ignored. */
-IBUSWEB_API int ibusweb_install_feed(IBusWebInstall *install,
-                                     const uint8_t *data, uint32_t len);
-
-/* What the install has written so far: the regular files written whole,
- * and the bytes of file data written; links count as neither. Call it before
- * ibusweb_install_end(), which frees `install`; a NULL install gives 0 and 0.
- * Either pointer may be NULL. */
-IBUSWEB_API void ibusweb_install_count(const IBusWebInstall *install,
-                                       uint32_t *files, uint64_t *bytes);
-
-/* Finishes: fsyncs what it wrote, returns 0 or a negative errno, frees
- * `install`. Returns a failed feed's error, or -EINVAL if the archive ended
- * early. */
-IBUSWEB_API int ibusweb_install_end(IBusWebInstall *install);
-
 /* Whole records in sequence order. The pointer remains valid until the next
  * runtime call, ibusweb_wait() included: a call another thread proxied to
  * the pumping thread runs inside the wait, and one that appends a record

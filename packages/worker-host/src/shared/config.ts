@@ -28,6 +28,7 @@ export interface HostConfigValues {
   readonly deleteLimitMs: number;
 }
 
-// The response body reaches the extractor through a buffer of this size in
-// the runtime's memory, which also bounds each of the extractor's writes.
+// An archive reaches the tar decoder in pieces of at most this size, and each
+// file's data is written in pieces of at most this size, which the runtime
+// copies into its own memory one at a time.
 export const INSTALL_PIECE = 65536;

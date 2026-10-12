@@ -7,7 +7,7 @@
       type = lib.types.functionTo lib.types.package;
       description = ''
         Build an engine distribution from its side module, data closure, thread share and heap budget.
-        Each store path of the closure but the module's own becomes a Brotli-compressed ustar archive
+        Each store path of the closure but the module's own becomes a Brotli-compressed pax archive
         whose entries are named from /nix/store (`<hash>-<name>/...`, or the single file), with hard
         links stored as files; the build fails if a symbolic link in the closure leads outside it.
         `engines` lists the module's engine descriptors, the first being its default, either as Nix

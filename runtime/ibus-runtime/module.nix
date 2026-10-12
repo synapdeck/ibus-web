@@ -71,8 +71,11 @@
         toolchain.runtimeMainFlags
 
         # The Worker host reads and writes requests in the runtime's memory,
-        # and tops Emscripten's pthread pool up while it is idle.
-        "-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread"
+        # tops Emscripten's pthread pool up while it is idle, and writes the
+        # engine data it installs through WasmFS's JavaScript API, which a
+        # link includes whole only when the file system is forced.
+        "-sEXPORTED_RUNTIME_METHODS=HEAPU8,PThread,FS"
+        "-sFORCE_FILESYSTEM=1"
         "-sPTHREAD_POOL_SIZE='${toString poolSize}+Module[\"ibuswebEngineThreads\"]'"
         "-sPTHREAD_POOL_SIZE_STRICT=2"
 

@@ -7,6 +7,7 @@
 
 import type { HostConfigValues } from "../../src/shared/config.ts";
 import type { HostMessage, Mount, SideModule } from "../../src/shared/messages.ts";
+import type { Member } from "./tar.ts";
 
 export const HostOp = {
   stop: 0xfff5,
@@ -22,7 +23,56 @@ export const HostOp = {
   // Adds the int32 payload's count of Workers to the pool, then replies 0
   // once they have all loaded the runtime, or -1.
   addWorkers: 0xfff4,
+  // Extracts an archive with the installer, as a UTF-8 JSON InstallOpRequest,
+  // and replies with a UTF-8 JSON InstallOpReply.
+  install: 0xfff7,
+  // Runs a UTF-8 JSON array of FsActions through WasmFS's FS, and replies
+  // with a UTF-8 JSON array of their FsResults.
+  fs: 0xfff8,
 } as const;
+
+// A piece of an archive the host builds: a member, zeros, or text.
+export type ArchivePart = Member | { zeros: number } | { text: string };
+
+export interface InstallOpRequest {
+  // An existing directory, and the store path its entries must lie under.
+  dir: string;
+  storeName: string;
+  // The most bytes of file data it may write; no limit if none.
+  limit?: number;
+  archive: { url: string } | { parts: ArchivePart[] };
+  // Only the archive's first cut bytes.
+  cut?: number;
+  // The size of the pieces the archive arrives in; 64 KiB if none.
+  piece?: number;
+  // Takes the runtime's free memory, before installing, down to a file of
+  // this size, in whole pages, and the headroom.
+  squeeze?: { file: number; headroom: number };
+}
+
+export type InstallOpReply = { ok: true; files: number; bytes: number } | { ok: false; message: string };
+
+export type FsAction =
+  // Mounts a memory backend at path.
+  | { op: "mount"; path: string }
+  | { op: "mkdir"; path: string; mode?: number }
+  // Writes the text, or size bytes of the archive's pattern.
+  | { op: "write"; path: string; text?: string; size?: number; mode?: number }
+  | { op: "symlink"; target: string; path: string }
+  | { op: "unlink"; path: string }
+  | { op: "chmod"; path: string; mode: number }
+  | { op: "lstat"; path: string }
+  | { op: "readlink"; path: string }
+  | { op: "read"; path: string }
+  | { op: "pattern"; path: string }
+  // Makes every FS call the installer uses fail, in a fresh directory, and
+  // gives each one's errno.
+  | { op: "failures"; dir: string };
+
+export interface FsResult {
+  value?: unknown;
+  errno?: number;
+}
 
 export interface HostStats {
   // Maximum live pthread Workers, including the initial pool.
@@ -103,7 +153,7 @@ export interface TestInit {
   relayFailsAfter?: number;
   // indexedDB.open() throws in the host, as it does in an opaque origin.
   withoutIndexedDB?: boolean;
-  // The install stops for good once it has fed the extractor at least this
+  // The install stops for good once it has fed the tar decoder at least this
   // many bytes, and the host posts "stalled".
   stallAt?: number;
   // The install waits this long before feeding each piece of an archive.

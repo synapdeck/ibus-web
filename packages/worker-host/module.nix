@@ -219,32 +219,14 @@
         );
 
       # The test engines' data is installed at the store's root, so their
-      # archives' entries are named from there, under the store path the
+      # archives' entries are named from there, under the store paths the
       # tests give them.
-      testDataName = "00000000000000000000000000000000-test-data";
-      archives =
-        pkgs.runCommand "ibus-web-worker-host-archives"
-          {
-            nativeBuildInputs = [
-              pkgs.brotli
-              pkgs.gnutar
-            ];
-          }
-          ''
-            mkdir $out
-            cp ${runtime.installArchives}/* $out/
-            chmod u+w $out/*
-            for archive in tree tree-upgrade; do
-              mkdir -p store/${testDataName}
-              tar -xf $out/$archive.tar -C store/${testDataName}
-              tar --format=ustar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-                --mode=u+rw,go=rX -C store -cf $out/$archive.tar ${testDataName}
-              rm -rf store
-            done
-            brotli --quality=11 --output=$out/tree.tar.br $out/tree.tar
-            head -c -1 $out/tree.tar.br > $out/truncated.tar.br
-            printf '\377\377\377\377' > $out/corrupt.tar.br
-          '';
+      archives = pkgs.callPackage ./_archives.nix {
+        inherit (config.ibusWeb.lib) archiveTarFlags;
+        dataName = "00000000000000000000000000000000-test-data";
+        longName = "33333333333333333333333333333333-test-long";
+        refusedName = "44444444444444444444444444444444-test-refused";
+      };
 
       # Each runs the host's tests on the asserting runtime and the released
       # one, from the built package.

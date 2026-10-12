@@ -31,7 +31,7 @@ export interface Instruments {
   // A request for the lock wasn't granted at once, so the host waits.
   readonly waiting: (lock: string) => void;
   // Before the next piece of the engine's data, fed bytes into the install,
-  // reaches the extractor; the install waits for a promise.
+  // reaches the tar decoder; the install waits for a promise.
   readonly beforePiece: (fed: number) => Promise<void> | undefined;
   // Answers a request itself, or undefined to have the runtime dispatch it.
   // A promise has the host leave its request loop until it settles.

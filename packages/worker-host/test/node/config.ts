@@ -37,7 +37,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { browserMode, crossOriginIsolation, servePlugin, serveDirs } from "@ibus-web/test-programs/vitest";
 import type { TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
 import type { ModuleManifest } from "@ibus-web/protocol";
-import type { BuildConstants, TestArchive, TestData } from "../shared/harness.ts";
+import type { BuildConstants, InstallerArchives, TestArchive, TestData } from "../shared/harness.ts";
 import { commands } from "./commands.ts";
 
 const environments = ["node", "chromium", "firefox"] as const;
@@ -194,6 +194,10 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       tree: { ...tree, url: url("archives", tree.archive) },
       upgrade: { ...upgrade, url: url("archives", upgrade.archive) },
       missing: url("archives", "missing.tar"),
+      installer: {
+        base: url("archives", ""),
+        ...readJson<Omit<InstallerArchives, "base">>(join(manifest.archives, "fixtures.json")),
+      },
     },
   });
   const dirs = {

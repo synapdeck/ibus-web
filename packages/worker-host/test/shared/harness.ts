@@ -69,8 +69,19 @@ export interface TestData {
   // thread and glib-stress's lock takes per thread.
   stress: { threads: number; rounds: number; iterations: number };
   // The engine's data, the next version's, which drops a file and turns
-  // another into a directory, and a URL where no archive is.
-  archives: { tree: TestArchive; upgrade: TestArchive; missing: string };
+  // another into a directory, a URL where no archive is, and the installer's
+  // own archives.
+  archives: { tree: TestArchive; upgrade: TestArchive; missing: string; installer: InstallerArchives };
+}
+
+// The archives the installer's own tests take: each is at base followed by
+// its file name, refused/*.tar under the store path refused, and long.tar
+// under long.storeName, with a name and a link target too long for ustar.
+export interface InstallerArchives {
+  base: string;
+  data: string;
+  refused: string;
+  long: { storeName: string; name: string; target: string };
 }
 
 export interface HostOptions {

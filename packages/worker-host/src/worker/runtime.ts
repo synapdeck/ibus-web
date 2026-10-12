@@ -4,7 +4,13 @@
 // What the host uses of ibus-runtime.js, and the plain functions that call
 // into it.
 
-import { WASM_PAGE, type RuntimeMemory, type SideModule, type RuntimeConstants } from "../shared/messages.ts";
+import {
+  WASM_PAGE,
+  type FsConstants,
+  type RuntimeMemory,
+  type SideModule,
+  type RuntimeConstants,
+} from "../shared/messages.ts";
 
 // A failure that leaves the runtime fit to be called again: a call into it
 // returned an error, or the host refused something before calling it.
@@ -36,14 +42,31 @@ export interface Runtime {
   _ibusweb_output_peek(length: number): number;
   _ibusweb_output_consume(length: number): void;
   _ibusweb_output_last_seq(): number;
-  _ibusweb_install_begin(dir: number, installOut: number): number;
-  _ibusweb_install_set_limit(install: number, bytes: bigint): number;
-  _ibusweb_install_feed(install: number, data: number, len: number): number;
-  _ibusweb_install_count(install: number, files: number, bytes: number): void;
-  _ibusweb_install_end(install: number): number;
+  _fsync(fd: number): number;
+  ___errno_location(): number;
+  // WasmFS's JavaScript API, through which the host writes the engine data
+  // it installs.
+  FS: EmscriptenFs;
   // Emscripten's own pthread pool, which the runtime exports for the host to
   // top it up.
   PThread: EmscriptenPool;
+}
+
+// What the host uses of WasmFS's FS. Most calls throw an ErrnoError on
+// failure; unlink() and symlink() return the negative errno instead. Paths
+// are absolute; a mode is the permission bits and, from lstat(), the type.
+export interface EmscriptenFs {
+  ErrnoError: new (errno: number) => Error & { errno: number };
+  mkdir(path: string, mode: number): void;
+  symlink(target: string, path: string): number;
+  unlink(path: string): number;
+  lstat(path: string): { mode: number; size: number };
+  chmod(path: string, mode: number): void;
+  open(path: string, flags: number, mode: number): { fd: number };
+  fchmod(fd: number, mode: number): void;
+  ftruncate(fd: number, length: number): void;
+  write(stream: { fd: number }, data: Uint8Array, offset: number, length: number): number;
+  close(stream: { fd: number }): void;
 }
 
 // Emscripten's internals, not an API: requireRuntime() checks they are there.
@@ -69,12 +92,14 @@ export type CreateRuntime = (settings: {
 }) => Promise<Runtime>;
 
 // The runtime started in the memory the host made for it, with its views of
-// that memory. The memory never grows, so the views stay whole.
+// that memory and its file-system constants. The memory never grows, so the
+// views stay whole.
 export interface RuntimeHandle {
   rt: Runtime;
   memory: WebAssembly.Memory;
   bytes: Uint8Array;
   words: Int32Array;
+  fs: FsConstants;
 }
 
 // A memory the runtime can't take fails the load here, with the bounds,
@@ -98,8 +123,23 @@ export const checkMemory = (
 // drop; better to refuse to start than to fail at the first top-up.
 export const requireRuntime = (rt: Runtime): void => {
   const pool = (rt as Partial<Runtime>).PThread as Partial<EmscriptenPool> | undefined;
+  const fs = (rt as Partial<Runtime>).FS as Partial<EmscriptenFs> | undefined;
+  const fsCalls = [
+    "mkdir",
+    "symlink",
+    "unlink",
+    "lstat",
+    "chmod",
+    "open",
+    "fchmod",
+    "ftruncate",
+    "write",
+    "close",
+  ] as const;
   const missing = [
-    ...(typeof rt._ibusweb_install_set_limit === "function" ? [] : ["ibusweb_install_set_limit"]),
+    ...(typeof fs?.ErrnoError === "function" ? [] : ["FS.ErrnoError"]),
+    ...fsCalls.filter((name) => typeof fs?.[name] !== "function").map((name) => `FS.${name}`),
+    ...(typeof rt._fsync === "function" ? [] : ["fsync"]),
     ...(rt.HEAPU8 instanceof Uint8Array ? [] : ["HEAPU8"]),
     ...(Array.isArray(pool?.unusedWorkers) ? [] : ["PThread.unusedWorkers"]),
     ...(typeof pool?.allocateUnusedWorker === "function" ? [] : ["PThread.allocateUnusedWorker"]),

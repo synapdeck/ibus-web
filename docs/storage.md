@@ -346,37 +346,43 @@ reads a version before its marker exists, so the deletion has no reader to wait 
 marker and the next host redoes it; a second host waiting on the lock finds the marker and mounts. The installing host
 keeps its sealed read-write backend rather than mount a third, since a backend's thread lasts as long as the runtime.
 
-**The marker.** Every file was `fsync()`ed by the extractor, so the data has committed; the directory entries made after
+**The marker.** Every file was `fsync()`ed by the installer, so the data has committed; the directory entries made after
 a file's last `fsync()` committed relaxed, and the marker's strict commit makes them durable too, since a strict commit
 that writes makes every earlier change to the database durable. A marker whose value isn't one for this version counts
 as none, so the version is installed again rather than every start failing.
 
-**The extractor.** Archives are Brotli-compressed POSIX ustar, one per store path, its entries named from `/nix/store`
-(`<hash>-<name>/…`, or the bare file for a store path that is one); how they are built is
+**The installer.** Archives are Brotli-compressed pax, POSIX's extension of ustar, one per store path, its entries named
+from `/nix/store` (`<hash>-<name>/…`, or the bare file for a store path that is one); how they are built is
 [engines.md](engines.md#archives-and-serving)'s. The host streams native `DecompressionStream("brotli")` output, where
 construction succeeds, or a `brotli-dec-wasm` fallback with its WASM embedded in a separate decoder script, imported by
-URL only without native support. Plain ustar (`encoding: "identity"`) remains available for fixtures. Serve the archives
+URL only without native support. Plain tar (`encoding: "identity"`) remains available for fixtures. Serve the archives
 without `Content-Encoding: br` to avoid fetch decoding them twice; a decoding failure's message says so, while a failure
-of the response body itself passes through unlabelled. Decompressed bytes are re-cut into at most 64 KiB pieces and
-streamed into `libibus-web`'s `ibusweb_install_begin`, `_set_limit`, `_feed`, `_count` and `_end`, which write through
-the mounted file system, so the stored layout has one writer. The host feeds it through a 64 KiB buffer in the runtime's
-memory. It takes regular files, directories and symbolic links (`SYMTYPE`), a link keeping its target unresolved; a hard
-link (`LNKTYPE`) fails with `EOPNOTSUPP`; devices, FIFOs, extended headers, absolute names, `..`, a link with data or no
-target, a bad checksum, a non-ustar header or an archive that ends early fail with `EINVAL`. Nothing is written through
-a link: a member under one fails with `ENOTDIR`, and a file or link member replaces a link already at its name. Each
-entry takes the archive's mode plus its owner's read and write (and search, for a directory), so a later install can
-redo it; existing files are truncated and rewritten, missing parents made. Each regular file is sized from its header
-before its data is written, so a file in memory is allocated once, and `fsync()`ed once written. Each archive is
-extracted at the root of the data mount; as it streams, the host follows its ustar framing and refuses any entry outside
-the archive's own store path before the extractor sees it, so one archive can't replace another's files. The bounded C
-parser uses standard `tar.h` constants and an explicitly size/offset-checked ustar header layout.
+of the response body itself passes through unlabelled.
 
-The streaming extractor's optional `ibusweb_install_set_limit(install, bytes)` sets a uint64 regular-file byte budget
-before the first feed. The host always sets it from the manifest, passing a JavaScript `bigint` across the WASM i64
-boundary; older low-level callers of `ibusweb_install_begin` retain an unlimited default. Feed returns `-EFBIG` before
-creating or sizing a member that exceeds the remaining budget. The host checks final count equality before persisting
-the installed marker. Metadata and decompressor buffers are outside this budget. This additive export preserves the
-existing C ABI; the host checks that the runtime provides it before startup continues.
+Decompressed bytes are re-cut into at most 64 KiB pieces and piped through `modern-tar`'s `createTarDecoder()`, strict,
+and the host's installer (`src/worker/install/`) writes each entry as the decoder gives it, through WasmFS's JavaScript
+`FS` (`mkdir`, `lstat`, `chmod`, `symlink`, `unlink`, `open`, `fchmod`, `ftruncate`, `write`, `close`) and libc's
+`fsync`, which the runtime exports, into the mounted file system, so the stored layout has one writer: the host's
+installer. A file's data goes in as it arrives, in pieces of at most 64 KiB, each a `write()`; neither an archive nor a
+file is ever held whole. The decoder refuses a header whose checksum doesn't match, a lone zero block, an archive that
+ends before its two end-of-archive blocks, mid-header or mid-file, and anything but zeros after them. It applies pax
+extended (`x`) and global (`g`) headers and GNU's long names (`L`, `K`), so a name or link target has no length limit.
+
+The installer takes regular files, directories and symbolic links, a link keeping its target unresolved; a hard link
+fails with `EOPNOTSUPP`; devices, FIFOs, absolute names, `..`, a pax `size` record, a name or target holding a NUL or a
+newline, and a link with no target fail with `EINVAL`. Each archive is extracted at the root of the data mount, and an
+entry outside the archive's own store path is refused before anything of it is written, so one archive can't replace
+another's files. Nothing is written through a link: an entry under one fails with `ENOTDIR`, a file or link replaces a
+link already at its name, a link also replaces a file, and a link or file where there is a directory fails with
+`EISDIR`. Each entry takes the archive's mode plus its owner's read and write (and search, for a directory), new or
+there already, so a later install can redo it; existing directories are kept, existing files truncated and rewritten,
+missing parents made. Each regular file is sized from its header (`ftruncate`) before its data is written, so a file in
+memory is allocated once, and `fsync()`ed once written. A failure reports the entry and the negative errno, as
+`install <url>: "<entry>": -<errno>`, and closes the file it was writing.
+
+The installer refuses, with `EFBIG`, a regular file that would take the bytes written past the manifest's `size` for the
+archive, before creating its parents or the file, and the host requires the bytes written to equal `size` exactly before
+it writes the marker. Metadata and decompressor buffers are outside this budget.
 
 **Waiting and progress.** A host waiting for the data or install lock gives up, failing its start, after 120 s without
 word from the holder. The installer sends progress every second for as long as it holds the install lock, on a
@@ -477,7 +483,7 @@ The runtime's memory is fixed once made ([runtime.md](runtime.md)), so the host 
 opens the module's database without creating it and closes it at once. If that fails, the module's directory is WasmFS's
 memory backend, and the host makes the runtime's memory, and its maximum, larger than the manifest's `memory` by the
 data's size: the sum of the manifest's data sizes (unpacked bytes), rounded up to whole 64 KiB pages. That covers the
-files' contents, since the extractor sizes each file before writing it, so the memory backend allocates each file once
+files' contents, since the installer sizes each file before writing it, so the memory backend allocates each file once
 at its size; per-file metadata (WasmFS's file objects and directory entries) comes out of the spare in the manifest's
 base memory. A memory this takes past the runtime's maximum fails the memory check, a load failure. The data is
 installed at every start, with no lock, and the host posts `storage: ephemeral` with the reason IndexedDB couldn't be
@@ -566,9 +572,9 @@ five closed at 14,648 KiB).
 
 ### Installing
 
-The extractor writes each file's data as it arrives, so through pieces of at most 64 KiB, each `write()` one write
-transaction. Since ustar's 512-byte headers offset file data from chunk boundaries, most of those writes cover a chunk
-in part at each end and read it first. Installing is off the request path, so that cost only delays startup.
+The installer writes each file's data as it arrives, a 64 KiB piece at a time from the file's start, each `write()` one
+write transaction. At the 16 KiB chunks the backend creates, each piece covers four chunks whole, so only a file's last
+chunk is written in part. Installing is off the request path, so its cost only delays startup.
 
 ## Not built yet
 

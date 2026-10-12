@@ -247,6 +247,7 @@ test("released and asserting distributions ship the generated runtime constants"
   const constants = JSON.parse(expected) as Record<string, unknown>;
   expect(Object.keys(constants).sort()).toEqual([
     "canceled",
+    "fs",
     "idbReadOnly",
     "memory",
     "poolLowWater",

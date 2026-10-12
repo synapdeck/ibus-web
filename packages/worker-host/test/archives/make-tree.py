@@ -1,18 +1,22 @@
 # SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-"""Writes the tree the installer's test archive holds, the archives it must
-refuse, and the listing an installed tree must match.
+"""Writes the tree the installer's test archive holds, the listing an
+installed tree must match, and the archives the installer must refuse.
 
 Usage: make-tree.py TREE OUT
        make-tree.py --upgrade TREE OUT
+       make-tree.py --refused STORE_NAME OUT
        make-tree.py --corrupt OUT
 
 TREE receives the tree, from which the caller builds OUT/tree.tar with GNU
-tar; this script writes the refused archives and OUT/listing.txt, and
-OUT/corrupt.tar once tree.tar exists (run with --corrupt). With --upgrade,
-TREE receives the next version's tree, which drops a file and turns
-another into a directory, and OUT/listing-upgrade.txt its listing.
+tar, and OUT/listing.txt its listing. With --upgrade, TREE receives the
+next version's tree, which drops a file and turns another into a
+directory, and OUT/listing-upgrade.txt its listing. --refused writes
+OUT/refused/*.tar, each a file under the store path STORE_NAME that the
+installer accepts, then one member it must refuse, and OUT/symlink.tar, a
+link to "/" under it. --corrupt writes OUT/corrupt.tar once tree.tar
+exists.
 """
 
 import hashlib
@@ -93,20 +97,23 @@ def member(name, kind=tarfile.REGTYPE, data=b"", linkname=""):
     return info, (io.BytesIO(data) if kind == tarfile.REGTYPE else None)
 
 
-def refused(path, bad):
-    """An archive with a file the installer accepts, then one member it must
-    refuse."""
+def refused(path, store, bad):
+    """An archive with a file under the store path that the installer
+    accepts, then one member it must refuse."""
     with tarfile.open(path, "w", format=tarfile.USTAR_FORMAT) as tar:
-        tar.addfile(*member("ok.txt", data=b"accepted\n"))
+        tar.addfile(*member(f"{store}/ok.txt", data=b"accepted\n"))
         tar.addfile(*bad)
 
 
-def write_refused(out):
-    refused(f"{out}/absolute.tar", member("/ibus-web-escape.txt", data=b"escaped\n"))
-    refused(f"{out}/dotdot.tar", member("sub/../../ibus-web-escape.txt", data=b"escaped\n"))
-    refused(f"{out}/symlink.tar", member("link", tarfile.SYMTYPE, linkname="/"))
-    refused(f"{out}/hardlink.tar", member("hard", tarfile.LNKTYPE, linkname="ok.txt"))
-    refused(f"{out}/fifo.tar", member("fifo", tarfile.FIFOTYPE))
+def write_refused(store, out):
+    os.makedirs(f"{out}/refused", exist_ok=True)
+    escape = member("/ibus-web-escape.txt", data=b"escaped\n")
+    refused(f"{out}/refused/absolute.tar", store, escape)
+    refused(f"{out}/refused/dotdot.tar", store, member(f"{store}/../../ibus-web-escape.txt", data=b"escaped\n"))
+    refused(f"{out}/refused/outside.tar", store, member("ibus-web-escape.txt", data=b"escaped\n"))
+    refused(f"{out}/refused/hardlink.tar", store, member(f"{store}/hard", tarfile.LNKTYPE, linkname=f"{store}/ok.txt"))
+    refused(f"{out}/refused/fifo.tar", store, member(f"{store}/fifo", tarfile.FIFOTYPE))
+    refused(f"{out}/symlink.tar", store, member(f"{store}/link", tarfile.SYMTYPE, linkname="/"))
 
 
 def write_corrupt(out):
@@ -124,6 +131,8 @@ def write_corrupt(out):
 if __name__ == "__main__":
     if sys.argv[1] == "--corrupt":
         write_corrupt(sys.argv[2])
+    elif sys.argv[1] == "--refused":
+        write_refused(*sys.argv[2:4])
     elif sys.argv[1] == "--upgrade":
         tree, out = sys.argv[2:4]
         write_tree(tree, UPGRADE_FILES)
@@ -136,4 +145,3 @@ if __name__ == "__main__":
         os.makedirs(out, exist_ok=True)
         with open(f"{out}/listing.txt", "w") as f:
             f.write(listing(tree))
-        write_refused(out)

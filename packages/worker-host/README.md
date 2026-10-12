@@ -12,5 +12,5 @@ layout, the messages and the storage names.
 Most applications use [`ibus-web`](../ibus-web/README.md), which ships these scripts as `ibus-web/host/*`. The design is
 in [docs/worker-host.md](https://github.com/synapdeck/ibus-web/blob/master/docs/worker-host.md).
 
-The Worker scripts bundle `effect` and `brotli-dec-wasm`; their licenses are in `LICENSES/`. The package itself is
-licensed under MIT OR Apache-2.0, at your option.
+The Worker scripts bundle `effect`, `brotli-dec-wasm` and `modern-tar`; their licenses are in `LICENSES/`. The package
+itself is licensed under MIT OR Apache-2.0, at your option.

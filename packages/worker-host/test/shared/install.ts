@@ -40,7 +40,7 @@ const collectOf = (messages: readonly Message[]): CollectReport | undefined => {
 const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // The regular files an archive's listing holds, and their bytes.
-const counts = ({ listing }: TestArchive): { files: number; bytes: number } => {
+export const counts = ({ listing }: TestArchive): { files: number; bytes: number } => {
   const sizes = listing
     .split("\n")
     .map((line) => /^[^\t]*\tf (\d+) /.exec(line))

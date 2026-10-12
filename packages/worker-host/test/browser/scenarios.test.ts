@@ -65,6 +65,21 @@ import {
   waitFailsWithoutProgress,
   waitOutlivesLimit,
 } from "../shared/install.ts";
+import {
+  fsFailures,
+  installLargeFile,
+  installLimit,
+  installLinksRefused,
+  installLongNames,
+  installMalformed,
+  installModes,
+  installOverPartial,
+  installRefused,
+  installSymlinks,
+  installTarget,
+  installThroughLinks,
+  installWhole,
+} from "../shared/installer.ts";
 import { browserHarness } from "./harness.ts";
 
 const h = await browserHarness();
@@ -180,6 +195,30 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
   test("a trap lets go of every lock but a sealable backend's writer lock, until the Worker ends", () =>
     trapKeepsWriter(h, runtime));
   test("a failed start seals the user data and lets go of every lock", () => failedStartReleasesLocks(h, runtime));
+});
+
+// The installer's policy, on a host of its own with room for a large file.
+describe.each(h.data.runtimes)("the installer on the $name runtime", (runtime) => {
+  let host: RunningHost;
+  beforeAll(async () => {
+    const memory = 64 * 1024 * 1024;
+    host = await h.start({ runtime, memory: { initial: memory, maximum: memory } });
+  });
+  afterAll(() => host?.terminate());
+
+  test("whole, in pieces", () => installWhole(h, host));
+  test("over a half-written tree", () => installOverPartial(h, host));
+  test("refused archives", () => installRefused(h, host));
+  test("malformed archives", () => installMalformed(h, host));
+  test("its limit", () => installLimit(h, host));
+  test("modes", () => installModes(h, host));
+  test("symbolic links", () => installSymlinks(h, host));
+  test("long names and link targets", () => installLongNames(h, host));
+  test("links refused", () => installLinksRefused(h, host));
+  test("never through a link", () => installThroughLinks(h, host));
+  test("its directory", () => installTarget(h, host));
+  test("a large file in its own size", () => installLargeFile(h, host));
+  test("FS calls failing", () => fsFailures(h, host));
 });
 
 describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => {

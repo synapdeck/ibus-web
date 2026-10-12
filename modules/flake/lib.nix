@@ -46,6 +46,21 @@ in
     # compiler.
     isEmscriptenWasm = platform: platform.isWasm && (platform.useEmscripten or false);
 
+    # GNU tar's flags for an archive of engine data. pax keeps a name or a
+    # link target longer than ustar's 100 bytes in an extended header; the
+    # rest make the same tree give the same bytes whatever its files' times
+    # and owners: pax would otherwise record each file's atime and ctime, and
+    # name its extended headers after the writer's pid.
+    archiveTarFlags = lib.concatStringsSep " " [
+      "--format=pax"
+      "--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime"
+      "--sort=name"
+      "--mtime=@0"
+      "--owner=0"
+      "--group=0"
+      "--numeric-owner"
+    ];
+
     # Shell words for the flags automake compiles a configured source
     # directory's files with, read from its Makefile, which holds them only
     # as make variables. They start with the options configure added to CC
@@ -93,7 +108,12 @@ in
         '';
 
       ibusWeb.lib = {
-        inherit (flakeLib) patchesIn isEmscriptenWasm makeCflags;
+        inherit (flakeLib)
+          patchesIn
+          isEmscriptenWasm
+          makeCflags
+          archiveTarFlags
+          ;
 
         # Emscripten's installed tree: its system libraries' sources, its
         # JavaScript libraries and its tools.

@@ -63,6 +63,19 @@ const runtimeConstants = Schema.Struct({
   waitTimedOut: integer,
   idbReadOnly: count,
   memory: Schema.Struct({ minimum: memoryBytes, maximum: memoryBytes }),
+  fs: Schema.Struct({
+    errno: Schema.Struct({
+      EEXIST: count,
+      EFBIG: count,
+      EINVAL: count,
+      EISDIR: count,
+      ENOENT: count,
+      ENOTDIR: count,
+      EOPNOTSUPP: count,
+    }),
+    open: Schema.Struct({ O_WRONLY: count, O_CREAT: count, O_TRUNC: count, O_NOFOLLOW: count }),
+    mode: Schema.Struct({ S_IFMT: count, S_IFDIR: count, S_IFLNK: count }),
+  }),
   poolLowWater: count,
 });
 

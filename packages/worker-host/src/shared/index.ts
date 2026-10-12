@@ -16,6 +16,7 @@ export {
   WASM_PAGE,
   type CollectReport,
   type EngineStorage,
+  type FsConstants,
   type HostInit,
   type HostMessage,
   type InstallReport,

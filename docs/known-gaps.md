@@ -152,8 +152,6 @@ decided.
   includes the static data below the heap, and the manifest's `memory` adds it to the runtime minimum and the module's
   `dylink.0` static size, which count that data already. The figure errs large; declaring the heap alone would need the
   break measured from the heap's base.
-- **Link targets of at most 100 bytes.** Data archives are plain ustar, whose link-target field holds 100 bytes, and the
-  installer refuses extended headers, so a closure with a longer symbolic-link target fails its distribution's build.
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
   handler's arity. Hangul needs no lazy arity bridge, and Rime's only connected handlers are the module's own GSettings
   `changed` handlers.
@@ -233,9 +231,10 @@ decided.
 - **WebKit's IndexedDB in Workers** is unchecked (spec R5, R13).
 - **The backend's costs**: every `open()` costs one read-only transaction; the open/unlink race is argued in a comment,
   not tested; a `pwrite()` straddling 2^53 − 1 fails whole with `EFBIG` rather than writing short.
-- **Installing writes partial chunks.** Each read of the archive's response is one write transaction; the 512-byte ustar
-  headers offset the data, so most writes cover a partial chunk at each end and read those chunks first. Buffering the
-  extractor's writes to chunk boundaries would remove the reads; installing is off the request path.
+- **Installing writes in 64 KiB pieces.** Each piece of a file's data is one write transaction at a 64 KiB boundary of
+  the file, which covers the 16 KiB chunks the backend creates whole; in a database created with chunks that don't
+  divide 64 KiB, most writes would cover a chunk in part at each end and read it first. Installing is off the request
+  path.
 - **Test hooks**: the chunk counter doesn't count `getAllKeys()` or cursors, and a `get()` of a hole counts nothing; the
   injected delete fault aborts synchronously, as a body that throws rather than a commit that aborts; the browser
   `install-torn-marker` case writes a non-marker value, since a browser's commit can't tear.

@@ -90,7 +90,6 @@
           "-Dtests=true"
           "-Dtest_main_link_args=${mesonArray toolchain.testMainFlags}"
           "-Dtest_side_module_link_args=${mesonArray toolchain.sideModuleFlags}"
-          "-Dtest_archives=${runtime.installArchives}"
           "-Dtest_us_keymap=${config.ibusWeb.keysyms.usKeymapVectors}"
         ];
         installPhase = ''

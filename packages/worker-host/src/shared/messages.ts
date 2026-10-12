@@ -33,6 +33,14 @@ export interface SideModule {
   bytes: ArrayBuffer;
 }
 
+// The target's errno values, open() flags and mode bits that the host's
+// installer uses.
+export interface FsConstants {
+  errno: Record<"EEXIST" | "EFBIG" | "EINVAL" | "EISDIR" | "ENOENT" | "ENOTDIR" | "EOPNOTSUPP", number>;
+  open: Record<"O_WRONLY" | "O_CREAT" | "O_TRUNC" | "O_NOFOLLOW", number>;
+  mode: Record<"S_IFMT" | "S_IFDIR" | "S_IFLNK", number>;
+}
+
 // Values the runtime's build defines, which the host checks its calls
 // against, and the bounds of the memory the runtime takes.
 export interface RuntimeConstants {
@@ -48,6 +56,7 @@ export interface RuntimeConstants {
   // The least and the most memory the runtime's memory import admits, in
   // bytes.
   memory: { minimum: number; maximum: number };
+  fs: FsConstants;
 }
 
 // What the host mounts at the engine's directory, /engines/<name>, for the

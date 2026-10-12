@@ -15,6 +15,11 @@ const constants = {
   waitTimedOut: -2,
   idbReadOnly: 1,
   canceled: -11,
+  fs: {
+    errno: { EEXIST: 20, EFBIG: 22, EINVAL: 28, EISDIR: 31, ENOENT: 44, ENOTDIR: 54, EOPNOTSUPP: 138 },
+    open: { O_WRONLY: 1, O_CREAT: 64, O_TRUNC: 512, O_NOFOLLOW: 131072 },
+    mode: { S_IFMT: 61440, S_IFDIR: 16384, S_IFLNK: 40960 },
+  },
 };
 const manifest = {
   name: "test",

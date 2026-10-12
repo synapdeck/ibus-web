@@ -39,7 +39,7 @@ const worker = (name: string, source: string, tsconfig: string): UserConfig => (
   // node:fs/promises is imported lazily, only when running under Node; a
   // browser never reaches that import.
   deps: {
-    alwaysBundle: [/^@ibus-web\/protocol(?:\/|$)/, "effect", /^effect\//, /^brotli-dec-wasm/],
+    alwaysBundle: [/^@ibus-web\/protocol(?:\/|$)/, "effect", /^effect\//, /^brotli-dec-wasm/, "modern-tar"],
     neverBundle: [/^node:/],
     onlyBundle: false,
   },

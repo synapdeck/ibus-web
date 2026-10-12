@@ -26,6 +26,6 @@ distributions and this package's `dist/host/` directory (exported as `ibus-web/h
 Deployment, the full API and settings are described in
 [docs/ibus-web.md](https://github.com/synapdeck/ibus-web/blob/master/docs/ibus-web.md).
 
-Licensed under MIT OR Apache-2.0, at your option. The Worker scripts in `dist/host/` bundle `effect` and
-`brotli-dec-wasm`; their licenses are in `LICENSES/`. Engines are licensed separately (ibus-hangul is GPL-2.0-or-later)
+Licensed under MIT OR Apache-2.0, at your option. The Worker scripts in `dist/host/` bundle `effect`, `brotli-dec-wasm`
+and `modern-tar`; their licenses are in `LICENSES/`. Engines are licensed separately (ibus-hangul is GPL-2.0-or-later)
 and run only inside their Workers, never in your page's bundle.

@@ -89,6 +89,7 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
           memory,
           bytes: rt.HEAPU8,
           words: new Int32Array(rt.HEAPU8.buffer),
+          fs: constants.fs,
         };
         instruments.runtimeStarted(handle);
 

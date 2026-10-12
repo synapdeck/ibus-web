@@ -79,7 +79,7 @@
               # check that each lies under the archive's own store path. Hard
               # links, which store optimisation makes of identical files, are
               # stored as files: the installer takes none.
-              tar --format=ustar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+              tar ${config.ibusWeb.lib.archiveTarFlags} \
                 --hard-dereference -C /nix/store -cf data.tar "$(basename "$storePath")"
               # The bytes the installer writes: every name of a hard-linked
               # file in full, and nothing for a link.

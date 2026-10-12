@@ -15,10 +15,13 @@ import {
   PumpControl,
   RuntimeCall,
   HostOp,
+  type FsAction,
   type HostStats,
+  type InstallOpRequest,
   type TestInit,
   type TestMessage,
 } from "../shared/testing.ts";
+import { fsActions, install } from "./install-ops.ts";
 
 // Counts the Workers Emscripten creates, through the global Worker class.
 // Under Node, Emscripten first assigns worker_threads' Worker to the global,
@@ -67,6 +70,10 @@ const withholdIndexedDB = (): void => {
 };
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+// A test request's payload, after its framing.
+const payloadOf = (request: Uint8Array): Uint8Array => request.subarray(8);
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -310,6 +317,19 @@ export const makeInstruments = (
         case HostOp.topUp:
           held = arg(1) === 0;
           return { ret: 0 };
+        case HostOp.install: {
+          const spec = JSON.parse(decoder.decode(payloadOf(request))) as InstallOpRequest;
+          return install(runtime, spec).then((reply) => {
+            const json = encoder.encode(JSON.stringify(reply));
+            return { ret: json.length, bytes: json };
+          });
+        }
+        case HostOp.fs: {
+          const json = encoder.encode(
+            JSON.stringify(fsActions(runtime, JSON.parse(decoder.decode(payloadOf(request))) as FsAction[])),
+          );
+          return { ret: json.length, bytes: json };
+        }
         case HostOp.addWorkers: {
           counters.eventLoopTurns++;
           const want = arg(1);

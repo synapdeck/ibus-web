@@ -127,25 +127,28 @@ adds headroom separately. Browser storage threads belong to the runtime's storag
 
 ### Archives and serving
 
-Each archive is deterministic POSIX ustar, Brotli quality 11 and the standard window (no `--large_window`). Entries are
-named from `/nix/store`: `<hash>-<name>/…`, or the bare `<hash>-<name>` file for a store path that is a single file.
-`--hard-dereference` stores hard links, which store optimisation makes of identical files, as regular files, since the
-installer takes none. Symbolic links are kept as links, with their targets as the store has them; before archiving,
-`tools/engine-manifest/symlinks.ts` resolves every link in the closure the way the engine's file system will, holding
-only the closure's store paths, and fails the build if one leads outside them. ustar holds a link target of at most 100
-bytes; GNU tar refuses a longer one and the build fails rather than archiving it. `size` counts unpacked regular-file
-bytes, every name of a hard-linked file in full and nothing for a symbolic link.
+Each archive is deterministic pax, POSIX's extension of ustar, Brotli quality 11 and the standard window (no
+`--large_window`). GNU tar writes it with `ibusWeb.lib.archiveTarFlags`: pax keeps a name or a link target longer than
+ustar's 100 bytes in an extended header, as Rime's common data needs for its links into the dictionaries' store paths,
+and the flags drop pax's own `atime` and `ctime` records and name the extended headers without the writer's pid, so the
+same tree always gives the same bytes; the host's test archives are built twice with their times changed to check that.
+Entries are named from `/nix/store`: `<hash>-<name>/…`, or the bare `<hash>-<name>` file for a store path that is a
+single file. `--hard-dereference` stores hard links, which store optimisation makes of identical files, as regular
+files, since the installer takes none. Symbolic links are kept as links, with their targets as the store has them;
+before archiving, `tools/engine-manifest/symlinks.ts` resolves every link in the closure the way the engine's file
+system will, holding only the closure's store paths, and fails the build if one leads outside them. `size` counts
+unpacked regular-file bytes, every name of a hard-linked file in full and nothing for a symbolic link.
 
-The host extracts each archive at the root of the `/nix/store` mount. Since every archive lands there, the host follows
-each archive's ustar framing as it streams and refuses an entry outside the archive's own store path before the
-extractor sees it. The extractor (`ibusweb_install_feed`) takes regular files, directories and symbolic links
-(`SYMTYPE`), keeping a link's target unresolved; it refuses hard links (`LNKTYPE`) with `-EOPNOTSUPP` and never writes
-through a link: a member under one fails with `-ENOTDIR`, and a file or link member replaces a link already at its name.
-Before creating or sizing each regular file, the extractor rejects a member that would exceed the remaining declared
-budget. The host also requires exact equality after extraction before writing the installed marker. A mismatch is an
-ordinary installation refusal; a corrected retry reinstalls. This limit excludes tar headers/padding, decoder buffers
-and filesystem metadata, so it is not a total-memory or quota bound. Serve `.tar.br` as opaque bytes, **without
-`Content-Encoding: br`**: fetch must not decompress it before the host. `encoding: "identity"` supports plain ustar
+The host extracts each archive at the root of the `/nix/store` mount, decoding it with `modern-tar`'s strict decoder and
+writing each entry through WasmFS's `FS` as it arrives ([storage.md](storage.md#installing)). Since every archive lands
+there, the host refuses an entry outside the archive's own store path before writing anything of it. It takes regular
+files, directories and symbolic links, keeping a link's target unresolved; it refuses hard links with `-EOPNOTSUPP` and
+never writes through a link: an entry under one fails with `-ENOTDIR`, and a file or link replaces a link already at its
+name. Before creating or sizing each regular file, the host rejects one that would exceed the remaining declared budget.
+It also requires exact equality after extraction before writing the installed marker. A mismatch is an ordinary
+installation refusal; a corrected retry reinstalls. This limit excludes tar headers and padding, decoder buffers and
+file-system metadata, so it is not a total-memory or quota bound. Serve `.tar.br` as opaque bytes, **without
+`Content-Encoding: br`**: fetch must not decompress it before the host. `encoding: "identity"` supports plain tar
 fixtures.
 
 Relative module/archive URLs in a fetched manifest resolve against the final response URL after redirects. Inline
@@ -154,8 +157,8 @@ manifests retain the caller's URLs.
 The host constructs `DecompressionStream("brotli")` to detect native support. Otherwise it imports, by URL from beside
 its own script, a separate `brotli-dec-wasm` streaming decoder bundle (`brotli-fallback.js`, 291 KB) with its WASM
 embedded by Rolldown's binary loader. No external decoder WASM fetch is needed, and native installations never load that
-bundle. Both paths feed the bounded C extractor in pieces of at most 64 KiB. Only a failure that starts in the decoder
-is reported as a Brotli error, with the hint about `Content-Encoding: br`; a failure of the body itself (the network, an
+bundle. Both paths feed the tar decoder in pieces of at most 64 KiB. Only a failure that starts in the decoder is
+reported as a Brotli error, with the hint about `Content-Encoding: br`; a failure of the body itself (the network, an
 abort) passes through as it is, and a fallback that fails to load says so.
 
 ### npm package
