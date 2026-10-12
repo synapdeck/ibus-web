@@ -14,7 +14,7 @@
       # GLib would, with the build machine's GLib (and its tools) on PATH as
       # well and no depsBuildBuild. gnome.post_install, which runs
       # glib-compile-schemas and gio-querymodules at install time, is not
-      # exercised.
+      # exercised. A tool run by plain name from PATH is this GLib's too.
       checks.glib-meson-tools = pkgsWasm.stdenv.mkDerivation {
         name = "ibus-web-glib-meson-tools";
         src = lib.fileset.toSource {
@@ -43,6 +43,25 @@
             glib-genmarshal glib-mkenums; do
             grep -qF "${glib.dev}/bin/$tool" build.ninja
           done
+
+          for tool in ${glib.dev}/bin/* ${glib.bin}/bin/*; do
+            name=''${tool##*/}
+            case $name in
+              *.js | *.wasm) ;;
+              *)
+                if [ "$(command -v "$name")" != "$tool" ]; then
+                  echo "$name runs $(command -v "$name"), not $tool" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done
+          # The build machine's gdbus-codegen emits one-argument interface
+          # init functions.
+          gdbus-codegen --generate-c-code from-path --c-namespace Example \
+            --interface-prefix org.example. ../example.xml
+          grep -qF "example_counter_proxy_iface_init (ExampleCounterIface *iface, gpointer iface_data);" from-path.c
+
           # gnome.gdbus_codegen() picks its options by the build machine's
           # GLib version, and warns when it can't read one.
           test -s meson-logs/meson-log.txt

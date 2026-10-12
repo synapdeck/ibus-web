@@ -81,9 +81,9 @@ Other shared link settings, all options under `ibusWeb.toolchain`:
 - `sideModuleFlags`: `-sSIDE_MODULE=1` plus the above.
 - `runtimeMainFlags`: the settings of the runtime's main-module link that select library variants
   (`-sMAIN_MODULE=2 -sWASMFS=1 -sEXIT_RUNTIME=0`); the rest of that link is the runtime's ([runtime.md](runtime.md)).
-- `testMemoryFlags`: a fixed 512 MiB for Node-run tests in place of memory growth. With pthreads, a memory that grows
-  has let threads fault out of bounds, and a test that outgrows a fixed one fails plainly; GLib's largest test peaks at
-  280 MiB ([glib.md](glib.md#how-they-run)).
+- `testMemoryFlags`: a fixed 512 MiB for Node-run tests and GLib's tools in place of memory growth. With pthreads, a
+  memory that grows has let threads fault out of bounds, and a program that outgrows a fixed one fails plainly; GLib's
+  largest test peaks at 280 MiB ([glib.md](glib.md#how-they-run)).
 - `nodeHostFsFlags`: `-sWASMFS=1 -sNODE_HOST_ENV=1` and an object (`node-host-fs.c`) that roots WasmFS at the host's `/`
   through its Node backend and starts in Node's working directory. Emscripten's `-sNODERAWFS` under WasmFS roots the
   tree at the working directory instead, so absolute paths such as `/nix/store/…` would miss.

@@ -50,7 +50,7 @@
       };
       testMemoryFlags = lib.mkOption {
         type = lib.types.str;
-        description = "Link flags giving Node-run test programs a fixed memory large enough for GLib's tests, in place of memory growth.";
+        description = "Link flags giving Node-run test programs and GLib's tools a fixed memory large enough for GLib's tests, in place of memory growth.";
       };
       nodeHostFsFlags = lib.mkOption {
         type = lib.types.str;

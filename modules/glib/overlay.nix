@@ -40,8 +40,11 @@
           # stack is too small for the regex test, which needs between 448
           # and 480 KiB; 1 MiB leaves it room. Links inherit the wrapper's
           # -O2, which turns Emscripten's runtime assertions off; tests and
-          # tools keep them.
-          nodeLinkArgs = "-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1";
+          # tools keep them. They take the tests' fixed memory in place of
+          # growth, which with pthreads has let threads fault out of bounds:
+          # a schema compile here stays in the default 16 MiB, and a
+          # resource compile takes about four times its files' size.
+          nodeLinkArgs = "-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 ${toolchain.testMemoryFlags} -sSTACK_SIZE=1048576 -sASSERTIONS=1";
           # Edits to nixpkgs' scripts must find what they edit, so a change
           # upstream fails evaluation instead of silently doing nothing.
           replaceIn =
@@ -54,11 +57,14 @@
           programName = replaceIn [ "\${i##*/}" ] [ "$(basename \"$i\" .js)" ];
           inherit (final) pkgsBuildBuild;
 
+          inherit (withSystem prev.stdenv.buildPlatform.system ({ config, ... }: config.ibusWeb))
+            toolchain
+            typescript
+            ;
+
           # Emscripten writes the wrapped tools for the workspace's Node, which
           # its minimum version comes from.
-          node = withSystem prev.stdenv.buildPlatform.system (
-            { config, ... }: lib.getExe config.ibusWeb.typescript.nodejs
-          );
+          node = lib.getExe typescript.nodejs;
           buildPkgConfig = lib.getExe' pkgsBuildBuild.pkg-config-unwrapped "pkg-config";
         in
         {
@@ -81,11 +87,12 @@
           # shell, a WebAssembly bash, into the wrappers' interpreter line.
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgsBuildBuild.makeWrapper ];
           # Runs in every build that depends on this GLib, never in its own.
-          # The build fills in @dev@; with structured attributes it sees only
-          # exported variables, so the rest are filled in here.
+          # The build fills in @dev@ and @bin@; with structured attributes it
+          # sees only exported variables, so the rest are filled in here.
           setupHooks = (old.setupHooks or [ ]) ++ [
             (pkgsBuildBuild.replaceVars ./glib-tools-hook.sh {
               dev = null;
+              bin = null;
               inherit buildPkgConfig;
               buildGlibPkgConfigPath = "${pkgsBuildBuild.glib.dev}/lib/pkgconfig";
             })

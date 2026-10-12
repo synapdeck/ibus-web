@@ -14,3 +14,11 @@ mesonFlagsArray+=("--cross-file=@dev@/nix-support/glib-tools-cross.ini")
 # assumes 2.54 without one. A consumer's own build-machine pkg-config wins.
 export PKG_CONFIG_FOR_BUILD=${PKG_CONFIG_FOR_BUILD:-@buildPkgConfig@}
 addToSearchPath PKG_CONFIG_PATH_FOR_BUILD @buildGlibPkgConfigPath@
+
+# A build that runs a tool by plain name gets this GLib's too. stdenv puts
+# its build inputs' bin directories, the build machine's GLib's among them,
+# ahead of anything a setup hook adds, so this waits until setup is done.
+_glibToolsFirstOnPath() {
+  export PATH="@dev@/bin:@bin@/bin${PATH:+:}$PATH"
+}
+postHooks+=(_glibToolsFirstOnPath)

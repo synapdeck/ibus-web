@@ -34,9 +34,6 @@ decided.
 - **Not built from spec §5.1**: the lazy arity lookup for callbacks with fewer parameters (§5.1.2, R1, waiting on the
   engine audit); a review of the series' `gsettings.c` changes (§5.1.3); the §5.1.4 platform backends (locale,
   collation, localized dates, `TextDecoder` charsets, file monitoring, network, a synthesized user and host).
-- **Tool shadowing.** A build that runs a GLib tool by name from `PATH` gets nixpkgs' native, unpatched one, whose
-  `gdbus-codegen` output traps on WebAssembly.
-- **GLib's tools still grow their memory** (`-sALLOW_MEMORY_GROWTH=1`), unlike the tests and the runtime.
 - **File monitoring.** `testfilemonitor` fails ungated: Emscripten has no file-change notification, and the WasmFS
   monitor backend (spec §5.1.4) is feature work.
 - **Tests skipped whole**, not gating: subprocess tests (`mem-overflow`, `deprecated-properties`,

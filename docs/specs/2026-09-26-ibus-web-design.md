@@ -1686,13 +1686,12 @@ How the toolchain and GLib are built as they are now, and the evidence for each 
     report themselves unsupported. Each is installed as `<tool>.js` and `<tool>.wasm` plus a `<tool>` wrapper that runs
     it with the build machine's Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give (`glib_compile_schemas`,
     `gsettings`, …) run this GLib's tools; the build checks that every tool variable names an installed program. GLib's
-    executables link with
-    `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`;
-    the libraries don't see these. The tools keep Node's raw filesystem, one of Emscripten's JavaScript file systems,
-    because it writes stdout to the process's own descriptor, where WasmFS's is a text console that decodes each line as
-    UTF-8 and ends a last line with a line break, which would change `gresource extract`'s binary output. Its Node
-    backend's `fsync()` trap, which a second `glib-compile-schemas` into the same directory hit, is fixed by the
-    toolchain's Emscripten patches.
+    executables link with `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8`, the tests' fixed memory
+    (`ibusWeb.toolchain.testMemoryFlags`, 512 MiB) and `-sSTACK_SIZE=1048576 -sASSERTIONS=1`; the libraries don't see
+    these. The tools keep Node's raw filesystem, one of Emscripten's JavaScript file systems, because it writes stdout
+    to the process's own descriptor, where WasmFS's is a text console that decodes each line as UTF-8 and ends a last
+    line with a line break, which would change `gresource extract`'s binary output. Its Node backend's `fsync()` trap,
+    which a second `glib-compile-schemas` into the same directory hit, is fixed by the toolchain's Emscripten patches.
   - **Tests' file system.** `checks.glib-tests` links GLib's tests with WasmFS, the file system the runtime ships, in
     place of `-sNODERAWFS=1`: `ibusWeb.toolchain.nodeHostFsFlags` is `-sWASMFS=1 -sNODE_HOST_ENV=1` and an object that
     roots WasmFS at the host's `/` through its Node backend and starts in Node's working directory. Emscripten's
@@ -1706,7 +1705,8 @@ How the toolchain and GLib are built as they are now, and the evidence for each 
     points Meson's gnome module at its tools through a cross file listing every tool its `.pc` files name; Autotools
     consumers get them through the `.pc` variables themselves. The gnome module also chooses tool options by the build
     machine's GLib version, which Meson reads through a build-machine pkg-config; the same hook points it at the build
-    platform's pkg-config and GLib `.pc` files, so consumers need no `depsBuildBuild` for it.
+    platform's pkg-config and GLib `.pc` files, so consumers need no `depsBuildBuild` for it. Once the build's setup is
+    done, the hook also puts the tools' `bin` directories first on `PATH`, so a tool run by plain name is this GLib's.
   - **Overlay.** Removes `bash-interactive`, `gnum4`, `libsysprof-capture`, `gettext` and `libiconv` from the inputs
     (Emscripten's musl provides iconv and gettext), disables NLS, sysprof, documentation, tests and xattr, and drops the
     `devdoc` output.

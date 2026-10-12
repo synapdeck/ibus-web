@@ -580,8 +580,8 @@ runtime minimum and the module's static bytes already count: the figure is conse
 adds unpacked data bytes separately in whole pages. The runtime starts at about 2.3 MiB of heap, and each running thread
 adds about 1 MiB, mostly its stack.
 
-GLib's tests and other Node-run test programs use a fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; GLib's largest
-test peaks at 280 MiB), for the same reason ([toolchain.md](toolchain.md)).
+GLib's tests and tools and other Node-run test programs use a fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; GLib's
+largest test peaks at 280 MiB), for the same reason ([toolchain.md](toolchain.md)).
 
 ### Why not growth
 

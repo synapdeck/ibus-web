@@ -235,10 +235,13 @@ that.
 - **Features off:** NLS, sysprof, documentation (and with it the `devdoc` output, which would stay empty), tests, and
   xattr, since Emscripten's libc has no `getxattr`.
 - **Executables' link:** GLib's tools (and its tests, when enabled) only ever run under Node, so they link with
-  `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sASSERTIONS=1`.
-  Static libraries don't see link arguments, so the libraries are unaffected. The stack: Emscripten's default 64 KiB is
-  too small for the regex test, which needs between 448 and 480 KiB; 1 MiB leaves room, and the runtime links its
-  threads with the same.
+  `-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=8`, `ibusWeb.toolchain.testMemoryFlags`,
+  `-sSTACK_SIZE=1048576 -sASSERTIONS=1`. Static libraries don't see link arguments, so the libraries are unaffected. The
+  stack: Emscripten's default 64 KiB is too small for the regex test, which needs between 448 and 480 KiB; 1 MiB leaves
+  room, and the runtime links its threads with the same. The memory is the tests' fixed 512 MiB
+  ([below](#how-they-run)), in place of growth: a schema compile in this repository's builds stays within Emscripten's
+  default 16 MiB, and a resource compile takes about four times its files' size (126 MiB for 30 MB of incompressible
+  data), so the tools have room for resources of over 100 MB.
 - Edits to nixpkgs' install scripts assert that what they edit is there.
 
 ### Optimisation
@@ -272,11 +275,13 @@ one: its `gdbus-codegen` emits one-argument interface init functions, which WebA
   one; the hook points it at the build platform's `pkg-config` and GLib, so consumers need no `depsBuildBuild` for it. A
   tool two `.pc` files both name fails the build, since Meson would reject the repeated key in every consumer.
 - Autotools consumers that take a tool from the `.pc` variables (`PKG_CHECK_VAR`, as IBus does) get this GLib's.
-- Anything that runs a tool by plain name from `PATH` gets the native one.
+- Anything that runs a tool by plain name from `PATH` gets this GLib's too: the setup hook puts its `bin` directories
+  ahead of the rest of `PATH` once the build's setup is done, since stdenv puts the build inputs' `bin` directories, the
+  native GLib's among them, ahead of anything a hook adds while it runs.
 
-`checks.glib-meson-tools` builds a Meson project calling each helper, with the native GLib on `PATH` too, and runs what
-they generate; `checks.glib-autotools-tools` compiles a schema and a resource through `PKG_CHECK_VAR` and reads them
-back.
+`checks.glib-meson-tools` builds a Meson project calling each helper, with the native GLib on `PATH` too, runs what they
+generate, checks that every tool's plain name finds this GLib's, and runs `gdbus-codegen` by name;
+`checks.glib-autotools-tools` compiles a schema and a resource through `PKG_CHECK_VAR` and reads them back.
 
 ### Checks
 
@@ -312,7 +317,8 @@ binaries, so the check runs them itself.
   of 300) with growth, at varying sites, and 0 of 300 linked with a fixed memory just above its peak. No GLib-free
   reproduction has been found. Measured with growth, the largest peaks are `mainloop` 280 MiB, `gvariant` 265 MiB,
   `slice` 149 MiB, `thread-pool-slow` 140 MiB and the many-thread tests around 103 MiB; everything else stays under 52
-  MiB. The evaluation asserts the overlay's link still names both settings it replaces.
+  MiB. GLib's tools link with the same memory. The evaluation asserts the overlay's link still names the file system
+  setting it replaces.
 - **A `TMPDIR` per test.** The tests' own exe wrapper runs Node with a `TMPDIR` of its own, which it removes when the
   test ends, whatever modes the test left there. Output goes straight to Meson's pipes: a test writing faster than Meson
   reads waits for it (the toolchain's Emscripten patch 0020). The wrapper passes Meson's timeout `SIGTERM` on to Node,

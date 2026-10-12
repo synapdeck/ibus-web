@@ -68,9 +68,10 @@
       # object of its own, in a PIC and a non-PIC build.
       proxyMainFlags = "-sPROXY_TO_PTHREAD=1 -sEXIT_RUNTIME=1";
 
-      # A fixed memory for Node-run tests: with pthreads, a memory that grows
-      # has let threads fault out of bounds, and a test that outgrows a fixed
-      # one fails plainly instead. GLib's largest test peaks at 280 MiB.
+      # A fixed memory for Node-run tests and GLib's tools: with pthreads, a
+      # memory that grows has let threads fault out of bounds, and a program
+      # that outgrows a fixed one fails plainly instead. GLib's largest test
+      # peaks at 280 MiB.
       testMemoryFlagList = [
         "-sALLOW_MEMORY_GROWTH=0"
         "-sINITIAL_MEMORY=512MB"
