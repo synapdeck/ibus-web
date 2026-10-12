@@ -191,7 +191,7 @@ the first time one has.
 
 ### The ring and replies
 
-The generated [Transport section](../packages/protocol/PROTOCOL.md#transport) is authoritative for the eleven control
+The generated [Transport section](../packages/protocol/PROTOCOL.md#transport) is authoritative for the twelve control
 words and buffer layout. The ring's size is a power of two from 64 bytes (`MIN_RING_BYTES`) to 2³¹ (`MAX_RING_BYTES`),
 so it divides the byte counters' 2³² wrap and a full ring never reads as empty. A framed record never wraps: both sides
 skip a tail shorter than a record header (16 bytes, `RECORD_HEADER_BYTES`); otherwise the writer fills an unusable tail

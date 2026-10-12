@@ -432,7 +432,7 @@ still need every engine's memory, so it would be host-side, shared by the hosts.
 
 ### The control buffer
 
-The host and page share a dedicated SAB separate from `WebAssembly.Memory`. Its eleven-word control header, request slot
+The host and page share a dedicated SAB separate from `WebAssembly.Memory`. Its twelve-word control header, request slot
 and output ring are specified in the generated [Transport section](../packages/protocol/PROTOCOL.md#transport). The
 default slot is 64 KiB and ring 256 KiB. Runtime replies carry an integer `replyRet` and output watermark `replyOutSeq`;
 test instruments alone put reply bytes in the slot. `reqMode` controls asynchronous completion doorbells. The

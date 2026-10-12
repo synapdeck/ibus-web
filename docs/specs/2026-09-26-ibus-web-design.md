@@ -917,13 +917,13 @@ writes WASM memory.
 
 #### 6.2.1 Layout
 
-| Region         | Size (default) | Contents                                                                                                                                                                     |
-| -------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `ringWaiting`, `doorbell`, `wake`, `reqMode` |
-| Request slot   | 64 KB          | one encoded request                                                                                                                                                          |
-| Output ring    | 256 KB         | framed records                                                                                                                                                               |
+| Region         | Size (default) | Contents                                                                                                                                                                             |
+| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Control header | 64 bytes       | `Int32` words: `state` (IDLE, REQUEST, REPLY, CRASHED), `reqSeq`, `reqLen`, `replyRet`, `replyOutSeq`, `ringWrite`, `ringRead`, `ringWaiting`, `doorbell`, `wake`, `reqMode`, `mail` |
+| Request slot   | 64 KB          | one encoded request                                                                                                                                                                  |
+| Output ring    | 256 KB         | framed records                                                                                                                                                                       |
 
-The header's eleven words take 44 of its bytes, in table order. `reqMode` is `SYNC` 0, `ASYNC` 1 or `ABANDONED` 2,
+The header's twelve words take 48 of its bytes, in table order. `reqMode` is `SYNC` 0, `ASYNC` 1 or `ABANDONED` 2,
 written by the page with each request. Sizes are configurable per Worker; the slot and ring are multiples of eight
 bytes, and the ring capacity is a power of two from 64 bytes to 2³¹, so it divides the unsigned byte counters' 2³² wrap
 and a full ring never reads as empty. The generated `PROTOCOL.md` Transport section owns the layout and each word's
