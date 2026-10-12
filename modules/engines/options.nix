@@ -21,9 +21,11 @@
     options.ibusWeb.engines.castAudit = lib.mkOption {
       type = lib.types.functionTo lib.types.package;
       description = ''
-        Audit strict function-pointer casts: { name, src, sources, cflags ? "",
-        buildInputs ? [ ], pkgConfigModules ? [ ], allowList }. Produces report.json
-        and report.txt and fails unless the findings equal the JSONC allow-list.
+        Audit strict function-pointer casts: { name, src, sources ? [ ], sourcesFrom ? null,
+        cflags ? "", buildInputs ? [ ], pkgConfigModules ? [ ], allowList }. sourcesFrom,
+        when given, is a shell command printing the sources to audit in place of sources.
+        Produces report.json and report.txt and fails unless the findings equal the JSONC
+        allow-list.
       '';
     };
   };

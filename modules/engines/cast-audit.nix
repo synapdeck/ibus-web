@@ -22,7 +22,8 @@
         {
           name,
           src,
-          sources,
+          sources ? [ ],
+          sourcesFrom ? null,
           cflags ? "",
           buildInputs ? [ ],
           pkgConfigModules ? [ ],
@@ -46,7 +47,9 @@
               cflags+=("''${pkgFlags[@]}")
             ''}
 
-            for source in ${lib.escapeShellArgs sources}; do
+            for source in ${
+              if sourcesFrom == null then lib.escapeShellArgs sources else "$(${sourcesFrom})"
+            }; do
               report="$TMPDIR/casts-''${#reports[@]}.sarif"
               $CC -fsyntax-only -Wno-everything -Wcast-function-type-strict \
                 -fdiagnostics-format=sarif "''${cflags[@]}" "$source" 2> "$report" || {

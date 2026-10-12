@@ -43,6 +43,21 @@ SPDX-FileCopyrightText = [
 SPDX-License-Identifier = "LGPL-2.1-or-later"
 precedence = "override"
 
+# Matches the upstream ibus-engines.rime recipe's meta.license.
+[[annotations]]
+path = "engines/rime/**"
+SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
+SPDX-License-Identifier = "GPL-3.0-or-later"
+precedence = "override"
+
+# OpenCC's own licence, which the engine-wide annotation above would
+# otherwise override; the last matching annotation wins.
+[[annotations]]
+path = "engines/rime/patches/opencc/**/*.patch"
+SPDX-FileCopyrightText = ["Carbo Kuo and the OpenCC contributors", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "Apache-2.0"
+precedence = "override"
+
 [[annotations]]
 path = "engines/mozc/patches/**/*.patch"
 SPDX-FileCopyrightText = ["Google Inc.", "2026 Synapdeck, Inc."]

@@ -218,7 +218,9 @@ own configured `config.h` and allow-list (`engines/hangul/libhangul-cast-audit.j
 contains three findings; its patched report and allow-list are empty, and libhangul has no findings. A separate import
 check verifies the side module against the runtime's export manifest. Mozc's flags exist only inside its Bazel build, so
 its audit pass runs there, beside each compile ([mozc.md](mozc.md#build)), and `checks.mozc-cast-audit` compares what it
-found.
+found. A library too large to list file by file passes `sourcesFrom`, a shell command that prints its sources, in place
+of `sources`: `checks.rime-cast-audit` reads each CMake target's sources from `compile_commands.json` and its flags from
+the target's `flags.make` ([rime.md](rime.md#checks)).
 
 ## Golden tests
 

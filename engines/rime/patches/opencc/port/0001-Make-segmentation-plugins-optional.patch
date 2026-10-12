@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 13:06:07 -0700
+Subject: [PATCH] Make segmentation plugins optional
+
+OpenCC loads a segmentation plugin, such as Jieba's, with dlopen
+whenever a configuration names a segmentation type it doesn't have
+built in. A build for a platform without dynamic loading, or that
+wants none, can turn this off with -DENABLE_SEGMENTATION_PLUGINS=OFF:
+PluginSegmentation.cpp isn't built, libopencc needs no libdl and
+records no plugin directory, and such a configuration fails to load
+as one naming an unknown type does.
+---
+ CMakeLists.txt     | 13 ++++++++++---
+ src/CMakeLists.txt |  7 +++++--
+ src/Config.cpp     |  4 ++++
+ 3 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7a7aa06..5240330 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -59,6 +59,10 @@ else()
+   set(OPENCC_JIEBA_PLUGIN_DEFAULT OFF)
+ endif()
+ option(BUILD_OPENCC_JIEBA_PLUGIN "Build Jieba segmentation as a loadable plugin." ${OPENCC_JIEBA_PLUGIN_DEFAULT})
++option(ENABLE_SEGMENTATION_PLUGINS "Load segmentation plugins, such as Jieba's, at runtime." ON)
++if (BUILD_OPENCC_JIEBA_PLUGIN AND NOT ENABLE_SEGMENTATION_PLUGINS)
++  message(FATAL_ERROR "BUILD_OPENCC_JIEBA_PLUGIN requires ENABLE_SEGMENTATION_PLUGINS.")
++endif ()
+ option(BUILD_PYTHON "Build python library" OFF)
+ 
+ # Built-in dictionaries and configs can be produced as compiled ocd2
+@@ -341,9 +345,12 @@ if (ENABLE_BENCHMARK)
+   )
+ endif()
+ 
+-add_definitions(
+-  -DOPENCC_SEGMENTATION_PLUGIN_DIR="${DIR_PLUGIN_FULL}"
+-)
++if (ENABLE_SEGMENTATION_PLUGINS)
++  add_definitions(
++    -DOPENCC_ENABLE_SEGMENTATION_PLUGINS
++    -DOPENCC_SEGMENTATION_PLUGIN_DIR="${DIR_PLUGIN_FULL}"
++  )
++endif ()
+ 
+ 
+ ######## Dependencies
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 1753830..69581ff 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -70,7 +70,6 @@ set(
+   MaxMatchSegmentation.cpp
+   PhraseExtract.cpp
+   PipelineConverter.cpp
+-  PluginSegmentation.cpp
+   PrefixMatch.cpp
+   SingleStageConverter.cpp
+   ResourceProvider.cpp
+@@ -134,6 +133,10 @@ if (WIN32)
+   list(APPEND LIBOPENCC_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/version_libopencc.rc")
+ endif()
+ 
++if (ENABLE_SEGMENTATION_PLUGINS)
++  list(APPEND LIBOPENCC_SOURCES PluginSegmentation.cpp)
++endif ()
++
+ add_library(libopencc
+   ${LIBOPENCC_SOURCES}
+   ${LIBOPENCC_HEADERS}
+@@ -152,7 +155,7 @@ if (NOT BUILD_SHARED_LIBS)
+ endif()
+ # PluginSegmentation.cpp uses LoadLibrary on _WIN32 (MSVC and MinGW).
+ # Only non-Windows targets may need libdl for dlopen.
+-if (NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
++if (ENABLE_SEGMENTATION_PLUGINS AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
+   include(CheckLibraryExists)
+   check_library_exists(dl dlopen "" HAVE_LIBDL)
+   if (HAVE_LIBDL)
+diff --git a/src/Config.cpp b/src/Config.cpp
+index fbed5af..a5431b1 100644
+--- a/src/Config.cpp
++++ b/src/Config.cpp
+@@ -618,7 +618,11 @@ public:
+         }
+         configPairs.push_back(std::make_pair(key, it->value.GetString()));
+       }
++#ifdef OPENCC_ENABLE_SEGMENTATION_PLUGINS
+       segmentation = CreatePluginSegmentation(type, configPairs);
++#else
++      throw InvalidFormat("Segmentation plugins are not enabled: " + type);
++#endif
+     }
+     return segmentation;
+   }
