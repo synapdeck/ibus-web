@@ -84,7 +84,9 @@
           if [ -n "$forbidden" ]; then echo "non-data closure entries: $forbidden" >&2; exit 1; fi
         done < "$closure"
 
-        # The distribution's archives hold link targets of 100 bytes at most.
+        # The links point into the dictionaries' store paths, some past ustar's
+        # 100 bytes, which the distribution's pax archives carry; the longest is
+        # recorded to show what they must hold.
         longest=$(find ${rime.common}/build -type l -printf '%l\n' | awk '{ if (length($0) > n) n = length($0) } END { print n }')
         echo "longest link target: $longest bytes"
         { cat "$closure"; echo "longest link target: $longest bytes"; } > $out
