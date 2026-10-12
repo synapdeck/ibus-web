@@ -16,15 +16,12 @@ export async function selectEngine(page: Page, engine: string) {
 // Typing stays native until the module's Worker, the engine's data and the
 // field's context are ready, and keys pass through while Rime's maintenance
 // runs, so attempts repeat until Rime alone makes the value. Escape drops
-// whatever an attempt left composing. It follows the fill rather than
-// preceding it: a fill while a key is in flight replays that key natively and
-// drops what the engine reported for it, and the first key after Rime's
-// maintenance starts the session that registers the schema's switches.
+// whatever an attempt left composing.
 export async function probe(page: Page, keys: string, value: string) {
   await expect(async () => {
     await field(page).click();
-    await field(page).fill("");
     await page.keyboard.press("Escape");
+    await field(page).fill("");
     await page.keyboard.type(keys);
     await expect(field(page)).toHaveValue(value, { timeout: 2_000 });
   }).toPass({ timeout: 120_000 });
