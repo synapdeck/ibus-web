@@ -65,5 +65,8 @@
           export HOME=$(mktemp -d)
         '';
       };
+
+      # So Vitest's browser runs from a checkout launch the checks' browsers.
+      devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) playwright.env;
     };
 }

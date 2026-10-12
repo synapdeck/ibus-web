@@ -303,14 +303,14 @@ backend.
 
 ## Browsers
 
-The browsers are nixpkgs' `playwright-driver` builds — Chromium's headless shell and Firefox, with the full Chromium,
-WebKit and ffmpeg left out of the closure — so the workspace's `playwright` package must be exactly
+The browsers are nixpkgs' `playwright-driver` builds — Chromium's headless shell, Firefox and WebKit, with the full
+Chromium and ffmpeg left out of the closure — so the workspace's `playwright` package must be exactly
 `playwright-driver`'s version, which the Nix build asserts ([tooling.md](tooling.md#the-pnpm-workspace)).
 `ibusWeb.testing.playwright` holds them:
 
 - `env`: `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`,
   `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1` (Nix links the browsers' libraries; Playwright would look for the
-  host's distribution packages), and `IBUS_WEB_CHROMIUM_SANDBOX`.
+  host's distribution packages), and `IBUS_WEB_CHROMIUM_SANDBOX`. The dev shell exports it too.
 - `chromiumSandbox` (default true): Chromium keeps its own sandbox, as a browser does. It needs unprivileged user
   namespaces, which the Nix sandbox allows on Linux unless the builder forbids them (Ubuntu 24.04's AppArmor does by
   default; CI lifts that with a `sysctl` step, [tooling.md](tooling.md#ci)); on such a builder, set it to false.
@@ -344,14 +344,12 @@ as a check, for `ibusWeb.testing.programs` and the Worker host alike; its output
   IBUS_WEB_TEST_PROGRAMS=$(nix eval --raw "$check.IBUS_WEB_TEST_PROGRAMS") pnpm test -t 'fstat-stdio'
   ```
 
-  Browser checks also need the browsers' environment, which the dev shell doesn't set:
+  Browser checks run the same way: the dev shell exports `ibusWeb.testing.playwright.env`, so Vitest launches the
+  checks' own browsers.
 
   ```sh
   check=.#checks.x86_64-linux.wasmfs-idb-browser
-  IBUS_WEB_TEST_PROGRAMS=$(nix eval --raw "$check.IBUS_WEB_TEST_PROGRAMS") \
-  PLAYWRIGHT_BROWSERS_PATH=$(nix eval --raw "$check.PLAYWRIGHT_BROWSERS_PATH") \
-  PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1 \
-    pnpm test -t 'seal > Seal'
+  IBUS_WEB_TEST_PROGRAMS=$(nix eval --raw "$check.IBUS_WEB_TEST_PROGRAMS") pnpm test -t 'seal > Seal'
   ```
 
   This runs the shim from the checkout, so a change to the shim takes effect after `pnpm run build`; a change to a

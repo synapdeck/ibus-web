@@ -279,8 +279,6 @@ decided.
   asserted.
 - **Pool sizes in wasmfs-idb's checks are hand counts** (`backends` per program); a count too low fails the program's
   cases under `-sPTHREAD_POOL_SIZE_STRICT=2` rather than being derived.
-- **The dev shell doesn't provide the Playwright browsers.** Nothing in it sets `PLAYWRIGHT_BROWSERS_PATH`; running the
-  browser environments from a checkout reads it from the check with `nix eval` ([testing.md](testing.md)).
 - **A failed check keeps no `results.json`**: the derivation's output exists only when it passes, so a failure's results
   are in the log alone.
 - **The library checker leans on the jsifier's shape.** `tools/emscripten-library-deps/library-deps.ts` finds the test
