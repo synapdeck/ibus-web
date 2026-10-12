@@ -26,10 +26,17 @@
         settingsSchemas = "${descriptors}/settings-schemas.json";
         settingsPaths = "${descriptors}/settings-paths.json";
 
-        # A first bound, generous enough for rime-host to run and measure what
-        # the module needs.
+        # rime-host peaks at 124,395,520 bytes asserting and 124,329,984
+        # released, with rime_ice and luna_pinyin open in one Worker, whose
+        # tables Rime maps into memory. A page-size change's redeployment
+        # sets the peak, which varies from run to run (96 to 124 MB) with how
+        # the deployer's work overlaps the open session's. The workload runs
+        # one engine thread at a time, the deployer's; LevelDB's compaction
+        # thread stays once started, so a deployment after it needs a second.
+        # The declaration leaves several MiB above the break, and the
+        # manifest builder adds headroom after it.
         threads = 2;
-        heapBytes = 256 * 1024 * 1024;
+        heapBytes = 123 * 1024 * 1024;
       };
     };
 }

@@ -453,9 +453,14 @@ exposes no suitable writing action; it verifies `SettingWritten` transport, not 
 An engine module's suite, `test/engines/<suite>.test.ts`, runs under Node in place of the host's own suites when
 `IBUS_WEB_MODULE_TESTS` names its description: the module distributions it starts hosts from, the program break and pool
 it is held to, and texts its build computed. Its `PageSession` takes the Init settings, the engine each context creates
-and what follows creation; a warning, critical or error record fails the exchange that brought it. `key` expects the
-engine to consume a press, and `press` reports whether it did, for a key the engine may decline. `checks.hangul-host`,
-`checks.table-host`, `checks.mozc-host` and `checks.m17n-host` are such suites.
+and what follows creation; a critical or error record fails the exchange that brought it, and so does a warning unless
+it falls within a deployment, which the options name by the messages the module logs as one starts and ends, and which
+the module's first start counts as; `deploymentWarnings` keeps those. Every record through a reply's `replyOutSeq` must
+have been read with it, and one past it may have been: the host keeps pumping after it publishes a reply, so a record
+another thread emitted meanwhile reaches the ring before the page takes the reply. `key` expects the engine to consume a
+press, and `press` reports whether it did, for a key the engine may decline. `checks.hangul-host`, `checks.table-host`,
+`checks.mozc-host`, `checks.m17n-host` and `checks.rime-host` are such suites; a suite's `PageSession` prepares an
+engine with data of its own before creating it, as the page does.
 
 The measured program break (`sbrk(0)`, which the allocator never lowers) peaked at 3,461,120 bytes asserting and
 3,452,928 released, below the 4 MiB `heapBytes` declaration, which the harness checks it against as `breakPeak`. The

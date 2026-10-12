@@ -55,17 +55,29 @@ export interface SessionOptions {
   engine: string;
   // Runs once a context's engine is created and focused.
   ready?: (session: PageSession, ic: number) => Promise<unknown>;
+  // The messages a module logs as a deployment of its data starts and
+  // ends; its first start counts as one. Warnings in between are kept in
+  // deploymentWarnings rather than failed, for a module whose deployments
+  // warn of what a new user directory lacks or of its own configs.
+  deployment?: { start: string; end: string };
 }
 
 // Every exchange checks the output barrier, including requests that emit
-// nothing. A warning, critical or error fails it.
+// nothing. A critical or error fails it, and so does a warning outside a
+// deployment.
 export class PageSession {
   private lastSeq = 0;
+  private deploying: boolean;
+  readonly deploymentWarnings: string[] = [];
+  readonly logs: string[] = [];
   readonly host: RunningHost;
+  private readonly manifest: ModuleManifest;
   private readonly options: SessionOptions;
-  private constructor(host: RunningHost, options: SessionOptions) {
+  private constructor(host: RunningHost, manifest: ModuleManifest, options: SessionOptions) {
     this.host = host;
+    this.manifest = manifest;
     this.options = options;
+    this.deploying = options.deployment !== undefined;
   }
 
   static async start(
@@ -81,7 +93,7 @@ export class PageSession {
       storage: h.storage(engine),
       test: { sides: h.sides.filter((side) => side.name === "settings") },
     });
-    const session = new PageSession(host, options);
+    const session = new PageSession(host, engine, options);
     try {
       await session.request(0, new Init({ version: PROTOCOL_VERSION, settings: options.settings }));
       await session.create(1);
@@ -92,16 +104,30 @@ export class PageSession {
     }
   }
 
-  private checkRecords(outSeq: number): DecodedRecord[] {
+  // Takes what the host has published to the ring, as a page does on a
+  // doorbell.
+  read(): DecodedRecord[] {
     const records = this.host.client.page.records();
     for (const { seq, record } of records) {
       if (seq !== 0) {
         expect(seq).toBe((this.lastSeq + 1) >>> 0 || 1);
         this.lastSeq = seq;
       }
-      if (record._tag === "Log") expect(record.level & (4 | 8 | 16), record.message).toBe(0);
+      if (record._tag !== "Log") continue;
+      this.logs.push(record.message);
+      if (record.message === this.options.deployment?.start) this.deploying = true;
+      if (record.message === this.options.deployment?.end) this.deploying = false;
+      if (this.deploying && (record.level & (4 | 8 | 16)) === 16) this.deploymentWarnings.push(record.message);
+      else expect(record.level & (4 | 8 | 16), record.message).toBe(0);
     }
-    expect(outSeq).toBe(this.lastSeq);
+    return records;
+  }
+
+  // The host keeps pumping after it publishes a reply, so a record another
+  // thread emitted can reach the ring after the reply's and be read with it.
+  private checkRecords(outSeq: number): DecodedRecord[] {
+    const records = this.read();
+    expect((this.lastSeq - outSeq) >>> 0, `records through ${outSeq}`).toBeLessThan(2 ** 31);
     return records;
   }
 
@@ -132,9 +158,13 @@ export class PageSession {
     return { handled: press.ret === 1, records: [...press.records, ...release] };
   }
 
-  // Activates an engine as the page's router does, enabling it before its
-  // first focus.
+  // Activates an engine as the page's router does: its own data prepared,
+  // then the engine made and enabled before its first focus.
   async create(ic: number, engine = this.options.engine): Promise<void> {
+    if ((this.manifest.engines.find(({ name }) => name === engine)?.data ?? []).length > 0) {
+      const prepared = await this.host.prepare(engine);
+      expect(prepared.error, `preparing ${engine}`).toBeUndefined();
+    }
     await this.request(ic, new CreateEngine({ name: engine }));
     await this.request(ic, new SetCapabilities({ capabilities: CAPABILITIES }));
     await this.request(ic, new Enable({}));

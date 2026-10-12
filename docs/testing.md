@@ -432,6 +432,7 @@ nix build .#checks.x86_64-linux.hangul-host
 nix build .#checks.x86_64-linux.table-host
 nix build .#checks.x86_64-linux.mozc-host
 nix build .#checks.x86_64-linux.m17n-host
+nix build .#checks.x86_64-linux.rime-host
 nix build .#checks.x86_64-linux.tools-engine-manifest
 nix build .#checks.x86_64-linux.hangul-data-closure
 ```
