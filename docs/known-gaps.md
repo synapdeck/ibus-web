@@ -46,16 +46,14 @@ decided.
   (`/unicode/collate{,-key}/{0,1}`, `/unicode/collate-filename/0`), `/option/arg/repetition/locale`, and localized dates
   and times (`/date/month_substring`, `/GDateTime/modifiers`, the `de_DE` `format_mixed` cases, `/GDateTime/eras/*`).
   The rest stay skipped while their reason holds: sockets and spawning, Unix signals, IPv6 scope IDs and interfaces,
-  WasmFS's millisecond file times, unbounded pipes (`/mainloop/unix-fd`), TZif files by path, the content-type backend,
-  and `/pollable/unix/pty` (WasmFS has no `/dev/ptmx`).
+  WasmFS's millisecond file times, TZif files by path, the content-type backend, and `/pollable/unix/pty` (WasmFS has no
+  `/dev/ptmx`).
 - **WebAssembly guards still in place**, each possible on Emscripten: `g_application_command_line_get_stdin()` returns
   `NULL`; local file and socket streams don't implement `GFileDescriptorBased`; GLib's `unix` and GIO's `unix-streams`
   tests aren't built; local file output streams don't use `writev()`; socket sources and non-blocking sockets are stubs
   (networking is out of scope); the content-type backend maps extensions only (xdgmime would work without
   shared-mime-info data); mount-table features (`filesystem::readonly`, enclosing mounts, trash, the Unix volume
   monitor) are off.
-- **`pipe()` where `g_unix_open_pipe()` now works**: `gtester`, spawn-singlethread and test-printf still open pipes with
-  `pipe()` on WebAssembly.
 - **The musl `iconv()` workaround (0015) isn't proposed upstream.** It would serve musl and NetBSD users; per-character
   conversion costs one or a few `iconv()` calls per character, on musl only.
 - **WasmFS behaviour accepted, not carried as patches**: its stdout and stderr are a line-buffered text console, so

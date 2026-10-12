@@ -255,7 +255,7 @@ WebAssembly as `<tool>.js` and `<tool>.wasm`, each with a `<tool>` wrapper besid
 machine's Node, so the paths in `gio-2.0.pc` and `glib-2.0.pc` run this GLib's tools. The list is what the build
 installs, every `.js` with a `.wasm` beside it, not a hand-kept one, and the build checks that every tool variable in
 the `.pc` files names an installed program. Features the tools reach through Unix facilities WebAssembly doesn't have
-(`gio launch`, `gtester`'s report pipe, `gapplication list`) report themselves unsupported.
+(`gio launch`, `gtester`'s spawning of the test binary, `gapplication list`) report themselves unsupported.
 
 The tools keep Emscripten's `-sNODERAWFS` rather than WasmFS, because NODERAWFS writes stdout to the process's own
 descriptor and WasmFS's is a text console: it decodes each line as UTF-8, replacing bytes that aren't, and ends a last
@@ -375,9 +375,9 @@ gate:
 Subtests skipped inside gating tests, by reason: musl's locales exist in name only (collation, `option-context`'s
 decimal comma, Polish month names, `gdatetime`'s `en_GB` and `de_DE` formats and eras), until the §5.1.4 locale
 backends; no sockets, process spawning, pseudo-terminals or Unix signals; IPv6 scope IDs and network interfaces;
-WasmFS's millisecond file times and unbounded pipes; TZif files by path (`/GTimeZone/parse-rfc8536`, since zones come
-from `Intl`); and for `gio-tool.py`, no desktop applications and no MIME types. Where musl's output is right but
-different (`strftime()` padding years and lacking `%k`, `%l`, `%P`), the tests expect musl's.
+WasmFS's millisecond file times; TZif files by path (`/GTimeZone/parse-rfc8536`, since zones come from `Intl`); and for
+`gio-tool.py`, no desktop applications and no MIME types. Where musl's output is right but different (`strftime()`
+padding years and lacking `%k`, `%l`, `%P`), the tests expect musl's.
 
 ### What the test run found
 

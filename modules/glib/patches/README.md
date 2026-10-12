@@ -231,9 +231,7 @@ follow-ups.
 it under the build machine's Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give exist. Three of the tools reach
 features WebAssembly doesn't have; each reports them as unsupported at run time instead:
 
-- `gtester` opens its report pipe with `pipe()`; spawning the test binary then fails as unsupported. Its comment says
-  `glib-unix.c` isn't built, which no longer holds: `g_unix_open_pipe()` would do, as it would for the tests that use
-  `pipe()` (see 0016).
+- `gtester` opens its report pipe with `g_unix_open_pipe()`, as upstream, and then can't spawn the test binary.
 - `gio info` leaves out the Unix mount line, and `gio launch` reports "not currently supported on this platform", as on
   Windows and macOS.
 - `gapplication list` finds no D-Bus activatable applications, and `gapplication list-actions` reports that it can't
@@ -314,9 +312,8 @@ or `g_main_loop_run()` neither aborts nor busy-spins. It replaces Fluendo's thre
   `g_cancellable_make_pollfd()` and `g_cancellable_get_fd()` work, and their callers (`gsocket.c`, `gasynchelper.c`)
   don't abort.
 - **Emscripten's pipes.** WasmFS's `pipe2()` takes no flag but `O_CLOEXEC`, so `O_NONBLOCK` is set with `fcntl()`.
-  Neither file system blocks on a pipe: an empty pipe reads as `EAGAIN` on the JavaScript file systems, even after every
-  writer has closed (while `poll()` reports `POLLHUP`), and as 0 on WasmFS. The drain stops at either, and never waits
-  for end of file.
+  Neither file system blocks on a pipe: an empty pipe reads as `EAGAIN` on the JavaScript file systems and as 0 on
+  WasmFS. The drain stops at either, and never waits for end of file.
 - **Who gets the pipe.** `g_wakeup_wait()` and main contexts sleep on the futex, so a context has no wakeup fd among its
   poll fds, except one made with `G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING`: that one is polled by someone outside it, who
   can only see a wakeup through an fd, so it adds the pipe to its poll fds. Other contexts never get a pipe. The loop
@@ -479,8 +476,8 @@ filenamecompleter connected `g_main_loop_quit()` through `g_signal_connect_swapp
 differently under `en_US`, option-context's decimal comma, date's Polish month names, gdatetime's `en_GB` formats,
 `de_DE` month names and eras); WasmFS has no sockets (`socket()` fails with `ENOSYS`); Emscripten can't spawn or fork
 processes, parse an IPv6 scope ID or list network interfaces, and nothing can send it a signal; WasmFS keeps file times
-as a double count of milliseconds and gives pipes no capacity; TZif files aren't read by path
-(`/GTimeZone/parse-rfc8536`); `gio launch` needs desktop applications, and WebAssembly content types know no MIME types.
+as a double count of milliseconds; TZif files aren't read by path (`/GTimeZone/parse-rfc8536`); `gio launch` needs
+desktop applications, and WebAssembly content types know no MIME types.
 
 **musl's output expected** where it is right but different: `strftime()` pads years to four digits (`%C`, `%F`, `%G`,
 `%Y`, `%c`), has no `%k`, `%l` or `%P`, and prints nothing for a bare `%E` or `%O`; `g_convert()`'s illegal-sequence
@@ -499,14 +496,14 @@ expected each to get some. Under load a pthread can start 200–560 ms after it 
 (about one run in four or five under the suite's parallel load, 23 in 100 run alone at 32-way concurrency, failed
 `sums_i > 0`), so the test waits until every consumer is running.
 
-**Workarounds for the platform**: spawn-singlethread and test-printf open their pipe with `pipe()` instead of
-`g_unix_open_pipe()` (written before 0012 built `glib-unix.c`; now unnecessary, see the plan's follow-ups), and
-test-printf's reader waits for its writer to finish, since Emscripten's pipe reads never block.
+**Workarounds for the platform**: test-printf's reader waits for its writer to finish, since Emscripten's pipe reads
+never block: an empty WasmFS pipe reads as end of file while its writer is still open.
 
 **Left to the toolchain's Emscripten fixes**: mainloop's `nfds`, `unix-file-poll` and `unix-fd-priority`, closure's `fd`
-and pollable's `/dev/null` test poll empty files and devices; fileutils' `chdir()` and read-only-directory checks rely
-on directory search and write permission, and its `stdio-wrappers` test on `chmod()` reaching the host; pollable's
-pseudo-terminal test fails to open one cleanly and skips as upstream does ("Unable to open PTY").
+and pollable's `/dev/null` test poll empty files and devices; mainloop's `unix-fd` writes to a pipe until `poll()` says
+it is full, which takes the pipe capacity of the toolchain's patch 0021; fileutils' `chdir()` and read-only-directory
+checks rely on directory search and write permission, and its `stdio-wrappers` test on `chmod()` reaching the host;
+pollable's pseudo-terminal test fails to open one cleanly and skips as upstream does ("Unable to open PTY").
 
 Tests and tools link with runtime assertions on, so threaded tests print `received "…" command from terminated worker`
 as their pthread workers shut down at exit. It is Emscripten's diagnostic, not a GLib failure.

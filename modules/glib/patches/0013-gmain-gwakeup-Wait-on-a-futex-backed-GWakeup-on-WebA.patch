@@ -1,4 +1,4 @@
-From b9047605d06dd0f345976062b162bc10add5c246 Mon Sep 17 00:00:00 2001
+From 93c0836f88b02b96bfea9bf9d86749481df9cb55 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 23:36:42 -0700
 Subject: [PATCH 13/17] gmain, gwakeup: Wait on a futex-backed GWakeup on
@@ -43,11 +43,11 @@ From then on g_wakeup_signal() also writes a byte to it and
 g_wakeup_acknowledge() drains it before acknowledging the futex, so the
 fd polls ready whenever the futex is signalled. The drain stops at the
 first read that returns nothing, which is EAGAIN on Emscripten's
-JavaScript file systems (even at end of file) and 0 on WasmFS. Waiting
-is unchanged: g_wakeup_wait() and main contexts still sleep on the
-futex. Only a context made with G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING
-asks for the fd and polls it, since whoever polls it from outside can
-only see a wakeup through an fd; other contexts never get a pipe.
+JavaScript file systems and 0 on WasmFS. Waiting is unchanged:
+g_wakeup_wait() and main contexts still sleep on the futex. Only a
+context made with G_MAIN_CONTEXT_FLAGS_OWNERLESS_POLLING asks for the fd
+and polls it, since whoever polls it from outside can only see a wakeup
+through an fd; other contexts never get a pipe.
 
 g_poll() with a timeout didn't wait either: Emscripten's poll() ignores
 the timeout on the main thread and on WasmFS, and from a pthread on the
@@ -57,11 +57,11 @@ slices between probes until one is ready or the timeout passes.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- glib/gmain.c   |  75 +++++++++++++++++++++++++-
- glib/gpoll.c   |  52 ++++++++++++++++++
- glib/gwakeup.c | 139 ++++++++++++++++++++++++++++++++++++++++++++++---
+ glib/gmain.c   |  75 ++++++++++++++++++++++++++-
+ glib/gpoll.c   |  52 +++++++++++++++++++
+ glib/gwakeup.c | 138 ++++++++++++++++++++++++++++++++++++++++++++++---
  glib/gwakeup.h |   4 ++
- 4 files changed, 260 insertions(+), 10 deletions(-)
+ 4 files changed, 259 insertions(+), 10 deletions(-)
 
 diff --git a/glib/gmain.c b/glib/gmain.c
 index c5753ebc0..da655051f 100644
@@ -256,7 +256,7 @@ index 293e7111a..208c34ca9 100644
  
  #else	/* !HAVE_POLL */
 diff --git a/glib/gwakeup.c b/glib/gwakeup.c
-index 1f6140e00..af79b8fa5 100644
+index 1f6140e00..48a6b1ef3 100644
 --- a/glib/gwakeup.c
 +++ b/glib/gwakeup.c
 @@ -112,8 +112,19 @@ g_wakeup_free (GWakeup *wakeup)
@@ -355,7 +355,7 @@ index 1f6140e00..af79b8fa5 100644
  #else
    poll_fd->fd = wakeup->fds[0];
    poll_fd->events = G_IO_IN;
-@@ -223,7 +279,24 @@ void
+@@ -223,7 +279,23 @@ void
  g_wakeup_acknowledge (GWakeup *wakeup)
  {
  #ifdef G_PLATFORM_WASM
@@ -365,8 +365,7 @@ index 1f6140e00..af79b8fa5 100644
 +  /* Draining first means a signal landing in between leaves a byte
 +   * behind, a spurious wakeup, rather than a signalled wakeup whose fd
 +   * doesn't poll ready.  An empty pipe reads as EAGAIN on Emscripten's
-+   * JavaScript file systems, even once every writer has closed, and as 0
-+   * on WasmFS; either ends the loop. */
++   * JavaScript file systems and as 0 on WasmFS; either ends the loop. */
 +  if (fds != NULL)
 +    {
 +      uint8_t buffer[64];
@@ -381,7 +380,7 @@ index 1f6140e00..af79b8fa5 100644
  #else
    int res;
  
-@@ -266,7 +339,21 @@ void
+@@ -266,7 +338,21 @@ void
  g_wakeup_signal (GWakeup *wakeup)
  {
  #ifdef G_PLATFORM_WASM
@@ -404,7 +403,7 @@ index 1f6140e00..af79b8fa5 100644
  #else
    int res;
  
-@@ -306,15 +393,51 @@ void
+@@ -306,15 +392,51 @@ void
  g_wakeup_free (GWakeup *wakeup)
  {
  #ifdef G_PLATFORM_WASM
@@ -472,3 +471,4 @@ index 0905fde2f..f5d37ec20 100644
 +#endif
  
  #endif
+-- 

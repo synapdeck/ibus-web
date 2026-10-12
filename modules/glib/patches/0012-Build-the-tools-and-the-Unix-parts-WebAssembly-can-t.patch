@@ -1,4 +1,4 @@
-From de108430fe012fc7318449dcef175a4ee13bcd77 Mon Sep 17 00:00:00 2001
+From 2eabedb20229d8b4735ea5c1adc3e4b7cbfb940c Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 23:36:25 -0700
 Subject: [PATCH 12/17] Build the tools and the Unix parts WebAssembly can take
@@ -51,13 +51,12 @@ Restore three paths that work as on other Unixes:
 - A content type for files in a GResource, guessed from the name and
   data, as for local files.
 
-Build the tools. Three link against Unix sources that stay out: on
-WebAssembly gtester opens its report pipe with pipe() (spawning the test
-binary then reports that it's unsupported), gio info leaves out the Unix
-mount line, gio launch reports that it isn't supported on this platform,
-as on Windows and macOS, gapplication list finds no D-Bus activatable
-applications, and list-actions reports that it can't find the
-application's desktop file. The tools run under Node with its file
+Build the tools. Two link against Unix sources that stay out: gio info
+leaves out the Unix mount line, gio launch reports that it isn't
+supported on this platform, as on Windows and macOS, gapplication list
+finds no D-Bus activatable applications, and list-actions reports that
+it can't find the application's desktop file. gtester reports that it
+can't spawn its test binary. The tools run under Node with its file
 system, so configure's /proc/self/cmdline run check would pass there,
 although the library also runs in browsers, which have no /proc; take
 its result from the have_proc_self_cmdline cross property on
@@ -105,12 +104,11 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/glib-unix.h            |  3 ++
  glib/gmain.c                |  4 +--
  glib/goption.c              |  8 +++++
- glib/gtester.c              |  9 ++++++
  glib/gtestutils.c           | 30 +++++++++++++++++++
  glib/meson.build            |  4 +--
  gobject/gsourceclosure.c    | 20 ++++++-------
  meson.build                 |  9 ++++--
- 20 files changed, 203 insertions(+), 37 deletions(-)
+ 19 files changed, 194 insertions(+), 37 deletions(-)
 
 diff --git a/gio/gappinfo.c b/gio/gappinfo.c
 index a0aa2c4a5..d098551e8 100644
@@ -567,27 +565,6 @@ index 5ce33fb98..93cbacd84 100644
  #elif defined __OpenBSD__
    char **cmdline;
    char *base_arg0;
-diff --git a/glib/gtester.c b/glib/gtester.c
-index 95f34c964..256115231 100644
---- a/glib/gtester.c
-+++ b/glib/gtester.c
-@@ -305,7 +305,16 @@ launch_test_binary (const char *binary,
-   gboolean loop_pending;
-   gint i = 0;
- 
-+#ifdef G_PLATFORM_WASM
-+  /* glib-unix.c isn't built for WebAssembly; spawning the test binary then
-+   * reports that it's unsupported. */
-+  if (pipe (report_pipe) != 0)
-+    g_set_error_literal (&error, G_FILE_ERROR, g_file_error_from_errno (errno),
-+                         g_strerror (errno));
-+  if (error != NULL)
-+#else
-   if (!g_unix_open_pipe (report_pipe, O_CLOEXEC, &error))
-+#endif
-     {
-       if (subtest_mode_fatal)
-         g_error ("Failed to open pipe for test binary: %s: %s", binary, error->message);
 diff --git a/glib/gtestutils.c b/glib/gtestutils.c
 index 9296855d4..f2b8dbc90 100644
 --- a/glib/gtestutils.c
@@ -756,3 +733,4 @@ index c4dbd8789..2781bf8df 100644
    rres = cc.run(cmdline_test_code, name : '/proc/self/cmdline')
    have_proc_self_cmdline = rres.compiled() and rres.returncode() == 0
  else
+-- 

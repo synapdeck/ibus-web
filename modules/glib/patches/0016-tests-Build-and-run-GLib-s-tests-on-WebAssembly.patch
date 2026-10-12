@@ -1,4 +1,4 @@
-From 15d31468fa4ec44b121e320bef13da96f92224db Mon Sep 17 00:00:00 2001
+From 6ec27538b57646ac547cd48d9ba3c79d8780b4ba Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Wed, 30 Sep 2026 23:37:37 -0700
 Subject: [PATCH 16/17] tests: Build and run GLib's tests on WebAssembly
@@ -43,8 +43,7 @@ the part of it, with the reason:
   a Unix signal. thread's CPU affinity subtest calls
   pthread_getaffinity_np(), which Emscripten declares but doesn't
   define.
-- WasmFS keeps file times as a double count of milliseconds and gives
-  pipes no capacity.
+- WasmFS keeps file times as a double count of milliseconds.
 - Time zones come from Intl, so no TZif file is read by path.
 - gio-tool's launch command needs desktop applications and spawning,
   and WebAssembly's content types know no MIME types.
@@ -67,8 +66,7 @@ Fix the tests themselves where they relied on more than they should:
   dlsym(RTLD_NEXT), which WebAssembly can't do; there it calls
   emscripten_builtin_malloc() instead;
 - the Python tests expected abort() to end Node with SIGABRT;
-- spawn-singlethread and test-printf open their pipe with pipe(), and
-  test-printf's reader waits for its writer, since Emscripten's pipe
+- test-printf's reader waits for its writer, since Emscripten's pipe
   reads never block;
 - asyncqueue's threads test pushed its items as soon as it had created
   its consumers, and expected each consumer to get some. Under load a
@@ -110,7 +108,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/tests/gwakeuptest.c                |  14 +++-
  glib/tests/hook.c                       |  19 +++++
  glib/tests/list.c                       |  10 ++-
- glib/tests/mainloop.c                   |  40 +++++++---
+ glib/tests/mainloop.c                   |  34 +++++---
  glib/tests/mapping.c                    |   5 ++
  glib/tests/meson.build                  |  14 +++-
  glib/tests/messages-low-memory.c        |  10 +++
@@ -119,8 +117,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  glib/tests/option-argv0.c               |   6 +-
  glib/tests/option-context.c             |   9 ++-
  glib/tests/slist.c                      |  10 ++-
- glib/tests/spawn-singlethread.c         |   4 +-
- glib/tests/test-printf.c                |  13 ++-
+ glib/tests/test-printf.c                |   9 ++-
  glib/tests/testing.c                    |  69 +++++++++++++++-
  glib/tests/thread-pool-slow.c           |  11 ++-
  glib/tests/thread.c                     |   4 +-
@@ -154,7 +151,7 @@ Upstream-Status: Inappropriate [Wasm-specific]
  gobject/tests/value.c                   |   4 +-
  tests/lib/meson.build                   |  28 ++++---
  tests/lib/testprogramrunner.py          |  10 ++-
- 70 files changed, 921 insertions(+), 181 deletions(-)
+ 69 files changed, 909 insertions(+), 179 deletions(-)
 
 diff --git a/gio/tests/cancellable.c b/gio/tests/cancellable.c
 index 0347d4cc7..6956e87e0 100644
@@ -1655,7 +1652,7 @@ index 20d01db08..8d70fe8a6 100644
  
    for (i = 0; i < SIZE - 1; i++)
 diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
-index 2435a0aae..ab41e60b0 100644
+index 2435a0aae..6ac776477 100644
 --- a/glib/tests/mainloop.c
 +++ b/glib/tests/mainloop.c
 @@ -29,6 +29,14 @@
@@ -1709,20 +1706,7 @@ index 2435a0aae..ab41e60b0 100644
    g_assert_false (g_main_context_check (NULL, 1000, poll_fds, n_poll_fds));
    g_main_context_dispatch (NULL);
    g_main_context_release (NULL);
-@@ -1333,6 +1343,12 @@ test_unix_fd (void)
-   GSource *source_a;
-   GSource *source_b;
- 
-+#ifdef G_PLATFORM_WASM
-+  /* fill_a_pipe() writes until the pipe is full. */
-+  g_test_skip ("WasmFS's pipes have no capacity, so they never fill");
-+  return;
-+#endif
-+
-   s = pipe (fds);
-   g_assert_cmpint (s, ==, 0);
- 
-@@ -1406,7 +1422,7 @@ assert_main_context_state (gint n_to_poll,
+@@ -1406,7 +1416,7 @@ assert_main_context_state (gint n_to_poll,
    immediate = g_main_context_prepare (context, &max_priority);
    g_assert_false (immediate);
    n = g_main_context_query (context, max_priority, &timeout, poll_fds, 10);
@@ -1731,7 +1715,7 @@ index 2435a0aae..ab41e60b0 100644
  
    va_start (ap, n_to_poll);
    for (i = 0; i < n_to_poll; i++)
-@@ -1863,9 +1879,9 @@ test_nfds (void)
+@@ -1863,9 +1873,9 @@ test_nfds (void)
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
    /* An "empty" GMainContext will have a single GPollFD, for its
@@ -1743,7 +1727,7 @@ index 2435a0aae..ab41e60b0 100644
  
    fd = g_file_open_tmp (NULL, &tmpfile, &error);
    g_assert_no_error (error);
-@@ -1886,7 +1902,7 @@ test_nfds (void)
+@@ -1886,7 +1896,7 @@ test_nfds (void)
  
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1752,7 +1736,7 @@ index 2435a0aae..ab41e60b0 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
    else if (out_fds[1].fd == fd)
-@@ -1908,7 +1924,7 @@ test_nfds (void)
+@@ -1908,7 +1918,7 @@ test_nfds (void)
     */
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1761,7 +1745,7 @@ index 2435a0aae..ab41e60b0 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
    else if (out_fds[1].fd == fd)
-@@ -1921,7 +1937,7 @@ test_nfds (void)
+@@ -1921,7 +1931,7 @@ test_nfds (void)
     */
    nfds = g_main_context_query (ctx, G_PRIORITY_DEFAULT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1770,7 +1754,7 @@ index 2435a0aae..ab41e60b0 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN);
    else if (out_fds[1].fd == fd)
-@@ -1938,7 +1954,7 @@ test_nfds (void)
+@@ -1938,7 +1948,7 @@ test_nfds (void)
  
    nfds = g_main_context_query (ctx, G_MAXINT, NULL,
                                 out_fds, G_N_ELEMENTS (out_fds));
@@ -1779,7 +1763,7 @@ index 2435a0aae..ab41e60b0 100644
    if (out_fds[0].fd == fd)
      g_assert_cmpint (out_fds[0].events, ==, G_IO_IN | G_IO_OUT);
    else if (out_fds[1].fd == fd)
-@@ -2754,9 +2770,11 @@ main (int argc, char *argv[])
+@@ -2754,9 +2764,11 @@ main (int argc, char *argv[])
    g_test_add_func ("/mainloop/unix-fd", test_unix_fd);
    g_test_add_func ("/mainloop/unix-fd-source", test_unix_fd_source);
    g_test_add_func ("/mainloop/source-unix-fd-api", test_source_unix_fd_api);
@@ -2022,37 +2006,11 @@ index 7c17573d5..8f4ada775 100644
                                             NULL);
  
    for (i = 0; i < SIZE - 1; i++)
-diff --git a/glib/tests/spawn-singlethread.c b/glib/tests/spawn-singlethread.c
-index 33b44d650..d73b2c5b7 100644
---- a/glib/tests/spawn-singlethread.c
-+++ b/glib/tests/spawn-singlethread.c
-@@ -236,7 +236,9 @@ test_spawn_async_with_fds (void)
-               test_pipe[j][1] = -5;
-               break;
-             case PIPE:
--#ifdef G_OS_UNIX
-+#if defined(G_PLATFORM_WASM)
-+              g_assert_no_errno (pipe (test_pipe[j]));
-+#elif defined(G_OS_UNIX)
-               g_unix_open_pipe (test_pipe[j], O_CLOEXEC, &error);
-               g_assert_no_error (error);
- #else
 diff --git a/glib/tests/test-printf.c b/glib/tests/test-printf.c
-index d572e9479..f138b28b1 100644
+index d572e9479..e34f86641 100644
 --- a/glib/tests/test-printf.c
 +++ b/glib/tests/test-printf.c
-@@ -925,7 +925,9 @@ test_produce_embedded_nulls2 (void)
-                   "(%c) with value '\0'. Test that printing such strings via "
-                   "g_fprintf() works as expected.");
- 
--#ifdef G_OS_UNIX
-+#if defined(G_PLATFORM_WASM)
-+  g_assert_no_errno (pipe (fds));
-+#elif defined(G_OS_UNIX)
-   GError *error = NULL;
-   g_unix_open_pipe (fds, O_CLOEXEC, &error);
-   g_assert_no_error (error);
-@@ -953,6 +955,12 @@ test_produce_embedded_nulls2 (void)
+@@ -953,6 +953,12 @@ test_produce_embedded_nulls2 (void)
                                            test_produce_embedded_nulls2_writing_thread,
                                            &data);
  
@@ -2065,7 +2023,7 @@ index d572e9479..f138b28b1 100644
    char buf[3];
    char *iter = buf;
    size_t size = sizeof (buf);
-@@ -973,7 +981,8 @@ test_produce_embedded_nulls2 (void)
+@@ -973,7 +979,8 @@ test_produce_embedded_nulls2 (void)
  
    g_assert_false (ferror (streams[0]));
  
@@ -3432,3 +3390,4 @@ index aa8d4ea47..7b782e3ba 100644
  
          env = os.environ.copy()
          env["LC_ALL"] = "C.UTF-8"
+-- 
