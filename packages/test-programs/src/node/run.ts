@@ -3,7 +3,8 @@
 
 // Runs a program under Node: `node NAME.js ARGS...` in a working directory
 // that stands for its storage, with IBUS_WEB_TEST_REPORT naming the file a
-// GoogleTest program writes its report to.
+// GoogleTest program writes its report to, and TMPDIR a directory the
+// caller removes, which a program that dies leaves its files in.
 
 import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
@@ -18,13 +19,14 @@ export const runNode = async (
   timeoutMs: number,
   cwd: string,
   reportPath: string,
+  tmpDir: string,
 ): Promise<ProgramRun> => {
   await rm(reportPath, { force: true });
   const output: OutputLine[] = [];
   const start = performance.now();
   const child = spawn(process.execPath, [join(program.dir, `${program.name}.js`), ...program.args, ...args], {
     cwd,
-    env: { ...process.env, IBUS_WEB_TEST_REPORT: reportPath },
+    env: { ...process.env, IBUS_WEB_TEST_REPORT: reportPath, TMPDIR: tmpDir },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const lines = (stream: NodeJS.ReadableStream, name: OutputLine["stream"]) =>

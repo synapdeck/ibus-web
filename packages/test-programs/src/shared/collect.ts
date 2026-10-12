@@ -12,7 +12,9 @@
 // when the run went wrong as a whole: its listing failed, it never exited,
 // its report was broken, it ran cases it wasn't asked to, it exited with a
 // failure no failing case explains, or it wasn't run because an earlier
-// program of its sequence failed.
+// program of its sequence failed. When Vitest leaves "run" out, the
+// selected cases fail with that instead. A program of a sequence always
+// runs whole, since its cases may build on the ones before them.
 
 import { beforeAll, describe, test, type RunnerTask, type RunnerTestSuite } from "vitest";
 import type { Case, OutputLine, ParsedReport, Plan, Program, ProgramRun } from "./protocol.ts";
@@ -127,15 +129,20 @@ interface Outcome {
   output: readonly OutputLine[];
   cases: Map<string, Case>;
   problem?: string;
+  // Whether Vitest selected the program's "run" test.
+  runSelected: boolean;
 }
 
 // A sequence's programs with their listed cases, the storage they share,
-// how many of them have run, in order, and whether one failed.
+// how many of them have run, in order, and whether one failed: with the
+// output of a run made only for its storage, which no test of its own
+// shows.
 interface Group {
   members: { program: Program; paths: string[][] }[];
   started: boolean;
   ran: number;
   failed?: string;
+  failedOutput?: readonly OutputLine[];
 }
 
 // Runs a sequence's programs before `upTo` that haven't run, for the
@@ -152,10 +159,16 @@ const catchUp = async (group: Group, upTo: number, environment: Environment, tim
     }
     const run = await environment.run(program, selectionArgs(program, paths, []), timeoutMs, false);
     const report = await parse(program, run, environment);
-    if (runProblem(run, report) !== undefined || report?.cases.some(({ status }) => status === "failed"))
-      group.failed = `${program.name} failed, run for the storage it leaves`;
+    const why = runProblem(run, report) ?? failedCases(report).map((path) => `${path.join(" › ")} failed`)[0];
+    if (why !== undefined) {
+      group.failed = `${program.name} failed, run for the storage it leaves: ${why}`;
+      group.failedOutput = run.output;
+    }
   }
 };
+
+const failedCases = (report: ParsedReport | undefined): string[][] =>
+  (report?.cases ?? []).filter(({ status }) => status === "failed").map(({ path }) => path);
 
 // Each test of a program's suite under the path of the case it replays.
 const testsOf = (suite: RunnerTestSuite, prefix: readonly string[], into: Map<string, RunnerTask>): void => {
@@ -203,26 +216,36 @@ const runProgram = async (
 ): Promise<Outcome> => {
   const tests = new Map<string, RunnerTask>();
   testsOf(suite, [], tests);
+  const isSelected = (task: RunnerTask): boolean => task.mode === "run" || task.mode === "queued";
+  const runTask = tests.get(keyOf([RUN_TEST]));
   // The suite's own last test, not a case.
   tests.delete(keyOf([RUN_TEST]));
-  const isSelected = (task: RunnerTask): boolean => task.mode === "run" || task.mode === "queued";
   const pathsWhere = (wanted: boolean): string[][] =>
     [...tests].filter(([, task]) => isSelected(task) === wanted).map(([key]) => JSON.parse(key) as string[]);
   const selected = pathsWhere(true);
   const unselected = pathsWhere(false);
-  const outcome: Outcome = { output: [], cases: new Map() };
-  if (group.failed !== undefined) return { ...outcome, notRun: group.failed };
+  const outcome: Outcome = {
+    output: [],
+    cases: new Map(),
+    runSelected: runTask !== undefined && isSelected(runTask),
+  };
+  const notRun = (why: string): Outcome => ({ ...outcome, notRun: why, output: group.failedOutput ?? [] });
+  if (group.failed !== undefined) return notRun(group.failed);
   if (selected.length === 0) return outcome;
   const index = group.members.findIndex((member) => member.program === program);
+  const whole = group.members.length > 1;
   try {
     if (!group.started) {
       group.started = true;
       await environment.startGroup();
     }
     await catchUp(group, index, environment, timeoutMs);
-    if (group.failed !== undefined) return { ...outcome, notRun: group.failed };
+    if (group.failed !== undefined) return notRun(group.failed);
     group.ran = index + 1;
-    const run = await environment.run(program, selectionArgs(program, selected, unselected), timeoutMs, false);
+    const args = whole
+      ? selectionArgs(program, [...selected, ...unselected], [])
+      : selectionArgs(program, selected, unselected);
+    const run = await environment.run(program, args, timeoutMs, false);
     const report = await parse(program, run, environment);
     outcome.output = run.output;
     for (const entry of report?.cases ?? []) outcome.cases.set(keyOf(entry.path), entry);
@@ -230,9 +253,18 @@ const runProgram = async (
     const extra = [...outcome.cases]
       .filter(([key, { status }]) => !selectedKeys.has(key) && status !== "skipped")
       .map(([, { path }]) => path.join(" › "));
+    const unselectedFailed = failedCases(report)
+      .filter((path) => !selectedKeys.has(keyOf(path)))
+      .map((path) => path.join(" › "));
     const problem =
       runProblem(run, report) ??
-      (extra.length === 0 ? undefined : `ran cases it wasn't asked to run: ${extra.join(", ")}`);
+      (whole
+        ? unselectedFailed.length === 0
+          ? undefined
+          : `cases run for the ones selected failed: ${unselectedFailed.join(", ")}`
+        : extra.length === 0
+          ? undefined
+          : `ran cases it wasn't asked to run: ${extra.join(", ")}`);
     if (problem !== undefined) outcome.problem = problem;
 
     setDuration(suite, run.durationMs);
@@ -280,13 +312,15 @@ const declareCases = (nodes: readonly Node[], outcome: () => Outcome, environmen
     }
     const key = keyOf(node.path);
     test(node.path.at(-1) ?? "", (context) => {
-      const { notRun, output, cases, problem } = outcome();
-      if (notRun !== undefined) context.skip(`not run: ${notRun}`);
+      const { notRun, output, cases, problem, runSelected } = outcome();
+      if (notRun !== undefined && runSelected) context.skip(`not run: ${notRun}`);
       printAll(environment, output);
+      if (notRun !== undefined) throw new Error(`not run: ${notRun}`);
       const entry = cases.get(key);
       if (entry === undefined) throw new Error(`not reported${problem === undefined ? "" : `: ${problem}`}`);
       if (entry.status === "skipped") context.skip(entry.message);
       if (entry.status === "failed") throw new Error(entry.message ?? "failed");
+      if (problem !== undefined && !runSelected) throw new Error(`the program's run failed: ${problem}`);
     });
   }
 };
@@ -307,7 +341,7 @@ const declareProgram = (
       });
       return;
     }
-    let outcome: Outcome = { output: [], cases: new Map() };
+    let outcome: Outcome = { output: [], cases: new Map(), runSelected: true };
     // oxlint-disable-next-line no-empty-pattern -- Vitest reads it for fixtures; the suite comes second.
     beforeAll(async ({}, suite) => {
       outcome = await runProgram(program, suite as RunnerTestSuite, group, environment, timeoutMs);
@@ -315,7 +349,10 @@ const declareProgram = (
     declareCases(treeOf(listing.paths), () => outcome, environment);
     test(RUN_TEST, (context) => {
       const { notRun, output, problem } = outcome;
-      if (notRun !== undefined) throw new Error(`not run: ${notRun}`);
+      if (notRun !== undefined) {
+        printAll(environment, output);
+        throw new Error(`not run: ${notRun}`);
+      }
       if (problem !== undefined) {
         printAll(environment, output);
         throw new Error(problem);

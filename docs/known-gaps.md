@@ -259,13 +259,6 @@ decided.
 
 ## Testing
 
-- **Sequences under `-t`.** Cases inside a sequence program depend on the ones before them, so a `-t` that selects one
-  later case of `basic.1` or `sweep.2` alone fails.
-- **The catch-up run hides its output.** A sequence program run for its storage that fails reports only "failed, run for
-  the storage it leaves", without its output.
-- **`run` hides under `-t`**: a pattern that excludes a program's `run` test hides run-level failures (selected cases
-  that weren't reported still fail).
-- **A crashed GoogleTest program leaves its empty `gtest-report-*.json`** in the host's `/tmp` under Node.
 - **Output a pthread prints just before exit can be lost**: Emscripten stubs the pthreads' `onmessage` during
   `exitRuntime`. A program that wants its output joins its threads first.
 - **Browser durations patch `TestRunner.prototype`**, since Vitest 5.0.3's browser mode ignores `test.runner`; the

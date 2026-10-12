@@ -29,13 +29,15 @@ export default class ProgramsRunner extends TestRunner {
     const listing = join(this.#root, "listing");
     mkdirSync(listing, { recursive: true });
     const report = join(this.#root, "report.json");
+    const tmp = join(this.#root, "tmp");
+    mkdirSync(tmp, { recursive: true });
     return collectPrograms("node", inject("testPrograms"), {
       startGroup: async () => {
         this.#cwd = join(this.#root, `group-${this.#groups++}`);
         mkdirSync(this.#cwd);
       },
       run: (program, args, timeoutMs, isListing) =>
-        runNode(program, args, timeoutMs, isListing ? listing : this.#cwd, report),
+        runNode(program, args, timeoutMs, isListing ? listing : this.#cwd, report, tmp),
       parseTap,
       print: ({ stream, text }) => (stream === "stdout" ? console.log(text) : console.error(text)),
     });

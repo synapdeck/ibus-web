@@ -62,9 +62,10 @@ harness's JavaScript library); `ibusWeb.testing.program` adds both to a GoogleTe
 
 How a report gets out:
 
-1. `main()` creates a file of its own with `mkstemps("/tmp/gtest-report-XXXXXX.json")`. Under Node, WasmFS is rooted at
-   the host's `/`, so `/tmp` is the host's, and two programs running at once would otherwise overwrite each other's
-   report.
+1. `main()` creates a file of its own with `mkstemps("$TMPDIR/gtest-report-XXXXXX.json")`, in `/tmp` without a `TMPDIR`.
+   Under Node, WasmFS is rooted at the host's `/`, so `/tmp` is the host's, and two programs running at once would
+   otherwise overwrite each other's report; the shim gives each Node run a `TMPDIR` it removes afterwards, so a program
+   that crashes before removing its report leaves nothing behind.
 2. It appends `--gtest_output=json:<that file>` as the **last** argument before `testing::InitGoogleTest`. GoogleTest
    sets up its report while it parses its flags, so the flag must be among them, and being last, a program's own
    arguments can't redirect it.
@@ -152,14 +153,17 @@ update stops that working.
 
 ### Selecting tests
 
-`-t` selects cases, and the program runs only those. When the selection names cases of a later program of a sequence,
-the earlier programs still run first for the storage they leave: one with none of its cases selected runs in full (the
-catch-up run), one with some runs only those; if one fails, the selected program is "not run". A `run` test selected
-without any of its program's cases passes without running the program, so a pattern that leaves out every `run` hides
-run-level failures ([known-gaps.md](known-gaps.md#testing)).
+`-t` selects cases, and the program runs only those, but for a program of a sequence, which runs whole whenever any of
+its cases is selected, since its cases may build on the ones before them. When the selection names cases of a later
+program of a sequence, the earlier programs still run first, whole, for the storage they leave (the catch-up run); if
+one fails, the selected program is "not run", and its `run` test shows the catch-up run's output and why it failed. A
+case of a sequence program that wasn't selected but failed fails the program's `run`. A `run` test selected without any
+of its program's cases passes without running the program. When a pattern leaves a program's `run` out, its selected
+cases carry what `run` would have reported: each fails with the run's problem, and a program that was "not run" fails
+its selected cases rather than skipping them.
 
-Cases inside one program run in GoogleTest's order. A suite whose cases build on each other (the IndexedDB backend's
-`Basic`, for one) fails or skips when a filter picks a later case alone; those suites say so in a `GTEST_SKIP` message.
+Cases inside one program run in GoogleTest's order. Outside sequences, a suite whose cases build on each other fails or
+skips when a filter picks a later case alone, and should say so in a `GTEST_SKIP` message.
 
 ### Sequences and storage
 

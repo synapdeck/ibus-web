@@ -172,6 +172,11 @@
           "Persist"
           "ReadsWhatTheFirstStored"
         ])
+        (case "passed" [
+          "persist.2"
+          "Later"
+          "FollowsTheEarlierCase"
+        ])
         (run "persist.2" "passed")
         (case "passed" [
           "cleared"
@@ -208,10 +213,12 @@
       ];
 
       # One case selected by name, with its program's run: the program runs
-      # that case alone, or its run fails for reporting the others. And the
-      # second program of a sequence alone, which passes only if the first
-      # still runs before it.
-      filter = "^[a-z]+ > (googletest > (Fixture > Passes|run)|persist\\.2 > .*)$";
+      # that case alone, or its run fails for reporting the others. A later
+      # case of the second program of a sequence alone, which passes only if
+      # the first program, and the case before it in its own, still run
+      # first. And the case of a program that never runs, without its run,
+      # which fails rather than skips so the run's failure still shows.
+      filter = "^[a-z]+ > (googletest > (Fixture > Passes|run)|persist\\.2 > Later > .*|stop\\.2 > Stop > .*)$";
       selected = [
         [
           "googletest"
@@ -224,16 +231,23 @@
         ]
         [
           "persist.2"
-          "Persist"
-          "ReadsWhatTheFirstStored"
-        ]
-        [
-          "persist.2"
-          "run"
+          "Later"
+          "FollowsTheEarlierCase"
         ]
       ];
+      neverRuns = [
+        "stop.2"
+        "Stop"
+        "NeverRuns"
+      ];
       expectedFiltered = map (
-        test: if lib.elem test.path selected then test else case "skipped" test.path
+        test:
+        if lib.elem test.path selected then
+          test
+        else if test.path == neverRuns then
+          case "failed" test.path
+        else
+          case "skipped" test.path
       ) expected;
 
       check =
