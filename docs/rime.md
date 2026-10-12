@@ -247,13 +247,34 @@ tables; Rime's sessions end when it does, and an open context takes the change u
 ## Distribution
 
 `ibus-web-rime-dist` (`engines/rime/dist.nix`) is `mkEngineManifest` over `rime.wasm`, with the descriptor step's
-engines, settings schemas and settings paths. Each engine's dictionaries, its schema's and those of the schemas it
-depends on (`engine-data.json`), are its own data ([engines.md](engines.md#an-engines-own-data)): the host installs them
-the first time a page prepares or selects the engine. The rest of the closure, `ibus-web-rime-common` with Rime's
-configs, OpenCC's data and `rime-ice`'s Lua scripts, and the compiled settings schemas, is base data, installed at
-start. The base data is 4.0 MB unpacked; the dictionaries 289.6 MB, 82.2 MB as Brotli of the distribution's 83.1 MB;
-`rime:rime_ice`'s own come to 75.9 MB unpacked. A dictionary several engines name, as the double-pinyin engines name
-`rime_ice`'s, is installed once.
+`engines.json`, each engine given its dictionaries from `engine-data.json` as `data`, `settings-paths.json` and
+`settings-schemas.json`. Its engines start with `rime:rime_ice`. Each engine's dictionaries, its schema's and those of
+the schemas it depends on, are its own data ([engines.md](engines.md#an-engines-own-data)): the host installs them the
+first time a page prepares or selects the engine. Of its 24 archives, two are base data, installed at start:
+`ibus-web-rime-common`, with Rime's configs, OpenCC's data and `rime-ice`'s Lua scripts, and the compiled settings
+schemas, 4,030,506 bytes installed and 998,854 as Brotli. The 22 dictionary paths are lazy, 289,631,136 bytes and
+82,153,014 as Brotli. `rime:rime_ice`'s own come to 75,939,528 bytes and 23,865,433 as Brotli; `rime:jyut6ping3` and
+`rime:jyut6ping3_ipa` name the most, 82,951,852 bytes. A dictionary several engines name, as the double-pinyin engines
+name `rime_ice`'s, is installed once. `rime.wasm` is 3,932,032 bytes, and the module's memory comes to 197 MiB.
+
+Every schema of `rime-data`, `rime-loengfan` and `rime-ice` ships, 47 engines. The distribution is a function of the
+schema list: `ibus-web-rime-dist.override { schemas = [ "rime_ice" "luna_pinyin" ]; }` passes the list to the module's
+recipe, and the module, its deployment, its descriptors, its dictionary paths and its settings paths follow it, so the
+build has exactly those engines, each with its own lazy data and its dependencies' dictionaries. It keeps the full
+build's thread and program-break declaration, which holds for any subset.
+
+The licence is
+`GPL-3.0-or-later AND BSD-3-Clause AND GPL-3.0-only AND MIT AND Apache-2.0 AND BSD-2-Clause AND BSL-1.0 AND LGPL-3.0-only AND CC-BY-4.0`:
+ibus-rime's GPL-3.0-or-later; librime's, librime-lua's, LevelDB's and glog's BSD-3-Clause; librime-octagram's
+GPL-3.0-only; yaml-cpp's and Lua's MIT; OpenCC's Apache-2.0; MARISA's BSD-2-Clause, the side of its dual licence the
+repository takes; Boost's BSL-1.0, for its headers; and the data's: `rime-data`'s schema packages are GPL-3.0-only,
+LGPL-3.0-only, Apache-2.0 and CC-BY-4.0 between them, `rime-loengfan` is CC-BY-4.0 and `rime-ice` GPL-3.0-only. The
+distribution lists them from each component's `meta.license` (its `licenses` passthru) and gives the module that
+`meta.license`, which `mkEngineManifest` writes. Two works are CanCLID's, under CC-BY-4.0, and compiled into Rime's
+tables at build time: the Cantonese dictionary `jyut6ping3`, from
+[rime-cantonese](https://github.com/rime/rime-cantonese) through `rime-data`, and `loengfan`, from
+[rime-loengfan](https://github.com/CanCLID/rime-loengfan) at `987ac95b02f957e8764a2f45222a4006c188ed50`, which
+`rime:jyut6ping3`'s data includes through its dependency.
 
 It declares 2 engine threads and a 123 MiB program break: `rime-host` peaked at 124,395,520 bytes asserting and
 124,329,984 released with `rime:rime_ice` and `rime:luna_pinyin` open in one Worker, since Rime maps its tables, which
