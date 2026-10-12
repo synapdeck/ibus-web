@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { Stream } from "effect";
 import {
   Connection,
+  PrepareFailed,
   type SurfaceAdapter,
   type SettingsSourceService,
   type AsyncKeyResult,
@@ -24,6 +25,7 @@ import {
 } from "@ibus-web/protocol";
 import {
   createIbusWeb,
+  PrepareEngineError,
   type IbusWebOptions,
   type IbusWebEventMap,
   type IbusWeb,
@@ -638,4 +640,52 @@ test("unload cancels ownership and releases the engine despite a preedit callbac
   first.adapter.setPreedit = () => {};
   await f.app.select("test");
   expect(f.start).toHaveBeenCalledTimes(2);
+});
+
+test("prepare installs an engine's own data ahead of selection, reporting install events, and rejects with the reason", async () => {
+  const f = fixture();
+  const lazyPath = `/nix/store/${"b".repeat(32)}-lazy`;
+  vi.mocked(fetch).mockImplementation(async () =>
+    Response.json({
+      ...manifest,
+      data: [...manifest.data, { storePath: lazyPath, url: "lazy.tar", size: 10, encoding: "identity" }],
+      engines: [
+        ...manifest.engines,
+        { ...manifest.engines[0], name: "lazy", data: [lazyPath] },
+        { ...manifest.engines[0], name: "broken", data: [lazyPath] },
+      ],
+    }),
+  );
+  f.start.mockImplementation(async () => {
+    const c = new DomConnection();
+    c.prepareWith = async (engine, progress) => {
+      if (engine === "broken") throw new PrepareFailed("fetch ./lazy.tar: 404");
+      progress?.(4, 10);
+      progress?.(10, 10);
+    };
+    f.connections.push(c);
+    return c as unknown as Connection;
+  });
+  const installs: IbusWebEventMap["install"]["detail"][] = [];
+  f.app.addEventListener("install", (event) => installs.push(event.detail));
+  await f.app.prepare("test", "test");
+  expect(f.connections, "Workers started for an engine without data of its own").toHaveLength(0);
+  await f.app.prepare("test", "lazy");
+  expect(f.app.selection).toBeUndefined();
+  expect(f.connections[0]!.prepared).toEqual(["lazy"]);
+  await expect
+    .poll(() => installs)
+    .toEqual([
+      { module: "test", engine: "lazy", bytes: 4, total: 10 },
+      { module: "test", engine: "lazy", bytes: 10, total: 10 },
+    ]);
+  f.app.attach(f.native);
+  f.native.focus();
+  await f.app.select("test", "lazy");
+  expect(f.connections[0]!.prepared, "selection after prepare").toEqual(["lazy"]);
+  const failed = f.app.prepare("test", "broken");
+  await expect(failed).rejects.toBeInstanceOf(PrepareEngineError);
+  await expect(failed).rejects.toMatchObject({ module: "test", engine: "broken", reason: "fetch ./lazy.tar: 404" });
+  await expect(f.app.prepare("test", "missing")).rejects.toThrow("Unknown engine: missing in module test");
+  await expect(f.app.prepare("missing", "lazy")).rejects.toThrow("Unknown module: missing");
 });

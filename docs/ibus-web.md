@@ -44,12 +44,22 @@ of a module, the module's first when `engine` is left out; switching engine with
 unknown module or engine rejects before anything changes. When a focused surface's engine fails to start, `select`
 rejects with a `CreateEngineError`, exported from `ibus-web` for `instanceof`, whose message carries the engine's reason
 (for a table engine, the parser's `path:line: reason`). The selection stands, since the engine failed to start, and that
-surface stays on native input. `deselect()` returns every surface to plain browser input and keeps Workers loaded; hosts
-bind their own shortcut for it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or
-`undefined`. `engines(module)` reads and validates a module's manifest and resolves to its engine descriptors (`name`,
-`displayName`, `languages`, `keyboard`) without starting a Worker. `select`, `deselect`, `engines`, `unload(module)` and
-`dispose()` return Promises. `debugRestart(module)` is a development-only way to terminate the actual Worker and await
-recovery; it restores the selection only when `module` is the selected one. No concrete CodeMirror adapter is provided.
+surface stays on native input. An engine whose descriptor names data of its own (a Rime schema's dictionaries) downloads
+and installs it the first time it is selected, and `select` waits for it, while the surface stays on native input and
+other selections, focus changes and detaches go on; a selection changed meanwhile resolves without making the engine,
+and the download still completes. `prepare(module, engine)` does that ahead of selection, starting the module's Worker
+if it hasn't, so that the selection later waits for nothing; an engine without data of its own needs nothing. While data
+installs, `install` events carry `{ module, engine, bytes, total }`, unpacked bytes written of the total the storage
+lacked, the last with `bytes` equal to `total`; a second selection, or one in a later visit, installs nothing and sends
+none. A failed install rejects `select` or `prepare` with a `PrepareEngineError`, exported from `ibus-web`, whose
+`reason` is the Worker's; the selection stands, as for a `CreateEngineError`, and the next focus tries again.
+`deselect()` returns every surface to plain browser input and keeps Workers loaded; hosts bind their own shortcut for
+it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or `undefined`. `engines(module)`
+reads and validates a module's manifest and resolves to its engine descriptors (`name`, `displayName`, `languages`,
+`keyboard`, and `data` for an engine with data of its own) without starting a Worker. `select`, `deselect`, `engines`,
+`unload(module)`, `prepare` and `dispose()` return Promises. `debugRestart(module)` is a development-only way to
+terminate the actual Worker and await recovery; it restores the selection only when `module` is the selected one. No
+concrete CodeMirror adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has
 one, a relocatable schema one per instance. Use `settings.get(module, path, key)`, `set(module, path, key, variant)` and
@@ -57,9 +67,9 @@ one, a relocatable schema one per instance. Use `settings.get(module, path, key)
 `stringVariant`, `booleanVariant` and `int32Variant` build for the `s`, `b` and `i` keys most settings have. The
 generated metadata supplies defaults, descriptions and actual range/choice constraints. Hangul's keyboard setting has no
 generated choices: hosts should render a typed input rather than inventing an enum. The default source persists by
-origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel` and `log`
-are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection. `logLevel`
-filters both `log` events and the optional logger callback.
+origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and
+`install` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection.
+`logLevel` filters both `log` events and the optional logger callback.
 
 Subpaths: `ibus-web/effect` exposes the core services, adapters and protocol schemas/types; `ibus-web/panel` exposes the
 framework-free panel and its `style.css`; `ibus-web/worker` exports URL constants (`workerUrl`, `relayUrl`,

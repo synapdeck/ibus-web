@@ -7,6 +7,7 @@ import {
   ModuleRegistry,
   Logger,
   PanelEvents,
+  PrepareEngineError,
   Router,
   SettingsApi,
   SettingsSource,
@@ -27,7 +28,7 @@ import { errorMessage, PanelAction, type EngineDescriptor } from "@ibus-web/prot
 import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, Selection, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
-export { CreateEngineError };
+export { CreateEngineError, PrepareEngineError };
 export type { EngineDescriptor } from "@ibus-web/protocol";
 export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
 export { booleanVariant, int32Variant, stringVariant, variant } from "@ibus-web/protocol";
@@ -51,6 +52,8 @@ export interface IbusWebOptions {
 export interface IbusWebEventMap {
   modulestate: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "state" }>, "_tag">>;
   storage: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "storage" }>, "_tag">>;
+  /** While an engine's own data installs: bytes written so far of total, what the module's storage lacked. */
+  install: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "install" }>, "_tag">>;
   /** `null` after deselection: a CustomEvent can't carry an undefined detail. */
   selectionchange: CustomEvent<Selection | null>;
   panel: CustomEvent<PanelUpdate>;
@@ -70,6 +73,12 @@ export interface IbusWeb extends PanelHost {
   debugRestart(module: string): Promise<void>;
   /** Reads and validates the module's manifest without starting its Worker. */
   engines(module: string): Promise<EngineDescriptor[]>;
+  /**
+   * Installs the engine's own data ahead of selection, starting the module's Worker if it hasn't, so that selecting
+   * the engine later waits for nothing; `install` events report its progress. An engine with no data of its own needs
+   * nothing. Rejects with a PrepareEngineError carrying the Worker's reason.
+   */
+  prepare(module: string, engine: string): Promise<void>;
   readonly selection: Selection | undefined;
   readonly settings: Omit<SettingsApiService, "changes">;
   dispose(): Promise<void>;
@@ -178,7 +187,10 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         Stream.runForEach((event) =>
           Effect.sync(() => {
             if (event._tag === "state") emit("modulestate", { module: event.module, state: event.state });
-            else emit("storage", { module: event.module, state: event.state, message: event.message });
+            else if (event._tag === "storage")
+              emit("storage", { module: event.module, state: event.state, message: event.message });
+            else
+              emit("install", { module: event.module, engine: event.engine, bytes: event.bytes, total: event.total });
           }),
         ),
         Effect.forkScoped,
@@ -280,6 +292,12 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       if (!Object.hasOwn(options.modules, module)) throw new Error(`Unknown module: ${module}`);
       const current = await initialize();
       return [...(await runtime.runPromise(current.registry.engines(module)))];
+    },
+    prepare: async (module: string, engine: string) => {
+      alive();
+      if (!Object.hasOwn(options.modules, module)) throw new Error(`Unknown module: ${module}`);
+      const current = await initialize();
+      await runtime.runPromise(current.registry.prepare(module, engine));
     },
     selection: undefined as Selection | undefined,
     settings: {
