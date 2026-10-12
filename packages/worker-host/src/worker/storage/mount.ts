@@ -54,9 +54,11 @@ export const mount = async (handle: RuntimeHandle, plan: StoragePlan, dir: strin
     case "node": {
       const user = nodeUserDir(plan.hostPath);
       // Fails outside the runtime, which stays fit to call.
-      await (await nodeFs()).mkdir(user, { recursive: true }).catch((error: unknown) => {
-        throw new RuntimeRefused(`mkdir ${user}: ${String(error)}`);
-      });
+      await nodeFs()
+        .then((fs) => fs.mkdir(user, { recursive: true }))
+        .catch((error: unknown) => {
+          throw new RuntimeRefused(`mkdir ${user}: ${String(error)}`);
+        });
       backend = withString(handle, user, (ptr) => rt._wasmfs_create_node_backend(ptr));
       break;
     }

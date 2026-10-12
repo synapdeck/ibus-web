@@ -263,7 +263,6 @@ decided.
   by its text.
 - **`pnpmDeps`' hash is verified on x86_64-linux only**; rolldown's native binding is a per-platform optional
   dependency.
-- **A failed `node:fs` import is classed as trapped**: safe, but wrong.
 
 ## Testing
 
