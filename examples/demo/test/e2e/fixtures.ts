@@ -18,8 +18,8 @@ export const test = base.extend<{ healthyDemo: void }>({
     { auto: true },
   ],
 });
-export async function openDemo(page: Page) {
-  await page.goto("/");
+export async function openDemo(page: Page, path = "/") {
+  await page.goto(path);
   await expect(page.locator("#engine")).toHaveText("ready");
   await expect(page.locator("#settings-state")).toHaveText("Settings ready; changes save automatically.");
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);

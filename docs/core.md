@@ -291,10 +291,12 @@ module whose engines span several, and opens on the first module's default engin
 itself, toggles between `deselect()` and the last selection. For Hangul, press Shift+Space to switch to Hangul input,
 type gks for 한 and press F9 for Hanja candidates. Preedit appears over the field until committed. The page uses the
 facade, candidate/property panel and a metadata-driven persistent settings form for the selected module. Of the settings
-paths that hold an engine's name, as m17n's per-engine paths do, the form shows only the selected engine's. Its
-attachment control leaves native input usable while disabled or starting. Restart starts a fresh Worker with default EN
-mode, then a trusted toggle resumes Hangul. IBusEngineSimple has no compose implementation, so Latin mode delegates
-ordinary typing to the browser.
+paths that hold an engine's name, as m17n's and Rime's per-engine paths do, the form shows only the selected engine's. A
+Data field shows the facade's `install` events while an engine's own data downloads. Opened as `/?properties=page`, the
+page places none of the panel's properties and draws the focused engine's toggle properties as its own switches, which
+send `PropertyActivate` through `sendPanelAction`, taking no focus. Its attachment control leaves native input usable
+while disabled or starting. Restart starts a fresh Worker with default EN mode, then a trusted toggle resumes Hangul.
+IBusEngineSimple has no compose implementation, so Latin mode delegates ordinary typing to the browser.
 
 Core Node and Chromium/Firefox browser gates cover router policy and synthetic DOM integration. The separate production
 Playwright suite uses trusted input in Chromium, Firefox and pinned Linux WebKit 26.6, including focused native undo and

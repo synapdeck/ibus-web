@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, type Page } from "playwright/test";
 
-export async function hangul(page: Page) {
+// Hangul selected and the field focused, in its English mode.
+export async function hangulEngine(page: Page) {
   await page.locator("#engine-picker").selectOption({ label: "Hangul" });
   await expect(page.locator("#engine")).toHaveText("ready");
   await expect(page.locator("#settings-state")).toHaveText("Settings ready; changes save automatically.");
   await page.locator("#input").click();
   await expect(page.locator("#mode")).toHaveText("EN");
+}
+
+export async function hangul(page: Page) {
+  await hangulEngine(page);
   await page.keyboard.press("Shift+Space");
   await expect(page.locator("#mode")).toHaveText("한");
 }

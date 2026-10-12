@@ -76,6 +76,14 @@ button {
 button {
   cursor: pointer;
 }
+.switches:not([hidden]) {
+  display: flex;
+  gap: 0.5rem;
+}
+.switches [aria-checked="true"] {
+  background: #125ed0;
+  color: white;
+}
 button:disabled {
   cursor: wait;
 }

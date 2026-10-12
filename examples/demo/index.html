@@ -22,10 +22,11 @@
         </select>
         <label><input id="enabled" type="checkbox" checked disabled /> Enable ibus-web</label>
         <button id="restart" type="button" disabled>Restart module</button>
+        <div id="switches" class="switches" role="group" aria-label="Input method switches" hidden></div>
       </div>
       <p role="status">
         Module: <output id="engine">starting</output> · Storage: <output id="storage">starting</output> · Input mode:
-        <output id="mode">—</output>
+        <output id="mode">—</output> · Data: <output id="install">—</output>
       </p>
       <p id="error" role="alert"></p>
       <section aria-label="Typing surfaces">

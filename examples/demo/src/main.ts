@@ -7,6 +7,7 @@ import {
   stringVariant,
   type IbusWeb,
   type LogEntry,
+  type PanelUpdate,
   type Selection,
 } from "ibus-web";
 import { createPanel } from "ibus-web/panel";
@@ -15,6 +16,7 @@ import "./style.css";
 
 type SettingsKey = Awaited<ReturnType<IbusWeb["settings"]["schemas"]>>[number]["keys"][number];
 type SettingValue = Awaited<ReturnType<IbusWeb["settings"]["get"]>>;
+type Property = Extract<Extract<PanelUpdate, { _tag: "record" }>["record"], { _tag: "UpdateProperty" }>["property"];
 
 const query = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const fields = [query<HTMLTextAreaElement>("#input"), query<HTMLInputElement>("#single-line")];
@@ -28,6 +30,8 @@ const logs = query<HTMLUListElement>("#log");
 const restart = query<HTMLButtonElement>("#restart");
 const form = query<HTMLFieldSetElement>("#settings");
 const settingsState = query<HTMLOutputElement>("#settings-state");
+const switches = query<HTMLDivElement>("#switches");
+const install = query<HTMLOutputElement>("#install");
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 const logger = (entry: LogEntry) => {
@@ -59,8 +63,10 @@ const app = createIbusWeb({
   logger,
 });
 const panel = createPanel(app);
-// The focused engine's properties, Mozc's input modes among them, sit beside the picker.
-picker.after(panel.properties);
+// The focused engine's properties, Mozc's input modes among them, sit beside the picker. Opened with ?properties=page,
+// the page draws the engine's switches with controls of its own instead, as a page that styles its own would.
+const ownSwitches = new URLSearchParams(location.search).get("properties") === "page";
+if (!ownSwitches) picker.after(panel.properties);
 let detaches = fields.map((field) => app.attach(field));
 
 // Every engine of every module, in manifest order; the picker's option values index it.
@@ -117,6 +123,15 @@ app.addEventListener("storage", ({ detail }) => {
   storages.set(detail.module, { text: `${detail.state}: ${detail.message}`, reported: true });
   render();
 });
+const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
+// An engine's own data downloads the first time it is made; a later selection, here or after a reload, finds it
+// installed and reports nothing.
+app.addEventListener("install", ({ detail }) => {
+  install.textContent =
+    detail.bytes < detail.total
+      ? `Installing ${detail.engine}: ${megabytes(detail.bytes)} of ${megabytes(detail.total)}`
+      : `Installed ${detail.engine}: ${megabytes(detail.total)}`;
+});
 const syncPicker = (selection: Selection | null | undefined) => {
   const index = selection
     ? choices.findIndex((choice) => choice.module === selection.module && choice.engine === selection.engine)
@@ -141,6 +156,66 @@ app.addEventListener("panel", ({ detail }) => {
         ? record.property
         : undefined;
   if (property) mode.textContent = property.symbol.text;
+});
+
+// The focused context's toggle properties, wherever they sit in its property tree, and the context they belong to.
+let switchContext: { readonly module: string; readonly ic: number } | undefined,
+  toggles: Property[] = [];
+const togglesIn = (properties: readonly Property[]): Property[] =>
+  properties.flatMap((property) => [
+    ...(property.type === 1 && property.visible ? [property] : []),
+    ...togglesIn(property.subProps.properties),
+  ]);
+const renderSwitches = () => {
+  switches.replaceChildren(
+    ...toggles.map((property) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.switch = property.key;
+      button.setAttribute("role", "switch");
+      button.setAttribute("aria-checked", String(property.state === 1));
+      button.textContent = property.label.text;
+      button.title = property.tooltip.text;
+      button.disabled = !property.sensitive;
+      // The engine answers with UpdateProperty, which redraws the switch.
+      button.addEventListener("click", () => {
+        if (switchContext === undefined) return;
+        app.sendPanelAction(switchContext.module, switchContext.ic, {
+          _tag: "PropertyActivate",
+          name: property.key,
+          state: property.state === 1 ? 0 : 1,
+        });
+      });
+      return button;
+    }),
+  );
+  switches.hidden = toggles.length === 0;
+};
+// The field keeps the focus, so the action reaches the context whose switches these are.
+for (const type of ["pointerdown", "mousedown"]) switches.addEventListener(type, (event) => event.preventDefault());
+app.addEventListener("panel", ({ detail }) => {
+  if (!ownSwitches) return;
+  if (detail._tag === "hide") {
+    switchContext = undefined;
+    toggles = [];
+    renderSwitches();
+    return;
+  }
+  if (detail._tag !== "record") return;
+  const record = detail.record;
+  if (record._tag === "RegisterProperties") {
+    switchContext = { module: detail.module, ic: detail.ic };
+    toggles = togglesIn(record.properties.properties);
+    renderSwitches();
+  } else if (
+    record._tag === "UpdateProperty" &&
+    detail.module === switchContext?.module &&
+    detail.ic === switchContext.ic &&
+    toggles.some((property) => property.key === record.property.key)
+  ) {
+    toggles = toggles.map((property) => (property.key === record.property.key ? record.property : property));
+    renderSwitches();
+  }
 });
 
 const toggle = () => {
@@ -366,7 +441,9 @@ const start = async () => {
         groups.set(language, group);
         picker.append(group);
       }
-      group.append(new Option(engine.displayName, String(choices.length)));
+      const option = new Option(engine.displayName, String(choices.length));
+      option.dataset.engine = engine.name;
+      group.append(option);
       choices.push({ module, engine: engine.name });
     }
   }

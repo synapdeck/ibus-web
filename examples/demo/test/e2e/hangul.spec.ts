@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { test, expect, openDemo } from "./fixtures.ts";
-import { hangul, keyboardSetting } from "./hangul.ts";
+import { hangul, hangulEngine, keyboardSetting } from "./hangul.ts";
 
 test.beforeEach(async ({ page }) => {
   await expect(page.locator("#setting-hangul-keyboard")).toHaveValue("2");
@@ -197,4 +197,22 @@ test("the picker lists Hangul, and Ctrl+Space turns input methods off and back o
   await page.keyboard.press("Control+Space");
   await expect(page.locator("#engine-picker option:checked")).toHaveText("Hangul");
   await expect(page.locator("#engine")).toHaveText("ready");
+});
+
+// A page with its own controls reads the engine's toggles from the panel's
+// records and activates them through the panel action, with none of the
+// panel's properties placed.
+test("the page's own switch turns on Hangul input with the panel's properties not placed", async ({ page }) => {
+  await openDemo(page, "/?properties=page");
+  await expect(page.locator(".ibus-panel-properties")).toHaveCount(0);
+  await expect(page.locator("#engine-picker option:checked")).toHaveAttribute("data-engine", "hangul");
+  await hangulEngine(page);
+  const mode = page.locator("#switches [data-switch='InputMode']");
+  await expect(mode).toHaveAttribute("aria-checked", "false");
+  await mode.click();
+  await expect(mode).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("#mode")).toHaveText("한");
+  await page.keyboard.type("gks");
+  await page.locator("h1").click();
+  await expect(page.locator("#input")).toHaveValue("한");
 });
