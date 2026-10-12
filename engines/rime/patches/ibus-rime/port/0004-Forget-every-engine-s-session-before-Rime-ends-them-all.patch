@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 12:51:00 -0700
+Subject: [PATCH] Forget every engine's session before Rime ends them all
+
+Rime makes a session's id from its address, so a session made after it
+has ended them all can take the id of one that has ended. An engine
+still holding that id would find the new session, another engine's,
+and type in it, or end it. Each engine forgets its session before
+ibus_rime_stop() finalizes Rime, and a front end that ends all sessions
+itself calls ibus_rime_engine_forget_sessions() first.
+---
+ rime_engine.c | 18 ++++++++++++++++++
+ rime_engine.h |  6 ++++++
+ rime_main.c   |  1 +
+ 3 files changed, 25 insertions(+)
+
+diff --git a/rime_engine.c b/rime_engine.c
+index e19aef8..6eb6db9 100644
+--- a/rime_engine.c
++++ b/rime_engine.c
+@@ -120,6 +120,24 @@ ibus_rime_forget_session (IBusRimeEngine *rime_engine)
+   }
+ }
+ 
++static gboolean
++ibus_rime_engine_drop_session (gpointer session_id,
++                               gpointer rime_engine,
++                               gpointer user_data)
++{
++  ((IBusRimeEngine *)rime_engine)->session_id = 0;
++  return TRUE;
++}
++
++void
++ibus_rime_engine_forget_sessions (void)
++{
++  if (engines_by_session) {
++    g_hash_table_foreach_remove(engines_by_session,
++                                ibus_rime_engine_drop_session, NULL);
++  }
++}
++
+ static void ibus_rime_engine_load_switches (IBusRimeEngine *rime_engine);
+ 
+ static void
+diff --git a/rime_engine.h b/rime_engine.h
+index c73a68d..99453b0 100644
+--- a/rime_engine.h
++++ b/rime_engine.h
+@@ -14,4 +14,10 @@ GType ibus_rime_engine_get_type();
+ void ibus_rime_engine_option_changed(RimeSessionId session_id,
+                                      const char* option);
+ 
++// Forgets every engine's session, so that each makes a new one when it next
++// needs it. Call it before Rime ends all its sessions: Rime may give a new
++// session the id of one it has ended, which an engine still holding that id
++// would take for its own.
++void ibus_rime_engine_forget_sessions(void);
++
+ #endif
+diff --git a/rime_main.c b/rime_main.c
+index 4b4cd41..57bb079 100644
+--- a/rime_main.c
++++ b/rime_main.c
+@@ -92,6 +92,7 @@ void ibus_rime_start(gboolean full_check) {
+ 
+ void ibus_rime_stop() {
+   if (rime_api) {
++    ibus_rime_engine_forget_sessions();
+     rime_api->finalize();
+   }
+ }

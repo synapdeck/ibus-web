@@ -387,6 +387,42 @@ static void fuzzy_pinyin(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
                    g_variant_new_strv(NULL, 0));
 }
 
+/* A deployment ends every session, and each engine then makes its own
+ * again, though Rime may give a new session the id of one that ended. Each
+ * engine types in its own schema whichever makes its session first, and
+ * ending one leaves the other's composition. */
+static void deployed_sessions(Fixture *fixture, gconstpointer data) {
+  Fixture other = {0};
+  golden_setup(&other, data);
+  golden_create(fixture, "rime:luna_pinyin");
+  golden_create(&other, "rime:cangjie5");
+
+  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  golden_type(&other, "a");
+  candidates(&other, (const gchar *[]){"日", "曰", NULL}, 7);
+  escape(&other);
+  golden_type(fixture, "hanzi");
+  preedit(fixture, "漢字");
+  escape(fixture);
+
+  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+  golden_type(fixture, "hanzi");
+  preedit(fixture, "漢字");
+  escape(fixture);
+  golden_type(&other, "a");
+  candidates(&other, (const gchar *[]){"日", "曰", NULL}, 5);
+  escape(&other);
+
+  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  golden_type(&other, "a");
+  golden_destroy(fixture);
+  golden_type(&other, " ");
+  committed(&other, "日");
+
+  deployed_setting(&other, RIME_PATH, "page-size", g_variant_new_int32(5));
+  golden_teardown(&other, data);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   gchar *schemas_dir = NULL, *module = NULL, *instances = NULL;
@@ -446,5 +482,7 @@ int main(int argc, char **argv) {
              schema_settings, golden_teardown);
   g_test_add("/rime/fuzzy-pinyin", Fixture, NULL, golden_setup, fuzzy_pinyin,
              golden_teardown);
+  g_test_add("/rime/deployed-sessions", Fixture, NULL, golden_setup,
+             deployed_sessions, golden_teardown);
   return g_test_run();
 }

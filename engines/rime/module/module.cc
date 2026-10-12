@@ -77,6 +77,7 @@ gboolean Deployed(gpointer data) {
 
   // Sessions keep the configs they were made with. Ending them makes each
   // engine start a new one, with the deployed configs, at its next key.
+  ibus_rime_engine_forget_sessions();
   rime_api->cleanup_all_sessions();
   ibusweb_rime_settings_deployed();
   return G_SOURCE_REMOVE;
@@ -115,7 +116,10 @@ extern "C" void ibus_rime_start(gboolean full_check) {
   }
 }
 
-extern "C" void ibus_rime_stop() { rime_api->finalize(); }
+extern "C" void ibus_rime_stop() {
+  ibus_rime_engine_forget_sessions();
+  rime_api->finalize();
+}
 
 // The traits, engines and settings live as long as the module, which is the
 // Worker's lifetime, so none is freed and RimeFinalize is never reached.
