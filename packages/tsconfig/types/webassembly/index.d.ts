@@ -3,7 +3,9 @@
 
 // The part of the WebAssembly API the repository's Node code uses. Node has
 // the whole API, but TypeScript declares it only in its web libraries, which
-// would also bring in globals Node lacks.
+// would also bring in globals Node lacks. An @types/node that declares it
+// too makes tsc report these classes as duplicates, which is the cue to
+// delete this.
 declare namespace WebAssembly {
   interface MemoryDescriptor {
     initial: number;

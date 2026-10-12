@@ -296,9 +296,6 @@ decided.
 - **The workspace output copies the root `node_modules`** (disk only): it can't link to the shared install's instead,
   since pnpm's hoisted `.pnpm/node_modules` links to the workspace packages by relative paths, which would then resolve
   inside the install, where the packages hold no sources.
-- **TypeScript loose ends**: the workspace's `fileFilter` matches by extension anywhere in a package; two `pre-js.d.ts`
-  declare `ENVIRONMENT_IS_PTHREAD` (accepted, one per environment); the WebAssembly shim
-  (`packages/tsconfig/types/webassembly`) may collide with a future `@types/node`.
 
 ## Tooling
 
