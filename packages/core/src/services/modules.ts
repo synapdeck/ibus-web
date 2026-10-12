@@ -296,12 +296,14 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                 entry.router.persist(config.hangMs);
                 entry.router.disconnect();
               }
+              ended(connection);
               connection.terminate();
             }),
           { interruptible: true },
         ).pipe(Scope.provide(lifetime));
         entry.origin = Symbol();
         entry.router.connect(connection);
+        started(connection);
         const reply = yield* Effect.tryPromise({
           try: () =>
             entry.router.request(
@@ -414,19 +416,38 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       yield* Effect.addFinalizer(() => Effect.sync(() => crashes.close()));
     }
     // A page going away ends its Workers, which runs none of their engines' finalizers, and a hidden one may be
-    // discarded with no further event, so each has its Workers persist first.
-    const persist = () => {
-      for (const entry of entries.values()) entry.router.persist(config.hangMs);
+    // discarded with no further event, so each has its Workers persist first. At pagehide the page waits for the
+    // reply, as nothing it queues runs afterwards. WebKit's Workers reach IndexedDB through the page's main thread,
+    // which that wait holds, so an engine's write there finishes only once the wait gives up; the page also persists
+    // without waiting at beforeunload, before a navigation or close starts, while its main thread is still free to
+    // serve the write. A hidden page goes on running, so it doesn't wait either.
+    const page = typeof window !== "undefined" && typeof document !== "undefined";
+    const persist = (budgetMs?: number) => {
+      for (const entry of entries.values()) entry.router.persist(budgetMs);
     };
-    if (typeof window !== "undefined" && typeof document !== "undefined") {
-      const hidden = () => {
-        if (document.visibilityState === "hidden") persist();
-      };
-      window.addEventListener("pagehide", persist);
+    const leaving = () => persist(config.hangMs);
+    const unloading = () => persist();
+    const hidden = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+    // Firefox keeps no page with a beforeunload listener in its back/forward cache, so there is one only while a
+    // Worker runs.
+    const running = new Set<KeyConnection>();
+    const started = (connection: KeyConnection) => {
+      if (page && running.size === 0) window.addEventListener("beforeunload", unloading);
+      running.add(connection);
+    };
+    const ended = (connection: KeyConnection) => {
+      if (running.delete(connection) && page && running.size === 0)
+        window.removeEventListener("beforeunload", unloading);
+    };
+    if (page) {
+      window.addEventListener("pagehide", leaving);
       document.addEventListener("visibilitychange", hidden);
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          window.removeEventListener("pagehide", persist);
+          window.removeEventListener("pagehide", leaving);
+          window.removeEventListener("beforeunload", unloading);
           document.removeEventListener("visibilitychange", hidden);
         }),
       );
@@ -610,7 +631,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           yield* whenReady(name);
         }),
       ensure,
-      persist,
+      persist: leaving,
       prepare,
       isPrepared: (name, engine) => {
         const snapshot = entries.get(name)?.snapshot;

@@ -723,7 +723,10 @@ const persistRegistry = (started: FakeConnection[]) =>
     waitForWriter: () => Effect.void,
     start: async () => {
       const connection = new FakeConnection();
-      connection.requestAsync = async () => emptyReply;
+      connection.requestAsync = async (request, ic) => {
+        connection.sent.push({ mode: "async", request, ic });
+        return emptyReply;
+      };
       started.push(connection);
       return connection;
     },
@@ -764,14 +767,16 @@ it.effect("a Worker busy with a request persists after it", () =>
     const event = Object.assign(key("a"), { preventDefault() {}, stopPropagation() {} });
     void registry.keyAsync("test", f.context, event);
     registry.persist();
-    expect(connection.sent.map(({ mode, request }) => [mode, request._tag])).toEqual([
+    expect(
+      connection.sent.filter(({ request }) => request._tag !== "Init").map(({ mode, request }) => [mode, request._tag]),
+    ).toEqual([
       ["async", "ProcessKeyEvent"],
       ["async", "Persist"],
     ]);
   }).pipe(Effect.provide(services)),
 );
 
-it.effect("the page hiding or going away has every ready Worker persist, until the registry ends", () =>
+it.effect("the page going away has every ready Worker persist, waiting at pagehide, until the registry ends", () =>
   Effect.gen(function* () {
     const page = new EventTarget();
     const document = Object.assign(new EventTarget(), { visibilityState: "visible" });
@@ -783,6 +788,7 @@ it.effect("the page hiding or going away has every ready Worker persist, until t
     const scope = yield* Scope.make();
     const registry = yield* persistRegistry(started).pipe(Scope.provide(scope));
     page.dispatchEvent(new Event("pagehide"));
+    page.dispatchEvent(new Event("beforeunload"));
     yield* registry.select("test");
     const connection = started[0]!;
     expect(persists(connection), "before the Worker was ready").toEqual([]);
@@ -791,16 +797,28 @@ it.effect("the page hiding or going away has every ready Worker persist, until t
     expect(persists(connection), "while visible").toEqual([]);
     document.visibilityState = "hidden";
     document.dispatchEvent(new Event("visibilitychange"));
+    page.dispatchEvent(new Event("beforeunload"));
+    // The navigation the page is leaving for takes long enough for the requests sent so far to be answered.
+    yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
     page.dispatchEvent(new Event("pagehide"));
     expect(persists(connection)).toEqual([
-      { mode: "sync", ic: 0 },
+      { mode: "async", ic: 0 },
+      { mode: "async", ic: 0 },
       { mode: "sync", ic: 0 },
     ]);
+    expect(connection.budgets).toEqual([CoreConfig.defaults.hangMs]);
 
-    yield* Scope.close(scope, Exit.void);
+    yield* registry.unload("test");
     const sent = persists(connection).length;
+    page.dispatchEvent(new Event("beforeunload"));
+    expect(persists(connection), "with no Worker running").toHaveLength(sent);
+
+    yield* registry.select("test");
+    yield* Scope.close(scope, Exit.void);
+    const after = persists(started[1]!).length;
     page.dispatchEvent(new Event("pagehide"));
+    page.dispatchEvent(new Event("beforeunload"));
     document.dispatchEvent(new Event("visibilitychange"));
-    expect(persists(connection)).toHaveLength(sent);
+    expect(persists(started[1]!)).toHaveLength(after);
   }).pipe(Effect.scoped, Effect.provide(services)),
 );

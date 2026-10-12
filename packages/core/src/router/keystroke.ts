@@ -351,17 +351,18 @@ export class KeyRouter {
     }
   }
   /**
-   * Has the host persist what its engines keep in memory. With nothing else on the wire, the request goes out at
-   * once and this waits up to `budgetMs` for its reply, so that the work is done before a page that is going away
-   * returns to the browser; otherwise it queues behind the work ahead of it.
+   * Has the host persist what its engines keep in memory. Given a budget and nothing else on the wire, the request
+   * goes out at once and this waits up to `budgetMs` for its reply, so that the work is done before a page that is
+   * going away returns to the browser. Otherwise it queues behind the work ahead of it, and the page's event loop
+   * must go on for it to be sent and answered.
    */
-  persist(budgetMs: number): void {
+  persist(budgetMs?: number): void {
     const connection = this.snapshot.connection;
     if (!connection || (this.snapshot.status !== "ready" && this.snapshot.status !== "busy")) return;
 
     if (this.busy && !this.active && this.replay.size === 0 && this.holds === 0) connection.poll?.();
     if (this.snapshot.connection !== connection) return;
-    if (this.busy) {
+    if (budgetMs === undefined || this.busy) {
       void this.request(new Persist({}), 0).catch((cause: unknown) => this.reportError(cause, 0));
       return;
     }

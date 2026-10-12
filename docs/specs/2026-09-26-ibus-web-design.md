@@ -1151,9 +1151,11 @@ in `docs/protocol.md`.
 - A hotkey registry exists with no default bindings.
 - A Worker starts when its module is first selected and stays loaded until the host calls `unload(module)` or disposes
   the library.
-- Ending a Worker runs none of its engines' finalizers, so before the page ends one, and whenever it goes away
-  (`pagehide`) or is hidden (`visibilitychange`), it sends each ready Worker `Persist` and, with the wire free, waits up
-  to the hang timeout for the reply, so that the engines have written their state before the browser ends the Workers.
+- Ending a Worker runs none of its engines' finalizers, so before the page ends one, and when it goes away (`pagehide`),
+  it sends each ready Worker `Persist` and, with the wire free, waits up to the hang timeout for the reply, so that the
+  engines have written their state before the browser ends the Workers. It also sends `Persist` without waiting at
+  `beforeunload` and when it is hidden: WebKit's Workers reach IndexedDB through the page's main thread, which the wait
+  would hold.
 
 #### 7.1.4 Settings API
 

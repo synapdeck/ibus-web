@@ -24,11 +24,19 @@ the complete layer wiring and aborts its long-lived program on pagehide or HMR d
 
 An engine can hold state only in memory, such as the learning from a Rime commit, and a Worker that ends runs none of
 its finalizers. So the registry has each ready Worker persist it (`Persist`) before ending the Worker, at `unload` and
-when its scope closes, and whenever the page goes away (`pagehide`) or is hidden (`visibilitychange` to `hidden`), since
-a hidden page can be discarded with no further event; `registry.persist()` does the same on demand. When nothing else is
-on the module's wire, the request goes out at once and the page waits for its reply, up to `hangMs`, so the engines have
-written their state before the event handler returns and the browser goes on to end the Workers. A Worker busy with a
-request gets it queued behind that one, which a page going away may not live to send.
+when its scope closes, and when the page goes away (`pagehide`); `registry.persist()` does the same on demand. When
+nothing else is on the module's wire, the request goes out at once and the page waits for its reply, up to `hangMs`, so
+the engines have written their state before the handler returns and the browser goes on to end the Workers; a Worker
+busy with a request gets it queued behind that one, which a page going away may not live to send. The registry also
+sends it without waiting when a navigation or close is about to start (`beforeunload`), and when the page is hidden
+(`visibilitychange` to `hidden`), since a hidden page can be discarded with no further event but runs until then.
+
+The wait at `pagehide` doesn't serve WebKit, whose Workers reach IndexedDB through the page's main thread: the wait
+holds that thread, so an engine's write finishes only once the wait has given up, and the Workers end with it. There the
+request sent at `beforeunload` is what persists, while the page still runs; by `pagehide` nothing is left to write, and
+the wait returns at once. A page's own `unload` or `dispose()` in WebKit, with something left to write, waits `hangMs`
+and loses it. The `beforeunload` listener is there only while a Worker runs, since Firefox keeps no page that has one in
+its back/forward cache.
 
 A module is one distribution: one manifest, one Worker. Its engines are the input methods inside it.
 `router.select(module, engine?)` selects an engine, the module's first when `engine` is left out, and
