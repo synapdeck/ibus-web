@@ -7,6 +7,13 @@ engine of its own, `rime:<schema_id>`. This page describes how the libraries and
 that compiles the data at build time, how the module starts without a bus, its engines and their descriptors, its
 settings, the switches it registers as properties, and its checks.
 
+Rime is the project's only Chinese engine. Its schemas cover the input schemes ibus-libpinyin offers, and it converts
+long sentences at least as well: over 1,000 Tatoeba sentences typed as toneless pinyin, native librime with `rime_ice`
+and no grammar model converts 51.5 % exactly to libpinyin's 40.6 %, and 90.8 % of their characters to 89.0 %
+([`tools/pinyin-compare`](../tools/pinyin-compare/README.md); the design spec's R19 gives the intervals). Each schema is
+an engine of its own because the page's picker is the schema switcher: a page downloads only the dictionaries of the
+schemas its users pick, and no session moves to a schema whose data its Worker hasn't installed ([Engines](#engines)).
+
 ```sh
 nix build .#ibus-web-rime
 nix build .#checks.x86_64-linux.rime-golden
@@ -29,7 +36,10 @@ links its own copy.
   `crc32c`, LevelDB checksums every block and log record with its own table-driven CRC32C, which is what the library's
   portable code would do on WebAssembly, which has no CRC instruction. Snappy doesn't build for WebAssembly, and Rime's
   user dictionaries are too small to miss compression. On a 32-bit target LevelDB reads its tables with `pread` rather
-  than mapping them. Its background compaction thread stays: the runtime has threads.
+  than mapping them. Its background compaction thread stays, since the runtime has threads; WebAssembly ports of Rime
+  without them ([my_rime](https://github.com/LibreService/my_rime),
+  [fcitx5-prebuilder](https://github.com/fcitx-contrib/fcitx5-prebuilder)) run `PosixEnv::Schedule`'s work inline, which
+  compacts during a keystroke.
 - **OpenCC** 1.4.1 builds against `pkgsWasm.marisa` (`USE_SYSTEM_MARISA`) rather than its bundled copy, which would
   collide with librime's. Its `data/` and `src/tools/` aren't built: generating the data runs the freshly built `opencc`
   program, which a cross build can't. The conversion data is the build machine's OpenCC's `share/opencc`, in Rime's
@@ -49,18 +59,22 @@ links its own copy.
 ### librime
 
 `librime` is built static, with its plugins merged in (`BUILD_MERGED_PLUGINS`), threading (`ENABLE_THREADING`: the
-deployer runs on a `std::async` thread), logging, and its private headers installed, which the tools and the descriptor
-program include. It is built without `ENABLE_TIMESTAMP`. With it, a deployment records each source file's modification
-time in the compiled config and rebuilds a config whose recorded times differ from the files'. WasmFS gives a file the
-time at which it first sees it, not the store's, so the times never match: every deployment would recompile every config
-with new bytes and rebuild every prism, whose checksum covers the config. Without them, a deployment recompiles the
-configs to the same bytes and the prebuilt prisms stay current.
+deployer runs on a `std::async` thread, so a deployment doesn't block the pumping thread and keys still get replies
+while it runs), logging, and its private headers installed, which the tools and the descriptor program include. It is
+built without `ENABLE_TIMESTAMP`. With it, a deployment records each source file's modification time in the compiled
+config and rebuilds a config whose recorded times differ from the files'. WasmFS gives a file the time at which it first
+sees it, not the store's, so the times never match: every deployment would recompile every config with new bytes and
+rebuild every prism, whose checksum covers the config. Without them, a deployment recompiles the configs to the same
+bytes and the prebuilt prisms stay current.
 
 librime installs no `rime.pc` outside Linux and the BSDs, so the overlay writes one, with the libraries as
 `Requires.private`. A static librime registers a plugin's modules only if something refers to the plugin, so the module
-calls the `rime_require_module_*` functions each defines for that. librime builds its tools only with a shared library;
-`ibus-web-rime-tools` compiles `rime_deployer` and `rime_dict_manager` against the static one and links them as Node
-programs on WasmFS with the host's files, with a fixed 2 GB memory, since deploying `rime_ice` peaks near 900 MB.
+calls the `rime_require_module_*` functions each defines for that. `librime-octagram` is built, as nixpkgs builds it,
+but no shipped schema configures a grammar: RIME-LMDG's model is 398 MB and its release is replaced in place, so it
+can't be pinned, and `rime_ice` without it already converts better than libpinyin. librime builds its tools only with a
+shared library; `ibus-web-rime-tools` compiles `rime_deployer` and `rime_dict_manager` against the static one and links
+them as Node programs on WasmFS with the host's files, with a fixed 2 GB memory, since deploying `rime_ice` peaks near
+900 MB.
 
 librime's port patches: 0001 logs a missing dictionary source at INFO, since deploying over prebuilt tables without
 their sources logged an error per dictionary; 0002 lets a front end filter the schema list the switcher offers and new
@@ -244,8 +258,9 @@ Ctrl+`) keeps its option items but lists only the engine's own schema.
 ## Settings
 
 Rime is configured by YAML patches in its user directory. The module takes its settings from GSettings and writes the
-patches itself, at startup and on every `changed` signal. A key the page hasn't stored writes nothing, so its default is
-Rime's own configuration; a file is written only when its content differs and removed when it would be empty.
+patches itself, at startup and on every `changed` signal, so a page stores Rime's settings as it stores any engine's and
+never handles YAML. A key the page hasn't stored writes nothing, so its default is Rime's own configuration; a file is
+written only when its content differs and removed when it would be empty.
 
 | Key (`org.freedesktop.ibus.engine.rime`)         | Writes                                                                                                           |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |

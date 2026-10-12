@@ -179,12 +179,17 @@ decided.
   per-engine instances could push `Init` past the slot, which `Connection.requestAsync` rejects with a `RangeError`, and
   the module would fail to start.
 - **Rime's prisms for dictionaries not yet installed.** A settings change deployed while some dictionaries aren't
-  installed (5c's lazy data) leaves their prisms as prebuilt, so a `fuzzy-pinyin` change reaches an engine installed
-  later only at the next deployment ([rime.md](rime.md#deployment)).
+  installed leaves their prisms as prebuilt, so a `fuzzy-pinyin` change reaches an engine installed later only at the
+  next deployment ([rime.md](rime.md#deployment)).
 - **A change to Rime's page size or keys recompiles every schema.** `default.custom.yaml` reaches every compiled schema,
   so changing `page-size`, `switcher-hotkeys` or `ascii-toggle-key` recompiles them all and rebuilds every installed
   dictionary's prisms in the user's directory, about 3 s on Rime's deployer thread under Node, during which keys pass
   through ([rime.md](rime.md#settings)).
+- **Rime takes no files of the user's own.** Its configuration comes only from the settings the module writes as
+  `*.custom.yaml`: a page can't add a YAML patch beyond what the settings schema offers, or a custom phrase file, and
+  nothing moves Rime's user directory in or out of the module's storage ([rime.md](rime.md#settings)).
+- **Rime has no grammar model.** `librime-octagram` is built but no shipped schema configures a grammar: upstream
+  replaces RIME-LMDG's model, 398 MB, in place, so it can't be pinned ([rime.md](rime.md#librime)).
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
