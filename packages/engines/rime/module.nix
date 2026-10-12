@@ -27,7 +27,9 @@
 
       # The module's distribution as dist/, with every licence text and the
       # upstream copyright notices. A distribution built with fewer schemas
-      # packs the same way.
+      # packs the same way, for the check that packing follows the schema
+      # list: the README, description, licence and notices stay the full
+      # module's, so that tarball is not one to publish.
       tarball = lib.makeOverridable (
         {
           schemas ? null,

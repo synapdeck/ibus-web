@@ -35,7 +35,7 @@ Brotli-compressed, so they must be served without `Content-Encoding: br`. The mo
 Details are in [docs/rime.md](https://github.com/synapdeck/ibus-web/blob/master/docs/rime.md).
 
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-rime` packs the
-tarball, and `npm.engine-rime.override { schemas = [ … ]; }` one with fewer schemas.
+tarball.
 
 Licensed under
 `GPL-3.0-or-later AND BSD-3-Clause AND GPL-3.0-only AND MIT AND Apache-2.0 AND BSD-2-Clause AND BSL-1.0 AND LGPL-3.0-only AND CC-BY-4.0`:

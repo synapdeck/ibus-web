@@ -1,7 +1,7 @@
 {
   "name": "@ibus-web/engine-rime",
   "version": "0.0.0",
-  "description": "Rime with every schema of rime-data and rime-ice, for ibus-web: its WebAssembly module, data and manifest.",
+  "description": "Rime with every schema of rime-data, rime-loengfan and rime-ice, for ibus-web: its WebAssembly module, data and manifest.",
   "keywords": [
     "cangjie",
     "cantonese",

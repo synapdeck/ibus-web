@@ -285,7 +285,8 @@ repository can't hold texts nothing in it uses; adds the copyright notices the p
 `jyut6ping3` and `loengfan` in `LICENSES/ATTRIBUTION.md`, as CC-BY-4.0 asks. `npmTarball` fails unless `package.json`'s
 `license` is the module's. It exports `manifest.json`, `rime.wasm`, `settings.json` and `data/*`; the tarball is 83.3
 MB, the dictionaries of every schema most of it. `npm.engine-rime.override { schemas = [ … ]; }` packs a distribution
-built with the same override.
+built with the same override, which `rime-dist-schemas` checks; its README, description, licence and notices stay the
+full module's, so it is a check's build, not a package to publish.
 
 It declares 2 engine threads and a 123 MiB program break: `rime-host` peaked at 124,395,520 bytes asserting and
 124,329,984 released with `rime:rime_ice` and `rime:luna_pinyin` open in one Worker, since Rime maps its tables, which
