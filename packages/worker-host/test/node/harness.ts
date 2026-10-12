@@ -94,11 +94,11 @@ export const nodeHarness = async (): Promise<Harness> => {
       mkdirSync(hostPath, { recursive: true });
       return { kind: "node", hostPath };
     },
-    // A version's directory, its marker, or both.
+    // A version's directory, its markers, or any of them.
     versions: async (engine) => [
       ...new Set(
         (await readdir(dataPath(engine)).catch(() => [] as string[])).map((name) =>
-          name.replace(/\.(installed|marking)$/, ""),
+          name.replace(/\.(installed|marking|paths)$/, ""),
         ),
       ),
     ],

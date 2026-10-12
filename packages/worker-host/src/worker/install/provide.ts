@@ -1,22 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Mounts this version's data at /nix/store, installing it
-// first unless its marker says it is there, then lets other versions' data
-// go. A mount in memory is this host's alone and starts empty, so it
-// installs with no lock. Otherwise the host holds the version's data lock,
-// shared, for as long as it runs, and decides and installs under its
-// install lock, so that of hosts starting together one installs and the
-// others then find the marker. An install cut short leaves no marker, and
-// the next host empties the version's storage and installs again, so no
-// partial tree and no other version's file survives it, and a host using
-// another version never sees its own data change.
+// Mounts this version's data at /nix/store, installing its base data first
+// unless its marker says it is there, then lets other versions' data go.
+// The base data is every store path no engine names as its own; those an
+// engine names are installed when a page prepares that engine. A mount in
+// memory is this host's alone, starts empty and can't grow, so it installs
+// every store path at start with no lock. Otherwise the host holds the
+// version's data lock, shared, for as long as it runs, and decides and
+// installs under its install lock, so that of hosts starting together one
+// installs and the others then find the marker. An install cut short leaves
+// no marker, and the next host empties the version's storage and installs
+// again, so no partial tree and no other version's file survives it, and a
+// host using another version never sees its own data change.
 //
-// The host that installs keeps its read-write backend mounted and seals it
-// once the marker is durable, rather than mount a read-only one as well,
-// since a backend's thread lasts as long as the runtime.
+// Any host may later install a store path of an engine's own into the
+// version's storage, so its backend is created with its window for changes
+// shut, opened only while the host holds an install lock and runs the
+// installer, and sealed for good as the host closes.
 
-import { errorSummary, type ModuleManifest } from "@ibus-web/protocol";
+import { errorSummary, lazyStorePaths, type ModuleManifest } from "@ibus-web/protocol";
 import { Effect, type Scope } from "effect";
 import type { HostConfigValues } from "../../shared/config.ts";
 import type { CollectReport, HostMessage, InstallReport } from "../../shared/messages.ts";
@@ -29,7 +32,7 @@ import { makeDirs, mountAt } from "../storage/mount.ts";
 import type { StoragePlan } from "../storage/plan.ts";
 import { requestLock } from "../storage/locks.ts";
 import { installArchives, type ArchiveHooks, type Tally } from "./archive.ts";
-import { idbStore, nodeStore, type DataStore } from "./store.ts";
+import { idbStore, nodeStore, sharedWindow, type DataStore } from "./store.ts";
 import { holdLock, progressOn } from "./wait.ts";
 
 interface ProvideData {
@@ -44,7 +47,7 @@ interface ProvideData {
 }
 
 // What the engine's data is mounted on.
-interface DataMount {
+export interface DataMount {
   // Whether its IndexedDB backend's connection has closed under it.
   readonly closed: () => boolean;
 }
@@ -79,6 +82,7 @@ const archiveHooks = (config: HostConfigValues, instruments: Instruments): Archi
   idleMs: config.archiveIdleMs,
   forceBrotliFallback: instruments.forceBrotliFallback,
   brotliDecoder: instruments.brotliDecoder,
+  fetching: instruments.fetching,
   beforePiece: ({ fed }: Tally) => instruments.beforePiece(fed),
 });
 
@@ -93,7 +97,6 @@ export const provideData = ({
   post,
 }: ProvideData): Effect.Effect<DataMount, StartupFailed, Scope.Scope> =>
   Effect.gen(function* () {
-    const none: DataMount = { closed: () => false };
     if (engine.version === "")
       return yield* new StartupFailed({ message: `engine ${engine.name}'s manifest has no version` });
     const root = engineDataRoot(engine);
@@ -106,7 +109,7 @@ export const provideData = ({
       const tally = yield* Effect.tryPromise({
         try: () => {
           makeDirs(handle, root);
-          return installArchives(handle, engine, archiveHooks(config, instruments));
+          return installArchives(handle, engine, engine.data, archiveHooks(config, instruments));
         },
         catch: runtimeCallFailed,
       });
@@ -117,15 +120,21 @@ export const provideData = ({
         lockedAt,
         releasedAt: Date.now(),
       });
-      return none;
+      return { closed: () => false };
     }
 
+    const lazy = lazyStorePaths(engine);
+    const base = engine.data.filter(({ storePath }) => !lazy.has(storePath));
     const hold = (name: string, mode: LockMode, progress?: string) =>
       Effect.tryPromise({
         try: () => holdLock(name, mode, config, () => instruments.waiting(name), progress),
         catch: startupFailed,
       }).pipe(Effect.tap(({ lock }) => Effect.sync(() => held.add(lock))));
     yield* hold(engineDataLock(engine, encodeComponent(engine.version)), "shared");
+    // Sealed as the host closes, while the runtime can still be called,
+    // whether its start failed or it ran.
+    let seal: (() => void) | undefined;
+    yield* runtimeFinalizer(Effect.sync(() => seal?.()));
     const installLock = engineInstallLock(engine);
     const { store, marker, found, waitMs, lockedAt, releasedAt } = yield* Effect.gen(function* () {
       const { waitMs, lockedAt } = yield* Effect.acquireRelease(
@@ -139,31 +148,20 @@ export const provideData = ({
         ? Effect.tryPromise({ try: () => nodeStore(handle, engine, plan.hostPath), catch: startupFailed })
         : Effect.succeed(idbStore(handle, engine, idbReadOnly, config.deleteLimitMs));
       const marker = yield* Effect.tryPromise({ try: () => store.installed(), catch: startupFailed });
+      if (marker === null) yield* Effect.tryPromise({ try: () => store.clear(), catch: startupFailed });
+      yield* Effect.try({ try: () => mountAt(handle, store.backend(), root, plan.mount), catch: runtimeCallFailed });
+      seal = store.seal;
+      const window = sharedWindow(store, instruments.window);
       let found = marker;
       if (found === null) {
-        yield* Effect.tryPromise({ try: () => store.clear(), catch: startupFailed });
-        yield* Effect.try({
-          try: () => mountAt(handle, store.backend(false), root, plan.mount),
-          catch: runtimeCallFailed,
-        });
-        // Sealed below once marked; a start that fails before then seals it
-        // as it closes, while the runtime can still be called.
-        let unsealed = store.seal;
-        yield* runtimeFinalizer(Effect.sync(() => unsealed?.()));
         const tally = yield* Effect.tryPromise({
-          try: () => installArchives(handle, engine, archiveHooks(config, instruments)),
+          try: () => window(() => installArchives(handle, engine, base, archiveHooks(config, instruments))),
           catch: runtimeCallFailed,
         });
         found = { version: engine.version, files: tally.files, bytes: tally.bytes };
         const marked = found;
         yield* Effect.tryPromise({ try: () => store.mark(marked), catch: startupFailed });
-        yield* Effect.try({ try: () => store.seal?.(), catch: runtimeCallFailed });
-        unsealed = undefined;
-      } else
-        yield* Effect.try({
-          try: () => mountAt(handle, store.backend(true), root, plan.mount),
-          catch: runtimeCallFailed,
-        });
+      }
       // Read before letting go, so that a host waiting on the lock can't take
       // it at an earlier time than this.
       const releasedAt = Date.now();

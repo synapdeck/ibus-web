@@ -37,7 +37,7 @@ const gate = () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("install lock lifetime", () => {
-  it.effect("announces throughout clear, mount, fetch, marker and seal, then releases the lock and timer", () =>
+  it.effect("announces throughout clear, mount, window, fetch and marker, then releases the lock and timer", () =>
     Effect.gen(function* () {
       // Only storage/runtime work is replaced: the install orchestration,
       // Web Locks, channel and Effect timer remain the production code.
@@ -76,14 +76,18 @@ describe("install lock lifetime", () => {
         installed: async () => null,
         clear: clearing.wait,
         backend: () => 1,
+        setWritable: active,
         mark: marking.wait,
-        seal: active,
+        pathInstalled: async () => null,
+        markPath: async () => {},
+        seal: () => {},
         others: async () => {
           await collected.wait();
           return [];
         },
         remove: async () => {},
         closed: () => false,
+        quiet: () => undefined,
       };
       vi.spyOn(stores, "nodeStore").mockResolvedValue(store);
       vi.spyOn(mounts, "makeDirs").mockImplementation(active);
@@ -117,7 +121,8 @@ describe("install lock lifetime", () => {
       // Collection is outside the install lock; a delayed collection must
       // not keep the channel alive or make the next installer wait.
       yield* Effect.promise(() => collected.reached);
-      expect(activeDuringRuntimeCalls).toEqual([true, true, true]);
+      // makeDirs, mountAt, and the window opened and shut around the fetch.
+      expect(activeDuringRuntimeCalls).toEqual([true, true, true, true]);
       expect(released).toHaveBeenCalledTimes(1);
       expect(closed).toHaveBeenCalledTimes(1);
       expect(

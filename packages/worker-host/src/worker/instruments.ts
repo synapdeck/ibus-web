@@ -20,6 +20,10 @@ export interface Instruments {
   readonly forceBrotliFallback: boolean;
   // A Brotli archive of the engine's data is decoded through this decoder.
   readonly brotliDecoder: (decoder: "native" | "fallback") => void;
+  // An archive of the engine's data is about to be fetched.
+  readonly fetching: (url: string) => void;
+  // The data backend's window for changes opened or shut.
+  readonly window: (open: boolean) => void;
   readonly beforeProbe: () => void;
   // Before the runtime's module is imported, which under Node replaces the
   // global Worker class.
@@ -51,6 +55,8 @@ export interface Instruments {
 const none: Instruments = {
   forceBrotliFallback: false,
   brotliDecoder: () => {},
+  fetching: () => {},
+  window: () => {},
   beforeProbe: () => {},
   beforeRuntime: () => {},
   runtimeStarted: () => {},

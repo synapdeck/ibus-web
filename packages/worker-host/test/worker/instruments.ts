@@ -131,6 +131,8 @@ export const makeInstruments = (
   return {
     forceBrotliFallback: test.forceBrotliFallback === true,
     brotliDecoder: (decoder) => post({ type: "brotli-decoder", decoder }),
+    fetching: (url) => post({ type: "fetching", url }),
+    window: (open) => post({ type: "window", open, at: Date.now() }),
     beforeProbe: () => {
       if (test.withoutIndexedDB === true) withholdIndexedDB();
     },

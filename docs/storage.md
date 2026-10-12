@@ -98,12 +98,12 @@ The backend is a candidate for Emscripten as `wasmfs_create_idb_backend`;
 
 One database per mount, at version 1, with four object stores, created when the database is:
 
-| Store     | Key              | Value                                                                                                              |
-| --------- | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `meta`    | string           | `format` (1), `chunkSize` (bytes, fixed at creation), `nextIno`, `root` (1), and `installed`, engine data's marker |
-| `inodes`  | inode number     | `{ kind, mode, size, atime, mtime, ctime, target? }`: kind 1 file, 2 directory, 3 symlink (WasmFS's numbers); ms   |
-| `entries` | `[parent, name]` | the child's inode number; a directory's entries are the key range `[[p, ""], [p, []]]`                             |
-| `chunks`  | `[inode, index]` | an `ArrayBuffer` of at most `chunkSize` bytes                                                                      |
+| Store     | Key              | Value                                                                                                            |
+| --------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `meta`    | string           | `format` (1), `chunkSize` (bytes, fixed at creation), `nextIno`, `root` (1), and engine data's markers           |
+| `inodes`  | inode number     | `{ kind, mode, size, atime, mtime, ctime, target? }`: kind 1 file, 2 directory, 3 symlink (WasmFS's numbers); ms |
+| `entries` | `[parent, name]` | the child's inode number; a directory's entries are the key range `[[p, ""], [p, []]]`                           |
+| `chunks`  | `[inode, index]` | an `ArrayBuffer` of at most `chunkSize` bytes                                                                    |
 
 - Inode 1 is the root, made with the database (mode 0777). Inode numbers go up to 2^32 − 1; past that, a create is
   `ENOSPC`.
@@ -112,7 +112,8 @@ One database per mount, at version 1, with four object stores, created when the 
   again never shows its old bytes. The last chunk may be short.
 - File sizes go up to 2^53 − 1, the largest integer a JavaScript number holds exactly; beyond it is `EFBIG`.
 - Every operation that touches more than one record is one transaction, so a failure leaves nothing half done.
-- `meta.installed` is the host's ([below](#installing)); the backend reserves the key and never reads it.
+- `meta.installed` and `meta.paths/<storePath>` are the host's ([below](#installing)); the backend reserves those keys
+  and never reads them.
 - A database is read only if its `format` is 1 and its `chunkSize` a positive integer; anything else fails the open with
   `EIO`.
 
@@ -346,16 +347,20 @@ At engine start, before the engine accepts requests, the host:
 2. reads the version's marker, `meta.installed` = `{ version, files, bytes }`, on a short connection that **doesn't
    create the database**: opening a database that doesn't exist would create it at version 1, so the probe aborts the
    upgrade, which leaves no database in Chromium 149 or Firefox 151, as the standard says;
-3. **with a marker**, mounts the version read-only;
-4. **without one**, deletes the version's database (a deletion still blocked after 10 s fails the start), creates a
-   read-write backend over a new one and mounts it, extracts every archive into it, writes the marker last in a strict
-   transaction on a connection of its own, and seals the backend;
+3. **with a marker**, mounts the version with its window shut (`WASMFS_IDB_READ_ONLY`);
+4. **without one**, deletes the version's database (a deletion still blocked after 10 s fails the start), mounts a
+   backend over a new one with its window shut, opens the window, extracts every base archive into it, shuts the window,
+   and writes the marker last in a strict transaction on a connection of its own;
 5. lets go of the install lock, posts `install`, collects old versions and posts `collect`.
+
+Any host may later install an engine's own data into the version, so no host seals its data backend while it runs; each
+seals it as it closes, while the runtime can still be called.
 
 So an install starts from empty storage: no partial tree, no other version's file and no stale one survives it. No host
 reads a version before its marker exists, so the deletion has no reader to wait for. An interrupted install leaves no
-marker and the next host redoes it; a second host waiting on the lock finds the marker and mounts. The installing host
-keeps its sealed read-write backend rather than mount a third, since a backend's thread lasts as long as the runtime.
+marker and the next host redoes it; a second host waiting on the lock finds the marker and mounts. Every host mounts one
+data backend, created read-only, since a backend's thread lasts as long as the runtime; created read-only, it doesn't
+sweep a database other hosts install into.
 
 **The marker.** Every file was `fsync()`ed by the installer, so the data has committed; the directory entries made after
 a file's last `fsync()` committed relaxed, and the marker's strict commit makes them durable too, since a strict commit
@@ -430,10 +435,10 @@ The host keeps every lock it holds in one set, and a start that fails, or a runt
 them all, so a failed host never keeps others from installing, collecting or writing; it stays alive to report. Its
 runtime, and any engine thread already started, may still write through its read-write backends, so it seals them before
 letting go of the writer lock; a runtime that can no longer be called (a trap) keeps the writer lock until the page
-terminates the Worker. A read-write data backend whose install failed is sealed as the start fails, so nothing writes
-into an unmarked version once the host is closing. A host that dies outright has no chance to seal; it relies on its
-locks going only with the Worker, and on the runtime's threads, nested Workers, going with it. The scopes and the
-failure classification are in [worker-host.md](worker-host.md).
+terminates the Worker. An install that fails shuts the data backend's window as it fails, and the data backend is sealed
+as the host closes, so nothing writes into an unmarked version once the host is closing. A host that dies outright has
+no chance to seal; it relies on its locks going only with the Worker, and on the runtime's threads, nested Workers,
+going with it. The scopes and the failure classification are in [worker-host.md](worker-host.md).
 
 ### Why a database per version
 
@@ -515,7 +520,7 @@ thread is taken, and works from pthreads under `worker_threads`. Its limits (32-
   that doesn't parse counts as absent; removal deletes the marker first, so a removal cut short leaves no marker.
   Collection lists versions from directories, markers and stray `.marking` files alike.
 - **Read-only is reported, not enforced.** The host takes the same locks and posts the same states, but the Node backend
-  has no read-only mode, so neither a read-only mount nor a seal refuses writes.
+  has no read-only mode, so neither a read-only mount, a shut window nor a seal refuses writes.
 - **Locks.** Web Locks coordinate the threads of one Node process only, and not reliably even those: Node 24.21.0
   granted one exclusive lock to two `worker_threads` racing for it in about 3% of races (12 of 300 with `ifAvailable`, 8
   of 300 queued; Node 24.21.0) ([upstream/node-web-locks-worker-threads.md](upstream/node-web-locks-worker-threads.md)).

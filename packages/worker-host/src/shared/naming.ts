@@ -40,6 +40,10 @@ export const engineDataDatabasePrefix = (engine: Pick<EngineIdentity, "name">): 
 export const engineDataDatabase = (engine: EngineIdentity): string =>
   `${engineDataDatabasePrefix(engine)}${encodeComponent(engine.version)}`;
 
+// The key, in the meta store of a version's data, of the marker of a store
+// path of an engine's own data, installed after the version's base data.
+export const enginePathMarker = (storePath: string): string => `paths/${storePath}`;
+
 // The Web Lock a version's data is installed under, held exclusively.
 export const engineInstallLock = (engine: EngineIdentity): string =>
   `ibus-web:install:${encodeComponent(engine.name)}:${encodeComponent(engine.version)}`;

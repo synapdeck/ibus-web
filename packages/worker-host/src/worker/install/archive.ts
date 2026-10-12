@@ -32,19 +32,31 @@ export interface ArchiveHooks {
   // Called before each piece of the archive reaches the decoder; the
   // install waits for it.
   readonly beforePiece: (tally: Tally) => Promise<void> | undefined;
+  // Hears the bytes of file data the archive has written, after each write.
+  readonly written?: (bytes: number) => void;
+  // Hears each archive's URL before it is fetched.
+  readonly fetching?: (url: string) => void;
+  // A promise to wait for before the installer writes, or undefined when it
+  // may write at once: a transaction of the host's own still open on the
+  // database would hold the write's up, and the write, blocking this
+  // thread, would keep that transaction from ever completing.
+  readonly quiet?: () => Promise<void> | undefined;
 }
 
 // What extract() hears besides the archive hooks: each piece arriving, and
 // the install being held before a piece, which the archive's idle time
 // leaves out.
-export interface ExtractHooks extends Partial<Pick<ArchiveHooks, "beforePiece">> {
+export interface ExtractHooks extends Partial<Pick<ArchiveHooks, "beforePiece" | "written" | "quiet">> {
   readonly arrived?: () => void;
   readonly holding?: () => void;
 }
 
-// Fetching and reading happen outside the runtime, which they leave fit to
-// call.
-const outside = async <T>(what: string, promise: Promise<T>): Promise<T> => {
+// A store path's archive, as the manifest lists it.
+export type DataEntry = ModuleManifest["data"][number];
+
+// Work outside the runtime, fetching and reading, or the host's own storage
+// and locks, leaves it fit to call.
+export const outside = async <T>(what: string, promise: Promise<T>): Promise<T> => {
   try {
     return await promise;
   } catch (error) {
@@ -82,6 +94,13 @@ export const placeEntry = (header: TarHeader, storeName: string, { errno }: FsCo
   if (name !== storeName && !name.startsWith(`${storeName}/`))
     throw new RuntimeRefused(`archive entry ${JSON.stringify(name)} lies outside ${storeName}`);
   return name;
+};
+
+// Waits until the installer may write, checking again once each wait ends,
+// so the write after it follows with no await between.
+const quieted = async (quiet: ExtractHooks["quiet"]): Promise<void> => {
+  let wait: Promise<void> | undefined;
+  while ((wait = quiet?.()) !== undefined) await wait;
 };
 
 // Extracts the tar archive streaming from source into dir, an existing
@@ -135,6 +154,7 @@ export const extract = async (
   const piece = new Uint8Array(INSTALL_PIECE);
   let writer: ReturnType<typeof entryWriter> | undefined;
   try {
+    await quieted(hooks.quiet);
     writer = entryWriter(handle, dir, limit);
     for (;;) {
       const next = await read(entries.read());
@@ -143,10 +163,13 @@ export const extract = async (
       const name = placeEntry(header, storeName, handle.fs);
       const mode = header.mode ?? 0;
       if (header.type === "directory") {
+        await quieted(hooks.quiet);
         writer.directory(name, mode);
       } else if (header.type === "symlink") {
+        await quieted(hooks.quiet);
         writer.symlink(name, header.linkname ?? "");
       } else {
+        await quieted(hooks.quiet);
         const file = writer.file(name, mode, header.size);
         // The data goes in a piece at a time, each starting at a multiple of
         // the piece's size into the file and whole but for the file's last,
@@ -166,11 +189,14 @@ export const extract = async (
             held += take;
             at += take;
             if (held < want) continue;
+            await quieted(hooks.quiet);
             file.write(piece.subarray(0, held));
             left -= held;
             held = 0;
+            hooks.written?.(writer.written.bytes);
           }
         }
+        await quieted(hooks.quiet);
         file.end();
       }
     }
@@ -208,9 +234,11 @@ const installArchive = async (
   };
   try {
     arrived();
+    hooks.fetching?.(url);
     const response = await outside(`fetch ${url}`, fetch(url, { signal: idle.signal }));
     if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
     const source = decompressed(response.body, encoding, hooks.forceBrotliFallback, hooks.brotliDecoder);
+    await quieted(hooks.quiet);
     makeDirs(handle, dir);
     const { files, bytes } = await extract(handle, source, `install ${url}`, dir, storeName, expectedBytes, tally, {
       ...hooks,
@@ -226,16 +254,16 @@ const installArchive = async (
   }
 };
 
-// Installs every archive of the engine's data at the store's root, each at
-// its own store path.
+// Installs the archives at the store's root, each at its own store path.
 export const installArchives = async (
   handle: RuntimeHandle,
   engine: ModuleManifest,
+  entries: readonly DataEntry[],
   hooks: ArchiveHooks,
 ): Promise<Tally> => {
   const tally: Tally = { fed: 0, files: 0, bytes: 0 };
   const root = engineDataRoot(engine);
-  for (const data of engine.data) {
+  for (const data of entries) {
     const storeName = data.storePath.slice(data.storePath.lastIndexOf("/") + 1);
     await installArchive(handle, data.url, root, storeName, data.encoding, data.size, tally, hooks);
   }

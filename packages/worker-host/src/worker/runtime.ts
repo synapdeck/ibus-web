@@ -33,6 +33,7 @@ export interface Runtime {
   _wasmfs_create_idb_backend(database: number, flags: number): number;
   _wasmfs_idb_backend_closed(backend: number): number;
   _wasmfs_idb_backend_seal(backend: number): void;
+  _wasmfs_idb_backend_set_writable(backend: number, writable: number): number;
   _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
   _ibusweb_pump(): number;
@@ -140,6 +141,7 @@ export const requireRuntime = (rt: Runtime): void => {
     ...(typeof fs?.ErrnoError === "function" ? [] : ["FS.ErrnoError"]),
     ...fsCalls.filter((name) => typeof fs?.[name] !== "function").map((name) => `FS.${name}`),
     ...(typeof rt._fsync === "function" ? [] : ["fsync"]),
+    ...(typeof rt._wasmfs_idb_backend_set_writable === "function" ? [] : ["wasmfs_idb_backend_set_writable"]),
     ...(rt.HEAPU8 instanceof Uint8Array ? [] : ["HEAPU8"]),
     ...(Array.isArray(pool?.unusedWorkers) ? [] : ["PThread.unusedWorkers"]),
     ...(typeof pool?.allocateUnusedWorker === "function" ? [] : ["PThread.allocateUnusedWorker"]),

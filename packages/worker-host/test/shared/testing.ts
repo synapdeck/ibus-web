@@ -170,7 +170,11 @@ export type TestMessage =
   | { type: "waiting"; lock: string }
   // The install stopped where TestInit.stallAt said, after fed bytes.
   | { type: "stalled"; bytes: number }
-  | { type: "brotli-decoder"; decoder: "native" | "fallback" };
+  | { type: "brotli-decoder"; decoder: "native" | "fallback" }
+  // An archive of the engine's data is about to be fetched.
+  | { type: "fetching"; url: string }
+  // The data backend's window opened or shut, at Date.now().
+  | { type: "window"; open: boolean; at: number };
 
 export type Message = HostMessage | TestMessage;
 
