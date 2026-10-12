@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 12:50:34 -0700
+Subject: [PATCH] switcher: let a front end filter the schema list
+
+A front end that offers each schema as an input method of its own, and
+switches between them itself, wants Rime's switcher to offer only the
+current schema. A filter set with Switcher::SetSchemaListFilter limits
+the entries ForEachSchemaListEntry visits: the switcher's menu, which
+lists the current schema first whatever the filter says, and the schema a
+new session starts with, which is the default configuration when the
+filter accepts none.
+---
+ src/rime/switcher.cc | 13 +++++++++++++
+ src/rime/switcher.h  |  5 +++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/src/rime/switcher.cc b/src/rime/switcher.cc
+index d283a92..85840fe 100644
+--- a/src/rime/switcher.cc
++++ b/src/rime/switcher.cc
+@@ -143,18 +143,31 @@ static an<ConfigValue> ParseSchemaListEntry(Config* config,
+   return schema_property;
+ }
+ 
++static function<bool(const string& schema_id)>& schema_list_filter() {
++  static function<bool(const string& schema_id)> filter;
++  return filter;
++}
++
++void Switcher::SetSchemaListFilter(
++    function<bool(const string& schema_id)> filter) {
++  schema_list_filter() = std::move(filter);
++}
++
+ int Switcher::ForEachSchemaListEntry(
+     Config* config,
+     function<bool(const string& schema_id)> process_entry) {
+   auto schema_list = config->GetList("schema_list");
+   if (!schema_list)
+     return 0;
++  const auto& filter = schema_list_filter();
+   int num_processed_entries = 0;
+   for (auto iter = schema_list->begin(); iter != schema_list->end(); ++iter) {
+     auto entry = ParseSchemaListEntry(config, As<ConfigMap>(*iter));
+     if (!entry)
+       continue;
+     const string& schema_id = entry->str();
++    if (filter && !filter(schema_id))
++      continue;
+     ++num_processed_entries;
+     if (!process_entry(schema_id))
+       break;
+diff --git a/src/rime/switcher.h b/src/rime/switcher.h
+index 7ad7676..a7081ee 100644
+--- a/src/rime/switcher.h
++++ b/src/rime/switcher.h
+@@ -30,6 +30,11 @@ class Switcher : public Processor, public Engine {
+   static int ForEachSchemaListEntry(
+       Config* config,
+       function<bool(const string& schema_id)> process_entry);
++  // Limits the schema list entries the switcher offers, and starts new
++  // sessions with, to those the filter accepts. Without one, all of them.
++  // Set it before making sessions.
++  static void SetSchemaListFilter(
++      function<bool(const string& schema_id)> filter);
+ 
+   void SetActiveSchema(const string& schema_id);
+   Schema* CreateSchema();

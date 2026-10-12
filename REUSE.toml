@@ -59,6 +59,12 @@ SPDX-License-Identifier = "Apache-2.0"
 precedence = "override"
 
 [[annotations]]
+path = "engines/rime/patches/librime/**/*.patch"
+SPDX-FileCopyrightText = ["RIME Developers", "2026 Synapdeck, Inc."]
+SPDX-License-Identifier = "BSD-3-Clause"
+precedence = "override"
+
+[[annotations]]
 path = "engines/mozc/patches/**/*.patch"
 SPDX-FileCopyrightText = ["Google Inc.", "2026 Synapdeck, Inc."]
 SPDX-License-Identifier = "BSD-3-Clause"

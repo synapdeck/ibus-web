@@ -65,7 +65,33 @@
             '';
           });
 
+      luaPlugin = "plugins/librime-lua-static-${pkgsWasm.librime-lua.version}";
+      octagramPlugin = "plugins/librime-octagram-static-${pkgsWasm.librime-octagram.version}";
+
       audits = {
+        librime = cmakeAudit {
+          name = "librime";
+          package = pkgsWasm.librime;
+          target = "src/CMakeFiles/rime-static.dir";
+          # setup.cc alone takes the merged plugins' modules.
+          extraCflags = [ "-DRIME_EXTRA_MODULES=,Q(lua),Q(octagram)" ];
+        };
+        librime-lua = cmakeAudit {
+          name = "librime-lua";
+          package = pkgsWasm.librime;
+          target = "${luaPlugin}/CMakeFiles/rime-lua-objs.dir";
+        };
+        librime-lua-c = cmakeAudit {
+          name = "librime-lua-c";
+          package = pkgsWasm.librime;
+          target = "${luaPlugin}/CMakeFiles/rime-lua-objs.dir";
+          lang = "C";
+        };
+        librime-octagram = cmakeAudit {
+          name = "librime-octagram";
+          package = pkgsWasm.librime;
+          target = "${octagramPlugin}/CMakeFiles/rime-octagram-objs.dir";
+        };
         leveldb = cmakeAudit {
           name = "leveldb";
           package = pkgsWasm.leveldb;

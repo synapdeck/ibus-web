@@ -46,11 +46,31 @@ links its own copy.
 - **Boost**: `ibus-web-boost-headers` is the build machine's Boost 1.91 headers and its `Boost` and `boost_headers`
   CMake packages. Outside Linux, librime asks CMake for Boost with no compiled component.
 
+### librime
+
+`librime` is built static, with its plugins merged in (`BUILD_MERGED_PLUGINS`), threading (`ENABLE_THREADING`: the
+deployer runs on a `std::async` thread), logging, and its private headers installed, which the tools and the descriptor
+program include. It is built without `ENABLE_TIMESTAMP`. With it, a deployment records each source file's modification
+time in the compiled config and rebuilds a config whose recorded times differ from the files'. WasmFS gives a file the
+time at which it first sees it, not the store's, so the times never match: every deployment would recompile every config
+with new bytes and rebuild every prism, whose checksum covers the config. Without them, a deployment recompiles the
+configs to the same bytes and the prebuilt prisms stay current.
+
+librime installs no `rime.pc` outside Linux and the BSDs, so the overlay writes one, with the libraries as
+`Requires.private`. A static librime registers a plugin's modules only if something refers to the plugin, so the module
+calls the `rime_require_module_*` functions each defines for that. librime builds its tools only with a shared library;
+`ibus-web-rime-tools` compiles `rime_deployer` and `rime_dict_manager` against the static one and links them as Node
+programs on WasmFS with the host's files, with a fixed 2 GB memory, since deploying `rime_ice` peaks near 900 MB.
+
+librime's port patches: 0001 logs a missing dictionary source at INFO, since deploying over prebuilt tables without
+their sources logged an error per dictionary; 0002 lets a front end filter the schema list the switcher offers and new
+sessions start from (`Switcher::SetSchemaListFilter`).
+
 ## Checks
 
-| Check             | Covers                                                                                      |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| `rime-cast-audit` | LevelDB, yaml-cpp, OpenCC, glog, MARISA and Lua, each against its own allow-list, all empty |
+| Check             | Covers                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `rime-cast-audit` | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA and Lua, each against its own allow-list, all empty |
 
 A CMake library is audited with the flags its own configure gives the target that builds it, from the target's
 `flags.make`, over the sources `compile_commands.json` lists for the target.

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 12:50:34 -0700
+Subject: [PATCH] dict_compiler: log a missing source as information
+
+A distribution that ships prebuilt tables without their sources, so that
+a redeployment reuses them, logged an error for every dictionary each
+time it deployed. A missing source is an error only without a prebuilt
+table, which the compiler reports on its own.
+---
+ src/rime/dict/dict_compiler.cc | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/rime/dict/dict_compiler.cc b/src/rime/dict/dict_compiler.cc
+index 5996ee2..af7cae0 100644
+--- a/src/rime/dict/dict_compiler.cc
++++ b/src/rime/dict/dict_compiler.cc
+@@ -83,7 +83,8 @@ bool DictCompiler::Compile(const path& schema_file) {
+   DictSettings settings;
+   auto dict_file = source_resolver_->ResolvePath(dict_name_ + ".dict.yaml");
+   if (!std::filesystem::exists(dict_file)) {
+-    LOG(ERROR) << "source file '" << dict_file << "' does not exist.";
++    // Not an error while a prebuilt table exists, which is checked below.
++    LOG(INFO) << "source file '" << dict_file << "' does not exist.";
+     build_table_from_source = false;
+   } else if (!load_dict_settings_from_file(&settings, dict_file)) {
+     LOG(ERROR) << "failed to load settings from '" << dict_file << "'.";
