@@ -100,9 +100,10 @@ the schema ids to ship.
 
 A deployment at runtime, which settings changes cause, finds the prebuilt tables through those links and reuses them
 without their sources; it rebuilds the prisms of the schemas whose compiled config changed, in the user's `build/`.
-librime's port patch 0003 lets it pass over a dictionary whose link doesn't resolve yet, so the module starts with only
-the common path installed. Deploying every schema takes about 35 s under Node and peaks near 900 MB; its output is
-reproducible (`nix build --rebuild` finds the same bytes).
+librime's port patch 0003 lets it pass over a dictionary whose link doesn't resolve yet, or resolved only after it
+looked for the table, as one installed during the deployment does, so the module starts with only the common path
+installed. Deploying every schema takes about 35 s under Node and peaks near 900 MB; its output is reproducible
+(`nix build --rebuild` finds the same bytes).
 
 ### Descriptors
 

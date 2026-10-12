@@ -9,7 +9,9 @@ used can link each prebuilt table into the prebuilt data directory
 before its data has arrived. Deploying then found neither a source nor
 a table, logged an error and failed the deployment. A link whose target
 isn't there yet is compiled once it is: sessions read the prebuilt
-table as it stands, so deployment leaves it and goes on.
+table as it stands, so deployment leaves it and goes on. It does so
+too for a link that resolves by the time the error would be logged:
+the data arrived while the table was being looked for.
 ---
  src/rime/dict/dict_compiler.cc | 13 +++++++++++++
  1 file changed, 13 insertions(+)
@@ -32,14 +34,14 @@ index af7cae0..1f22bcf 100644
    } else {
 +    // A front end that installs dictionaries when they are first used links
 +    // each prebuilt table before its data is there. Sessions read it once it
-+    // is, so there is nothing to compile yet.
++    // is, so there is nothing to compile yet. The link may resolve by now,
++    // its data having arrived since the table was looked for.
 +    path prebuilt_table =
 +        Service::instance().deployer().prebuilt_data_dir /
 +        path(dict_name_ + ".table.bin");
-+    if (std::filesystem::is_symlink(prebuilt_table) &&
-+        !std::filesystem::exists(prebuilt_table)) {
++    if (std::filesystem::is_symlink(prebuilt_table)) {
 +      LOG(INFO) << "prebuilt table " << prebuilt_table
-+                << " is not installed yet.";
++                << " was not installed when it was looked for.";
 +      return true;
 +    }
      LOG(ERROR) << "neither " << dict_name_ << ".dict.yaml nor " << dict_name_
