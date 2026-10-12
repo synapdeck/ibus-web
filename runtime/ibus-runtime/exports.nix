@@ -135,6 +135,12 @@
           # which a side module can't. Functions that need ASYNCIFY are stubs
           # that abort in a runtime built without it; off the list, an engine
           # that calls one fails its import check when it is built.
+          #
+          # The rest of the exceptions assume a page's main thread or a
+          # program that owns its Worker: the browser main loop, which would
+          # take over the thread the host pumps on; the canvas, window and
+          # preload-plugin helpers, which reach for the DOM; and
+          # BUILD_AS_WORKER's worker API, which loads a script of its own.
           {
             name = "emscripten";
             version = "{emscripten}";
@@ -153,7 +159,42 @@
               "stack"
               "wasmfs"
             ];
-            declaredIn.except = [ "wasmfs_create_opfs_backend" ];
+            declaredIn.except = [
+              "wasmfs_create_opfs_backend"
+
+              "emscripten_set_main_loop"
+              "emscripten_set_main_loop_arg"
+              "emscripten_set_main_loop_timing"
+              "emscripten_get_main_loop_timing"
+              "emscripten_set_main_loop_expected_blockers"
+              "emscripten_pause_main_loop"
+              "emscripten_resume_main_loop"
+              "emscripten_cancel_main_loop"
+              "_emscripten_push_main_loop_blocker"
+              "_emscripten_push_uncounted_main_loop_blocker"
+
+              "emscripten_async_load_script"
+              "emscripten_get_device_pixel_ratio"
+              "emscripten_get_window_title"
+              "emscripten_set_window_title"
+              "emscripten_get_screen_size"
+              "emscripten_hide_mouse"
+              "emscripten_set_canvas_size"
+              "emscripten_get_canvas_size"
+              "emscripten_pthread_attr_gettransferredcanvases"
+              "emscripten_pthread_attr_settransferredcanvases"
+              "emscripten_get_preloaded_image_data"
+              "emscripten_get_preloaded_image_data_from_FILE"
+              "emscripten_run_preload_plugins"
+              "emscripten_run_preload_plugins_data"
+
+              "emscripten_create_worker"
+              "emscripten_destroy_worker"
+              "emscripten_call_worker"
+              "emscripten_worker_respond"
+              "emscripten_worker_respond_provisionally"
+              "emscripten_get_worker_queue_size"
+            ];
             skipWeak = true;
           }
           # Emscripten's C and C++ runtime, whole: side modules link no system

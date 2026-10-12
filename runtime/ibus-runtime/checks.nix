@@ -153,6 +153,29 @@
     {
       ibusWeb.runtime = { inherit nodeHarness; };
 
+      checks.ibus-runtime-side-module-libs = pkgsWasm.stdenv.mkDerivation {
+        name = "ibus-web-ibus-runtime-side-module-libs";
+        dontUnpack = true;
+        nativeBuildInputs = [ pkgsWasm.pkg-config ];
+        buildInputs = [ runtime.libibusWeb ];
+        dontFixup = true;
+        buildPhase = ''
+          runHook preBuild
+          source ${runtime.sideModuleLibraryGuard}
+          checkSideModuleLibraries -L/lib -lm -lpthread -ldl -lrt -lhangul /lib/libhangul.a module.o
+
+          for refused in -lglib-2.0 -libus-web /lib/libgobject-2.0.a; do
+            if checkSideModuleLibraries -lhangul "$refused" 2> refused.log; then
+              echo "expected $refused to be refused" >&2
+              exit 1
+            fi
+            grep -qF "cannot link $refused" refused.log
+          done
+          runHook postBuild
+        '';
+        installPhase = "touch $out";
+      };
+
       checks.ibus-runtime-exports = exportListCheck;
       checks.ibus-runtime-exports-script =
         pkgs.runCommand "ibus-web-ibus-runtime-exports-script"

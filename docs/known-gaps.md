@@ -19,12 +19,8 @@ decided.
   needs it.
 - **Autotools configure scripts can't run their test programs**: autotools configures as a cross build, and only Meson
   has an exe wrapper (Node), so a recipe that needs run-time configure checks will meet it.
-- **Emscripten functions hostile to a Worker host are still exported.** The export manifest takes `emscripten.h` whole
-  but for Asyncify-only functions, so the main loop, canvas helpers and `emscripten_create_worker` remain callable from
-  side modules.
 - **Probe and cache link flags are spelled twice** in `modules/toolchain/cache.nix` (`-sMAIN_MODULE`,
   `-sPTHREAD_POOL_SIZE`, `-sEXIT_RUNTIME` in the probe links and in the cache's own list).
-- **The side-module library guard sees only `-l` flags**, and would refuse a shared `-lm` too.
 - **The dev shell's `.emcache` is never refreshed.** It is copied from the frozen cache only when it doesn't exist, so
   it goes stale when the cache changes; delete it to reseed.
 - **Thread fixes not proven red in our checks.** The fix checks for patches 0014, 0015 and 0018 keep the conditions
