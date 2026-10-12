@@ -47,9 +47,24 @@
               cflags+=("''${pkgFlags[@]}")
             ''}
 
-            for source in ${
-              if sourcesFrom == null then lib.escapeShellArgs sources else "$(${sourcesFrom})"
-            }; do
+            # An audit of no sources would pass any allow-list.
+            ${
+              if sourcesFrom == null then
+                "sources=(${lib.escapeShellArgs sources})"
+              else
+                ''
+                  listed=$(${sourcesFrom}) || {
+                    echo "listing the sources failed" >&2
+                    exit 1
+                  }
+                  read -r -d "" -a sources <<< "$listed" || true''
+            }
+            if [ ''${#sources[@]} -eq 0 ]; then
+              echo "no sources to audit" >&2
+              exit 1
+            fi
+
+            for source in "''${sources[@]}"; do
               report="$TMPDIR/casts-''${#reports[@]}.sarif"
               $CC -fsyntax-only -Wno-everything -Wcast-function-type-strict \
                 -fdiagnostics-format=sarif "''${cflags[@]}" "$source" 2> "$report" || {
@@ -79,9 +94,24 @@
         pkgConfigModules = [ "gobject-2.0" ];
         allowList = ../../tools/cast-audit/fixtures/allow.jsonc;
       };
+      # A source list that fails or comes out empty fails the audit.
+      unlisted =
+        name: sourcesFrom:
+        pkgs.testers.testBuildFailure (castAudit {
+          name = "fixture-${name}";
+          src = ../../tools/cast-audit/fixtures;
+          inherit sourcesFrom;
+          allowList = ../../tools/cast-audit/fixtures/empty.jsonc;
+        });
     in
     {
       ibusWeb.engines.castAudit = castAudit;
+
+      checks.engines-cast-audit-unlisted = pkgs.runCommand "ibus-web-cast-audit-unlisted" { } ''
+        grep -F "listing the sources failed" ${unlisted "failing" "false"}/testBuildFailure.log
+        grep -F "no sources to audit" ${unlisted "empty" "true"}/testBuildFailure.log
+        touch $out
+      '';
 
       checks.engines-cast-audit-fixture = fixture.overrideAttrs {
         postInstall = ''

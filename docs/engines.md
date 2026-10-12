@@ -220,7 +220,8 @@ check verifies the side module against the runtime's export manifest. Mozc's fla
 its audit pass runs there, beside each compile ([mozc.md](mozc.md#build)), and `checks.mozc-cast-audit` compares what it
 found. A library too large to list file by file passes `sourcesFrom`, a shell command that prints its sources, in place
 of `sources`: `checks.rime-cast-audit` reads each CMake target's sources from `compile_commands.json` and its flags from
-the target's `flags.make` ([rime.md](rime.md#checks)).
+the target's `flags.make` ([rime.md](rime.md#checks)). A command that fails, or a list with no source, fails the audit,
+which `checks.engines-cast-audit-unlisted` proves.
 
 ## Golden tests
 
