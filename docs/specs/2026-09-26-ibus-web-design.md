@@ -1980,14 +1980,15 @@ and method are in `docs/testing.md` and `docs/protocol.md`.
   24.20 was measured to validate it. The switch waits until the minimum versions (§10.3) include it:
   `checks.toolchain-exnref` reads exnref's minimum versions from Emscripten's feature matrix (`tools/feature_matrix.py`)
   and fails, asking for the switch, once the derived minimum versions all reach them.
-- **R19. Rime's sentence conversion.** With `rime-data`'s `luna_pinyin`, Rime converts long pinyin sentences noticeably
-  worse than ibus-libpinyin's bigram model, which is the gap that dropping libpinyin (D2) opens. Larger dictionaries
-  close part of it: `rime-ice` from nixpkgs, and wiki-derived ones from xddxdd's NUR (§10.2). The rest needs
-  `librime-octagram`, which nixpkgs' `librime` builds and which ranks sentences with a grammar model, but neither
-  nixpkgs nor the NUR packages a model. The one the Rime community uses, RIME-LMDG's `wanxiang-lts-zh-hans.gram`
-  (CC-BY-4.0), is 398 MB, a heavy download for each user, and the cost of reading it lazily on each keystroke is
-  unmeasured. Decided in M5, by comparing conversions of the same sentences with ibus-libpinyin on the desktop, with and
-  without a grammar model; the options without one are dictionaries alone or a smaller model built for the purpose.
+- **R19. Rime's sentence conversion. Settled in M5: libpinyin stays dropped.** `tools/pinyin-compare` converts 1,000
+  Mandarin sentences from Tatoeba, of 8 characters or more, typed as toneless pinyin without separators, with native
+  libpinyin 2.11.91 at ibus-libpinyin 1.16.5's default options and native librime 1.17.0 with `rime-ice` 2026.06.30's
+  `rime_ice`, each with fresh user data and neither with a grammar model; `nix build .#ibus-web-pinyin-compare-report`
+  rebuilds the report. Rime converts 51.5 % of the sentences exactly to libpinyin's 40.6 %, 10.9 points ahead (95 %
+  interval of the paired difference 7.7 to 14.1), and 90.8 % of their characters to 89.0 %, 1.8 points ahead (1.1 to
+  2.6). Its lead narrows with length: on the 79 sentences of 20 characters or more the two are level within the
+  intervals (exact 20.3 % and 16.5 %, characters 87.7 % and 88.3 %). libpinyin is ahead on neither metric, so M5 ships
+  `rime-ice` without a grammar model, libpinyin stays dropped (D2), and the 398 MB model isn't needed to match it.
 
 ## 14. References
 
