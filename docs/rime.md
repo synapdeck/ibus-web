@@ -64,7 +64,8 @@ programs on WasmFS with the host's files, with a fixed 2 GB memory, since deploy
 
 librime's port patches: 0001 logs a missing dictionary source at INFO, since deploying over prebuilt tables without
 their sources logged an error per dictionary; 0002 lets a front end filter the schema list the switcher offers and new
-sessions start from (`Switcher::SetSchemaListFilter`).
+sessions start from (`Switcher::SetSchemaListFilter`); 0003 passes over a dictionary whose prebuilt table is a symbolic
+link not yet resolved, so a deployment succeeds before every dictionary is installed.
 
 ### ibus-rime
 
@@ -99,8 +100,9 @@ the schema ids to ship.
 
 A deployment at runtime, which settings changes cause, finds the prebuilt tables through those links and reuses them
 without their sources; it rebuilds the prisms of the schemas whose compiled config changed, in the user's `build/`.
-Deploying every schema takes about 35 s under Node and peaks near 900 MB; its output is reproducible
-(`nix build --rebuild` finds the same bytes).
+librime's port patch 0003 lets it pass over a dictionary whose link doesn't resolve yet, so the module starts with only
+the common path installed. Deploying every schema takes about 35 s under Node and peaks near 900 MB; its output is
+reproducible (`nix build --rebuild` finds the same bytes).
 
 ### Descriptors
 
@@ -238,6 +240,7 @@ recompiles every schema, about 3 s under Node.
 
 | Check               | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rime-deploy`       | The module started with only the common path and the compiled schemas installed: configs compiled, no table or prism written, an engine typing once its dictionaries are added; a page-size change rebuilding only the installed dictionaries' prisms and reusing every table                                                                                                                                                                                                                                                                                                                                                                               |
 | `rime-descriptors`  | Vitest: the table checked against deployed configs, dependency resolution into `engine-data.json`, ordering, glosses, the switch and algebra tables, and what fails the build; the default build's outputs and a build of three schemas                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `rime-golden`       | g_test cases under Node with the real module and data: `nihao` to `你好` and a 21-character corpus sentence on `rime_ice`; a Lua translator; `luna_pinyin` traditional, then simplified after its switch; Cangjie `a`; Jyutping and loengfan's lookup; Wugniu; a `combo_pinyin` chord and a stenotype abbreviation; paging and a clicked candidate; the switch properties and `PropertyActivate`; the switcher listing one schema; Shift; page size, switcher keys, each `ascii-toggle-key`, a schema's own settings, `traditional` and fuzzy Pinyin, each deployed and reaching an open context. A warning outside a deployment, or any critical, fails it |
 | `rime-cast-audit`   | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA, Lua, ibus-rime and the module, each against its own allow-list, all empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |

@@ -180,6 +180,9 @@ decided.
   nothing stored, of the 64 KiB request slot ([m17n.md](m17n.md#checks)). A user who stores many values across m17n's
   per-engine instances could push `Init` past the slot, which `Connection.requestAsync` rejects with a `RangeError`, and
   the module would fail to start.
+- **Rime's prisms for dictionaries not yet installed.** A settings change deployed while some dictionaries aren't
+  installed (5c's lazy data) leaves their prisms as prebuilt, so a `fuzzy-pinyin` change reaches an engine installed
+  later only at the next deployment ([rime.md](rime.md#deployment)).
 - **A change to Rime's page size or keys recompiles every schema.** `default.custom.yaml` reaches every compiled schema,
   so changing `page-size`, `switcher-hotkeys` or `ascii-toggle-key` recompiles them all and rebuilds every installed
   dictionary's prisms in the user's directory, about 3 s on Rime's deployer thread under Node, during which keys pass

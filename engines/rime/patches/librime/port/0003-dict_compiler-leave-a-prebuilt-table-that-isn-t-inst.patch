@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Sun, 11 Oct 2026 13:29:53 -0700
+Subject: [PATCH] dict_compiler: leave a prebuilt table that isn't installed
+ yet
+
+A front end that downloads dictionaries when an input method is first
+used can link each prebuilt table into the prebuilt data directory
+before its data has arrived. Deploying then found neither a source nor
+a table, logged an error and failed the deployment. A link whose target
+isn't there yet is compiled once it is: sessions read the prebuilt
+table as it stands, so deployment leaves it and goes on.
+---
+ src/rime/dict/dict_compiler.cc | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/src/rime/dict/dict_compiler.cc b/src/rime/dict/dict_compiler.cc
+index af7cae0..1f22bcf 100644
+--- a/src/rime/dict/dict_compiler.cc
++++ b/src/rime/dict/dict_compiler.cc
+@@ -19,6 +19,7 @@
+ #include <rime/dict/prism.h>
+ #include <rime/dict/reverse_lookup_dictionary.h>
+ #include <rime/dict/table.h>
++#include <rime/deployer.h>
+ #include <rime/resource.h>
+ #include <rime/service.h>
+ 
+@@ -113,6 +114,18 @@ bool DictCompiler::Compile(const path& schema_file) {
+   } else if (build_table_from_source) {
+     rebuild_table = true;
+   } else {
++    // A front end that installs dictionaries when they are first used links
++    // each prebuilt table before its data is there. Sessions read it once it
++    // is, so there is nothing to compile yet.
++    path prebuilt_table =
++        Service::instance().deployer().prebuilt_data_dir /
++        path(dict_name_ + ".table.bin");
++    if (std::filesystem::is_symlink(prebuilt_table) &&
++        !std::filesystem::exists(prebuilt_table)) {
++      LOG(INFO) << "prebuilt table " << prebuilt_table
++                << " is not installed yet.";
++      return true;
++    }
+     LOG(ERROR) << "neither " << dict_name_ << ".dict.yaml nor " << dict_name_
+                << ".table.bin exists.";
+     return false;
