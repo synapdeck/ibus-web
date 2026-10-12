@@ -43,6 +43,9 @@ export interface LoopContext {
   // Whether the last wait ended with its word changed, which is how a
   // request that arrives while the host sleeps wakes it.
   woken: boolean;
+  // The page's messages after HostInit the host has taken, as the control
+  // buffer's mail word counts them.
+  mailTaken: number;
 }
 
 // One turn of the loop:
@@ -62,6 +65,8 @@ export type Step =
 // Why the synchronous section returned.
 type Excursion =
   | { kind: "topUp"; want: number }
+  // The page has posted messages the host hasn't taken.
+  | { kind: "mail" }
   | { kind: "await"; reply: Promise<InstrumentReply> }
   | { kind: "relayFailed" }
   | { kind: "stopped" };
@@ -154,15 +159,22 @@ export const step = (ctx: LoopContext): Step => {
   return { kind: "idle", seen, delay };
 };
 
+// Whether the page has posted messages the host hasn't taken.
+export const mailWaiting = (ctx: LoopContext): boolean => Atomics.load(ctx.control.words, Word.mail) !== ctx.mailTaken;
+
 // Serves requests and pumps, sleeping in ibusweb_wait() between them, until
-// the pool needs topping up while no request is pending, or something must
-// wait for the event loop. A runtime call that traps throws out of here.
+// the pool needs topping up while no request is pending, the page has
+// posted a message, or something must wait for the event loop. A runtime
+// call that traps throws out of here.
 export const serveUntilExcursion = (ctx: LoopContext): Excursion => {
   const { handle, instruments } = ctx;
   for (;;) {
     const next = step(ctx);
     if (next.kind === "served") continue;
     if (next.kind !== "idle") return next;
+    // Checked once step has read the wake word, so that mail posted after
+    // this check has moved the word the host then sleeps on.
+    if (mailWaiting(ctx)) return { kind: "mail" };
     const idle = handle.rt.PThread.unusedWorkers.length;
     if (!ctx.topUpFailed && !instruments.topUpsHeld() && idle < ctx.lowWater)
       return { kind: "topUp", want: ctx.lowWater - idle };

@@ -66,3 +66,12 @@ export const postCrash = ({ words }: ControlViews): void => {
   Atomics.store(words, Word.state, State.crashed);
   Atomics.notify(words, Word.state);
 };
+
+// Tells the host that the page has posted it a message: a host asleep in
+// the runtime wakes, sees the count change and goes to its event loop, where
+// the message arrives. Call it after posting the message.
+export const postMail = ({ words }: ControlViews): void => {
+  Atomics.add(words, Word.mail, 1);
+  Atomics.add(words, Word.wake, 1);
+  Atomics.notify(words, Word.wake);
+};

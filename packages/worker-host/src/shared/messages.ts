@@ -71,7 +71,7 @@ export type EngineStorage =
   // memory.
   | { kind: "browser" };
 
-// The page's first and only message to the host. Wasm is the runtime's
+// The page's first message to the host. Wasm is the runtime's
 // compiled WebAssembly.Module, typed by the environment that has one. Test
 // is read only by the host's test build; the host as released ignores it.
 export type HostInit<Wasm = unknown, Test = never> = {
@@ -115,6 +115,42 @@ export interface InstallReport {
   installMs: number;
 }
 
+// The page's message to a host that is ready: install the engine's own
+// data, the store paths its descriptor names, where this version's storage
+// lacks them, before the engine is first made. The host answers with
+// "prepared". The page posts it with postMail(), which brings a host asleep
+// in the runtime out to its event loop, where messages arrive.
+export interface PrepareEngine {
+  type: "prepare-engine";
+  engine: string;
+}
+
+// How the host found one store path of an engine's own data: "installed",
+// this Worker installed it, for this engine or another that needs it too;
+// "present", its marker was there. files and bytes are the regular files
+// and the bytes of file data its install wrote, as its marker records them;
+// installMs, how long installing it took, 0 when present. lockWaitMs,
+// lockedAt and releasedAt are the path's install lock's, as InstallReport's
+// are, and 0 when the marker was there before the host took it.
+export interface PathInstallReport {
+  engine: string;
+  storePath: string;
+  state: "installed" | "present";
+  files: number;
+  bytes: number;
+  installMs: number;
+  lockWaitMs: number;
+  lockedAt: number;
+  releasedAt: number;
+}
+
+// The end of a PrepareEngine: the engine's own data is installed, or error
+// says why not.
+export interface PreparedReport {
+  engine: string;
+  error?: string;
+}
+
 // What the host did with other versions' data once its own was mounted:
 // the encoded versions it deleted, those another host still uses, and why
 // it couldn't look or delete, if it couldn't. Collecting never fails a
@@ -132,6 +168,11 @@ export type HostMessage =
   | { type: "storage"; state: StorageState; message: string }
   | ({ type: "install" } & InstallReport)
   | ({ type: "collect" } & CollectReport)
+  // While a PrepareEngine installs: bytes of file data written of total,
+  // the size of the engine's store paths the storage lacked.
+  | { type: "prepare-progress"; engine: string; bytes: number; total: number }
+  | ({ type: "path-install" } & PathInstallReport)
+  | ({ type: "prepared" } & PreparedReport)
   // The host failed to start; it serves nothing.
   | { type: "error"; message: string }
   // The runtime stopped after the host was ready: the control buffer says

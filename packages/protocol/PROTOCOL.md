@@ -39,6 +39,7 @@ ring sizes are multiples of 8; the ring is a power of two from 64 to 2³¹ bytes
 | 8     | `doorbell`    | both       | 1 while a doorbell is outstanding; page clears before draining.                                                                                                 |
 | 9     | `wake`        | page       | Bumped and notified after requests and freeing space for a waiting host.                                                                                        |
 | 10    | `reqMode`     | both       | SYNC 0, ASYNC 1, ABANDONED 2.                                                                                                                                   |
+| 11    | `mail`        | page       | Messages posted to the host after HostInit, modulo 2³²; bumped after each, with wake, so a sleeping host goes to its event loop to read them.                   |
 
 Ring counters count bytes modulo 2³²; free space is ringBytes minus the unsigned difference of ringWrite and ringRead.
 Bytes are published before ringWrite advances. Records have a 16-byte header and zero padding to multiples of 8 and

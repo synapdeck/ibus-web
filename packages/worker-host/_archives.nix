@@ -10,8 +10,10 @@
 # tree; tree.json describes each, its version (from its bytes), its unpacked
 # size in bytes and its listing, one `PATH<TAB>d` or `PATH<TAB>f SIZE
 # SHA256` line per entry relative to the store path, sorted bytewise, with
-# tree-upgrade.tar's under `upgrade`. tree.tar.br is tree.tar compressed,
-# truncated.tar.br the same cut short, and corrupt.tar.br no Brotli at all.
+# tree-upgrade.tar's under `upgrade`. lazy.tar and lazy2.tar are tree.tar
+# under each of lazyNames' store paths, which the tests make engines' own
+# data. tree.tar.br is tree.tar compressed, truncated.tar.br the same cut
+# short, and corrupt.tar.br no Brotli at all.
 #
 # The installer's own tests take the rest, which fixtures.json names:
 # long.tar, under longName, has a name and a link target too long for
@@ -21,6 +23,7 @@
 # refuse; symlink.tar a link to "/", which it accepts; and corrupt.tar is
 # tree.tar with a header's checksum broken.
 {
+  lib,
   runCommand,
   python3,
   gnutar,
@@ -28,6 +31,7 @@
   brotli,
   archiveTarFlags,
   dataName,
+  lazyNames,
   longName,
   refusedName,
 }:
@@ -66,6 +70,9 @@ runCommand "ibus-web-worker-host-archives"
     python3 ${./test/archives/make-tree.py} --upgrade tree-upgrade $out
     pack tree ${dataName} tree.tar
     pack tree-upgrade ${dataName} tree-upgrade.tar
+    ${lib.concatStrings (
+      lib.mapAttrsToList (archive: name: "pack tree ${name} ${archive}.tar\n") lazyNames
+    )}
     describe tree.tar tree listing.txt > tree.json
     describe tree-upgrade.tar tree-upgrade listing-upgrade.txt > upgrade.json
     jq --slurpfile upgrade upgrade.json '. + { upgrade: $upgrade[0] }' tree.json > $out/tree.json

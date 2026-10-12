@@ -11,6 +11,7 @@ import { controlViews, postCrash, type ControlViews } from "../../shared/control
 import type { HostInit, HostMessage } from "../../shared/messages.ts";
 import { HostConfig } from "../config.ts";
 import { crashMessage, crashRecord, startupMessage, type CrashRecord } from "../failure.ts";
+import { Mail } from "../mail.ts";
 import { writeHostRecord } from "../output.ts";
 
 // What a Worker's error event carries, as far as the host reads it.
@@ -26,6 +27,8 @@ export interface WorkerEnv {
   // Calls listener with each uncaught error this thread's event loop
   // delivers.
   onUncaughtError(listener: (event: UncaughtError) => void): void;
+  // Calls listener with each message the page posts after HostInit.
+  onMessage(listener: (message: unknown) => void): void;
   // The relay's script.
   relayUrl: URL;
 }
@@ -36,6 +39,9 @@ export interface HostWorkerShape {
   readonly control: ControlViews;
   readonly writer: RingWriter;
   readonly env: WorkerEnv;
+  // The page's messages after HostInit, kept from the moment the Worker
+  // scope starts, so that none posted once the host is ready is lost.
+  readonly mail: Mail;
   // Posts "ready"; from here on, a failure is a crash, not a failed start.
   readonly ready: () => void;
   // Writes the Crashed record, if the ring has room, then CRASHED, so the
@@ -83,6 +89,8 @@ export const workerLayer = (
     Effect.gen(function* () {
       const config = yield* HostConfig;
       const startedAt = performance.now();
+      const mail = new Mail();
+      env.onMessage((message) => mail.receive(message));
       let isReady = false;
       let isCrashed = false;
 
@@ -133,6 +141,7 @@ export const workerLayer = (
         control,
         writer,
         env,
+        mail,
         ready: () => {
           isReady = true;
           env.post({ type: "ready", startupMs: performance.now() - startedAt });

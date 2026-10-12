@@ -12,11 +12,11 @@ and client preedit policy; the test Page separately exercises the transport.
 
 ## Package and bundles
 
-| Export                         | File                   | What it is                                                                                                                                                                                                                                                        |
-| ------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer's helpers (`createControl`, `postRequest`, `takeReply`), the host messages, the storage names, `HostConfigValues`; with declarations. `Word`, `State`, `ReqMode` and the transport layout live in `@ibus-web/protocol`. |
-| `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s.                                                                                              |
-| `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                                                                                                               |
+| Export                         | File                   | What it is                                                                                                                                                                                                                                                                    |
+| ------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@ibus-web/worker-host`        | `dist/shared/index.js` | What the page imports: the control buffer's helpers (`createControl`, `postRequest`, `takeReply`, `postMail`), the host messages, the storage names, `HostConfigValues`; with declarations. `Word`, `State`, `ReqMode` and the transport layout live in `@ibus-web/protocol`. |
+| `@ibus-web/worker-host/worker` | `dist/worker/index.js` | The host's Worker script. It exports nothing; its declarations (`types/worker.d.ts`) give `HostWorker`, a Worker typed to take a `HostInit` and post `HostMessage`s.                                                                                                          |
+| `@ibus-web/worker-host/relay`  | `dist/worker/relay.js` | The wake relay's Worker script, which the host starts from beside its own. It exports nothing (`types/relay.d.ts`).                                                                                                                                                           |
 
 The host also ships `dist/worker/brotli-fallback.js` (291 KB), a separate decoder bundle that the host imports by URL
 from beside its own script only when the environment has no native Brotli `DecompressionStream`. Its WASM is embedded in
@@ -78,17 +78,27 @@ into it. What else the page owes its hosts:
 
 ## Messages
 
+After `HostInit` the page posts one kind of message, `PrepareEngine` (`{ type: "prepare-engine", engine }`): install the
+engine's own data, where the version's storage lacks it, before the engine is first made
+([storage.md](storage.md#an-engines-own-data)). It travels outside the request slot and the ring, so requests and keys
+go on while it installs. A host asleep in the runtime runs no event loop to hear it, so the page counts each message in
+the control buffer's `mail` word too, with `postMail()`, which bumps `mail` and `wake`: the host wakes, sees `mail`
+changed and goes to its event loop to take the messages. The host answers each with `prepared`.
+
 `HostMessage`, every message the host posts:
 
-| `type`     | When                                                                                                                                                                                                             |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`    | Bootstrap is complete; storage is mounted and the loop accepts requests. The engine loads on Init. Carries `startupMs`.                                                                                          |
-| `storage`  | `ephemeral` (mounted in memory for want of IndexedDB, with why), `read-only` (another host holds the writer lock), or `closed` (an IndexedDB connection closed under the host; posted once, when it next wakes). |
-| `install`  | How the engine's data was found: `installed` or `present`, with the marker's `files` and `bytes`, the install lock's wait and its `lockedAt`/`releasedAt`, and `installMs`.                                      |
-| `collect`  | Other versions' data: `removed`, `inUse`, and `error` if it couldn't look or delete. Collecting never fails a start.                                                                                             |
-| `doorbell` | A coalesced notification to drain the ring and check reply state.                                                                                                                                                |
-| `error`    | The host failed to start; it serves nothing, and stays alive to say why.                                                                                                                                         |
-| `crashed`  | The runtime stopped after `ready`; the control buffer already says `CRASHED`, and this says why.                                                                                                                 |
+| `type`             | When                                                                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ready`            | Bootstrap is complete; storage is mounted and the loop accepts requests. The engine loads on Init. Carries `startupMs`.                                                                                                                                       |
+| `storage`          | `ephemeral` (mounted in memory for want of IndexedDB, with why), `read-only` (another host holds the writer lock), or `closed` (an IndexedDB connection closed under the host; posted once, when it next wakes).                                              |
+| `install`          | How the engine's data was found: `installed` or `present`, with the marker's `files` and `bytes`, the install lock's wait and its `lockedAt`/`releasedAt`, and `installMs`.                                                                                   |
+| `collect`          | Other versions' data: `removed`, `inUse`, and `error` if it couldn't look or delete. Collecting never fails a start.                                                                                                                                          |
+| `prepare-progress` | While a `PrepareEngine` installs: `engine`, `bytes` of file data written and `total`, the size of the engine's store paths the storage lacked; the last has `bytes` equal to `total`.                                                                         |
+| `path-install`     | One store path of the engine's own data: `engine`, `storePath`, `installed` or `present`, with its marker's `files` and `bytes`, `installMs`, and its install lock's `lockWaitMs`, `lockedAt` and `releasedAt` (0 when its marker was there before the lock). |
+| `prepared`         | The end of a `PrepareEngine`: `engine`, and `error` if an install failed. A failure leaves the host serving.                                                                                                                                                  |
+| `doorbell`         | A coalesced notification to drain the ring and check reply state.                                                                                                                                                                                             |
+| `error`            | The host failed to start; it serves nothing, and stays alive to say why.                                                                                                                                                                                      |
+| `crashed`          | The runtime stopped after `ready`; the control buffer already says `CRASHED`, and this says why.                                                                                                                                                              |
 
 The storage names (`encodeComponent`, `engineDatabase`, `engineDataDatabase`, `engineInstallLock`, `engineWriterLock`,
 `engineDataLock`, `engineDir`, `engineDataRoot`) are in `src/shared/naming.ts`; stored data is found by them, so they
@@ -164,8 +174,9 @@ The loop (`src/worker/loop.ts`) is plain functions run as **one synchronous sect
 timeout. The section is a single `Effect.try`, so a throw becomes `RuntimeStopped` and writes the `Crashed` record and
 `CRASHED` before anything else runs. Each step:
 
-1. Read the wake word, then `state`. Reading the word first means a wake that lands after the state or the pump looked
-   has changed it, and the sleep on it returns at once.
+1. If the control buffer's `mail` word differs from the messages taken, leave the section to take them (below). Read the
+   wake word, then `state`. Reading the word first means a wake that lands after the state or the pump looked has
+   changed it, and the sleep on it returns at once.
 2. `CRASHED` means the relay failed (only the relay writes it while the host runs).
 3. `REQUEST`: copy the framed request into the runtime's heap and call `ibusweb_dispatch()`. A successful `Init` loads
    the module; successful create/destroy requests update instance scopes. Pump, drain complete output to the ring,
@@ -222,18 +233,32 @@ Test operations occupy request kinds `0xff00`–`0xffff`. Only test instruments 
 `ibusweb_test_dispatch()`, placing reply bytes in the slot. The production loop sends every kind to
 `ibusweb_dispatch()`, which rejects those reserved test operations with `-ENOSYS`.
 
+### Excursions
+
+The loop leaves its synchronous section for two kinds of work that need the event loop: topping the pool up, and the
+page's messages. In both the host serves and pumps as it would asleep, but waits with `Atomics.waitAsync()` on the wake
+word, raced against the work, and returns to the section once the work is done.
+
+**The page's messages.** The host takes each as it arrives, as many as `mail` counts, and prepares its engine at once,
+beside the prepares still running: each of the engine's store paths that lacks a marker is installed under a lock of its
+own, one install serving every engine that needs the path, posting `prepare-progress` and a `path-install` for each
+path, then `prepared` (`src/worker/install/prepare.ts`). It returns to its section once every prepare has ended and no
+message waits. The loop checks `mail` only after reading the wake word, so a message posted after the check has moved
+the word the host then sleeps on. Requests are served between the installs' steps, so the keys of the engines already
+made go on. A call into the runtime that throws while installing stops the host as any trap does; every other failure is
+the install's, reported in `prepared.error`.
+
 ### The pool top-up
 
-The top-up is the loop's only asynchronous excursion, and it runs only while no request is pending. Threads beyond the
-pool fail with `EAGAIN` ([runtime.md](runtime.md#threads)), and a browser starts (Chromium) or creates (Firefox) a
-Worker only while its creator's event loop runs, so the host adds Workers from its event loop:
+The top-up runs only while no request is pending. Threads beyond the pool fail with `EAGAIN`
+([runtime.md](runtime.md#threads)), and a browser starts (Chromium) or creates (Firefox) a Worker only while its
+creator's event loop runs, so the host adds Workers from its event loop:
 
 - `PThread.allocateUnusedWorker()` creates each Worker; the host takes it straight back out of `PThread.unusedWorkers`,
   since `pthread_create()` hands out any Worker there, loaded or not, and a thread on one that hasn't loaded would wait
   for an event loop the host then blocks.
 - `PThread.loadWasmModuleToWorker()` sends it the runtime; once it reports loaded, the Worker joins the pool.
-- Meanwhile the host serves and pumps as it would asleep, but waits with `Atomics.waitAsync()` on the wake word, raced
-  against the loads.
+- Meanwhile the host serves and pumps as it would asleep (above), its waits raced against the loads.
 - A top-up that hasn't finished within `topUpLimitMs` (10 s) is logged as an error, and the host tops up no more;
   Workers that load later still join.
 
@@ -297,6 +322,9 @@ part (`src/worker/storage/`, `src/worker/install/`):
   `FS`, the window shut, and the marker written last. The install lock goes as soon as the data is there; the host then
   collects other versions whose data lock it gets exclusively at once. A memory mount installs every archive at every
   start with no lock. The data backend is sealed as the host closes.
+- **Prepare** (`prepare.ts`): each of the engine's store paths' markers read, and each path without one installed under
+  its own install lock and progress channel, joining an install of it already running in this Worker; the window, shared
+  by overlapping extractions, open while any runs.
 - **Progress**: an installer says it is still going, every `progressIntervalMs` for as long as it holds the install
   lock, from acquiring it to releasing it, on a `BroadcastChannel` named after the install lock. A host waiting for that
   lock gives up only after `lockLimitMs` without word, so a slow install is waited for and a dead one isn't.
@@ -374,6 +402,7 @@ browsers: Workers' console messages), each test takes the lines it expects, and 
 | Hosts of their own        | `thread-crash`, `heap-full`, `mem-stress`, `glib-stress`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | all; `heap-full` under Node                                                                                                             |
 | The host                  | fails to start when instantiation fails; refuses a memory the runtime can't take; reports a failing relay as a crash; logs a top-up that doesn't finish in time and tops up no more                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | all                                                                                                                                     |
 | Storage                   | `storage-roundtrip`, `promise-proxied-fsync`, `storage-costs` (correctness only), `storage-fallback`, `storage-closed`, `writer-lock`; lock release on a crash with the runtime intact, a seal that throws, a trap, a failed start                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | all; `storage-closed` and the throwing seal in browsers                                                                                 |
+| An engine's own data      | `prepare-fresh`, `prepare-skip`, `prepare-concurrent`, `prepare-shared`, `prepare-race`, `prepare-after-mount`, `prepare-interrupted`, `prepare-window-shut`, `prepared-distribution`, `prepared-in-memory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | all; `prepare-race` in browsers; the window's refusals only recorded under Node                                                         |
 | Engine data               | `install-fresh`, `install-skip`, `install-concurrent`, `install-interrupted`, `install-interrupted-queued`, `install-interrupted-stray`, `install-torn-marker`, `upgrade-while-running`, `interrupted-upgrade-then-old`, `stale-file`, `failed-start-releases-locks`, `data-read-only`; a blocked deletion; a stray `<V>.marking`; a lock wait that outlives its limit while progress arrives, and one that fails when it stops                                                                                                                                                                                                                                                                     | all; `install-concurrent` and the blocked deletion in browsers, the stray marking under Node; `data-read-only` only recorded under Node |
 | The installer             | on a memory mount of its own, through `HostOp.install` and `HostOp.fs`: the test tree whole in pieces of 7 bytes to 1 MiB, its counts, and over a half-written tree, and an archive of pax headers byte by byte; refused archives (absolute, `..`, outside the store path, hard link, FIFO); malformed ones (a broken checksum, cut short mid-header, mid-file, between members and before the end-of-archive blocks, a lone zero block, trailing bytes, a signed checksum); the size limit; modes; symbolic links; a name and a link target longer than ustar's; never writing through a link; its directory; a 16 MiB file in its own size; each `FS` call it makes, failing, giving libc's errno |
 | The host as released      | `dispatch`, `thread-crash`, `relay-failure`, and that it ignores `HostInit.test`, on the shipped `dist/worker/` files (served raw in browsers, as a page would serve them)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | all                                                                                                                                     |

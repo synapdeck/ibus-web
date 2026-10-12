@@ -7,8 +7,15 @@
 import type { ModuleManifest } from "@ibus-web/protocol";
 import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { HostConfigValues } from "../../src/shared/config.ts";
-import { createControl } from "../../src/shared/control.ts";
-import type { EngineStorage, HostInit, RuntimeConstants, SideModule } from "../../src/shared/messages.ts";
+import { controlViews, createControl, postMail } from "../../src/shared/control.ts";
+import type {
+  EngineStorage,
+  HostInit,
+  PreparedReport,
+  PrepareEngine,
+  RuntimeConstants,
+  SideModule,
+} from "../../src/shared/messages.ts";
 import { engineWriterLock } from "../../src/shared/naming.ts";
 import { startHost, type HostWorker } from "./bootstrap.ts";
 import { blockingClient, type BlockingClientEnv, type Client, type Clock } from "./client.ts";
@@ -46,7 +53,7 @@ export interface TestArchive {
 // What Vitest's configuration provides each environment's tests, with
 // locations as that environment loads them.
 export interface TestData {
-  engines: Record<"echo" | "thrower" | "empty" | "rebuilt", ModuleManifest>;
+  engines: Record<"echo" | "thrower" | "empty" | "rebuilt" | "lazy", ModuleManifest>;
   echoData: string;
   schemaFiles: number;
   runtimes: RuntimeBuild[];
@@ -69,9 +76,17 @@ export interface TestData {
   // thread and glib-stress's lock takes per thread.
   stress: { threads: number; rounds: number; iterations: number };
   // The engine's data, the next version's, which drops a file and turns
-  // another into a directory, a URL where no archive is, and the installer's
-  // own archives.
-  archives: { tree: TestArchive; upgrade: TestArchive; missing: string; installer: InstallerArchives };
+  // another into a directory, the engine's data again under two store paths
+  // of their own, a URL where no archive is, and the installer's own
+  // archives.
+  archives: {
+    tree: TestArchive;
+    upgrade: TestArchive;
+    lazy: TestArchive;
+    lazy2: TestArchive;
+    missing: string;
+    installer: InstallerArchives;
+  };
 }
 
 // The archives the installer's own tests take: each is at base followed by
@@ -109,8 +124,14 @@ export interface HostOptions {
   moreSides?: SideModule[];
 }
 
+// A PrepareEngine's answer, as the host posts it.
+export type Prepared = { type: "prepared" } & PreparedReport;
+
 export interface RunningHost {
   client: Client;
+  // Posts PrepareEngine for the engine, as a page does, and resolves with
+  // the host's answer.
+  prepare(engine: string): Promise<Prepared>;
   // Whether the host is the test build, which answers HostOp requests.
   instrumented: boolean;
   startupMs: number;
@@ -266,6 +287,10 @@ export const hostUrlFor = (data: TestData, options: HostOptions): string => {
 // waited.
 export const LATE_REPLY_MS = 30_000;
 
+// How long a PrepareEngine may take before a test gives up on it: an
+// install of the test archives takes well under a second.
+export const PREPARE_LIMIT_MS = 30_000;
+
 // Waits while words[index] is value, for at most ms, without holding the
 // thread.
 export const waitFree = async (words: Int32Array, index: number, value: number, ms: number): Promise<void> => {
@@ -375,8 +400,25 @@ export const hostLauncher =
         if ((data as Message).type === "crashed") client.page.onCrash();
       });
 
+      const views = controlViews(control, options.layout);
+      const prepare = async (engine: string): Promise<Prepared> => {
+        const from = messages.length;
+        worker.postMessage({ type: "prepare-engine", engine } satisfies PrepareEngine);
+        postMail(views);
+        const deadline = env.now() + PREPARE_LIMIT_MS;
+        for (;;) {
+          const answer = messages
+            .slice(from)
+            .find((message): message is Prepared => message.type === "prepared" && message.engine === engine);
+          if (answer !== undefined) return answer;
+          if (env.now() >= deadline) throw new Error(`prepare ${engine}: no answer in ${PREPARE_LIMIT_MS} ms`);
+          await env.sleep(5);
+        }
+      };
+
       return {
         client,
+        prepare,
         instrumented: options.released !== true,
         startupMs,
         messages,

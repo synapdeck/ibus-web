@@ -129,6 +129,17 @@ the runtime minimum and the module's static size therefore counts that memory tw
 `threads`. Hangul declares a 4 MiB break and zero threads, based on its current Node conformance workload; the formula
 adds headroom separately. Browser storage threads belong to the runtime's storage share.
 
+### An engine's own data
+
+A store path any engine names in its descriptor's `data` is that engine's own: the host installs it the first time a
+page prepares the engine, before its first `CreateEngine` in a Worker, rather than at start
+([storage.md](storage.md#an-engines-own-data)). The rest of the closure is the module's base data, installed at start.
+`lazyStorePaths(manifest)` in `@ibus-web/protocol` gives the former. Per-engine data suits large, optional data that an
+engine alone uses, such as Rime's dictionaries, of which a user downloads only those of the schemas they type in. Data
+every engine reads, or that the module reads as it starts, stays base data: m17n keeps its whole closure there, since it
+is 1.5 MB as Brotli and ibus-m17n reads every input method's file as it lists them at startup. A store path several
+engines name is installed once, by whichever is prepared first.
+
 ### Archives and serving
 
 Each archive is deterministic pax, POSIX's extension of ustar, Brotli quality 11 and the standard window (no

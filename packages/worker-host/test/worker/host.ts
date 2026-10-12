@@ -20,6 +20,9 @@ self.onmessage = ({ data }: MessageEvent<HostInit<WebAssembly.Module, TestInit>>
   const env: WorkerEnv = {
     post: (message) => self.postMessage(message),
     onUncaughtError: (listener) => self.addEventListener("error", listener),
+    onMessage: (listener) => {
+      self.onmessage = ({ data }: MessageEvent) => listener(data);
+    },
     relayUrl:
       test.relayFailsAfter === undefined
         ? new URL("../../worker/relay.js", import.meta.url)

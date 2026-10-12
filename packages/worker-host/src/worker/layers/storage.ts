@@ -17,9 +17,14 @@ import { HostWorker } from "./worker.ts";
 // The storage's mounts: the engine's own files at its directory, and its
 // data, installed first if need be, at /nix/store. The backends' threads and
 // connections end with the Worker, since WasmFS never destroys a backend;
-// released while the runtime can still be called, it seals the read-write
-// backends, which lets the writer lock go.
-export class Storage extends Context.Service<Storage, MountedStorage>()("@ibus-web/worker-host/Storage") {}
+// released while the runtime can still be called, it seals the backends,
+// which lets the writer lock go.
+export interface StorageShape extends MountedStorage {
+  // Installs an engine's own data before it is first made.
+  readonly prepare: (engine: string) => Promise<void>;
+}
+
+export class Storage extends Context.Service<Storage, StorageShape>()("@ibus-web/worker-host/Storage") {}
 
 export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | HostRuntime | PlannedStorage | HostConfig> =
   Layer.effect(
@@ -70,7 +75,11 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
         instruments,
         post: env.post,
       });
-      const storage: MountedStorage = { ...mounted, closed: () => mounted.closed() || data.closed() };
+      const storage: StorageShape = {
+        ...mounted,
+        closed: () => mounted.closed() || data.closed(),
+        prepare: data.prepare,
+      };
 
       yield* Effect.try({ try: () => setEnvironment(handle, manifest), catch: runtimeCallFailed });
       yield* Effect.try({ try: () => instruments.storageMounted(storage), catch: runtimeCallFailed });

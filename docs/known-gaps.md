@@ -224,6 +224,13 @@ decided.
 - **The memory fallback's headroom for metadata.** Without IndexedDB the memory grows by the page-rounded data size,
   which covers file contents only; WasmFS's file objects and directory entries come out of the base memory's spare,
   which a manifest of many small files could exhaust.
+- **The install window is weaker than the seal.** While a host installs an engine's own data, its data backend takes
+  changes from any thread of its runtime, an engine's included. None writes there, and the window lasts as long as
+  extractions overlap.
+- **A failed install of an engine's own data leaves its partial tree** in the version's database until the next prepare
+  extracts the archive over it; its bytes are counted nowhere meanwhile.
+- **A memory mount installs every engine's own data at start**, since its memory can't grow: without IndexedDB a page
+  downloads the data of engines it never selects.
 - **Real quota failures** aren't reached in tests; the backend's tests inject the state one leaves.
 - **Measurements on one machine.** The fsync and storage figures come from one host's ZFS. Chromium's 64 KiB cliff is
   attributed to Blink's value wrapping, not traced; Firefox's out-of-line threshold is measured (between 768 and 896

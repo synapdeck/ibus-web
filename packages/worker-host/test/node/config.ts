@@ -50,7 +50,7 @@ interface Manifest {
   constants: string;
   errno: string;
   archives: string;
-  engines: Record<"echo" | "thrower" | "empty" | "rebuilt", string>;
+  engines: Record<"echo" | "thrower" | "empty" | "rebuilt" | "lazy", string>;
   echoData: string;
   schemas: string;
   pool: TestData["pool"];
@@ -141,7 +141,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       return [name, path];
     }),
   ) as Record<"missingConstants" | "malformedConstants", string>;
-  type EngineName = "echo" | "thrower" | "empty" | "rebuilt";
+  type EngineName = "echo" | "thrower" | "empty" | "rebuilt" | "lazy";
   const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): ModuleManifest => {
     const engine = readJson<ModuleManifest>(join(manifest.engines[name], "manifest.json"));
     return {
@@ -164,7 +164,8 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
         | "echo"
         | "thrower"
         | "empty"
-        | "rebuilt",
+        | "rebuilt"
+        | "lazy",
       file: string,
     ) => string,
   ): TestData => ({
@@ -173,6 +174,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       thrower: engineManifest("thrower", url),
       empty: engineManifest("empty", url),
       rebuilt: engineManifest("rebuilt", url),
+      lazy: engineManifest("lazy", url),
     },
     echoData: manifest.echoData,
     schemaFiles: readdirSync(manifest.schemas, { recursive: true, withFileTypes: true }).filter((entry) =>
@@ -193,6 +195,8 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
     archives: {
       tree: { ...tree, url: url("archives", tree.archive) },
       upgrade: { ...upgrade, url: url("archives", upgrade.archive) },
+      lazy: { ...tree, archive: "lazy.tar", url: url("archives", "lazy.tar") },
+      lazy2: { ...tree, archive: "lazy2.tar", url: url("archives", "lazy2.tar") },
       missing: url("archives", "missing.tar"),
       installer: {
         base: url("archives", ""),
@@ -243,7 +247,12 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
                 },
               }),
           workerHost: testData((dir, file) =>
-            dir === "archives" || dir === "echo" || dir === "thrower" || dir === "empty" || dir === "rebuilt"
+            dir === "archives" ||
+            dir === "echo" ||
+            dir === "thrower" ||
+            dir === "empty" ||
+            dir === "rebuilt" ||
+            dir === "lazy"
               ? `${nodeOrigin}${prefix}${dir}/${file}`
               : pathToFileURL(join(dirs[dir], file)).href,
           ),

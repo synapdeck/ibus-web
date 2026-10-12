@@ -32,6 +32,7 @@ import { makeDirs, mountAt } from "../storage/mount.ts";
 import type { StoragePlan } from "../storage/plan.ts";
 import { requestLock } from "../storage/locks.ts";
 import { installArchives, type ArchiveHooks, type Tally } from "./archive.ts";
+import { preparer } from "./prepare.ts";
 import { idbStore, nodeStore, sharedWindow, type DataStore } from "./store.ts";
 import { holdLock, progressOn } from "./wait.ts";
 
@@ -50,6 +51,10 @@ interface ProvideData {
 export interface DataMount {
   // Whether its IndexedDB backend's connection has closed under it.
   readonly closed: () => boolean;
+  // Installs the named engine's own data where the version's storage lacks
+  // it, posting what it does and, last, "prepared". Rejects only with what
+  // a call into the runtime threw, which leaves the runtime unfit to call.
+  readonly prepare: (engine: string) => Promise<void>;
 }
 
 // Deletes the data of every other version no host is using. A host using a
@@ -120,7 +125,7 @@ export const provideData = ({
         lockedAt,
         releasedAt: Date.now(),
       });
-      return { closed: () => false };
+      return { closed: () => false, prepare: preparer({ engine, post }) };
     }
 
     const lazy = lazyStorePaths(engine);
@@ -136,7 +141,7 @@ export const provideData = ({
     let seal: (() => void) | undefined;
     yield* runtimeFinalizer(Effect.sync(() => seal?.()));
     const installLock = engineInstallLock(engine);
-    const { store, marker, found, waitMs, lockedAt, releasedAt } = yield* Effect.gen(function* () {
+    const { store, window, marker, found, waitMs, lockedAt, releasedAt } = yield* Effect.gen(function* () {
       const { waitMs, lockedAt } = yield* Effect.acquireRelease(
         hold(installLock, "exclusive", installLock),
         ({ lock }) => Effect.sync(() => held.release(lock)),
@@ -165,7 +170,7 @@ export const provideData = ({
       // Read before letting go, so that a host waiting on the lock can't take
       // it at an earlier time than this.
       const releasedAt = Date.now();
-      return { store, marker, found, waitMs, lockedAt, releasedAt };
+      return { store, window, marker, found, waitMs, lockedAt, releasedAt };
     }).pipe(Effect.scoped);
     report(marker === null ? "installed" : "present", {
       files: found.files,
@@ -175,5 +180,12 @@ export const provideData = ({
       releasedAt,
     });
     post({ type: "collect", ...(yield* Effect.promise(() => collect(store, engine))) });
-    return { closed: () => store.closed() };
+    return {
+      closed: () => store.closed(),
+      prepare: preparer({
+        engine,
+        post,
+        install: { handle, store, window, held, config, instruments, hooks: archiveHooks(config, instruments) },
+      }),
+    };
   });

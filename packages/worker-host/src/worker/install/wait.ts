@@ -64,6 +64,18 @@ export const holdLock = async (
   throw new Error(`${name}: not granted after ${limits.lockLimitMs} ms without word from the host holding it`);
 };
 
+// Says the holder of the lock name is still going, at once and every
+// intervalMs, until the function it returns is called.
+export const announce = (name: string, intervalMs: number): (() => void) => {
+  const channel = new BroadcastChannel(name);
+  channel.postMessage(null);
+  const timer = setInterval(() => channel.postMessage(null), intervalMs);
+  return () => {
+    clearInterval(timer);
+    channel.close();
+  };
+};
+
 // The install lock owns the channel and timer, including time spent clearing,
 // mounting, fetching and sealing. Closing that scope stops the timer before
 // closing the channel, so no announcement can escape the lock's lifetime.

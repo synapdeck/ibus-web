@@ -137,6 +137,25 @@
           ];
         }
       ) engineSides;
+
+      # The echo engine's module with a second engine whose own data is the
+      # store path its links point into, installed only once that engine is
+      # prepared.
+      lazyDist = engines.mkEngineManifest {
+        name = "echo";
+        package = engineSides.echo;
+        inherit settingsSchemaDir;
+        threads = engineThreads;
+        heapBytes = 1024 * 1024;
+        engines = [
+          (testEngine "echo")
+          (testEngine "echo-lazy" // { data = [ "${linkTarget}" ]; })
+        ];
+        settingsSchemas = [
+          "org.example.echo"
+          "org.freedesktop.ibus.panel"
+        ];
+      };
       rebuiltDist = engines.mkEngineManifest {
         name = "empty";
         package = engineSideWithSchemas rebuiltSchemaDir "empty" "engine-empty.c";
@@ -197,7 +216,13 @@
               released = "${runtime.ibusRuntime}";
             };
             sides = "${sidesDir}";
-            engines = lib.mapAttrs (_: dist: "${dist}") (engineDists // { rebuilt = rebuiltDist; });
+            engines = lib.mapAttrs (_: dist: "${dist}") (
+              engineDists
+              // {
+                rebuilt = rebuiltDist;
+                lazy = lazyDist;
+              }
+            );
             echoData = "${echoData}/share/echo/data.txt";
             schemas = "${schemas}";
             constants = "${constants}/constants.json";
@@ -224,6 +249,10 @@
       archives = pkgs.callPackage ./_archives.nix {
         inherit (config.ibusWeb.lib) archiveTarFlags;
         dataName = "00000000000000000000000000000000-test-data";
+        lazyNames = {
+          lazy = "11111111111111111111111111111111-test-lazy";
+          lazy2 = "22222222222222222222222222222222-test-lazy2";
+        };
         longName = "33333333333333333333333333333333-test-long";
         refusedName = "44444444444444444444444444444444-test-refused";
       };

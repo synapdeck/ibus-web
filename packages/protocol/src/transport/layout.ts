@@ -13,6 +13,7 @@ export const Word = {
   doorbell: 8,
   wake: 9,
   reqMode: 10,
+  mail: 11,
 } as const;
 export const State = { idle: 0, request: 1, reply: 2, crashed: 3 } as const;
 export const ReqMode = { sync: 0, async: 1, abandoned: 2 } as const;
@@ -42,6 +43,11 @@ export const wordDescriptions: Record<keyof typeof Word, { writer: string; descr
   doorbell: { writer: "both", description: "1 while a doorbell is outstanding; page clears before draining." },
   wake: { writer: "page", description: "Bumped and notified after requests and freeing space for a waiting host." },
   reqMode: { writer: "both", description: "SYNC 0, ASYNC 1, ABANDONED 2." },
+  mail: {
+    writer: "page",
+    description:
+      "Messages posted to the host after HostInit, modulo 2³²; bumped after each, with wake, so a sleeping host goes to its event loop to read them.",
+  },
 };
 export interface TransportLayout {
   readonly slotBytes: number;

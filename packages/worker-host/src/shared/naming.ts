@@ -48,6 +48,11 @@ export const enginePathMarker = (storePath: string): string => `paths/${storePat
 export const engineInstallLock = (engine: EngineIdentity): string =>
   `ibus-web:install:${encodeComponent(engine.name)}:${encodeComponent(engine.version)}`;
 
+// The Web Lock one store path of an engine's own data is installed under,
+// held exclusively, so that paths install independently of one another.
+export const enginePathInstallLock = (engine: EngineIdentity, storePath: string): string =>
+  `${engineInstallLock(engine)}:${encodeComponent(storePath)}`;
+
 // The Web Lock the one host that may change the engine's user data holds,
 // for as long as it runs; every other host mounts that data read-only.
 export const engineWriterLock = ({ name }: Pick<EngineIdentity, "name">): string =>

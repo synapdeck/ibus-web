@@ -26,7 +26,7 @@ import type { Message } from "./testing.ts";
 
 const encoder = new TextEncoder();
 
-const installOf = (messages: readonly Message[]): InstallReport | undefined =>
+export const installOf = (messages: readonly Message[]): InstallReport | undefined =>
   messages.find((message): message is { type: "install" } & InstallReport => message.type === "install");
 
 const collectOf = (messages: readonly Message[]): CollectReport | undefined => {
@@ -64,7 +64,7 @@ const expectInstall = (
 };
 
 // The engine's installed tree as the host sees it, listed by list-tree.
-const treeOf = async (h: Harness, client: Client, engine: ModuleManifest): Promise<string | number> => {
+export const treeOf = async (h: Harness, client: Client, engine: ModuleManifest): Promise<string | number> => {
   const reply = replyFile(await client.call(opsOf(h).listTree, encoder.encode(engineDataDir(engine, engine.data[0]!))));
   return reply.text ?? reply.status;
 };
@@ -83,7 +83,7 @@ const expectTree = async (
 const upgradeOf = (h: Harness, engine: ModuleManifest): ModuleManifest => withData(engine, h.data.archives.upgrade);
 
 // Runs the scenario, terminating every host it started once it is done.
-const withHosts = async (
+export const withHosts = async (
   h: Harness,
   runtime: RuntimeBuild,
   run: (launch: (engine: ModuleManifest, more?: Partial<HostOptions>) => LaunchedHost) => Promise<void>,
@@ -102,7 +102,7 @@ const withHosts = async (
 
 // Polls until a message matches, failing once limitMs has passed or the
 // host failed to start.
-const waitFor = async <T extends Message>(
+export const waitFor = async <T extends Message>(
   h: Harness,
   host: LaunchedHost,
   match: (message: Message) => message is T,
@@ -148,7 +148,7 @@ const stalledHost = async (
 // A host terminated while connected to a version's database may still be
 // connected when the next host deletes that database: its backend's thread
 // can hear the version change before the Worker is gone, and says so.
-const terminatedHostMayClose = async (h: Harness, database: string): Promise<void> => {
+export const terminatedHostMayClose = async (h: Harness, database: string): Promise<void> => {
   if (h.storageMount !== "indexeddb") return;
   const closed = await h.printed.take(new RegExp(`^wasmfs-idb: ${literal(database)} closed for a version change$`), {
     min: 0,
@@ -160,7 +160,7 @@ const terminatedHostMayClose = async (h: Harness, database: string): Promise<voi
 // Whether the lock comes free within the page's bound: a terminated Worker
 // lets go of its locks once it is gone, which in a browser is after
 // terminate() returns.
-const expectFreed = async (h: Harness, name: string): Promise<void> => {
+export const expectFreed = async (h: Harness, name: string): Promise<void> => {
   expect(await h.locks.released(name), `${name} free within ${LOCK_RELEASE_LIMIT_MS} ms`).toBe(true);
 };
 

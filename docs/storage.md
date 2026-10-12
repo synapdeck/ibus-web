@@ -50,7 +50,8 @@ nothing else of the backend:
   every change fails with `EROFS`, as through a sealed backend, descriptors already open for writing included; while it
   is open the backend takes changes. A backend starts with it open, or shut if created with `WASMFS_IDB_READ_ONLY`.
   Opening a sealed backend's fails with `-EROFS`: a seal is for good. A backend that has ever been open commits on
-  `fsync()`. The window makes no backend the database's only writer; the caller coordinates writers.
+  `fsync()`. The window makes no backend the database's only writer; the caller coordinates writers, as the host does
+  with its install locks ([below](#an-engines-own-data)).
 - `wasmfs_idb_backend_closed(backend)` says whether the database's connection has closed under the backend. It is an
   atomic load, cheap whatever the backend's thread is doing.
 
@@ -325,7 +326,9 @@ to four times it in Firefox (15 µs). At 64 KiB IndexedDB cost 157–300 µs aga
 
 Read-only engine data (m17n-db, Hangul's Hanja tables, Rime's prebuilt schemas) is listed in the engine manifest as
 archives (`storePath`, `url`, unpacked `size`, `encoding`), fetched, installed once per version and read lazily like any
-other file. The protocol lives in `packages/worker-host/src/worker/install/`.
+other file. The archives an engine's descriptor names in its `data` are that engine's own, installed when a page first
+prepares the engine ([below](#an-engines-own-data)); the rest are the version's base data, installed at start. The
+protocol lives in `packages/worker-host/src/worker/install/`.
 
 ### Names and locks
 
@@ -411,6 +414,52 @@ installing is off the request path, so that only delays startup. Each wait is ma
 it times out, because Node 24 grants a request already queued for a terminated `worker_thread`'s lock only once another
 request for it arrives (a queued host got the lock at 1,001 ms). The limits are the host's configuration Layer
 (`lockLimitMs`, `lockRoundMs`, `progressIntervalMs`, `archiveIdleMs`, `deleteLimitMs`), which tests shorten.
+
+### An engine's own data
+
+An engine's descriptor may name store paths of the module's data as its own (`data`,
+[engines.md](engines.md#an-engines-own-data)). They are installed into the version's database, beside its base data,
+when a page first prepares the engine: `PrepareEngine` ([worker-host.md](worker-host.md#messages)), which the page sends
+before the engine's first `CreateEngine` in a Worker. A host prepares several engines at once.
+
+1. The host reads each of the engine's paths' markers, `meta.paths/<storePath>` = `{ files, bytes }`, on a short
+   connection of its own; a path with one is there, since its marker is written last.
+2. For each path without one it joins the install of that path already running in this Worker, if there is one, so that
+   two engines sharing a path fetch it once; otherwise it starts one. An install takes the path's own install lock,
+   `ibus-web:install:<name>:<version>:<storePath>` (encoded as the other names), and says it is still going on the
+   lock's channel while it holds it, so that a host waiting on the path waits rather than gives up. Under the lock it
+   reads the marker again, since another host may have installed the path meanwhile; if it is still missing, it extracts
+   the path's archive at the store's root with the checks of any archive (its own `size` limit, entries confined to its
+   store path) and writes the marker in a strict transaction, last.
+3. It posts `prepare-progress`, the bytes written of the engine's missing paths, a `path-install` for each path,
+   `present` or `installed`, and `prepared`, with the reason if an install failed.
+
+- **Installs run at once.** Different store paths install concurrently, in one Worker or several, each under its own
+  lock: inodes come from `meta.nextIno` inside the one read-write transaction that makes an entry, which IndexedDB
+  serializes against every other over the same stores, whatever the connection; entries are keyed by parent and name,
+  chunks by inode and index; and each extraction has a handle of its own. The base install keeps the version's install
+  lock, and no host prepares an engine before its version's base data is marked.
+- **The window** is shared: it opens as the first extraction starts and shuts as the last ends. The data backend takes
+  changes only while one runs. An engine thread in the same Worker could write to `/nix/store` while it is open; none
+  does. This is weaker than the seal ([known gaps](known-gaps.md#storage)).
+- **The host's own transactions.** An extraction's writes block the host's thread until the backend's transaction
+  commits, and IndexedDB holds that transaction until every earlier one over the same stores has ended, the host's
+  marker reads and writes on its own connection included, which end only in the host's event loop. So the installer
+  waits, before each write, until the host has none of its own open.
+- **An install cut short** leaves no marker for its path, and the next host to prepare the engine extracts the archive
+  over what it left: the version and the store path name one archive, and the installer completes a tree an earlier run
+  of the same archive left half-written. Nothing is removed first, so no host's WasmFS cache is left holding an entry
+  another host deleted.
+- **Hosts that mounted the version first** find a path another host installed by lookup, since WasmFS keeps no entry's
+  absence ([above](#how-it-plugs-into-wasmfs)); preparing the engine then finds its marker and installs nothing.
+- **Memory mounts.** Without IndexedDB the data lives in the runtime's memory, which is sized at start and can't grow,
+  so such a host installs every archive at start, sized as now, and a prepare finds nothing to do.
+
+The scenarios run under Node and in both browsers, on the asserting and the released runtime: a lazy install, a marker
+already present, two engines' paths installing at once with the window opened once, two engines sharing a path with one
+fetch, two hosts racing for one path (browsers only), a path another host installed after this one mounted, an install
+killed mid-path, the window shut after an install and after a failed one, a memory mount installing everything at start,
+and a distribution `mkEngineManifest` built with an engine's own data.
 
 ### Old versions
 
@@ -517,8 +566,9 @@ thread is taken, and works from pthreads under `worker_threads`. Its limits (32-
 
 - **The marker** is the file `<version>.installed` beside the version's directory, outside the tree the engine sees:
   written as `<version>.marking`, synced, renamed over it, the directory synced after where the platform allows. One
-  that doesn't parse counts as absent; removal deletes the marker first, so a removal cut short leaves no marker.
-  Collection lists versions from directories, markers and stray `.marking` files alike.
+  that doesn't parse counts as absent; removal deletes the markers first, so a removal cut short leaves none. A store
+  path of an engine's own data has its marker in `<version>.paths/`, `<hash>-<name>.installed`, written the same way.
+  Collection lists versions from directories, markers, `.paths` directories and stray `.marking` files alike.
 - **Read-only is reported, not enforced.** The host takes the same locks and posts the same states, but the Node backend
   has no read-only mode, so neither a read-only mount, a shut window nor a seal refuses writes.
 - **Locks.** Web Locks coordinate the threads of one Node process only, and not reliably even those: Node 24.21.0

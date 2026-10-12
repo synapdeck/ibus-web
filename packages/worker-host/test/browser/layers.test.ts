@@ -118,6 +118,7 @@ describe("the Worker scope", () => {
         onUncaughtError: (listener) => {
           uncaught = listener;
         },
+        onMessage: () => {},
         relayUrl: new URL("relay.js", location.href),
       };
       const layer = workerLayer(host, env).pipe(Layer.provide(HostConfig.layerWith({ crashWaitMs: 200 })));

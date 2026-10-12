@@ -80,6 +80,19 @@ import {
   installThroughLinks,
   installWhole,
 } from "../shared/installer.ts";
+import {
+  lazyEngineFor,
+  prepareAfterMount,
+  prepareConcurrent,
+  preparedDistribution,
+  preparedInMemory,
+  prepareFresh,
+  prepareInterrupted,
+  prepareRace,
+  prepareShared,
+  prepareSkip,
+  prepareWindowShut,
+} from "../shared/prepare.ts";
 import { browserHarness } from "./harness.ts";
 
 const h = await browserHarness();
@@ -250,6 +263,31 @@ describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => 
   test("a wait for the install lock outlives the lock limit while the installer's word keeps arriving", () =>
     waitOutlivesLimit(h, runtime));
   test("a wait for the install lock fails once the installer's word stops", () => waitFailsWithoutProgress(h, runtime));
+});
+
+describe.each(h.data.runtimes)("an engine's own data on the $name runtime", (runtime) => {
+  test("prepare-fresh", () => prepareFresh(h, runtime));
+  test("prepare-skip", () => prepareSkip(h, runtime));
+  test("prepare-concurrent", () => prepareConcurrent(h, runtime));
+  test("prepare-shared", () => prepareShared(h, runtime));
+  test("prepare-race", () => prepareRace(h, runtime));
+  test("prepare-after-mount", () => prepareAfterMount(h, runtime));
+  test("prepare-interrupted", () => prepareInterrupted(h, runtime));
+  test("prepare-window-shut", () => prepareWindowShut(h, runtime));
+  test("prepared-distribution", () => preparedDistribution(h, runtime));
+  test("prepared-in-memory", async () => {
+    const host = await h.start({
+      runtime,
+      engine: lazyEngineFor(h, "prepared-in-memory", runtime),
+      storage: { kind: "browser" },
+      test: h.withoutIndexedDB,
+    });
+    try {
+      await preparedInMemory(h, host);
+    } finally {
+      await host.terminate();
+    }
+  });
 });
 
 // The Worker scripts exactly as the package ships them, loaded as they are
