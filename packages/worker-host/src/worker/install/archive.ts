@@ -98,7 +98,7 @@ export const placeEntry = (header: TarHeader, storeName: string, { errno }: FsCo
 
 // Waits until the installer may write, checking again once each wait ends,
 // so the write after it follows with no await between.
-const quieted = async (quiet: ExtractHooks["quiet"]): Promise<void> => {
+export const quieted = async (quiet: ExtractHooks["quiet"]): Promise<void> => {
   let wait: Promise<void> | undefined;
   while ((wait = quiet?.()) !== undefined) await wait;
 };
@@ -106,7 +106,8 @@ const quieted = async (quiet: ExtractHooks["quiet"]): Promise<void> => {
 // Extracts the tar archive streaming from source into dir, an existing
 // directory, where its entries must all lie under storeName, writing at
 // most limit bytes of file data; adds the archive bytes it fed to tally.fed
-// and returns what it wrote. what names the archive in a refusal.
+// and returns what it wrote. Each entry is written under placedAs in place
+// of storeName. what names the archive in a refusal.
 export const extract = async (
   handle: RuntimeHandle,
   source: ReadableStream<Uint8Array>,
@@ -116,6 +117,7 @@ export const extract = async (
   limit: number,
   tally: Tally,
   hooks: ExtractHooks,
+  placedAs = storeName,
 ): Promise<Written> => {
   const gate = new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, controller) {
@@ -160,7 +162,7 @@ export const extract = async (
       const next = await read(entries.read());
       if (next.done) break;
       const { header, body } = next.value;
-      const name = placeEntry(header, storeName, handle.fs);
+      const name = placedAs + placeEntry(header, storeName, handle.fs).slice(storeName.length);
       const mode = header.mode ?? 0;
       if (header.type === "directory") {
         await quieted(hooks.quiet);
@@ -214,13 +216,14 @@ export const extract = async (
 };
 
 // Fetches the archive at url and extracts it into dir, the store's root,
-// where its entries must all lie under storeName; its regular files must
-// hold exactly expectedBytes.
+// where its entries must all lie under storeName, writing them under
+// placedAs; its regular files must hold exactly expectedBytes.
 const installArchive = async (
   handle: RuntimeHandle,
   url: string,
   dir: string,
   storeName: string,
+  placedAs: string,
   encoding: "br" | "identity",
   expectedBytes: number,
   tally: Tally,
@@ -240,11 +243,21 @@ const installArchive = async (
     const source = decompressed(response.body, encoding, hooks.forceBrotliFallback, hooks.brotliDecoder);
     await quieted(hooks.quiet);
     makeDirs(handle, dir);
-    const { files, bytes } = await extract(handle, source, `install ${url}`, dir, storeName, expectedBytes, tally, {
-      ...hooks,
-      arrived,
-      holding: () => clearTimeout(timer),
-    });
+    const { files, bytes } = await extract(
+      handle,
+      source,
+      `install ${url}`,
+      dir,
+      storeName,
+      expectedBytes,
+      tally,
+      {
+        ...hooks,
+        arrived,
+        holding: () => clearTimeout(timer),
+      },
+      placedAs,
+    );
     if (bytes !== expectedBytes)
       throw new RuntimeRefused(`install ${url} size: expected ${expectedBytes} regular-file bytes, got ${bytes}`);
     tally.files += files;
@@ -254,18 +267,30 @@ const installArchive = async (
   }
 };
 
-// Installs the archives at the store's root, each at its own store path.
+// Installs the archives at the store's root, each at its own store path or
+// under the name placedAs gives that path's name.
 export const installArchives = async (
   handle: RuntimeHandle,
   engine: ModuleManifest,
   entries: readonly DataEntry[],
   hooks: ArchiveHooks,
+  placedAs: (storeName: string) => string = (storeName) => storeName,
 ): Promise<Tally> => {
   const tally: Tally = { fed: 0, files: 0, bytes: 0 };
   const root = engineDataRoot(engine);
   for (const data of entries) {
     const storeName = data.storePath.slice(data.storePath.lastIndexOf("/") + 1);
-    await installArchive(handle, data.url, root, storeName, data.encoding, data.size, tally, hooks);
+    await installArchive(
+      handle,
+      data.url,
+      root,
+      storeName,
+      placedAs(storeName),
+      data.encoding,
+      data.size,
+      tally,
+      hooks,
+    );
   }
   return tally;
 };

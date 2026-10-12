@@ -158,6 +158,10 @@ export interface TestInit {
   stallAt?: number;
   // The install waits this long before feeding each piece of an archive.
   pieceDelayMs?: number;
+  // An install of a store path of an engine's own data stops for good once
+  // the path's tree is in place, before its marker, and the host posts
+  // "stalled-marking".
+  stallBeforeMark?: boolean;
   // Sealing the engine's user data throws.
   sealThrows?: boolean;
   forceBrotliFallback?: boolean;
@@ -174,7 +178,11 @@ export type TestMessage =
   // An archive of the engine's data is about to be fetched.
   | { type: "fetching"; url: string }
   // The data backend's window opened or shut, at Date.now().
-  | { type: "window"; open: boolean; at: number };
+  | { type: "window"; open: boolean; at: number }
+  // A staging tree an install cut short left at path was removed.
+  | { type: "swept"; path: string }
+  // The install stopped where TestInit.stallBeforeMark said.
+  | { type: "stalled-marking"; storePath: string };
 
 export type Message = HostMessage | TestMessage;
 

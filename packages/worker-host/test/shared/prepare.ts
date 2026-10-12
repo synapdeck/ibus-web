@@ -9,7 +9,7 @@
 import { expect } from "vitest";
 import type { ModuleManifest } from "@ibus-web/protocol";
 import type { PathInstallReport } from "../../src/shared/messages.ts";
-import { engineDataDatabase, enginePathInstallLock } from "../../src/shared/naming.ts";
+import { engineDataDatabase, enginePathInstallLock, engineStagingDir } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";
 import type { Harness, RunningHost, RuntimeBuild } from "./harness.ts";
 import { counts, expectFreed, installOf, terminatedHostMayClose, waitFor, withHosts } from "./install.ts";
@@ -72,9 +72,13 @@ const progressOf = (messages: readonly Message[], from = 0, engine = LAZY_ENGINE
     );
 
 // The tree under path as the host sees it, listed by list-tree, or the
-// error that listing it failed with.
-const listed = async (h: Harness, client: Client, path: string): Promise<string | number> => {
-  const reply = replyFile(await client.call(opsOf(h).listTree, encoder.encode(path)));
+// error that listing it failed with. A listing taken while the host
+// installs lets the page go at once, since in Firefox a response body the
+// host fetches waits while the page spins.
+const listed = async (h: Harness, client: Client, path: string, budgetMs?: number): Promise<string | number> => {
+  const reply = replyFile(
+    await client.call(opsOf(h).listTree, encoder.encode(path), budgetMs === undefined ? {} : { budgetMs }),
+  );
   return reply.text ?? reply.status;
 };
 
@@ -260,12 +264,13 @@ export const prepareAfterMount = (h: Harness, runtime: RuntimeBuild): Promise<vo
   });
 
 // A host whose Worker is terminated halfway through installing the lazy
-// path leaves no marker for it: the next host to prepare the engine
-// extracts the archive again over what the first left, and the tree is the
-// archive's, its counts whole.
+// path leaves no marker and no store path, only its staging tree: the next
+// host to prepare the engine removes that tree, extracts the archive again
+// and moves it into place, and the tree is the archive's, its counts whole.
 export const prepareInterrupted = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = lazyEngineFor(h, "prepare-interrupted", runtime);
+    const staging = engineStagingDir(engine, { storePath: LAZY_PATH });
     const { lazy } = h.data.archives;
     const launched = launch(engine, { test: { stallAt: Math.floor(lazy.size / 2) } });
     const first = await launched.ready;
@@ -281,9 +286,88 @@ export const prepareInterrupted = (h: Harness, runtime: RuntimeBuild): Promise<v
     await expectFreed(h, enginePathInstallLock(engine, LAZY_PATH));
     const next = await launch(engine).ready;
     expect(installOf(next.messages)?.state, "the base data").toBe("present");
+    expect(await listed(h, next.client, LAZY_PATH), "the store path the first left").toBe(-errno(h, "ENOENT"));
+    expect(typeof (await listed(h, next.client, staging)), "the staging tree the first left").toBe("string");
+    const from = next.messages.length;
     await prepareLazy(h, next, "installed");
+    expect(
+      next.messages.slice(from).filter((message) => message.type === "swept"),
+      "the staging tree removed",
+    ).toEqual([{ type: "swept", path: staging }]);
+    await expectLazyTree(h, next.client);
+    expect(await listed(h, next.client, staging), "the staging tree after").toBe(-errno(h, "ENOENT"));
+    await terminatedHostMayClose(h, engineDataDatabase(engine));
+  });
+
+// A host whose Worker is terminated after it moved the lazy path's tree
+// into place but before it wrote the path's marker leaves the path whole:
+// the next host to prepare the engine marks it without fetching the archive
+// again, counting what is there.
+export const prepareMovedUnmarked = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = lazyEngineFor(h, "prepare-moved-unmarked", runtime);
+    const launched = launch(engine, { test: { stallBeforeMark: true } });
+    const first = await launched.ready;
+    void first.prepare(LAZY_ENGINE).catch(() => {});
+    await waitFor(
+      h,
+      launched,
+      (message): message is { type: "stalled-marking"; storePath: string } =>
+        message.type === "stalled-marking" && message.storePath === LAZY_PATH,
+      "the install stopping before its marker",
+    );
+    await first.terminate();
+    await expectFreed(h, enginePathInstallLock(engine, LAZY_PATH));
+    const next = await launch(engine).ready;
+    await expectLazyTree(h, next.client, "the tree the first moved into place");
+    const from = next.messages.length;
+    const prepared = await next.prepare(LAZY_ENGINE);
+    expect(prepared, "the prepare's answer").toEqual({ type: "prepared", engine: LAZY_ENGINE });
+    const { files, bytes } = counts(h.data.archives.lazy);
+    expect(pathInstalls(next.messages, from), "the path's report").toMatchObject([
+      { storePath: LAZY_PATH, state: "installed", files, bytes },
+    ]);
+    expect(
+      next.messages.slice(from).filter((message) => message.type === "fetching" || message.type === "swept"),
+      "fetches and sweeps",
+    ).toEqual([]);
+    await prepareLazy(h, next, "present");
     await expectLazyTree(h, next.client);
     await terminatedHostMayClose(h, engineDataDatabase(engine));
+  });
+
+// A reader in the installing host, polling the lazy path while the install
+// runs, finds no store path until it finds the whole tree: never a tree the
+// installer is still writing.
+export const prepareWhole = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = lazyEngineFor(h, "prepare-whole", runtime);
+    const { lazy } = h.data.archives;
+    const host = await launch(engine, { test: { pieceDelayMs: 20 } }).ready;
+    const from = host.messages.length;
+    let answer: Awaited<ReturnType<RunningHost["prepare"]>> | undefined;
+    const preparing = host.prepare(LAZY_ENGINE).then((prepared) => (answer = prepared));
+    // Whether the install has written some of the path's data but not all.
+    const midway = (): boolean =>
+      progressOf(host.messages, from).some(({ bytes, total }) => bytes > 0 && bytes < total);
+    let missedMidway = 0;
+    let found: string | number = -errno(h, "ENOENT");
+    while (answer === undefined) {
+      const during = midway();
+      found = await listed(h, host.client, LAZY_PATH, 1);
+      if (found !== -errno(h, "ENOENT")) break;
+      if (during && answer === undefined) missedMidway++;
+      await h.sleep(2);
+    }
+    await preparing;
+    h.record("prepare-whole", { missedMidway });
+    expect(answer, "the prepare's answer").toEqual({ type: "prepared", engine: LAZY_ENGINE });
+    if (found !== -errno(h, "ENOENT")) expect(found, "the tree as first found").toBe(lazy.listing);
+    expect(missedMidway, "listings that found no path while the install was midway").toBeGreaterThan(0);
+    await expectLazyTree(h, host.client);
+    expect(await listed(h, host.client, engineStagingDir(engine, { storePath: LAZY_PATH })), "the staging tree").toBe(
+      -errno(h, "ENOENT"),
+    );
   });
 
 // The backend's window is open only while a host installs: a file written

@@ -7,15 +7,17 @@
 // one Worker or several, and within a Worker one install serves every
 // engine that needs the path while it runs. Under the lock the host reads
 // the path's marker again, since another host may have installed it
-// meanwhile; if it is still missing, it extracts the path's archive through
-// the backend's window and writes the marker, last. An install cut short
-// leaves no marker, and the next one extracts over what it left: the
-// version and the store path name one archive, and the installer completes
-// a tree an earlier run of the same archive left half-written, without
-// removing what another host's file system may already have found there. A
-// host that mounted the version before another installed a path finds the
-// path by lookup, since WasmFS keeps only the entries it has found, never
-// an entry's absence.
+// meanwhile; if it is still missing, it installs the path through the
+// backend's window, extracting under a staging name and moving the tree
+// onto the store path whole, and writes the marker, last. So a reader, an
+// engine's thread in this Worker or another Worker's, finds no store path
+// or the whole of it, never a tree half-written. An install cut short
+// leaves no marker: before the move it leaves a staging tree, which the
+// next install of the path removes first; after it, the whole path, which
+// the next install marks without extracting it again. A host that mounted
+// the version before another installed a path finds the path by lookup,
+// since WasmFS keeps only the entries it has found, never an entry's
+// absence.
 
 import { errorMessage, type ModuleManifest } from "@ibus-web/protocol";
 import type { HostConfigValues } from "../../shared/config.ts";
@@ -24,7 +26,8 @@ import { enginePathInstallLock } from "../../shared/naming.ts";
 import type { Instruments } from "../instruments.ts";
 import { RuntimeRefused, type RuntimeHandle } from "../runtime.ts";
 import type { Held } from "../storage/held.ts";
-import { installArchives, outside, type ArchiveHooks, type DataEntry } from "./archive.ts";
+import { outside, type ArchiveHooks, type DataEntry } from "./archive.ts";
+import { installStorePath } from "./staging.ts";
 import type { DataStore } from "./store.ts";
 import { announce, holdLock } from "./wait.ts";
 
@@ -83,17 +86,19 @@ const installPath = (
       const marker = await outside(`${entry.storePath}'s marker`, store.pathInstalled(entry.storePath));
       if (marker !== null) return { state: "present", ...marker, installMs: 0, ...fields, releasedAt: Date.now() };
       const startedAt = performance.now();
-      const tally = await window(() =>
-        installArchives(handle, engine, [entry], {
+      const staged = await window(() =>
+        installStorePath(handle, engine, entry, {
           ...hooks,
           quiet: store.quiet,
+          swept: instruments.swept,
           written: (bytes) => {
             path.written = bytes;
             for (const hear of path.heard) hear();
           },
         }),
       );
-      const written = { files: tally.files, bytes: tally.bytes };
+      const written = { files: staged.files, bytes: staged.bytes };
+      await instruments.beforeMark(entry.storePath);
       await outside(`marking ${entry.storePath}`, store.markPath(entry.storePath, written));
       // Read before letting go, so that a host waiting on the lock can't take
       // it at an earlier time than this.

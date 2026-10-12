@@ -17,7 +17,7 @@ const BASE = "00000000000000000000000000000000-data";
 const fs: FsConstants = {
   errno: { EEXIST: 20, EFBIG: 22, EINVAL: 28, EISDIR: 31, ENOENT: 44, ENOTDIR: 54, EOPNOTSUPP: 138 },
   open: { O_WRONLY: 1, O_CREAT: 64, O_TRUNC: 512, O_NOFOLLOW: 131072 },
-  mode: { S_IFMT: 61440, S_IFDIR: 16384, S_IFLNK: 40960 },
+  mode: { S_IFMT: 61440, S_IFDIR: 16384, S_IFLNK: 40960, S_IFREG: 32768 },
 };
 
 // The bytes as a stream in pieces of the size.

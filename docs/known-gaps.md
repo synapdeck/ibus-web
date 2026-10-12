@@ -201,9 +201,13 @@ decided.
   connections. Installers would extract to private staging names, then rename onto the store path in one transaction; a
   loser would discard its identical staging copy, and readers would see only whole paths. Deletion would require every
   Worker to hold a shared Web Lock for each path it uses; deletion would take that lock exclusively with `ifAvailable`.
-  Before implementing this, verify that backend rename is one transaction that refuses an existing target, and define
-  how interrupted staging trees are swept. This sharing, rename contract and staging cleanup are not implemented or
-  verified.
+  The staging and the rename exist for an engine's own data ([storage.md](storage.md#an-engines-own-data)): each store
+  path is extracted under a staging name and renamed onto its path in one transaction, and an interrupted staging tree
+  is swept by the next install of the path. They rely on the path's install lock, though: WasmFS's rename replaces an
+  empty directory and the backend's move replaces any entry, so the installer checks the target is absent under the
+  lock, and only one host stages a path at a time. Without the lock, concurrent installers would need private staging
+  names of their own and a move that refuses an existing target, and the sweep would need to tell a dead installer's
+  tree from a live one's. The shared database, the lock-free installs and per-path deletion are not implemented.
 
 - **Host API**: usage report, export and reset (spec §5.6), and the quota `storage` events of spec §8, aren't built.
 - **`storage: closed` waits for a wake.** The host notices a closed connection only when it next wakes, so a version
@@ -224,8 +228,9 @@ decided.
 - **The install window is weaker than the seal.** While a host installs an engine's own data, its data backend takes
   changes from any thread of its runtime, an engine's included. None writes there, and the window lasts as long as
   extractions overlap.
-- **A failed install of an engine's own data leaves its partial tree** in the version's database until the next prepare
-  extracts the archive over it; its bytes are counted nowhere meanwhile.
+- **An install of an engine's own data cut short leaves its staging tree** in the version's database until the next
+  install of the path sweeps it; its bytes are counted nowhere meanwhile. A failed install removes its own, unless the
+  runtime can no longer be called or the removal fails.
 - **A memory mount installs every engine's own data at start**, since its memory can't grow: without IndexedDB a page
   downloads the data of engines it never selects.
 - **Real quota failures** aren't reached in tests; the backend's tests inject the state one leaves.

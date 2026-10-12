@@ -88,9 +88,11 @@ import {
   preparedInMemory,
   prepareFresh,
   prepareInterrupted,
+  prepareMovedUnmarked,
   prepareRace,
   prepareShared,
   prepareSkip,
+  prepareWhole,
   prepareWindowShut,
 } from "../shared/prepare.ts";
 import { browserHarness } from "./harness.ts";
@@ -273,6 +275,8 @@ describe.each(h.data.runtimes)("an engine's own data on the $name runtime", (run
   test("prepare-race", () => prepareRace(h, runtime));
   test("prepare-after-mount", () => prepareAfterMount(h, runtime));
   test("prepare-interrupted", () => prepareInterrupted(h, runtime));
+  test("prepare-moved-unmarked", () => prepareMovedUnmarked(h, runtime));
+  test("prepare-whole", () => prepareWhole(h, runtime));
   test("prepare-window-shut", () => prepareWindowShut(h, runtime));
   test("prepared-distribution", () => preparedDistribution(h, runtime));
   test("prepared-in-memory", async () => {

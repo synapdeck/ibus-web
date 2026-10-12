@@ -133,6 +133,12 @@ export const makeInstruments = (
     brotliDecoder: (decoder) => post({ type: "brotli-decoder", decoder }),
     fetching: (url) => post({ type: "fetching", url }),
     window: (open) => post({ type: "window", open, at: Date.now() }),
+    swept: (path) => post({ type: "swept", path }),
+    beforeMark: (storePath) => {
+      if (test.stallBeforeMark !== true) return undefined;
+      post({ type: "stalled-marking", storePath });
+      return new Promise<void>(() => {});
+    },
     beforeProbe: () => {
       if (test.withoutIndexedDB === true) withholdIndexedDB();
     },

@@ -24,6 +24,11 @@ export interface Instruments {
   readonly fetching: (url: string) => void;
   // The data backend's window for changes opened or shut.
   readonly window: (open: boolean) => void;
+  // A staging tree an install cut short left at path was removed.
+  readonly swept: (path: string) => void;
+  // A store path's tree is in place and its marker about to be written; the
+  // install waits for a promise.
+  readonly beforeMark: (storePath: string) => Promise<void> | undefined;
   readonly beforeProbe: () => void;
   // Before the runtime's module is imported, which under Node replaces the
   // global Worker class.
@@ -57,6 +62,8 @@ const none: Instruments = {
   brotliDecoder: () => {},
   fetching: () => {},
   window: () => {},
+  swept: () => {},
+  beforeMark: () => undefined,
   beforeProbe: () => {},
   beforeRuntime: () => {},
   runtimeStarted: () => {},

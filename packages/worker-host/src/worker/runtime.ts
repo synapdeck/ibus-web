@@ -54,11 +54,16 @@ export interface Runtime {
 }
 
 // What the host uses of WasmFS's FS. Most calls throw an ErrnoError on
-// failure; unlink() and symlink() return the negative errno instead. Paths
-// are absolute; a mode is the permission bits and, from lstat(), the type.
+// failure; unlink() and symlink() return the negative errno instead, and
+// readdir() throws a plain Error for a directory it can't open. Paths are
+// absolute; a mode is the permission bits and, from lstat(), the type.
 export interface EmscriptenFs {
   ErrnoError: new (errno: number) => Error & { errno: number };
   mkdir(path: string, mode: number): void;
+  rmdir(path: string): void;
+  // The directory's names, "." and ".." among them.
+  readdir(path: string): string[];
+  rename(from: string, to: string): void;
   symlink(target: string, path: string): number;
   unlink(path: string): number;
   lstat(path: string): { mode: number; size: number };
@@ -127,6 +132,9 @@ export const requireRuntime = (rt: Runtime): void => {
   const fs = (rt as Partial<Runtime>).FS as Partial<EmscriptenFs> | undefined;
   const fsCalls = [
     "mkdir",
+    "rmdir",
+    "readdir",
+    "rename",
     "symlink",
     "unlink",
     "lstat",

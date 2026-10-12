@@ -74,7 +74,7 @@ const runtimeConstants = Schema.Struct({
       EOPNOTSUPP: count,
     }),
     open: Schema.Struct({ O_WRONLY: count, O_CREAT: count, O_TRUNC: count, O_NOFOLLOW: count }),
-    mode: Schema.Struct({ S_IFMT: count, S_IFDIR: count, S_IFLNK: count }),
+    mode: Schema.Struct({ S_IFMT: count, S_IFDIR: count, S_IFLNK: count, S_IFREG: count }),
   }),
   poolLowWater: count,
 });

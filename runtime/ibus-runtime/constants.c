@@ -27,7 +27,8 @@ int main(void) {
   printf(", \"open\": {\"O_WRONLY\": %d, \"O_CREAT\": %d, \"O_TRUNC\": %d, "
          "\"O_NOFOLLOW\": %d}",
          O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW);
-  printf(", \"mode\": {\"S_IFMT\": %d, \"S_IFDIR\": %d, \"S_IFLNK\": %d}}}\n",
-         S_IFMT, S_IFDIR, S_IFLNK);
+  printf(", \"mode\": {\"S_IFMT\": %d, \"S_IFDIR\": %d, \"S_IFLNK\": %d, "
+         "\"S_IFREG\": %d}}}\n",
+         S_IFMT, S_IFDIR, S_IFLNK, S_IFREG);
   return 0;
 }

@@ -211,9 +211,10 @@ counts), `errors` (injected quota failures, read-only refusals, a version change
 their thread back), `sweep.1`/`sweep.2`, `seal`, `writable` (a shut window refusing every change, through a descriptor
 opened while it was open too, and leaving the database as it was; an open one taking changes, on a backend created
 read-only as well, whose `fsync()` then commits; a sealed backend's never opening) and `visibility` (a file another
-backend creates after this one's lookup missed it, found and listed). Each test program's pool is one thread plus one
-per backend its cases create, strictly, so a miscount fails the case. The host's storage and engine-data scenarios run
-in `checks.worker-host-node` and `checks.worker-host-browser`.
+backend creates after this one's lookup missed it, found and listed; a directory moved onto such a name, found whole; a
+failed move leaving the directory where it was; a move onto a directory another backend filled, refused). Each test
+program's pool is one thread plus one per backend its cases create, strictly, so a miscount fails the case. The host's
+storage and engine-data scenarios run in `checks.worker-host-node` and `checks.worker-host-browser`.
 
 ## Chunk size
 
@@ -428,9 +429,8 @@ before the engine's first `CreateEngine` in a Worker. A host prepares several en
    two engines sharing a path fetch it once; otherwise it starts one. An install takes the path's own install lock,
    `ibus-web:install:<name>:<version>:<storePath>` (encoded as the other names), and says it is still going on the
    lock's channel while it holds it, so that a host waiting on the path waits rather than gives up. Under the lock it
-   reads the marker again, since another host may have installed the path meanwhile; if it is still missing, it extracts
-   the path's archive at the store's root with the checks of any archive (its own `size` limit, entries confined to its
-   store path) and writes the marker in a strict transaction, last.
+   reads the marker again, since another host may have installed the path meanwhile; if it is still missing, it installs
+   the path whole (below) and writes the marker in a strict transaction, last.
 3. It posts `prepare-progress`, the bytes written of the engine's missing paths, a `path-install` for each path,
    `present` or `installed`, and `prepared`, with the reason if an install failed.
 
@@ -446,10 +446,23 @@ before the engine's first `CreateEngine` in a Worker. A host prepares several en
   commits, and IndexedDB holds that transaction until every earlier one over the same stores has ended, the host's
   marker reads and writes on its own connection included, which end only in the host's event loop. So the installer
   waits, before each write, until the host has none of its own open.
-- **An install cut short** leaves no marker for its path, and the next host to prepare the engine extracts the archive
-  over what it left: the version and the store path name one archive, and the installer completes a tree an earlier run
-  of the same archive left half-written. Nothing is removed first, so no host's WasmFS cache is left holding an entry
-  another host deleted.
+- **A path appears whole.** The installer extracts the archive, with the checks of any archive (its own `size` limit,
+  entries confined to its store path), under a staging name beside the store path, `/nix/store/.staging-<hash>-<name>`,
+  then renames the staging tree onto the store path. Nix refuses a store path's name that starts with a dot, and an
+  archive's entries lie under its own store path, so no store path or archive entry has that name. The IndexedDB backend
+  makes the rename one read-write transaction (`_wasmfs_idb_move`: the old entry deleted and the new one put, or
+  neither), and the Node backend one `rename(2)`. So a reader finds no store path or the whole of it: an engine thread
+  in the same Worker, such as Rime's deployer walking schemas and opening dictionaries while it maintains its data at
+  start, and any other Worker, which finds the moved directory by lookup. WasmFS refuses to rename onto a directory that
+  holds anything (`ENOTEMPTY`) but would replace an empty one, and the backend's move replaces whatever entry is at the
+  name, so the installer checks the store path is absent itself, under the path's install lock, which no other host's
+  install of the path can hold meanwhile.
+- **An install cut short** leaves no marker for its path. Cut short before the rename, it leaves a staging tree and no
+  store path: the next install of the path, under its lock, removes that tree before extracting. Cut short after it, it
+  leaves the whole path, since only the rename makes it: the next install counts the path's files and bytes, checks the
+  bytes against the manifest's `size`, and writes the marker without fetching the archive again. An install that fails
+  while the runtime can still be called removes its own staging tree, so no Worker's WasmFS keeps a cached staging tree
+  that another host's later install replaces.
 - **Hosts that mounted the version first** find a path another host installed by lookup, since WasmFS keeps no entry's
   absence ([above](#how-it-plugs-into-wasmfs)); preparing the engine then finds its marker and installs nothing.
 - **Memory mounts.** Without IndexedDB the data lives in the runtime's memory, which is sized at start and can't grow,
@@ -458,8 +471,12 @@ before the engine's first `CreateEngine` in a Worker. A host prepares several en
 The scenarios run under Node and in both browsers, on the asserting and the released runtime: a lazy install, a marker
 already present, two engines' paths installing at once with the window opened once, two engines sharing a path with one
 fetch, two hosts racing for one path (browsers only), a path another host installed after this one mounted, an install
-killed mid-path, the window shut after an install and after a failed one, a memory mount installing everything at start,
-and a distribution `mkEngineManifest` built with an engine's own data.
+killed mid-path (its staging tree swept), one killed between its rename and its marker (marked without a fetch), a
+reader in the installing host polling the path and never finding it partial, the window shut after an install and after
+a failed one, a memory mount installing everything at start, and a distribution `mkEngineManifest` built with an
+engine's own data. The backend's own tests check that a directory moved onto a name another backend missed is found
+there whole, that a failed move leaves it where it was, and that a move onto a directory another backend filled is
+refused.
 
 ### Old versions
 

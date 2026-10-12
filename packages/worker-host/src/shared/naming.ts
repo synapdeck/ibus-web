@@ -29,6 +29,15 @@ export const engineDataRoot = (_engine: Pick<EngineIdentity, "name">): string =>
 export const engineDataDir = (engine: Pick<EngineIdentity, "name">, { storePath }: { storePath: string }): string =>
   `${engineDataRoot(engine)}/${storePath.slice("/nix/store/".length)}`;
 
+// The name a store path of an engine's own data is extracted under, beside
+// it, before it is moved onto its store path whole: one no store path has,
+// since Nix refuses a store path's name that starts with a dot, and that no
+// archive names, since each archive's entries lie under its own store path.
+export const stagingName = (storeName: string): string => `.staging-${storeName}`;
+
+export const engineStagingDir = (engine: Pick<EngineIdentity, "name">, { storePath }: { storePath: string }): string =>
+  `${engineDataRoot(engine)}/${stagingName(storePath.slice("/nix/store/".length))}`;
+
 // The IndexedDB database the engine's own files live in.
 export const engineDatabase = ({ name }: Pick<EngineIdentity, "name">): string => `ibus-web/${encodeComponent(name)}`;
 

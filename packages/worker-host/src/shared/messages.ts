@@ -38,7 +38,7 @@ export interface SideModule {
 export interface FsConstants {
   errno: Record<"EEXIST" | "EFBIG" | "EINVAL" | "EISDIR" | "ENOENT" | "ENOTDIR" | "EOPNOTSUPP", number>;
   open: Record<"O_WRONLY" | "O_CREAT" | "O_TRUNC" | "O_NOFOLLOW", number>;
-  mode: Record<"S_IFMT" | "S_IFDIR" | "S_IFLNK", number>;
+  mode: Record<"S_IFMT" | "S_IFDIR" | "S_IFLNK" | "S_IFREG", number>;
 }
 
 // Values the runtime's build defines, which the host checks its calls
