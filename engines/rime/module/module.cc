@@ -8,6 +8,8 @@
 #include <string>
 
 #include <glog/logging.h>
+#include <rime/deployer.h>
+#include <rime/service.h>
 #include <rime/switcher.h>
 #include <rime_api.h>
 
@@ -64,11 +66,51 @@ public:
   }
 };
 
-// Runs on the pumping thread once a deployment has ended, whichever thread
-// reported it.
-gboolean Deployed(gpointer data) {
-  const bool success = GPOINTER_TO_INT(data);
-  if (success) {
+// What the last deployment to end reported, and the source that waits on
+// the pumping thread for the deployer to return.
+bool deployed_ok;
+guint returned_source;
+
+// A Deploy that came while the deployer worked, which restarts Rime once it
+// has returned, and the check its restart asked for.
+bool restart_requested;
+gboolean restart_full_check;
+
+void Start(gboolean full_check) {
+  rime_api->initialize(&traits);
+  if (rime_api->start_maintenance(full_check)) {
+    rime_api->deploy_config_file("ibus_rime.yaml", "config_version");
+  } else {
+    // Nothing changed since the last deployment, so none starts and
+    // nothing else would say Rime can be used.
+    g_message("Rime is ready.");
+  }
+}
+
+void Stop() {
+  ibus_rime_engine_forget_sessions();
+  rime_api->finalize();
+}
+
+// The deployer reports a deployment's end before it checks for tasks queued
+// meanwhile and returns. Until it has returned, a deployment started here
+// would find it still at work and never run, so the end is handled only
+// once it has.
+gboolean Returned(gpointer) {
+  if (ibusweb_rime_deploying()) {
+    return G_SOURCE_CONTINUE;
+  }
+  returned_source = 0;
+
+  if (restart_requested) {
+    restart_requested = false;
+    Stop();
+    Start(restart_full_check);
+    ibusweb_rime_settings_deployed();
+    return G_SOURCE_REMOVE;
+  }
+
+  if (deployed_ok) {
     g_message("Rime is ready.");
     ibus_rime_load_settings();
   } else {
@@ -80,6 +122,15 @@ gboolean Deployed(gpointer data) {
   ibus_rime_engine_forget_sessions();
   rime_api->cleanup_all_sessions();
   ibusweb_rime_settings_deployed();
+  return G_SOURCE_REMOVE;
+}
+
+// Runs on the pumping thread for each deployment's report.
+gboolean Deployed(gpointer data) {
+  deployed_ok = GPOINTER_TO_INT(data);
+  if (returned_source == 0) {
+    returned_source = g_timeout_add(10, Returned, nullptr);
+  }
   return G_SOURCE_REMOVE;
 }
 
@@ -105,24 +156,32 @@ void Notify(void *, RimeSessionId session_id, const char *message_type,
 
 } // namespace
 
-extern "C" void ibus_rime_start(gboolean full_check) {
-  rime_api->initialize(&traits);
-  if (rime_api->start_maintenance(full_check)) {
-    rime_api->deploy_config_file("ibus_rime.yaml", "config_version");
-  } else {
-    // Nothing changed since the last deployment, so none starts and
-    // nothing else would say Rime can be used.
-    g_message("Rime is ready.");
-  }
+extern "C" gboolean ibusweb_rime_deploying(void) {
+  return rime::Service::instance().deployer().IsWorking();
 }
 
+// ibus-rime's Deploy stops Rime and starts it again. RimeFinalize blocks
+// until the deployer returns, which would hold the pumping thread for the
+// rest of a deployment and handle that deployment's end after the restart
+// had begun; while the deployer works, the restart waits for it instead.
 extern "C" void ibus_rime_stop() {
-  ibus_rime_engine_forget_sessions();
-  rime_api->finalize();
+  if (ibusweb_rime_deploying()) {
+    restart_requested = true;
+    return;
+  }
+  Stop();
+}
+
+extern "C" void ibus_rime_start(gboolean full_check) {
+  if (restart_requested) {
+    restart_full_check = full_check;
+    return;
+  }
+  Start(full_check);
 }
 
 // The traits, engines and settings live as long as the module, which is the
-// Worker's lifetime, so none is freed and RimeFinalize is never reached.
+// Worker's lifetime, so none is freed and Rime is finalized only to restart.
 void ibusweb_module_init(IBusWebModule *) {
   rime_require_module_lua();
   rime_require_module_grammar();

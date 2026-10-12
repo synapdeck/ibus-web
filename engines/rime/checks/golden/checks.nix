@@ -47,6 +47,8 @@
         name = "rime-golden";
         programs = [ program ];
         environments = [ "node" ];
+        # Most cases deploy, each a few seconds under Node.
+        timeout = 300;
       };
     };
 }

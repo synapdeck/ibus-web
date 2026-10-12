@@ -322,7 +322,7 @@ static void changed(GSettings *from G_GNUC_UNUSED,
                     gpointer data G_GNUC_UNUSED) {
   if (!write_patches())
     return;
-  if (rime_api->is_maintenance_mode())
+  if (ibusweb_rime_deploying())
     pending = TRUE;
   else
     deploy();
@@ -343,5 +343,9 @@ void ibusweb_rime_settings_deployed(void) {
   if (!pending)
     return;
   pending = FALSE;
-  deploy();
+
+  /* One already at work started after the change, with a full check, and
+   * takes it in. */
+  if (!ibusweb_rime_deploying())
+    deploy();
 }

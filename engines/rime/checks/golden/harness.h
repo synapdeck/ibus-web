@@ -48,6 +48,7 @@ void golden_setting(Fixture *fixture, const gchar *path, const gchar *key,
                     GVariant *value);
 void golden_reset(Fixture *fixture, const gchar *schema, const gchar *path);
 guint golden_count(Fixture *fixture, guint16 kind);
+guint golden_count_log(Fixture *fixture, const gchar *message);
 gint golden_index(Fixture *fixture, guint16 kind);
 Record *golden_last(Fixture *fixture, guint16 kind);
 IBusSerializable *golden_object(Record *record, GType type);

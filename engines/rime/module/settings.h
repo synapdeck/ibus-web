@@ -9,8 +9,12 @@ G_BEGIN_DECLS
  * and follows the settings from then on. Call it before Rime is set up. */
 void ibusweb_rime_settings_init(void);
 
-/* Tells the settings that a deployment has ended, so that one that changed
- * meanwhile can start the next. */
+/* Tells the settings that a deployment has ended and the deployer
+ * returned, so that one that changed meanwhile can start the next. */
 void ibusweb_rime_settings_deployed(void);
+
+/* Whether Rime's deployer is at work: from a deployment's start until it
+ * returns, which is after it reports the deployment's end. */
+gboolean ibusweb_rime_deploying(void);
 
 G_END_DECLS

@@ -423,6 +423,54 @@ static void deployed_sessions(Fixture *fixture, gconstpointer data) {
   golden_teardown(&other, data);
 }
 
+/* A change during a deployment is deployed once that one has returned. */
+static void back_to_back(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "rime:luna_pinyin");
+  golden_clear(fixture);
+  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(9));
+  g_assert_cmpuint(golden_count_log(fixture, "Rime is ready."), ==, 0);
+  golden_wait_log(fixture, "Rime is ready.");
+  golden_clear(fixture);
+  golden_wait_log(fixture, "Rime is ready.");
+  golden_clear(fixture);
+
+  golden_type(fixture, "shi");
+  candidates(fixture, (const gchar *[]){NULL}, 9);
+  escape(fixture);
+
+  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+}
+
+/* The Deploy property restarts Rime with a full check. During a
+ * deployment, it restarts once that one has returned, and the restart's
+ * deployment takes in a change made meanwhile. */
+static void deploy(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "rime:luna_pinyin");
+  golden_clear(fixture);
+  activate(fixture, "deploy", PROP_STATE_UNCHECKED);
+  golden_wait_log(fixture, "Rime is ready.");
+  golden_clear(fixture);
+  golden_type(fixture, "shi");
+  candidates(fixture, (const gchar *[]){NULL}, 5);
+  escape(fixture);
+
+  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  g_assert_cmpuint(golden_count_log(fixture, "Rime is ready."), ==, 0);
+  activate(fixture, "deploy", PROP_STATE_UNCHECKED);
+  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(9));
+  golden_wait_log(fixture, "Rime is ready.");
+  g_assert_cmpuint(golden_count_log(fixture, "Rime is under maintenance ..."),
+                   ==, 2);
+  golden_clear(fixture);
+
+  golden_type(fixture, "shi");
+  candidates(fixture, (const gchar *[]){NULL}, 9);
+  escape(fixture);
+
+  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   gchar *schemas_dir = NULL, *module = NULL, *instances = NULL;
@@ -484,5 +532,9 @@ int main(int argc, char **argv) {
              golden_teardown);
   g_test_add("/rime/deployed-sessions", Fixture, NULL, golden_setup,
              deployed_sessions, golden_teardown);
+  g_test_add("/rime/back-to-back", Fixture, NULL, golden_setup, back_to_back,
+             golden_teardown);
+  g_test_add("/rime/deploy", Fixture, NULL, golden_setup, deploy,
+             golden_teardown);
   return g_test_run();
 }

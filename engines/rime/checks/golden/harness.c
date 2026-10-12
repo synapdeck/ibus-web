@@ -207,6 +207,14 @@ guint golden_count(Fixture *fixture, guint16 kind) {
   return count;
 }
 
+guint golden_count_log(Fixture *fixture, const gchar *message) {
+  guint count = 0;
+  for (guint i = 0; i < fixture->records->len; ++i)
+    count += g_str_equal(message_of(g_ptr_array_index(fixture->records, i)),
+                         message);
+  return count;
+}
+
 /* The position of the first record of kind, or -1. */
 gint golden_index(Fixture *fixture, guint16 kind) {
   for (guint i = 0; i < fixture->records->len; ++i) {
