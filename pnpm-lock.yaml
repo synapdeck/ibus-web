@@ -668,6 +668,18 @@ importers:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@26.6.4)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@26.6.4)(yaml@2.9.1))
 
+  tools/pinyin-compare:
+    devDependencies:
+      '@ibus-web/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.4
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@26.6.4)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.2(@types/node@26.6.4)(yaml@2.9.1))
+
   tools/toolchain-probes:
     devDependencies:
       '@ibus-web/tsconfig':

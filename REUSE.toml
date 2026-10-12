@@ -53,6 +53,12 @@ path = "tools/cast-audit/fixtures/*.sarif"
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 
+# Tatoeba's sentences, each under the id Tatoeba gives it, and their pinyin.
+[[annotations]]
+path = "tools/pinyin-compare/corpus.tsv"
+SPDX-FileCopyrightText = "The Tatoeba contributors <https://tatoeba.org/>"
+SPDX-License-Identifier = "LicenseRef-CC-BY-2.0-FR"
+
 [[annotations]]
 path = [
   "docs/**",

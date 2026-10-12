@@ -40,6 +40,7 @@ work on it.
 | [`examples/demo/README.md`](../examples/demo/README.md)                               | Running the demo and adding a module to it                               |
 | [`tools/cast-audit/README.md`](../tools/cast-audit/README.md)                         | The function-pointer cast audit and its allow-lists                      |
 | [`tools/ibus-test/README.md`](../tools/ibus-test/README.md)                           | The native IBus test adapter: trace protocol, running it, artifacts      |
+| [`tools/pinyin-compare/README.md`](../tools/pinyin-compare/README.md)                 | The pinyin comparison (R19): its corpus and report                       |
 | [`modules/emscripten/patches/README.md`](../modules/emscripten/patches/README.md)     | Each Emscripten patch: what it fixes, upstream status, when it can go    |
 | [`modules/glib/patches/README.md`](../modules/glib/patches/README.md)                 | GLib's patch series                                                      |
 | [`engines/hangul/patches/README.md`](../engines/hangul/patches/README.md)             | ibus-hangul's and libhangul's patch layers                               |

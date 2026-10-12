@@ -80,6 +80,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [
   your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
 - `libibus-web` and the GLib patches: LGPL-2.1-or-later.
 - The Emscripten patches: Emscripten's MIT OR NCSA.
+- The pinyin comparison's corpus, `tools/pinyin-compare/corpus.tsv`: Tatoeba's sentences, under CC BY 2.0 FR.
 - Each engine and its patches: the engine's own license. ibus-hangul is GPL-2.0-or-later, and its libhangul patch is
   LGPL-2.1-or-later, as libhangul is. The table engine is MIT OR Apache-2.0; its packed module is
   `(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`, for MARISA, linked in, and the LaTeX table's data from W3C's
