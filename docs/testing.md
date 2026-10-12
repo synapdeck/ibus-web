@@ -580,13 +580,18 @@ metric is separate from the Node protocol framed-record-to-visible-page measurem
 
 The same benchmark has a `rime_ice` case: `nihao ` typed round and round, 72 warm-up keys, then 500 measured, each
 round's Space committing `你好`, with Rime's dictionaries already installed by the case's first selection. One run on an
-AMD Ryzen 9 9950X3D 16-Core Processor (32 logical CPUs), Linux 6.18.55-xanmod1, Node 26.10.0:
+AMD Ryzen 9 9950X3D 16-Core Processor (32 logical CPUs), Linux 6.18.55-xanmod1, Node 26.10.0, measuring commit
+`78d59488`, with no later-observer endpoints in any browser:
 
 | Browser                | p50 ms | p99 ms | max ms |
 | ---------------------- | -----: | -----: | -----: |
-| Chromium 153.0.8010.12 |  1.590 |  3.315 | 15.165 |
-| Firefox 155.0          |  2.620 |  6.120 |  7.780 |
-| Linux WebKit 26.6      |  5.340 | 53.200 | 55.540 |
+| Chromium 153.0.8010.12 |  1.620 |  3.245 |  3.865 |
+| Firefox 155.0          |  2.620 |  6.100 |  7.680 |
+| Linux WebKit 26.6      |  5.640 |  8.280 | 10.020 |
+
+Rime writes its learning once input pauses ([rime.md](rime.md#learning)). Written during the key after each commit, as
+Rime does on its own (commit `fd77db53`, run beside it), that key's write waits in WebKit for the page's main thread,
+which spins on the key: WebKit's p99 is 54.1 ms and max 56.0 ms, with 84 later-observer endpoints, one per round.
 
 Each case logs `engine` with its figures; `nix run .#keystroke-bench -- -g rime_ice` runs one case.
 
