@@ -354,5 +354,6 @@ deployment, startup, engines, settings, switches as properties and checks.
 
 ```sh
 nix build .#ibus-web-rime
+nix build .#ibus-web-rime-dist
 nix build .#checks.x86_64-linux.rime-golden
 ```

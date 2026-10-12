@@ -124,8 +124,8 @@ The schema table, `engines/rime/_schemas.nix`, gives each schema the data can de
 package, dictionary and dependencies, as its deployed config names them, a dependency it reads but doesn't name
 (`array30` reads `array30_query`'s dictionary) and whether it is an engine. Nix needs the dictionaries and dependencies
 before anything is deployed, to make one derivation per dictionary; the step fails if a deployed config disagrees with
-the table, if a schema has no gloss, or if a dependency isn't deployed. `engine-data.json` is a file of its own because
-`EngineDescriptor` doesn't take `data`.
+the table, if a schema has no gloss, or if a dependency isn't deployed. `engine-data.json` is a file of its own: the
+distribution merges it into each descriptor as its `data` ([Distribution](#distribution)).
 
 ## Startup
 
@@ -242,6 +242,17 @@ arrives during maintenance is written at once and deployed when it ends and the 
 recompiles the configs into `/engines/<name>/build`, rebuilds the prisms whose config changed and reuses the prebuilt
 tables; Rime's sessions end when it does, and an open context takes the change up at its next key. A change that touches
 `default.custom.yaml` recompiles every schema, about 3 s under Node.
+
+## Distribution
+
+`ibus-web-rime-dist` (`engines/rime/dist.nix`) is `mkEngineManifest` over `rime.wasm`, with the descriptor step's
+engines, settings schemas and settings paths. Each engine's dictionaries, its schema's and those of the schemas it
+depends on (`engine-data.json`), are its own data ([engines.md](engines.md#an-engines-own-data)): the host installs them
+the first time a page prepares or selects the engine. The rest of the closure, `ibus-web-rime-common` with Rime's
+configs, OpenCC's data and `rime-ice`'s Lua scripts, and the compiled settings schemas, is base data, installed at
+start. The base data is 4.0 MB unpacked; the dictionaries 289.6 MB, 82.2 MB as Brotli of the distribution's 83.1 MB;
+`rime:rime_ice`'s own come to 75.9 MB unpacked. A dictionary several engines name, as the double-pinyin engines name
+`rime_ice`'s, is installed once.
 
 ## Checks
 
