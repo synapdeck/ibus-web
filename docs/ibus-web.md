@@ -50,15 +50,15 @@ other selections, focus changes and detaches go on; a selection changed meanwhil
 and the download still completes. `prepare(module, engine)` does that ahead of selection, starting the module's Worker
 if it hasn't, so that the selection later waits for nothing; an engine without data of its own needs nothing. While data
 installs, `install` events carry `{ module, engine, bytes, total }`, unpacked bytes written of the total the storage
-lacked, the last with `bytes` equal to `total`; a second selection, or one in a later visit, installs nothing and sends
-none. A failed install rejects `select` or `prepare` with a `PrepareEngineError`, exported from `ibus-web`, whose
-`reason` is the Worker's; the selection stands, as for a `CreateEngineError`, and the next focus tries again.
-`deselect()` returns every surface to plain browser input and keeps Workers loaded; hosts bind their own shortcut for
-it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or `undefined`. `engines(module)`
-reads and validates a module's manifest and resolves to its engine descriptors (`name`, `displayName`, `languages`,
-`keyboard`, and `data` for an engine with data of its own) without starting a Worker. `select`, `deselect`, `engines`,
-`unload(module)`, `prepare` and `dispose()` return Promises. `debugRestart(module)` is a development-only way to
-terminate the actual Worker and await recovery; it restores the selection only when `module` is the selected one. No
+lacked, `bytes` reaching `total` only once all of it is installed; a second selection, or one in a later visit, installs
+nothing and sends none. A failed install rejects `select` or `prepare` with a `PrepareEngineError`, exported from
+`ibus-web`, whose `reason` is the Worker's; the selection stands, as for a `CreateEngineError`, and the next focus tries
+again. `deselect()` returns every surface to plain browser input and keeps Workers loaded; hosts bind their own shortcut
+for it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or `undefined`.
+`engines(module)` reads and validates a module's manifest and resolves to its engine descriptors (`name`, `displayName`,
+`languages`, `keyboard`, and `data` for an engine with data of its own) without starting a Worker. `select`, `deselect`,
+`engines`, `unload(module)`, `prepare` and `dispose()` return Promises. `debugRestart(module)` is a development-only way
+to terminate the actual Worker and await recovery; it restores the selection only when `module` is the selected one. No
 concrete CodeMirror adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has

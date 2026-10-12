@@ -50,7 +50,10 @@ export interface ModuleRegistryOptions {
 export type ModuleEvent =
   | { readonly _tag: "state"; readonly module: string; readonly state: ModuleState }
   | { readonly _tag: "storage"; readonly module: string; readonly state: StorageState; readonly message: string }
-  /** While an engine's own data installs: bytes written so far of total, what the module's storage lacked. */
+  /**
+   * While an engine's own data installs: bytes written so far of total, what the module's storage lacked. bytes reaches
+   * total only once all of it is installed.
+   */
   | {
       readonly _tag: "install";
       readonly module: string;

@@ -374,7 +374,7 @@ export const prepareWhole = (h: Harness, runtime: RuntimeBuild): Promise<void> =
 // into the store once the lazy path is installed, or once an install of it
 // has failed, fails with EROFS, and the tree stays the archive's. The Node
 // backend has no read-only mode, so under Node the writes are recorded,
-// not judged.
+// not judged. The failed install's progress never reaches its total.
 export const prepareWindowShut = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = lazyEngineFor(h, "prepare-window-shut", runtime);
@@ -387,8 +387,15 @@ export const prepareWindowShut = (h: Harness, runtime: RuntimeBuild): Promise<vo
     const write = (client: Client): Promise<number> =>
       call32(client, opsOf(h).writeFile, encoder.encode("/nix/store/written.txt\0x"));
     const failing = await launch(broken).ready;
+    const from = failing.messages.length;
     const failed = await failing.prepare(LAZY_ENGINE);
     expect(failed.error, "the failed prepare's error").toBe(`fetch ${h.data.archives.missing}: 404`);
+    const progress = progressOf(failing.messages, from);
+    expect(progress.length, "the failed prepare's progress").toBeGreaterThan(0);
+    expect(
+      progress.filter(({ bytes, total }) => bytes >= total),
+      "the failed prepare's progress at its total",
+    ).toEqual([]);
     await expectFreed(h, enginePathInstallLock(engine, LAZY_PATH));
     const afterFailure = await write(failing.client);
     const installing = await launch(engine).ready;

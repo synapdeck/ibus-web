@@ -431,8 +431,9 @@ before the engine's first `CreateEngine` in a Worker. A host prepares several en
    lock's channel while it holds it, so that a host waiting on the path waits rather than gives up. Under the lock it
    reads the marker again, since another host may have installed the path meanwhile; if it is still missing, it installs
    the path whole (below) and writes the marker in a strict transaction, last.
-3. It posts `prepare-progress`, the bytes written of the engine's missing paths, a `path-install` for each path,
-   `present` or `installed`, and `prepared`, with the reason if an install failed.
+3. It posts `prepare-progress`, the bytes written of the engine's missing paths, a path counting in full only once it is
+   installed, a `path-install` for each path, `present` or `installed`, and `prepared`, with the reason if an install
+   failed.
 
 - **Installs run at once.** Different store paths install concurrently, in one Worker or several, each under its own
   lock: inodes come from `meta.nextIno` inside the one read-write transaction that makes an entry, which IndexedDB

@@ -52,7 +52,10 @@ export interface IbusWebOptions {
 export interface IbusWebEventMap {
   modulestate: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "state" }>, "_tag">>;
   storage: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "storage" }>, "_tag">>;
-  /** While an engine's own data installs: bytes written so far of total, what the module's storage lacked. */
+  /**
+   * While an engine's own data installs: bytes written so far of total, what the module's storage lacked. bytes reaches
+   * total only once all of it is installed.
+   */
   install: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "install" }>, "_tag">>;
   /** `null` after deselection: a CustomEvent can't carry an undefined detail. */
   selectionchange: CustomEvent<Selection | null>;

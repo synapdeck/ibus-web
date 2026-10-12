@@ -159,26 +159,33 @@ export const preparer = ({ engine, post, install }: Preparing): ((name: string) 
 
       const total = missing.reduce((sum, { size }) => sum + size, 0);
       const paths = missing.map((entry) => installing.get(entry.storePath) ?? start(entry, install));
-      const settled = new Set<PathInstall>();
+      // A path counts its whole size once it is installed, and the bytes it
+      // has written until then. Progress reaches total only when every path
+      // is installed: a path can have written all of its bytes before its
+      // marker, and a failed one keeps what it wrote.
+      const installed = new Set<PathInstall>();
       let said = -1;
       const progress = (): void => {
         const bytes = missing.reduce(
-          (sum, { size }, i) => sum + (settled.has(paths[i]!) ? size : paths[i]!.written),
+          (sum, { size }, i) => sum + (installed.has(paths[i]!) ? size : paths[i]!.written),
           0,
         );
-        if (bytes === said) return;
+        if (bytes === said || (bytes === total && installed.size < paths.length)) return;
         said = bytes;
         post({ type: "prepare-progress", engine: name, bytes, total });
       };
       progress();
       for (const path of paths) path.heard.add(progress);
       const outcomes = await Promise.allSettled(
-        paths.map((path) =>
-          path.outcome.finally(() => {
-            settled.add(path);
+        paths.map(async (path) => {
+          try {
+            const outcome = await path.outcome;
+            installed.add(path);
+            return outcome;
+          } finally {
             progress();
-          }),
-        ),
+          }
+        }),
       );
       for (const path of paths) path.heard.delete(progress);
 
