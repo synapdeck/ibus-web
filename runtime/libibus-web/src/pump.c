@@ -5,11 +5,16 @@
 #include "ibus-web/runtime.h"
 
 /* Sources that stay ready would keep the pump from ever returning to the
- * host; past this many rounds it returns 0 instead. */
+ * host; past this many rounds it returns 0 instead. A round costs well under
+ * a microsecond besides its callbacks, so the cap bounds how long a request
+ * waits by what the ready sources' callbacks themselves take: 64 of them at
+ * half a millisecond each still fit a keystroke's 40 ms. */
 #define MAX_ROUNDS 64
 
 /* An fd turning ready doesn't signal the context's wakeup, so while a source
- * polls one, the host must come back to probe it at least this often. */
+ * polls one, the host must come back to probe it at least this often: a
+ * quarter of a keystroke's budget late at worst, for a probe of a few
+ * microseconds a hundred times a second. */
 #define FD_PROBE_MSEC 10
 
 int32_t ibusweb_pump(void) {

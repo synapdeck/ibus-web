@@ -226,9 +226,14 @@ returns:
 - `-1` when nothing is due until the next wake;
 - `IBUSWEB_PUMP_ERROR` (`INT32_MIN`) when called off the owning thread.
 
-Both constants are unmeasured choices. To sleep without losing a wake, the host reads the wake word _before_ pumping and
-waits on the value read: a source attached after the pump last looked has moved the word, so the wait returns at once.
-Exceptions a source's callback throws are not caught; they reach the host and leave the context mid-dispatch.
+Measured under Node (the released runtime, a trivial callback), a round costs about 0.16 µs besides its callbacks, so 64
+rounds of an idle that never removes itself return in about 10 µs; the cap bounds a request's wait by the callbacks' own
+time, 64 of which at 0.5 ms each would still fit D6's 40 ms. A pump with fd sources to probe costs 0.3–2.5 µs (one to
+eight fds), so the 10 ms probe, a quarter of D6, costs the Worker next to nothing a hundred times a second; no shipped
+engine, and nothing in the runtime, adds an fd source. To sleep without losing a wake, the host reads the wake word
+_before_ pumping and waits on the value read: a source attached after the pump last looked has moved the word, so the
+wait returns at once. Exceptions a source's callback throws are not caught; they reach the host and leave the context
+mid-dispatch.
 
 ### The wait
 
