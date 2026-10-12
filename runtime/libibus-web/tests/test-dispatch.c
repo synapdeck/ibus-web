@@ -532,6 +532,43 @@ static void refusals(void) {
   expect_log(G_LOG_LEVEL_CRITICAL, "ibus-web", "outside a CreateEngine");
 }
 
+static GString *persisted;
+
+static void persist_first(void) { g_string_append(persisted, "first "); }
+
+static void persist_second(void) { g_string_append(persisted, "second "); }
+
+static void first_module(IBusWebModule *module) {
+  g_assert_cmpint(ibusweb_module_set_persist(module, persist_first), ==, 0);
+}
+
+static void second_module(IBusWebModule *module) {
+  g_assert_cmpint(ibusweb_module_set_persist(module, persist_second), ==, 0);
+}
+
+static void refused_module(IBusWebModule *module) {
+  g_assert_cmpint(ibusweb_module_set_persist(module, persist_first), ==, 0);
+  g_assert_cmpint(ibusweb_module_set_persist(module, NULL), ==, -EINVAL);
+}
+
+/* Persist reaches every registered module once, in the order they were
+ * registered, whatever the header's ic; a module whose registration failed
+ * isn't among them. */
+static void persisting(void) {
+  persisted = g_string_new(NULL);
+  g_assert_cmpint(ibusweb_register_module("first", first_module, NULL), ==, 0);
+  g_assert_cmpint(ibusweb_register_module("refused", refused_module, NULL), ==,
+                  -EINVAL);
+  g_assert_cmpint(ibusweb_register_module("second", second_module, NULL), ==,
+                  0);
+
+  g_assert_cmpint(send(IBUSWEB_REQ_PERSIST, 0, g_variant_new("()")), ==, 0);
+  g_assert_cmpint(send(IBUSWEB_REQ_PERSIST, 42, g_variant_new("()")), ==, 0);
+  g_assert_cmpstr(persisted->str, ==, "first second first second ");
+  empty_output();
+  g_string_free(persisted, TRUE);
+}
+
 static void protocol(void) {
   static gint32 wake_word;
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
@@ -540,6 +577,8 @@ static void protocol(void) {
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==,
       -ENOTCONN);
+  g_assert_cmpint(send(IBUSWEB_REQ_PERSIST, 0, g_variant_new("()")), ==,
+                  -ENOTCONN);
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(2)), ==, -EPROTO);
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
                   ==, 0);
@@ -548,6 +587,7 @@ static void protocol(void) {
              "Unknown settings schema: review");
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
                   ==, -EALREADY);
+  persisting();
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "missing")), ==,
       -ESRCH);

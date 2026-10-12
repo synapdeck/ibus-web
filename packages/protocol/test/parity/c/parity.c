@@ -534,6 +534,13 @@ static void emit_records(IBusEngine *engine) {
   g_object_unref(table);
   g_object_unref(text);
 }
+static void persist(void) {
+  begin_observation(calls, "Persist");
+  end_observation(calls);
+}
+static void parity_module(IBusWebModule *module) {
+  ibusweb_module_set_persist(module, persist);
+}
 static IBusEngine *refuse(IBusFactory *factory G_GNUC_UNUSED, const gchar *name,
                           gpointer data G_GNUC_UNUSED) {
   if (g_str_equal(name, "refused"))
@@ -554,6 +561,9 @@ static void run_runtime(JsonArray *requests) {
   int initialized = ibusweb_runtime_init(&wake_word);
   if (initialized != 0)
     g_error("Runtime initialization: %d", initialized);
+  int registered = ibusweb_register_module("parity", parity_module, NULL);
+  if (registered != 0)
+    g_error("Module registration: %d", registered);
   IBusFactory *factory = ibus_factory_new(NULL);
   ibus_factory_add_engine(factory, "parity", parity_engine_get_type());
   ibus_factory_add_engine(factory, "refused", parity_engine_get_type());

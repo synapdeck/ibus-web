@@ -12,7 +12,11 @@ struct _IBusWebModule {
   /* The first failure while adding operations, so a module's init needn't
    * check each one. */
   int error;
+  IBusWebPersist persist;
 };
+
+/* Every module registered, in order; each lives as long as the runtime. */
+static GPtrArray *modules;
 
 const char *ibusweb_module_get_name(IBusWebModule *module) {
   return module->name;
@@ -28,6 +32,28 @@ int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
   if (ret < 0 && module->error == 0)
     module->error = ret;
   return ret;
+}
+
+int ibusweb_module_set_persist(IBusWebModule *module, IBusWebPersist persist) {
+  g_return_val_if_fail(module != NULL, -EINVAL);
+
+  if (persist == NULL) {
+    if (module->error == 0)
+      module->error = -EINVAL;
+    return -EINVAL;
+  }
+  module->persist = persist;
+  return 0;
+}
+
+void ibusweb_modules_persist(void) {
+  if (modules == NULL)
+    return;
+  for (guint i = 0; i < modules->len; i++) {
+    IBusWebModule *module = g_ptr_array_index(modules, i);
+    if (module->persist != NULL)
+      module->persist();
+  }
 }
 
 int ibusweb_register_module(const char *name, IBusWebModuleInit init,
@@ -48,6 +74,9 @@ int ibusweb_register_module(const char *name, IBusWebModuleInit init,
     g_free(module);
     return error;
   }
+  if (modules == NULL)
+    modules = g_ptr_array_new();
+  g_ptr_array_add(modules, module);
   if (module_out != NULL)
     *module_out = module;
   return 0;

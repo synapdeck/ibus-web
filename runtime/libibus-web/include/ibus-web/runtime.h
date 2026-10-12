@@ -118,6 +118,23 @@ typedef void (*IBusWebOp)(const uint8_t *payload, uint32_t len, GString *reply);
 IBUSWEB_API int ibusweb_module_add_op(IBusWebModule *module, uint32_t opcode,
                                       const char *name, IBusWebOp op);
 
+/* Writes what a module keeps in memory to storage, on the pumping thread,
+ * for a Persist request: the page sends one when it may end the Worker
+ * next, which runs no finalizer. Whatever the module hasn't written by the
+ * time it returns is lost if the Worker ends.
+ *
+ * A C++ exception it throws fails the request as an engine's does (see
+ * ibusweb_dispatch()). */
+typedef void (*IBusWebPersist)(void);
+
+/* Has each Persist request call persist, once module's registration has
+ * succeeded. Call it from the module's init; a later call replaces the
+ * function. Persist calls the modules' functions in the order they were
+ * registered. Returns 0, or -EINVAL, which also fails the registration in
+ * progress. */
+IBUSWEB_API int ibusweb_module_set_persist(IBusWebModule *module,
+                                           IBusWebPersist persist);
+
 /* Registers a module's operations by calling its init. */
 typedef void (*IBusWebModuleInit)(IBusWebModule *module);
 
@@ -192,7 +209,8 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * entry declared or a key its schema lacks, never a missing context; it
  * returns EINVAL for a value outside the key's type or range, or ENOTSUP for a
  * default settings backend other than the runtime's. Each of these also
- * writes a Log record.
+ * writes a Log record. Persist ignores it too, and returns 0 once every
+ * module's persist function (ibusweb_module_set_persist()) has returned.
  *
  * ECANCELED means the runtime is unusable: the exception unwound through
  * GLib's signal emission, skipping its cleanup and leaking the engine's

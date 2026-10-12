@@ -5,6 +5,7 @@ import {
   CreateEngine,
   DestroyEngine,
   Init,
+  Persist,
   ProcessKeyEvent,
   PROTOCOL_VERSION,
   ReqMode,
@@ -71,6 +72,10 @@ export const engineLifecycle = async (h: Harness, runtime: RuntimeBuild, memory:
         expect.objectContaining({ record: expect.objectContaining({ _tag: "Log", message: "echo init: snapshot" }) }),
       ]),
     );
+    expect(await call(host, 0, new Persist({}))).toBe(0);
+    expect(
+      host.client.page.records().filter(({ record }) => record._tag === "Log" && record.message === "echo persisted"),
+    ).toHaveLength(1);
     expect(await call(host, 1, new CreateEngine({ name: "echo" }))).toBe(0);
     expect(await call(host, 1, key("a"))).toBe(1);
     expect(await call(host, 1, key("d"))).toBe(1);

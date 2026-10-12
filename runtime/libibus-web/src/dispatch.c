@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 #include "dispatch.h"
 #include "ibus/ibusweb-private.h"
+#include "ops.h"
 #include "settings.h"
 #include <errno.h>
 #include <ibus-web/protocol.h>
@@ -117,6 +118,10 @@ static int32_t route(gpointer data) {
     g_autoptr(GVariant) value = NULL;
     g_variant_get(payload, "(&s&sv)", &path, &key, &value);
     return ibusweb_settings_changed(path, key, value);
+  }
+  if (kind == IBUSWEB_REQ_PERSIST) {
+    ibusweb_modules_persist();
+    return 0;
   }
   IBusEngine *engine = g_hash_table_lookup(engines, GUINT_TO_POINTER(ic));
   if (kind == IBUSWEB_REQ_CREATE_ENGINE) {

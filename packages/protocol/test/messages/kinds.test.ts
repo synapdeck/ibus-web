@@ -10,6 +10,7 @@ test("matches every request kind and payload signature in protocol version 1", (
     ["CreateEngine", 2, "(s)"],
     ["DestroyEngine", 3, "()"],
     ["SettingChanged", 4, "(ssv)"],
+    ["Persist", 5, "()"],
     ["ProcessKeyEvent", 16, "(uuu)"],
     ["FocusIn", 17, "()"],
     ["FocusOut", 18, "()"],
@@ -27,7 +28,7 @@ test("matches every request kind and payload signature in protocol version 1", (
     ["SetSurroundingText", 30, "(vuu)"],
     ["SetContentType", 31, "(uu)"],
   ]);
-  expect(requestKinds.size).toBe(20);
+  expect(requestKinds.size).toBe(21);
   expect(new Set(requestKinds.values()).size).toBe(requestKinds.size);
 });
 

@@ -102,6 +102,7 @@ export const requests: readonly { name: string; value: P.Request; result: number
       key: "sample",
       value: { _tag: "v", type: "s", value: { _tag: "s", value: "changed" } },
     }),
+    new P.Persist({}),
   ].map((value) => ({ name: value._tag, value, result: 0 })),
 ];
 

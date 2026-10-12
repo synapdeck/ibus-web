@@ -44,6 +44,16 @@ export class SettingChanged extends Schema.TaggedClass<SettingChanged>()(
   { kind: 4, description: "Notify the runtime that a host setting changed." },
 ) {}
 
+export class Persist extends Schema.TaggedClass<Persist>()(
+  "Persist",
+  {},
+  {
+    kind: 5,
+    description:
+      "Have every module write what it keeps in memory to storage, since the page may end the Worker next. The header's ic is ignored.",
+  },
+) {}
+
 export class ProcessKeyEvent extends Schema.TaggedClass<ProcessKeyEvent>()("ProcessKeyEvent", KeyEvent, {
   kind: 16,
   reply: "b",
@@ -168,6 +178,7 @@ export const Request = Schema.Union([
   CreateEngine,
   DestroyEngine,
   SettingChanged,
+  Persist,
   ProcessKeyEvent,
   FocusIn,
   FocusOut,

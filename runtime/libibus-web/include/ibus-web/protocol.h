@@ -68,6 +68,10 @@ enum IBusWebRequestKind {
    * key: GSettings key that changed.
    * value: New typed GSettings value. */
   IBUSWEB_REQ_SETTING_CHANGED = 4,
+  /* ()
+   * Have every module write what it keeps in memory to storage, since the page
+   *   may end the Worker next. The header's ic is ignored. */
+  IBUSWEB_REQ_PERSIST = 5,
   /* (uuu) keyval, keycode, state → reply 0 or 1
    * Process a key event and reply whether the engine handled it.
    * keyval: Key symbol value.
@@ -239,6 +243,7 @@ static inline const char *ibusweb_request_signature(uint16_t kind) {
       {IBUSWEB_REQ_CREATE_ENGINE, "(s)"},
       {IBUSWEB_REQ_DESTROY_ENGINE, "()"},
       {IBUSWEB_REQ_SETTING_CHANGED, "(ssv)"},
+      {IBUSWEB_REQ_PERSIST, "()"},
       {IBUSWEB_REQ_PROCESS_KEY_EVENT, "(uuu)"},
       {IBUSWEB_REQ_FOCUS_IN, "()"},
       {IBUSWEB_REQ_FOCUS_OUT, "()"},

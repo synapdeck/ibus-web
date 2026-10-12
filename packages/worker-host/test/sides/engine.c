@@ -101,9 +101,11 @@ static void echo_engine_class_init(EchoEngineClass *klass) {
   G_OBJECT_CLASS(klass)->finalize = finalize;
 }
 static void echo_engine_init(EchoEngine *engine) { (void)engine; }
+static void persist(void) { g_message("echo persisted"); }
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, TEST_OP_WAIT_TRAP, "wait-trap", wait_trap);
   ibusweb_module_add_op(module, TEST_OP_LOG, "log", log_bytes);
+  ibusweb_module_set_persist(module, persist);
   g_debug("echo schemas: %s", ECHO_SCHEMAS);
   GSettings *settings = g_settings_new("org.example.echo");
   gchar *value = g_settings_get_string(settings, "value");

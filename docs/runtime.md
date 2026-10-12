@@ -93,6 +93,12 @@ declared or a key its schema lacks, never a missing context; it returns `-EINVAL
 range and `-ENOTSUP` for a default settings backend other than the runtime's, and each of these also writes a `Log`
 record.
 
+`Persist` ignores the header's `ic` too. It calls the persist function of every module that set one with
+`ibusweb_module_set_persist(module, persist)` in its init, in the order the modules were registered, and returns 0 once
+they have all returned. The page sends it when it may end the Worker next, which runs no finalizer, so a persist
+function writes what its module keeps only in memory, such as an engine's learning; whatever it hasn't written by then
+is lost if the Worker ends. An exception a persist function throws is `-ECANCELED`, as an engine's is.
+
 A side module's `create-engine` handler fails a `CreateEngine` with a reason by calling
 `ibusweb_factory_fail_create(reason)` and returning `NULL`. The call stops the emission, so the factory makes no engine,
 and the factory writes a `CreateEngineFailed` record with the reason on the request's context before the `-EIO` reply,
@@ -157,6 +163,7 @@ All of it is declared in `ibus-web/runtime.h`. Errors are negative errno values,
 | `ibusweb_wait(seen, timeout_ms)`                                       | Sleeps while the wake word holds `seen`, running proxied calls meanwhile (below). `0`, `-ETIMEDOUT`, `-EINVAL` before init, `-EPERM` off the pumping thread.                                                   |
 | `ibusweb_load_module(path, out)`                                       | Loads a side module and registers it (Side modules, below). `-ENOENT`, `-ENOEXEC`, or the registration's error.                                                                                                |
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                |
+| `ibusweb_module_set_persist(module, persist)`                          | From a module's init: has each `Persist` call `persist` (Protocol, dispatch and output, above). `-EINVAL` for no function, which fails the registration.                                                       |
 | `ibusweb_factory_fail_create(reason)`                                  | From a `create-engine` handler: fails the `CreateEngine` in progress with `reason` (Protocol, dispatch and output, above).                                                                                     |
 | `ibusweb_test_dispatch(request, len, reply, cap)`                      | The test dispatcher (below).                                                                                                                                                                                   |
 | `ibusweb_dispatch(request, len)`                                       | Dispatches one `protocol.h` request on the pumping thread without pumping: a key event's 0/1 reply, zero for other requests, or a negative errno (Protocol, dispatch and output, above).                       |

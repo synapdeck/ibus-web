@@ -122,6 +122,16 @@ Notify the runtime that a host setting changed.
 | `key`   | `s`           | GSettings key that changed.                          |
 | `value` | `v`           | New typed GSettings value.                           |
 
+### Persist
+
+Kind: **5**. Signature: `()`.
+
+Have every module write what it keeps in memory to storage, since the page may end the Worker next. The header's ic is
+ignored.
+
+| Name | GVariant type | Description |
+| ---- | ------------- | ----------- |
+
 ### ProcessKeyEvent
 
 Kind: **16**. Signature: `(uuu)`.
