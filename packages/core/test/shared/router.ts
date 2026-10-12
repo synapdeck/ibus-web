@@ -63,8 +63,11 @@ export class FakeConnection implements KeyConnection {
       this.crashes.delete(f);
     };
   }
-  requestSync(request: Request, ic: number) {
+  // The budget of each synchronous request that named one.
+  budgets: number[] = [];
+  requestSync(request: Request, ic: number, budgetMs?: number) {
     this.sent.push({ mode: "sync", request, ic });
+    if (budgetMs !== undefined) this.budgets.push(budgetMs);
     this.duringSync?.();
     if (this.terminated) return { _tag: "crashed", crash: { reason: "worker", message: "crash" } } as const;
     this.busy = this.outcome._tag === "pending";

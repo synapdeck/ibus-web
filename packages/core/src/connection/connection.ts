@@ -209,8 +209,8 @@ export class Connection {
       this.crashes.delete(listener);
     };
   }
-  requestSync(request: Request, ic: number): SyncOutcome {
-    const deadline = performance.now() + this.options.budgetMs;
+  requestSync(request: Request, ic: number, budgetMs = this.options.budgetMs): SyncOutcome {
+    const deadline = performance.now() + budgetMs;
     const canContinue = () => performance.now() < deadline;
     this.drain(canContinue);
     this.checkCrash();

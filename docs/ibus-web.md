@@ -57,9 +57,11 @@ again. `deselect()` returns every surface to plain browser input and keeps Worke
 for it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or `undefined`.
 `engines(module)` reads and validates a module's manifest and resolves to its engine descriptors (`name`, `displayName`,
 `languages`, `keyboard`, and `data` for an engine with data of its own) without starting a Worker. `select`, `deselect`,
-`engines`, `unload(module)`, `prepare` and `dispose()` return Promises. `debugRestart(module)` is a development-only way
-to terminate the actual Worker and await recovery; it restores the selection only when `module` is the selected one. No
-concrete CodeMirror adapter is provided.
+`engines`, `unload(module)`, `prepare` and `dispose()` return Promises. Before `unload` or `dispose()` ends a Worker,
+and whenever the page goes away or is hidden, the engines write what they keep only in memory, such as Rime's learning
+([core.md](core.md#layers-and-page-lifetime)); the page needs no handler of its own for it. `debugRestart(module)` is a
+development-only way to terminate the actual Worker and await recovery; it restores the selection only when `module` is
+the selected one. No concrete CodeMirror adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has
 one, a relocatable schema one per instance. Use `settings.get(module, path, key)`, `set(module, path, key, variant)` and

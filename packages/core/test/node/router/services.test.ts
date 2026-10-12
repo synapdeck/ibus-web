@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { expect, it } from "@effect/vitest";
+import { expect, it, vi } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { booleanVariant, CreateEngine, stringVariant, type ModuleManifest, type Request } from "@ibus-web/protocol";
@@ -711,4 +711,96 @@ it.effect(
         [10, 10],
       ]);
     }).pipe(Effect.provide(services)),
+);
+
+const persistRegistry = (started: FakeConnection[]) =>
+  makeModuleRegistry({
+    hostUrl: url,
+    runtimeUrl: url,
+    modules: { test: url },
+    loadManifest: async () => manifest,
+    loadMetadata: async () => metadata,
+    waitForWriter: () => Effect.void,
+    start: async () => {
+      const connection = new FakeConnection();
+      connection.requestAsync = async () => emptyReply;
+      started.push(connection);
+      return connection;
+    },
+  });
+const persists = (connection: FakeConnection) =>
+  connection.sent.filter(({ request }) => request._tag === "Persist").map(({ mode, ic }) => ({ mode, ic }));
+
+it.effect("a ready Worker persists, waiting up to hangMs, before unload or the registry's end terminates it", () =>
+  Effect.gen(function* () {
+    const started: FakeConnection[] = [];
+    const scope = yield* Scope.make();
+    const registry = yield* persistRegistry(started).pipe(Scope.provide(scope));
+    yield* registry.select("test");
+    started[0]!.duringSync = () => expect(started[0]!.terminated).toBe(false);
+    yield* registry.unload("test");
+    expect(persists(started[0]!)).toEqual([{ mode: "sync", ic: 0 }]);
+    expect(started[0]!.budgets).toEqual([CoreConfig.defaults.hangMs]);
+    expect(started[0]!.terminated).toBe(true);
+
+    yield* registry.select("test");
+    started[1]!.duringSync = () => expect(started[1]!.terminated).toBe(false);
+    yield* Scope.close(scope, Exit.void);
+    expect(persists(started[1]!)).toEqual([{ mode: "sync", ic: 0 }]);
+    expect(started[1]!.terminated).toBe(true);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("a Worker busy with a request persists after it", () =>
+  Effect.gen(function* () {
+    const started: FakeConnection[] = [];
+    const registry = yield* persistRegistry(started);
+    yield* registry.select("test");
+    const connection = started[0]!;
+    const f = fixture();
+    f.context.generation = registry.snapshot("test")!.generation;
+    registry.registerContext("test", f.context);
+    connection.requestAsync = FakeConnection.prototype.requestAsync.bind(connection);
+    const event = Object.assign(key("a"), { preventDefault() {}, stopPropagation() {} });
+    void registry.keyAsync("test", f.context, event);
+    registry.persist();
+    expect(connection.sent.map(({ mode, request }) => [mode, request._tag])).toEqual([
+      ["async", "ProcessKeyEvent"],
+      ["async", "Persist"],
+    ]);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("the page hiding or going away has every ready Worker persist, until the registry ends", () =>
+  Effect.gen(function* () {
+    const page = new EventTarget();
+    const document = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    vi.stubGlobal("window", page);
+    vi.stubGlobal("document", document);
+    yield* Effect.addFinalizer(() => Effect.sync(() => vi.unstubAllGlobals()));
+
+    const started: FakeConnection[] = [];
+    const scope = yield* Scope.make();
+    const registry = yield* persistRegistry(started).pipe(Scope.provide(scope));
+    page.dispatchEvent(new Event("pagehide"));
+    yield* registry.select("test");
+    const connection = started[0]!;
+    expect(persists(connection), "before the Worker was ready").toEqual([]);
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(persists(connection), "while visible").toEqual([]);
+    document.visibilityState = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    page.dispatchEvent(new Event("pagehide"));
+    expect(persists(connection)).toEqual([
+      { mode: "sync", ic: 0 },
+      { mode: "sync", ic: 0 },
+    ]);
+
+    yield* Scope.close(scope, Exit.void);
+    const sent = persists(connection).length;
+    page.dispatchEvent(new Event("pagehide"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(persists(connection)).toHaveLength(sent);
+  }).pipe(Effect.scoped, Effect.provide(services)),
 );

@@ -917,6 +917,11 @@ visibility reaches the page in the engine's `UpdateProperty` records.
 | `CreateEngine`   | IC ID, engine name                                           |                                       |
 | `DestroyEngine`  | IC ID                                                        |                                       |
 | `SettingChanged` | path, key, `v`                                               |                                       |
+| `Persist`        | none                                                         | ignores `ic`                          |
+
+`Persist` has every module write what it keeps only in memory, through the persist function its init set
+(`ibusweb_module_set_persist`): Rime's learning stays in an open user-dictionary transaction until the next key it
+doesn't handle. The page sends it before it ends a Worker, and when it goes away or is hidden (§7.1.3).
 
 #### 6.1.4 Output records (Worker → page)
 
@@ -1146,6 +1151,9 @@ in `docs/protocol.md`.
 - A hotkey registry exists with no default bindings.
 - A Worker starts when its module is first selected and stays loaded until the host calls `unload(module)` or disposes
   the library.
+- Ending a Worker runs none of its engines' finalizers, so before the page ends one, and whenever it goes away
+  (`pagehide`) or is hidden (`visibilitychange`), it sends each ready Worker `Persist` and, with the wire free, waits up
+  to the hang timeout for the reply, so that the engines have written their state before the browser ends the Workers.
 
 #### 7.1.4 Settings API
 

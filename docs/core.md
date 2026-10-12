@@ -22,6 +22,14 @@ Acquire and use the services inside a live Effect scope. Closing the scope remov
 not return a router from an already-closed `Effect.scoped` program. The [demo](../examples/demo/src/main.ts) provides
 the complete layer wiring and aborts its long-lived program on pagehide or HMR disposal.
 
+An engine can hold state only in memory, such as the learning from a Rime commit, and a Worker that ends runs none of
+its finalizers. So the registry has each ready Worker persist it (`Persist`) before ending the Worker, at `unload` and
+when its scope closes, and whenever the page goes away (`pagehide`) or is hidden (`visibilitychange` to `hidden`), since
+a hidden page can be discarded with no further event; `registry.persist()` does the same on demand. When nothing else is
+on the module's wire, the request goes out at once and the page waits for its reply, up to `hangMs`, so the engines have
+written their state before the event handler returns and the browser goes on to end the Workers. A Worker busy with a
+request gets it queued behind that one, which a page going away may not live to send.
+
 A module is one distribution: one manifest, one Worker. Its engines are the input methods inside it.
 `router.select(module, engine?)` selects an engine, the module's first when `engine` is left out, and
 `router.deselect()` returns every surface, overrides included, to native input while Workers stay loaded.

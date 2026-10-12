@@ -91,6 +91,8 @@ export interface ModuleRegistryService {
   /** Whether the engine can be made in the module's Worker as it is: it has no data of its own, or the Worker has it. */
   isPrepared(name: string, engine: string): boolean;
   ensure(name: string): Effect.Effect<void, Error>;
+  /** Has every ready Worker persist what its engines keep in memory, waiting for each that the wire lets it. */
+  persist(): void;
   whenReady(name: string): Effect.Effect<void, Error>;
   state(name: string): ModuleState;
   snapshot(name: string): ModuleSnapshot | undefined;
@@ -287,9 +289,13 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               resume(Effect.fail(asError(cause)));
             }
           }),
+          // Ending the Worker runs none of its engines' finalizers, so they persist first.
           (connection) =>
             Effect.sync(() => {
-              if (entry.snapshot.connection === connection) entry.router.disconnect();
+              if (entry.snapshot.connection === connection) {
+                entry.router.persist(config.hangMs);
+                entry.router.disconnect();
+              }
               connection.terminate();
             }),
           { interruptible: true },
@@ -406,6 +412,24 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       };
       entries.set(name, entry);
       yield* Effect.addFinalizer(() => Effect.sync(() => crashes.close()));
+    }
+    // A page going away ends its Workers, which runs none of their engines' finalizers, and a hidden one may be
+    // discarded with no further event, so each has its Workers persist first.
+    const persist = () => {
+      for (const entry of entries.values()) entry.router.persist(config.hangMs);
+    };
+    if (typeof window !== "undefined" && typeof document !== "undefined") {
+      const hidden = () => {
+        if (document.visibilityState === "hidden") persist();
+      };
+      window.addEventListener("pagehide", persist);
+      document.addEventListener("visibilitychange", hidden);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          window.removeEventListener("pagehide", persist);
+          document.removeEventListener("visibilitychange", hidden);
+        }),
+      );
     }
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
@@ -563,6 +587,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         Effect.gen(function* () {
           const entry = entries.get(name);
           if (!entry) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
+          entry.router.persist(config.hangMs);
           const lifetime = entry.lifetime;
           entry.lifetime = undefined;
           entry.snapshot.enabled = false;
@@ -585,6 +610,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           yield* whenReady(name);
         }),
       ensure,
+      persist,
       prepare,
       isPrepared: (name, engine) => {
         const snapshot = entries.get(name)?.snapshot;

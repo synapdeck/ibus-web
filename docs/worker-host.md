@@ -144,7 +144,9 @@ stack overflow, an error in Emscripten's glue, an `ExitStatus`, `"unwind"`) coun
 `ready`, any call into the runtime that throws is a `RuntimeStopped`.
 
 **Nothing depends on finalizers for correctness.** A hang ends in `terminate()`, which runs none; the IndexedDB
-connections live on the backends' threads, pool Workers nested in the host's Worker, and close when it ends.
+connections live on the backends' threads, pool Workers nested in the host's Worker, and close when it ends. What an
+engine keeps only in memory, the page has it write with a `Persist` request before it ends the Worker
+([core.md](core.md#layers-and-page-lifetime)); the host dispatches it as any other.
 
 ### Startup failures
 

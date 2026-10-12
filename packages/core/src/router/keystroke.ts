@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { ProcessKeyEvent, type DecodedLazyRecord, type ModuleManifest, type Request } from "@ibus-web/protocol";
+import {
+  Persist,
+  ProcessKeyEvent,
+  type DecodedLazyRecord,
+  type ModuleManifest,
+  type Request,
+} from "@ibus-web/protocol";
 import type { Connection, CrashInfo, Reply } from "../connection/connection.ts";
 import { translateKey } from "../keys/translate.ts";
 import { ReplayQueue, type KeySink, type KeyResult, type AsyncKeyResult, type SurfaceAdapter } from "./replay.ts";
@@ -343,6 +349,27 @@ export class KeyRouter {
       settle();
       if (this.snapshot.generation === generation) this.next();
     }
+  }
+  /**
+   * Has the host persist what its engines keep in memory. With nothing else on the wire, the request goes out at
+   * once and this waits up to `budgetMs` for its reply, so that the work is done before a page that is going away
+   * returns to the browser; otherwise it queues behind the work ahead of it.
+   */
+  persist(budgetMs: number): void {
+    const connection = this.snapshot.connection;
+    if (!connection || (this.snapshot.status !== "ready" && this.snapshot.status !== "busy")) return;
+
+    if (this.busy && !this.active && this.replay.size === 0 && this.holds === 0) connection.poll?.();
+    if (this.snapshot.connection !== connection) return;
+    if (this.busy) {
+      void this.request(new Persist({}), 0).catch((cause: unknown) => this.reportError(cause, 0));
+      return;
+    }
+
+    const outcome = connection.requestSync(new Persist({}), 0, budgetMs);
+    if (outcome._tag === "crashed") this.crash(outcome.crash);
+    else if (outcome._tag === "reply") this.apply(outcome.records);
+    else this.output.changed?.();
   }
   apply(records: readonly DecodedLazyRecord[], consumed?: KeyContext): void {
     const targets = new Set<KeyContext>();
