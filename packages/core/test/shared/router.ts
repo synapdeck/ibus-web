@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import type { Request, DecodedLazyRecord } from "@ibus-web/protocol";
+import type { Request, DecodedLazyRecord, LazyOutputRecord } from "@ibus-web/protocol";
 import type { Reply, SyncOutcome, CrashInfo, PrepareProgress } from "../../src/connection/connection.ts";
 import { KeyRouter, type ModuleSnapshot, type KeyContext, type KeyConnection } from "../../src/router/keystroke.ts";
 import type { SurfaceAdapter } from "../../src/router/replay.ts";
@@ -26,6 +26,33 @@ export const output = (seq: number): DecodedLazyRecord => ({
   size: 16,
   record: { _tag: "HidePreeditText" },
 });
+/** One record of each kind an engine can write for an input context, numbered in this order. Only the tags are real. */
+export const everyRecord = (): DecodedLazyRecord[] =>
+  (
+    [
+      "CommitText",
+      "UpdatePreeditText",
+      "ShowPreeditText",
+      "HidePreeditText",
+      "UpdateAuxiliaryText",
+      "ShowAuxiliaryText",
+      "HideAuxiliaryText",
+      "UpdateLookupTable",
+      "ShowLookupTable",
+      "HideLookupTable",
+      "RegisterProperties",
+      "UpdateProperty",
+      "ForwardKeyEvent",
+      "DeleteSurroundingText",
+      "RequireSurroundingText",
+    ] as const
+  ).map((tag, index) => ({
+    seq: index + 1,
+    ic: 1,
+    flags: 0,
+    size: 16,
+    record: { _tag: tag } as LazyOutputRecord,
+  }));
 export class FakeConnection implements KeyConnection {
   busy = false;
   terminated = false;

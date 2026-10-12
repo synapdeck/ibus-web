@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test, vi } from "vitest";
 import { booleanVariant, FocusIn, SettingChanged } from "@ibus-web/protocol";
-import { fixture, key, output } from "../../shared/router.ts";
+import { everyRecord, fixture, key, output } from "../../shared/router.ts";
 const event = (value = "a") => ({ ...key(value), preventDefault: vi.fn(), stopPropagation: vi.fn() });
 
 test("async acceptance intercepts immediately, uses only ASYNC, and applies output before settling", async () => {
@@ -142,6 +142,17 @@ test("retirement replays and settles the finite accepted suffix before reset, ig
     "replay:b",
     "replay:c",
   ]);
+});
+test("a retired async key's reply applies its property records and drops its composition and editing", async () => {
+  const f = fixture();
+  const a = f.router.keyAsync(f.context, event("a"));
+  f.router.retire(f.context);
+  expect(await a).toBe("replayed");
+
+  f.connection.completeAsync(1, everyRecord());
+  await Promise.resolve();
+  expect(f.calls.filter((x) => x.startsWith("record:"))).toEqual(["record:11", "record:12"]);
+  expect(f.calls).not.toContain("consumed");
 });
 test("excluded async events retain native handling and never enter transport", async () => {
   const f = fixture();

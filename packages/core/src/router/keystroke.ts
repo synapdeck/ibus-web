@@ -60,6 +60,14 @@ export interface RouterOutput {
   /** Reports page callback errors from background work without restarting the engine. */
   error?(cause: unknown, ic: number): void;
 }
+/**
+ * Records a retired key still applies. The page replayed the key natively, so its edits would apply twice, and its
+ * preedit, lookup table and auxiliary text draw a composition the retiring boundary has already ended. Properties
+ * describe the engine's modes rather than that composition, and nothing sends them again: dropping a session's first
+ * RegisterProperties would leave the panel without them until the next focus.
+ */
+const engineState: ReadonlySet<string> = new Set(["RegisterProperties", "UpdateProperty"]);
+
 export class KeyRouter {
   private readonly contexts = new Map<number, KeyContext>();
   private readonly replay: ReplayQueue<PendingKey>;
@@ -189,7 +197,7 @@ export class KeyRouter {
         record.record._tag === "Log" ||
         record.record._tag === "SettingWritten" ||
         record.ic !== key.context.ic ||
-        (!key.retired && this.contexts.get(record.ic) === key.context),
+        (this.contexts.get(record.ic) === key.context && (!key.retired || engineState.has(record.record._tag))),
     );
   }
   sink(context: KeyContext): KeySink {

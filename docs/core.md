@@ -191,10 +191,14 @@ external edit, it commits visible COMMIT-mode text through the adapter and clear
 clears; Hangul uses it while its Hanja list is open. Preedit is decoration, never document content. A crash clears
 preedit without committing it. Blur captures the identities of keys already accepted at the blur event; later keys from
 a new focus interval cannot extend that drain. A focused reset holds newly accepted keys in the same engine FIFO until
-Reset and snapshot refresh complete. A reset on an inactive or unready context reserves this barrier when it becomes
-eligible again, after older cross-surface work has drained. Programmatic value and selection edits are
-host-authoritative: reset uses the current host state. Pointerdown capture commits before a trusted click moves the
-browser caret.
+Reset and snapshot refresh complete. Keys the context had already accepted are retired: they are replayed through
+`replayKey` in the batch that commits the preedit, and when their replies arrive their edits, preedit, lookup table and
+auxiliary text are dropped, since the reset ended the composition they belong to. Their RegisterProperties and
+UpdateProperty records still apply: they describe the engine's modes, which no Reset sends again, and the key that opens
+an engine's session is often the slow one a reset retires. A reset on an inactive or unready context reserves this
+barrier when it becomes eligible again, after older cross-surface work has drained. Programmatic value and selection
+edits are host-authoritative: reset uses the current host state. Pointerdown capture commits before a trusted click
+moves the browser caret.
 
 Capabilities start with PREEDIT_TEXT, AUXILIARY_TEXT, LOOKUP_TABLE, FOCUS and PROPERTY, with unsupported adapter text
 capabilities removed and SURROUNDING_TEXT added only when available. SYNC_PROCESS_KEY_V2 is never advertised: the reply

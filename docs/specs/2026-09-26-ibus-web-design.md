@@ -1258,9 +1258,11 @@ it was a shortcut whose browser action the adapter could not perform.
 - **Blur and reset ordering.** A blur waits only for the keys accepted before it, so keys typed after focus returns
   can't hold it open. A reset on a focused, ready surface takes its place in the engine's queue at once; on any other
   surface it waits until the surface is focused and ready again, behind any other surface's pending work, and keys
-  accepted after it wait for `Reset` and the refreshed surrounding text. The host's own value and selection changes
-  always win. A `pointerdown`, caught in the capture phase, commits a visible preedit before the browser moves the
-  caret.
+  accepted after it wait for `Reset` and the refreshed surrounding text. Keys accepted before a reset are replayed
+  through `replayKey` at once; their replies' edits and composition (preedit, lookup table, auxiliary text) are dropped,
+  and their properties (`RegisterProperties`, `UpdateProperty`) still apply, since no `Reset` sends them again. The
+  host's own value and selection changes always win. A `pointerdown`, caught in the capture phase, commits a visible
+  preedit before the browser moves the caret.
 
 #### 7.2.3 Built-in adapters
 

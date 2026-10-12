@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
 import { FocusIn } from "@ibus-web/protocol";
-import { ctrl, fixture, key, output } from "../../shared/router.ts";
+import { ctrl, everyRecord, fixture, key, output } from "../../shared/router.ts";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve));
 
@@ -171,6 +171,17 @@ test("a reset raised by a key's own replay keeps later queued keys for the engin
   expect(replayed).toEqual(["z"]);
   expect(f.calls).toContain("boundary");
   expect(f.connection.sent.at(-1)).toMatchObject({ mode: "async", request: { keyval: 113 } });
+});
+
+test("a retired key's late reply applies its property records and drops its composition and editing", () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("a"));
+  f.router.retire(f.context);
+
+  f.connection.completeAbandoned(1, everyRecord());
+  expect(f.calls.filter((call) => call.startsWith("record:"))).toEqual(["record:11", "record:12"]);
+  expect(f.calls).not.toContain("consumed");
 });
 
 test("a key whose poll crashes the connection or retires its context passes through untouched", async () => {
