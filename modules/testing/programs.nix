@@ -72,8 +72,8 @@
             run only the cases it names.
           - nodeTests (default null): a directory of Vitest test files, TypeScript, that
             run in the node environment beside the programs, for what a program can't
-            report on itself, such as the status it exits with. Its .ts files are copied
-            as they are, so the tests keep their names and can import sibling
+            report on itself, such as the status it exits with. Its .ts files but
+            declarations are copied as they are, so the tests keep their names and can import sibling
             helpers; every *.test.ts among them runs. They import from vitest, and read
             nodeTestData with `nodeTestData(KEY)` from
             `@ibus-web/test-programs/node-tests`, both of which resolve from the shim's
@@ -236,8 +236,11 @@
           nodeTestSources = lib.fileset.toSource {
             root = nodeTests;
             # A tsconfig.json beside them would extend configurations left
-            # behind, which Vite reads when it compiles them.
-            fileset = lib.fileset.fileFilter (file: file.hasExt "ts") nodeTests;
+            # behind, which Vite reads when it compiles them. Declarations
+            # only type-check, which Vite never does.
+            fileset = lib.fileset.fileFilter (
+              file: file.hasExt "ts" && !lib.hasSuffix ".d.ts" file.name
+            ) nodeTests;
           };
 
           nodeTestFiles = lib.optionals (nodeTests != null) (

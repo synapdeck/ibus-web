@@ -324,13 +324,23 @@
           presets
           ;
 
+        # pnpm makes no node_modules for a package with no dependencies.
         packageNodeModules =
           dir:
           let
             relative = lib.path.removePrefix root dir;
+            package = lib.removePrefix "./" relative;
+            dependencies = lib.concatMap (field: lib.attrNames (packageManifests.${package}.${field} or { })) [
+              "dependencies"
+              "devDependencies"
+              "optionalDependencies"
+            ];
           in
-          lib.throwIfNot (lib.elem (lib.removePrefix "./" relative) packageDirs)
-            "packageNodeModules: ${relative} isn't a package of the workspace"
+          if !lib.elem package packageDirs then
+            throw "packageNodeModules: ${relative} isn't a package of the workspace"
+          else if dependencies == [ ] then
+            throw "packageNodeModules: ${relative} has no dependencies, so no node_modules"
+          else
             "${nodeModules}/${relative}/node_modules";
 
         assertDependency = ../../tools/assert-dependency/assert-dependency.ts;

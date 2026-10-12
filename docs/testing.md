@@ -188,11 +188,12 @@ pthreads during exit. A program that wants all its threads' output joins them fi
 
 `nodeTests` names a directory of Vitest files that run in the node environment beside the programs, for what a program
 can't report on itself: the status it exits with, a `LinkError` its module raises, a TypeScript module under test. The
-directory's `.ts` files are copied as they are (so they keep their names and can import siblings; `tsconfig.json` is
-left out, since it extends files not copied), and every `*.test.ts` among them runs. They import from `vitest`, and read
-strings the check passes in `nodeTestData` with `nodeTestData(KEY)` from `@ibus-web/test-programs/node-tests`; both
-resolve from the shim wherever the files are. `programs` may be empty when `nodeTests` holds every test
-(`checks.ibus-runtime-load`, `checks.tools-emscripten-library-deps`, `checks.glib-tests-gate`).
+directory's `.ts` files but declarations are copied as they are (so they keep their names and can import siblings;
+`tsconfig.json` is left out, since it extends files not copied), and every `*.test.ts` among them runs. They import from
+`vitest`, and read strings the check passes in `nodeTestData` with `nodeTestData(KEY)` from
+`@ibus-web/test-programs/node-tests`; both resolve from the shim wherever the files are. `programs` may be empty when
+`nodeTests` holds every test (`checks.ibus-runtime-load`, `checks.tools-emscripten-library-deps`,
+`checks.glib-tests-gate`).
 
 ## Adding a test program
 

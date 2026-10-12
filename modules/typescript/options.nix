@@ -49,7 +49,7 @@
       };
       packageNodeModules = lib.mkOption {
         type = lib.types.functionTo lib.types.str;
-        description = "Given a workspace package's directory, as a path, its node_modules in nodeModules.";
+        description = "Given a workspace package's directory, as a path, its node_modules in nodeModules. A package with no dependencies has none, and is refused.";
       };
       workspaceFor = lib.mkOption {
         type = lib.types.functionTo lib.types.package;
