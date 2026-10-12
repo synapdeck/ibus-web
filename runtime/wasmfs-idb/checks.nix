@@ -138,6 +138,12 @@
             name = "seal";
             backends = 5;
           }
+          # The fixture's backend and a reader beside it, for each of two
+          # cases.
+          {
+            name = "visibility";
+            backends = 4;
+          }
           {
             name = "sweep.1";
             backends = 1;

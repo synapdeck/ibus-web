@@ -68,7 +68,9 @@ plus an Emscripten JS library (`src/libwasmfs_idb.js`) that links with `--js-lib
 - **State.** The JS side keeps each open database in a `HandleAllocator` on the backend's thread; the C++ objects
   (`IdbFile`, `IdbDirectory`, `IdbSymlink`) hold its handle and their inode numbers. Each file's constructor loads its
   stored mode and times in place of the ones WasmFS makes up. WasmFS keeps file identity in its own cache
-  (`maintainsFileIdentity()` stays false).
+  (`maintainsFileIdentity()` stays false). That cache holds the entries lookups found, never an entry's absence, and a
+  directory's listing is read from the database each time, so a file another connection creates after a lookup missed it
+  is found by the next.
 - **Offsets and sizes cross as `double`s** and inode numbers as `uint32_t`, so no import needs `__i53abi`; each import
   declares its `__sig`.
 - **Toolchain patches it relies on** ([the patch series](../modules/emscripten/patches/README.md)): 0012 and 0019 make
@@ -198,9 +200,10 @@ in the same browser storage), `open-unlinked`, `lazy` (chunk records read and wr
 library wrapping `IDBObjectStore`: one byte of a 64-chunk file reads one record; a whole aligned chunk write reads
 none), `sizes` (holes, truncation, `O_APPEND`, `O_TRUNC`, exact chunk multiples, `EFBIG`), `fsync` (strict commit
 counts), `errors` (injected quota failures, read-only refusals, a version change from a post-js, failed opens giving
-their thread back), `sweep.1`/`sweep.2` and `seal`. Each test program's pool is one thread plus one per backend its
-cases create, strictly, so a miscount fails the case. The host's storage and engine-data scenarios run in
-`checks.worker-host-node` and `checks.worker-host-browser`.
+their thread back), `sweep.1`/`sweep.2`, `seal` and `visibility` (a file another backend creates after this one's lookup
+missed it, found and listed). Each test program's pool is one thread plus one per backend its cases create, strictly, so
+a miscount fails the case. The host's storage and engine-data scenarios run in `checks.worker-host-node` and
+`checks.worker-host-browser`.
 
 ## Chunk size
 
