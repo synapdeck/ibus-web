@@ -1,0 +1,94 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Mon, 12 Oct 2026 10:00:00 -0700
+Subject: [PATCH] level_db: let a front end choose LevelDB's environment
+
+A front end whose file writes can wait on something busy while a key is
+handled, such as storage that only another thread can reach, wants to
+hold a user dictionary's log writes back until input pauses. Every
+LevelDB file goes through the environment its options name, so one set
+with LevelDb::SetEnv is used by the databases opened, repaired and
+destroyed from then on; without one, LevelDB's default.
+---
+ src/rime/dict/level_db.cc | 19 ++++++++++++++++---
+ src/rime/dict/level_db.h  |  9 +++++++++
+ 2 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/src/rime/dict/level_db.cc b/src/rime/dict/level_db.cc
+index 9a2eb3d..842a657 100644
+--- a/src/rime/dict/level_db.cc
++++ b/src/rime/dict/level_db.cc
+@@ -16,6 +16,19 @@ namespace rime {
+ 
+ static const char* kMetaCharacter = "\x01";
+ 
++static leveldb::Env* env = nullptr;
++
++void LevelDb::SetEnv(leveldb::Env* new_env) {
++  env = new_env;
++}
++
++static leveldb::Options EnvOptions() {
++  leveldb::Options options;
++  if (env)
++    options.env = env;
++  return options;
++}
++
+ struct LevelDbCursor {
+   leveldb::Iterator* iterator = nullptr;
+ 
+@@ -52,7 +65,7 @@ struct LevelDbWrapper {
+   leveldb::WriteBatch batch;
+ 
+   leveldb::Status Open(const path& file_path, bool readonly) {
+-    leveldb::Options options;
++    leveldb::Options options = EnvOptions();
+     options.create_if_missing = !readonly;
+     return leveldb::DB::Open(options, file_path.string(), &ptr);
+   }
+@@ -217,7 +230,7 @@ bool LevelDb::Restore(const path& snapshot_file) {
+ 
+ bool LevelDb::Recover() {
+   LOG(INFO) << "trying to recover db '" << name() << "'.";
+-  auto status = leveldb::RepairDB(file_path().string(), leveldb::Options());
++  auto status = leveldb::RepairDB(file_path().string(), EnvOptions());
+   if (status.ok()) {
+     LOG(INFO) << "repair finished.";
+     return true;
+@@ -231,7 +244,7 @@ bool LevelDb::Remove() {
+     LOG(ERROR) << "attempt to remove opened db '" << name() << "'.";
+     return false;
+   }
+-  auto status = leveldb::DestroyDB(file_path().string(), leveldb::Options());
++  auto status = leveldb::DestroyDB(file_path().string(), EnvOptions());
+   if (!status.ok()) {
+     LOG(ERROR) << "Error removing db '" << name() << "': " << status.ToString();
+     return false;
+diff --git a/src/rime/dict/level_db.h b/src/rime/dict/level_db.h
+index 578ed05..17a9e89 100644
+--- a/src/rime/dict/level_db.h
++++ b/src/rime/dict/level_db.h
+@@ -9,6 +9,10 @@
+ 
+ #include <rime/dict/db.h>
+ 
++namespace leveldb {
++class Env;
++}  // namespace leveldb
++
+ namespace rime {
+ 
+ struct LevelDbCursor;
+@@ -66,6 +70,11 @@ class LevelDb : public Db, public Recoverable, public Transactional {
+   bool AbortTransaction() override;
+   bool CommitTransaction() override;
+ 
++  // Has the databases opened from then on reach their files through env,
++  // or through LevelDB's default environment when it is null. Set it
++  // before opening any.
++  static void SetEnv(leveldb::Env* env);
++
+  private:
+   void Initialize();
+ 

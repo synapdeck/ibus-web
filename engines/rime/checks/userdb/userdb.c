@@ -45,6 +45,18 @@ static gboolean log_holds(const gchar *text) {
   return FALSE;
 }
 
+static gboolean in_log(gconstpointer text) { return log_holds(text); }
+
+/* Chooses the page's candidate at index, returning what it commits. */
+static gchar *choose(Fixture *fixture, const gchar *keys, guint index) {
+  golden_type(fixture, keys);
+  golden_clear(fixture);
+  g_assert_cmpint(golden_request(fixture, IBUSWEB_REQ_CANDIDATE_CLICKED,
+                                 g_variant_new("(uuu)", index, 1, 0)),
+                  ==, 0);
+  return golden_committed(fixture);
+}
+
 /* The page's third candidate, chosen, is learned. Rime holds the learning in
  * an open transaction, which Persist commits with the engine still open. */
 static void learn(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
@@ -68,6 +80,32 @@ static void learn(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
    * write is in its log, and its lock file stays behind. */
   g_autofree gchar *lock = in_userdb("LOCK");
   g_assert_true(g_file_test(lock, G_FILE_TEST_IS_REGULAR));
+}
+
+/* The next key takes in a commit's learning without writing it, which waits
+ * until input has paused for 5 s. */
+static void idle(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "rime:rime_ice");
+  g_autofree gchar *text = choose(fixture, "guo", 2);
+  gint64 typed = g_get_monotonic_time();
+  golden_type(fixture, "guo");
+  g_autofree gchar *first = first_candidate(fixture);
+  g_assert_cmpstr(first, ==, text);
+  g_assert_false(log_holds(text));
+
+  g_assert_true(golden_pump_until(fixture, in_log, text, 30000));
+  g_assert_cmpint(g_get_monotonic_time() - typed, >=, 5 * G_USEC_PER_SEC);
+}
+
+/* A Backspace right after a commit takes its learning back, leaving Persist
+ * nothing to write. */
+static void revert(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "rime:rime_ice");
+  g_autofree gchar *text = choose(fixture, "ren", 2);
+  g_assert_cmpint(golden_key(fixture, IBUS_BackSpace, 14, 0), ==, 0);
+
+  golden_empty_request(fixture, IBUSWEB_REQ_PERSIST);
+  g_assert_false(log_holds(text));
 }
 
 /* A host killed mid-write leaves a torn record at the end of the log, which
@@ -156,10 +194,14 @@ int main(int argc, char **argv) {
   g_free(instances);
   g_option_context_free(context_options);
 
-  if (g_str_equal(step, "learn"))
+  if (g_str_equal(step, "learn")) {
     g_test_add("/rime-userdb/learn", Fixture, NULL, golden_setup, learn,
                golden_teardown);
-  else if (g_str_equal(step, "remember"))
+    g_test_add("/rime-userdb/idle", Fixture, NULL, golden_setup, idle,
+               golden_teardown);
+    g_test_add("/rime-userdb/revert", Fixture, NULL, golden_setup, revert,
+               golden_teardown);
+  } else if (g_str_equal(step, "remember"))
     g_test_add("/rime-userdb/remember", Fixture, NULL, golden_setup, remembered,
                golden_teardown);
   else

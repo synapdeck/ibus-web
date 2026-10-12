@@ -368,6 +368,25 @@ void golden_wait_log(Fixture *fixture, const gchar *message) {
   }
 }
 
+/* Pumps until done(data) holds, for at most timeout_ms; whether it came to
+ * hold. */
+gboolean golden_pump_until(Fixture *fixture,
+                           gboolean (*done)(gconstpointer data),
+                           gconstpointer data, guint timeout_ms) {
+  gint64 deadline =
+      g_get_monotonic_time() + timeout_ms * G_TIME_SPAN_MILLISECOND;
+  while (!done(data)) {
+    if (g_get_monotonic_time() >= deadline)
+      return FALSE;
+    gint32 word = g_atomic_int_get(&wake_word);
+    gint32 delay = ibusweb_pump();
+    g_assert_cmpint(delay, !=, IBUSWEB_PUMP_ERROR);
+    collect(fixture);
+    ibusweb_wait(word, delay < 0 || delay > 50 ? 50 : delay);
+  }
+  return TRUE;
+}
+
 /* Makes one store path readable, as installing its archive would. */
 void golden_mount(const gchar *store_path) {
   g_assert_cmpint(wasmfs_create_directory(

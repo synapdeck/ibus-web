@@ -32,6 +32,9 @@ void golden_mount(const gchar *store_path);
 void golden_mount_host(const gchar *mount_point);
 void golden_wait_file(const gchar *path, const gchar *text);
 void golden_wait_log(Fixture *fixture, const gchar *message);
+gboolean golden_pump_until(Fixture *fixture,
+                           gboolean (*done)(gconstpointer data),
+                           gconstpointer data, guint timeout_ms);
 void golden_setup(Fixture *fixture, gconstpointer data);
 void golden_teardown(Fixture *fixture, gconstpointer data);
 void golden_make(Fixture *fixture, const gchar *engine);

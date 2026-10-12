@@ -5,11 +5,15 @@
 // ibus_main(), without a bus.
 
 #include <cstring>
+#include <mutex>
+#include <set>
 #include <string>
 
 #include <glog/logging.h>
+#include <leveldb/env.h>
 #include <rime/context.h>
 #include <rime/deployer.h>
+#include <rime/dict/level_db.h>
 #include <rime/key_event.h>
 #include <rime/service.h>
 #include <rime/switcher.h>
@@ -157,10 +161,10 @@ void Notify(void *, RimeSessionId session_id, const char *message_type,
 }
 
 // A commit's learning stays in its user dictionary's open transaction, so
-// that a Backspace can take it back, until the session's next key that no
-// processor handles; ending the Worker loses it. Persist ends it as such a
-// key does, telling the session's listeners of a key with no symbol, which
-// in the shipped schemas only the learning acts on.
+// that a Backspace can take it back, until the session's next key; ending
+// the Worker loses it. Persist ends it as a key no processor handles does,
+// telling the session's listeners of a key with no symbol, which in the
+// shipped schemas only the learning acts on.
 void FinishLearning(RimeSessionId session_id, void *) {
   auto session = rime::Service::instance().GetSession(session_id);
   if (!session) {
@@ -171,7 +175,160 @@ void FinishLearning(RimeSessionId session_id, void *) {
                                     rime::KeyEvent(IBUS_KEY_VoidSymbol, 0));
 }
 
-void Persist() { ibus_rime_engine_foreach_session(FinishLearning, nullptr); }
+void ArmIdle();
+
+// A user dictionary's log, which LevelDB appends to as Rime learns, during
+// a key. On the IndexedDB backend a write can wait for the page, which is
+// spinning on that key's reply: WebKit reaches IndexedDB from a Worker only
+// through the page's main thread. What the pumping thread writes stays in
+// the file's buffer until input pauses or the page asks for Persist. Other
+// threads, which handle no keys, write through.
+class HeldLog : public leveldb::WritableFile {
+public:
+  explicit HeldLog(leveldb::WritableFile *file);
+  ~HeldLog() override;
+
+  leveldb::Status Append(const leveldb::Slice &data) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return file_->Append(data);
+  }
+
+  leveldb::Status Flush() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (g_main_context_is_owner(g_main_context_default())) {
+      held_ = true;
+      ArmIdle();
+      return leveldb::Status::OK();
+    }
+    held_ = false;
+    return file_->Flush();
+  }
+
+  leveldb::Status Sync() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    held_ = false;
+    return file_->Sync();
+  }
+
+  leveldb::Status Close() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    held_ = false;
+    return file_->Close();
+  }
+
+  // Writes out what Flush held back. Another thread writing to the file
+  // meanwhile writes it out itself, so a busy file is passed over rather
+  // than waited for: that thread's I/O can need the pumping thread.
+  void Release() {
+    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock() || !held_) {
+      return;
+    }
+    held_ = false;
+    leveldb::Status status = file_->Flush();
+    if (!status.ok()) {
+      g_warning("Rime's user dictionary log wasn't written: %s",
+                status.ToString().c_str());
+    }
+  }
+
+private:
+  std::mutex mutex_;
+  leveldb::WritableFile *file_;
+  bool held_ = false;
+};
+
+std::mutex held_logs_mutex;
+std::set<HeldLog *> held_logs;
+
+HeldLog::HeldLog(leveldb::WritableFile *file) : file_(file) {
+  std::lock_guard<std::mutex> lock(held_logs_mutex);
+  held_logs.insert(this);
+}
+
+HeldLog::~HeldLog() {
+  {
+    std::lock_guard<std::mutex> lock(held_logs_mutex);
+    held_logs.erase(this);
+  }
+  delete file_;
+}
+
+void ReleaseLogs() {
+  std::lock_guard<std::mutex> lock(held_logs_mutex);
+  for (HeldLog *log : held_logs) {
+    log->Release();
+  }
+}
+
+class HoldingEnv : public leveldb::EnvWrapper {
+public:
+  HoldingEnv() : EnvWrapper(leveldb::Env::Default()) {}
+
+  leveldb::Status NewWritableFile(const std::string &name,
+                                  leveldb::WritableFile **file) override {
+    return Hold(name, target()->NewWritableFile(name, file), file);
+  }
+
+  leveldb::Status NewAppendableFile(const std::string &name,
+                                    leveldb::WritableFile **file) override {
+    return Hold(name, target()->NewAppendableFile(name, file), file);
+  }
+
+private:
+  // Only a database's log is written while a key is handled; its tables and
+  // manifest are written on opening it and by compaction.
+  static leveldb::Status Hold(const std::string &name, leveldb::Status status,
+                              leveldb::WritableFile **file) {
+    if (status.ok() && g_str_has_suffix(name.c_str(), ".log")) {
+      *file = new HeldLog(*file);
+    }
+    return status;
+  }
+};
+
+void Persist() {
+  ibus_rime_engine_foreach_session(FinishLearning, nullptr);
+  ReleaseLogs();
+}
+
+// How long input pauses before the learning is written: past the 3 s in
+// which a Backspace takes a commit's learning back, which Rime counts in
+// whole seconds of the clock and so can stretch to just under 4. A key that
+// arrives while the write waits on the page waits too, so the write waits
+// for a pause rather than coming at a fixed time after a commit.
+constexpr gint64 kIdleUs = 5 * G_USEC_PER_SEC;
+
+gint64 last_input;
+guint idle_source;
+
+gboolean Idle(gpointer) {
+  gint64 idle_for = g_get_monotonic_time() - last_input;
+  if (idle_for < kIdleUs) {
+    idle_source = g_timeout_add((kIdleUs - idle_for) / 1000 + 1, Idle, nullptr);
+    return G_SOURCE_REMOVE;
+  }
+
+  // A write Persist holds back is released with the rest, so it arms no
+  // other pause while this one runs.
+  Persist();
+  idle_source = 0;
+  return G_SOURCE_REMOVE;
+}
+
+void ArmIdle() {
+  if (idle_source == 0) {
+    idle_source = g_timeout_add(kIdleUs / 1000, Idle, nullptr);
+  }
+}
+
+// Any engine's key or candidate click holds the page as Rime's do, and a
+// commit, whose learning the pause writes, comes from one.
+gboolean Input(GSignalInvocationHint *, guint, const GValue *, gpointer) {
+  last_input = g_get_monotonic_time();
+  ArmIdle();
+  return TRUE;
+}
 
 } // namespace
 
@@ -199,10 +356,18 @@ extern "C" void ibus_rime_start(gboolean full_check) {
   Start(full_check);
 }
 
-// The traits, engines and settings live as long as the module, which is the
-// Worker's lifetime, so none is freed and Rime is finalized only to restart.
+// The traits, engines, settings and LevelDB environment live as long as the
+// module, which is the Worker's lifetime, so none is freed and Rime is
+// finalized only to restart.
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_set_persist(module, Persist);
+
+  rime::LevelDb::SetEnv(new HoldingEnv);
+  g_type_class_ref(IBUS_TYPE_ENGINE);
+  for (const char *signal : {"process-key-event", "candidate-clicked"}) {
+    g_signal_add_emission_hook(g_signal_lookup(signal, IBUS_TYPE_ENGINE), 0,
+                               Input, nullptr, nullptr);
+  }
 
   rime_require_module_lua();
   rime_require_module_grammar();
