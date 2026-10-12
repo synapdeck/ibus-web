@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { Context, Effect, Exit, Layer, PubSub, Scope, Stream } from "effect";
+import { Context, Deferred, Effect, Exit, Fiber, Layer, PubSub, Scope, Stream } from "effect";
 import {
   asError,
   CreateEngine,
@@ -144,10 +144,14 @@ export const makeRouter = Effect.gen(function* () {
     Effect.forever,
     Effect.forkScoped,
   );
+  // Completed and replaced at each selection change, so that a selection waiting on its engine's data can stop waiting.
+  let superseded = Deferred.makeUnsafe<void>();
   const choose = (selection: Selection | undefined) => {
     if (same(selected, selection)) return;
     selected = selection;
     changes.enqueue(selection);
+    Deferred.doneUnsafe(superseded, Effect.void);
+    superseded = Deferred.makeUnsafe<void>();
   };
   const apply = (selection: Selection | undefined) => {
     if (!same(selected, selection))
@@ -565,11 +569,15 @@ export const makeRouter = Effect.gen(function* () {
         });
         // The engine's own data installs outside the mailbox, focused surface or not, so that it is there by the
         // time one is; the selection then waits for it, and has the surfaces that still want the engine make it. A
-        // selection superseded meanwhile resolves, the data staying installed.
+        // selection superseded meanwhile resolves at once, the install going on in the router's scope.
         const settle = (target: Selection) =>
           Effect.gen(function* () {
-            const exit = yield* Effect.exit(registry.prepare(target.module, target.engine));
+            const changed = superseded;
+            const preparing = Effect.exit(registry.prepare(target.module, target.engine));
+            const installing = yield* Effect.forkIn(preparing, scope, { startImmediately: true });
             if (!same(selected, target) || cancelled()) return;
+            const exit = yield* Effect.raceFirst(Fiber.join(installing), Effect.as(Deferred.await(changed), undefined));
+            if (exit === undefined || !same(selected, target) || cancelled()) return;
             if (Exit.isFailure(exit)) return yield* exit;
             yield* submit(() => reconcileAll((surface) => wants(surface, target)));
           });

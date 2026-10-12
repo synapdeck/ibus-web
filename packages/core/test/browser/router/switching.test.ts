@@ -365,9 +365,11 @@ test("an engine's download holds up no other work: other selections and focus ch
     g.element.focus();
     const b = connections.b[0]!;
     await expect.poll(() => b.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => x.ic)).toEqual([1, 2]);
+    await pending;
+    expect(registry.isPrepared("a", "lazy"), "the superseded selection, resolved before its install ends").toBe(false);
 
     installed();
-    await pending;
+    await expect.poll(() => registry.isPrepared("a", "lazy")).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(
       a.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => (x.request as CreateEngine).name),
@@ -376,7 +378,7 @@ test("an engine's download holds up no other work: other selections and focus ch
     expect(registry.isPrepared("a", "lazy"), "the data, installed all the same").toBe(true);
   }));
 test("a deselect while an engine downloads goes on at once; selecting the engine again makes it without a second install", () =>
-  run(async ({ router, connections, field }) => {
+  run(async ({ router, registry, connections, field }) => {
     const f = field();
     f.element.focus();
     await select(router);
@@ -390,8 +392,11 @@ test("a deselect while an engine downloads goes on at once; selecting the engine
     await expect.poll(() => a.prepared).toEqual(["lazy"]);
     await Effect.runPromise(router.deselect());
     expect(router.selection).toBeUndefined();
-    installed();
     await pending;
+    expect(registry.isPrepared("a", "lazy"), "the undone selection, resolved before its install ends").toBe(false);
+
+    installed();
+    await expect.poll(() => registry.isPrepared("a", "lazy")).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(a.sent.filter((x) => x.request._tag === "CreateEngine")).toHaveLength(1);
     await Effect.runPromise(router.select("a", "lazy"));
