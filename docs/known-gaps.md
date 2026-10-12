@@ -220,7 +220,7 @@ decided.
   the page could restart the Worker on its own `versionchange`.
 - **A writer that unlinks a file another tab has open** deletes its inode at once: open counts are per connection, so
   the reader's next read fails with `ENOENT`. Harmless for engine data, which nobody unlinks; user data that readers in
-  other tabs keep open needs a rule before user dictionaries (M5).
+  other tabs keep open, such as Rime's LevelDB user dictionaries, has no such rule yet.
 
 - **The backend's internals are runtime exports.** `_wasmfs_idb_record_entry` and `_wasmfs_idb_set_string` are
   `EMSCRIPTEN_KEEPALIVE`; only the export manifest keeps side modules off them.
