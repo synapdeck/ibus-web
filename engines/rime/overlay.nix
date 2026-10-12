@@ -257,6 +257,11 @@ in
             opencc-data = pkgs.opencc;
           };
 
+          ibus-web-rime = final.callPackage ./_package.nix {
+            inherit (config.ibusWeb.toolchain) sideModuleFlags;
+            inherit (config.ibusWeb.runtime) sideModuleLibraryGuard;
+          };
+
           # CanCLID's loengfan, which rime-data's jyut6ping3 looks characters
           # up by, at the revision Debian's and Arch's packages ship.
           rime-loengfan = pkgs.stdenvNoCC.mkDerivation {

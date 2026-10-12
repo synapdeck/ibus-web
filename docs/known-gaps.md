@@ -155,7 +155,8 @@ decided.
 - **Link targets of at most 100 bytes.** Data archives are plain ustar, whose link-target field holds 100 bytes, and the
   installer refuses extended headers, so a closure with a longer symbolic-link target fails its distribution's build.
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
-  handler's arity. Hangul needs no lazy arity bridge; Rime still needs its own audit.
+  handler's arity. Hangul needs no lazy arity bridge, and Rime's only connected handlers are the module's own GSettings
+  `changed` handlers.
 - **Hangul setup.** The `setup` property does not launch an application.
 - **Hangul preedit-mode updates.** Module settings stay current even with no live engines. `preedit-mode` takes effect
   in an existing engine on refocus or a capabilities update.
@@ -179,6 +180,13 @@ decided.
   nothing stored, of the 64 KiB request slot ([m17n.md](m17n.md#checks)). A user who stores many values across m17n's
   per-engine instances could push `Init` past the slot, which `Connection.requestAsync` rejects with a `RangeError`, and
   the module would fail to start.
+- **A change to Rime's page size or keys recompiles every schema.** `default.custom.yaml` reaches every compiled schema,
+  so changing `page-size`, `switcher-hotkeys` or `ascii-toggle-key` recompiles them all and rebuilds every installed
+  dictionary's prisms in the user's directory, about 3 s on Rime's deployer thread under Node, during which keys pass
+  through ([rime.md](rime.md#settings)).
+- **Rime's links are longer than a data archive holds.** The common path's links into the dictionary paths reach 114
+  bytes, past ustar's 100 (above), so a Rime distribution needs archives and an installer that carry longer link targets
+  ([rime.md](rime.md#deployment)).
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
   context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a

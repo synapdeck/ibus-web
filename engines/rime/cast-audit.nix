@@ -11,6 +11,7 @@
     let
       inherit (config.ibusWeb) engines toolchain;
       inherit (toolchain) pkgsWasm;
+      rime = pkgsWasm.ibus-web-rime;
       ibus-rime = pkgsWasm.ibus-engines.rime;
 
       # The sources compile_commands.json lists for a target, in one
@@ -151,6 +152,30 @@
                 echo "-I${ibus-rime}/include/ibus-rime" >> $TMPDIR/cflags
               '';
             });
+
+        module = (
+          engines.castAudit {
+            name = "rime-module";
+            src = ./module;
+            sources = [
+              "module.cc"
+              "settings.c"
+            ];
+            buildInputs = [
+              pkgsWasm.libibus-web
+              pkgsWasm.librime
+              pkgsWasm.ibus-web-boost-headers
+            ];
+            pkgConfigModules = [
+              "ibus-1.0"
+              "libibus-web"
+              "rime"
+              "libglog"
+            ];
+            cflags = rime.auditCflags;
+            allowList = ./cast-audit/module.jsonc;
+          }
+        );
       };
     in
     {

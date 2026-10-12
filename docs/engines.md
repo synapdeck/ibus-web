@@ -324,3 +324,16 @@ the browser and checks.
 nix build .#ibus-web-m17n-dist
 nix build .#checks.x86_64-linux.m17n-host
 ```
+
+## Rime
+
+`engines/rime/` is ibus-rime with librime, its Lua and grammar plugins and their libraries in one side module,
+`rime.wasm`, built through nixpkgs' CMake recipes, with `rime-data`, `rime-loengfan` and `rime-ice` deployed at build
+time by librime's own deployer, built for WebAssembly. Its 47 engines, `rime:<schema_id>`, are the schemas that type,
+and their descriptors come from the deployed configs, read through librime. [rime.md](rime.md) describes its build,
+deployment, startup, engines, settings, switches as properties and checks.
+
+```sh
+nix build .#ibus-web-rime
+nix build .#checks.x86_64-linux.rime-golden
+```

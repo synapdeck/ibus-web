@@ -74,6 +74,10 @@ configured tree, `rime_engine.c` and `rime_settings.c` compile with the flags CM
 `flags.make`); `rime_main.c`, which connects to the bus, isn't built. The package holds the two objects, their flags,
 ibus-rime's headers and `ibus_rime.yaml`.
 
+`rime.wasm` links the objects, the module's sources (`module/module.cc`, `module/settings.c`) and librime with its
+libraries. Its closure, which its distribution carries, is itself, the common path, the dictionary paths and the
+compiled settings schemas.
+
 ## Deployment
 
 `engines/rime/_data.nix` deploys the data at build time; `_package.nix` builds the module over it. Both take `schemas`,
@@ -121,12 +125,123 @@ before anything is deployed, to make one derivation per dictionary; the step fai
 the table, if a schema has no gloss, or if a dependency isn't deployed. `engine-data.json` is a file of its own because
 `EngineDescriptor` doesn't take `data`.
 
+## Startup
+
+`ibusweb_module_init` does what ibus-rime's `main()` does without a bus:
+
+1. fills `RimeTraits`: the shared data directory the common path, compiled in; the user data directory
+   `g_get_home_dir()`, which the host makes `/engines/<name>`; `log_dir` empty; the distribution `Rime`, `ibus-rime`,
+   ibus-rime's version; the app `rime.ibus`;
+2. writes the YAML its settings generate ([Settings](#settings));
+3. sets the notification handler;
+4. calls `RimeSetup`, routes glog into GLib's log, and sets the switcher's filter;
+5. calls `RimeInitialize` and `RimeStartMaintenance(False)`, which checks the user directory against the shared one on
+   the deployer thread, then deploys `ibus_rime.yaml` and loads ibus-rime's settings, as `rime_main.c` does;
+6. registers each shipped schema's engine with the factory.
+
+Rime logs through glog, which goes to stderr when `log_dir` is empty. The module adds a `LogSink` that sends each
+message to `g_log` in the domain `Rime` (INFO as info, WARNING as a warning, ERROR and FATAL as criticals), and turns
+glog's stderr off, so Rime's messages reach the page as `Log` records. The notification handler logs
+`Rime is under maintenance ...` when a deployment starts and `Rime is ready.` (or the warning
+`Rime has encountered an error.`) when it ends, from the pumping thread, where it reloads ibus-rime's settings and ends
+every session. A session keeps the configs it was made with, so each engine makes a new one at its next key, with the
+deployed configs. When no deployment starts, startup logs `Rime is ready.` itself. While maintenance runs, Rime's
+service is disabled and keys pass through unhandled, as on the desktop.
+
+The module lives as long as its Worker; `RimeFinalize` is never reached. ibus-rime's "Deploy" property calls the
+module's `ibus_rime_stop` and `ibus_rime_start(TRUE)`, which finalize Rime and start it again with a full check.
+
+## Engines
+
+Each shipped schema is an engine, `rime:<schema_id>`. ibus-rime's port patch 0002 makes an engine's first session once
+it is constructed, when its `engine-name` is set, and selects the named schema in every session it makes. The switcher
+filter rejects every schema, so a new session starts with Rime's default configuration until the engine selects its own,
+and loads no other schema's dictionaries.
+
+The default build ships 47 engines: the mainstream schemas first, `rime:rime_ice` (the default), `rime-ice`'s seven
+Double Pinyin schemes, `luna_pinyin`, `terra_pinyin`, `bopomofo`, `cangjie5`, `quick5`, `wubi86`, `stroke`, `jyut6ping3`
+and `wugniu`, then every other `rime-data` schema by id. Five schemas are deployed only as dependencies: `loengfan`,
+`rime-ice`'s `melt_eng` and `radical_pinyin`, and `rime-data`'s helpers `array30_query` and `array30_wsymbols`, which
+have no punctuator, which Rime warns of when a session opens them. `rime-ice`'s `t9` isn't deployed: it needs a
+`t9_processor` that only Rime's mobile front ends have.
+
+| Engine             | Dictionaries (`engine-data.json`)                                               |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `rime:rime_ice`    | `rime_ice`, `melt_eng`, `radical_pinyin` (the Double Pinyin engines share them) |
+| `rime:luna_pinyin` | `luna_pinyin`, `stroke`                                                         |
+| `rime:cangjie5`    | `cangjie5`, `luna_pinyin`, `stroke`                                             |
+| `rime:jyut6ping3`  | `jyut6ping3`, `luna_pinyin`, `stroke`, `loengfan`, `cangjie5`                   |
+| `rime:array30`     | `array30`, `array30_wsymbols`, `luna_pinyin`, `stroke`, `array30_query`         |
+
+The 22 dictionary paths come to about 290 MB compiled: `rime_ice` 61 MB, `jyut6ping3` 28 MB, `loengfan` 25 MB; the
+common path is 4 MB and `rime.wasm` 3.9 MB.
+
+### Selecting schemas
+
+`_package.nix` and `_data.nix` take `schemas`, the schema ids to deploy and register; by default, every engine of the
+table. A build can ship fewer:
+
+```nix
+pkgsWasm.ibus-web-rime.override { schemas = [ "rime_ice" "luna_pinyin" "jyut6ping3" ]; }
+```
+
+The list reaches everything built from it: the generated `default.yaml`, the deployment and its dictionary paths, the
+descriptors and the engines the module registers. Dependencies are deployed whether listed or not. An id the table
+doesn't have, or one listed twice, fails evaluation.
+
+## Switches as properties
+
+ibus-rime's port patch 0003 registers the session's schema's switches as properties, after ibus-rime's own (`InputMode`,
+`deploy`, `sync`), each time it makes a session:
+
+- a switch with a name is a toggle keyed `rime:option:<name>` (`rime:option:ascii_mode`, `rime:option:full_shape`,
+  `rime:option:simplification`, …), labelled with its current state's label;
+- a switch of several options is a menu keyed `rime:options:<index>`, labelled with the current option's state label,
+  holding a radio property per option, keyed `rime:option:<option>`.
+
+Rime's `option` notifications update the property's state and label (and a radio's menu). `PropertyActivate` sets the
+option to the state asked for; choosing an option of a menu turns the group's others off. A page that wants its own
+controls reads these from the `panel` events and sends `PropertyActivate`, without placing `panel.properties`. To take
+Rime's own controls away, the settings empty `switcher-hotkeys` and set `ascii-toggle-key` to `none`. Rime's menu (F4,
+Ctrl+`) keeps its option items but lists only the engine's own schema.
+
+## Settings
+
+Rime is configured by YAML patches in its user directory. The module takes its settings from GSettings and writes the
+patches itself, at startup and on every `changed` signal. A key the page hasn't stored writes nothing, so its default is
+Rime's own configuration; a file is written only when its content differs and removed when it would be empty.
+
+| Key (`org.freedesktop.ibus.engine.rime`)         | Writes                                                                                                           |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `page-size`                                      | `default.custom.yaml`: `menu/page_size`                                                                          |
+| `switcher-hotkeys`                               | `default.custom.yaml`: `switcher/hotkeys`; empty turns the menu off                                              |
+| `ascii-toggle-key`                               | `default.custom.yaml`: `ascii_composer/switch_key` for `shift` (the default's), `caps-lock`, `control` or `none` |
+| `inline-preedit`, `preedit-style`, `cursor-type` | `ibus_rime.custom.yaml`: `style/inline_preedit`, `style/preedit_style`, `style/cursor_type`                      |
+| `traditional`                                    | Each `rime-ice` schema's `<id>.custom.yaml`: the `traditionalization` switch's `reset`                           |
+| `fuzzy-pinyin`                                   | `rime-ice`'s Pinyin schemas' `<id>.custom.yaml`: `speller/algebra`, the chosen rules before the schema's own     |
+
+`fuzzy-pinyin`'s choices are the 35 rules `rime-ice`'s speller carries commented out, named for the sound typed and the
+one it also stands for (`zh-z` lets z, c and s stand for zh, ch and sh). They go before the schema's own algebra, which
+Double Pinyin begins by converting the full spellings, so the whole list is written. The relocatable
+`org.freedesktop.ibus.engine.rime.schema`, at `/org/freedesktop/ibus/engine/rime/<schema_id>/` for each engine, holds
+`full-shape`, `ascii-punct` and `simplification`, written as the `reset` of the schema's switch of that name; for a
+switch of several options, `simplification` true selects that option and false leaves the schema's own.
+
+When a patch changed, the module starts maintenance with a full check, since a check for modifications compares whole
+seconds and misses a patch written in the second the last deployment ended, then deploys `ibus_rime.yaml`. A change that
+arrives during maintenance is written at once and deployed when it ends. The deployment recompiles the configs into
+`/engines/<name>/build`, rebuilds the prisms whose config changed and reuses the prebuilt tables; Rime's sessions end
+when it does, and an open context takes the change up at its next key. A change that touches `default.custom.yaml`
+recompiles every schema, about 3 s under Node.
+
 ## Checks
 
-| Check              | Covers                                                                                                                                                                                                                                  |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rime-descriptors` | Vitest: the table checked against deployed configs, dependency resolution into `engine-data.json`, ordering, glosses, the switch and algebra tables, and what fails the build; the default build's outputs and a build of three schemas |
-| `rime-cast-audit`  | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA, Lua and ibus-rime, each against its own allow-list, all empty                                                                                          |
+| Check               | Covers                                                                                                                                                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rime-descriptors`  | Vitest: the table checked against deployed configs, dependency resolution into `engine-data.json`, ordering, glosses, the switch and algebra tables, and what fails the build; the default build's outputs and a build of three schemas |
+| `rime-cast-audit`   | librime, librime-lua, librime-octagram, LevelDB, yaml-cpp, OpenCC, glog, MARISA, Lua, ibus-rime and the module, each against its own allow-list, all empty                                                                              |
+| `rime-imports`      | `rime.wasm` imports only what the runtime exports, and nothing of the dynamic loader                                                                                                                                                    |
+| `rime-data-closure` | The closure is the module, the common path, the dictionary paths and the compiled schemas, all of them data; it prints the longest link target                                                                                          |
 
 A CMake library is audited with the flags its own configure gives the target that builds it, from the target's
 `flags.make`, over the sources `compile_commands.json` lists for the target.

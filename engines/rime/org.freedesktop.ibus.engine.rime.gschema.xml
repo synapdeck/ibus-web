@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Synapdeck, Inc. -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Rime's settings, which the module writes as YAML patches. A key left at
+     its default patches nothing, so its default is Rime's own configuration. -->
+<schemalist>
+  <schema id="org.freedesktop.ibus.engine.rime" path="/org/freedesktop/ibus/engine/rime/">
+    <key name="page-size" type="i">
+      <range min="1" max="10"/>
+      <default>5</default>
+      <summary>Candidates per page</summary>
+      <description>How many candidates each page of the candidate list shows.</description>
+    </key>
+    <key name="switcher-hotkeys" type="as">
+      <default>['Control+grave', 'Control+Shift+grave', 'F4']</default>
+      <summary>Menu keys</summary>
+      <description>The keys that open Rime's menu of options, as Rime names them, such as F4 or Control+grave. With none, the menu doesn't open.</description>
+    </key>
+    <key name="ascii-toggle-key" type="s">
+      <choices>
+        <choice value="shift"/>
+        <choice value="caps-lock"/>
+        <choice value="control"/>
+        <choice value="none"/>
+      </choices>
+      <default>'shift'</default>
+      <summary>Latin input key</summary>
+      <description>The key that switches between Chinese and Latin input: either Shift (and Caps Lock, which also clears the composition), Caps Lock alone, either Control, or none.</description>
+    </key>
+    <key name="inline-preedit" type="b">
+      <default>true</default>
+      <summary>Show the composition in the text</summary>
+      <description>Show the text being composed where it will be inserted, rather than only in the candidate window.</description>
+    </key>
+    <key name="preedit-style" type="s">
+      <choices>
+        <choice value="composition"/>
+        <choice value="preview"/>
+      </choices>
+      <default>'preview'</default>
+      <summary>Composition shown</summary>
+      <description>What the text shows while composing: the input as typed, or a preview of the text it converts to.</description>
+    </key>
+    <key name="cursor-type" type="s">
+      <choices>
+        <choice value="insert"/>
+        <choice value="select"/>
+      </choices>
+      <default>'select'</default>
+      <summary>Cursor in the composition</summary>
+      <description>Where the cursor sits in the composition: at the insertion point, or at the start of the text being converted.</description>
+    </key>
+    <key name="traditional" type="b">
+      <default>false</default>
+      <summary>Traditional characters</summary>
+      <description>Whether rime-ice's Pinyin and Double Pinyin engines start out typing traditional characters.</description>
+    </key>
+    <key name="fuzzy-pinyin" type="as">
+      <choices>
+        <choice value="zh-z"/>
+        <choice value="z-zh"/>
+        <choice value="l-n"/>
+        <choice value="n-l"/>
+        <choice value="f-h"/>
+        <choice value="h-f"/>
+        <choice value="l-r"/>
+        <choice value="r-l"/>
+        <choice value="g-k"/>
+        <choice value="k-g"/>
+        <choice value="ang-an"/>
+        <choice value="an-ang"/>
+        <choice value="eng-en"/>
+        <choice value="en-eng"/>
+        <choice value="in-ing"/>
+        <choice value="ing-in"/>
+        <choice value="ian-iang"/>
+        <choice value="iang-ian"/>
+        <choice value="uan-uang"/>
+        <choice value="uang-uan"/>
+        <choice value="ai-an"/>
+        <choice value="an-ai"/>
+        <choice value="ong-un"/>
+        <choice value="un-ong"/>
+        <choice value="ong-on"/>
+        <choice value="iong-un"/>
+        <choice value="un-iong"/>
+        <choice value="ong-eng"/>
+        <choice value="eng-ong"/>
+        <choice value="fei-hui"/>
+        <choice value="hui-fei"/>
+        <choice value="hu-fu"/>
+        <choice value="fu-hu"/>
+        <choice value="wang-huang"/>
+        <choice value="huang-wang"/>
+      </choices>
+      <default>[]</default>
+      <summary>Fuzzy Pinyin</summary>
+      <description>Spellings rime-ice's Pinyin and Double Pinyin engines also accept for each other, each written as the sound typed, a hyphen and the sound it also stands for: zh-z lets z, c and s stand for zh, ch and sh.</description>
+    </key>
+  </schema>
+  <schema id="org.freedesktop.ibus.engine.rime.schema">
+    <key name="full-shape" type="b">
+      <default>false</default>
+      <summary>Full-width characters</summary>
+      <description>Whether the engine starts out typing full-width Latin letters, digits and punctuation.</description>
+    </key>
+    <key name="ascii-punct" type="b">
+      <default>false</default>
+      <summary>Latin punctuation</summary>
+      <description>Whether the engine starts out typing Latin rather than Chinese punctuation.</description>
+    </key>
+    <key name="simplification" type="b">
+      <default>false</default>
+      <summary>Simplified characters</summary>
+      <description>Whether an engine with a switch to simplified characters starts out with it on.</description>
+    </key>
+  </schema>
+</schemalist>
