@@ -171,18 +171,20 @@ TEST_F(Sizes, EmptyFile) {
 }
 
 // A size the backend can't store exactly fails with EFBIG and changes
-// nothing; the largest it can is an ordinary, if sparse, file.
+// nothing, and a write straddling the limit stores what fits below it; the
+// largest size it can store is an ordinary, if sparse, file.
 TEST_F(Sizes, LargestSizeAJavaScriptNumberHolds) {
   const int fd = open(path("largest").c_str(), O_CREAT | O_EXCL | O_RDWR, 0644);
   ASSERT_GE(fd, 0) << errno_text();
   EXPECT_ERRNO(ftruncate(fd, kMaxSize + 1), EFBIG);
   EXPECT_ERRNO(ftruncate(fd, INT64_MAX), EFBIG);
   EXPECT_ERRNO(pwrite(fd, "x", 1, kMaxSize), EFBIG);
-  EXPECT_ERRNO(pwrite(fd, "xy", 2, kMaxSize - 1), EFBIG);
   EXPECT_EQ(lseek(fd, kMaxSize + 1, SEEK_SET), kMaxSize + 1);
   EXPECT_ERRNO(write(fd, "x", 1), EFBIG);
   EXPECT_EQ(size_of(fd), 0);
 
+  EXPECT_EQ(pwrite(fd, "xy", 2, kMaxSize - 1), 1) << errno_text();
+  EXPECT_EQ(size_of(fd), kMaxSize);
   EXPECT_EQ(ftruncate(fd, kMaxSize), 0) << errno_text();
   EXPECT_EQ(size_of(fd), kMaxSize);
   EXPECT_EQ(pwrite(fd, "y", 1, kMaxSize - 1), 1) << errno_text();

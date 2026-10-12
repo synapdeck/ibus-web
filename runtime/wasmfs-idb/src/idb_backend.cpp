@@ -162,8 +162,13 @@ private:
     if (offset < 0) {
       return -EINVAL;
     }
-    if (offset > maxFileSize || off_t(len) > maxFileSize - offset) {
+    // As on a file system with a size limit: what fits below it is written,
+    // and only a write that can store nothing fails.
+    if (offset >= maxFileSize) {
       return -EFBIG;
+    }
+    if (off_t(len) > maxFileSize - offset) {
+      len = size_t(maxFileSize - offset);
     }
     int32_t nwritten = 0;
     backend.proxy([&](auto ctx) {

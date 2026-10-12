@@ -231,7 +231,7 @@ decided.
   KiB), not read from its source.
 - **WebKit's IndexedDB in Workers** is unchecked (spec R5, R13).
 - **The backend's costs**: every `open()` costs one read-only transaction; the open/unlink race is argued in a comment,
-  not tested; a `pwrite()` straddling 2^53 − 1 fails whole with `EFBIG` rather than writing short.
+  not tested.
 - **Installing writes in 64 KiB pieces.** Each piece of a file's data is one write transaction at a 64 KiB boundary of
   the file, which covers the 16 KiB chunks the backend creates whole; in a database created with chunks that don't
   divide 64 KiB, most writes would cover a chunk in part at each end and read it first. Installing is off the request

@@ -111,7 +111,8 @@ One database per mount, at version 1, with four object stores, created when the 
 - A missing chunk reads as zeros, so files may be sparse; growing a file only changes its size. No chunk holds bytes
   past its file's size (truncation deletes the chunks past the end and trims the last), so a file truncated and grown
   again never shows its old bytes. The last chunk may be short.
-- File sizes go up to 2^53 − 1, the largest integer a JavaScript number holds exactly; beyond it is `EFBIG`.
+- File sizes go up to 2^53 − 1, the largest integer a JavaScript number holds exactly; beyond it is `EFBIG`, and a write
+  that straddles it stores what fits and returns that count.
 - Every operation that touches more than one record is one transaction, so a failure leaves nothing half done.
 - `meta.installed` and `meta.paths/<storePath>` are the host's ([below](#installing)); the backend reserves those keys
   and never reads them.
