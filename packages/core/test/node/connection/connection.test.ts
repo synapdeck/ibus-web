@@ -264,6 +264,15 @@ describe("startup and shutdown", () => {
     host.message({ type: "storage", state: "read-only", message: "writer elsewhere" });
     expect(states).toEqual([{ state: "read-only", message: "writer elsewhere" }]);
   });
+
+  test("a failed collection of other versions' data is logged", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await start();
+    host.message({ type: "collect", removed: ["1"], inUse: [] });
+    expect(warn).not.toHaveBeenCalled();
+    host.message({ type: "collect", removed: [], inUse: [], error: "QuotaExceededError" });
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("QuotaExceededError"));
+  });
 });
 
 describe("synchronous replies", () => {

@@ -253,7 +253,6 @@ decided.
   become writer or both install one version. Node suites start hosts that share storage one at a time; a Node store that
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **Collection failures are silent but for `CollectReport.error`**; nothing is logged.
 - **The published packages aren't released.** `@ibus-web/protocol`, `@ibus-web/worker-host`, `@ibus-web/core`,
   `@ibus-web/panel` and `ibus-web` are publishable, but their versions stay `0.0.0` and nothing publishes them. Releases
   are to be versioned with Changesets, with a CI workflow that bumps versions and publishes to npm; neither is set up

@@ -411,6 +411,11 @@ export class Connection {
       case "doorbell":
         this.doorbell();
         break;
+      // Deleting other versions' data never fails a start, so its failure
+      // is seen nowhere else.
+      case "collect":
+        if (message.error !== undefined) console.warn(`ibus-web: other versions' data not deleted: ${message.error}`);
+        break;
       case "prepare-progress":
         for (const pending of this.preparing.get(message.engine) ?? [])
           pending.progress?.(message.bytes, message.total);

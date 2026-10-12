@@ -484,8 +484,8 @@ refused.
 Once it has installed or found its version, the host lists the engine's other versions (`indexedDB.databases()`, which
 Firefox has only from 126: hence the toolchain's one-way Firefox floor, [toolchain.md](toolchain.md)) and, for each,
 requests its data lock exclusively with `ifAvailable`. Granted, no host uses that version and none can start to until
-the lock is let go, so it deletes the database. Collection is best-effort: a failure is reported in `collect.error` and
-never fails the start.
+the lock is let go, so it deletes the database. Collection is best-effort: a failure is reported in `collect.error`,
+which the page's connection logs as a warning, and never fails the start.
 
 ### `install` and `collect`
 
