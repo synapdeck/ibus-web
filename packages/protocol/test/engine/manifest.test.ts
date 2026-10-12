@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { describe, expect, test } from "vitest";
-import { decodeModuleManifest } from "../../src/manifest.ts";
+import { decodeModuleManifest, lazyStorePaths } from "../../src/manifest.ts";
 
 const bounds = { minimum: 32 * 1024 * 1024, maximum: 2 ** 31 };
 const storePath = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-hangul-data";
@@ -119,4 +119,54 @@ test("accepts an optional settings metadata asset and validates its size and URL
     { url: "./settings.json", size: -1 },
   ])
     expect(() => decodeModuleManifest({ ...valid, settingsMetadata: asset }, bounds)).toThrow();
+});
+
+describe("an engine's own data", () => {
+  const dictionary = "/nix/store/1123456789abcdfghijklmnpqrsvwxyz-dictionary";
+  const withDictionary = {
+    ...valid,
+    data: [...valid.data, { storePath: dictionary, url: "./data/dictionary.tar.br", size: 8192, encoding: "br" }],
+    engines: [
+      { ...engine, data: [dictionary] },
+      { ...engine, name: "romaja" },
+    ],
+  };
+
+  test("decodes an engine's data, and an engine without it", () =>
+    expect(decodeModuleManifest(withDictionary, bounds)).toEqual(withDictionary));
+  test("lists the store paths engines name as lazy, and nothing else", () => {
+    expect([...lazyStorePaths(decodeModuleManifest(withDictionary, bounds))]).toEqual([dictionary]);
+    expect([...lazyStorePaths(decodeModuleManifest(valid, bounds))]).toEqual([]);
+  });
+  test("takes a path several engines name once", () =>
+    expect([
+      ...lazyStorePaths(
+        decodeModuleManifest(
+          {
+            ...withDictionary,
+            engines: [
+              { ...engine, data: [dictionary] },
+              { ...engine, name: "romaja", data: [dictionary] },
+            ],
+          },
+          bounds,
+        ),
+      ),
+    ]).toEqual([dictionary]));
+  test("rejects a path not in the module's data", () =>
+    expect(() =>
+      decodeModuleManifest({ ...withDictionary, engines: [{ ...engine, data: [`${dictionary}-other`] }] }, bounds),
+    ).toThrow(/engine hangul's data \/nix\/store\/\S+-dictionary-other is not in the module's data/));
+  test("rejects a path named twice by one engine", () =>
+    expect(() =>
+      decodeModuleManifest({ ...withDictionary, engines: [{ ...engine, data: [dictionary, dictionary] }] }, bounds),
+    ).toThrow(/engine hangul names a data store path twice/));
+  test("rejects a path that isn't a store path", () =>
+    expect(() =>
+      decodeModuleManifest({ ...withDictionary, engines: [{ ...engine, data: ["/usr/share/dictionary"] }] }, bounds),
+    ).toThrow());
+  test("rejects lazy data holding the schema directory", () =>
+    expect(() =>
+      decodeModuleManifest({ ...withDictionary, engines: [{ ...engine, data: [storePath] }] }, bounds),
+    ).toThrow(/schema directory is in \/nix\/store\/\S+-hangul-data, which installs only with an engine/));
 });

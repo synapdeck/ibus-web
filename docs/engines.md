@@ -43,12 +43,13 @@ first lookup.
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`, `heapBytes`, `settingsSchemaDir`, `engines`,
 `settingsSchemas` and, for relocatable schemas, `settingsPaths`. `engines`, the module's engine descriptors, and
 `settingsSchemas`, its schema ids, are each a Nix list or a JSON file another derivation builds, as `settingsPaths` is
-an attribute set (schema id to its paths) or such a file; the manifest's own check validates them, so evaluation never
-reads a build output. It derives license and the upstream version from the package, runtime ABI and protocol from the
-build, and static memory from the module's `dylink.0` section. The license is the conjunction of the package's
-`meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the SPDX ids,
-which writes each license once under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an id SPDX
-doesn't know. It merges no license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the
+an attribute set (schema id to its paths) or such a file; a descriptor may carry `data`, the store paths of the closure
+it alone needs, which the build checks with the rest of the manifest; the manifest's own check validates them, so
+evaluation never reads a build output. It derives license and the upstream version from the package, runtime ABI and
+protocol from the build, and static memory from the module's `dylink.0` section. The license is the conjunction of the
+package's `meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the
+SPDX ids, which writes each license once under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an
+id SPDX doesn't know. It merges no license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the
 expression records what the contents carry, not the terms they can be passed on under. Build:
 
 ```sh
@@ -82,6 +83,7 @@ type EngineDescriptor = {
   displayName: string;
   languages: string[]; // BCP 47
   keyboard: { layout: "us" | "default"; passThrough: string[] };
+  data?: string[]; // store paths of `data` this engine alone needs
 };
 ```
 
@@ -110,7 +112,9 @@ their distribution changes.
   and non-empty display names;
 - `memory` is bytes in whole 64 KiB pages within the runtime bounds; `threads` is a nonnegative engine pool share;
 - each `storePath` is `/nix/store/<32 base-32 characters>-<name>`, with no two alike;
-- `settingsSchemaDir` is canonical (no empty, `.` or `..` component) and lies inside one of the data's store paths;
+- each engine's `data` names store paths of the manifest's `data`, none twice;
+- `settingsSchemaDir` is canonical (no empty, `.` or `..` component) and lies inside one of the data's store paths, and
+  not inside one an engine names, since `Init` reads the schemas before any engine is made;
 - unknown keys are rejected at every level, so a misspelled field fails rather than reading as missing.
 
 The host validates the manifest before allocating runtime resources and rejects ABI/protocol mismatches. Numeric

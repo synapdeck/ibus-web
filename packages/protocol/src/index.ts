@@ -78,7 +78,7 @@ export {
   type TransportViews,
 } from "./transport/layout.ts";
 export { RingWriter, RingReader, type WriteResult } from "./transport/ring.ts";
-export { EngineDescriptor, ModuleManifest, decodeModuleManifest } from "./manifest.ts";
+export { EngineDescriptor, ModuleManifest, decodeModuleManifest, lazyStorePaths } from "./manifest.ts";
 
 export { IBusCapability, IBusModifier, IBusInputPurpose, IBusInputHints } from "./ibus/flags.ts";
 export {
