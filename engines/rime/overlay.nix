@@ -226,6 +226,33 @@ in
             });
           };
 
+          # The data and its deployment, with the descriptors made from it.
+          ibus-web-rime-data = final.callPackage ./_data.nix {
+            inherit (config.ibusWeb.typescript) nodejs;
+            inherit (pkgs) rime-data rime-ice;
+            opencc-data = pkgs.opencc;
+          };
+
+          # CanCLID's loengfan, which rime-data's jyut6ping3 looks characters
+          # up by, at the revision Debian's and Arch's packages ship.
+          rime-loengfan = pkgs.stdenvNoCC.mkDerivation {
+            pname = "rime-loengfan";
+            version = "0-unstable-2022-03-03";
+            src = pkgs.fetchFromGitHub {
+              owner = "CanCLID";
+              repo = "rime-loengfan";
+              rev = "987ac95b02f957e8764a2f45222a4006c188ed50";
+              hash = "sha256-vOqVSwKZ+p5Wc03pRUWxCdWBdxuTe8n4xu2BTbj9/b4=";
+            };
+            installPhase = ''
+              runHook preInstall
+              install -Dm644 -t $out/share/rime-data loengfan.schema.yaml loengfan.dict.yaml
+              install -Dm644 -t $out/share/doc/rime-loengfan LICENSE
+              runHook postInstall
+            '';
+            meta.license = lib.licenses.cc-by-40;
+          };
+
           ibus-web-boost-headers = pkgs.runCommand "ibus-web-boost-headers-${pkgs.boost.version}" { } ''
             mkdir -p $out/lib/cmake
             cp -r ${pkgs.boost.dev}/include $out/include

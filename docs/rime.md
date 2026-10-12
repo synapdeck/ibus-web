@@ -74,6 +74,30 @@ configured tree, `rime_engine.c` and `rime_settings.c` compile with the flags CM
 `flags.make`); `rime_main.c`, which connects to the bus, isn't built. The package holds the two objects, their flags,
 ibus-rime's headers and `ibus_rime.yaml`.
 
+## Deployment
+
+`engines/rime/_data.nix` deploys the data at build time; `_package.nix` builds the module over it. Both take `schemas`,
+the schema ids to ship.
+
+- **The source** (`ibus-web-rime-source`) is `rime-data`'s `share/rime-data`, then `rime-loengfan`'s, then `rime-ice`'s,
+  whose `double_pinyin*` replace `rime-data`'s, with ibus-rime's `ibus_rime.yaml` and a `default.yaml`, `rime-data`'s
+  with its `schema_list` replaced by every schema to deploy: the shipped ones and, transitively, their dependencies, of
+  which `rime_deployer` compiles only the declared ones itself. `rime-loengfan` is CanCLID's `loengfan`, at the revision
+  Debian's and Arch's packages ship, which `jyut6ping3` names as a dependency and `rime-data` lacks.
+- **The deployment** (`ibus-web-rime-deployment`) is `rime_deployer --build`, the WebAssembly program under Node, over
+  the source: every compiled config, table, reverse lookup and prism, from the same librime that reads them.
+- **One path per dictionary** (`ibus-web-rime-dict-<name>`) holds `build/<name>.table.bin`, `build/<name>.reverse.bin`
+  and the `build/<schema>.prism.bin` of each deployed schema whose dictionary it is.
+- **The common path** (`ibus-web-rime-common`) is Rime's shared data directory: the source without its dictionary
+  sources (`*.dict.yaml`, `cn_dicts/`, `en_dicts/`, `essay*.txt`), with OpenCC's data under `opencc/` beside the
+  schemas' own, and `build/`, Rime's prebuilt data, holding the compiled configs and an absolute symbolic link to each
+  table and prism. Its build fails if a compiled table has no dictionary.
+
+A deployment at runtime, which settings changes cause, finds the prebuilt tables through those links and reuses them
+without their sources; it rebuilds the prisms of the schemas whose compiled config changed, in the user's `build/`.
+Deploying every schema takes about 35 s under Node and peaks near 900 MB; its output is reproducible
+(`nix build --rebuild` finds the same bytes).
+
 ## Checks
 
 | Check             | Covers                                                                                                                                         |
