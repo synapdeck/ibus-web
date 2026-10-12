@@ -162,10 +162,6 @@ test("a candidate chosen below the first comes first after a reload", async ({ p
   await expect(field(page)).not.toHaveValue("");
   expect(chosen.startsWith(await field(page).inputValue())).toBe(true);
 
-  // Rime keeps a commit's learning open, to be undone, until the next key it
-  // doesn't handle, and a reload ends the Worker without saving it.
-  await page.keyboard.press("Escape");
-
   // A Worker's Web Locks outlive its page by up to some 2 s in Chromium, and a
   // host that started then would mount Rime's files read-only.
   await page.reload();

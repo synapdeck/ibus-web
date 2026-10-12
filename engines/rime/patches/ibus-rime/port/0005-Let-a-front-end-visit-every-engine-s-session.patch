@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Mon, 12 Oct 2026 12:00:00 -0700
+Subject: [PATCH] Let a front end visit every engine's session
+
+A front end that has work to do in each session Rime holds for an
+engine, such as writing out what the session's dictionaries keep in
+memory, has no other way to find them: Rime doesn't list its sessions.
+ibus_rime_engine_foreach_session() calls a function with each.
+---
+ rime_engine.c | 16 ++++++++++++++++
+ rime_engine.h |  6 ++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/rime_engine.c b/rime_engine.c
+index 6eb6db9..19340cc 100644
+--- a/rime_engine.c
++++ b/rime_engine.c
+@@ -138,6 +138,22 @@ ibus_rime_engine_forget_sessions (void)
+   }
+ }
+ 
++void
++ibus_rime_engine_foreach_session (void (*func)(RimeSessionId session_id,
++                                               void* data),
++                                  void* data)
++{
++  if (!engines_by_session) {
++    return;
++  }
++  GHashTableIter iter;
++  gpointer session_id;
++  g_hash_table_iter_init(&iter, engines_by_session);
++  while (g_hash_table_iter_next(&iter, &session_id, NULL)) {
++    func(GPOINTER_TO_SIZE(session_id), data);
++  }
++}
++
+ static void ibus_rime_engine_load_switches (IBusRimeEngine *rime_engine);
+ 
+ static void
+diff --git a/rime_engine.h b/rime_engine.h
+index 99453b0..e0014fc 100644
+--- a/rime_engine.h
++++ b/rime_engine.h
+@@ -20,4 +20,10 @@ void ibus_rime_engine_option_changed(RimeSessionId session_id,
+ // would take for its own.
+ void ibus_rime_engine_forget_sessions(void);
+ 
++// Calls func with each engine's session, for a front end that has work to do
++// in every session Rime holds for an engine.
++void ibus_rime_engine_foreach_session(void (*func)(RimeSessionId session_id,
++                                                   void* data),
++                                      void* data);
++
+ #endif

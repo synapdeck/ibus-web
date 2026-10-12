@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "../golden/harness.h"
 #include <fcntl.h>
+#include <string.h>
 #include <unistd.h>
 
 /* rime_ice's user dictionary, a LevelDB database. */
@@ -22,7 +23,30 @@ static gchar *first_candidate(Fixture *fixture) {
   return text;
 }
 
-/* The page's third candidate, chosen, is learned. */
+/* Whether LevelDB's log holds text: what the dictionary has written since it
+ * was opened. */
+static gboolean log_holds(const gchar *text) {
+  g_autofree gchar *dir = g_build_filename(home, USERDB, NULL);
+  g_autoptr(GDir) entries = g_dir_open(dir, 0, NULL);
+  g_assert_nonnull(entries);
+  const gchar *name;
+  while ((name = g_dir_read_name(entries)) != NULL) {
+    if (!g_str_has_suffix(name, ".log"))
+      continue;
+    g_autofree gchar *path = g_build_filename(dir, name, NULL);
+    g_autofree gchar *contents = NULL;
+    gsize length;
+    g_assert_true(g_file_get_contents(path, &contents, &length, NULL));
+    gsize size = strlen(text);
+    for (gsize at = 0; at + size <= length; at++)
+      if (memcmp(contents + at, text, size) == 0)
+        return TRUE;
+  }
+  return FALSE;
+}
+
+/* The page's third candidate, chosen, is learned. Rime holds the learning in
+ * an open transaction, which Persist commits with the engine still open. */
 static void learn(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_create(fixture, "rime:rime_ice");
   golden_type(fixture, "zhong");
@@ -34,6 +58,10 @@ static void learn(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
                   ==, 0);
   g_autofree gchar *text = golden_committed(fixture);
   g_assert_cmpstr(text, ==, "种");
+  g_assert_false(log_holds("种"));
+
+  golden_empty_request(fixture, IBUSWEB_REQ_PERSIST);
+  g_assert_true(log_holds("种"));
   golden_destroy(fixture);
 
   /* The program ends without closing the database, as a Worker does: the

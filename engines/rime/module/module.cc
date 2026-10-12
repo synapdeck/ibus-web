@@ -8,7 +8,9 @@
 #include <string>
 
 #include <glog/logging.h>
+#include <rime/context.h>
 #include <rime/deployer.h>
+#include <rime/key_event.h>
 #include <rime/service.h>
 #include <rime/switcher.h>
 #include <rime_api.h>
@@ -154,6 +156,23 @@ void Notify(void *, RimeSessionId session_id, const char *message_type,
   }
 }
 
+// A commit's learning stays in its user dictionary's open transaction, so
+// that a Backspace can take it back, until the session's next key that no
+// processor handles; ending the Worker loses it. Persist ends it as such a
+// key does, telling the session's listeners of a key with no symbol, which
+// in the shipped schemas only the learning acts on.
+void FinishLearning(RimeSessionId session_id, void *) {
+  auto session = rime::Service::instance().GetSession(session_id);
+  if (!session) {
+    return;
+  }
+  rime::Context *context = session->context();
+  context->unhandled_key_notifier()(context,
+                                    rime::KeyEvent(IBUS_KEY_VoidSymbol, 0));
+}
+
+void Persist() { ibus_rime_engine_foreach_session(FinishLearning, nullptr); }
+
 } // namespace
 
 extern "C" gboolean ibusweb_rime_deploying(void) {
@@ -182,7 +201,9 @@ extern "C" void ibus_rime_start(gboolean full_check) {
 
 // The traits, engines and settings live as long as the module, which is the
 // Worker's lifetime, so none is freed and Rime is finalized only to restart.
-void ibusweb_module_init(IBusWebModule *) {
+void ibusweb_module_init(IBusWebModule *module) {
+  ibusweb_module_set_persist(module, Persist);
+
   rime_require_module_lua();
   rime_require_module_grammar();
   rime_require_module_octagram();
