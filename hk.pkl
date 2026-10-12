@@ -40,52 +40,12 @@ local linters = new Mapping<String, Step> {
         // that formatting embedded code would change.
         "docs/plans/**",
       )
-    // The builtin's commands with the config named: oxfmt formats with its
+    // The builtin's commands, with the config named: oxfmt formats with its
     // own defaults when it finds none, silently, and a named config it can't
     // find fails the step instead. hk's evaluator has no list operations to
-    // derive these from the builtin's.
-    check = new CommandSpec {
-      command = new Command {
-        argv =
-          List(
-            "oxfmt",
-            "-c",
-            ".oxfmtrc.jsonc",
-            "--check",
-            "--no-error-on-unmatched-pattern",
-            "{{files}}",
-          )
-      }
-      effect = "read"
-    }
-    check_list_files = new CommandSpec {
-      command = new Command {
-        argv =
-          List(
-            "oxfmt",
-            "-c",
-            ".oxfmtrc.jsonc",
-            "--list-different",
-            "--no-error-on-unmatched-pattern",
-            "{{files}}",
-          )
-      }
-      effect = "read"
-    }
-    fix = new CommandSpec {
-      command = new Command {
-        argv =
-          List(
-            "oxfmt",
-            "-c",
-            ".oxfmtrc.jsonc",
-            "--write",
-            "--no-error-on-unmatched-pattern",
-            "{{files}}",
-          )
-      }
-      effect = "write"
-    }
+    // add the flag to the builtin's argv, so a shell inserts it after the
+    // command name the prefix runs ahead of.
+    prefix = List("sh", "-c", "exec \"$0\" -c .oxfmtrc.jsonc \"$@\"")
   }
   ["pkl-format"] = Builtins.pkl_format
   ["oxlint"] = (Builtins.ox_lint) {

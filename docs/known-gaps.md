@@ -307,11 +307,6 @@ decided.
 - **The pre-commit hook needs the dev shell.** A commit from a shell without `hk` on `PATH` fails unless it sets `HK=0`;
   commit with `nix develop -c git commit …` or from a direnv shell. The hook stashes unstaged work (`stash = "git"`)
   while it runs.
-- **hk's version check is weak**: it compares hk's source with `pkgs.hk`, which come from the same place.
-- **Paths repeated by hand**: `hk.pkl` and `.gitignore` both name the Nix-built types links. `hk.pkl` spells out oxfmt's
-  three commands to add `-c`, since hk's evaluator has no list operations to derive them from the builtin's.
-- **Claude Code plugins**: `marketplace.json` and the plugins' `plugin.json` both list `lspServers`; the marketplace's
-  relative `directory` path is untested; the dev shell's greeting hard-codes its name.
 - **hk's own problems have no upstream reports**: pklr leaves interpolation in multi-line strings unexpanded, its HTTP
   client wants a CA bundle even offline, and nixpkgs' hk embeds no pkl package (hence the Nix-built `.hk` link).
 - **`write-files` in the dev shell** brings nushell and git into its closure.

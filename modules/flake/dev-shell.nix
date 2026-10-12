@@ -8,6 +8,8 @@
   perSystem =
     { config, lib, ... }:
     {
+      devshells.default.devshell.name = "ibus-web";
+
       # First, so other modules' variables may be set from it.
       devshells.default.env = lib.mkBefore [
         {

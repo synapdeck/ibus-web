@@ -157,8 +157,8 @@
           fi
         '';
         # Keeps the default greeting and command menu, adding the reminder.
-        motd = ''
-          {202}🔨 Welcome to the ibus-web dev shell{reset}
+        devshell.motd = ''
+          {202}🔨 Welcome to the ${config.devshells.default.devshell.name} dev shell{reset}
           Start Claude Code inside this shell: its language servers (clangd,
           typescript-language-server, nixd, pkl-lsp) resolve from this PATH.
           $(type -p menu &>/dev/null && menu)

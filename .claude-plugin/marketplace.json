@@ -11,15 +11,6 @@
       "version": "1.0.0",
       "source": "./tools/claude/nixd-lsp",
       "category": "development",
-      "strict": false,
-      "lspServers": {
-        "nixd": {
-          "command": "nixd",
-          "extensionToLanguage": {
-            ".nix": "nix"
-          }
-        }
-      },
       "author": {
         "name": "Synapdeck, Inc."
       }
@@ -30,15 +21,6 @@
       "version": "1.0.0",
       "source": "./tools/claude/pkl-lsp",
       "category": "development",
-      "strict": false,
-      "lspServers": {
-        "pkl": {
-          "command": "pkl-lsp",
-          "extensionToLanguage": {
-            ".pkl": "pkl"
-          }
-        }
-      },
       "author": {
         "name": "Synapdeck, Inc."
       }

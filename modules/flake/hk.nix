@@ -25,11 +25,14 @@
           pkgs.pkl
           pkgs.python3
         ];
-        # The package must describe the hk that evaluates it.
+        # The package must describe the hk that evaluates it, so the source
+        # it is built from is checked against the binary itself rather than
+        # the derivation's version attribute.
         postPatch = ''
           declared=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          if [ "$declared" != ${lib.escapeShellArg hk.version} ]; then
-            echo "hk's source declares $declared, but pkgs.hk is ${hk.version}" >&2
+          running=$(${lib.getExe hk} --version)
+          if [ "$running" != "hk $declared" ]; then
+            echo "hk's source declares $declared, but the hk that runs is $running" >&2
             exit 1
           fi
         '';
@@ -111,6 +114,14 @@
               echo "hk.pkl's nixInputs (+) differ from ibusWeb.toolchain.emscriptenTypes' links (-)" >&2
               exit 1
             fi
+            # A link git doesn't ignore would be committed as one into the
+            # store.
+            while IFS= read -r link; do
+              if ! grep -qxF "/$link" .gitignore; then
+                echo ".gitignore doesn't ignore /$link, a link ibusWeb.toolchain.emscriptenTypes makes" >&2
+                exit 1
+              fi
+            done < ${emscriptenTypeLinks}
             ${lib.concatStrings (
               lib.mapAttrsToList (_: types: ''
                 ln -s ${types.package} ${types.link}

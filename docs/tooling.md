@@ -70,7 +70,8 @@ The steps:
   negative type test whose failure `checks.wasmfs-idb-types` asserts.
 - Two type checks read types Nix generates (the dev shell's `emscripten-types` links). In a hook run where a link isn't
   built, `tsc` skips that directory with `tsc: skipped <dir>: <link> isn't built; enter the dev shell to build it`.
-  `checks.flake-hk` sets `HK_REQUIRE_NIX_INPUTS=1`, so there it never skips.
+  `checks.flake-hk` sets `HK_REQUIRE_NIX_INPUTS=1`, so there it never skips. It also fails unless `hk.pkl`'s `nixInputs`
+  and the root `.gitignore` each name exactly the links `ibusWeb.toolchain.emscriptenTypes` makes.
 - `tsconfig-extends` reads every `tsconfig*.json` git tracks (as JSONC, with `jsonc-parser`) and fails unless each
   reaches one of `@ibus-web/tsconfig`'s presets through `extends`. It always checks the whole set, since a change to one
   config can break another's chain.
@@ -110,8 +111,8 @@ A type error in a workspace package fails `checks.flake-hk` one step earlier, in
 `hk.pkl` starts with `amends ".hk/pkl/Config.pkl"` and `import ".hk/pkl/Builtins.pkl"`, a local copy of hk's pkl
 package, rather than the `package://` URL hk documents: that form needs the network, which the sandbox doesn't have, and
 nixpkgs' hk embeds no copy (hk's build embeds one only if `Builtins.pkl` has been generated, and nixpkgs doesn't
-generate it). `packages.hk-pkl` runs hk's own `scripts/gen_builtins.py` over `pkgs.hk.src` and fails if the source's
-`Cargo.toml` version differs from `pkgs.hk.version`, so the package always describes the hk that evaluates it.
+generate it). `packages.hk-pkl` runs hk's own `scripts/gen_builtins.py` over `pkgs.hk.src` and fails unless the source's
+`Cargo.toml` version is the one `pkgs.hk`'s binary reports, so the package always describes the hk that evaluates it.
 
 hk 2 evaluates pkl itself and leaves `\(…)` interpolation unexpanded inside multi-line `"""` strings, which is why the
 `tsc` step's command is built by concatenation.
@@ -160,7 +161,8 @@ Then run `hk check --all` in the shell, and `nix build .#checks.x86_64-linux.fla
   oxlint can't see, a `let` that only carries a JSDoc type).
 - Both configs are JSONC with a `$schema` and an SPDX header; oxlint finds its `.jsonc` name without `-c`. hk's `oxfmt`
   step names `-c .oxfmtrc.jsonc`, since oxfmt run where it finds no config formats with its own defaults, silently, and
-  a named one it can't find fails the step.
+  a named one it can't find fails the step. hk's evaluator has no list operations, so rather than respelling the
+  builtin's three commands, the step's `prefix` is a `sh -c` that inserts the flag after the command name.
 - **clang-format** is the LLVM from Emscripten's toolchain, LLVM style (`.clang-format`). clang-format mangles
   JavaScript inside `EM_ASM` bodies (`!==` becomes `!= =`); test fixtures that need JavaScript use `EM_JS` between
   `// clang-format off` and `on`.
@@ -360,7 +362,12 @@ bundles.
   `typescript-lsp` from the official marketplace, and `nixd-lsp` and `pkl-lsp` from the repository's own marketplace
   (`.claude-plugin/marketplace.json`, plugins under `tools/claude/`). The plugins only name commands; the servers come
   from the dev shell. **Start Claude Code inside the dev shell** (a direnv shell, or `nix develop -c claude`), or the
-  servers won't resolve. The shell's greeting says so.
+  servers won't resolve. The shell's greeting says so. Each plugin's `plugin.json` declares its server; the marketplace
+  lists the plugins and their sources only. `checks.tools-claude-plugins` checks that the settings name the repository's
+  root as the marketplace (Claude Code resolves the `directory` source's `.` against the project root:
+  `claude plugin marketplace list` shows the checkout), that each source holds a `plugin.json` agreeing with the
+  marketplace's entry, that every enabled `@ibus-web` plugin is listed, and that the dev shell provides each server
+  command.
 - **TypeScript's server.** The official plugin runs `typescript-language-server --stdio`, which speaks to tsserver;
   TypeScript 7 ships no tsserver, and its compiler serves LSP itself. The dev shell's `typescript-language-server` is a
   shim that execs the workspace's `tsc --lsp --stdio`, so the editor and `tsc` are always the same version. It ignores
