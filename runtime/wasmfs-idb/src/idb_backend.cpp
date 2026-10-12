@@ -11,6 +11,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -52,10 +53,16 @@ constexpr off_t maxFileSize = (off_t(1) << 53) - 1;
 class IdbBackend : public wasmfs::Backend {
 public:
   ProxyWorker proxy;
-  // Set from the start, or by sealing; read on every caller's thread.
+  // Set from the start, by sealing, or while the window is shut; read on
+  // every caller's thread.
   std::atomic<bool> readOnly;
-  // Read-only from the start, so nothing it wrote needs making durable.
-  const bool openedReadOnly;
+  // Whether the backend has ever taken changes, and so may hold some that
+  // fsync() has to make durable.
+  std::atomic<bool> everWritable;
+  // Sealing is for good, so a seal and an opening window take this lock, and
+  // a window never opens on a sealed backend.
+  std::mutex access;
+  bool sealed = false;
   // The JavaScript side's handle for this backend's state; 0 until opened.
   int id = 0;
   uint32_t root = 0;
@@ -67,7 +74,7 @@ public:
   static_assert(std::atomic<int32_t>::is_always_lock_free);
 
   explicit IdbBackend(bool readOnly)
-      : readOnly(readOnly), openedReadOnly(readOnly) {}
+      : readOnly(readOnly), everWritable(!readOnly) {}
 
   // A file can't exist outside a directory in the database.
   std::shared_ptr<DataFile> createFile(mode_t mode) override { return nullptr; }
@@ -189,10 +196,10 @@ private:
     return err;
   }
 
-  // A backend read-only from the start has written nothing to make durable;
-  // a sealed one may have.
+  // A backend that has never taken changes has written nothing to make
+  // durable; a sealed one, or one whose window is shut, may have.
   int flush() override {
-    if (backend.openedReadOnly) {
+    if (!backend.everWritable) {
       return 0;
     }
     int err = 0;
@@ -435,8 +442,27 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags) {
 }
 
 void wasmfs_idb_backend_seal(backend_t backend) {
-  static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend))
-      ->readOnly.store(true);
+  auto *idb =
+      static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend));
+  std::lock_guard lock(idb->access);
+  idb->sealed = true;
+  idb->readOnly.store(true);
+}
+
+int wasmfs_idb_backend_set_writable(backend_t backend, bool writable) {
+  auto *idb =
+      static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend));
+  std::lock_guard lock(idb->access);
+  if (!writable) {
+    idb->readOnly.store(true);
+    return 0;
+  }
+  if (idb->sealed) {
+    return -EROFS;
+  }
+  idb->everWritable.store(true);
+  idb->readOnly.store(false);
+  return 0;
 }
 
 int wasmfs_idb_backend_closed(backend_t backend) {

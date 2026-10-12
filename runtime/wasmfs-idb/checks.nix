@@ -144,6 +144,12 @@
             name = "visibility";
             backends = 4;
           }
+          # The fixture's backend for each of seven cases, and a read-only
+          # one beside it in two.
+          {
+            name = "writable";
+            backends = 9;
+          }
           {
             name = "sweep.1";
             backends = 1;

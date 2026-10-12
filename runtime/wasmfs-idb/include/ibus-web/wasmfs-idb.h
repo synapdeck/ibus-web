@@ -4,6 +4,7 @@
 #pragma once
 
 #include <emscripten/wasmfs.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -17,7 +18,8 @@ extern "C" {
  * and reports why on stderr. */
 backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
 
-/* The backend refuses every change with EROFS. */
+/* The backend refuses every change with EROFS until its window is opened
+ * (wasmfs_idb_backend_set_writable), and doesn't sweep the database. */
 #define WASMFS_IDB_READ_ONLY 0x1u
 
 /* Makes `backend`, one that wasmfs_create_idb_backend returned, read-only
@@ -29,6 +31,17 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags);
  * once no other thread is writing. Sealing doesn't make earlier writes
  * durable; fsync() first. */
 void wasmfs_idb_backend_seal(backend_t backend);
+
+/* Opens or shuts `backend`'s window for changes. While it is shut every
+ * change fails with EROFS, as through a sealed backend, descriptors already
+ * open for writing included; while it is open the backend takes changes. It
+ * starts open, or shut for a backend created with WASMFS_IDB_READ_ONLY,
+ * which also never swept the database, so a window opened on one is for a
+ * writer the caller has made the database's only one. Returns 0, or
+ * -EROFS for opening a sealed backend's, which stays shut for good. A
+ * change another thread has already started as the window shuts may still
+ * complete, so shut it once no other thread is writing. */
+int wasmfs_idb_backend_set_writable(backend_t backend, bool writable);
 
 /* Whether the database's connection has closed under `backend`, one that
  * wasmfs_create_idb_backend returned: another connection opened a newer

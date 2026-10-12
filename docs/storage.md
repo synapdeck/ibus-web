@@ -40,11 +40,17 @@ nothing else of the backend:
   root is the database's root directory, or `NULL` with the cause on stderr. It must be called on a pthread or a
   Worker's main thread: the backend's thread starts synchronously, which would deadlock on the browser's main thread, so
   there it returns `NULL`.
-- `WASMFS_IDB_READ_ONLY` (`0x1`): every change fails with `EROFS`, and the backend doesn't sweep (below).
+- `WASMFS_IDB_READ_ONLY` (`0x1`): the backend starts with its window shut (below), so every change fails with `EROFS`,
+  and it doesn't sweep (below).
 - `wasmfs_idb_backend_seal(backend)` makes a backend read-only in place: every change started after it fails with
   `EROFS`, descriptors already open for writing included, while reads, closes and `fsync()` still work. The last close
   of a file unlinked before the seal still deletes what it stored. A change another thread has already started may still
   complete, so seal once nothing else writes. Sealing makes nothing durable; `fsync()` first.
+- `wasmfs_idb_backend_set_writable(backend, writable)` opens or shuts the backend's window for changes. While it is shut
+  every change fails with `EROFS`, as through a sealed backend, descriptors already open for writing included; while it
+  is open the backend takes changes. A backend starts with it open, or shut if created with `WASMFS_IDB_READ_ONLY`.
+  Opening a sealed backend's fails with `-EROFS`: a seal is for good. A backend that has ever been open commits on
+  `fsync()`. The window makes no backend the database's only writer; the caller coordinates writers.
 - `wasmfs_idb_backend_closed(backend)` says whether the database's connection has closed under the backend. It is an
   atomic load, cheap whatever the backend's thread is doing.
 
@@ -150,8 +156,8 @@ Through the runtime, the same change to `fsync()` raised the sync calls of a run
 each `fsync()` and `fdatasync()` makes exactly one strict commit over the file's stores and that it writes; they fail
 against an empty one.
 
-- A backend created read-only commits nothing on `fsync()`; it has written nothing. A sealed backend still commits,
-  since it may have written before the seal.
+- A backend whose window has never been open commits nothing on `fsync()`; it has written nothing. A sealed backend, or
+  one whose window has shut, still commits, since it may have written before.
 - WasmFS flushes only regular files, so `fsync()` on a directory does nothing, and a rename or a new entry has no
   barrier of its own: it is durable once a later `fsync()` of any file in the same database completes.
 
@@ -161,7 +167,7 @@ against an empty one.
 | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `QuotaExceededError`                                                                                          | `ENOSPC`, nothing changed (the operation's one transaction aborts) |
 | `ConstraintError` (a name already taken)                                                                      | `EEXIST`                                                           |
-| `ReadOnlyError`, the read-only flag, a seal                                                                   | `EROFS`                                                            |
+| `ReadOnlyError`, a shut window, a seal                                                                        | `EROFS`                                                            |
 | a closed connection: `InvalidStateError`, `VersionError`, the `AbortError` of the transactions a close aborts | `EIO`                                                              |
 | anything else                                                                                                 | `EIO`, logged                                                      |
 
@@ -200,10 +206,12 @@ in the same browser storage), `open-unlinked`, `lazy` (chunk records read and wr
 library wrapping `IDBObjectStore`: one byte of a 64-chunk file reads one record; a whole aligned chunk write reads
 none), `sizes` (holes, truncation, `O_APPEND`, `O_TRUNC`, exact chunk multiples, `EFBIG`), `fsync` (strict commit
 counts), `errors` (injected quota failures, read-only refusals, a version change from a post-js, failed opens giving
-their thread back), `sweep.1`/`sweep.2`, `seal` and `visibility` (a file another backend creates after this one's lookup
-missed it, found and listed). Each test program's pool is one thread plus one per backend its cases create, strictly, so
-a miscount fails the case. The host's storage and engine-data scenarios run in `checks.worker-host-node` and
-`checks.worker-host-browser`.
+their thread back), `sweep.1`/`sweep.2`, `seal`, `writable` (a shut window refusing every change, through a descriptor
+opened while it was open too, and leaving the database as it was; an open one taking changes, on a backend created
+read-only as well, whose `fsync()` then commits; a sealed backend's never opening) and `visibility` (a file another
+backend creates after this one's lookup missed it, found and listed). Each test program's pool is one thread plus one
+per backend its cases create, strictly, so a miscount fails the case. The host's storage and engine-data scenarios run
+in `checks.worker-host-node` and `checks.worker-host-browser`.
 
 ## Chunk size
 
