@@ -4,7 +4,8 @@ import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { booleanVariant, CreateEngine, stringVariant, type ModuleManifest, type Request } from "@ibus-web/protocol";
-import { makeModuleRegistry } from "../../../src/services/modules.ts";
+import { makeModuleRegistry, PrepareEngineError } from "../../../src/services/modules.ts";
+import { PrepareFailed } from "../../../src/connection/connection.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
 import { Logger, PanelEvents, glibLevel } from "../../../src/services/logging.ts";
@@ -636,4 +637,78 @@ it.effect("unload interrupts a restart wait without resurrecting the engine", ()
     expect(starts).toBe(1);
     expect(registry.state("test")).toBe("unloaded");
   }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "registry prepares an engine's own data once per Worker, reports its progress, and tries a failed install again",
+  () =>
+    Effect.gen(function* () {
+      const lazyPath = `/nix/store/${"b".repeat(32)}-lazy`;
+      const lazy: ModuleManifest = {
+        ...manifest,
+        data: [...manifest.data, { storePath: lazyPath, url: "lazy.tar", size: 10, encoding: "identity" }],
+        engines: [...manifest.engines, { ...manifest.engines[0]!, name: "lazy", data: [lazyPath] }],
+      };
+      const started: FakeConnection[] = [];
+      const restarted = yield* Deferred.make<void>();
+      let failures = 1;
+      const registry = yield* makeModuleRegistry({
+        hostUrl: url,
+        runtimeUrl: url,
+        modules: { test: url },
+        loadManifest: async () => lazy,
+        loadMetadata: async () => metadata,
+        waitForWriter: () => Effect.void,
+        start: async () => {
+          const connection = new FakeConnection();
+          connection.requestAsync = async () => emptyReply;
+          connection.prepareWith = async (_, progress) => {
+            progress?.(4, 10);
+            if (failures-- > 0) throw new PrepareFailed("no space left");
+            progress?.(10, 10);
+          };
+          started.push(connection);
+          if (started.length === 2) Deferred.doneUnsafe(restarted, Effect.void);
+          return connection;
+        },
+      });
+      const installs = yield* registry.events.pipe(
+        Stream.filter((event) => event._tag === "install"),
+        Stream.take(5),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+
+      yield* registry.prepare("test", "test");
+      expect(started, "Workers started for an engine without data of its own").toHaveLength(0);
+      expect(registry.isPrepared("test", "test"), "an engine without data of its own").toBe(true);
+      expect((yield* Effect.flip(registry.prepare("test", "missing"))).message).toBe(
+        "Unknown engine: missing in module test",
+      );
+
+      const failed = yield* Effect.flip(registry.prepare("test", "lazy"));
+      expect(failed).toBeInstanceOf(PrepareEngineError);
+      expect(failed).toMatchObject({ module: "test", engine: "lazy", reason: "no space left" });
+      expect(registry.snapshot("test")!.enabled, "a module prepared but not selected").toBe(false);
+      expect(registry.isPrepared("test", "lazy"), "after a failed install").toBe(false);
+      yield* registry.prepare("test", "lazy");
+      expect(registry.isPrepared("test", "lazy"), "once installed").toBe(true);
+      yield* registry.prepare("test", "lazy");
+      expect(started[0]!.prepared).toEqual(["lazy", "lazy"]);
+
+      started[0]!.crash({ reason: "worker", message: "stop" });
+      yield* Deferred.await(restarted);
+      yield* registry.whenReady("test");
+      expect(registry.isPrepared("test", "lazy"), "in the restarted Worker").toBe(false);
+      yield* registry.prepare("test", "lazy");
+      expect(started[1]!.prepared, "the restarted Worker's").toEqual(["lazy"]);
+      expect([...(yield* Fiber.join(installs))].map(({ bytes, total }) => [bytes, total])).toEqual([
+        [4, 10],
+        [4, 10],
+        [10, 10],
+        [4, 10],
+        [10, 10],
+      ]);
+    }).pipe(Effect.provide(services)),
 );

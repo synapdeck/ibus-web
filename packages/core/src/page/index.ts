@@ -40,6 +40,7 @@ export {
 export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
 export {
   ModuleRegistry,
+  PrepareEngineError,
   makeModuleRegistry,
   type ModuleEvent,
   type ModuleRegistryOptions,

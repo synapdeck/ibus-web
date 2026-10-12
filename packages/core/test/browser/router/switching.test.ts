@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test } from "vitest";
 import { Effect, Fiber, Logger as EffectLogger, Stream } from "effect";
+import type { CreateEngine } from "@ibus-web/protocol";
+import { PrepareFailed } from "../../../src/connection/connection.ts";
 import { run, select, key, preedit, record } from "../support/dom.ts";
 afterEach(() => document.body.replaceChildren());
 test("switches in Disable/FocusOut then Enable/FocusIn order and resolves preedit", () =>
@@ -292,4 +294,109 @@ test("hotkeys leave composing, Dead and password events untouched", () =>
     f.element.setAttribute("autocomplete", "new-password");
     expect(key(f.element).defaultPrevented).toBe(false);
     expect(matches).toBe(0);
+  }));
+test("selecting an engine with data of its own prepares it before creating it, once per Worker", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const a = connections.a[0]!;
+    let installed!: () => void;
+    a.prepareWith = () =>
+      new Promise((resolve) => {
+        installed = resolve;
+      });
+    const selected = Effect.runPromise(router.select("a", "lazy"));
+    await expect.poll(() => a.prepared).toEqual(["lazy"]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      a.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => (x.request as CreateEngine).name),
+    ).toEqual(["factory"]);
+    installed();
+    await selected;
+    expect(
+      a.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => (x.request as CreateEngine).name),
+    ).toEqual(["factory", "lazy"]);
+    await select(router, "a");
+    await Effect.runPromise(router.select("a", "lazy"));
+    expect(a.prepared).toEqual(["lazy"]);
+  }));
+test("a failed install fails the selection with the reason; the selection stands, and the next focus tries again", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const a = connections.a[0]!;
+    a.prepareWith = async () => {
+      throw new PrepareFailed("fetch ./lazy.tar: 404");
+    };
+    await expect(Effect.runPromise(router.select("a", "lazy"))).rejects.toMatchObject({
+      _tag: "PrepareEngineError",
+      module: "a",
+      engine: "lazy",
+      reason: "fetch ./lazy.tar: 404",
+    });
+    expect(router.selection).toEqual({ module: "a", engine: "lazy" });
+    expect(key(f.element).defaultPrevented).toBe(false);
+    a.prepareWith = async () => {};
+    f.element.blur();
+    f.element.focus();
+    await expect.poll(() => a.sent.filter((x) => x.request._tag === "CreateEngine").length).toBe(2);
+    expect(a.prepared).toEqual(["lazy", "lazy"]);
+  }));
+test("an engine's download holds up no other work: other selections and focus changes go on, and a superseded selection makes nothing", () =>
+  run(async ({ router, registry, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const a = connections.a[0]!;
+    let installed!: () => void;
+    a.prepareWith = () =>
+      new Promise((resolve) => {
+        installed = resolve;
+      });
+    const pending = Effect.runPromise(router.select("a", "lazy"));
+    await expect.poll(() => a.prepared).toEqual(["lazy"]);
+    expect(router.selection, "the selection, reported at once").toEqual({ module: "a", engine: "lazy" });
+    expect(key(f.element).defaultPrevented, "native input while the engine downloads").toBe(false);
+
+    await select(router, "b");
+    const g = field();
+    g.element.focus();
+    const b = connections.b[0]!;
+    await expect.poll(() => b.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => x.ic)).toEqual([1, 2]);
+
+    installed();
+    await pending;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      a.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => (x.request as CreateEngine).name),
+      "engines made in module a",
+    ).toEqual(["factory"]);
+    expect(registry.isPrepared("a", "lazy"), "the data, installed all the same").toBe(true);
+  }));
+test("a deselect while an engine downloads goes on at once; selecting the engine again makes it without a second install", () =>
+  run(async ({ router, connections, field }) => {
+    const f = field();
+    f.element.focus();
+    await select(router);
+    const a = connections.a[0]!;
+    let installed!: () => void;
+    a.prepareWith = () =>
+      new Promise((resolve) => {
+        installed = resolve;
+      });
+    const pending = Effect.runPromise(router.select("a", "lazy"));
+    await expect.poll(() => a.prepared).toEqual(["lazy"]);
+    await Effect.runPromise(router.deselect());
+    expect(router.selection).toBeUndefined();
+    installed();
+    await pending;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(a.sent.filter((x) => x.request._tag === "CreateEngine")).toHaveLength(1);
+    await Effect.runPromise(router.select("a", "lazy"));
+    expect(
+      a.sent.filter((x) => x.request._tag === "CreateEngine").map((x) => (x.request as CreateEngine).name),
+    ).toEqual(["factory", "lazy"]);
+    expect(a.prepared).toEqual(["lazy"]);
   }));

@@ -32,12 +32,25 @@ module's manifest: a selection of a module whose manifest hasn't been read waits
 input. A later selection supersedes a waiting one. `router.selection` is the page's `{ module, engine }` and
 `router.selectionChanges` streams each change.
 
+An engine whose descriptor names data of its own has it installed before it is first made in a Worker.
+`registry.prepare(module, engine)` posts the Worker `PrepareEngine` once per Worker and engine, starting the Worker if
+it hasn't, without selecting the module; an engine with no data of its own needs nothing, and `registry.isPrepared` says
+whether an engine can be made as things are. While data installs, `registry.events` carries `install` events,
+`{ module, engine, bytes, total }`, the last with `bytes` equal to `total`. The router never holds its mailbox for an
+install: a surface that wants an engine whose data isn't there stays on native input, as while its module starts, and
+starts the download in the background, and once it ends the surfaces that still want the engine make it. Focus changes,
+detaches and other selections go on meanwhile. `router.select(module, engine)` reports the new selection at once,
+through `selectionChanges`, and resolves once the engine is made; a selection changed or undone while its engine
+downloads resolves at once with nothing made, and the download goes on and stays installed.
+
 Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and the engine's `reason`,
 taken from the runtime's `CreateEngineFailed` record when the engine gave one; otherwise its message names the reply.
-`select` reconciles every surface and then rejects with the first such failure; `override` rejects with its surface's.
-The selection stands, since the engine failed to start rather than the change failing. A surface whose engine failed
-stays on native input, and its next focus tries again. A failure on focus has no caller to reject, so it is logged as a
-warning. The module stays ready, and its other contexts keep working.
+Installing its data can fail too: `PrepareEngineError` carries the module, the engine and the Worker's `reason`, and is
+treated as `CreateEngineError` is, and a failed install is tried again at the next prepare. `select` reconciles every
+surface and then rejects with the first such failure; `override` rejects with its surface's. The selection stands, since
+the engine failed to start rather than the change failing. A surface whose engine failed stays on native input, and its
+next focus tries again. A failure on focus has no caller to reject, so it is logged as a warning. The module stays
+ready, and its other contexts keep working.
 
 A surface keeps one input context per module, since the host holds one engine per context. Switching engine within a
 module drains the context and sends `Disable` and `FocusOut` as any switch does, then `DestroyEngine`, and creates the

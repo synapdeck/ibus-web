@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { Context, Effect, Layer, PubSub, Stream } from "effect";
+import { Context, Effect, Exit, Layer, PubSub, Scope, Stream } from "effect";
 import {
   asError,
   CreateEngine,
@@ -17,7 +17,7 @@ import {
   type PanelEvent,
   type Request,
 } from "@ibus-web/protocol";
-import { ModuleRegistry } from "../services/modules.ts";
+import { ModuleRegistry, PrepareEngineError } from "../services/modules.ts";
 import { CoreConfig } from "../services/config.ts";
 import { PanelEvents, SyncMailbox } from "../services/logging.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
@@ -79,6 +79,10 @@ export class CreateEngineError extends Error {
   }
 }
 
+// An engine that failed to start, its data or itself: the selection stands, and the surface stays on native input.
+const engineFailed = (error: Error): error is CreateEngineError | PrepareEngineError =>
+  error instanceof CreateEngineError || error instanceof PrepareEngineError;
+
 export class Router extends Context.Service<Router, RouterService>()("@ibus-web/core/Router") {
   static readonly Default = Layer.effect(
     Router,
@@ -116,6 +120,7 @@ export const makeRouter = Effect.gen(function* () {
   const registry = yield* ModuleRegistry;
   const config = yield* CoreConfig;
   const panel = yield* PanelEvents;
+  const scope = yield* Scope.Scope;
   const surfaces = new Map<SurfaceAdapter, Surface>();
   // Unload bypasses the mailbox, so queued selections must retain their original lifetime.
   const selectionEpochs = new Map<string, number>();
@@ -293,6 +298,13 @@ export const makeRouter = Effect.gen(function* () {
       const current = () => wants(surface, target) && live(context) && generation === context.generation;
 
       if (!context.created) {
+        // The surface stays on native input while the engine's own data
+        // installs, and the mailbox goes on; the install's end comes back
+        // through it.
+        if (!registry.isPrepared(target.module, target.engine)) {
+          yield* download(target);
+          return;
+        }
         const reply = yield* request(context, new CreateEngine({ name: context.engine }));
         if (generation !== registry.snapshot(target.module)?.generation) return;
         if (reply.ret < 0) return yield* Effect.fail(createFailure(context, reply));
@@ -341,17 +353,46 @@ export const makeRouter = Effect.gen(function* () {
     });
 
   // One surface's engine failing to start mustn't leave the others on the old selection.
-  const reconcileAll = () =>
+  const reconcileAll = (which: (surface: Surface) => boolean = () => true) =>
     Effect.gen(function* () {
-      const failures: CreateEngineError[] = [];
-      for (const surface of surfaces.values())
+      const failures: (CreateEngineError | PrepareEngineError)[] = [];
+      for (const surface of [...surfaces.values()].filter(which))
         yield* reconcile(surface).pipe(
           Effect.catch((error) =>
-            error instanceof CreateEngineError ? Effect.sync(() => void failures.push(error)) : Effect.fail(error),
+            engineFailed(error) ? Effect.sync(() => void failures.push(error)) : Effect.fail(error),
           ),
         );
 
       if (failures.length > 0) return yield* Effect.fail(failures[0]!);
+    });
+
+  // Engines whose own data installs in the background, by module and engine. Once it ends, the surfaces that still
+  // want the engine make it; a surface that has moved on leaves it installed. A failure reaches the mailbox's log only
+  // if a surface still wants the engine, and its next focus tries again.
+  const downloads = new Set<string>();
+  const download = (target: Selection) =>
+    Effect.suspend(() => {
+      const key = `${target.module}\0${target.engine}`;
+      if (downloads.has(key)) return Effect.void;
+      downloads.add(key);
+      return registry.prepare(target.module, target.engine).pipe(
+        Effect.exit,
+        Effect.flatMap((exit) =>
+          Effect.sync(() => {
+            downloads.delete(key);
+            if (closed) return;
+            mailbox.enqueue(() =>
+              Exit.isSuccess(exit)
+                ? reconcileAll((surface) => wants(surface, target))
+                : [...surfaces.values()].some((surface) => wants(surface, target))
+                  ? exit
+                  : Effect.void,
+            );
+          }),
+        ),
+        Effect.forkIn(scope),
+        Effect.asVoid,
+      );
     });
 
   const submit = (work: () => Effect.Effect<void, Error>): Effect.Effect<void, Error> =>
@@ -398,14 +439,13 @@ export const makeRouter = Effect.gen(function* () {
       count.decrement();
     };
   };
-  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it. A
-  // CreateEngineError is the exception: the change has applied and the selection stands, and an engine fails to
-  // start only while every surface is reconciled, so that failure needs no second pass.
+  // A change that fails leaves the selection as it was, and the surfaces it suspended return to it. An engine that
+  // failed to start is the exception: the change has applied and the selection stands, and the surfaces wanting the
+  // engine stay on native input until their next focus tries again.
   const restore = (release: () => void, error: Error) =>
     Effect.gen(function* () {
       release();
-      if (!(error instanceof CreateEngineError))
-        for (const surface of surfaces.values()) yield* Effect.ignore(reconcile(surface));
+      if (!engineFailed(error)) for (const surface of surfaces.values()) yield* Effect.ignore(reconcile(surface));
       return yield* Effect.fail(error);
     });
 
@@ -523,6 +563,16 @@ export const makeRouter = Effect.gen(function* () {
           if (cancelled()) return yield* cancellation();
           yield* reconcileAll();
         });
+        // The engine's own data installs outside the mailbox, focused surface or not, so that it is there by the
+        // time one is; the selection then waits for it, and has the surfaces that still want the engine make it. A
+        // selection superseded meanwhile resolves, the data staying installed.
+        const settle = (target: Selection) =>
+          Effect.gen(function* () {
+            const exit = yield* Effect.exit(registry.prepare(target.module, target.engine));
+            if (!same(selected, target) || cancelled()) return;
+            if (Exit.isFailure(exit)) return yield* exit;
+            yield* submit(() => reconcileAll((surface) => wants(surface, target)));
+          });
 
         if (snapshot.manifest) {
           const target = pick(snapshot.manifest.engines, module, engine);
@@ -534,12 +584,13 @@ export const makeRouter = Effect.gen(function* () {
               if (cancelled()) return yield* cancellation();
               yield* start;
             }),
-          );
+          ).pipe(Effect.andThen(settle(target)));
         }
 
         const call = ++selections;
         const release = hold({ increment: () => reading++, decrement: () => reading-- });
         for (const surface of surfaces.values()) if (surface.override === undefined) surface.suspended = true;
+        let applied: Selection | undefined;
         return submit(() =>
           Effect.gen(function* () {
             if (cancelled()) return yield* cancellation();
@@ -548,13 +599,14 @@ export const makeRouter = Effect.gen(function* () {
             // A later selection owns the surfaces; booting this module would only hold up its turn in the mailbox.
             if (call !== selections) return;
             apply(target);
+            applied = target;
             release();
             yield* start;
           }).pipe(
             Effect.catch((error) => restore(release, error)),
             Effect.ensuring(Effect.sync(release)),
           ),
-        );
+        ).pipe(Effect.andThen(Effect.suspend(() => (applied === undefined ? Effect.void : settle(applied)))));
       }),
     deselect: () =>
       Effect.suspend(() => {

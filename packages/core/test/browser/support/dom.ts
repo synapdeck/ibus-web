@@ -40,12 +40,23 @@ const manifest: ModuleManifest = {
   module: { url: "engine.so", size: 1 },
   memory: 65536,
   threads: 0,
-  data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
+  data: [
+    { storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" },
+    { storePath: `/nix/store/${"b".repeat(32)}-lazy`, url: "lazy.tar", size: 0, encoding: "identity" },
+  ],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
-  // The second engine passes `a` through, so a test can tell whose keyboard policy applies.
+  // The second engine passes `a` through, so a test can tell whose keyboard policy applies; the third has data of
+  // its own.
   engines: [
     { name: "factory", displayName: "Factory", languages: [], keyboard: { layout: "us", passThrough: [] } },
     { name: "other", displayName: "Other", languages: [], keyboard: { layout: "us", passThrough: ["a"] } },
+    {
+      name: "lazy",
+      displayName: "Lazy",
+      languages: [],
+      keyboard: { layout: "us", passThrough: [] },
+      data: [`/nix/store/${"b".repeat(32)}-lazy`],
+    },
   ],
   settingsSchemas: [],
 };

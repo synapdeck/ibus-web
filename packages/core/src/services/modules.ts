@@ -12,7 +12,13 @@ import {
   type Request,
 } from "@ibus-web/protocol";
 import type { StorageState } from "@ibus-web/worker-host";
-import { Connection, type ConnectionOptions, type CrashInfo, type Reply } from "../connection/connection.ts";
+import {
+  Connection,
+  PrepareFailed,
+  type ConnectionOptions,
+  type CrashInfo,
+  type Reply,
+} from "../connection/connection.ts";
 import { keysymByName } from "../keys/keysyms.generated.ts";
 import { validateKeyboard } from "../keys/manifest.ts";
 import {
@@ -43,7 +49,29 @@ export interface ModuleRegistryOptions {
 }
 export type ModuleEvent =
   | { readonly _tag: "state"; readonly module: string; readonly state: ModuleState }
-  | { readonly _tag: "storage"; readonly module: string; readonly state: StorageState; readonly message: string };
+  | { readonly _tag: "storage"; readonly module: string; readonly state: StorageState; readonly message: string }
+  /** While an engine's own data installs: bytes written so far of total, what the module's storage lacked. */
+  | {
+      readonly _tag: "install";
+      readonly module: string;
+      readonly engine: string;
+      readonly bytes: number;
+      readonly total: number;
+    };
+/** An engine's own data failed to install; `reason` is the Worker's. */
+export class PrepareEngineError extends Error {
+  readonly _tag = "PrepareEngineError";
+  readonly module: string;
+  readonly engine: string;
+  readonly reason: string;
+
+  constructor(module: string, engine: string, reason: string) {
+    super(`Engine ${engine} of module ${module} could not be prepared: ${reason}`);
+    this.module = module;
+    this.engine = engine;
+    this.reason = reason;
+  }
+}
 export interface ModuleRegistryService {
   readonly events: Stream.Stream<ModuleEvent>;
   unload(name: string): Effect.Effect<void, Error>;
@@ -52,6 +80,13 @@ export interface ModuleRegistryService {
   select(name: string | undefined): Effect.Effect<void, Error>;
   /** Reads and validates the module's manifest without starting its Worker. */
   engines(name: string): Effect.Effect<readonly EngineDescriptor[], Error>;
+  /**
+   * Installs the engine's own data in the module's Worker, starting it if need be, once per Worker; an engine with no
+   * data of its own needs nothing. Fails with PrepareEngineError for the Worker's reason.
+   */
+  prepare(name: string, engine: string): Effect.Effect<void, Error>;
+  /** Whether the engine can be made in the module's Worker as it is: it has no data of its own, or the Worker has it. */
+  isPrepared(name: string, engine: string): boolean;
   ensure(name: string): Effect.Effect<void, Error>;
   whenReady(name: string): Effect.Effect<void, Error>;
   state(name: string): ModuleState;
@@ -452,11 +487,10 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           Effect.forkIn(entry.lifetime!),
         );
       });
-    const ensure = (name: string): Effect.Effect<void, Error> =>
+    // Starts the module's Worker, if it hasn't, and waits until it is ready.
+    const start = (name: string): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
-        if (!entries.has(name)) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
         const entry = get(name);
-        entry.snapshot.enabled = true;
         if (!entry.started) {
           entry.started = true;
           entry.snapshot.status = "starting";
@@ -468,6 +502,57 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           );
         }
         yield* whenReady(name);
+      });
+    const ensure = (name: string): Effect.Effect<void, Error> =>
+      Effect.gen(function* () {
+        if (!entries.has(name)) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
+        get(name).snapshot.enabled = true;
+        yield* start(name);
+      });
+    // By connection, so that a restarted Worker prepares again; a failed install is forgotten, to be tried again.
+    const prepared = new WeakMap<KeyConnection, Map<string, Promise<void>>>();
+    const installed = new WeakMap<KeyConnection, Set<string>>();
+    const prepare = (name: string, engine: string): Effect.Effect<void, Error> =>
+      Effect.gen(function* () {
+        const entry = entries.get(name);
+        if (!entry) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
+        const manifest = yield* manifestOf(name, entry);
+        const descriptor = manifest.engines.find((candidate) => candidate.name === engine);
+        if (!descriptor) return yield* Effect.fail(new Error(`Unknown engine: ${engine} in module ${name}`));
+        if ((descriptor.data ?? []).length === 0) return;
+        yield* start(name);
+        const connection = entry.snapshot.connection;
+        if (!connection) return yield* Effect.fail(new Error(`Module ${name} is not ready`));
+
+        let engines = prepared.get(connection);
+        if (!engines) {
+          engines = new Map();
+          prepared.set(connection, engines);
+        }
+        let pending = engines.get(engine);
+        if (!pending) {
+          const installing = connection.prepare(engine, (bytes, total) =>
+            events.enqueue({ _tag: "install", module: name, engine, bytes, total }),
+          );
+          const byEngine = engines;
+          installing.then(
+            () => {
+              const done = installed.get(connection) ?? new Set<string>();
+              installed.set(connection, done.add(engine));
+            },
+            () => {
+              if (byEngine.get(engine) === installing) byEngine.delete(engine);
+            },
+          );
+          engines.set(engine, installing);
+          pending = installing;
+        }
+        const waiting = pending;
+        yield* Effect.tryPromise({
+          try: () => waiting,
+          catch: (cause) =>
+            cause instanceof PrepareFailed ? new PrepareEngineError(name, engine, cause.message) : asError(cause),
+        });
       });
     const service: ModuleRegistryService = {
       events: Stream.fromPubSub(pubsub),
@@ -497,6 +582,14 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           yield* whenReady(name);
         }),
       ensure,
+      prepare,
+      isPrepared: (name, engine) => {
+        const snapshot = entries.get(name)?.snapshot;
+        const descriptor = snapshot?.manifest?.engines.find((candidate) => candidate.name === engine);
+        if (descriptor === undefined) return false;
+        if ((descriptor.data ?? []).length === 0) return true;
+        return snapshot!.connection !== undefined && (installed.get(snapshot!.connection)?.has(engine) ?? false);
+      },
       engines: (name) =>
         Effect.suspend(() => {
           const entry = entries.get(name);
