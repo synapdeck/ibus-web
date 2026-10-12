@@ -1,0 +1,42 @@
+{
+  "name": "@ibus-web/engine-rime",
+  "version": "0.0.0",
+  "description": "Rime with every schema of rime-data and rime-ice, for ibus-web: its WebAssembly module, data and manifest.",
+  "keywords": [
+    "cangjie",
+    "cantonese",
+    "chinese",
+    "ibus",
+    "ime",
+    "input-method",
+    "pinyin",
+    "rime",
+    "webassembly",
+    "zhuyin"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/rime.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "GPL-3.0-or-later AND BSD-3-Clause AND GPL-3.0-only AND MIT AND Apache-2.0 AND BSD-2-Clause AND BSL-1.0 AND LGPL-3.0-only AND CC-BY-4.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/engines/rime"
+  },
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./manifest.json": "./dist/manifest.json",
+    "./rime.wasm": "./dist/rime.wasm",
+    "./settings.json": "./dist/settings.json",
+    "./data/*": "./dist/data/*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "ibusWeb": {
+    "nixBuilt": true
+  }
+}
