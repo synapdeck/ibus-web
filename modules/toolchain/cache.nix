@@ -53,8 +53,16 @@
         object
       ];
       nodeHostFsFlags = object: lib.concatStringsSep " " (nodeHostFsFlagList object);
-      mainLinkNodeWasmfs =
-        object: "-sMAIN_MODULE=1 -sPTHREAD_POOL_SIZE=2 -sEXIT_RUNTIME=1 ${nodeHostFsFlags object}";
+      # Test programs link this way, so the probes do too.
+      mainLinkNodeWasmfsList =
+        object:
+        [
+          "-sMAIN_MODULE=1"
+          "-sPTHREAD_POOL_SIZE=2"
+          "-sEXIT_RUNTIME=1"
+        ]
+        ++ nodeHostFsFlagList object;
+      mainLinkNodeWasmfs = object: lib.concatStringsSep " " (mainLinkNodeWasmfsList object);
 
       # GoogleTest programs run main() on a pthread, which takes a startup
       # object of its own, in a PIC and a non-PIC build.
@@ -148,12 +156,7 @@
         "-sASSERTIONS=1"
       ]
       ++ testMemoryFlagList
-      ++ [
-        "-sMAIN_MODULE=1"
-        "-sPTHREAD_POOL_SIZE=2"
-        "-sEXIT_RUNTIME=1"
-      ]
-      ++ nodeHostFsFlagList "${nodeHostFs}/node-host-fs.o"
+      ++ mainLinkNodeWasmfsList "${nodeHostFs}/node-host-fs.o"
       ++ dynamicLinkFlagList;
 
       nodeHostFs =
