@@ -82,16 +82,6 @@ decided.
   `ibus-daemon` and a toolkit client do on top of the engine needs a separate input-context adapter, which must set
   client-side preedit commits and capabilities explicitly, since both change the observable output. See
   [the test adapter](../tools/ibus-test/README.md).
-- **An engine's C++ exception poisons the runtime.** The exception unwinds through GLib's signal emission, so
-  `ibusweb_dispatch` latches a fault and returns `-ECANCELED`, and the host treats it as a crash. The page must restart
-  the engine. Mozc and Rime are C++, so containing it needs a small GLib patch: hook the `marshal(...)` call in
-  `g_closure_invoke` and `_g_closure_invoke_va` (`gobject/gclosure.c`) and the source dispatch call in `g_main_dispatch`
-  through a C++ `try`/`catch` trampoline that libibus-web sets, so GLib's bookkeeping completes and only the engine
-  module is marked faulted. Engine-internal C frames between the catch and the throw would still skip their cleanup, and
-  engine modules keep state in globals, so the module would still be torn down; the gain is a clean report instead of
-  later corruption. Snapshotting and restoring the heap per request was rejected for its cost. Building GLib with
-  `-fexceptions` wouldn't help: unwinding runs only cleanup-attributed locals, and GLib's emission push and pop aren't,
-  so it would mean rewriting GLib's internals.
 - **No module shutdown call.** The ABI has no shutdown entry point; Hangul's `ibus_hangul_exit` never runs and its
   module globals live for the Worker lifetime.
 - **GLib's pool share under concurrent `GTask`s.** The share of 3 covers one `GTask` in flight; each concurrent one can

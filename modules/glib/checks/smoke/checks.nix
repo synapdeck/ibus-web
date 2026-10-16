@@ -58,6 +58,7 @@
             grep -qx "resource .txt" output.txt
             grep -qx "memory 1" output.txt
             grep -qx "signals poke;judge 5;sub-poke;poke;sub-judge;judge 0; 1 0" output.txt
+            grep -qx "dispatchhook 1 1 1 1" output.txt
 
             # GLib's tools are built for WASM too and run under Node.
             mkdir schemas

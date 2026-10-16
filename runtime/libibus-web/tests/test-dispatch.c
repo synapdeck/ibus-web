@@ -639,10 +639,18 @@ static void protocol(void) {
   g_assert_cmpint(
       send(IBUSWEB_REQ_CREATE_ENGINE, 7, g_variant_new("(s)", "test")), ==, 0);
   stale_engine();
+  guint references = G_OBJECT(last_created)->ref_count;
+  g_assert_null(ibusweb_fault_reason());
   g_assert_cmpint(send(IBUSWEB_REQ_PROCESS_KEY_EVENT, 7,
                        g_variant_new("(uuu)", 999u, 0u, 0u)),
                   ==, -ECANCELED);
-  expect_log(G_LOG_LEVEL_WARNING, "ibus-web", "thrown by an engine");
+  expect_log(G_LOG_LEVEL_WARNING, "ibus-web",
+             "An engine threw: thrown by an engine");
+  g_assert_cmpstr(ibusweb_fault_reason(), ==, "thrown by an engine");
+  /* The exception stopped inside the emission, which GLib then finished: it
+   * is off the instance's emission stack and gave back its reference. */
+  g_assert_null(g_signal_get_invocation_hint(last_created));
+  g_assert_cmpuint(G_OBJECT(last_created)->ref_count, ==, references);
   g_assert_cmpint(send(IBUSWEB_REQ_RESET, 7, g_variant_new("()")), ==,
                   -ENOTRECOVERABLE);
   gboolean ran = FALSE;

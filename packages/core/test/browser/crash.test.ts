@@ -17,7 +17,7 @@ describe.each(data.runtimes)("synthetic DOM recovery through $name host", (runti
       const crash = await crashed;
       expect(["host", "fault"]).toContain(crash.reason);
       if (crash.reason === "host") expect(crash.message).toBe("Worker control state is CRASHED");
-      else expect(crash.message).toBe("ibusweb_dispatch returned -ECANCELED");
+      else expect(crash.message).toBe("an engine threw: recoverable key failed");
       expect(h.registry.snapshot("selected-engine")!.generation).toBe(generation + 1);
       await h.registry.drainContext("selected-engine", context);
       expect(field.element.value).toBe("!");

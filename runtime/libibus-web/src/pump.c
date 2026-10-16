@@ -31,7 +31,7 @@ int32_t ibusweb_pump(void) {
                "main context");
     return IBUSWEB_PUMP_ERROR;
   }
-  /* Sources would run engine code over the state the exception left. */
+  /* Sources would run engine code over the state an exception left. */
   if (ibusweb_runtime_faulted())
     return -1;
 
@@ -55,6 +55,10 @@ int32_t ibusweb_pump(void) {
 
     if (g_main_context_check(context, max_priority, fds, n_fds)) {
       g_main_context_dispatch(context);
+      if (ibusweb_runtime_faulted()) {
+        delay = -1;
+        break;
+      }
       continue;
     }
 

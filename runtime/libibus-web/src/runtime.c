@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include "ibus-web/runtime.h"
+#include "dispatch.h"
 #include "settings.h"
 
 #include <emscripten/emscripten.h>
@@ -33,8 +34,15 @@ int ibusweb_runtime_init(int32_t *wake_word) {
     return -EBUSY;
   ibusweb_settings_register();
   g_main_context_wasm_set_wake_hook(NULL, wake, wake_word);
+  g_wasm_set_dispatch_hook(ibusweb_dispatch_hook);
   g_atomic_pointer_set(&runtime_wake_word, wake_word);
   return 0;
+}
+
+void ibusweb_runtime_wake(void) {
+  int32_t *word = g_atomic_pointer_get(&runtime_wake_word);
+  if (word != NULL)
+    wake(word);
 }
 
 int ibusweb_wait(int32_t seen, int32_t timeout_ms) {

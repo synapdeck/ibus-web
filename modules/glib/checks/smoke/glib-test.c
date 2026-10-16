@@ -7,8 +7,9 @@
  * file back, file and resource attributes, the memory monitor). Also checks
  * that blocking main-context iteration sleeps instead of spinning, wakes
  * when another thread changes the context, with or without fds to watch,
- * and that a cancellable's fd can be polled, and that a wake hook sees the
- * default context woken. */
+ * and that a cancellable's fd can be polled, that a wake hook sees the
+ * default context woken, and that a dispatch hook that stops a call leaves
+ * GLib's bookkeeping whole. */
 #include <emscripten.h>
 #include <gio/gio.h>
 #include <glib-object.h>
@@ -165,6 +166,17 @@ static void check_wake_hook(void) {
              g_atomic_int_get(&stolen) == 0;
   printf("wakehook %d %d %d\n",
          owned_woken && owned_dispatched && unowned_idled, unowned_woken, kept);
+}
+
+static gint dispatched; /* (atomic) */
+static gint stopping;   /* (atomic) */
+
+/* Stands for a hook that catches what the call throws: while stopping, it
+ * returns without calling, as such a hook returns once it has caught. */
+static void count_dispatch(GWasmDispatchFunc func, gpointer data) {
+  g_atomic_int_inc(&dispatched);
+  if (!g_atomic_int_get(&stopping))
+    func(data);
 }
 
 static gpointer cancel_later(gpointer cancellable) {
@@ -339,6 +351,57 @@ static void sub_signaller_class_init(SubSignallerClass *klass) {
 }
 
 static void sub_signaller_init(SubSignaller *self) { (void)self; }
+
+/* Once set, every closure's call and source's dispatch goes through the
+ * dispatch hook. A call the hook stops leaves the emission's return value
+ * as it was and the instance's references and the dispatch depth as they
+ * were, and the source is kept for the next iteration. A second hook and a
+ * NULL one are each refused with a critical. */
+static void check_dispatch_hook(void) {
+  gint criticals = 0;
+  guint handler =
+      g_log_set_handler("GLib", G_LOG_LEVEL_CRITICAL, count_log, &criticals);
+  g_wasm_set_dispatch_hook(count_dispatch);
+  g_wasm_set_dispatch_hook(count_dispatch);
+  g_wasm_set_dispatch_hook(NULL);
+  g_log_remove_handler("GLib", handler);
+
+  trail = g_string_new(NULL);
+  GObject *object = g_object_new(signaller_get_type(), NULL);
+  gboolean verdict = FALSE;
+  g_signal_emit(object, judge_signal, 0, 3, &verdict);
+  int called = verdict && g_atomic_int_get(&dispatched) > 0;
+
+  g_atomic_int_set(&stopping, TRUE);
+  int before = g_atomic_int_get(&dispatched);
+  gboolean stopped = TRUE;
+  g_signal_emit(object, judge_signal, 0, 4, &stopped);
+  int kept = !stopped && g_atomic_int_get(&dispatched) > before &&
+             g_str_equal(trail->str, "judge 3;") && object->ref_count == 1;
+  g_atomic_int_set(&stopping, FALSE);
+
+  /* Nothing else is due when the idle is added, so the iteration dispatches
+   * it alone. */
+  while (g_main_context_iteration(NULL, FALSE))
+    ;
+  int idled = 0;
+  guint idle = g_idle_add(count_idle, &idled);
+  g_atomic_int_set(&stopping, TRUE);
+  before = g_atomic_int_get(&dispatched);
+  g_main_context_iteration(NULL, FALSE);
+  int held = idled == 0 && g_atomic_int_get(&dispatched) > before &&
+             g_main_depth() == 0 &&
+             g_main_context_find_source_by_id(NULL, idle) != NULL;
+  g_atomic_int_set(&stopping, FALSE);
+  while (g_main_context_iteration(NULL, FALSE))
+    ;
+  held = held && idled == 1;
+
+  printf("dispatchhook %d %d %d %d\n", called, kept, held,
+         g_atomic_int_get(&criticals) == 2);
+  g_object_unref(object);
+  g_string_free(trail, TRUE);
+}
 
 int main(void) {
   GKeyFile *keys = g_key_file_new();
@@ -570,6 +633,8 @@ int main(void) {
   g_object_unref(sub);
   g_object_unref(base);
   g_string_free(trail, TRUE);
+
+  check_dispatch_hook();
 
   GList *list =
       g_list_append(g_list_append(NULL, g_strdup("b")), g_strdup("a"));

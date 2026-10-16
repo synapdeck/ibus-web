@@ -285,13 +285,13 @@ After `ready`, a failure writes a `Crashed (us)` record, if the ring has room wi
 a page draining once on seeing `CRASHED` finds it. The exception is `RELAY`: the relay itself sets `CRASHED` before the
 host hears of the failure, so the record follows it. The reasons:
 
-| Reason  | Value | When                                                                      |
-| ------- | ----- | ------------------------------------------------------------------------- |
-| `TRAP`  | 1     | A runtime call threw: a trap, an abort, or another thread's crash.        |
-| `FAULT` | 2     | `ibusweb_dispatch()` returned `-ECANCELED`, leaving the runtime unusable. |
-| `RELAY` | 3     | The wake relay failed.                                                    |
-| `LOAD`  | 4     | The engine module failed to load after a successful `Init`.               |
-| `HOST`  | 5     | The host itself failed, for instance runtime output it couldn't frame.    |
+| Reason  | Value | When                                                                   |
+| ------- | ----- | ---------------------------------------------------------------------- |
+| `TRAP`  | 1     | A runtime call threw: a trap, an abort, or another thread's crash.     |
+| `FAULT` | 2     | An engine threw a C++ exception, which the runtime caught.             |
+| `RELAY` | 3     | The wake relay failed.                                                 |
+| `LOAD`  | 4     | The engine module failed to load after a successful `Init`.            |
+| `HOST`  | 5     | The host itself failed, for instance runtime output it couldn't frame. |
 
 The record's message is what is known at once; for a thread's crash, which reaches the host as `"unwind"`, it says only
 "a thread crashed". The `crashed` message waits briefly (`crashWaitMs`) in the event loop for the thread's own error and
@@ -301,10 +301,13 @@ runtime sequences skip zero when they wrap. The protocol's decoder rejects a `Cr
 
 **Faults.** On `-ECANCELED` the host drains the output the runtime already wrote, publishes the reply under the
 `reqMode` doorbell rule, then writes `Crashed` with `FAULT` and sets `CRASHED`, so the page reads the request's records,
-then its reply, then the crash. No dispatch or pump runs after it. A module the runtime refuses to load likewise has its
-output drained before the `LOAD` crash, so the runtime's account of the failure precedes the record. A trap skips
-runtime finalizers; JavaScript cleanup still runs. A relay killed outright cannot report itself, so page-side hang
-detection is still needed. Restart uses the same bootstrap and `Init`-then-load order.
+then its reply, then the crash. An engine that faults outside a request, in a source on the host's thread or a handler
+on another, ends the host the same way once the pump that finds it has drained the output. Either way the message is
+`an engine threw: <what()>`, from `ibusweb_fault_reason()`, and the runtime's own warning precedes it in the ring. No
+dispatch or pump runs after it. A module the runtime refuses to load likewise has its output drained before the `LOAD`
+crash, so the runtime's account of the failure precedes the record. A trap skips runtime finalizers; JavaScript cleanup
+still runs. A relay killed outright cannot report itself, so page-side hang detection is still needed. Restart uses the
+same bootstrap and `Init`-then-load order.
 
 ## Storage and engine data in the host
 

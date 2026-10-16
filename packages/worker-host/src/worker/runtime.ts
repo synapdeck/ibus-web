@@ -36,6 +36,7 @@ export interface Runtime {
   _wasmfs_idb_backend_set_writable(backend: number, writable: number): number;
   _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
+  _ibusweb_fault_reason(): number;
   _ibusweb_pump(): number;
   _ibusweb_wait(seen: number, timeoutMs: number): number;
   _ibusweb_load_module(path: number, moduleOut: number): number;
@@ -163,6 +164,21 @@ export const check = (what: string, ret: number): void => {
 };
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+// The NUL-terminated UTF-8 string at ptr in the runtime's memory, copied
+// out: a TextDecoder takes no view of shared memory.
+export const readString = ({ bytes }: RuntimeHandle, ptr: number): string => {
+  const end = bytes.indexOf(0, ptr);
+  return decoder.decode(bytes.slice(ptr, end < 0 ? bytes.length : end));
+};
+
+// Why the runtime's engines faulted, once an engine's C++ exception has been
+// caught: a request's or a GLib source's, on any thread.
+export const faultReason = (handle: RuntimeHandle): string | undefined => {
+  const reason = handle.rt._ibusweb_fault_reason();
+  return reason === 0 ? undefined : readString(handle, reason);
+};
 
 export const alloc = ({ rt }: RuntimeHandle, bytes: number): number => {
   const ptr = rt._malloc(Math.max(bytes, 1));

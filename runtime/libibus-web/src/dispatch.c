@@ -11,9 +11,10 @@
 
 static gboolean initialized;
 static GHashTable *engines;
-/* Set once an engine's exception has unwound through GLib, whose state it
- * left inconsistent. */
-static gint faulted; /* (atomic) */
+/* Set once an engine's exception has been caught: the engines' state can't
+ * be trusted, so no request or source reaches them again. The first fault's
+ * reason stays. */
+static gchar *fault_reason; /* (atomic) (owned) */
 
 typedef struct {
   IBusWebRequestHeader header;
@@ -228,7 +229,20 @@ void ibusweb_factory_fail_create(const char *reason) {
     g_critical("ibusweb_factory_fail_create() called outside a CreateEngine");
 }
 
-gboolean ibusweb_runtime_faulted(void) { return g_atomic_int_get(&faulted); }
+void ibusweb_runtime_fault(const char *reason) {
+  gchar *copy = g_strdup(reason);
+  if (!g_atomic_pointer_compare_and_exchange(&fault_reason, NULL, copy))
+    g_free(copy);
+  ibusweb_runtime_wake();
+}
+
+const char *ibusweb_fault_reason(void) {
+  return g_atomic_pointer_get(&fault_reason);
+}
+
+gboolean ibusweb_runtime_faulted(void) {
+  return g_atomic_pointer_get(&fault_reason) != NULL;
+}
 
 int32_t ibusweb_dispatch(const uint8_t *bytes, uint32_t len) {
   if (ibusweb_runtime_faulted())
@@ -256,8 +270,10 @@ int32_t ibusweb_dispatch(const uint8_t *bytes, uint32_t len) {
   gint32 result = -EBADMSG;
   if (g_variant_is_normal_form(request.payload))
     result = ibusweb_dispatch_call(request.header.kind, route, &request);
-  if (result == -ECANCELED)
-    g_atomic_int_set(&faulted, TRUE);
+  /* An exception caught inside GLib lets the request run on to its reply, so
+   * the fault, not the reply, says what happened. */
+  if (ibusweb_runtime_faulted())
+    result = -ECANCELED;
   g_variant_unref(request.payload);
   return result;
 }

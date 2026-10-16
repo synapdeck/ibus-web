@@ -32,9 +32,21 @@ G_BEGIN_DECLS
  * try: a pump that finds nothing to do is harmless. Pump once after this
  * returns, for sources attached before the hook was in place.
  *
+ * It also has every signal handler and source callback GLib calls, on any
+ * thread, run inside a C++ try: an engine's exception stops there, GLib
+ * finishes the emission or dispatch as for a call that returned, and the
+ * runtime marks its engines faulted (ibusweb_fault_reason()).
+ *
  * Returns 0, -EINVAL without a word, -EALREADY if already set up, or -EBUSY
  * if another thread owns the default context. */
 IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
+
+/* Why the engines faulted: what() of the C++ exception an engine threw, or a
+ * description of one that wasn't a std::exception; NULL until one has. The
+ * first fault's reason stays, valid for the runtime's lifetime. Any thread
+ * may read it; a fault on another thread also wakes the host through the
+ * wake word, so a host asleep in ibusweb_wait() finds it at once. */
+IBUSWEB_API const char *ibusweb_fault_reason(void);
 
 /* ibusweb_pump()'s return value when called from a thread that doesn't own
  * the default context; no delay is ever this value. */
@@ -65,12 +77,9 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  * way the word no longer holds the value read, so the wait returns at once
  * and the host pumps again; read after the pump, the wake would be lost.
  *
- * Nothing catches an exception a source's callback throws: it unwinds
- * through GLib's dispatch out of ibusweb_pump() to the host, leaving the
- * context mid-dispatch.
- *
- * Once ibusweb_dispatch() has returned -ECANCELED, this dispatches nothing
- * and returns -1. */
+ * A C++ exception a source's callback throws stops in the runtime's catch
+ * and faults the engines (ibusweb_fault_reason()); the pump then dispatches
+ * nothing more and returns -1, as it does once the engines have faulted. */
 IBUSWEB_API int32_t ibusweb_pump(void);
 
 /* Sleeps on the thread that called ibusweb_runtime_init() while *wake_word
@@ -201,9 +210,9 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * mismatch, ENOENT for a missing context, EEXIST for a duplicate context,
  * ESRCH for an unregistered engine, EIO for a registered one that wasn't made,
  * EINVAL for a SetSurroundingText cursor or anchor past the text's length in
- * characters, EPERM off-thread, or ECANCELED when an engine throws a C++
- * exception. Requests failing on their framing, payload or context reach no
- * engine.
+ * characters, EPERM off-thread, ECANCELED when an engine throws a C++
+ * exception, or ENOTRECOVERABLE once one has. Requests failing on their
+ * framing, payload or context reach no engine.
  *
  * SettingChanged ignores the header's ic, so its ENOENT means a path no Init
  * entry declared or a key its schema lacks, never a missing context; it
@@ -212,11 +221,13 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * writes a Log record. Persist ignores it too, and returns 0 once every
  * module's persist function (ibusweb_module_set_persist()) has returned.
  *
- * ECANCELED means the runtime is unusable: the exception unwound through
- * GLib's signal emission, skipping its cleanup and leaking the engine's
- * reference, so the host must treat it as a crash of the runtime. Every
- * later ibusweb_dispatch() returns ENOTRECOVERABLE without touching GLib or
- * any engine. */
+ * ECANCELED means the engines can't be trusted: an exception stopped in the
+ * runtime's catch (ibusweb_runtime_init()) partway through engine code, whose
+ * frames between the throw and the catch skipped their cleanup, so the host
+ * must end the engines, as for a crash, with ibusweb_fault_reason() as the
+ * diagnostic. GLib finished its own bookkeeping, so output, the log writer
+ * and the settings backend keep working; every later ibusweb_dispatch()
+ * returns ENOTRECOVERABLE without reaching any engine. */
 IBUSWEB_API int32_t ibusweb_dispatch(const uint8_t *request, uint32_t len);
 
 G_END_DECLS

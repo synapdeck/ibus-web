@@ -169,7 +169,12 @@ export const engineFault = async (h: Harness, runtime: RuntimeBuild): Promise<vo
     expect(records[0]?.record).toMatchObject({ _tag: "CommitText", text: { text: "before fault" } });
     expect(Atomics.load(words, Word.replyRet)).toBe(h.data.constants.canceled);
     expect(Atomics.load(words, Word.replyOutSeq) >>> 0).toBe(records.at(-2)?.seq);
-    expect(await host.client.crashReport(20_000)).toContain("-ECANCELED");
+    // The runtime caught the exception inside GLib and went on writing
+    // output: its warning reaches the page, and the crash names what() of
+    // the exception.
+    expect(records.at(-2)?.record).toMatchObject({ _tag: "Log", message: "An engine threw: thrower key failed" });
+    expect(records.at(-1)?.record).toMatchObject({ message: "an engine threw: thrower key failed" });
+    expect(await host.client.crashReport(20_000)).toContain("an engine threw: thrower key failed");
     const types = host.messages.slice(since).map(({ type }) => type);
     expect(types.indexOf("doorbell"), "a doorbell before the crash report").toBeGreaterThanOrEqual(0);
     expect(types.indexOf("doorbell")).toBeLessThan(types.indexOf("crashed"));

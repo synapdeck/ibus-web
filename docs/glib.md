@@ -25,6 +25,7 @@ our patches. This page summarizes; the README is the reference.
 | 0016      | ours                                                                                                                                    | GLib's tests on WebAssembly; test sources and test build files only                                                                                                                                              |
 | 0017      | ours                                                                                                                                    | the wake hook the runtime's pump relies on                                                                                                                                                                       |
 | 0018      | ours                                                                                                                                    | GSettings backend listener dispatch through each callback's declared type, for direct and queued delivery                                                                                                        |
+| 0019      | ours                                                                                                                                    | the dispatch hook through which the runtime catches an engine's C++ exception inside a signal emission or source dispatch                                                                                        |
 
 Every patch keeps its original author. Wolthuizen's commits are rebased from 2.88.1 onto 2.88.3 unchanged, without his
 GRegex removal (the runtime keeps GRegex, built against `pkgsWasm.pcre2`) and with his tool removal cut down to
@@ -170,6 +171,13 @@ only while some thread owns it, so the host's thread holds the default context f
 pump and the word the hook bumps are described in [runtime.md](runtime.md); the hook's rules in the
 [README](../modules/glib/patches/README.md#0017-the-wake-hook).
 
+**The dispatch hook** (0019) has every closure's marshaller call and every source's dispatch go through one function the
+runtime sets, `g_wasm_set_dispatch_hook (hook)`, so a C++ `try` in it catches an engine's exception inside GLib's call
+and GLib finishes the emission or dispatch as for a call that returned: a closure's return value stays as it was, and a
+source is kept. It is one process-wide hook, set once; a second or a `NULL` one is refused with a `g_critical()`. What
+the runtime does with a caught exception is in [runtime.md](runtime.md#protocol-dispatch-and-output); the hook's rules
+and cost in the [README](../modules/glib/patches/README.md#0019-the-dispatch-hook).
+
 ## Other changes
 
 - **The Unix parts WebAssembly can take** (0012). 0008 leaves out every Unix source; 0012 builds again what works on
@@ -285,15 +293,15 @@ generate, checks that every tool's plain name finds this GLib's, and runs `gdbus
 
 ### Checks
 
-| Check                     | What it checks                                                                                                                                                              |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `glib-patches`            | nixpkgs' patches, then the series with no fuzz, apply to nixpkgs' GLib source                                                                                               |
-| `glib-smoke`              | a program linked with `testMainFlags` exercising GLib, GObject, GIO and GRegex, the wakeup and wake hook, class handlers, casts, time zones, a compiled resource and schema |
-| `glib-meson-tools`        | a Meson consumer runs this GLib's tools                                                                                                                                     |
-| `glib-autotools-tools`    | an Autotools consumer runs this GLib's tools                                                                                                                                |
-| `glib-settings-listeners` | all five GSettings listener callbacks, directly and queued from a worker thread (10 cases)                                                                                  |
-| `glib-tests`              | GLib's own tests under Node, gated by the baseline                                                                                                                          |
-| `glib-tests-gate`         | the gate's test selection and report, against Meson on a small project                                                                                                      |
+| Check                     | What it checks                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `glib-patches`            | nixpkgs' patches, then the series with no fuzz, apply to nixpkgs' GLib source                                                                                                              |
+| `glib-smoke`              | a program linked with `testMainFlags` exercising GLib, GObject, GIO and GRegex, the wakeup, wake hook and dispatch hook, class handlers, casts, time zones, a compiled resource and schema |
+| `glib-meson-tools`        | a Meson consumer runs this GLib's tools                                                                                                                                                    |
+| `glib-autotools-tools`    | an Autotools consumer runs this GLib's tools                                                                                                                                               |
+| `glib-settings-listeners` | all five GSettings listener callbacks, directly and queued from a worker thread (10 cases)                                                                                                 |
+| `glib-tests`              | GLib's own tests under Node, gated by the baseline                                                                                                                                         |
+| `glib-tests-gate`         | the gate's test selection and report, against Meson on a small project                                                                                                                     |
 
 ## GLib's tests
 

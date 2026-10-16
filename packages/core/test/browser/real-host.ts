@@ -232,7 +232,7 @@ export const runHost = (
               expect(engine).toBe("recoverable");
               expect(line.record.level).toBe(16);
               expect(line.record.domain).toBe("ibus-web");
-              expect(line.record.message).toMatch(/^Request 16 threw: recoverable key failed$/);
+              expect(line.record.message).toBe("An engine threw: recoverable key failed");
             }
             expect(unexpectedLogs).toEqual([]);
           } finally {

@@ -87,11 +87,11 @@ The errors are exactly those `runtime.h` lists: `-EBADMSG` for invalid framing o
 kinds, `-ENOTCONN` before Init, `-EALREADY` for repeated Init, `-EPROTO` for a version mismatch, `-ENOENT` for an absent
 context, `-EEXIST` for a duplicate context, `-ESRCH` for an unregistered engine, `-EIO` for a registered engine that
 wasn't made, `-EINVAL` for a `SetSurroundingText` cursor or anchor past the text's length in characters, `-EPERM` off
-the pumping thread, and `-ECANCELED` when an engine throws a C++ exception. Requests failing on their framing, payload
-or context reach no engine. `SettingChanged` ignores the header's `ic`, so its `-ENOENT` means a path no `Init` entry
-declared or a key its schema lacks, never a missing context; it returns `-EINVAL` for a value outside the key's type or
-range and `-ENOTSUP` for a default settings backend other than the runtime's, and each of these also writes a `Log`
-record.
+the pumping thread, `-ECANCELED` when an engine throws a C++ exception, and `-ENOTRECOVERABLE` once one has. Requests
+failing on their framing, payload or context reach no engine. `SettingChanged` ignores the header's `ic`, so its
+`-ENOENT` means a path no `Init` entry declared or a key its schema lacks, never a missing context; it returns `-EINVAL`
+for a value outside the key's type or range and `-ENOTSUP` for a default settings backend other than the runtime's, and
+each of these also writes a `Log` record.
 
 `Persist` ignores the header's `ic` too. It calls the persist function of every module that set one with
 `ibusweb_module_set_persist(module, persist)` in its init, in the order the modules were registered, and returns 0 once
@@ -111,13 +111,20 @@ An engine belongs to its context while it is being made: `IBusEngine`'s instance
 its first context opens the input method, reach that context rather than context 0. An engine made outside a
 `create-engine` emission starts on context 0.
 
-`-ECANCELED` means the runtime is unusable. The exception unwound through GLib's signal emission, skipping its cleanup
-and leaking the engine's reference; the C++ frame that caught it logs a warning, but nothing undoes what it skipped. The
-host treats it as a crash of the runtime. Afterwards every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` without
-touching GLib or any engine, and `ibusweb_pump` dispatches nothing and returns -1. Output peek, consume and
-`ibusweb_output_last_seq` keep working, so the host can drain the records written before the fault; a record still
-waiting to be appended from another thread when the fault happened is lost. JavaScript errors and WASM traps remain host
-failures.
+`-ECANCELED` means the engines can't be trusted. GLib's patch 0019 ([glib.md](glib.md)) has every signal handler and
+source callback GLib calls go through a dispatch hook, which `ibusweb_runtime_init()` sets to a C++ `try`/`catch`
+trampoline (`ibusweb_dispatch_hook`, `src/call-op.cpp`). An engine's exception, on any thread, stops there: GLib
+finishes the emission or the dispatch as for a call that returned, so its own bookkeeping (the emission stack, the
+instance's reference, the closure's marshalling flag, the context's dispatch depth) stays whole. The engine's frames
+between the throw and the catch still skipped their cleanup, and engines keep state in globals, so the trampoline logs a
+warning, `An engine threw: <what()>`, and faults the engines: `ibusweb_fault_reason()` returns the first fault's
+`what()` (or a description of an exception that isn't a `std::exception`) for the runtime's lifetime, and a fault off
+the pumping thread wakes the host. A request during which an engine faulted returns `-ECANCELED` whatever its reply.
+Afterwards every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` without reaching any engine, and `ibusweb_pump` stops at
+the dispatch that faulted and returns -1 from then on. The runtime itself stays usable until the host ends it: output
+peek, consume and `ibusweb_output_last_seq`, the log writer and the settings backend keep working, so the host drains
+what was written, the warning included, and reports the crash with the reason. JavaScript errors and WASM traps remain
+host failures.
 
 Emitters serialize owned snapshots immediately. Calls from other threads queue those snapshots on the default main
 context; the pumping thread assigns their sequence numbers and appends them to a mutex-protected `GByteArray`.
@@ -159,7 +166,8 @@ All of it is declared in `ibus-web/runtime.h`. Errors are negative errno values,
 | Function                                                               | What it does                                                                                                                                                                                                   |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ibusweb_runtime_init(wake_word)`                                      | On the thread that will pump: acquires the default `GMainContext` for good and installs the wake hook on it, which bumps `*wake_word`. `-EINVAL`, `-EALREADY`, or `-EBUSY` if another thread owns the context. |
-| `ibusweb_pump()`                                                       | Dispatches ready sources without blocking and returns the delay until pumping is due again (below). After `ibusweb_dispatch` has returned `-ECANCELED`, dispatches nothing and returns -1.                     |
+| `ibusweb_pump()`                                                       | Dispatches ready sources without blocking and returns the delay until pumping is due again (below). Once an engine has faulted, dispatches nothing and returns -1.                                             |
+| `ibusweb_fault_reason()`                                               | Any thread: `what()` of the first C++ exception an engine threw, or `NULL` while none has (Protocol, dispatch and output, above).                                                                              |
 | `ibusweb_wait(seen, timeout_ms)`                                       | Sleeps while the wake word holds `seen`, running proxied calls meanwhile (below). `0`, `-ETIMEDOUT`, `-EINVAL` before init, `-EPERM` off the pumping thread.                                                   |
 | `ibusweb_load_module(path, out)`                                       | Loads a side module and registers it (Side modules, below). `-ENOENT`, `-ENOEXEC`, or the registration's error.                                                                                                |
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                |
@@ -185,8 +193,9 @@ table is a locked hash table; registrations and dispatches happen on the pumping
 A C++ frame (`src/call-op.cpp`) wraps every operation, because an exception leaving it would otherwise unwind through
 the dispatcher's C frames and out of the runtime. Under `-fwasm-exceptions`, `catch (...)` catches only the C++
 exception tag, so JavaScript errors, Emscripten's `ExitStatus` and `"unwind"`, and `longjmp()` pass through to the host.
-An exception that unwound through C frames (a GLib signal emission, a vfunc called from C) skipped their cleanup, so
-`-ECANCELED` says nothing about the state it left.
+An exception that unwound through C frames of the side module's own (a vfunc called from C) skipped their cleanup, so an
+operation's `-ECANCELED` says nothing about the state it left; one thrown inside a signal emission or a source stops at
+GLib's dispatch hook and faults the engines instead.
 
 The operations themselves live in the Worker host's test side modules (`packages/worker-host/test/sides/`), one opcode
 list in `test-ops.h` from which the build prints the values the TypeScript tests read, so no TypeScript repeats a C
@@ -232,8 +241,8 @@ time, 64 of which at 0.5 ms each would still fit D6's 40 ms. A pump with fd sour
 eight fds), so the 10 ms probe, a quarter of D6, costs the Worker next to nothing a hundred times a second; no shipped
 engine, and nothing in the runtime, adds an fd source. To sleep without losing a wake, the host reads the wake word
 _before_ pumping and waits on the value read: a source attached after the pump last looked has moved the word, so the
-wait returns at once. Exceptions a source's callback throws are not caught; they reach the host and leave the context
-mid-dispatch.
+wait returns at once. An exception a source's callback throws stops at GLib's dispatch hook and faults the engines, and
+the pump returns -1 at once.
 
 ### The wait
 
@@ -254,8 +263,10 @@ off-thread, wake from another thread, deadlines, fd sources), the wait (timeout,
 off-thread), module registration, test-dispatch errors and exceptions, and loading side modules (present, missing, not a
 module, no entry point). The suite also covers serialization, key helpers, emitters, engine signals and caches
 (including fresh cursor/capabilities/content values inside non-chaining subclass callbacks and ordinary connected
-handlers), protocol validation, engine creation failures, logs and settings (63 C cases in total). The real Hangul side
-module has its own [golden tests](engines.md#golden-tests). See [testing.md](testing.md).
+handlers), protocol validation, engine creation failures, logs and settings (63 C cases in total). `test-fault`, a
+program of its own since a fault lasts the runtime's lifetime, throws from a source and from a signal handler on another
+thread: the pump stops at once with the first reason kept, GLib finished both calls, and the second fault still wakes
+the host. The real Hangul side module has its own [golden tests](engines.md#golden-tests). See [testing.md](testing.md).
 
 ## `ibus-runtime.wasm`
 

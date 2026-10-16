@@ -288,7 +288,9 @@ export const makeInstruments = (
           if (!name.startsWith("_") || typeof value !== "function") continue;
           const rt = handle.rt as unknown as Record<string, unknown>;
           rt[name] = (...args: unknown[]) => {
-            if (faulted && !name.startsWith("_ibusweb_output_")) Atomics.add(counts, 0, 1);
+            // A fault leaves the host its output and the reason to read.
+            if (faulted && !name.startsWith("_ibusweb_output_") && name !== "_ibusweb_fault_reason")
+              Atomics.add(counts, 0, 1);
             const result: unknown = value.apply(handle.rt, args);
             if (name === "_ibusweb_dispatch" && result === test.canceled) faulted = true;
             return result;

@@ -1,0 +1,365 @@
+From 49af5b7a77311eb8978d0b9b82617941a8acced3 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 16 Oct 2026 11:55:31 -0700
+Subject: [PATCH] gmain, gclosure: Make calls into closures and sources through
+ a hook on WebAssembly
+
+A C++ exception thrown by a signal handler or a source's callback
+unwinds through GLib's C frames, which WebAssembly's exception handling
+leaves without running anything: the signal emission's stack entry and
+its reference on the instance, the closure's in_marshal flag and the
+main context's dispatch depth stay as the exception left them, and the
+next emission or dispatch works on that state. A runtime that loads C++
+engines into GLib can't catch the exception any nearer than the call
+into GLib, by which time that state is lost.
+
+g_wasm_set_dispatch_hook() installs a function through which GLib makes
+each of those calls: g_closure_invoke() and _g_closure_invoke_va() pass
+the marshaller's call, and g_main_dispatch() the source's dispatch, as a
+function and its data. A hook that wraps the call in a C++ try stops the
+exception in its own frame, and GLib carries on as for a call that
+returned: the closure's return value is left as it was, and the source
+is kept. Without a hook the call is made directly.
+
+The hook is a single atomic pointer, set once: a second setter, or a
+NULL hook, is refused with a critical whether or not checks are compiled
+in. GObject reaches the call through GLib's private vtable, so the only
+new public function is the setter, declared in gmain.h under
+G_PLATFORM_WASM. Other platforms are unchanged.
+
+Upstream-Status: Inappropriate [Wasm-specific]
+---
+ glib/glib-private.c |  4 ++
+ glib/glib-private.h | 11 ++++++
+ glib/gmain.c        | 93 +++++++++++++++++++++++++++++++++++++++++++++
+ glib/gmain.h        | 24 ++++++++++++
+ gobject/gclosure.c  | 87 ++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 219 insertions(+)
+
+diff --git a/glib/glib-private.c b/glib/glib-private.c
+index 15dbc665c..59e7326f6 100644
+--- a/glib/glib-private.c
++++ b/glib/glib-private.c
+@@ -77,6 +77,10 @@ glib__private__ (void)
+     g_set_prgname_once,
+ 
+     g_datalist_id_update_atomic,
++
++#ifdef G_PLATFORM_WASM
++    g_wasm_dispatch,
++#endif
+   };
+ 
+   return &table;
+diff --git a/glib/glib-private.h b/glib/glib-private.h
+index 94ea7e857..772ef09e0 100644
+--- a/glib/glib-private.h
++++ b/glib/glib-private.h
+@@ -233,6 +233,11 @@ char *g_find_program_for_path (const char *program,
+ 
+ int g_uri_get_default_scheme_port (const char *scheme);
+ 
++#ifdef G_PLATFORM_WASM
++void g_wasm_dispatch (GWasmDispatchFunc func,
++                      gpointer          data);
++#endif
++
+ #define GLIB_PRIVATE_CALL(symbol) (glib__private__()->symbol)
+ 
+ 
+@@ -309,6 +314,12 @@ typedef struct {
+                                            GDataListUpdateAtomicFunc callback,
+                                            gpointer user_data);
+ 
++#ifdef G_PLATFORM_WASM
++  /* See gmain.c */
++  void (* g_wasm_dispatch) (GWasmDispatchFunc func,
++                            gpointer          data);
++#endif
++
+   /* Add other private functions here, initialize them in glib-private.c */
+ } GLibPrivateVTable;
+ 
+diff --git a/glib/gmain.c b/glib/gmain.c
+index 87f6be5ae..f76379674 100644
+--- a/glib/gmain.c
++++ b/glib/gmain.c
+@@ -3536,6 +3536,25 @@ unblock_source (GSource      *source,
+ }
+ 
+ /* HOLDS: context's lock */
++#ifdef G_PLATFORM_WASM
++typedef struct
++{
++  gboolean (*dispatch) (GSource *, GSourceFunc, gpointer);
++  GSource *source;
++  GSourceFunc callback;
++  gpointer user_data;
++  gboolean keep;
++} SourceDispatch;
++
++static void
++source_dispatch (gpointer data)
++{
++  SourceDispatch *call = data;
++
++  call->keep = call->dispatch (call->source, call->callback, call->user_data);
++}
++#endif
++
+ static void
+ g_main_dispatch (GMainContext *context)
+ {
+@@ -3596,7 +3615,23 @@ g_main_dispatch (GMainContext *context)
+ 
+           TRACE (GLIB_MAIN_BEFORE_DISPATCH (g_source_get_name (source), source,
+                                             dispatch, callback, user_data));
++#ifdef G_PLATFORM_WASM
++          {
++            /* A dispatch the hook stopped keeps its source. */
++            SourceDispatch call = {
++              .dispatch = dispatch,
++              .source = source,
++              .callback = callback,
++              .user_data = user_data,
++              .keep = TRUE,
++            };
++
++            g_wasm_dispatch (source_dispatch, &call);
++            need_destroy = !call.keep;
++          }
++#else
+           need_destroy = !(* dispatch) (source, callback, user_data);
++#endif
+           TRACE (GLIB_MAIN_AFTER_DISPATCH (g_source_get_name (source), source,
+                                            dispatch, need_destroy));
+ 
+@@ -5349,6 +5384,64 @@ g_main_context_wasm_set_wake_hook (GMainContext  *context,
+ }
+ #endif
+ 
++#ifdef G_PLATFORM_WASM
++static GWasmDispatchHook dispatch_hook;  /* (atomic) */
++
++/**
++ * g_wasm_set_dispatch_hook:
++ * @hook: makes each call GLib makes into code it doesn't own
++ *
++ * Has every call of a closure's marshaller ([method@GObject.Closure.invoke],
++ * and the signal emissions that invoke closures) and of a source's dispatch
++ * function go through @hook, on whichever thread makes it.
++ *
++ * Code that GLib calls can fail in ways GLib's frames can't take part in,
++ * such as a C++ exception, which would unwind through GLib's frames and skip
++ * their bookkeeping: a signal emission's stack and the instance's
++ * reference, a closure's marshalling flag, a main context's dispatch depth.
++ * A hook that wraps @func in a C++ `try` stops the exception there, so GLib
++ * completes its bookkeeping as for a call that returned.  A closure whose
++ * call didn't complete leaves its return value as it was; a source whose
++ * dispatch didn't complete is kept, as though it had returned
++ * %G_SOURCE_CONTINUE.
++ *
++ * The hook runs on every signal emission and source dispatch, nested ones
++ * included, so it must be cheap and safe to run re-entrantly.
++ *
++ * A hook can be set only once, and stays set.  Setting another, or a `NULL`
++ * one, is a programmer error: it is reported with a critical warning,
++ * whether or not GLib was built with checks, and leaves the first hook in
++ * place.
++ *
++ * This function is only available on WebAssembly.
++ */
++void
++g_wasm_set_dispatch_hook (GWasmDispatchHook hook)
++{
++  if (hook == NULL)
++    {
++      g_critical ("%s: the hook must not be NULL", G_STRFUNC);
++      return;
++    }
++
++  if (!g_atomic_pointer_compare_and_exchange (&dispatch_hook, NULL, hook))
++    g_critical ("%s: a dispatch hook is already set", G_STRFUNC);
++}
++
++/* Makes the call through the dispatch hook, if one is set. */
++void
++g_wasm_dispatch (GWasmDispatchFunc func,
++                 gpointer          data)
++{
++  GWasmDispatchHook hook = g_atomic_pointer_get (&dispatch_hook);
++
++  if (hook != NULL)
++    hook (func, data);
++  else
++    func (data);
++}
++#endif
++
+ /**
+  * g_main_context_is_owner:
+  * @context: (nullable): a main context (if `NULL`, the global-default
+diff --git a/glib/gmain.h b/glib/gmain.h
+index a960888c0..b77ffdee9 100644
+--- a/glib/gmain.h
++++ b/glib/gmain.h
+@@ -570,6 +570,30 @@ GLIB_AVAILABLE_IN_ALL
+ void     g_main_context_wasm_set_wake_hook (GMainContext  *context,
+                                             GWasmWakeHook  hook,
+                                             gpointer       user_data);
++
++/**
++ * GWasmDispatchFunc:
++ * @data: what the call needs
++ *
++ * One call GLib makes into code it doesn't own: a closure's marshaller,
++ * or a source's dispatch function.
++ */
++typedef void (*GWasmDispatchFunc) (gpointer data);
++
++/**
++ * GWasmDispatchHook:
++ * @func: the call to make
++ * @data: passed to @func
++ *
++ * Makes the call, wrapped as the hook's owner needs.  Unless it calls
++ * @func exactly once, GLib goes on as though @func had returned without
++ * doing anything.
++ */
++typedef void (*GWasmDispatchHook) (GWasmDispatchFunc func,
++                                   gpointer          data);
++
++GLIB_AVAILABLE_IN_ALL
++void     g_wasm_set_dispatch_hook (GWasmDispatchHook hook);
+ #endif
+ 
+ /* Low level functions for use by source implementations
+diff --git a/gobject/gclosure.c b/gobject/gclosure.c
+index 01e867cc3..0c61887ba 100644
+--- a/gobject/gclosure.c
++++ b/gobject/gclosure.c
+@@ -37,6 +37,10 @@
+ #include "gvaluetypes.h"
+ #include "gtype-private.h"
+ 
++#ifdef G_PLATFORM_WASM
++#include "../glib/glib-private.h"
++#endif
++
+ 
+ /**
+  * GClosure:
+@@ -863,6 +867,55 @@ g_closure_remove_finalize_notifier (GClosure      *closure,
+                 notify_func, notify_data);
+ }
+ 
++#ifdef G_PLATFORM_WASM
++typedef struct
++{
++  GClosureMarshal marshal;
++  GClosure *closure;
++  GValue *return_value;
++  guint n_param_values;
++  const GValue *param_values;
++  gpointer invocation_hint;
++  gpointer marshal_data;
++} MarshalCall;
++
++static void
++marshal_call (gpointer data)
++{
++  MarshalCall *call = data;
++
++  call->marshal (call->closure,
++                 call->return_value,
++                 call->n_param_values, call->param_values,
++                 call->invocation_hint,
++                 call->marshal_data);
++}
++
++typedef struct
++{
++  GVaClosureMarshal marshal;
++  GClosure *closure;
++  GValue *return_value;
++  gpointer instance;
++  va_list args;
++  gpointer marshal_data;
++  int n_params;
++  GType *param_types;
++} VaMarshalCall;
++
++static void
++va_marshal_call (gpointer data)
++{
++  VaMarshalCall *call = data;
++
++  call->marshal (call->closure,
++                 call->return_value,
++                 call->instance, call->args,
++                 call->marshal_data,
++                 call->n_params, call->param_types);
++}
++#endif
++
+ /**
+  * g_closure_invoke:
+  * @closure: a #GClosure
+@@ -913,11 +966,27 @@ g_closure_invoke (GClosure       *closure,
+ 	}
+       if (!in_marshal)
+ 	closure_invoke_notifiers (closure, PRE_NOTIFY);
++#ifdef G_PLATFORM_WASM
++      {
++        MarshalCall call = {
++          .marshal = marshal,
++          .closure = closure,
++          .return_value = return_value,
++          .n_param_values = n_param_values,
++          .param_values = param_values,
++          .invocation_hint = invocation_hint,
++          .marshal_data = marshal_data,
++        };
++
++        GLIB_PRIVATE_CALL (g_wasm_dispatch) (marshal_call, &call);
++      }
++#else
+       marshal (closure,
+ 	       return_value,
+ 	       n_param_values, param_values,
+ 	       invocation_hint,
+ 	       marshal_data);
++#endif
+       if (!in_marshal)
+ 	closure_invoke_notifiers (closure, POST_NOTIFY);
+       ATOMIC_SET (closure, in_marshal, (guint) in_marshal);
+@@ -977,11 +1046,29 @@ _g_closure_invoke_va (GClosure       *closure,
+ 	}
+       if (!in_marshal)
+ 	closure_invoke_notifiers (closure, PRE_NOTIFY);
++#ifdef G_PLATFORM_WASM
++      {
++        VaMarshalCall call = {
++          .marshal = marshal,
++          .closure = closure,
++          .return_value = return_value,
++          .instance = instance,
++          .marshal_data = marshal_data,
++          .n_params = n_params,
++          .param_types = param_types,
++        };
++
++        va_copy (call.args, args);
++        GLIB_PRIVATE_CALL (g_wasm_dispatch) (va_marshal_call, &call);
++        va_end (call.args);
++      }
++#else
+       marshal (closure,
+ 	       return_value,
+ 	       instance, args,
+ 	       marshal_data,
+ 	       n_params, param_types);
++#endif
+       if (!in_marshal)
+ 	closure_invoke_notifiers (closure, POST_NOTIFY);
+       ATOMIC_SET (closure, in_marshal, (guint) in_marshal);

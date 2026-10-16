@@ -19,28 +19,29 @@ The series was built by cherry-picking onto a branch made of upstream `2.88.3` p
 
 ## The series
 
-| Patch                                                                                | Author                 | Source commit  |
-| ------------------------------------------------------------------------------------ | ---------------------- | -------------- |
-| 0001 Do not build girepository and the fuzzers (partial)                             | Wolthuizen             | `0e5465ae90c6` |
-| 0002 Disable NLS                                                                     | Wolthuizen             | `1f4fa40ad026` |
-| 0003 Emscripten doesn't always define `__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4`           | Wolthuizen             | `84981eb5dd31` |
-| 0004 Emscripten doesn't implement `pthread_getname_np()`                             | Wolthuizen             | `8ced885eb25b` |
-| 0005 Network libs are not available on Emscripten                                    | Wolthuizen             | `c6a63fcd426f` |
-| 0006 Ensure separate checks are also done for Emscripten                             | Wolthuizen             | `bc4812fd5890` |
-| 0007 Use vsnprintf/snprintf/printf from musl libc                                    | Wolthuizen             | `c0bb73dd62bf` |
-| 0008 Add support for WebAssembly                                                     | Wolthuizen             | `fc0d03194fb2` |
-| 0009 Fix function pointer cast issues                                                | Wolthuizen             | `1afd0d285774` |
-| 0010 glist: Fix function signatures in internals of glist/gslist                     | Jorge Zapata (Fluendo) | `86387bcf5b85` |
-| 0011 Call callbacks through their own function types                                 | Alexis Williams        | —              |
-| 0012 Build the tools and the Unix parts WebAssembly can take                         | Alexis Williams        | —              |
-| 0013 gmain, gwakeup: Wait on a futex-backed GWakeup on WebAssembly                   | Alexis Williams        | —              |
-| 0014 Give WebAssembly time zones, a memory monitor, content types and a user         | Alexis Williams        | —              |
-| 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces               | Alexis Williams        | —              |
-| 0016 tests: Build and run GLib's tests on WebAssembly                                | Alexis Williams        | —              |
-| 0017 gmain, gwakeup: Call a hook when a context's wakeup is signalled on WebAssembly | Alexis Williams        | —              |
-| 0018 gsettingsbackend: Call listeners through their declared types                   | Alexis Williams        | —              |
+| Patch                                                                                    | Author                 | Source commit  |
+| ---------------------------------------------------------------------------------------- | ---------------------- | -------------- |
+| 0001 Do not build girepository and the fuzzers (partial)                                 | Wolthuizen             | `0e5465ae90c6` |
+| 0002 Disable NLS                                                                         | Wolthuizen             | `1f4fa40ad026` |
+| 0003 Emscripten doesn't always define `__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4`               | Wolthuizen             | `84981eb5dd31` |
+| 0004 Emscripten doesn't implement `pthread_getname_np()`                                 | Wolthuizen             | `8ced885eb25b` |
+| 0005 Network libs are not available on Emscripten                                        | Wolthuizen             | `c6a63fcd426f` |
+| 0006 Ensure separate checks are also done for Emscripten                                 | Wolthuizen             | `bc4812fd5890` |
+| 0007 Use vsnprintf/snprintf/printf from musl libc                                        | Wolthuizen             | `c0bb73dd62bf` |
+| 0008 Add support for WebAssembly                                                         | Wolthuizen             | `fc0d03194fb2` |
+| 0009 Fix function pointer cast issues                                                    | Wolthuizen             | `1afd0d285774` |
+| 0010 glist: Fix function signatures in internals of glist/gslist                         | Jorge Zapata (Fluendo) | `86387bcf5b85` |
+| 0011 Call callbacks through their own function types                                     | Alexis Williams        | —              |
+| 0012 Build the tools and the Unix parts WebAssembly can take                             | Alexis Williams        | —              |
+| 0013 gmain, gwakeup: Wait on a futex-backed GWakeup on WebAssembly                       | Alexis Williams        | —              |
+| 0014 Give WebAssembly time zones, a memory monitor, content types and a user             | Alexis Williams        | —              |
+| 0015 gconvert, gcharsetconverter: Report characters `iconv()` replaces                   | Alexis Williams        | —              |
+| 0016 tests: Build and run GLib's tests on WebAssembly                                    | Alexis Williams        | —              |
+| 0017 gmain, gwakeup: Call a hook when a context's wakeup is signalled on WebAssembly     | Alexis Williams        | —              |
+| 0018 gsettingsbackend: Call listeners through their declared types                       | Alexis Williams        | —              |
+| 0019 gmain, gclosure: Make calls into closures and sources through a hook on WebAssembly | Alexis Williams        | —              |
 
-Each of 0011–0018 covers one topic, described in its message and below. 0016 holds every change to GLib's tests, and
+Each of 0011–0019 covers one topic, described in its message and below. 0016 holds every change to GLib's tests, and
 nothing else.
 
 ### Dropped from Wolthuizen's branch
@@ -560,3 +561,39 @@ declared arguments. The public backend API is unchanged.
 `checks.glib-settings-listeners` exercises all five notification paths through GLib's memory backend, both directly and
 queued from another thread. Its sources and schema live in `modules/glib/checks/settings-listeners`. The libibus-web
 settings tests separately cover its backend's notifications and delayed writes through `g_settings_apply()`.
+
+## 0019: the dispatch hook
+
+A C++ exception thrown by a signal handler or a source's callback unwinds through GLib's C frames, which WebAssembly's
+exception handling leaves without running anything: the emission's stack entry and its reference on the instance, the
+closure's `in_marshal` flag and the context's dispatch depth stay as the exception left them, and the next emission or
+dispatch works on that state. The runtime loads C++ engines (Mozc, Rime) into GLib and can't catch their exceptions any
+nearer than its call into GLib, by which time that state is lost. Building GLib with `-fexceptions` wouldn't help:
+unwinding runs only cleanup-attributed locals, and GLib's emission push and pop aren't. 0019 lets the runtime catch them
+inside GLib's call instead:
+
+```c
+typedef void (*GWasmDispatchFunc) (gpointer data);
+typedef void (*GWasmDispatchHook) (GWasmDispatchFunc func, gpointer data);
+void g_wasm_set_dispatch_hook (GWasmDispatchHook hook);
+```
+
+- **Where it runs.** `g_closure_invoke()` and `_g_closure_invoke_va()` make the marshaller's call, and
+  `g_main_dispatch()` the source's dispatch function, through the hook, as a function and its data; nothing else
+  changes. Every signal emission, `g_signal_emit_valist()`'s va marshallers included, and every source dispatch goes
+  through it, on whichever thread makes it.
+- **A call the hook stops.** GLib carries on as for a call that returned: a closure's return value is left as it was,
+  and a source is kept, as though it had returned `G_SOURCE_CONTINUE`.
+- **Publication.** One process-wide atomic pointer, set once: a second setter or a `NULL` hook is refused with a
+  `g_critical()`, which `G_DISABLE_CHECKS` doesn't remove. Without a hook the call is made directly.
+- **Where it is declared.** The setter and its types in `gmain.h`, under `#ifdef G_PLATFORM_WASM`, beside the wake hook.
+  GObject reaches the call through GLib's private vtable (`GLIB_PRIVATE_CALL (g_wasm_dispatch)`), so the setter is the
+  only new public function.
+- **Cost.** Each call goes through one more indirect call and a struct of its arguments. A signal emission with one C
+  handler, built `-O2` and run under Node in five rounds of two million emissions, took 106.9–107.4 ns through a hook
+  that wraps the call in a C++ `try`, against 103.9–105.0 ns with no hook set: about 3 ns an emission, so the hook
+  covers every signal rather than only engines'.
+
+`checks.glib-smoke` checks that a hook sees every closure's and source's call once set, that a call it stops leaves the
+emission's return value, the instance's references and the dispatch depth as they were and keeps the source for the next
+iteration, and that a second hook and a `NULL` one are refused (`dispatchhook 1 1 1 1`).

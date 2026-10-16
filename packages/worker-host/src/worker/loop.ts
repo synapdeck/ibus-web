@@ -13,7 +13,7 @@ import type { EngineScopes } from "./scopes.ts";
 import { drainOutput } from "./output.ts";
 import type { RuntimeConstants } from "../shared/messages.ts";
 import type { InstrumentReply, Instruments } from "./instruments.ts";
-import type { Runtime, RuntimeHandle } from "./runtime.ts";
+import { faultReason, type Runtime, type RuntimeHandle } from "./runtime.ts";
 
 export interface LoopContext {
   // Reports storage that has failed since the host last woke.
@@ -81,6 +81,15 @@ export const ringDoorbell = (ctx: LoopContext): void => {
   if (Atomics.exchange(ctx.control.words, Word.doorbell, 1) === 0) ctx.postDoorbell();
 };
 
+// An engine's exception the runtime caught, during a request or in a GLib
+// source on any thread, ends the host as a fault once the output before it
+// is in the ring.
+const stopIfFaulted = (ctx: LoopContext): void => {
+  const reason = faultReason(ctx.handle);
+  if (reason !== undefined)
+    throw new RuntimeStopped({ error: `an engine threw: ${reason}`, reason: CrashReason.fault });
+};
+
 // Called only once the request's records are in the ring, so a reply never
 // lands ahead of them.
 const publishReply = (ctx: LoopContext, ret: number): void => {
@@ -97,6 +106,7 @@ export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
   pump(ctx.handle.rt, ctx.constants);
   drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength, ctx);
   publishReply(ctx, reply.ret);
+  stopIfFaulted(ctx);
 };
 
 const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined => {
@@ -117,7 +127,8 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
   // Output still drains after a fault; pumping doesn't. The crash that
   // follows writes its Crashed record behind the reply.
   if (ret === ctx.constants.canceled) {
-    let message = "ibusweb_dispatch returned -ECANCELED";
+    const reason = faultReason(handle);
+    let message = reason === undefined ? "ibusweb_dispatch returned -ECANCELED" : `an engine threw: ${reason}`;
     try {
       drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx);
     } catch (error) {
@@ -154,6 +165,7 @@ export const step = (ctx: LoopContext): Step => {
   ctx.woken = false;
   const delay = pump(handle.rt, ctx.constants);
   if (drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx) > 0) ringDoorbell(ctx);
+  stopIfFaulted(ctx);
   const after = Atomics.load(control.words, Word.state);
   if (after === State.request || after === State.crashed) return { kind: "served" };
   return { kind: "idle", seen, delay };
