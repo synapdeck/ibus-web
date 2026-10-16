@@ -91,6 +91,9 @@ export const makeInstruments = (
   let replyBuffer = 0;
   const capacity = 64 * 1024;
   let held = false;
+  // The threads that warm the pool are the host's own, gone before it goes
+  // on, so they don't count towards the threads alive at once.
+  let warming = false;
   const loadedModules: string[] = [];
   const replies = test.replies === undefined ? undefined : new Int32Array(test.replies);
   const counters = {
@@ -103,6 +106,8 @@ export const makeInstruments = (
     lastTopUpMs: null as number | null,
     lastTopUpCreateMs: null as number | null,
     eventLoopTurns: 0,
+    warms: 0,
+    lastWarmed: 0,
   };
   const toppedUp = (want: number, ms: number, createMs: number): void => {
     counters.topUps++;
@@ -204,7 +209,7 @@ export const makeInstruments = (
         const worker = getWorker();
         if (worker !== undefined) {
           active.add(worker);
-          counters.activeThreadsPeak = Math.max(counters.activeThreadsPeak, active.size);
+          if (!warming) counters.activeThreadsPeak = Math.max(counters.activeThreadsPeak, active.size);
         }
         return worker;
       };
@@ -379,5 +384,16 @@ export const makeInstruments = (
     },
     topUpsHeld: () => held,
     toppedUp,
+    warm: (run) => {
+      warming = true;
+      try {
+        const workers = run();
+        counters.warms++;
+        counters.lastWarmed = workers;
+        return workers;
+      } finally {
+        warming = false;
+      }
+    },
   };
 };

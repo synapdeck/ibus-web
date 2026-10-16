@@ -37,6 +37,7 @@ export interface Runtime {
   _wasmfs_create_directory(path: number, mode: number, backend: number): number;
   _ibusweb_runtime_init(wakeWord: number): number;
   _ibusweb_fault_reason(): number;
+  _ibusweb_warm_pool(count: number): number;
   _ibusweb_pump(): number;
   _ibusweb_wait(seen: number, timeoutMs: number): number;
   _ibusweb_load_module(path: number, moduleOut: number): number;
@@ -178,6 +179,15 @@ export const readString = ({ bytes }: RuntimeHandle, ptr: number): string => {
 export const faultReason = (handle: RuntimeHandle): string | undefined => {
   const reason = handle.rt._ibusweb_fault_reason();
   return reason === 0 ? undefined : readString(handle, reason);
+};
+
+// Runs a thread on every idle pool Worker, so a Worker's first thread, which
+// costs Chromium about 12 ms, is never one an engine waits for. Returns how
+// many ran.
+export const warmPool = (handle: RuntimeHandle): number => {
+  const ran = handle.rt._ibusweb_warm_pool(handle.rt.PThread.unusedWorkers.length);
+  check("ibusweb_warm_pool", ran);
+  return ran;
 };
 
 export const alloc = ({ rt }: RuntimeHandle, bytes: number): number => {

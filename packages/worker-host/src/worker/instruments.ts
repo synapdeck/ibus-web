@@ -55,6 +55,9 @@ export interface Instruments {
   readonly eventLoopTurn: () => void;
   readonly topUpsHeld: () => boolean;
   readonly toppedUp: (workers: number, ms: number, createMs: number) => void;
+  // Runs the host's warming of the pool, which returns how many Workers
+  // ran a thread.
+  readonly warm: (run: () => number) => number;
 }
 
 const none: Instruments = {
@@ -77,6 +80,7 @@ const none: Instruments = {
   eventLoopTurn: () => {},
   topUpsHeld: () => false,
   toppedUp: () => {},
+  warm: (run) => run(),
 };
 
 export const Instruments: Context.Reference<Instruments> = Context.Reference<Instruments>(

@@ -22,7 +22,7 @@ import {
   type LoopContext,
 } from "./loop.ts";
 import { drainOutput, HostDefect } from "./output.ts";
-import { alloc, loadSides, RuntimeRefused } from "./runtime.ts";
+import { alloc, loadSides, RuntimeRefused, warmPool } from "./runtime.ts";
 import { EngineScopes } from "./scopes.ts";
 
 // The most pumps the host runs to settle the engines it destroys on its way
@@ -103,6 +103,7 @@ export const serve: Effect.Effect<
         throw new RuntimeStopped({ error, reason: CrashReason.load });
       }
       moduleLoaded = true;
+      instruments.warm(() => warmPool(handle));
     },
     outputLength,
     postDoorbell: () => worker.env.post({ type: "doorbell" }),
@@ -192,7 +193,10 @@ export const serve: Effect.Effect<
       if ("error" in outcome) {
         ctx.topUpFailed = true;
         yield* Effect.logError(errorReport(outcome.error));
-      } else instruments.toppedUp(want, outcome.ms, outcome.createMs);
+      } else {
+        instruments.toppedUp(want, outcome.ms, outcome.createMs);
+        yield* guarded(() => instruments.warm(() => warmPool(handle)));
+      }
     });
 
   // The page's messages arrive only through the event loop. The host takes

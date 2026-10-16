@@ -210,6 +210,11 @@ static gpointer wait_elsewhere(gpointer ret) {
   return NULL;
 }
 
+static gpointer warm_elsewhere(gpointer ret) {
+  *(int32_t *)ret = ibusweb_warm_pool(1);
+  return NULL;
+}
+
 static gpointer idle_after_20ms(gpointer counter) {
   g_usleep(20 * G_TIME_SPAN_MILLISECOND);
   g_idle_add(count_dispatch, counter);
@@ -285,6 +290,22 @@ static void test_wait_wrong_thread(void) {
   g_test_expect_message("ibus-web", G_LOG_LEVEL_CRITICAL,
                         "*off the thread that owns*");
   g_thread_join(g_thread_new("wait", wait_elsewhere, &ret));
+  g_test_assert_expected_messages();
+  g_assert_cmpint(ret, ==, -EPERM);
+}
+
+/* As many threads run at once as the pool has Workers, each joined before
+ * the call returns; only the pumping thread may run them. */
+static void test_warm_pool(void) {
+  int32_t ret = 0;
+
+  runtime_ready();
+  g_assert_cmpint(ibusweb_warm_pool(-1), ==, -EINVAL);
+  g_assert_cmpint(ibusweb_warm_pool(0), ==, 0);
+  g_assert_cmpint(ibusweb_warm_pool(2), ==, 2);
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_CRITICAL,
+                        "*off the thread that owns*");
+  g_thread_join(g_thread_new("warm", warm_elsewhere, &ret));
   g_test_assert_expected_messages();
   g_assert_cmpint(ret, ==, -EPERM);
 }
@@ -411,6 +432,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/wait/wake", test_wait_wake);
   g_test_add_func("/wait/proxied", test_wait_proxied);
   g_test_add_func("/wait/wrong-thread", test_wait_wrong_thread);
+  g_test_add_func("/pool/warm", test_warm_pool);
   g_test_add_func("/module/register", test_module_register);
   g_test_add_func("/dispatch/echo", test_dispatch_echo);
   g_test_add_func("/dispatch/errors", test_dispatch_errors);

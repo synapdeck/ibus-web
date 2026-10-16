@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <pthread.h>
 
 /* The word the wake hook bumps: NULL until the first successful init sets
  * it, for good. */
@@ -43,6 +44,40 @@ void ibusweb_runtime_wake(void) {
   int32_t *word = g_atomic_pointer_get(&runtime_wake_word);
   if (word != NULL)
     wake(word);
+}
+
+/* A warming thread runs nothing of its own, and every stack comes from the
+ * heap: a default 1 MiB stack on each idle Worker would raise the heap's peak,
+ * which a module declares, by megabytes. */
+#define WARM_STACK_BYTES (64 * 1024)
+
+static void *return_at_once(void *data) { return data; }
+
+int32_t ibusweb_warm_pool(int32_t count) {
+  if (count < 0)
+    return -EINVAL;
+  if (!g_main_context_is_owner(g_main_context_default())) {
+    g_critical("ibusweb_warm_pool() called off the thread that owns the "
+               "default main context");
+    return -EPERM;
+  }
+
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, WARM_STACK_BYTES);
+
+  /* Every thread is created before any is joined: a joinable thread keeps
+   * its Worker until it is joined, so each lands on a Worker of its own. */
+  pthread_t *threads = g_new(pthread_t, count);
+  int32_t started = 0;
+  while (started < count &&
+         pthread_create(&threads[started], &attr, return_at_once, NULL) == 0)
+    started++;
+  for (int32_t i = 0; i < started; i++)
+    pthread_join(threads[i], NULL);
+  g_free(threads);
+  pthread_attr_destroy(&attr);
+  return started;
 }
 
 int ibusweb_wait(int32_t seen, int32_t timeout_ms) {

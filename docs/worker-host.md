@@ -116,7 +116,7 @@ in reverse.
 | Runtime         | Checks the memory's size, makes it, imports and instantiates the runtime, checks its JavaScript surface, allocates the wake word and the request and reply buffers, calls `ibusweb_runtime_init()`.                                                                                                              | Nothing: the runtime ends with the Worker.                                                                                                      |
 | Wake relay      | Starts the relay Worker, which bumps a word in the runtime's memory, so it follows the runtime.                                                                                                                                                                                                                  | Terminates the relay.                                                                                                                           |
 | Storage         | Mounts the module's own files at `/engines/<encodeComponent(name)>`, posts `storage` events, installs or finds the version's base data and mounts it at `/nix/store`, posts `install` and `collect`, and sets `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir` and `HOME` to the module's own files. | Seals the backends, while the runtime can still be called; their threads and connections end with the Worker.                                   |
-| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`.                                                                                                                                                                                                                                      | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                                           |
+| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`, then warms the pool (The pool top-up, below).                                                                                                                                                                                        | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                                           |
 
 **The storage plan comes before the runtime** because the memory can't grow later: without IndexedDB the data is
 installed into a memory backend, and the memory must be made larger by the data's size. **The relay comes after the
@@ -264,6 +264,9 @@ creator's event loop runs, so the host adds Workers from its event loop:
 - Meanwhile the host serves and pumps as it would asleep (above), its waits raced against the loads.
 - A top-up that hasn't finished within `topUpLimitMs` (10 s) is logged as an error, and the host tops up no more;
   Workers that load later still join.
+- Once a top-up's Workers have joined, and once the engine module has loaded, the host runs a thread on every idle
+  Worker with `ibusweb_warm_pool()`, so a Worker's first thread, about 12 ms in Chromium, never falls in a request
+  ([runtime.md](runtime.md#the-pool)). The test instruments don't count those threads among the engine's.
 
 Measured: one Worker in 47–48 ms in Chromium 149 and Firefox 151, 74 ms under Node; three in 54–60 ms in the browsers
 ([runtime.md](runtime.md#the-pool)).

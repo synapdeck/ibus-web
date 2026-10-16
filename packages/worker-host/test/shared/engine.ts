@@ -20,7 +20,7 @@ import {
 import { expect } from "vitest";
 import type { Harness, RuntimeBuild, RunningHost } from "./harness.ts";
 import { HostOp } from "./testing.ts";
-import { opsOf } from "./scenarios.ts";
+import { call32, int32s, opsOf, poll, stats } from "./scenarios.ts";
 import { replyFile } from "./storage.ts";
 import { engineDir } from "../../src/shared/naming.ts";
 
@@ -202,6 +202,33 @@ export const engineShutdown = async (h: Harness, runtime: RuntimeBuild): Promise
     expect(messages).toEqual(["echo persisted", "echo shut down"]);
     expect(await call(host, 1, key("a"))).toBe(-h.data.errno["ESHUTDOWN"]!);
     expect(await call(host, 0, new Shutdown({}))).toBe(-h.data.errno["ESHUTDOWN"]!);
+  } finally {
+    await host.terminate();
+  }
+};
+
+// Once the engine module has loaded, every idle pool Worker has run a
+// thread, so a burst of threads as large as the engine's share starts on
+// Workers that have, creating none.
+export const enginePoolWarm = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
+  const host = await h.start({ runtime, manifest: h.data.engines.echo });
+  try {
+    const before = await stats(host.client);
+    expect(before.warms).toBe(0);
+    expect(await call(host, 0, init())).toBe(0);
+    const after = await stats(host.client);
+    expect(after.warms).toBe(1);
+    expect(after.lastWarmed).toBe(after.idleWorkers);
+    expect(after.lastWarmed).toBeGreaterThanOrEqual(h.data.pool.engine);
+
+    const ops = opsOf(h);
+    const startedAt = h.now();
+    expect(await call32(host.client, ops.spawn, int32s(h.data.pool.engine))).toBe(0);
+    const [count, error] = (await poll(h, host.client, ops.spawnResult)).values;
+    const ms = h.now() - startedAt;
+    h.record(`pool warm ${runtime.name}`, { warmed: after.lastWarmed, burst: count, burstMs: ms });
+    expect([count, error]).toEqual([h.data.pool.engine, 0]);
+    expect((await stats(host.client)).workersCreated).toBe(after.workersCreated);
   } finally {
     await host.terminate();
   }

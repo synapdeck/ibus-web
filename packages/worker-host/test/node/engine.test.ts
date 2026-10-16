@@ -10,6 +10,7 @@ import {
   engineFault,
   engineLoadFailure,
   engineShutdown,
+  enginePoolWarm,
 } from "../shared/engine.ts";
 const h = await nodeHarness();
 afterAll(() => h.cleanUp());
@@ -22,6 +23,7 @@ describe.each(h.data.runtimes)("engine on $name", (runtime) => {
   }
   test("engine fault", () => engineFault(h, runtime));
   test("engine shutdown", () => engineShutdown(h, runtime));
+  test("pool warmed once the engine loads", () => enginePoolWarm(h, runtime));
   test("engine load failure", () => engineLoadFailure(h, runtime));
 });
 

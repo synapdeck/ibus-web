@@ -99,6 +99,10 @@ export interface HostStats {
   // Times the host has left its request loop for its event loop: a top-up
   // or a yield.
   eventLoopTurns: number;
+  // Times the host ran a thread on every idle pool Worker, and how many
+  // Workers the last time did.
+  warms: number;
+  lastWarmed: number;
   // Bytes malloc() has handed out and not had back.
   heapInUse: number;
   // The runtime's memory's size.

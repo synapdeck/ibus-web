@@ -48,6 +48,19 @@ IBUSWEB_API int ibusweb_runtime_init(int32_t *wake_word);
  * wake word, so a host asleep in ibusweb_wait() finds it at once. */
 IBUSWEB_API const char *ibusweb_fault_reason(void);
 
+/* Runs count threads at once on the pumping thread's behalf, each returning
+ * as it starts, and joins them: each takes a pool Worker of its own, so a
+ * count of the idle Workers runs one thread on every one, paying a browser's
+ * cost of a Worker's first thread, and of loading the side modules into it,
+ * here rather than when an engine first needs a thread. Count no more than
+ * the idle Workers: a thread beyond them waits for a Worker that starts only
+ * once the host returns to its event loop, which the join prevents. Each
+ * thread has a 64 KiB stack, so the heap's peak grows by little. Stops
+ * creating at the first thread that can't be created. Returns the threads
+ * run, -EINVAL for a negative count, or, from any other thread, logs a
+ * critical and returns -EPERM. */
+IBUSWEB_API int32_t ibusweb_warm_pool(int32_t count);
+
 /* ibusweb_pump()'s return value when called from a thread that doesn't own
  * the default context; no delay is ever this value. */
 #define IBUSWEB_PUMP_ERROR INT32_MIN
