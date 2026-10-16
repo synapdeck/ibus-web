@@ -51,7 +51,9 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
   const start = async (options: SessionOptions): Promise<PageSession> => {
     const begin = performance.now();
     current = await PageSession.start(h, runtime, manifest, options);
-    h.record(`Mozc ${runtime.name} start`, { ms: performance.now() - begin });
+    const ms = performance.now() - begin;
+    const { warms, lastWarmed, firstWarmMs, lastWarmMs } = await current.stats();
+    h.record(`Mozc ${runtime.name} start`, { ms, warms, lastWarmed, firstWarmMs, lastWarmMs });
     return current;
   };
   afterEach(async () => {

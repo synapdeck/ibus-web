@@ -97,7 +97,9 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
   const start = async (engine: string): Promise<PageSession> => {
     const begin = performance.now();
     current = await PageSession.start(h, runtime, manifest, options(engine));
-    h.record(`Rime ${runtime.name} start`, { ms: performance.now() - begin });
+    const ms = performance.now() - begin;
+    const { warms, lastWarmed, firstWarmMs, lastWarmMs } = await current.stats();
+    h.record(`Rime ${runtime.name} start`, { ms, warms, lastWarmed, firstWarmMs, lastWarmMs });
     return current;
   };
   afterEach(async () => {

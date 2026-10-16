@@ -107,6 +107,10 @@ export interface HostStats {
   // Workers the last time did.
   warms: number;
   lastWarmed: number;
+  // How long the first warming, inside Init's module load, and the last
+  // one held the host.
+  firstWarmMs: number | null;
+  lastWarmMs: number | null;
   // Bytes malloc() has handed out and not had back.
   heapInUse: number;
   // The runtime's memory's size.

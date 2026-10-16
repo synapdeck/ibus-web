@@ -555,7 +555,9 @@ has loaded, and after each top-up, it calls `ibusweb_warm_pool()` with the count
 first thread there rather than in a key ([worker-host.md](worker-host.md#the-pool-top-up)). The count must not exceed
 the idle Workers: a thread beyond them would wait for a Worker that starts only once the host returns to its event loop,
 which the join prevents. On warmed Workers `spawn(4)` from a pump takes 0.9–2.6 ms in both browsers and 1.8–2.2 ms under
-Node (Nix sandbox, the suites running in parallel).
+Node (Nix sandbox, the suites running in parallel). Warming runs inside `Init`'s module load, so its reply waits on it:
+under Node, `checks.rime-host` records 56–71 ms for 9 Workers out of a 0.9–1.0 s start, and `checks.mozc-host` 63–123 ms
+for 8 Workers out of 0.8–1.2 s.
 
 ### Threads that end unjoined
 

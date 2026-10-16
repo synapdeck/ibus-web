@@ -108,6 +108,8 @@ export const makeInstruments = (
     eventLoopTurns: 0,
     warms: 0,
     lastWarmed: 0,
+    firstWarmMs: null as number | null,
+    lastWarmMs: null as number | null,
   };
   const toppedUp = (want: number, ms: number, createMs: number): void => {
     counters.topUps++;
@@ -387,10 +389,14 @@ export const makeInstruments = (
     toppedUp,
     warm: (run) => {
       warming = true;
+      const begin = performance.now();
       try {
         const workers = run();
+        const ms = performance.now() - begin;
         counters.warms++;
         counters.lastWarmed = workers;
+        counters.firstWarmMs ??= ms;
+        counters.lastWarmMs = ms;
         return workers;
       } finally {
         warming = false;
