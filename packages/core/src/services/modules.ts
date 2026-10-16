@@ -145,6 +145,8 @@ interface Entry {
   readonly instances: Map<string, string>;
   // The page's own layout settings: engine name by path.
   readonly layouts: Map<string, string>;
+  // Layout changes, by engine, that arrived while the stored layouts were being read; they are newer than that read.
+  readonly layoutChanges: Map<string, KeyboardLayout>;
   readonly watchers: Set<() => void>;
   crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
   lifetime: Scope.Closeable | undefined;
@@ -303,6 +305,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       const layouts = new Map<string, KeyboardLayout>();
 
       entry.layouts.clear();
+      entry.layoutChanges.clear();
       for (const [engine, instance] of instances) entry.layouts.set(instance.path, engine);
       if (instances.size === 0) return layouts;
 
@@ -327,6 +330,8 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         });
       }
 
+      for (const [engine, layout] of entry.layoutChanges) layouts.set(engine, layout);
+      entry.layoutChanges.clear();
       return layouts;
     };
     // Listing engines and starting the Worker share one read; a failed read is retried on the next use.
@@ -522,6 +527,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         changes: new Map(),
         instances: new Map(),
         layouts: new Map(),
+        layoutChanges: new Map(),
         watchers: new Set(),
         router: new KeyRouter(snapshot, {
           replayLimit: config.replayLimit,
@@ -630,6 +636,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                   ...keyboard,
                   layout: value,
                 });
+              else entry.layoutChanges.set(engine, value);
               continue;
             }
 

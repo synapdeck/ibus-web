@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, it } from "@effect/vitest";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Fiber, Layer, Stream } from "effect";
 import { stringVariant, type ModuleManifest } from "@ibus-web/protocol";
 import { makeModuleRegistry } from "../../../src/services/modules.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
@@ -131,6 +131,41 @@ it.effect("a changed layout applies to the next key, and to engines' listing", (
     expect(typed(registry, started[0]!)).toBe(0x61);
     expect((yield* registry.engines("test"))[0]!.layout).toBe("default");
     expect(started[0]!.sent.some((sent) => sent.request._tag === "SettingChanged")).toBe(false);
+  }).pipe(Effect.provide(services())),
+);
+
+it.effect("a layout changed while the stored layouts are read applies over what the read returned", () =>
+  Effect.gen(function* () {
+    const settings = yield* SettingsSource;
+    let reading!: () => void;
+    const read = new Promise<void>((resolve) => (reading = resolve));
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => (finish = resolve));
+    const registry = yield* registryWith([]).pipe(
+      Effect.provideService(SettingsSource, {
+        ...settings,
+        snapshot: async (instances) => {
+          const stored = await settings.snapshot(instances);
+          reading();
+          await held;
+          return stored;
+        },
+      }),
+    );
+    const listing = yield* registry.engines("test").pipe(Effect.forkScoped);
+
+    yield* Effect.promise(() => read);
+    settings.written({
+      schemaId: "org.ibus-web.keyboard.us",
+      path,
+      key: "layout",
+      value: stringVariant("default"),
+    });
+    // The change reaches the registry through the source's stream, a few turns later.
+    for (let turn = 0; turn < 10; turn++) yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    finish();
+
+    expect((yield* Fiber.join(listing))[0]!.layout).toBe("default");
   }).pipe(Effect.provide(services())),
 );
 
