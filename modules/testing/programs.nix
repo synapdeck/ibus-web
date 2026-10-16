@@ -20,7 +20,8 @@
         description = ''
           A function building one test program for programs, taking:
 
-          - name: the program's name; the derivation holds NAME.js and NAME.wasm.
+          - name: the program's name; the derivation holds NAME.js, and NAME.wasm when
+            its link opts out of -sSINGLE_FILE.
           - src: the directory its sources are in. The build sees the sources it
             compiles, the .h files in src, and extraSources.
           - sources (default [ "NAME.cpp" ]): the files to compile, relative to src; .c
@@ -52,7 +53,7 @@
           A function making a check that runs test programs with Vitest, taking:
 
           - name: a name for the check.
-          - programs: derivations, each holding one program as NAME.js and NAME.wasm, and
+          - programs: derivations, each holding one program as NAME.js, and
             optionally NAME.args, its arguments one per line, with
             `passthru.testProgram = { name = NAME; format = "gtest-json" or "tap"; }`. A
             GoogleTest program links with gtestLinkFlags and reports through its harness;
@@ -186,7 +187,10 @@
 
           installPhase = ''
             runHook preInstall
-            install -Dm644 -t $out ${name}.js ${name}.wasm
+            install -Dm644 -t $out ${name}.js
+            if [ -e ${name}.wasm ]; then
+              install -Dm644 -t $out ${name}.wasm
+            fi
 
             ${lib.optionalString (args != null)
               "cp ${

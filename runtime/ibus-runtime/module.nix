@@ -120,6 +120,10 @@
         "-sMODULARIZE=1"
         "-sEXPORT_ES6=1"
         "-sENVIRONMENT=web,worker,node"
+
+        # A browser compiles a separate .wasm while it downloads, and caches
+        # the compiled module; one inside the JavaScript gets neither.
+        "-sSINGLE_FILE=0"
       ];
 
       link =

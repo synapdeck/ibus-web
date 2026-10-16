@@ -15,8 +15,8 @@
       inherit (runtime) wasmfsIdb;
       tests = ./tests;
 
-      # A directory holding one GoogleTest program, name.js and name.wasm,
-      # from name.cpp; some reach into WasmFS's internals. The pool holds a
+      # A directory holding one GoogleTest program, name.js, from name.cpp;
+      # some reach into WasmFS's internals. The pool holds a
       # thread for the tests and one for each backend their cases create,
       # since WasmFS keeps every backend, and its thread, for good; creating
       # a thread past it fails, so a count that falls short fails the case

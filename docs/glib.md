@@ -262,9 +262,9 @@ with `-sMAIN_MODULE=2`, which drops GLib code nothing exports.
 ### Tools
 
 GLib's tools (`glib-compile-schemas`, `glib-compile-resources`, `gio`, `gsettings`, `gobject-query`, …) are built for
-WebAssembly as `<tool>.js` and `<tool>.wasm`, each with a `<tool>` wrapper beside it that runs it with the build
-machine's Node, so the paths in `gio-2.0.pc` and `glib-2.0.pc` run this GLib's tools. The list is what the build
-installs, every `.js` with a `.wasm` beside it, not a hand-kept one, and the build checks that every tool variable in
+WebAssembly as `<tool>.js`, which carries its WebAssembly, each with a `<tool>` wrapper beside it that runs it with the
+build machine's Node, so the paths in `gio-2.0.pc` and `glib-2.0.pc` run this GLib's tools. The list is what the build
+installs, every `.js` in its `bin` directories, not a hand-kept one, and the build checks that every tool variable in
 the `.pc` files names an installed program. Features the tools reach through Unix facilities WebAssembly doesn't have
 (`gio launch`, `gtester`'s spawning of the test binary, `gapplication list`) report themselves unsupported.
 

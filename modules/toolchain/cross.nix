@@ -29,6 +29,14 @@ in
         exe_wrapper = ['${lib.getExe config.ibusWeb.typescript.nodejs}']
       '';
 
+      # configure reads a site file after its arguments: with --build and
+      # --host differing it would take this for a cross build and never run
+      # a test program. "maybe" has it try one first, and emcc links a
+      # configure test as a Node script it can run, so it runs them all.
+      autotoolsConfigSite = pkgs.writeText "emscripten-config.site" ''
+        cross_compiling=maybe
+      '';
+
       replaceCrossStdenv =
         { buildPackages, baseStdenv }:
         let
@@ -100,6 +108,11 @@ in
             substitutions.crossFile = mesonCrossFile;
           } ./emscripten-meson-hook.sh;
 
+          emscriptenAutotoolsHook = pkgsBuildBuild.makeSetupHook {
+            name = "emscripten-autotools-hook";
+            substitutions.configSite = autotoolsConfigSite;
+          } ./emscripten-autotools-hook.sh;
+
           bintools = buildPackages.wrapBintoolsWith {
             bintools = emscriptenBinutils;
             # Emscripten's libc lives in its cache sysroot, which emcc adds
@@ -144,6 +157,7 @@ in
           extraNativeBuildInputs = old.extraNativeBuildInputs ++ [
             toolchain.emscriptenCacheHook
             emscriptenMesonHook
+            emscriptenAutotoolsHook
           ];
         });
 

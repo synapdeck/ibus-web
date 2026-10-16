@@ -74,6 +74,8 @@
           "-sPTHREAD_POOL_SIZE=2"
           "-sEXIT_RUNTIME=1"
           "--pre-js=${./size-pre.js}"
+          # The test reads the memory the module imports from its .wasm.
+          "-sSINGLE_FILE=0"
         ];
       };
 

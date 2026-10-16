@@ -78,9 +78,7 @@
           # machine's Node.
           postInstall = programName old.postInstall + ''
             for js in $bin/bin/*.js $dev/bin/*.js; do
-              if [ -e "''${js%.js}.wasm" ]; then
-                makeWrapper ${node} "''${js%.js}" --add-flag "$js"
-              fi
+              makeWrapper ${node} "''${js%.js}" --add-flag "$js"
             done
           '';
           # The makeWrapper this cross set splices in writes the host's

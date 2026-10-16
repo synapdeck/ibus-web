@@ -15,8 +15,6 @@ decided.
   but the combination stays a risk (spec R3).
 - **Emscripten and LLVM are paired by nixpkgs** (6.0.9 on clang 22.1.8), which tests that pairing with little more than
   hello-world (spec R12); our own checks are the evidence.
-- **Autotools configure scripts can't run their test programs**: autotools configures as a cross build, and only Meson
-  has an exe wrapper (Node), so a recipe that needs run-time configure checks will meet it.
 - **Thread fixes not proven red in our checks.** The fix checks for patches 0014, 0015 and 0018 keep the conditions
   their bugs need, but nothing runs them against a toolchain missing their patch; that needs a toolchain and cache built
   with one patch left out. (Emscripten's own suite tests fail without each patch and pass with it; see the drafts.)

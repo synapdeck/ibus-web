@@ -9,9 +9,9 @@
 //                    "format": "gtest-json" | "tap" }, ...],
 //     "nodeTests": { "dir": DIR, "data": { KEY: VALUE, ... } } }
 //
-// DIR holds NAME.js and NAME.wasm and, optionally, NAME.args, the program's
-// arguments one per line. Programs named PREFIX.1, PREFIX.2 and so on form a
-// sequence that runs in that order and shares its storage. nodeTests, which
+// DIR holds NAME.js and, optionally, NAME.args, the program's arguments one
+// per line. Programs named PREFIX.1, PREFIX.2 and so on form a sequence
+// that runs in that order and shares its storage. nodeTests, which
 // may be left out, names a directory whose *.test.ts files run in the node
 // environment beside the programs, for what a program can't report on
 // itself; they read data, paths to what they test, say, with nodeTestData()

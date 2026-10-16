@@ -98,7 +98,8 @@ Nix hands Vitest a JSON manifest in `IBUS_WEB_TEST_PROGRAMS`:
 }
 ```
 
-Each program directory holds `NAME.js`, `NAME.wasm` and optionally `NAME.args`, the program's arguments one per line,
+Each program directory holds `NAME.js`, which carries its WebAssembly
+([toolchain.md](toolchain.md#the-compiler-wrapper)), and optionally `NAME.args`, the program's arguments one per line,
 which come before the shim's own. `format` is `gtest-json` or `tap`. `timeout` is each program's limit in seconds, in
 each environment.
 

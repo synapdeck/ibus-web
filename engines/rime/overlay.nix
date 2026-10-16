@@ -169,7 +169,7 @@ in
             '';
             installPhase = ''
               runHook preInstall
-              install -Dm644 -t $out rime_deployer.{js,wasm} rime_dict_manager.{js,wasm}
+              install -Dm644 -t $out rime_deployer.js rime_dict_manager.js
               runHook postInstall
             '';
             dontFixup = true;
@@ -193,7 +193,7 @@ in
             '';
             installPhase = ''
               runHook preInstall
-              install -Dm644 -t $out descriptors.js descriptors.wasm
+              install -Dm644 -t $out descriptors.js
               runHook postInstall
             '';
             dontFixup = true;

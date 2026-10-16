@@ -47,7 +47,7 @@
           for tool in ${glib.dev}/bin/* ${glib.bin}/bin/*; do
             name=''${tool##*/}
             case $name in
-              *.js | *.wasm) ;;
+              *.js) ;;
               *)
                 if [ "$(command -v "$name")" != "$tool" ]; then
                   echo "$name runs $(command -v "$name"), not $tool" >&2

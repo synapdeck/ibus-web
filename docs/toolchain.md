@@ -214,6 +214,14 @@ build from their recipes with no change at all; libhangul's recipe gains only th
 - A `cc-wrapper-hook` drops arguments that clang and lld accept but emcc and wasm-ld reject (`-static-libgcc`,
   `--undefined-version`). Recipes pass them because the wrapper presents Emscripten as clang with lld; nixpkgs' zlib
   passes both.
+- The same hook adds `-sSINGLE_FILE` ahead of the command's own arguments on every link that makes a program: not a
+  compile, not `-shared`, `-r` or `-sSIDE_MODULE`, and not an output named `.wasm`, `.o`, `.a`, `.so`, `.dylib` or
+  `.bc`. A program is then one `.js` file to install, copy, wrap and run, with nothing to keep beside it. A link that
+  passes `-sSINGLE_FILE=0` keeps its `.wasm`, since the last setting wins: the runtime does, because a browser compiles
+  a separate `.wasm` while it downloads and caches the compiled module, which it can do with neither for one inside the
+  JavaScript. Side modules are separate files either way. `checks.toolchain-single-file` links a plain program, a
+  pthreaded main module that loads a side module, the side module and an opted-out program, checks which files each
+  leaves, and runs each program under Node from a directory holding nothing else.
 - The binutils (`emar`, `emranlib`, LLVM's `nm`, `strip`, `objdump` and the rest, `wasm-ld`) are linked under the target
   prefix, since the bintools wrapper wraps only prefixed tools and builds would otherwise fall back to whatever `ar` is
   on `PATH`.
@@ -247,9 +255,13 @@ composes 한 with it.
   order with later values winning, so the second carries only what differs. With the exe wrapper Meson can run tests and
   `run()` checks under Node. Both cross files, nixpkgs' (imported from its `pkgs/build-support/lib/meson.nix`) and ours,
   are `ibusWeb.toolchain.mesonCrossFlags`, for configuring by hand; the dev shell's `meson-setup-wasm` uses them.
-- **Autotools** and **CMake** still see `wasm32-unknown-none`. Autotools configures as a cross build (`--build` and
-  `--host` differ), so configure scripts link their test programs, against the cache's plain variants, but don't run
-  them.
+- **Autotools** still sees `wasm32-unknown-none` and configures as a cross build (`--build` and `--host` differ), which
+  on its own would make configure link its test programs but never run them. A setup hook
+  (`emscripten-autotools-hook.sh`) points `CONFIG_SITE` at a site file setting `cross_compiling=maybe`, unless the
+  recipe names a site file of its own; configure then tries a test program first, and since emcc links it as a Node
+  script carrying its WebAssembly, it runs, and so do the rest (`AC_RUN_IFELSE`). `checks.toolchain-autotools-consumer`
+  configures a program whose test program's output reaches the build, and fails if configure didn't run it.
+- **CMake** still sees `wasm32-unknown-none`.
 
 `emscripten` as Meson's host system is an identity this project defines; it isn't derived.
 
@@ -397,12 +409,14 @@ the repository parses cleanly under it. The rest of the editor and formatting se
 
 ## Checks
 
-| Check                      | What it checks                                                                                       |
-| -------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `toolchain-cache`          | probes link from the frozen cache alone; an uncached variant fails; the features the minimums enable |
-| `toolchain-exnref`         | fails once every minimum version supports the standard exception encoding                            |
-| `toolchain-cross`          | the cross stdenv's wrapper, flags, dropped arguments, minimum versions per environment, overlay gate |
-| `toolchain-meson-consumer` | a Meson build through the cross `pkg-config` against `pkgsWasm.zlib` and `pkgsWasm.libffi`           |
-| `hangul-libhangul-link`    | the patched libhangul the Hangul engine links, found through the cross `pkg-config`                  |
-| `emscripten-fixes`         | the behaviour each Emscripten patch restores                                                         |
-| `toolchain-clangd`         | every C and C++ source parses under the editor configuration                                         |
+| Check                          | What it checks                                                                                       |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `toolchain-cache`              | probes link from the frozen cache alone; an uncached variant fails; the features the minimums enable |
+| `toolchain-exnref`             | fails once every minimum version supports the standard exception encoding                            |
+| `toolchain-cross`              | the cross stdenv's wrapper, flags, dropped arguments, minimum versions per environment, overlay gate |
+| `toolchain-meson-consumer`     | a Meson build through the cross `pkg-config` against `pkgsWasm.zlib` and `pkgsWasm.libffi`           |
+| `toolchain-autotools-consumer` | configure runs its test programs under Node, and their results reach the build                       |
+| `toolchain-single-file`        | programs carry their WebAssembly; side modules and opted-out links keep a `.wasm`                    |
+| `hangul-libhangul-link`        | the patched libhangul the Hangul engine links, found through the cross `pkg-config`                  |
+| `emscripten-fixes`             | the behaviour each Emscripten patch restores                                                         |
+| `toolchain-clangd`             | every C and C++ source parses under the editor configuration                                         |

@@ -11,7 +11,7 @@ export type Format = "gtest-json" | "tap";
 export interface Program {
   name: string;
   format: Format;
-  // The directory holding NAME.js and NAME.wasm.
+  // The directory holding NAME.js.
   dir: string;
   // NAME.js's path on the browsers' server.
   url: string;

@@ -38,7 +38,7 @@
         '';
         installPhase = ''
           mkdir -p $out
-          cp metadata.js metadata.wasm $out/
+          cp metadata.js $out/
           cp -R schemas $out/
         '';
       };

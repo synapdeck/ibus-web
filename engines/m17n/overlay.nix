@@ -129,7 +129,7 @@ in
             # default.xml goes where the program's PKGDATADIR points.
             installPhase = ''
               runHook preInstall
-              install -Dm644 -t $out src/descriptors.js src/descriptors.wasm
+              install -Dm644 -t $out src/descriptors.js
               install -Dm644 src/default.xml -t $data/share/ibus-m17n
               runHook postInstall
             '';
