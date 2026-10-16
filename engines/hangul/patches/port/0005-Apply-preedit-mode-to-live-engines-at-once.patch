@@ -1,0 +1,45 @@
+From 226052a7685e60f27e78d97f059cf3aba36c5ef9 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 16 Oct 2026 12:00:00 -0700
+Subject: [PATCH] Apply preedit-mode to live engines at once
+
+An engine copies the global preedit mode only on focus-in and when its
+capabilities change, so a change to preedit-mode reaches an engine
+already focused only when it next gains focus. Have each engine's
+settings handler apply the new mode at once, committing a composition
+begun in the old mode first, as a focus change would.
+---
+ src/engine.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/src/engine.c b/src/engine.c
+index 936e131..3902a27 100644
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -1944,6 +1944,23 @@ settings_changed (GSettings    *settings,
+         if (settings == settings_hangul &&
+             strcmp (key, "hangul-keyboard") == 0) {
+             hangul_ic_select_keyboard (hangul->context, hangul_keyboard->str);
++        } else if (settings == settings_hangul &&
++                   strcmp (key, "preedit-mode") == 0) {
++            IBusHangulPreeditMode previous = hangul->preedit_mode;
++
++            ibus_hangul_engine_update_preedit_mode (hangul);
++
++            /* A composition is shown in the mode it began in, so it is
++             * committed in that mode before the new one applies. */
++            if (hangul->preedit_mode != previous &&
++                (!hangul_ic_is_empty (hangul->context) ||
++                 ustring_length (hangul->preedit) > 0)) {
++                IBusHangulPreeditMode next = hangul->preedit_mode;
++
++                hangul->preedit_mode = previous;
++                ibus_hangul_engine_flush (hangul);
++                hangul->preedit_mode = next;
++            }
+         }
+         return;
+     }
+-- 
+2.55.0
+

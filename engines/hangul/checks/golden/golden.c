@@ -330,11 +330,13 @@ static void settings(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_setting(fixture, HANGUL_PATH, "hangul-keyboard",
                  g_variant_new_string("2"));
   compose_han(fixture);
-  golden_empty_request(fixture, IBUSWEB_REQ_RESET);
+  golden_clear(fixture);
+
+  /* The mode applies in the focused engine at once: the syllable composed
+     before the change commits, and the next word stays in the preedit. */
   golden_setting(fixture, HANGUL_PATH, "preedit-mode",
                  g_variant_new_string("word"));
-  golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_OUT);
-  golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_IN);
+  commit(fixture, "한");
   golden_clear(fixture);
   compose_han(fixture);
   g_assert_cmpint(golden_key(fixture, IBUS_r, 19, 0), ==, 1);

@@ -207,7 +207,7 @@ adaptations and engine behavior fixes; `casts` holds exact callback-type fixes a
 future toolchain makes it unnecessary. Keep patches as `git format-patch` commits against the pinned source. Their
 [inventory](../engines/hangul/patches/README.md) records reasons and upstream status.
 
-Hangul has **four port patches and one cast patch**. The port patches:
+Hangul has **five port patches and one cast patch**. The port patches:
 
 - 0001 disconnects an engine's settings handlers on destruction.
 - 0002 rejects candidate digits beyond the last page.
@@ -218,14 +218,16 @@ Hangul has **four port patches and one cast patch**. The port patches:
   IBus panel sends it, and ignores a click no visible label has (at or past the page size, or past the last candidate of
   a short final page). Upstream reads the index as absolute, and a cursor past the candidates fails the `g_assert` in
   `ibus_lookup_table_set_cursor_pos`.
+- 0005 applies a `preedit-mode` change to every live engine at once; an engine composing in the old mode commits that
+  composition first, as a focus change would.
 
 The cast patch changes three functions: the two hand-written GType init callbacks get their second argument, and the
 destroy callback its declared pointer type. Its connected settings handlers already have their full declared signature.
 
 The `setup` property is inert because spawning a desktop settings application has no meaning here. `ibus_hangul_exit`
 runs from the `Shutdown` request the page sends before it ends the Worker; `checks.hangul-host` sends it after `Persist`
-with an engine still open and checks that it logs nothing and that every later request is refused. `preedit-mode` is
-copied into a live engine on focus/capability updates, so changing it takes effect after refocus.
+with an engine still open and checks that it logs nothing and that every later request is refused. A `preedit-mode`
+change reaches live engines at once (port 0005).
 
 ## Cast audit
 
@@ -264,7 +266,7 @@ Sixteen behavioral cases cover Latin mode, Hangul composition and CapsLock, Back
 click selection (after paging forward), paging and invalid digits, clicks no visible label has, settings, destruction,
 password fields, surrounding text, enable, and commit/forward ordering. The idle-settings case destroys the last engine,
 changes the keyboard and Hanja hotkey, then uses both after recreation without a resend. Warnings and errors fail the
-harness. All four port bugs were reproduced before their fixes. The harness holds a weak pointer to each engine and
+harness. All five port bugs were reproduced before their fixes. The harness holds a weak pointer to each engine and
 asserts that `DestroyEngine` frees it; the lifecycle case also counts the `changed` handlers on the module's GSettings
 objects, of which none may have the destroyed engine as data, leaving only the module handler on each.
 
