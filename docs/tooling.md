@@ -488,7 +488,10 @@ Changesets versions the published packages and writes their changelogs; a tag pu
   tagged, every flake input (nixpkgs among them) as Nix fetched it, and under `sources/` the upstream source of every
   library the engine and the runtime link, of Emscripten, and of what `ibusWeb.release.engines.<name>.extraSources`
   names (its data, and dependencies its build fetches other than as build inputs). Its README says how to build the
-  engine from them alone. `checks.tools-release-source-bundles` fails when an engine the demo serves has no bundle.
+  engine from the repository and the flake inputs; Nix still fetches the upstream sources by their pinned hashes, and
+  the copies under `sources/` keep them at hand should an upstream go away. `checks.tools-release-source-bundles` fails
+  when an engine the demo serves has no bundle, and `integration-checks` builds every bundle
+  (`ibusWeb.testing.extendedChecks.release-source-bundles`), so one that can't be built fails before a tag is pushed.
 - **`release.yml`**, on a `v*` tag, on the x86_64-linux runner with `contents: write` and `id-token: write`: builds
   `.#release`, checks that the tag is `v` and its version, creates the GitHub release from `assets/` with `notes.md`
   (`gh release create --verify-tag`), then runs `npm publish` on each tarball. npm's trusted publishing exchanges the

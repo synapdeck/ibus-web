@@ -67,11 +67,11 @@
 
       flakeInputs = lib.removeAttrs inputs [ "self" ];
 
-      # Everything an engine and the runtime it loads into are built from
-      # (design spec §9.3): the repository with its recipes, overrides,
-      # patches and flake.lock; every flake input, nixpkgs' recipes among
-      # them; and the upstream source of each library linked, of Emscripten,
-      # whose libraries every module links, and of the engine's data.
+      # Everything an engine and the runtime it loads into are built from:
+      # the repository with its recipes, overrides, patches and flake.lock;
+      # every flake input, nixpkgs' recipes among them; and the upstream
+      # source of each library linked, of Emscripten, whose libraries every
+      # module links, and of the engine's data.
       sourceBundle =
         name:
         { module, extraSources, ... }:
@@ -111,7 +111,7 @@
               Emscripten, whose libraries every module links, and of the
               engine's data.
 
-            To build the engine from these alone:
+            To build the engine from the repository and these flake inputs:
 
             ```sh
             nix build ./repository#packages.${system}.ibus-web-${name}-dist \
@@ -122,8 +122,10 @@
             }  -L
             ```
 
-            Nix fetches each upstream source by its hash; the copies under
-            `sources/` are those files.
+            Nix still fetches each upstream source, and checks it against the
+            hash its recipe pins. The copies under `sources/` are those files,
+            kept so the source stays at hand if its upstream goes away; they
+            aren't loaded into the store for you.
           '';
         in
         pkgs.runCommand "ibus-web-engine-${name}-src-${version}"
@@ -165,8 +167,8 @@
           '';
 
       # What a tag publishes: assets/ for the GitHub release, flat, and
-      # notes.md for its text (design spec §10.7). An engine's .wasm, data
-      # archives and manifest travel as one tar of its distribution.
+      # notes.md for its text. An engine's .wasm, data archives and manifest
+      # travel as one tar of its distribution.
       releaseAssets =
         pkgs.runCommand "ibus-web-release-${version}"
           {
@@ -212,8 +214,13 @@
         # whatever builds them, so one system builds it.
         // lib.optionalAttrs (system == "x86_64-linux") { release = releaseAssets; };
 
-      # Every engine the project builds ships with its source bundle (design
-      # spec §9.4).
+      # A bundle that fails to build would otherwise first fail in the
+      # release job, once its tag is pushed.
+      ibusWeb.testing.extendedChecks.release-source-bundles =
+        pkgs.linkFarm "ibus-web-release-source-bundles"
+          (lib.mapAttrsToList (name: path: { inherit name path; }) bundles);
+
+      # Every engine the project builds ships with its source bundle.
       checks.tools-release-source-bundles =
         if missing == [ ] then
           pkgs.runCommand "ibus-web-tools-release-source-bundles" { } "touch $out"
