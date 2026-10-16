@@ -57,9 +57,9 @@ A page starts one host per module:
 | `test`                      | Read only by the test build; the host as released ignores it.                                                                                                |
 
 The host reads `constants.json` from beside `runtimeUrl` before validating the engine manifest. This runtime
-distribution file carries the runtime ABI, protocol version, errno values (`-ECANCELED`, `-ETIMEDOUT`), pump error,
-IndexedDB read-only flag, memory bounds, and `poolLowWater` (the idle Workers the host tops the pool up to). Missing or
-malformed constants fail startup with a diagnostic naming `constants.json`.
+distribution file carries the runtime ABI and identity, protocol version, errno values (`-ECANCELED`, `-ETIMEDOUT`),
+pump error, IndexedDB read-only flag, memory bounds, and `poolLowWater` (the idle Workers the host tops the pool up to).
+Missing or malformed constants fail startup with a diagnostic naming `constants.json`.
 
 The page touches only the control buffer and `postMessage`, never the runtime's memory, and no message carries a pointer
 into it. What else the page owes its hosts:

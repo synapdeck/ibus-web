@@ -21,6 +21,11 @@ export const checkManifest = (value: unknown, constants: RuntimeConstants): Modu
       message: `RuntimeAbiMismatch: manifest ${manifest.runtimeAbi}, runtime ${constants.runtimeAbi}`,
       refused: "RuntimeAbiMismatch",
     });
+  if (manifest.runtimeIdentity !== constants.runtimeIdentity)
+    throw new StartupFailed({
+      message: `RuntimeAbiMismatch: manifest identity ${manifest.runtimeIdentity}, runtime ${constants.runtimeIdentity}`,
+      refused: "RuntimeAbiMismatch",
+    });
   if (manifest.protocol !== constants.protocol)
     throw new StartupFailed({
       message: `ProtocolMismatch: manifest ${manifest.protocol}, runtime ${constants.protocol}`,
@@ -60,6 +65,7 @@ const count = integer.check(Schema.isGreaterThanOrEqualTo(0));
 const memoryBytes = count.check(Schema.isGreaterThan(0), Schema.isMultipleOf(65536));
 const runtimeConstants = Schema.Struct({
   runtimeAbi: count,
+  runtimeIdentity: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
   protocol: count,
   canceled: integer,
   pumpError: integer,

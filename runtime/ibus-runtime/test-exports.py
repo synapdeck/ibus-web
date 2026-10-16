@@ -15,8 +15,11 @@ exports = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(exports)
 
 
+LIBRARIES = [{"name": "ibus", "version": "1", "count": 1, "symbols": ["ibus_text_new"]}]
+
+
 class ApiSubsetTest(unittest.TestCase):
-    def verify(self, declared, *, subset=True, umbrella=False, outside=()):
+    def verify(self, declared, *, subset=True, umbrella=False, outside=(), identity=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "ibus-1.0"
             root.mkdir()
@@ -29,10 +32,8 @@ class ApiSubsetTest(unittest.TestCase):
             )
             (Path(directory) / "exports.json").write_text(json.dumps({
                 "abi": 1,
-                "libraries": [{
-                    "name": "ibus", "version": "1", "count": 1,
-                    "symbols": ["ibus_text_new"],
-                }],
+                "identity": identity or exports.identity_of(1, LIBRARIES),
+                "libraries": LIBRARIES,
             }))
             declarations = "\n".join(f"void {name}(void);" for name in declared)
             (root / "types.h").write_text(declarations)
@@ -73,6 +74,24 @@ class ApiSubsetTest(unittest.TestCase):
     def test_exact_api_still_excludes_included_headers(self):
         with self.assertRaisesRegex(SystemExit, "doesn't declare"):
             self.verify(["ibus_text_new"], subset=False, umbrella=True)
+
+    def test_identity_must_be_its_libraries(self):
+        with self.assertRaisesRegex(SystemExit, "isn't its libraries'"):
+            self.verify(["ibus_text_new"], identity="0" * 64)
+
+
+class IdentityTest(unittest.TestCase):
+    def test_changes_with_each_library_field_and_the_abi(self):
+        base = exports.identity_of(1, LIBRARIES)
+        self.assertRegex(base, "^[0-9a-f]{64}$")
+        self.assertEqual(base, exports.identity_of(1, [dict(l) for l in LIBRARIES]))
+        for changed in (
+            exports.identity_of(2, LIBRARIES),
+            exports.identity_of(1, [{**LIBRARIES[0], "version": "2"}]),
+            exports.identity_of(1, [{**LIBRARIES[0], "name": "other"}]),
+            exports.identity_of(1, [{**LIBRARIES[0], "symbols": ["ibus_text_new", "ibus_bus_new"]}]),
+        ):
+            self.assertNotEqual(base, changed)
 
 
 if __name__ == "__main__":

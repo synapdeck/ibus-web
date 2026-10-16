@@ -50,6 +50,7 @@ describe("install lock lifetime", () => {
         version: "1",
         license: "MIT",
         runtimeAbi: 1,
+        runtimeIdentity: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         protocol: 1,
         module: { url: "unused", size: 0 },
         memory: 1,

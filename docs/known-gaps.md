@@ -62,11 +62,6 @@ decided.
 
 ## Runtime
 
-- **Full runtime ABI identity.** Engine manifests currently compare numeric `runtimeAbi` with `IBUSWEB_RUNTIME_ABI`.
-  They do not carry or compare all linked library versions from the runtime export list; the stronger identity described
-  by the design is still pending. A library mismatch with the same numeric ABI can pass this check; the import-name
-  guard does not prove that layouts and calling conventions match.
-
 - **IBus API scope.** The runtime supplies engine/data types, components and engine descriptions, a local bus, emitters,
   the framed dispatcher and settings backend. `IBusEngineSimple` still lacks compose, Ctrl+Shift+U and emoji; Latin mode
   therefore leaves ordinary typing to the browser. Only the US keymap exists. `IBusConfig`, `IBusInputContext` and

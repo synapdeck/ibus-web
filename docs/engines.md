@@ -67,6 +67,7 @@ type ModuleManifest = {
   version: string;
   license: string;
   runtimeAbi: number;
+  runtimeIdentity: string;
   protocol: number;
   module: { url: string; size: number };
   memory: number;
@@ -117,9 +118,9 @@ their distribution changes.
   not inside one an engine names, since `Init` reads the schemas before any engine is made;
 - unknown keys are rejected at every level, so a misspelled field fails rather than reading as missing.
 
-The host validates the manifest before allocating runtime resources and rejects ABI/protocol mismatches. Numeric
-`runtimeAbi` checks `IBUSWEB_RUNTIME_ABI`; the stronger full library-version identity is still a
-[known gap](known-gaps.md#runtime).
+The host validates the manifest before allocating runtime resources and rejects ABI/protocol mismatches: `runtimeAbi`
+must be `IBUSWEB_RUNTIME_ABI`, and `runtimeIdentity`, a SHA-256 in lowercase hexadecimal, the runtime's identity over
+its libraries' versions and exports ([runtime.md](runtime.md#the-export-list)).
 
 The build computes memory as `(runtime minimum + dylink static bytes + threads × 1 MiB + heapBytes) × 1.25`, rounded up
 to whole MiB. `heapBytes` is build/check metadata, not a manifest field: the declared peak of the program break

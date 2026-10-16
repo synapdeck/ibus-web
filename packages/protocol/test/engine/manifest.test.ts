@@ -16,6 +16,7 @@ const valid = {
   version: "1",
   license: "GPL-2.0-or-later",
   runtimeAbi: 1,
+  runtimeIdentity: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   protocol: 1,
   module: { url: "./hangul.wasm", size: 1024 },
   memory: bounds.minimum,
@@ -28,6 +29,12 @@ const valid = {
 
 describe("module manifests", () => {
   test("decodes a valid manifest", () => expect(decodeModuleManifest(valid, bounds)).toEqual(valid));
+  test("requires the runtime's identity as SHA-256 in lowercase hexadecimal", () => {
+    const { runtimeIdentity: _, ...missing } = valid;
+    expect(() => decodeModuleManifest(missing, bounds)).toThrow();
+    for (const runtimeIdentity of ["0".repeat(63), "0".repeat(65), "A".repeat(64), "g".repeat(64)])
+      expect(() => decodeModuleManifest({ ...valid, runtimeIdentity }, bounds)).toThrow();
+  });
   test("accepts identity archives", () =>
     expect(
       decodeModuleManifest({ ...valid, data: [{ ...valid.data[0], encoding: "identity" }] }, bounds),

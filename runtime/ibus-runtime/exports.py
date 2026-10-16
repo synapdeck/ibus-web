@@ -5,7 +5,7 @@ carries contributes, and the library's version.
 
   manifest  writes exports.txt, the list -sEXPORTED_FUNCTIONS=@file reads,
             grouped by library, and exports.json, each library's version and
-            symbols
+            symbols and the runtime's identity
   verify    checks a manifest against the versions it must carry
   declared  prints the functions and variables headers declare
   macro     prints the integer a macro expands to
@@ -14,6 +14,7 @@ Compilers and pkg-config come from $CC, $CXX and $PKG_CONFIG."""
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
@@ -39,6 +40,25 @@ SAVED_SETTINGS = re.compile(r"saving intermediate file (\S+settings\.json)$")
 ABI_LINE = "# IBUSWEB_RUNTIME_ABI {}"
 SECTION_LINE = re.compile(r"^# (\S+) (\S+): (\d+) symbols$")
 SYMBOL_LINE = re.compile(r"^_[A-Za-z0-9_.$]+$")
+
+
+def identity_of(abi, libraries):
+    """The runtime's ABI identity: SHA-256 over the ABI number and, in order,
+    each library's name, version and symbols, as canonical JSON. Engines record
+    it, so one built against a runtime whose libraries differ in any of those
+    fails to load, whatever the ABI number says."""
+    canonical = json.dumps(
+        {
+            "abi": abi,
+            "libraries": [
+                {"name": l["name"], "version": l["version"], "symbols": l["symbols"]}
+                for l in libraries
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def run(args, **kwargs):
@@ -422,7 +442,8 @@ def manifest(args):
             {"name": name, "version": version, "count": len(symbols), "symbols": symbols}
             for name, version, symbols in sections
         ]
-        json.dump({"abi": abi, "libraries": libraries}, out, indent=2)
+        identity = identity_of(abi, libraries)
+        json.dump({"abi": abi, "identity": identity, "libraries": libraries}, out, indent=2)
         out.write("\n")
 
 
@@ -450,6 +471,9 @@ def verify(args):
     listed = [(l["name"], l["version"], l["count"], l["symbols"]) for l in meta["libraries"]]
     if listed != sections:
         fail("exports.json and exports.txt list different libraries or symbols")
+    identity = identity_of(abi, meta["libraries"])
+    if meta.get("identity") != identity:
+        fail(f"identity {meta.get('identity')!r} isn't its libraries', {identity}")
     seen = set()
     for name, _, count, symbols in sections:
         if count == 0 or len(symbols) != count:
@@ -500,7 +524,7 @@ def verify(args):
     if not side <= side_declared:
         fail(f"no API header declares {sorted(side - side_declared)}")
 
-    print(f"ABI {abi}: {len(seen)} symbols")
+    print(f"ABI {abi}, identity {identity}: {len(seen)} symbols")
     for name, version, count, _ in sections:
         print(f"  {name} {version}: {count}")
     for library, api in apis:

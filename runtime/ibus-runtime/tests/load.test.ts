@@ -254,6 +254,7 @@ test("released and asserting distributions ship the generated runtime constants"
     "protocol",
     "pumpError",
     "runtimeAbi",
+    "runtimeIdentity",
     "waitTimedOut",
   ]);
   for (const runtime of [data("released"), data("asserting")])

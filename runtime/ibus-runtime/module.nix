@@ -180,7 +180,8 @@
           $CXX ${toolchain.testMainFlags} constants.o -o constants.js
           node constants.js | jq -c --argjson minimum ${toString minimumMemory} \
             --argjson maximum ${toString maximumMemory} --argjson poolLowWater ${toString lowWater} \
-            '. + { memory: { $minimum, $maximum }, $poolLowWater }' > constants.json
+            --arg runtimeIdentity "$(jq -r .identity ${exportList}/exports.json)" \
+            '. + { memory: { $minimum, $maximum }, $poolLowWater, $runtimeIdentity }' > constants.json
           runHook postBuild
         '';
 

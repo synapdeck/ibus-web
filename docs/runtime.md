@@ -295,7 +295,8 @@ The runtime exports what side modules may import, derived from the build by `run
 (`ibusWeb.runtime.exportList`), never by hand: a probe linked with the runtime's flags tells which system-library
 variants and JavaScript functions the link uses, and `llvm-objdump` lists each library's default-visible symbols.
 `exports.txt` (the `-sEXPORTED_FUNCTIONS` file) groups them by library under a header with each library's version and
-count; `exports.json` holds the same with the ABI. A symbol two libraries define belongs to the first.
+count; `exports.json` holds the same with the ABI and the runtime's identity. A symbol two libraries define belongs to
+the first.
 
 | Library                                        | Version it is identified by   | What it contributes                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ---------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -314,11 +315,13 @@ other reads lock the file across the origin ([storage.md](storage.md#not-opfs)).
 window and preload-plugin helpers and `BUILD_AS_WORKER`'s worker API are out too: each assumes a page's main thread or a
 Worker the program owns, and the main loop would take over the thread the host pumps on.
 
-The runtime's ABI identity is that set of versions plus `IBUSWEB_RUNTIME_ABI`. The engine manifest currently records
-only the numeric ABI; the host compares it and the protocol number at startup. Carrying and checking the whole
-library-version identity remains a compatibility gap (spec §5.3, §5.4.4). Matching import names alone does not prove
-compatibility when a library changes without a numeric ABI bump. `checks.ibus-runtime-exports` checks that the two
-manifest files agree with the runtime's copies, that each library is at the version the build's inputs carry, and that
+The runtime's ABI identity is `exports.json`'s `identity`: the SHA-256, in lowercase hexadecimal, of canonical JSON
+(sorted keys, no spaces) holding `IBUSWEB_RUNTIME_ABI` and, in order, each library's name, version and symbols. A
+library that changes its version or what it exports changes the identity, whatever the numeric ABI says. The runtime's
+`constants.json` carries it as `runtimeIdentity`, every engine manifest records the identity it was built against, and
+the host refuses a manifest whose ABI number or identity differs from the runtime's as `RuntimeAbiMismatch`, before it
+allocates anything. `checks.ibus-runtime-exports` checks that the two manifest files agree with the runtime's copies,
+that `exports.json`'s identity is its libraries', that each library is at the version the build's inputs carry, and that
 `libibus-web` and `wasmfs-idb` export exactly what their headers declare.
 
 ### The JavaScript surface

@@ -45,6 +45,9 @@ export interface FsConstants {
 // against, and the bounds of the memory the runtime takes.
 export interface RuntimeConstants {
   runtimeAbi: number;
+  // The runtime's ABI identity (exports.json's identity), which a manifest
+  // must name.
+  runtimeIdentity: string;
   protocol: number;
   canceled: number;
   // IBUSWEB_PUMP_ERROR.

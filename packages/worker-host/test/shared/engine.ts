@@ -45,6 +45,7 @@ export const manifestFailures = async (h: Harness, runtime: RuntimeBuild): Promi
   for (const [change, error] of [
     [{ memory: h.data.constants.memory.minimum - 65536 }, /memory bounds/],
     [{ runtimeAbi: base.runtimeAbi + 1 }, /RuntimeAbiMismatch/],
+    [{ runtimeIdentity: "0".repeat(64) }, /RuntimeAbiMismatch: manifest identity 0{64}/],
     [{ protocol: base.protocol + 1 }, /ProtocolMismatch/],
     [{ threads: undefined }, /threads/],
   ] as const) {

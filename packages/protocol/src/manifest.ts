@@ -7,6 +7,9 @@ const count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(
 // The name becomes a directory and a database name, so it must be one path component that can't
 // climb out of its parent or hide itself.
 const moduleName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/));
+// SHA-256, in lowercase hexadecimal, of the runtime's ABI number and the
+// libraries it carries: their names, versions and exported symbols.
+const runtimeIdentity = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 const storePath = Schema.String.check(
   Schema.isPattern(/^\/nix\/store\/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+$/),
 );
@@ -32,6 +35,7 @@ export const ModuleManifest = Schema.Struct({
   version: nonEmpty,
   license: nonEmpty,
   runtimeAbi: count,
+  runtimeIdentity,
   protocol: count,
   module: Schema.Struct({ url: nonEmpty, size: count }),
   memory: count.check(Schema.isMultipleOf(65536)),

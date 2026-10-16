@@ -9,6 +9,7 @@ import { checkManifest, readManifest, readRuntimeConstants } from "../../src/wor
 const root = "/nix/store/00000000000000000000000000000000-schemas";
 const constants = {
   runtimeAbi: 1,
+  runtimeIdentity: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   protocol: 1,
   memory: { minimum: 65536, maximum: 131072 },
   pumpError: -1,
@@ -26,6 +27,7 @@ const manifest = {
   version: "1",
   license: "MIT",
   runtimeAbi: 1,
+  runtimeIdentity: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   protocol: 1,
   memory: 65536,
   threads: 0,
@@ -48,6 +50,7 @@ describe("manifest startup validation", () => {
   test("refuses a mismatched or invalid manifest for good", () => {
     for (const [change, refused] of [
       [{ runtimeAbi: 2 }, "RuntimeAbiMismatch"],
+      [{ runtimeIdentity: "f".repeat(64) }, "RuntimeAbiMismatch"],
       [{ protocol: 2 }, "ProtocolMismatch"],
       [{ memory: 65537 }, "manifest"],
     ] as const)
@@ -55,6 +58,9 @@ describe("manifest startup validation", () => {
   });
   test("identifies both identity mismatches", () => {
     expect(() => checkManifest({ ...manifest, runtimeAbi: 2 }, constants)).toThrow(/RuntimeAbiMismatch.*2.*1/);
+    expect(() => checkManifest({ ...manifest, runtimeIdentity: "f".repeat(64) }, constants)).toThrow(
+      new RegExp(`RuntimeAbiMismatch: manifest identity f{64}, runtime ${constants.runtimeIdentity}`),
+    );
     expect(() => checkManifest({ ...manifest, protocol: 2 }, constants)).toThrow(/ProtocolMismatch.*2.*1/);
   });
   test("rejects missing threads", () => {

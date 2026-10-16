@@ -94,6 +94,7 @@
             memory=$(( ((${toString runtime.memory.minimum} + static + ${toString threads} * mib + ${toString heapBytes}) * 5 + 4 * mib - 1) / (4 * mib) * mib ))
             test "$memory" -le ${toString runtime.memory.maximum}
             abi=$(jq '.abi' ${runtime.exportList}/exports.json)
+            runtimeIdentity=$(jq -r '.identity' ${runtime.exportList}/exports.json)
             protocol=$(node ${../../tools/engine-manifest/protocol.ts} version ${
               typescript.workspaceFor [ "packages/protocol" ]
             }/packages/protocol/dist/index.js)
@@ -101,12 +102,13 @@
             # including data, schema, protocol and runtime dependencies.
             identity="''${out##*/}"
             identity="''${identity%%-*}"
-            jq --arg identity "$identity" --argjson runtimeAbi "$abi" --argjson protocol "$protocol" --argjson memory "$memory" \
+            jq --arg identity "$identity" --argjson runtimeAbi "$abi" --arg runtimeIdentity "$runtimeIdentity" \
+              --argjson protocol "$protocol" --argjson memory "$memory" \
               --arg url './${name}.wasm' --argjson size "$(stat -c%s $out/${name}.wasm)" \
               --rawfile license ${license} \
               --argjson settingsMetadata "$(jq -nc --arg url ./settings.json --argjson size "$(stat -c%s $out/settings.json)" '{ $url, $size }')" \
               --slurpfile data data.jsonl --slurpfile engines ${enginesFile} --slurpfile settingsSchemas ${schemasFile} \
-              '.version += "+nix." + $identity | . + { $license, $runtimeAbi, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], settingsSchemas: $settingsSchemas[0], $settingsMetadata }' \
+              '.version += "+nix." + $identity | . + { $license, $runtimeAbi, $runtimeIdentity, $protocol, $memory, module: { $url, $size }, $data, engines: $engines[0], settingsSchemas: $settingsSchemas[0], $settingsMetadata }' \
               ${description} > $out/manifest.json
             node ${../../tools/engine-manifest/protocol.ts} check ${
               typescript.workspaceFor [ "packages/protocol" ]
