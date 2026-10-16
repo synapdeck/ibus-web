@@ -4,12 +4,46 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
 jobs:
-  check:
-    name: nix flake check
+  check-aarch64-darwin:
+    name: nix flake check (aarch64-darwin)
     permissions:
       contents: read
       id-token: write
-    runs-on: ubuntu-latest
+    runs-on: warp-macos-26-arm64-6x
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@v3.23.0
+      - name: Use FlakeHub Cache
+        uses: DeterminateSystems/flakehub-cache-action@v3.23.0
+      - name: Check
+        run: nix flake check -L --system aarch64-darwin --max-jobs 1
+    timeout-minutes: 360
+  check-aarch64-linux:
+    name: nix flake check (aarch64-linux)
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: warp-ubuntu-latest-arm64-8x
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@v3.23.0
+      - name: Allow unprivileged user namespaces
+        run: if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      - name: Use FlakeHub Cache
+        uses: DeterminateSystems/flakehub-cache-action@v3.23.0
+      - name: Check
+        run: nix flake check -L --system aarch64-linux --max-jobs 1
+    timeout-minutes: 360
+  check-x86_64-linux:
+    name: nix flake check (x86_64-linux)
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: warp-ubuntu-latest-x64-8x
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1
@@ -21,13 +55,13 @@ jobs:
         uses: DeterminateSystems/flakehub-cache-action@v3.23.0
       - name: Check
         run: nix flake check -L --system x86_64-linux --max-jobs 1
-    timeout-minutes: 240
+    timeout-minutes: 360
   integration:
     name: extended integration
     permissions:
       contents: read
       id-token: write
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1
@@ -39,17 +73,37 @@ jobs:
         uses: DeterminateSystems/flakehub-cache-action@v3.23.0
       - name: Check
         run: nix build .#integration-checks -L --max-jobs 1
-    timeout-minutes: 240
+    timeout-minutes: 360
+  playwright-macos:
+    name: Playwright (aarch64-darwin)
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: warp-macos-26-arm64-6x
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@v3.23.0
+      - name: Use FlakeHub Cache
+        uses: DeterminateSystems/flakehub-cache-action@v3.23.0
+      - name: Check
+        run: nix build .#packages.aarch64-darwin.playwright-integration -L --max-jobs 1
+    timeout-minutes: 360
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     name: Publish to FlakeHub
     needs:
-      - check
+      - check-aarch64-darwin
+      - check-aarch64-linux
+      - check-x86_64-linux
       - integration
+      - playwright-macos
+      - safari
     permissions:
       contents: read
       id-token: write
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1
@@ -62,6 +116,24 @@ jobs:
           rolling: true
           visibility: ${{ github.event.repository.private && 'private' || 'public' }}
     timeout-minutes: 30
+  safari:
+    name: Safari smoke
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: warp-macos-26-arm64-6x
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@v3.23.0
+      - name: Use FlakeHub Cache
+        uses: DeterminateSystems/flakehub-cache-action@v3.23.0
+      - name: Enable safaridriver
+        run: sudo safaridriver --enable
+      - name: Smoke
+        run: nix run .#safari-smoke -L
+    timeout-minutes: 360
 name: CI
 "on":
   pull_request: {}

@@ -395,9 +395,9 @@ nixos-unstable; moving it is an ordinary `nix flake update`, and is how every de
 
 The flake evaluates for `aarch64-darwin`, `aarch64-linux` and `x86_64-linux`, from the `nix-systems/triplet` input.
 Darwin was left out while WebAssembly builds inherited the native `hostPlatform`, under which recipes restricted to
-Linux refused to evaluate; `pkgsWasm`'s host platform is WebAssembly, so that reason is gone (spec R17). CI runs
-`nix flake check` for `x86_64-linux` only, on GitHub's runners ([tooling.md](tooling.md)); the other systems evaluate
-but their builds aren't exercised. See [known-gaps.md](known-gaps.md#toolchain).
+Linux refused to evaluate; `pkgsWasm`'s host platform is WebAssembly, so that reason is gone (spec R17). The one recipe
+nixpkgs still keeps to Linux, m17n-db, which generates its charset maps from the installed glibc's charmaps, takes them
+from glibc's source elsewhere. CI runs `nix flake check` on all three systems ([tooling.md](tooling.md#ci)).
 
 ## Development shell and editor
 

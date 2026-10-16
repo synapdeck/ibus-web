@@ -398,42 +398,56 @@ devshell, flake-root, systems and files, which have no current FlakeHub entries,
 
 ### Written in Nix
 
-The workflow is Nix (`modules/flake/ci.nix`) through `github-actions-nix`; the `files` flake module writes it into the
-tree as `.github/workflows/ci.yml`. Never edit the YAML:
+The workflows are Nix (`modules/flake/ci.nix`) through `github-actions-nix`; the `files` flake module writes them into
+the tree as `.github/workflows/ci.yml`, `release.yml` and `reproducibility.yml`. Never edit the YAML:
 
 - `nix run .#write-files` (or `write-files` in the dev shell) rewrites every generated file.
-- `checks."files:.github/workflows/ci.yml"` fails while the tracked file differs from what the Nix generates, so a
+- `checks."files:.github/workflows/<name>.yml"` fails while a tracked file differs from what the Nix generates, so a
   change to `ci.nix` without `write-files` fails `nix flake check`.
 - The writer lists the files it manages in `.generated-files`, itself generated, and deletes a file that list names once
   the Nix no longer configures it, so a workflow removed from the Nix leaves the tree at the next run.
-- The generator writes its own header line, so the workflow's SPDX annotation is in `REUSE.toml`.
-- actionlint (in hk) checks the generated file.
+- The generator writes its own header line, so the workflows' SPDX annotation is in `REUSE.toml`.
+- actionlint (in hk) checks the generated files. It knows only GitHub's own runner labels, so `ci.nix` also writes
+  `.github/actionlint.yaml`, naming the WarpBuild labels the workflows use.
+
+### Runners
+
+Every job runs on WarpBuild, as Synapdeck's other repositories do: `warp-ubuntu-latest-x64-8x` for x86_64-linux,
+`warp-ubuntu-latest-arm64-8x` for aarch64-linux and `warp-macos-26-arm64-6x` for aarch64-darwin. The Linux runners have
+150 GB of disk, enough for a cold run, which rebuilds the patched Emscripten and everything WebAssembly; eight cores
+keep one within the jobs' 360-minute limit. A job that builds with Nix:
+
+- checks out;
+- installs Determinate Nix;
+- on Linux, allows unprivileged user namespaces (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where
+  the runner has the setting). Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks
+  keep on, needs them;
+- enables FlakeHub Cache;
+- builds with `--max-jobs 1`, so cold compilation and CPU-bound test checks don't compete for the runner's cores.
+
+Each job adds `id-token: write` to the workflow's `contents: read`, since Determinate Nix and FlakeHub authenticate with
+the job's OIDC token.
 
 ### What it does
 
-`ci.yml` runs on pull requests and on pushes to `master`. The workflow grants `contents: read`; each job adds
-`id-token: write`, since Determinate Nix and FlakeHub authenticate with the job's OIDC token. A pull request's new push
-cancels its run in progress (`concurrency`, grouped by pull request); every push to `master` keeps its own run.
+`ci.yml` runs on pull requests and on pushes to `master`. A pull request's new push cancels its run in progress
+(`concurrency`, grouped by pull request); every push to `master` keeps its own run.
 
-- **`check`** and **`integration`** do the same steps:
-  - check out;
-  - install Determinate Nix;
-  - allow unprivileged user namespaces (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, where the
-    runner has the setting). Ubuntu 24.04's AppArmor forbids them, and Chromium's sandbox, which the browser checks keep
-    on, needs them;
-  - enable FlakeHub Cache.
-
-  Then `check` runs `nix flake check -L --system x86_64-linux --max-jobs 1`, and `integration` runs
-  `nix build .#integration-checks -L --max-jobs 1`, each within 240 minutes. One job at a time keeps cold compilation
-  and CPU-bound test checks from competing for the runner's few cores. Checks are defined for x86_64-linux,
-  aarch64-linux and aarch64-darwin; the hosted runners are x86_64-linux, and the other systems' checks need their own
-  machines.
-
-- **`publish`** has `needs: [check, integration]`, and runs only on a push to `master`
+- **`check-x86_64-linux`**, **`check-aarch64-linux`** and **`check-aarch64-darwin`** run
+  `nix flake check -L --system <system> --max-jobs 1`.
+- **`integration`** runs `nix build .#integration-checks -L --max-jobs 1` on x86_64-linux.
+- **`playwright-macos`** builds `packages.aarch64-darwin.playwright-integration`, the Playwright suite with Playwright's
+  macOS WebKit, closer to Safari than its Linux build. The rest of `integration-checks` gains nothing from a second
+  system at macOS's price, about 13 times Linux's.
+- **`safari`** enables safaridriver (`sudo safaridriver --enable`) and runs `nix run .#safari-smoke` on the macOS
+  runner, the WebDriver smoke suite in real Safari ([testing.md](testing.md#safari-and-webdriver)).
+- **`publish`** needs every other job, and runs only on a push to `master`
   (`if: github.event_name == 'push' && github.ref == 'refs/heads/master'`). It publishes the flake to FlakeHub as
   `synapdeck/ibus-web`, rolling (`flakehub-push`), within 30 minutes. Its visibility follows the repository's
   (`github.event.repository.private`): private while the repository is, public once it is. FlakeHub Cache grants access
-  per published flake, so the cache needs this flake published; only a `master` that passed both jobs is.
+  per published flake, so the cache needs this flake published; only a `master` that passed every job is.
+
+`release.yml` and `reproducibility.yml` are in [Releases](#releases).
 
 Actions are pinned to release tags: `actions/checkout@v7.0.1`; `determinate-nix-action` and `flakehub-cache-action` both
 at one `determinateVersion` (`v3.23.0`), since they release together and mismatched versions are untested against each
@@ -452,7 +466,7 @@ FlakeHub (access is per flake, granted through the organisation). Then a build s
 
 ## Releases
 
-Changesets versions the published packages and writes their changelogs.
+Changesets versions the published packages and writes their changelogs; a tag publishes them.
 
 - **Changesets** (`tools/release`, whose package depends on `@changesets/cli`). `.changeset/config.json` is generated
   (`tools/release/changesets.nix`): every published package (`ibusWeb.typescript.publishedPackages`, the engine packages
@@ -473,6 +487,15 @@ Changesets versions the published packages and writes their changelogs.
   library the engine and the runtime link, of Emscripten, and of what `ibusWeb.release.engines.<name>.extraSources`
   names (its data, and dependencies its build fetches other than as build inputs). Its README says how to build the
   engine from them alone. `checks.tools-release-source-bundles` fails when an engine the demo serves has no bundle.
+- **`release.yml`**, on a `v*` tag, on the x86_64-linux runner with `contents: write` and `id-token: write`: builds
+  `.#release`, checks that the tag is `v` and its version, creates the GitHub release from `assets/` with `notes.md`
+  (`gh release create --verify-tag`), then runs `npm publish` on each tarball. npm's trusted publishing exchanges the
+  job's OIDC token for a short-lived credential, so no npm token is stored, and npm attaches provenance; it needs npm
+  11.5.1 or later, which the workspace's Node 26 carries. Each package on npmjs must trust this repository's
+  `release.yml`.
+- **`reproducibility.yml`**, weekly and on demand, builds the runtime and each engine's side module, then builds them
+  again with `--rebuild`, which compares the new outputs with the first; once a release's changelogs exist, it does the
+  same for `.#release`. `--rebuild` compares only the derivations it names.
 
 `checks.tools-release` runs the notes tool's tests; `checks.tools-release-changesets` versions a copy of the repository
 with a sample changeset and checks that every published package takes the new version, no private one moves, and the

@@ -29,7 +29,7 @@ options, checks and overlay. [docs/tooling.md](docs/tooling.md#typescript) gives
 
 ## Making a change
 
-1. **Generated files** are written from Nix: the CI workflow, `pnpm-workspace.yaml`, the key tables, `PROTOCOL.md`,
+1. **Generated files** are written from Nix: the workflows, `pnpm-workspace.yaml`, the key tables, `PROTOCOL.md`,
    `protocol.h`, the notices, and `.generated-files`, which lists them. Change the Nix that declares them, then run
    `nix run .#write-files`. The `files:<path>` check fails while a tracked copy differs.
 2. **License headers.** Every file you write starts with `SPDX-FileCopyrightText: 2026 Synapdeck, Inc.` and

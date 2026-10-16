@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Generated from modules/flake/ci.nix by `nix run .#write-files`.
+self-hosted-runner:
+  labels:
+    - warp-macos-26-arm64-6x
+    - warp-ubuntu-latest-arm64-8x
+    - warp-ubuntu-latest-x64-8x

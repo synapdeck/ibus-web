@@ -4,7 +4,10 @@
 # Written by `nix run .#write-files`: the files it manages, which it
 # deletes once the Nix no longer configures them.
 .changeset/config.json
+.github/actionlint.yaml
 .github/workflows/ci.yml
+.github/workflows/release.yml
+.github/workflows/reproducibility.yml
 LICENSES/LicenseRef-xkeyboard-config.txt
 NOTICES/chromium.txt
 NOTICES/keysymdef.txt

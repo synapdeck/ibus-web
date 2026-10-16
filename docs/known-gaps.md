@@ -84,8 +84,10 @@ decided.
   upstream call to add Workers and settle once they can run threads would replace it. No draft yet.
 - **Expected stderr noise isn't marked as such** in check output: `dlopen` errors from refusal cases, and Emscripten's
   `received "7" command from terminated worker` at an `ASSERTIONS` + `PROXY_TO_PTHREAD` exit.
-- **WebKit scope.** Production Playwright integration ran pinned Linux WebKit 26.6 in the Nix sandbox with software EGL.
-  Safari 17.4/macOS browser-floor behavior and the separate WasmFS IndexedDB-in-Worker matrix remain unverified.
+- **WebKit scope.** CI runs the Playwright suite on macOS and a WebDriver smoke suite in real Safari, but those jobs
+  have not run yet: the suite is proven only on Firefox through geckodriver, and the macOS jobs only as generated
+  workflow. Safari 17.4, the browser floor, isn't what the runner carries, and the WasmFS backend's own test programs
+  don't run in WebKit.
 
 ## Engines and page integration
 
@@ -202,8 +204,10 @@ decided.
   become writer or both install one version. Node suites start hosts that share storage one at a time; a Node store that
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **Nothing is released yet.** The packages stay at `0.0.0` until the first release's changeset is versioned and tagged,
-  and nothing publishes them.
+- **Nothing is released yet.** The packages stay at `0.0.0` until the first release's changeset is versioned and tagged.
+  Whether npm lets a trusted publisher be configured before a package's first version exists is unverified (design spec
+  R14); if not, each package's first version needs one manual publish with a token. The release workflow hasn't run, and
+  a rerun after a partial publish fails on the versions already published.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't removed; the Node
   archive server in the Vitest config process is `unref`'d, not closed; Vite's unanalyzable-import warning is filtered
   by its text.
@@ -249,15 +253,14 @@ decided.
 
 ## CI
 
-- **Cold-run disk.** A cold run rebuilds the patched Emscripten and everything WASM, and may exhaust `ubuntu-latest`'s
-  some 14 GB of free disk; a disk-freeing step (such as `DeterminateSystems/nothing-but-nix`) or a larger runner would
-  fix it.
 - **Fork pull requests** get no cache (FlakeHub Cache can't authenticate their OIDC tokens); their behaviour is
   unverified.
 - **FlakeHub visibility follows the repository's**, read from `github.event.repository.private` at each publish.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
-- **Only x86_64-linux is checked**; the flake's checks are defined for Darwin and aarch64 too.
+- **WarpBuild, aarch64 and macOS are unexercised.** The workflows target WarpBuild's runners and check aarch64-linux and
+  aarch64-darwin, but no run has happened; every check evaluates on all three systems, and only x86_64-linux has built
+  them.
 
 ## Upstream
 
