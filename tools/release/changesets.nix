@@ -20,11 +20,16 @@
       # version, which names its assets. The group follows the packages the
       # workspace publishes rather than a list kept by hand. Formatting is
       # left to hk, which formats what Changesets writes as it is committed.
+      # The changelog links each entry's pull request, commit and author,
+      # which it asks GitHub for as it is written.
       changesetConfig =
         pkgs.runCommand "ibus-web-changeset-config.json"
           {
             config = builtins.toJSON {
-              changelog = "@changesets/cli/changelog";
+              changelog = [
+                "@changesets/changelog-github"
+                { repo = "synapdeck/ibus-web"; }
+              ];
               commit = false;
               fixed = [ published ];
               linked = [ ];
@@ -54,7 +59,14 @@
         {
           name = "changeset";
           help = "Changesets' CLI, run at the repository's root";
-          command = ''cd "$FLAKE_ROOT" && exec node "$FLAKE_ROOT/tools/release/node_modules/@changesets/cli/bin.js" "$@"'';
+          # Writing the changelog needs a GitHub token, which gh holds once
+          # logged in.
+          command = ''
+            if [ -z "''${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null; then
+              GITHUB_TOKEN=$(gh auth token 2>/dev/null) && export GITHUB_TOKEN
+            fi
+            cd "$FLAKE_ROOT" && exec node "$FLAKE_ROOT/tools/release/node_modules/@changesets/cli/bin.js" "$@"
+          '';
         }
       ];
 
@@ -71,7 +83,8 @@
       # moves, and the notes come from the changelogs written. Changesets
       # reads the changesets' history from git. Pending changesets are
       # dropped so that the sample alone decides the version, which follows
-      # from whatever version the packages are at.
+      # from whatever version the packages are at. The changelog is
+      # Changesets' plain one, since the sandbox can't reach GitHub.
       checks.tools-release-changesets =
         pkgs.runCommand "ibus-web-tools-release-changesets"
           {
@@ -84,7 +97,12 @@
             export HOME=$TMPDIR
             cp -r --no-preserve=mode ${inputs.self} repo
             cd repo
-            cp ${changesetConfig} .changeset/config.json
+            node -e '
+              const fs = require("node:fs");
+              const config = JSON.parse(fs.readFileSync("${changesetConfig}", "utf8"));
+              config.changelog = "@changesets/cli/changelog";
+              fs.writeFileSync(".changeset/config.json", JSON.stringify(config));
+            '
             rm -f .changeset/*.md
             printf -- '---\n"ibus-web": minor\n---\n\nPreloading.\n' > .changeset/sample.md
             git init -q

@@ -443,7 +443,13 @@ the job's OIDC token.
   runner, the WebDriver smoke suite in real Safari ([testing.md](testing.md#safari-and-webdriver)). It and
   `playwright-macos` need `check-aarch64-darwin`, so they substitute the WebAssembly it built from FlakeHub Cache rather
   than each building it again at macOS's price.
-- **`publish`** needs every other job, and runs only on a push to `master`
+- **`changesets`**, on pull requests only, on GitHub's `ubuntu-latest`: fails when the pull request changes what a
+  release ships but adds no changeset. What ships is each published package's directory, `runtime/`, `engines/` and
+  `modules/`, less `modules/flake/` and any `test/` or `checks/` directory: the runtime's and the engines' package
+  directories hold only a `package.json`, so Changesets' own `changeset status` would miss their sources. A change with
+  nothing for the release notes adds an empty changeset (`changeset --empty`); a pull request that removes changesets is
+  versioning, and passes.
+- **`publish`** needs every other job but `changesets`, and runs only on a push to `master`
   (`if: github.event_name == 'push' && github.ref == 'refs/heads/master'`). It publishes the flake to FlakeHub as
   `synapdeck/ibus-web`, rolling (`flakehub-push`), within 30 minutes. Its visibility follows the repository's
   (`github.event.repository.private`): private while the repository is, public once it is. FlakeHub Cache grants access
@@ -451,10 +457,11 @@ the job's OIDC token.
 
 `release.yml` and `reproducibility.yml` are in [Releases](#releases).
 
-Actions are pinned to release tags: `actions/checkout@v7.0.1`; `determinate-nix-action` and `flakehub-cache-action` both
-at one `determinateVersion` (`v3.23.0`), since they release together and mismatched versions are untested against each
-other. `flakehub-push` follows its major tag, `v7`: it is tagged by major version only, so it can't be pinned to a
-release. To bump one, edit `ci.nix`, then `nix run .#write-files`.
+Actions are pinned to release tags: `actions/checkout@v7.0.1`, `actions/setup-node@v7.1.0`,
+`actions/upload-artifact@v7.0.2` and `actions/download-artifact@v8.0.2`; `determinate-nix-action` and
+`flakehub-cache-action` both at one `determinateVersion` (`v3.23.0`), since they release together and mismatched
+versions are untested against each other. `flakehub-push` follows its major tag, `v7`: it is tagged by major version
+only, so it can't be pinned to a release. To bump one, edit `ci.nix`, then `nix run .#write-files`.
 
 ### The cache
 
@@ -474,9 +481,12 @@ Changesets versions the published packages and writes their changelogs; a tag pu
   (`tools/release/changesets.nix`): every published package (`ibusWeb.typescript.publishedPackages`, the engine packages
   among them, which is why `packages/engines/*` is in the pnpm workspace) is in one `fixed` group, so a release has one
   version, which names its assets; private packages aren't versioned; Changesets formats nothing, since hk formats what
-  it writes as it is committed. In the dev shell, `changeset` runs the CLI at the repository's root: `changeset` to
-  describe a change, `changeset version` to apply the pending ones. Versioning is local: run `changeset version`,
-  commit, then tag `v<version>`.
+  it writes as it is committed; the changelog (`@changesets/changelog-github`) links each entry's commit, pull request
+  and author. In the dev shell, `changeset` runs the CLI at the repository's root: `changeset` to describe a change,
+  `changeset version` to apply the pending ones. Writing the changelog asks GitHub's API, so `changeset version` needs
+  `GITHUB_TOKEN`; the dev-shell command takes it from `gh auth token` when it isn't set.
+  `checks.tools-release-changesets` versions with Changesets' plain changelog instead, since the sandbox has no network.
+  Versioning is local: run `changeset version`, commit, then tag `v<version>`.
 - **`.#release`** (x86_64-linux only: its outputs are WebAssembly and JavaScript, the same whatever builds them) holds
   `assets/`, the GitHub release's files, and `notes.md`, its text. The assets (design spec §10.7) are every npm tarball
   (`legacyPackages.<system>.npm.all`), `ibus-runtime.js` and `ibus-runtime.wasm`, `PROTOCOL.md`, each engine's

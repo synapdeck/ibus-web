@@ -64,5 +64,6 @@ files, or point at a pull request. Match the comment density of the code around 
 
 ## Pull requests
 
-Open pull requests against `master`. CI runs both jobs on every pull request. A pull request from a fork builds without
-the binary cache, so its first run is slow.
+Open pull requests against `master`. A pull request that changes what a release ships adds a changeset: run `changeset`
+in the dev shell, or `changeset --empty` for a change with nothing to tell users. CI runs both jobs on every pull
+request. A pull request from a fork builds without the binary cache, so its first run is slow.

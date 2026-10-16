@@ -94,6 +94,17 @@
       checkJobs = lib.listToAttrs (
         map (system: lib.nameValuePair "check-${system}" (checkJob system)) systems
       );
+
+      # What a release ships is built from more than the published packages'
+      # directories, which for the runtime and the engines hold only a
+      # package.json: also from their sources and the shared build modules.
+      # The flake's own modules (CI, the file writer), tests and checks ship
+      # nothing.
+      shippedPaths = map (dir: "${dir}/") config.ibusWeb.typescript.publishedPackages ++ [
+        "runtime/"
+        "engines/"
+        "modules/"
+      ];
     in
     {
       githubActions = {
@@ -113,6 +124,44 @@
             cancelInProgress = true;
           };
           jobs = checkJobs // {
+            # A pull request that changes what a release ships must add a
+            # changeset; one that changes it without a release note adds an
+            # empty one (`changeset --empty`). Removing changesets is
+            # versioning, which needs none.
+            changesets = {
+              name = "Changeset";
+              if_ = "github.event_name == 'pull_request'";
+              runsOn = "ubuntu-latest";
+              timeoutMinutes = 5;
+              inherit permissions;
+              steps = [
+                (
+                  checkout
+                  // {
+                    with_.fetch-depth = 0;
+                  }
+                )
+                {
+                  name = "Check";
+                  env.BASE = "\${{ github.event.pull_request.base.sha }}";
+                  run = ''
+                    shipped=$(git diff --name-only "$BASE"...HEAD -- ${
+                      lib.concatMapStringsSep " " (path: "':(top)${path}'") shippedPaths
+                    } ':(exclude,top)modules/flake/' ':(exclude,top,glob)**/test/**' ':(exclude,top,glob)**/checks/**')
+                    if [ -z "$shipped" ]; then
+                      echo "Nothing a release ships changed."
+                    elif git diff --name-only --diff-filter=AD "$BASE"...HEAD -- '.changeset/*.md' | grep -q .; then
+                      echo "A changeset covers this change."
+                    else
+                      echo "::error::This changes what a release ships but adds no changeset. Run \`changeset\`, or \`changeset --empty\` if it needs no release note."
+                      printf '%s\n' "$shipped"
+                      exit 1
+                    fi
+                  '';
+                }
+              ];
+            };
+
             integration = nixJob {
               name = "extended integration";
               system = "x86_64-linux";

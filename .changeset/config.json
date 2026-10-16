@@ -1,7 +1,7 @@
 {
   "access": "public",
   "baseBranch": "master",
-  "changelog": "@changesets/cli/changelog",
+  "changelog": ["@changesets/changelog-github", { "repo": "synapdeck/ibus-web" }],
   "commit": false,
   "fixed": [
     [

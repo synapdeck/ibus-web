@@ -4,6 +4,32 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
 jobs:
+  changesets:
+    if: github.event_name == 'pull_request'
+    name: Changeset
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        name: Check
+        run: |
+          shipped=$(git diff --name-only "$BASE"...HEAD -- ':(top)packages/core/' ':(top)packages/ibus-web/' ':(top)packages/panel/' ':(top)packages/protocol/' ':(top)packages/runtime/' ':(top)packages/worker-host/' ':(top)packages/engines/hangul/' ':(top)packages/engines/m17n/' ':(top)packages/engines/mozc/' ':(top)packages/engines/rime/' ':(top)packages/engines/table/' ':(top)runtime/' ':(top)engines/' ':(top)modules/' ':(exclude,top)modules/flake/' ':(exclude,top,glob)**/test/**' ':(exclude,top,glob)**/checks/**')
+          if [ -z "$shipped" ]; then
+            echo "Nothing a release ships changed."
+          elif git diff --name-only --diff-filter=AD "$BASE"...HEAD -- '.changeset/*.md' | grep -q .; then
+            echo "A changeset covers this change."
+          else
+            echo "::error::This changes what a release ships but adds no changeset. Run \`changeset\`, or \`changeset --empty\` if it needs no release note."
+            printf '%s\n' "$shipped"
+            exit 1
+          fi
+    timeout-minutes: 5
   check-aarch64-darwin:
     name: nix flake check (aarch64-darwin)
     permissions:
