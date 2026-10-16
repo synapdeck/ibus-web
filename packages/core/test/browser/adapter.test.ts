@@ -188,6 +188,81 @@ test("Mac maps undo, redo and select all to Command", async () => {
   expect(adapter.replayKey(chord("a", { metaKey: true }))).toBe(true);
   expect([element.selectionStart, element.selectionEnd]).toEqual([0, 2]);
 });
+test("declined Ctrl word deletion and movement edit and move the caret by words", async () => {
+  const { element, adapter } = field("textarea", "one two, three\nfour");
+  await userEvent.click(element);
+  const at = (offset: number) => element.setSelectionRange(offset, offset);
+  const nav = (key: string, modifiers: KeyboardEventInit = {}) =>
+    adapter.replayKey(new KeyboardEvent("keydown", { key, ctrlKey: true, ...modifiers }));
+
+  at(9);
+  expect(nav("ArrowLeft")).toBe(true);
+  expect(element.selectionStart).toBe(4);
+  expect(nav("ArrowRight")).toBe(true);
+  expect(element.selectionStart).toBe(7);
+  expect(nav("ArrowRight", { shiftKey: true })).toBe(true);
+  expect([element.selectionStart, element.selectionEnd, element.selectionDirection]).toEqual([7, 14, "forward"]);
+  at(9);
+  expect(nav("ArrowLeft", { shiftKey: true })).toBe(true);
+  expect([element.selectionStart, element.selectionEnd, element.selectionDirection]).toEqual([4, 9, "backward"]);
+  expect(nav("End")).toBe(true);
+  expect(element.selectionStart).toBe(19);
+  expect(nav("Home", { shiftKey: true })).toBe(true);
+  expect([element.selectionStart, element.selectionEnd]).toEqual([0, 19]);
+
+  at(9);
+  expect(nav("Backspace")).toBe(true);
+  expect(element.value).toBe("one three\nfour");
+  expect(element.selectionStart).toBe(4);
+  expect(nav("Delete")).toBe(true);
+  expect(element.value).toBe("one \nfour");
+
+  // Each deletion is one native edit, which undo takes back.
+  expect(adapter.replayKey(chord("z"))).toBe(true);
+  expect(element.value).toBe("one three\nfour");
+});
+test("Mac moves and deletes by words with Option and by lines and the document with Command", async () => {
+  onMac();
+  const { element, adapter } = field("textarea", "one two\nthree four");
+  await userEvent.click(element);
+  const at = (offset: number) => element.setSelectionRange(offset, offset);
+  const nav = (key: string, modifiers: KeyboardEventInit) =>
+    adapter.replayKey(new KeyboardEvent("keydown", { key, ...modifiers }));
+
+  at(10);
+  expect(nav("ArrowLeft", { altKey: true })).toBe(true);
+  expect(element.selectionStart).toBe(8);
+  expect(nav("ArrowRight", { metaKey: true })).toBe(true);
+  expect(element.selectionStart).toBe(18);
+  expect(nav("ArrowLeft", { metaKey: true, shiftKey: true })).toBe(true);
+  expect([element.selectionStart, element.selectionEnd]).toEqual([8, 18]);
+  expect(nav("ArrowUp", { metaKey: true })).toBe(true);
+  expect(element.selectionStart).toBe(0);
+  expect(nav("ArrowDown", { metaKey: true })).toBe(true);
+  expect(element.selectionStart).toBe(18);
+
+  expect(nav("Backspace", { altKey: true })).toBe(true);
+  expect(element.value).toBe("one two\nthree ");
+  expect(nav("Backspace", { metaKey: true })).toBe(true);
+  expect(element.value).toBe("one two\n");
+
+  // Control is no word modifier on a Mac, and Home there isn't Ctrl's document start.
+  at(3);
+  expect(nav("ArrowLeft", { ctrlKey: true })).toBe(false);
+  expect(nav("Home", { metaKey: true })).toBe(false);
+  expect(element.selectionStart).toBe(3);
+});
+test("a read-only field moves by words but deletes nothing", async () => {
+  const { element, adapter } = field("textarea", "one two");
+  element.readOnly = true;
+  await userEvent.click(element);
+  element.setSelectionRange(7, 7);
+
+  expect(adapter.replayKey(new KeyboardEvent("keydown", { key: "Backspace", ctrlKey: true }))).toBe(true);
+  expect(element.value).toBe("one two");
+  expect(adapter.replayKey(new KeyboardEvent("keydown", { key: "ArrowLeft", ctrlKey: true }))).toBe(true);
+  expect(element.selectionStart).toBe(4);
+});
 test("unfocused and unavailable native command paths use setRangeText and synthetic input", () => {
   const { element, adapter, reset } = field();
   element.blur();

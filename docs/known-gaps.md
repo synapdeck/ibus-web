@@ -95,11 +95,11 @@ decided.
 
 - **Native adapter limits.** Focused commits have a mirror/overlay and native undo. If the field is unfocused or
   `execCommand` is unavailable, the `setRangeText` fallback dispatches a synthetic input event and has no native undo.
-  Trusted Chromium blur commit reaches this fallback. Full clipboard and platform-complete navigation remain open; a
-  concrete CodeMirror adapter is not shipped. A shortcut the engine declines after the router queued it loses its
-  browser action unless the adapter can perform it: the textarea adapter covers undo, redo, select all, cut and copy,
-  but not paste, word-wise deletion or navigation, or browser shortcuts such as find. Those are logged as warnings
-  instead. See [core.md](core.md).
+  Trusted Chromium blur commit reaches this fallback. A concrete CodeMirror adapter is not shipped. A shortcut the
+  engine declines after the router queued it loses its browser action unless the adapter can perform it: the textarea
+  adapter covers undo, redo, select all, cut, copy and word, line and document deletion and movement, but not paste or
+  browser shortcuts such as find, which a page can't perform. Those are logged as warnings instead. See
+  [core.md](core.md).
 - **System keyboard layouts.** The existing `us` translation follows physical `event.code`; `default` follows translated
   `event.key`, and each engine's `layout` setting overrides its declared one. Arbitrary OS layouts, Dead/AltGr/shortcut
   behavior and fallback replay have no system-layout matrix.

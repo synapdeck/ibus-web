@@ -242,11 +242,19 @@ A replayed Ctrl chord (Command on Apple platforms) runs the editing command it n
 Ctrl+Y elsewhere), A selects all, and X and C cut and copy through `execCommand`, which needs the page's transient user
 activation. Inside a batch, the batch's earlier edits are applied first so the command sees them, and the batch
 continues from what the command leaves. Outside one, the command's change is reported through `onReset` once it returns,
-as a native undo's would be. Paste has no page-side equivalent, since `execCommand("paste")` is refused in web content;
-it and every other chord return false. These chords cannot be passed through before the engine replies, because engines
-bind Ctrl chords of their own.
+as a native undo's would be. A replayed word, line or document chord moves or deletes as the platform's does: Ctrl+Left
+and Ctrl+Right move by words (Option on Apple platforms), Ctrl+Backspace and Ctrl+Delete delete to the word's start or
+end (Option+Backspace and Option+Delete), Ctrl+Home and Ctrl+End move to the document's ends, and on Apple platforms
+Command+Left and Command+Right move to the line's ends, Command+Up and Command+Down to the document's, and
+Command+Backspace deletes to the line's start. Shift extends the selection from its anchor, a deletion with text
+selected deletes the selection, and a read-only or disabled field moves but deletes nothing. Words are
+`Intl.Segmenter`'s: a move left stops at a word's start, a move right at its end, as on macOS and Linux (Windows stops
+at the next word's start). Deletions are native `delete` edits, each an undo step. Paste has no page-side equivalent,
+since `execCommand("paste")` is refused in web content, and neither has the browser's find; they and every other chord
+return false. These chords cannot be passed through before the engine replies, because engines bind Ctrl chords of their
+own.
 
-The callback remains optional; full clipboard/platform navigation and a concrete CodeMirror adapter are not shipped.
+The callback remains optional; a concrete CodeMirror adapter is not shipped.
 
 ## Settings, panel output and logging
 

@@ -22,6 +22,21 @@ const boundary = (text: string, offset: number, step: number) => {
   if (step < 0) return offset - (Array.from(text.slice(0, offset)).at(-1)?.length ?? 0);
   return offset + (text.codePointAt(offset)! > 0xffff ? 2 : offset < text.length ? 1 : 0);
 };
+const words = new Intl.Segmenter(undefined, { granularity: "word" });
+// The start of the word at or before offset, past any spaces and punctuation between them, as browsers move.
+const wordStart = (text: string, offset: number) => {
+  let start = 0;
+  for (const segment of words.segment(text.slice(0, offset))) if (segment.isWordLike) start = segment.index;
+  return start;
+};
+// The end of the word at or after offset. Windows stops at the next word's start instead; macOS and Linux don't.
+const wordEnd = (text: string, offset: number) => {
+  for (const segment of words.segment(text)) {
+    const end = segment.index + segment.segment.length;
+    if (segment.isWordLike && end > offset) return end;
+  }
+  return text.length;
+};
 
 export function textareaAdapter(
   element: Input,
@@ -53,10 +68,20 @@ export function textareaAdapter(
       ownEdit--;
     }
   };
+  const move = (next: number, extend: boolean) => {
+    if (element.selectionStart === null) return;
+    const { anchor } = editingPosition();
+    edits.select(
+      extend ? Math.min(anchor, next) : next,
+      extend ? Math.max(anchor, next) : next,
+      extend && next < anchor ? "backward" : "forward",
+    );
+    remember();
+  };
   const replay = (key: string, shift = false, modified = false) => {
     if (modified || element.disabled || element.readOnly) return;
     const { start, end, value } = edits.current();
-    const { cursor, anchor } = editingPosition();
+    const { cursor } = editingPosition();
     if (key === "Backspace") replace("", start === end ? boundary(value, start, -1) : start, end);
     else if (key === "Delete") replace("", start, start === end ? boundary(value, end, 1) : end);
     else if (key === "Enter") {
@@ -81,14 +106,54 @@ export function textareaAdapter(
             ? lineEnd
             : Math.min(nextEnd < 0 ? value.length : nextEnd, lineEnd + 1 + cursor - lineStart);
       }
-      if (element.selectionStart === null) return;
-      edits.select(
-        shift ? Math.min(anchor, next) : next,
-        shift ? Math.max(anchor, next) : next,
-        shift && next < anchor ? "backward" : "forward",
-      );
-      remember();
+      move(next, shift);
     } else if ([...key].length === 1) replace(key, start, end);
+  };
+  // Word-wise deletion and movement, and line and document movement, by the platform's chords: Option and Command on
+  // Apple platforms, Ctrl elsewhere. Returns false for a chord that isn't one of them.
+  const navigate = (event: KeyboardEvent): boolean => {
+    const alt = event.altKey && !event.getModifierState("AltGraph");
+    const word = apple ? alt && !event.ctrlKey && !event.metaKey : event.ctrlKey && !alt && !event.metaKey;
+    const line = apple && event.metaKey && !event.ctrlKey && !alt;
+    if (!word && !line) return false;
+
+    const { start, end, value } = edits.current();
+    const { cursor } = editingPosition();
+    const lineStart = value.lastIndexOf("\n", cursor - 1) + 1;
+    const lineEndIndex = value.indexOf("\n", cursor);
+    const lineEnd = lineEndIndex < 0 ? value.length : lineEndIndex;
+    const editable = !element.disabled && !element.readOnly;
+
+    switch (event.key) {
+      case "Backspace":
+        if (event.shiftKey) return false;
+        if (editable)
+          if (start !== end) replace("", start, end);
+          else replace("", word ? wordStart(value, cursor) : lineStart, cursor);
+        return true;
+      case "Delete":
+        if (event.shiftKey || !word) return false;
+        if (editable) replace("", start, start !== end ? end : wordEnd(value, cursor));
+        return true;
+      case "ArrowLeft":
+        move(word ? wordStart(value, cursor) : lineStart, event.shiftKey);
+        return true;
+      case "ArrowRight":
+        move(word ? wordEnd(value, cursor) : lineEnd, event.shiftKey);
+        return true;
+      case "ArrowUp":
+      case "ArrowDown":
+        if (!line) return false;
+        move(event.key === "ArrowUp" ? 0 : value.length, event.shiftKey);
+        return true;
+      case "Home":
+      case "End":
+        if (apple) return false;
+        move(event.key === "Home" ? 0 : value.length, event.shiftKey);
+        return true;
+      default:
+        return false;
+    }
   };
   // Paste has no page-side equivalent: execCommand("paste") is refused in web content.
   const shortcut = (event: KeyboardEvent): boolean => {
@@ -192,7 +257,7 @@ export function textareaAdapter(
     replayKey: (event) => {
       if (event.type === "keyup" || modifierKeys.has(event.key)) return true;
       if (event.metaKey || (!event.getModifierState("AltGraph") && (event.ctrlKey || event.altKey)))
-        return shortcut(event);
+        return navigate(event) || shortcut(event);
       replay(event.key, event.shiftKey);
       return true;
     },
