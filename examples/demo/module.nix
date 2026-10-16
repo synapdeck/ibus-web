@@ -72,6 +72,55 @@
 
       playwrightTest = "node node_modules/playwright/cli.js test -c test/e2e/playwright.config.ts";
 
+      # The WebDriver smoke suite, written for Safari, run here on Firefox
+      # through geckodriver, so that it is known to work and keeps working
+      # without a Mac.
+      webdriverSmoke =
+        pkgs.runCommand "ibus-web-webdriver-smoke"
+          (
+            pageEnv
+            // {
+              nativeBuildInputs = [ typescript.nodejs ];
+              IBUS_WEB_WEBDRIVER = lib.getExe pkgs.geckodriver;
+              IBUS_WEB_WEBDRIVER_CAPABILITIES = builtins.toJSON {
+                browserName = "firefox";
+                "moz:firefoxOptions" = {
+                  binary = lib.getExe pkgs.firefox;
+                  args = [ "-headless" ];
+                };
+              };
+            }
+          )
+          ''
+            ${playwright.setup}
+            ${enterExample}
+            set -o pipefail
+            timeout --kill-after=10 1200 node test/webdriver/smoke.ts 2>&1 | tee "$out"
+          '';
+
+      # Safari through its own WebDriver server, which ships with macOS and
+      # must be enabled once, as root: `sudo safaridriver --enable`.
+      safariSmoke = {
+        type = "app";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "ibus-web-safari-smoke";
+            runtimeInputs = [ typescript.nodejs ];
+            text = ''
+              export IBUS_WEB_DEMO_PAGE=${page}
+              export IBUS_WEB_WEBDRIVER=/usr/bin/safaridriver
+              export IBUS_WEB_WEBDRIVER_CAPABILITIES='{"browserName":"safari"}'
+
+              run_dir=$(mktemp -d)
+              trap 'rm -rf "$run_dir"' EXIT
+              cd "$run_dir"
+              ${enterExample}
+              node test/webdriver/smoke.ts
+            '';
+          }
+        );
+      };
+
       integration =
         pkgs.runCommand "ibus-web-playwright-integration"
           (
@@ -92,78 +141,89 @@
             timeout --kill-after=10 1800 ${playwrightTest} 2>&1 | tee "$out/output.txt"
           '';
     in
-    {
-      packages.demo = page;
-      packages.playwright-integration = integration;
-      ibusWeb.testing.extendedChecks.playwright = integration;
+    lib.mkMerge [
+      {
+        packages.demo = page;
+        packages.playwright-integration = integration;
+        ibusWeb.testing.extendedChecks.playwright = integration;
 
-      apps.demo = {
-        type = "app";
-        program = lib.getExe (
-          pkgs.writeShellApplication {
-            name = "ibus-web-demo";
-            runtimeInputs = [
-              typescript.nodejs
-              pkgs.pnpm
-              pkgs.git
-            ];
-            text = ''
-              root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-                echo "Run this app inside the ibus-web checkout." >&2
-                exit 1
-              }
-              cd "$root"
-              if [ ! -f flake.nix ] || [ ! -f examples/demo/package.json ]; then
-                echo "Run this app inside the ibus-web checkout." >&2
-                exit 1
-              fi
+        apps.demo = {
+          type = "app";
+          program = lib.getExe (
+            pkgs.writeShellApplication {
+              name = "ibus-web-demo";
+              runtimeInputs = [
+                typescript.nodejs
+                pkgs.pnpm
+                pkgs.git
+              ];
+              text = ''
+                root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+                  echo "Run this app inside the ibus-web checkout." >&2
+                  exit 1
+                }
+                cd "$root"
+                if [ ! -f flake.nix ] || [ ! -f examples/demo/package.json ]; then
+                  echo "Run this app inside the ibus-web checkout." >&2
+                  exit 1
+                fi
 
-              ${exports env}
+                ${exports env}
 
-              if [ ! -d node_modules ]; then pnpm install --frozen-lockfile; fi
-              pnpm --filter @ibus-web/example-demo... --filter '!@ibus-web/example-demo' run build
-              pnpm --dir examples/demo exec vite --host 127.0.0.1 --port 5173 --strictPort "$@"
-            '';
-          }
-        );
-      };
-
-      apps.keystroke-bench = {
-        type = "app";
-        program = lib.getExe (
-          pkgs.writeShellApplication {
-            name = "ibus-web-keystroke-bench";
-            runtimeInputs = [ typescript.nodejs ];
-            text = ''
-              ${exports pageEnv}
-
-              run_dir=$(mktemp -d)
-              trap 'rm -rf "$run_dir"' EXIT
-              cd "$run_dir"
-              ${enterExample}
-
-              export IBUS_WEB_KEYSTROKE_BENCH=1
-              ${playwrightTest} "$@"
-            '';
-          }
-        );
-      };
-
-      devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) env;
-
-      checks.example-demo-smoke =
-        pkgs.runCommand "ibus-web-example-demo-smoke"
-          (
-            pageEnv
-            // {
-              nativeBuildInputs = [ typescript.nodejs ];
+                if [ ! -d node_modules ]; then pnpm install --frozen-lockfile; fi
+                pnpm --filter @ibus-web/example-demo... --filter '!@ibus-web/example-demo' run build
+                pnpm --dir examples/demo exec vite --host 127.0.0.1 --port 5173 --strictPort "$@"
+              '';
             }
-          )
-          ''
-            ${playwright.setup}
-            ${enterExample}
-            timeout --kill-after=10 90 node test/smoke.ts > "$out" 2>&1 || { cat "$out"; exit 1; }
-            cat "$out"
-          '';
-    };
+          );
+        };
+
+        apps.keystroke-bench = {
+          type = "app";
+          program = lib.getExe (
+            pkgs.writeShellApplication {
+              name = "ibus-web-keystroke-bench";
+              runtimeInputs = [ typescript.nodejs ];
+              text = ''
+                ${exports pageEnv}
+
+                run_dir=$(mktemp -d)
+                trap 'rm -rf "$run_dir"' EXIT
+                cd "$run_dir"
+                ${enterExample}
+
+                export IBUS_WEB_KEYSTROKE_BENCH=1
+                ${playwrightTest} "$@"
+              '';
+            }
+          );
+        };
+
+        devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) env;
+
+        checks.example-demo-smoke =
+          pkgs.runCommand "ibus-web-example-demo-smoke"
+            (
+              pageEnv
+              // {
+                nativeBuildInputs = [ typescript.nodejs ];
+              }
+            )
+            ''
+              ${playwright.setup}
+              ${enterExample}
+              timeout --kill-after=10 90 node test/smoke.ts > "$out" 2>&1 || { cat "$out"; exit 1; }
+              cat "$out"
+            '';
+      }
+
+      (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
+        packages.webdriver-smoke = webdriverSmoke;
+        ibusWeb.testing.extendedChecks.webdriver-smoke = webdriverSmoke;
+      })
+
+      (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+        apps.safari-smoke = safariSmoke;
+      })
+    ];
 }

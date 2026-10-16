@@ -571,7 +571,25 @@ aggregate, outside default `nix flake check`.
 Pinned Playwright 1.63.0 runs Linux WebKit 26.6 (revision 2359) in the Nix sandbox using pinned Mesa 26.2.3 software EGL
 and an Ubuntu 24.04 Playwright platform override. No CI browser fallback is needed. This is Linux WebKit evidence, not
 Safari 17.4 or macOS verification. Linux native undo uses Control+Z; macOS uses Meta+Z. Focused native undo and an
-unfocused blur commit are distinct assertions; the latter can use `setRangeText` without native undo.
+unfocused blur commit are distinct assertions; the latter can use `setRangeText` without native undo. CI also builds
+`packages.aarch64-darwin.playwright-integration`, the same suite on macOS, whose WebKit is closer to Safari's.
+
+### Safari and WebDriver
+
+Playwright drives its own WebKit, never Safari, so `examples/demo/test/webdriver/smoke.ts` drives the production demo
+through plain W3C WebDriver (`webdriver.ts`, a few commands over `fetch`). It serves the page, starts the driver named
+by `IBUS_WEB_WEBDRIVER` with `--port`, opens one session with the capabilities in `IBUS_WEB_WEBDRIVER_CAPABILITIES`, and
+checks, as a user's keystrokes through WebDriver's key actions: that the page is cross-origin isolated; Hangul composing
+`한` from `gks` and committing it on blur; `rime_ice`'s dictionaries installing and `nihao ` typing `你好`; a candidate
+chosen below the first coming first after a reload, with the module's storage persistent and writable, which is the
+IndexedDB backend in the module's Workers; and no page error. It runs as one session because safaridriver serves one at
+a time.
+
+- `nix run .#safari-smoke` (aarch64-darwin) runs it on Safari through `/usr/bin/safaridriver`, which must be enabled
+  once with `sudo safaridriver --enable`. CI's `safari` job does both on the macOS runner.
+- `nix build .#webdriver-smoke` (Linux) runs it on Firefox through geckodriver in the Nix sandbox, so the suite is known
+  to work, and keeps working, without a Mac. It is `ibusWeb.testing.extendedChecks.webdriver-smoke`, in
+  `integration-checks`.
 
 ### Keystroke measurements
 
