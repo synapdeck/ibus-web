@@ -190,8 +190,10 @@
               '') release.engines
             )}
 
-            # Each asset's size and digest, with what produced it.
-            for asset in *; do
+            # Each asset's size and digest, with what produced it. The list is
+            # taken first: the pipeline creates release.json while it runs.
+            assets=(*)
+            for asset in "''${assets[@]}"; do
               jq -n --arg name "$asset" --argjson size "$(stat -c%s "$asset")" \
                 --arg sha256 "$(sha256sum "$asset" | cut -d' ' -f1)" '{ $name, $size, $sha256 }'
             done | jq -s --arg version ${version} --arg commit ${commit} \
