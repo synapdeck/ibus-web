@@ -28,8 +28,9 @@ import type { Printed } from "./printed.ts";
 export interface BuildConstants extends RuntimeConstants {
   // The test side modules' opcodes, by their C names without TEST_OP_.
   ops: Readonly<Record<string, number>>;
-  // struct mallinfo's size, and the offset of uordblks (bytes in use).
-  mallinfo: { bytes: number; inUseOffset: number };
+  // struct mallinfo's size, and the offsets of uordblks (bytes in use) and
+  // usmblks (the most the allocator has taken from the heap's base).
+  mallinfo: { bytes: number; inUseOffset: number; peakOffset: number };
 }
 
 export interface RuntimeBuild {

@@ -122,16 +122,17 @@
             # session that loads it again. Where those copies land among the
             # blocks that outlive them differs from run to run: in the runs
             # traced, rime-host's page-size change ended its redeployment at 84
-            # to 125 MB and its session added nothing or 8.4 MB, while the
-            # highest peak measured, 152,223,744 bytes, had the session's table
-            # above it all. Without the change the workload peaks at 102.2 MB,
-            # with rime_ice and luna_pinyin open in one Worker. The
-            # workload runs one engine thread at a time, the deployer's;
-            # LevelDB's compaction thread stays once started, so a deployment
-            # after it needs a second. The declaration leaves several MB above
-            # the highest peak, and the manifest builder adds headroom after it.
+            # to 125 MB of break and its session added nothing or 8.4 MB, while
+            # the highest break measured, 152,223,744 bytes, a heap of
+            # 149,747,776, had the session's table above it all. Without the
+            # change the heap peaks at 99,764,288 bytes, with rime_ice and
+            # luna_pinyin open in one Worker. The workload runs one engine
+            # thread at a time, the deployer's; LevelDB's compaction thread
+            # stays once started, so a deployment after it needs a second. The
+            # declaration leaves several MiB above the highest peak, and the
+            # manifest builder adds headroom after it.
             threads = 2;
-            heapBytes = 150 * 1024 * 1024;
+            heapBytes = 147 * 1024 * 1024;
           };
         in
         manifest.overrideAttrs (old: {

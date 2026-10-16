@@ -87,10 +87,11 @@
         name = "hangul";
         package = hangul;
 
-        # Host conformance peaks at 3,461,120 bytes and uses no engine threads.
-        # The manifest builder adds headroom after this whole-MiB declaration.
+        # hangul-host's heap peaks at 1,624,192 bytes asserting and 1,626,368
+        # released, with no engine threads; the declaration leaves several MiB
+        # above that, and the manifest builder adds headroom after it.
         threads = 0;
-        heapBytes = 4 * 1024 * 1024;
+        heapBytes = 6 * 1024 * 1024;
 
         inherit (hangul) settingsSchemaDir;
         engines = [

@@ -46,7 +46,7 @@ const typeText = async (session: PageSession, ic: number, text: string, ret = 1)
 
 describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
   let current: PageSession | undefined;
-  let breakPeak = 0;
+  let heapPeak = 0;
   let threadsPeak = 0;
   const start = async (options: SessionOptions): Promise<PageSession> => {
     const begin = performance.now();
@@ -60,17 +60,17 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
     if (running === undefined) return;
     try {
       const stats = await running.stats();
-      breakPeak = Math.max(breakPeak, stats.breakPeak);
+      heapPeak = Math.max(heapPeak, stats.heapPeak);
       threadsPeak = Math.max(threadsPeak, stats.activeThreadsPeak);
       expect(stats.activeThreadsPeak).toBeLessThanOrEqual(manifest.threads);
-      expect(stats.breakPeak).toBeGreaterThan(0);
-      expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
+      expect(stats.heapPeak).toBeGreaterThan(0);
+      expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
       expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + manifest.threads);
     } finally {
       await running.host.terminate();
     }
   });
-  afterAll(() => h.record(`Mozc ${runtime.name} suite peaks`, { breakPeak, threadsPeak, heapBytes: build.heapBytes }));
+  afterAll(() => h.record(`Mozc ${runtime.name} suite peaks`, { heapPeak, threadsPeak, heapBytes: build.heapBytes }));
 
   test("romaji composes underlined hiragana, Space converts it and Enter commits the conversion", async () => {
     const session = await start(hiragana);

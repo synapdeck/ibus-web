@@ -88,10 +88,11 @@
               jq -nc --arg storePath "$storePath" --arg url "./data/$file" --argjson size "$size" \
                 '{ $storePath, $url, $size, encoding: "br" }' >> data.jsonl
             done < ${closure}/store-paths
-            static=$(node ${../../tools/engine-manifest/dylink.ts} $out/${name}.wasm)
             mib=1048576
-            # Integer arithmetic rounds the 25% headroom up to whole MiB.
-            memory=$(( ((${toString runtime.memory.minimum} + static + ${toString threads} * mib + ${toString heapBytes}) * 5 + 4 * mib - 1) / (4 * mib) * mib ))
+            # The module's static data is allocated in the heap as it loads,
+            # so heapBytes holds it. Integer arithmetic rounds the 25% headroom
+            # up to whole MiB.
+            memory=$(( ((${toString runtime.memory.minimum} + ${toString threads} * mib + ${toString heapBytes}) * 5 + 4 * mib - 1) / (4 * mib) * mib ))
             test "$memory" -le ${toString runtime.memory.maximum}
             abi=$(jq '.abi' ${runtime.exportList}/exports.json)
             runtimeIdentity=$(jq -r '.identity' ${runtime.exportList}/exports.json)

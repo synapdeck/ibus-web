@@ -100,7 +100,7 @@ test("Init with every declared instance fits one request", () => {
 
 describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
   let current: PageSession | undefined;
-  let breakPeak = 0;
+  let heapPeak = 0;
   const start = async (engine: string, values?: Readonly<Record<string, Values>>): Promise<PageSession> => {
     const begin = performance.now();
     current = await PageSession.start(h, runtime, manifest, options(engine, values));
@@ -113,17 +113,17 @@ describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
     if (running === undefined) return;
     try {
       const stats = await running.stats();
-      breakPeak = Math.max(breakPeak, stats.breakPeak);
+      heapPeak = Math.max(heapPeak, stats.heapPeak);
       expect(stats.activeThreadsAtRuntimeStart).toBe(0);
       expect(stats.activeThreadsPeak).toBe(0);
-      expect(stats.breakPeak).toBeGreaterThan(0);
-      expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
+      expect(stats.heapPeak).toBeGreaterThan(0);
+      expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
       expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + manifest.threads);
     } finally {
       await running.host.terminate();
     }
   });
-  afterAll(() => h.record(`m17n ${runtime.name} suite peaks`, { breakPeak, heapBytes: build.heapBytes }));
+  afterAll(() => h.record(`m17n ${runtime.name} suite peaks`, { heapPeak, heapBytes: build.heapBytes }));
 
   test("t:latn-post composes á from a and ' and commits it with the Space", async () => {
     const session = await start("m17n:t:latn-post");
@@ -233,7 +233,7 @@ describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
   });
 
   // The declaration has to hold the worst a page can do: every engine open at once.
-  test("every engine open in one Worker stays within the declared break", async () => {
+  test("every engine open in one Worker stays within the declared heap", async () => {
     const session = await start("m17n:t:latn-post");
     for (const [index, { name }] of manifest.engines.entries()) await session.create(index + 2, name);
     for (let ic = 1; ic <= manifest.engines.length + 1; ic++) await typeText(session, ic, "a");
@@ -241,9 +241,9 @@ describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
     const stats = await session.stats();
     h.record(`m17n ${runtime.name} every engine`, {
       engines: manifest.engines.length,
-      breakPeak: stats.breakPeak,
+      heapPeak: stats.heapPeak,
       heapBytes: build.heapBytes,
     });
-    expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
+    expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
   });
 });

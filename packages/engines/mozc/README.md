@@ -20,7 +20,7 @@ display names and languages. Mozc keeps its configuration, user dictionary and h
 
 Serve `dist/` as it is: the manifest names its files by relative URL, and the data archives are already
 Brotli-compressed, so they must be served without `Content-Encoding: br`. The data set is 35 MB compressed and the
-module's Worker takes 136 MiB of memory. Details are in
+module's Worker takes 134 MiB of memory. Details are in
 [docs/mozc.md](https://github.com/synapdeck/ibus-web/blob/master/docs/mozc.md).
 
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-mozc` packs the

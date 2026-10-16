@@ -18,11 +18,11 @@
         name = "table";
         package = table.module;
 
-        # table-host peaks at 3,956,736 bytes asserting and 3,952,640 released,
-        # both tables loaded; the manifest builder adds headroom after this
-        # whole-MiB declaration.
+        # table-host's heap peaks at 1,497,216 bytes asserting and 1,495,296
+        # released, both tables loaded; the declaration leaves several MiB
+        # above that, and the manifest builder adds headroom after it.
         threads = 0;
-        heapBytes = 4 * 1024 * 1024;
+        heapBytes = 6 * 1024 * 1024;
 
         inherit (table.module) settingsSchemaDir;
         engines = descriptors;

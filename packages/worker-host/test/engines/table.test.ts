@@ -44,7 +44,7 @@ const typeText = async (session: PageSession, ic: number, text: string): Promise
 
 describe.each(h.data.runtimes)("the table module through $name host", (runtime) => {
   let current: PageSession | undefined;
-  let breakPeak = 0;
+  let heapPeak = 0;
   const start = async (options: SessionOptions, dist = manifest): Promise<PageSession> => {
     current = await PageSession.start(h, runtime, dist, options);
     return current;
@@ -55,17 +55,17 @@ describe.each(h.data.runtimes)("the table module through $name host", (runtime) 
     if (running === undefined) return;
     try {
       const stats = await running.stats();
-      breakPeak = Math.max(breakPeak, stats.breakPeak);
+      heapPeak = Math.max(heapPeak, stats.heapPeak);
       expect(stats.activeThreadsAtRuntimeStart).toBe(0);
       expect(stats.activeThreadsPeak).toBeLessThanOrEqual(manifest.threads);
-      expect(stats.breakPeak).toBeGreaterThan(0);
-      expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
+      expect(stats.heapPeak).toBeGreaterThan(0);
+      expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
       expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + manifest.threads);
     } finally {
       await running.host.terminate();
     }
   });
-  afterAll(() => h.record(`Table ${runtime.name} suite peaks`, { breakPeak, heapBytes: build.heapBytes }));
+  afterAll(() => h.record(`Table ${runtime.name} suite peaks`, { heapPeak, heapBytes: build.heapBytes }));
 
   test("LaTeX shows \\alpha underlined with its candidates and commits α on Space", async () => {
     const session = await start(latex);

@@ -460,21 +460,21 @@ decoded record ordering and `replyOutSeq`; GLib warning/error/critical records f
 exposes no suitable writing action; it verifies `SettingWritten` transport, not an upstream UI action.
 
 An engine module's suite, `test/engines/<suite>.test.ts`, runs under Node in place of the host's own suites when
-`IBUS_WEB_MODULE_TESTS` names its description: the module distributions it starts hosts from, the program break and pool
-it is held to, and texts its build computed. Its `PageSession` takes the Init settings, the engine each context creates
-and what follows creation; a critical or error record fails the exchange that brought it, and so does a warning unless
-it falls within a deployment, which the options name by the messages the module logs as one starts and ends, and which
-the module's first start counts as; `deploymentWarnings` keeps those. Every record through a reply's `replyOutSeq` must
-have been read with it, and one past it may have been: the host keeps pumping after it publishes a reply, so a record
-another thread emitted meanwhile reaches the ring before the page takes the reply. `key` expects the engine to consume a
-press, and `press` reports whether it did, for a key the engine may decline. `checks.hangul-host`, `checks.table-host`,
+`IBUS_WEB_MODULE_TESTS` names its description: the module distributions it starts hosts from, the heap and pool it is
+held to, and texts its build computed. Its `PageSession` takes the Init settings, the engine each context creates and
+what follows creation; a critical or error record fails the exchange that brought it, and so does a warning unless it
+falls within a deployment, which the options name by the messages the module logs as one starts and ends, and which the
+module's first start counts as; `deploymentWarnings` keeps those. Every record through a reply's `replyOutSeq` must have
+been read with it, and one past it may have been: the host keeps pumping after it publishes a reply, so a record another
+thread emitted meanwhile reaches the ring before the page takes the reply. `key` expects the engine to consume a press,
+and `press` reports whether it did, for a key the engine may decline. `checks.hangul-host`, `checks.table-host`,
 `checks.mozc-host`, `checks.m17n-host` and `checks.rime-host` are such suites; a suite's `PageSession` prepares an
 engine with data of its own before creating it, as the page does.
 
-The measured program break (`sbrk(0)`, which the allocator never lowers) peaked at 3,461,120 bytes asserting and
-3,452,928 released, below the 4 MiB `heapBytes` declaration, which the harness checks it against as `breakPeak`. The
-break is an address, so it counts static data below the heap as well. The initial and peak pool size was eight, and
-checked-out pthread peak was zero, supporting a zero engine-thread declaration for this workload. These are Node storage
-workload results, not universal heap or browser pthread bounds. The harness uses reserved test instruments for
-statistics; it never reads WASM memory from the page. The golden C harness remains separate: 16 behavior cases and a
-run-completion check, 17 reported tests.
+The heap's measured peak (`mallinfo()`'s `usmblks`, the most the allocator has taken from the heap's base, side modules'
+static data included) was 1,624,192 bytes asserting and 1,626,368 released, below the 6 MiB `heapBytes` declaration,
+which the harness checks it against as `heapPeak`. The initial and peak pool size was eight, and checked-out pthread
+peak was zero, supporting a zero engine-thread declaration for this workload. These are Node storage workload results,
+not universal heap or browser pthread bounds. The harness uses reserved test instruments for statistics; it never reads
+WASM memory from the page. The golden C harness remains separate: 16 behavior cases and a run-completion check, 17
+reported tests.

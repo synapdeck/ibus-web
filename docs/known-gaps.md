@@ -106,10 +106,6 @@ decided.
   `event.key`. Arbitrary OS layouts, Dead/AltGr/shortcut behavior and fallback replay have no system-layout matrix. A
   host override/detection mechanism is a future design recommendation.
 
-- **The memory figure counts static data twice.** `heapBytes` is the declared program-break peak, an address that
-  includes the static data below the heap, and the manifest's `memory` adds it to the runtime minimum and the module's
-  `dylink.0` static size, which count that data already. The figure errs large; declaring the heap alone would need the
-  break measured from the heap's base.
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
   handler's arity. Hangul needs no lazy arity bridge, and Rime's only connected handlers are the module's own GSettings
   `changed` handlers.
@@ -149,9 +145,8 @@ decided.
 - **Rime has no grammar model.** `librime-octagram` is built but no shipped schema configures a grammar: upstream
   replaces RIME-LMDG's model, 398 MB, in place, so it can't be pinned ([rime.md](rime.md#librime)).
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
-  100–200 KB, in that input context's session. The 4 MiB `heapBytes` of the table module was measured with one such
-  context open. Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a
-  larger `heapBytes`.
+  100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
+  Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
 
 - **Rime in a second tab is nearly unusable.** Only one tab holds a module's writer lock, so the data is safe, but a
   read-only Rime can't open its user dictionaries: LevelDB opens its `LOCK` file read-write, which the read-only mount
@@ -164,8 +159,8 @@ decided.
 - **A failed held log write is only logged.** The module holds a user dictionary's log writes back until input pauses
   ([rime.md](rime.md#learning)); when one then fails, it logs a warning, but LevelDB, told earlier that the write
   succeeded, never enters its error state.
-- **Rime's heap in the worst case passes 150 MiB.** A redeployment that ends with the break at 125 MB, followed by a
-  session that loads `rime_ice`'s 60.7 MB table above it, would pass the declared 150 MiB. The traced sessions added
+- **Rime's heap in the worst case passes 147 MiB.** A redeployment that ends with the heap at 122.5 MB, followed by a
+  session that loads `rime_ice`'s 60.7 MB table above it, would pass the declared 147 MiB. The traced sessions added
   nothing or 8.4 MB, and none of 36 runs reached it ([rime.md](rime.md#distribution)).
 - **Backspace can't take a commit back after `Persist`.** Hiding the tab sends `Persist`, which commits Rime's learning,
   so a Backspace afterwards takes nothing back.

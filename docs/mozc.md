@@ -128,9 +128,9 @@ starts. The rewrite keeps the file's settings and loses its comments.
 
 The data closure is the data set and the compiled `org.freedesktop.ibus.panel` schema, the module's only settings
 schema. The data set is 54,375,469 bytes, 35 MB as Brotli; `mozc.wasm` is 5.3 MB. Mozc reads the whole data set into
-memory. The manifest declares one engine thread and a 75 MiB program break, from `checks.mozc-host`'s peaks of
-73,367,552 bytes asserting and 73,371,648 released, with the data set loaded and at most one engine thread alive; its
-memory comes to 136 MiB.
+memory. The manifest declares one engine thread and a 74 MiB heap, from `checks.mozc-host`'s heap peaks of 73,230,464
+bytes asserting and 73,236,736 released, with the data set loaded and at most one engine thread alive; its memory comes
+to 134 MiB.
 
 The licence is
 `BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0-only AND CC-BY-SA-4.0 AND GPL-2.0-or-later`.

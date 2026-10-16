@@ -63,7 +63,7 @@ const lookup = (records: DecodedRecord[]) => {
 describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
   let session: PageSession;
   let started = false;
-  let breakPeak = 0;
+  let heapPeak = 0;
   let poolWorkersPeak = 0;
   let activeThreadsPeak = 0;
   beforeEach(async () => {
@@ -75,13 +75,13 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     if (!started) return;
     try {
       const stats = await session.stats();
-      breakPeak = Math.max(breakPeak, stats.breakPeak);
+      heapPeak = Math.max(heapPeak, stats.heapPeak);
       poolWorkersPeak = Math.max(poolWorkersPeak, stats.poolWorkersPeak);
       activeThreadsPeak = Math.max(activeThreadsPeak, stats.activeThreadsPeak);
       expect(stats.activeThreadsAtRuntimeStart).toBe(0);
       expect(stats.activeThreadsPeak).toBeLessThanOrEqual(manifest.threads);
-      expect(stats.breakPeak).toBeGreaterThan(0);
-      expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
+      expect(stats.heapPeak).toBeGreaterThan(0);
+      expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
       expect(stats.poolWorkersPeak).toBeLessThanOrEqual(build.poolBase + manifest.threads);
     } finally {
       await session.host.terminate();
@@ -89,7 +89,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
   });
   afterAll(() =>
     h.record(`Hangul ${runtime.name} suite peaks`, {
-      breakPeak,
+      heapPeak,
       poolWorkersPeak,
       activeThreadsPeak,
       threads: manifest.threads,
@@ -219,7 +219,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       "HidePreeditText",
     ]);
   });
-  test("Hanja and repeated lifecycle stay within the declared program break and threads", async () => {
+  test("Hanja and repeated lifecycle stay within the declared heap and threads", async () => {
     const before = await session.stats();
     for (let i = 0; i < 3; i++) {
       await compose();
@@ -229,7 +229,7 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     }
     const stats = await session.stats();
     h.record(`Hangul ${runtime.name} resources`, {
-      breakPeak: stats.breakPeak,
+      heapPeak: stats.heapPeak,
       poolWorkersPeak: stats.poolWorkersPeak,
       idleWorkers: stats.idleWorkers,
       activeThreadsPeak: stats.activeThreadsPeak,
@@ -239,8 +239,8 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
     expect(stats.poolWorkersPeak).toBe(build.poolBase + manifest.threads);
     expect(stats.workersCreated).toBe(0);
     expect(stats).toMatchObject({ activeThreadsAtRuntimeStart: 0, activeThreadsPeak: 0 });
-    expect(stats.breakPeak).toBeGreaterThan(0);
-    expect(stats.breakPeak).toBeGreaterThanOrEqual(before.breakPeak);
-    expect(stats.breakPeak).toBeLessThanOrEqual(build.heapBytes);
+    expect(stats.heapPeak).toBeGreaterThan(0);
+    expect(stats.heapPeak).toBeGreaterThanOrEqual(before.heapPeak);
+    expect(stats.heapPeak).toBeLessThanOrEqual(build.heapBytes);
   });
 });

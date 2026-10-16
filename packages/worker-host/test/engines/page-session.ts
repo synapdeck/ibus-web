@@ -35,8 +35,8 @@ export const Key = {
 } as const;
 
 // What a module's suite runs against: its distributions' manifests by name,
-// with URLs as this environment fetches them, the program break and pool
-// it is held to, and texts its build computed.
+// with URLs as this environment fetches them, the heap and pool it is held
+// to, and texts its build computed.
 export interface ModuleBuild {
   manifests: Readonly<Record<string, ModuleManifest>>;
   heapBytes: number;

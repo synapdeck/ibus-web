@@ -3,28 +3,17 @@
 
 {
   perSystem =
-    { config, pkgs, ... }:
+    { config, ... }:
     let
-      inherit (config.ibusWeb) runtime testing typescript;
-
-      # A side module whose dylink section the tests read.
-      fixture = runtime.mkSideModule {
-        name = "manifest-fixture";
-        src = ./.;
-        sources = [ "fixture.c" ];
-      };
+      inherit (config.ibusWeb) testing typescript;
     in
     {
-      checks.tools-engine-manifest =
-        (testing.vitestCheck {
-          name = "tools-engine-manifest";
-          packageDir = "${typescript.workspaceFor [ "tools/engine-manifest" ]}/tools/engine-manifest";
-          env.IBUS_WEB_DYLINK_FIXTURE = fixture.wasm;
-          inBrowsers = false;
-          limit = 60;
-        }).overrideAttrs
-          (old: {
-            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.wabt ];
-          });
+      checks.tools-engine-manifest = testing.vitestCheck {
+        name = "tools-engine-manifest";
+        packageDir = "${typescript.workspaceFor [ "tools/engine-manifest" ]}/tools/engine-manifest";
+        env = { };
+        inBrowsers = false;
+        limit = 60;
+      };
     };
 }

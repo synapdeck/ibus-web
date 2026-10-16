@@ -85,6 +85,10 @@ export interface HostStats {
   // an address, so it counts everything below the heap too, static data
   // included.
   breakPeak: number;
+  // The most the allocator has taken from the heap's base: the heap's peak,
+  // which a manifest's heapBytes declares. Side modules' static data, made
+  // as they load, is in it; the runtime's own, below the base, isn't.
+  heapPeak: number;
   // Workers Emscripten created after the runtime started, beyond its pool.
   workersCreated: number;
   // Workers in Emscripten's pool that host no thread and can take one.
@@ -148,9 +152,10 @@ export interface TestInit {
   deferPump?: SharedArrayBuffer;
   callsAfterFault?: SharedArrayBuffer;
   canceled?: number;
-  // struct mallinfo's size, and the offset of uordblks (bytes in use), as
-  // the WebAssembly target defines them.
-  mallinfo: { bytes: number; inUseOffset: number };
+  // struct mallinfo's size, and the offsets of uordblks (bytes in use) and
+  // usmblks (the most the allocator has taken from the heap's base), as the
+  // WebAssembly target defines them.
+  mallinfo: { bytes: number; inUseOffset: number; peakOffset: number };
   // Limits to shorten.
   config?: Partial<HostConfigValues>;
   // Starts the relay that fails once it has forwarded this many wakes.

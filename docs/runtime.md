@@ -599,13 +599,13 @@ Each runtime's memory is fixed, made by the host:
 - Without growth support Emscripten's JavaScript doesn't check its views before each access.
 
 The size is a manifest field, not a link per engine, so one compiled runtime serves every engine and the page compiles
-it once. The rule for computing it (runtime minimum + the side module's `dylink.0` static bytes + 1 MiB per engine-share
-thread + declared `heapBytes`) adds 25% headroom and rounds up to whole MiB. `mkEngineManifest` computes it from build
-data; `heapBytes` stays build/check metadata, the declared peak of the program break, guarded against the conformance
-harness's measured `sbrk(0)`. The break is an address, so it counts the static data below the heap too, which the
-runtime minimum and the module's static bytes already count: the figure is conservative. Without IndexedDB, the host
-adds unpacked data bytes separately in whole pages. The runtime starts at about 2.3 MiB of heap, and each running thread
-adds about 1 MiB, mostly its stack.
+it once. The rule for computing it (runtime minimum + 1 MiB per engine-share thread + declared `heapBytes`) adds 25%
+headroom and rounds up to whole MiB. `mkEngineManifest` computes it from build data; `heapBytes` stays build/check
+metadata, the declared peak of the heap from its base, guarded against the conformance harness's measured peak
+(`mallinfo()`'s `usmblks`, the most the allocator has taken). A side module's static data is allocated in the heap as it
+loads, so the heap holds it; the runtime minimum covers the runtime's own static data and stack below the heap's base.
+Without IndexedDB, the host adds unpacked data bytes separately in whole pages. The runtime starts at about 2.3 MiB of
+heap, and each running thread adds about 1 MiB, mostly its stack.
 
 GLib's tests and tools and other Node-run test programs use a fixed 512 MiB (`ibusWeb.toolchain.testMemoryFlags`; GLib's
 largest test peaks at 280 MiB), for the same reason ([toolchain.md](toolchain.md)).

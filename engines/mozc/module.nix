@@ -31,11 +31,12 @@
         name = "mozc";
         package = mozc;
 
-        # mozc-host peaks at 73,379,840 bytes asserting and 73,371,648 released,
-        # the data set loaded, with one engine thread at most; the manifest
-        # builder adds headroom after this whole-MiB declaration.
+        # mozc-host's heap peaks at 73,230,464 bytes asserting and 73,236,736
+        # released, the data set loaded, with one engine thread at most; the
+        # declaration leaves several MiB above that, and the manifest builder
+        # adds headroom after it.
         threads = 1;
-        heapBytes = 75 * 1024 * 1024;
+        heapBytes = 74 * 1024 * 1024;
 
         inherit (mozc) settingsSchemaDir;
         engines = [

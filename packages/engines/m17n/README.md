@@ -25,7 +25,7 @@ value.
 
 Serve `dist/` as it is: the manifest names its files by relative URL, and the data archives are already
 Brotli-compressed, so they must be served without `Content-Encoding: br`. The data is 1.5 MB compressed and the module's
-Worker takes 79 MiB of memory. Details are in
+Worker takes 77 MiB of memory. Details are in
 [docs/m17n.md](https://github.com/synapdeck/ibus-web/blob/master/docs/m17n.md).
 
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-m17n` packs the

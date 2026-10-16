@@ -479,16 +479,15 @@ names, relative and absolute links to a file and a directory, within its store p
 a store path that is a single file, and read each path back as the store has it, on memory storage and on storage that
 outlives the host. Generated `PROTOCOL.md` includes the SAB layout.
 
-`tools-engine-manifest` runs the build tools' Vitest suites: `dylink.ts` against `wasm-objdump` on a compiled side
-module; `symlinks.ts`, which accepts links that resolve inside a closure (relative, absolute, chained, or a store path
-that is itself a link) and refuses a dangling link, one leading out of the closure, a chain that passes outside on its
-way back in, a link to a directory that only holds closure paths, and a loop, failing the command with the link named;
-and `protocol.ts`, which prints the protocol version and checks a manifest with the protocol's decoder and the runtime's
-memory bounds.
+`tools-engine-manifest` runs the build tools' Vitest suites: `symlinks.ts`, which accepts links that resolve inside a
+closure (relative, absolute, chained, or a store path that is itself a link) and refuses a dangling link, one leading
+out of the closure, a chain that passes outside on its way back in, a link to a directory that only holds closure paths,
+and a loop, failing the command with the link named; and `protocol.ts`, which prints the protocol version and checks a
+manifest with the protocol's decoder and the runtime's memory bounds.
 
 `hangul-host` uses a real Node Worker, the built Hangul manifest and the test Page: 20 cases across both builds. It
 checks output ordering and real engine behavior and fails on warning/error/critical logs. Reserved test operations
-measure the program break's peak (`breakPeak`, checked against the declared `heapBytes`), retained pool Worker and
+measure the heap's peak from its base (`heapPeak`, checked against the declared `heapBytes`), retained pool Worker and
 checked-out pthread peaks; `heapBytes` comes from build metadata. These workload results guard declarations without
 establishing universal resource bounds. The 16-case C golden harness (17 reported tests including completion) and native
 differential traces remain independent checks. Browser host checks exercise the transport, not a live page router or

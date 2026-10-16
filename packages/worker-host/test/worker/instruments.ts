@@ -125,6 +125,7 @@ export const makeInstruments = (
       // Emscripten dlmalloc defines MORECORE_CANNOT_TRIM: frees never lower
       // the break, so sbrk(0) retains the peak across startup and requests.
       breakPeak: (rt as unknown as { _sbrk(increment: number): number })._sbrk(0),
+      heapPeak: words[(scratch + test.mallinfo.peakOffset) / 4]!,
       idleWorkers: rt.PThread.unusedWorkers.length,
       heapInUse: words[(scratch + test.mallinfo.inUseOffset) / 4]!,
       memoryBytes: memory.buffer.byteLength,

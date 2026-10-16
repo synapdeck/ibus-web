@@ -15,7 +15,7 @@ import { makeInstruments } from "./instruments.ts";
 
 self.onmessage = ({ data }: MessageEvent<HostInit<WebAssembly.Module, TestInit>>) => {
   self.onmessage = null;
-  const test: TestInit = data.test ?? { mallinfo: { bytes: 0, inUseOffset: 0 } };
+  const test: TestInit = data.test ?? { mallinfo: { bytes: 0, inUseOffset: 0, peakOffset: 0 } };
   const config = { ...defaultHostConfig, ...test.config };
   const env: WorkerEnv = {
     post: (message) => self.postMessage(message),

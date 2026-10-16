@@ -17,12 +17,12 @@
           settingsPaths
           ;
 
-        # m17n-host peaks at 27,656,192 bytes asserting and 27,648,000
+        # m17n-host's heap peaks at 25,180,288 bytes asserting and 25,178,368
         # released with every engine open in one Worker; the declaration
         # leaves several MiB above that, and the manifest builder adds
         # headroom after it.
         threads = 0;
-        heapBytes = 31 * 1024 * 1024;
+        heapBytes = 29 * 1024 * 1024;
 
         engines = m17n.descriptors;
       };

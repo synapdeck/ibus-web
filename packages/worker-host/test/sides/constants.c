@@ -19,7 +19,9 @@ int main(void) {
   TEST_OPS(PRINT_OP)
 #undef PRINT_OP
   printf("}");
-  printf(", \"mallinfo\": {\"bytes\": %zu, \"inUseOffset\": %zu}}\n",
-         sizeof(struct mallinfo), offsetof(struct mallinfo, uordblks));
+  printf(", \"mallinfo\": {\"bytes\": %zu, \"inUseOffset\": %zu, "
+         "\"peakOffset\": %zu}}\n",
+         sizeof(struct mallinfo), offsetof(struct mallinfo, uordblks),
+         offsetof(struct mallinfo, usmblks));
   return 0;
 }

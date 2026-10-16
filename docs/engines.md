@@ -46,11 +46,11 @@ first lookup.
 an attribute set (schema id to its paths) or such a file; a descriptor may carry `data`, the store paths of the closure
 it alone needs, which the build checks with the rest of the manifest; the manifest's own check validates them, so
 evaluation never reads a build output. It derives license and the upstream version from the package, runtime ABI and
-protocol from the build, and static memory from the module's `dylink.0` section. The license is the conjunction of the
-package's `meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the
-SPDX ids, which writes each license once under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an
-id SPDX doesn't know. It merges no license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the
-expression records what the contents carry, not the terms they can be passed on under. Build:
+protocol from the build. The license is the conjunction of the package's `meta.license`, normalized by
+`ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the SPDX ids, which writes each license once
+under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an id SPDX doesn't know. It merges no
+license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the expression records what the contents
+carry, not the terms they can be passed on under. Build:
 
 ```sh
 nix build .#ibus-web-hangul-dist
@@ -122,13 +122,12 @@ The host validates the manifest before allocating runtime resources and rejects 
 must be `IBUSWEB_RUNTIME_ABI`, and `runtimeIdentity`, a SHA-256 in lowercase hexadecimal, the runtime's identity over
 its libraries' versions and exports ([runtime.md](runtime.md#the-export-list)).
 
-The build computes memory as `(runtime minimum + dylink static bytes + threads × 1 MiB + heapBytes) × 1.25`, rounded up
-to whole MiB. `heapBytes` is build/check metadata, not a manifest field: the declared peak of the program break
-(`sbrk(0)`), which is an address and so counts the static data below the heap as well as the heap itself. Adding it to
-the runtime minimum and the module's static size therefore counts that memory twice, so the figure is conservative.
-`checks.hangul-host` fails if the measured break peak (`breakPeak`) exceeds `heapBytes` or engine thread demand exceeds
-`threads`. Hangul declares a 4 MiB break and zero threads, based on its current Node conformance workload; the formula
-adds headroom separately. Browser storage threads belong to the runtime's storage share.
+The build computes memory as `(runtime minimum + threads × 1 MiB + heapBytes) × 1.25`, rounded up to whole MiB.
+`heapBytes` is build/check metadata, not a manifest field: the declared peak of the heap, measured from its base, which
+holds the side module's static data too, since the module is allocated there as it loads. `checks.hangul-host` fails if
+the measured heap peak (`heapPeak`) exceeds `heapBytes` or engine thread demand exceeds `threads`. Hangul declares a 6
+MiB heap and zero threads, several MiB over its Node conformance workload's peak; the formula adds headroom separately.
+Browser storage threads belong to the runtime's storage share.
 
 ### An engine's own data
 
@@ -281,8 +280,8 @@ engine would consume space and emit `ForwardKeyEvent` after `CommitText`.
 The shim reports 17 golden tests, including its run-completion check. The
 [Worker-host conformance harness](worker-host.md#transport-and-hangul-conformance) is a separate Node check: ten
 scenarios on each asserting/released build, 20 reported tests. It runs the real engine through SAB requests and records
-rather than calling WASM directly, and guards the declared program break and thread share. Neither harness establishes
-live browser UI behavior or device input behavior.
+rather than calling WASM directly, and guards the declared heap and thread share. Neither harness establishes live
+browser UI behavior or device input behavior.
 
 ## MARISA
 
@@ -310,7 +309,7 @@ nix build .#checks.x86_64-linux.table-host
 time. `latex` comes first and is the module's default. The data closure is the two tables and the compiled
 `org.freedesktop.ibus.panel` schema, the module's only settings schema. The manifest's licence is
 `(MIT OR Apache-2.0) AND BSD-2-Clause AND W3C`: the engine, MARISA linked into it, and the LaTeX table's data. It
-declares no engine threads and a program break that `checks.table-host` checks with both tables loaded.
+declares no engine threads and a 6 MiB heap that `checks.table-host` checks with both tables loaded.
 
 The module ships as `@ibus-web/engine-table` (`packages/engines/table/`), packed as Hangul's is:
 `nix build .#npm.engine-table` copies `ibus-web-table-dist` in as `dist/` and adds the MIT, Apache-2.0 and W3C texts to
