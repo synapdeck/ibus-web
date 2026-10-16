@@ -65,8 +65,12 @@ protocol version stay 1.
 - `ESHUTDOWN` answers every request after `Shutdown`; `ENOTRECOVERABLE` every request after a fault.
 - Warming runs as many threads as there are idle pool Workers, all created before any is joined, so each lands on a
   Worker of its own; the conformance instruments don't count those threads among the engine's.
+- Warming threads take 64 KiB stacks: every stack comes from the heap, and a default 1 MiB one on each idle Worker raised
+  the heap's measured peak by about 8 MB, more than Hangul's and the table module's own peaks.
 - The dispatch hook's cost is measured with a microbenchmark of signal emissions run once in a scratch build, not as a
-  check; the result is recorded in `docs/glib.md`.
+  check; the result is recorded in the GLib patches' README.
+- The per-Worker memory is measured once with a scratch test, not committed, on the test engine: 15 s idle, then 42
+  Workers added through top-ups, each step read after 5 s.
 
 ## Departures from the spec
 
