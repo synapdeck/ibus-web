@@ -6,8 +6,8 @@
 
 // The key codes WebDriver's key actions use for keys that type nothing.
 export const Key = {
-  Shift: "",
-  Escape: "",
+  Shift: "\uE008",
+  Escape: "\uE00C",
   Space: " ",
 } as const;
 
