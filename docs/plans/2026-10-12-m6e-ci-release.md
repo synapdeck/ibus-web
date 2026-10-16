@@ -39,7 +39,7 @@ tagged, released or published here; the release task itself runs after every M6 
    tool's tests, and `changeset status` with a sample changeset bumping all eleven packages to one version).
 9. **`.#release` and source bundles.** `packages.release` (x86_64-linux) holding the GitHub release's assets per design
    spec §10.7 and `release.json`, and `packages.engine-<name>-src` for each engine. Proof: `nix build .#release`, its
-   `release.json` and asset list inspected; `checks.release-source-bundles` fails when an engine has no bundle.
+   `release.json` and asset list inspected; `checks.tools-release-source-bundles` fails when an engine has no bundle.
 10. **Release workflows.** `release.yml` on a `v*` tag: build `.#release`, check the tag against its version, create the
     GitHub release, `npm publish` each tarball with trusted publishing; and a weekly `nix build --rebuild`. Proof:
     `files:` checks and actionlint.
@@ -71,8 +71,11 @@ Each task updates the docs it affects and removes or narrows its `docs/known-gap
 - **The release builds source bundles too.** The spec's release step names `.#release`, which doesn't exist; it is built
   here to design spec §10.7 and §9.3, source bundles included, since the release can't happen without it.
 - **`checks.flake-write-files`, `checks.emscripten-dev-cache`, `checks.tools-release`,
-  `checks.release-source-bundles`, `checks.toolchain-autotools-consumer` and `packages.webdriver-smoke`** are tests the
+  `checks.tools-release-source-bundles`, `checks.toolchain-autotools-consumer` and `packages.webdriver-smoke`** are tests the
   spec's Testing section doesn't list; each is the only way to show its task's behaviour locally.
+- **Autotools configure runs its test programs without an exe wrapper.** The spec asks for a Node exe wrapper, as Meson
+  has; autoconf has no such hook. The site file sets `cross_compiling=maybe` instead, and configure runs `./conftest`
+  itself, which works because emcc links an output with no extension as a Node script carrying its WebAssembly.
 
 ## What the spike proved and what it didn't
 
