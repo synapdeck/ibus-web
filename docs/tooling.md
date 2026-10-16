@@ -492,8 +492,9 @@ Changesets versions the published packages and writes their changelogs; a tag pu
   (`legacyPackages.<system>.npm.all`), `ibus-runtime.js` and `ibus-runtime.wasm`, `PROTOCOL.md`, each engine's
   distribution (its `.wasm`, data archives and manifest) as `engine-<name>-<version>.tar`, each engine's source bundle,
   and `release.json`, which lists each asset's size and SHA-256 with the version, the commit and the runtime ABI. The
-  notes are each package's section of its changelog for the version (`tools/release/notes.ts`), leaving out packages
-  Changesets bumped without changes; the build fails while a changelog lacks the version.
+  notes are each package's section of its changelog for the version (`tools/release/notes.ts`), leaving out the
+  published packages' updates to each other, which every release moves together, and the packages with nothing else to
+  say; the build fails while a changelog lacks the version.
 - **Source bundles** (`packages.engine-<name>-src`, design spec §9.3), one `.tar.xz` per engine: the repository as
   tagged, every flake input (nixpkgs among them) as Nix fetched it, and under `sources/` the upstream source of every
   library the engine and the runtime link, of Emscripten, and of what `ibusWeb.release.engines.<name>.extraSources`

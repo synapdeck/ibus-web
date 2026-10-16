@@ -42,6 +42,41 @@ const engine = {
   ].join("\n"),
 };
 
+const core = {
+  name: "@ibus-web/core",
+  text: [
+    "# @ibus-web/core",
+    "",
+    "## 1.1.0",
+    "",
+    "### Patch Changes",
+    "",
+    "- Updated dependencies []:",
+    "  - @ibus-web/protocol@1.1.0",
+    "  - @ibus-web/worker-host@1.1.0",
+    "",
+  ].join("\n"),
+};
+
+const panel = {
+  name: "@ibus-web/panel",
+  text: [
+    "# @ibus-web/panel",
+    "",
+    "## 1.1.0",
+    "",
+    "### Minor Changes",
+    "",
+    "- [`48d9e90`](https://github.com/synapdeck/ibus-web/commit/48d9e90) Thanks [@typedrat](https://github.com/typedrat)! - Vertical candidates.",
+    "",
+    "### Patch Changes",
+    "",
+    "- Updated dependencies [[`48d9e90`](https://github.com/synapdeck/ibus-web/commit/48d9e90)]:",
+    "  - @ibus-web/core@1.1.0",
+    "",
+  ].join("\n"),
+};
+
 describe("section", () => {
   it("takes the lines under the version's heading, up to the next version", () => {
     expect(section(facade, "1.1.0")).toBe("### Minor Changes\n\n- Preloading.");
@@ -86,6 +121,43 @@ describe("releaseNotes", () => {
     expect(releaseNotes("1.1.0", [facade, engine])).toBe(
       "# 1.1.0\n\n## ibus-web\n\n### Minor Changes\n\n- Preloading.\n",
     );
+  });
+
+  it("leaves out a package bumped only because its dependencies were", () => {
+    expect(releaseNotes("1.1.0", [facade, core])).toBe(
+      "# 1.1.0\n\n## ibus-web\n\n### Minor Changes\n\n- Preloading.\n",
+    );
+  });
+
+  it("leaves out dependency updates, and a heading they leave empty, from a changed package", () => {
+    expect(releaseNotes("1.1.0", [panel])).toBe(
+      [
+        "# 1.1.0",
+        "",
+        "## @ibus-web/panel",
+        "",
+        "### Minor Changes",
+        "",
+        "- [`48d9e90`](https://github.com/synapdeck/ibus-web/commit/48d9e90) Thanks [@typedrat](https://github.com/typedrat)! - Vertical candidates.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("recognizes the plain changelog's dependency list", () => {
+    const plain = {
+      name: "@ibus-web/core",
+      text: "## 1.1.0\n\n### Patch Changes\n\n- @ibus-web/protocol@1.1.0\n  - @ibus-web/worker-host@1.1.0\n",
+    };
+    expect(() => releaseNotes("1.1.0", [plain])).toThrow("no package changed in 1.1.0");
+  });
+
+  it("keeps a change that mentions a dependency", () => {
+    const fix = {
+      name: "@ibus-web/core",
+      text: "## 1.1.0\n\n### Patch Changes\n\n- abc1234: Requires @ibus-web/protocol@1.1.0 for the new request.\n",
+    };
+    expect(releaseNotes("1.1.0", [fix])).toContain("Requires @ibus-web/protocol@1.1.0");
   });
 
   it("refuses a release in which nothing changed", () => {

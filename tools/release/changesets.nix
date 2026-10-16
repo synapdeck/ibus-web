@@ -80,7 +80,8 @@
 
       # A minor change to the facade, versioned in a copy of the repository:
       # every published package takes the one new version, nothing private
-      # moves, and the notes come from the changelogs written. Changesets
+      # moves, and the notes come from the changelogs written, without the
+      # packages that moved only with their dependencies. Changesets
       # reads the changesets' history from git. Pending changesets are
       # dropped so that the sample alone decides the version, which follows
       # from whatever version the packages are at. The changelog is
@@ -123,6 +124,7 @@
 
             node ${tool}/cli.ts "$to" ${lib.escapeShellArgs typescript.publishedPackages} > notes.md
             grep -qx "## ibus-web" notes.md
+            ! grep -qx "## @ibus-web/core" notes.md
             grep -q -- ": Preloading.$" notes.md
             cp notes.md $out
           '';
