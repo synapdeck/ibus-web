@@ -23,6 +23,11 @@
             description = "A JSON file of each engine's path for org.freedesktop.ibus.engine.m17n, as settingsPaths takes it.";
           };
 
+          settingsPatterns = lib.mkOption {
+            type = lib.types.attrsOf lib.types.str;
+            description = "Each relocatable schema's pattern for its paths, as settingsPatterns takes it.";
+          };
+
           settingsSchemaDir = lib.mkOption {
             type = lib.types.str;
             description = "The compiled schema directory m17n.wasm keeps in its closure.";

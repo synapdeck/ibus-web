@@ -55,7 +55,7 @@ const start = async (h: Harness, runtime: RuntimeBuild) => {
   });
   const page = host.client.page;
   page.post(
-    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
     ReqMode.sync,
   );
   expect((await page.waitForReply()).ret).toBe(0);

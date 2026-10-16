@@ -409,8 +409,10 @@ gboolean ibus_test_wasm_run(JsonObject *trace, const gchar *module,
   g_log_set_always_fatal(runtime_fatal_mask);
   if (ok)
     ok = dispatch(&driver, 0, IBUSWEB_REQ_INIT,
-                  g_variant_new("(ub@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
-                                TRUE, snapshot),
+                  g_variant_new(
+                      "(ub@a(ssa{sv})@a(ss))", IBUSWEB_PROTOCOL_VERSION, TRUE,
+                      snapshot,
+                      g_variant_new_array(G_VARIANT_TYPE("(ss)"), NULL, 0)),
                   &error) >= 0;
   if (ok) {
     g_log_set_default_handler(g_log_default_handler, NULL);

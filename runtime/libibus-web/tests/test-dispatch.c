@@ -119,8 +119,9 @@ static GVariant *snapshot(guint version) {
   g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ssa{sv})"));
   g_variant_builder_add_parsed(&builder,
                                "('review', '/review/', {'value': <true>})");
-  return g_variant_new("(ub@a(ssa{sv}))", version, FALSE,
-                       g_variant_builder_end(&builder));
+  return g_variant_new("(ub@a(ssa{sv})@a(ss))", version, FALSE,
+                       g_variant_builder_end(&builder),
+                       g_variant_new_array(G_VARIANT_TYPE("(ss)"), NULL, 0));
 }
 
 static void empty_output(void) {

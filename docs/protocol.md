@@ -69,7 +69,8 @@ are empty; invalid indices throw `RangeError`. Core's Connection uses this lazy 
 eager decoder remains available to other callers.
 
 `SettingsMetadata` is a separate JSON codec generated from compiled GSettings schemas. It holds each schema's id and
-paths (a fixed schema's one path, a relocatable schema's declared paths) and each key's GVariant type, default, optional
+paths (a fixed schema's one path, a relocatable schema's declared paths, and optionally a `pattern` every one of them
+matches, `{name}` standing for one or more characters other than `/`) and each key's GVariant type, default, optional
 summary/description, numeric range and choices. `decodeSettingsMetadata` rejects unknown fields and validates typed
 defaults/ranges. Its JSON encoding preserves 64-bit integers as decimal strings, then restores `bigint` in the decoded
 tree. Generated Hangul keyboard metadata contains no `choices`; consumers must not infer an enum from the settings name.

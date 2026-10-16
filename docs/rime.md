@@ -288,7 +288,8 @@ tables; Rime's sessions end when it does, and an open context takes the change u
 ## Distribution
 
 `ibus-web-rime-dist` (`engines/rime/dist.nix`) is `mkEngineManifest` over `rime.wasm`, with the descriptor step's
-`engines.json`, each engine given its dictionaries from `engine-data.json` as `data`, `settings-paths.json` and
+`engines.json`, each engine given its dictionaries from `engine-data.json` as `data`, `settings-paths.json`, with
+`org.freedesktop.ibus.engine.rime.schema` declared by the pattern `/org/freedesktop/ibus/engine/rime/{schema}/`, and
 `settings-schemas.json`. Its engines start with `rime:rime_ice`. Each engine's dictionaries, its schema's and those of
 the schemas it depends on, are its own data ([engines.md](engines.md#an-engines-own-data)): the host installs them the
 first time a page prepares or selects the engine. Of its 24 archives, two are base data, installed at start:

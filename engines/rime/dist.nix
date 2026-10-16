@@ -114,6 +114,8 @@
             engines = enginesWithData;
             settingsSchemas = "${descriptors}/settings-schemas.json";
             settingsPaths = "${descriptors}/settings-paths.json";
+            settingsPatterns."org.freedesktop.ibus.engine.rime.schema" =
+              "/org/freedesktop/ibus/engine/rime/{schema}/";
 
             # Rime maps its tables, which WasmFS serves as copies in memory, and
             # dlmalloc never lowers the break. A settings change's redeployment

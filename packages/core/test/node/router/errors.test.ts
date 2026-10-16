@@ -118,12 +118,12 @@ it.effect("a module that can't start rejects select with its tagged error and fa
           start: async () => {
             const connection = new FakeConnection();
             connection.requestAsync = async () => {
-              throw new RangeError("request of 70000 bytes");
+              throw new RangeError("request of 70000 bytes, past the 65536-byte request slot");
             };
             return connection;
           },
         },
-        error: { _tag: "ProtocolError", diagnostic: "request of 70000 bytes" },
+        error: { _tag: "ProtocolError", diagnostic: "request of 70000 bytes, past the 65536-byte request slot" },
       },
       { options: {}, error: { _tag: "StorageUnavailable", diagnostic: "the database is blocked" }, storage: true },
     ];

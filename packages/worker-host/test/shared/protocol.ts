@@ -28,12 +28,12 @@ import { Page } from "./page.ts";
 export const protocolRoundtrip = async (h: Harness, { client }: RunningHost): Promise<void> => {
   const page = client.page;
   page.post(
-    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
     ReqMode.sync,
   );
   expect((await page.waitForReply()).ret).toBe(0);
   page.post(
-    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
     ReqMode.sync,
   );
   expect((await page.waitForReply()).ret).toBe(-h.data.errno["EALREADY"]!);
@@ -56,6 +56,7 @@ export const replySequence = async (h: Harness, { client }: RunningHost): Promis
             values: { unknown: stringVariant("ignored") },
           },
         ],
+        patterns: [],
       }),
     ),
     ReqMode.sync,
@@ -111,7 +112,7 @@ export const requestModes = async (
 export const timerOutput = async (h: Harness, { client, messages }: RunningHost): Promise<void> => {
   const page = client.page;
   page.post(
-    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
     ReqMode.sync,
   );
   expect((await page.waitForReply()).ret).toBe(0);
@@ -144,7 +145,7 @@ export const crashWinsReply = (): void => {
     const views = controlViews(createControl());
     postRequest(
       views,
-      encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+      encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
       ReqMode.sync,
     );
     if (crashFirst) postCrash(views);
@@ -178,7 +179,10 @@ const crashAfterStateRead = (views: ControlViews, use: () => void): void => {
 
 export const crashWinsRequestPublication = (): void => {
   const views = controlViews(createControl());
-  const request = encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] }));
+  const request = encodeRequest(
+    0,
+    new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] }),
+  );
   crashAfterStateRead(views, () => {
     expect(() => postRequest(views, request, ReqMode.async)).toThrow("crashed");
   });
@@ -190,7 +194,7 @@ export const crashWinsTakingReply = (): void => {
   const views = controlViews(createControl());
   postRequest(
     views,
-    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
     ReqMode.sync,
   );
   expect(postReply(views, -42, 0xfedcba98)).toBe(true);
@@ -217,7 +221,7 @@ export const crashRejectsAsyncReply = async (): Promise<void> => {
     1000,
   );
   page.post(
-    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] })),
     ReqMode.async,
   );
   const result = page.waitForReply().catch((error: unknown) => {

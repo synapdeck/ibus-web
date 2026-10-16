@@ -110,6 +110,51 @@ it.effect("registry tells Init the user data is read-only once the host reported
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("registry declares a patterned schema by its pattern, and only its instances with stored values", () =>
+  Effect.gen(function* () {
+    const settings = yield* SettingsSource;
+    const inits: Request[] = [];
+    const patterned = {
+      schemas: [
+        ...metadata.schemas,
+        {
+          id: "engine",
+          paths: ["/engine/hi/inscript/", "/engine/vi/telex/"],
+          pattern: "/engine/{lang}/{name}/",
+          keys: [],
+        },
+      ],
+    };
+    settings.written({ schemaId: "engine", path: "/engine/vi/telex/", key: "tone", value: stringVariant("last") });
+    yield* Effect.yieldNow;
+    const registry = yield* makeModuleRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      modules: { test: url },
+      loadManifest: async () => ({ ...manifest, settingsSchemas: ["settings", "engine"] }),
+      loadMetadata: async () => patterned,
+      start: async () => {
+        const connection = new FakeConnection();
+        connection.requestAsync = async (request) => {
+          if (request._tag === "Init") inits.push(request);
+          return emptyReply;
+        };
+        return connection;
+      },
+    });
+    yield* registry.select("test");
+    expect(inits).toMatchObject([
+      {
+        settings: [
+          { schemaId: "settings", path: "/settings/", values: {} },
+          { schemaId: "engine", path: "/engine/vi/telex/", values: { tone: { value: { value: "last" } } } },
+        ],
+        patterns: [{ schemaId: "engine", pattern: "/engine/{lang}/{name}/" }],
+      },
+    ]);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("registry validates keyboard names before starting a Worker", () =>
   Effect.gen(function* () {
     let started = false;

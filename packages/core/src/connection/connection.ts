@@ -255,7 +255,9 @@ export class Connection {
     if (this.crash) return Promise.reject(this.crash);
     const bytes = encodeRequest(ic, request);
     if (bytes.length > this.control.slot.length)
-      return Promise.reject(new RangeError(`request of ${bytes.length} bytes`));
+      return Promise.reject(
+        new RangeError(`request of ${bytes.length} bytes, past the ${this.control.slot.length}-byte request slot`),
+      );
     return new Promise((resolve, reject) => {
       this.queue.push({ bytes, resolve, reject, settled: options.settled });
       this.next();

@@ -68,6 +68,12 @@
         package = m17n;
         descriptors = "${m17n.descriptors}/engines.json";
         settingsPaths = "${m17n.descriptors}/settings-paths.json";
+
+        # Each engine's instance, so that Init declares the 197 of them with
+        # one pattern.
+        settingsPatterns."org.freedesktop.ibus.engine.m17n" =
+          "/org/freedesktop/ibus/engine/m17n/{lang}/{name}/";
+
         inherit (m17n) settingsSchemaDir;
         settingsSchemas = "${m17n.descriptors}/settings-schemas.json";
       };

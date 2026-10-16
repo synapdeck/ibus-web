@@ -161,9 +161,14 @@ backend registers GIO's extension points, and `g_io_extension_point_implement` a
 hook for it. With no explicit `GSETTINGS_BACKEND` override it is the default. `Init` declares the module's schema
 instances, each a schema id at a path: a fixed schema at its own path, a relocatable one at any path that is absolute,
 ends in `/` and has no empty component. An unknown schema, a fixed schema at another path or an invalid path is refused
-with a warning. Values are keyed by settings path and key, protected by a mutex, and fall back to schema defaults.
-Init's values are applied silently. `SettingChanged` names a declared path and a key and validates the type and range; a
-different value notifies listeners, an equal value does nothing, and neither echoes a `SettingWritten` record.
+with a warning. `Init` may also declare a relocatable schema by a pattern, a path in which `{name}` (letters, digits,
+`-` and `_`) stands for one or more characters other than `/`: every path it matches is that schema's instance, declared
+the first time a change, an engine's write or a reset names it, and `Init` lists such an instance only to carry its
+stored values. A path `Init` named wins over a pattern. A pattern for a fixed schema, or one without a placeholder, is
+refused with a warning. Values are keyed by settings path and key, protected by a mutex, and fall back to schema
+defaults. Init's values are applied silently. `SettingChanged` names a declared path and a key and validates the type
+and range; a different value notifies listeners, an equal value does nothing, and neither echoes a `SettingWritten`
+record.
 
 Engine writes, resets and delayed write-tree transactions belong to the longest declared path that prefixes their key;
 they notify listeners and emit `SettingWritten (ssv)`, with the instance's path, for the page to persist. A transaction

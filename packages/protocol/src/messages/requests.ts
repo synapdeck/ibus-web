@@ -11,6 +11,13 @@ export const SettingsInstanceValues = Schema.Struct({
   values: Schema.Record(Str, GVariantVariant).annotate({ description: "The instance's stored values, by key." }),
 });
 
+export const SettingsPattern = Schema.Struct({
+  schemaId: Str.annotate({ description: "Relocatable GSettings schema id." }),
+  pattern: Str.annotate({
+    description: "Paths the schema is instantiated at: a path in which {name} stands for one or more characters but /.",
+  }),
+});
+
 export class Init extends Schema.TaggedClass<Init>()(
   "Init",
   {
@@ -19,7 +26,11 @@ export class Init extends Schema.TaggedClass<Init>()(
       description: "Whether the module's own files can be written: false while another host holds its writer lock.",
     }),
     settings: Schema.Array(SettingsInstanceValues).annotate({
-      description: "Every GSettings schema instance the module declares, with its stored values.",
+      description:
+        "The GSettings schema instances the module declares, with their stored values: every instance of a schema without a pattern, and those of a schema with one that have stored values.",
+    }),
+    patterns: Schema.Array(SettingsPattern).annotate({
+      description: "Relocatable schemas declared by path pattern, whose instances need no entry of their own.",
     }),
   },
   { kind: 1, description: "Initialize the runtime with the host's protocol version and settings." },

@@ -51,6 +51,7 @@ declare module "vitest" {
 
 export interface SessionOptions {
   settings: Init["settings"];
+  patterns?: Init["patterns"];
   // The engine create() makes unless told another.
   engine: string;
   // Runs once a context's engine is created and focused.
@@ -99,7 +100,15 @@ export class PageSession {
       const userDataWritable = !host.messages.some(
         (message) => message.type === "storage" && message.state === "read-only",
       );
-      await session.request(0, new Init({ version: PROTOCOL_VERSION, userDataWritable, settings: options.settings }));
+      await session.request(
+        0,
+        new Init({
+          version: PROTOCOL_VERSION,
+          userDataWritable,
+          settings: options.settings,
+          patterns: options.patterns ?? [],
+        }),
+      );
       await session.create(1);
       return session;
     } catch (error) {

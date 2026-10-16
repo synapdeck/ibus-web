@@ -82,15 +82,16 @@ is authoritative for crashes; Crashed is a best-effort host record.
 
 ### Init
 
-Kind: **1**. Signature: `(uba(ssa{sv}))`.
+Kind: **1**. Signature: `(uba(ssa{sv})a(ss))`.
 
 Initialize the runtime with the host's protocol version and settings.
 
-| Name               | GVariant type | Description                                                                                    |
-| ------------------ | ------------- | ---------------------------------------------------------------------------------------------- |
-| `version`          | `u`           | Protocol version supported by the host.                                                        |
-| `userDataWritable` | `b`           | Whether the module's own files can be written: false while another host holds its writer lock. |
-| `settings`         | `a(ssa{sv})`  | Every GSettings schema instance the module declares, with its stored values.                   |
+| Name               | GVariant type | Description                                                                                                                                                                         |
+| ------------------ | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`          | `u`           | Protocol version supported by the host.                                                                                                                                             |
+| `userDataWritable` | `b`           | Whether the module's own files can be written: false while another host holds its writer lock.                                                                                      |
+| `settings`         | `a(ssa{sv})`  | The GSettings schema instances the module declares, with their stored values: every instance of a schema without a pattern, and those of a schema with one that have stored values. |
+| `patterns`         | `a(ss)`       | Relocatable schemas declared by path pattern, whose instances need no entry of their own.                                                                                           |
 
 ### CreateEngine
 

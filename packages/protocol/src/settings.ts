@@ -54,6 +54,22 @@ const path = Schema.String.check(
   ),
 );
 
+// {name} stands for one or more characters of a component, never a /.
+const pattern = Schema.String.check(
+  Schema.isPattern(/^\/(?:(?:[^/\0{}]|\{[A-Za-z0-9_-]+\})+\/)*$/),
+  Schema.makeFilter((pattern) => pattern.includes("{") || "a settings pattern has a {placeholder}"),
+);
+
+/** Whether path is one of the paths pattern stands for. */
+export const settingsPatternMatches = (pattern: string, path: string): boolean =>
+  new RegExp(
+    `^${pattern
+      .split(/(\{[A-Za-z0-9_-]+\})/)
+      .map((part, i) => (i % 2 === 1 ? "[^/]+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+      .join("")}$`,
+    "u",
+  ).test(path);
+
 export const SettingsMetadata = Schema.toCodecJson(
   Schema.Struct({
     schemas: Schema.Array(
@@ -61,12 +77,21 @@ export const SettingsMetadata = Schema.toCodecJson(
         id: nonEmpty,
         // A fixed schema lives at its one path; a relocatable one at each path the build declares.
         paths: Schema.Array(path).check(Schema.isNonEmpty()),
+        // A relocatable schema's paths, as one pattern, which Init declares in their place.
+        pattern: Schema.optionalKey(pattern),
         keys: Schema.Array(key).check(
           Schema.makeFilter(
             (keys) => new Set(keys.map((key) => key.name)).size === keys.length || "duplicate settings keys",
           ),
         ),
-      }),
+      }).check(
+        Schema.makeFilter(
+          (schema) =>
+            schema.pattern === undefined ||
+            schema.paths.every((path) => settingsPatternMatches(schema.pattern!, path)) ||
+            `a path of ${schema.id} doesn't match its pattern`,
+        ),
+      ),
     ).check(
       Schema.makeFilter(
         (schemas) => new Set(schemas.map((schema) => schema.id)).size === schemas.length || "duplicate schema ids",

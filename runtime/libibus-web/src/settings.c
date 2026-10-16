@@ -14,9 +14,24 @@ typedef struct {
   GMutex lock;
   /* Full key paths to values; a missing value has the schema's default. */
   GHashTable *values;
-  /* Instance paths to their schemas, as Init declared them. */
+  /* Instance paths to their schemas, as Init declared them, and as patterns
+   * matched them since. */
   GHashTable *instances;
+  /* Relocatable schemas declared by path pattern, in Init's order. */
+  GPtrArray *patterns;
 } IBusWebSettingsBackend;
+
+typedef struct {
+  gchar *pattern;
+  GSettingsSchema *schema;
+} Pattern;
+
+static void pattern_free(gpointer data) {
+  Pattern *pattern = data;
+  g_free(pattern->pattern);
+  g_settings_schema_unref(pattern->schema);
+  g_free(pattern);
+}
 typedef struct {
   GSettingsBackendClass parent;
 } IBusWebSettingsBackendClass;
@@ -57,16 +72,83 @@ static gboolean path_valid(const gchar *path) {
          strstr(path, "//") == NULL;
 }
 
+static GSettingsSchema *lookup_schema(const gchar *id) {
+  GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+  GSettingsSchema *schema =
+      source == NULL ? NULL : g_settings_schema_source_lookup(source, id, TRUE);
+  if (schema == NULL)
+    g_warning("Unknown settings schema: %s", id);
+  return schema;
+}
+
+/* A pattern is a valid path whose {name} placeholders, of letters, digits,
+ * '-' and '_', each stand for one or more characters other than '/'. */
+static gboolean pattern_valid(const gchar *pattern) {
+  if (!path_valid(pattern))
+    return FALSE;
+
+  gboolean placeholder = FALSE;
+  for (const gchar *at = pattern; *at != '\0'; at++) {
+    if (*at == '}')
+      return FALSE;
+    if (*at != '{')
+      continue;
+
+    const gchar *name = ++at;
+    while (g_ascii_isalnum(*at) || *at == '-' || *at == '_')
+      at++;
+    if (at == name || *at != '}')
+      return FALSE;
+    placeholder = TRUE;
+  }
+  return placeholder;
+}
+
+static gboolean pattern_matches(const gchar *pattern, const gchar *path) {
+  if (*pattern == '\0')
+    return *path == '\0';
+
+  if (*pattern != '{')
+    return *pattern == *path && pattern_matches(pattern + 1, path + 1);
+
+  const gchar *rest = strchr(pattern, '}') + 1;
+  for (const gchar *end = path + 1; end[-1] != '\0' && end[-1] != '/'; end++)
+    if (pattern_matches(rest, end))
+      return TRUE;
+  return FALSE;
+}
+
+static void declare_pattern(IBusWebSettingsBackend *backend, const gchar *id,
+                            const gchar *pattern) {
+  g_autoptr(GSettingsSchema) schema = lookup_schema(id);
+  if (schema == NULL)
+    return;
+
+  if (!pattern_valid(pattern)) {
+    g_warning("Invalid settings pattern: %s", pattern);
+    return;
+  }
+
+  const gchar *fixed = g_settings_schema_get_path(schema);
+  if (fixed != NULL) {
+    g_warning("Settings schema %s has the fixed path %s, not a pattern", id,
+              fixed);
+    return;
+  }
+
+  Pattern *entry = g_new(Pattern, 1);
+  entry->pattern = g_strdup(pattern);
+  entry->schema = g_settings_schema_ref(schema);
+  g_mutex_lock(&backend->lock);
+  g_ptr_array_add(backend->patterns, entry);
+  g_mutex_unlock(&backend->lock);
+}
+
 static gboolean declare(IBusWebSettingsBackend *backend, const gchar *id,
                         const gchar *path) {
-  GSettingsSchemaSource *source = g_settings_schema_source_get_default();
-  g_autoptr(GSettingsSchema) schema =
-      source == NULL ? NULL : g_settings_schema_source_lookup(source, id, TRUE);
-
-  if (schema == NULL) {
-    g_warning("Unknown settings schema: %s", id);
+  g_autoptr(GSettingsSchema) schema = lookup_schema(id);
+  if (schema == NULL)
     return FALSE;
-  }
 
   if (!path_valid(path)) {
     g_warning("Invalid settings path: %s", path);
@@ -87,10 +169,28 @@ static gboolean declare(IBusWebSettingsBackend *backend, const gchar *id,
   return TRUE;
 }
 
+/* Caller holds the lock. The schema of the instance at path, borrowed, or
+ * NULL: one Init declared, or one a pattern matches, which is declared then,
+ * so that later lookups find it as they find Init's. */
+static GSettingsSchema *instance_at_locked(IBusWebSettingsBackend *backend,
+                                           const gchar *path) {
+  GSettingsSchema *schema = g_hash_table_lookup(backend->instances, path);
+  for (guint i = 0; schema == NULL && i < backend->patterns->len; i++) {
+    Pattern *pattern = g_ptr_array_index(backend->patterns, i);
+    if (!pattern_matches(pattern->pattern, path))
+      continue;
+
+    schema = pattern->schema;
+    g_hash_table_replace(backend->instances, g_strdup(path),
+                         g_settings_schema_ref(schema));
+  }
+  return schema;
+}
+
 static GSettingsSchema *instance_at(IBusWebSettingsBackend *backend,
                                     const gchar *path) {
   g_mutex_lock(&backend->lock);
-  GSettingsSchema *schema = g_hash_table_lookup(backend->instances, path);
+  GSettingsSchema *schema = instance_at_locked(backend, path);
   if (schema != NULL)
     g_settings_schema_ref(schema);
   g_mutex_unlock(&backend->lock);
@@ -127,6 +227,15 @@ static SettingKey *resolve_path(IBusWebSettingsBackend *backend,
   gsize best_length = 0;
 
   g_mutex_lock(&backend->lock);
+
+  /* A key's name holds no '/', so a pattern's instance is the key path's
+   * directory. */
+  const gchar *slash = strrchr(path, '/');
+  if (slash != NULL) {
+    g_autofree gchar *directory = g_strndup(path, slash + 1 - path);
+    instance_at_locked(backend, directory);
+  }
+
   GHashTableIter iter;
   gpointer instance, schema;
   g_hash_table_iter_init(&iter, backend->instances);
@@ -314,6 +423,7 @@ static void finalize(GObject *object) {
   IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)object;
   g_hash_table_unref(backend->values);
   g_hash_table_unref(backend->instances);
+  g_ptr_array_unref(backend->patterns);
   g_mutex_clear(&backend->lock);
   G_OBJECT_CLASS(ibusweb_settings_backend_parent_class)->finalize(object);
 }
@@ -335,6 +445,7 @@ static void ibusweb_settings_backend_init(IBusWebSettingsBackend *backend) {
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, value_unref);
   backend->instances =
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, schema_unref);
+  backend->patterns = g_ptr_array_new_with_free_func(pattern_free);
 }
 
 static GSettingsBackend *default_backend(void) {
@@ -349,7 +460,7 @@ static GSettingsBackend *default_backend(void) {
   return backend;
 }
 
-void ibusweb_settings_init(GVariant *instances) {
+void ibusweb_settings_init(GVariant *instances, GVariant *patterns) {
   g_autoptr(GSettingsBackend) base = default_backend();
   if (base == NULL)
     return;
@@ -357,6 +468,13 @@ void ibusweb_settings_init(GVariant *instances) {
   IBusWebSettingsBackend *backend = (IBusWebSettingsBackend *)base;
   GVariantIter entries;
   const gchar *id, *path;
+
+  /* Before the instances, whose own declarations need none of them, so that
+   * values stored at a pattern's instances are checked against its schema. */
+  g_variant_iter_init(&entries, patterns);
+  while (g_variant_iter_next(&entries, "(&s&s)", &id, &path))
+    declare_pattern(backend, id, path);
+
   GVariant *values;
   g_variant_iter_init(&entries, instances);
   while (g_variant_iter_next(&entries, "(&s&s@a{sv})", &id, &path, &values)) {

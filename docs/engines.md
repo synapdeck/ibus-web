@@ -41,16 +41,16 @@ first lookup.
 ### Distribution manifest
 
 `ibusWeb.engines.mkEngineManifest` takes `name`, `package`, `threads`, `heapBytes`, `settingsSchemaDir`, `engines`,
-`settingsSchemas` and, for relocatable schemas, `settingsPaths`. `engines`, the module's engine descriptors, and
-`settingsSchemas`, its schema ids, are each a Nix list or a JSON file another derivation builds, as `settingsPaths` is
-an attribute set (schema id to its paths) or such a file; a descriptor may carry `data`, the store paths of the closure
-it alone needs, which the build checks with the rest of the manifest; the manifest's own check validates them, so
-evaluation never reads a build output. It derives license and the upstream version from the package, runtime ABI and
-protocol from the build. The license is the conjunction of the package's `meta.license`, normalized by
-`ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the SPDX ids, which writes each license once
-under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an id SPDX doesn't know. It merges no
-license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the expression records what the contents
-carry, not the terms they can be passed on under. Build:
+`settingsSchemas` and, for relocatable schemas, `settingsPaths` and optionally `settingsPatterns`. `engines`, the
+module's engine descriptors, and `settingsSchemas`, its schema ids, are each a Nix list or a JSON file another
+derivation builds, as `settingsPaths` is an attribute set (schema id to its paths) or such a file; a descriptor may
+carry `data`, the store paths of the closure it alone needs, which the build checks with the rest of the manifest; the
+manifest's own check validates them, so evaluation never reads a build output. It derives license and the upstream
+version from the package, runtime ABI and protocol from the build. The license is the conjunction of the package's
+`meta.license`, normalized by `ibusWeb.lib.spdxExpression`: it runs aboutcode's `license-expression` over the SPDX ids,
+which writes each license once under its current identifier (`GPL-2.0` becomes `GPL-2.0-only`) and fails on an id SPDX
+doesn't know. It merges no license into another: `GPL-2.0-only AND GPL-2.0-or-later` stays as it is, since the
+expression records what the contents carry, not the terms they can be passed on under. Build:
 
 ```sh
 nix build .#ibus-web-hangul-dist
@@ -91,11 +91,15 @@ type EngineDescriptor = {
 `settings.json` comes from the compiled schema directory via pinned GLib running under WebAssembly, then the strict
 TypeScript GVariant decoder. It records each listed schema's paths (a fixed schema's own path; a relocatable schema's
 paths from the manifest's `settingsPaths`, which the build fails without), key names/types, defaults, descriptions and
-any range/choices supplied by GLib. The page fetches it through `settingsMetadata` before Init, validates settings and
-constructs a metadata-driven form. Hangul's keyboard key has no generated choices. An engine's `keyboard.layout = "us"`
-translates physical `event.code` positions; `"default"` uses translated `event.key`. This engine keyboard preference is
-not an OS keyboard-layout detector. The first engine is the module's default. Hangul's manifest lists one engine:
-`hangul`, "Hangul", `["ko"]`, with the US layout and no pass-through keys.
+any range/choices supplied by GLib. `settingsPatterns` gives a relocatable schema, by id, a `pattern` for its paths, in
+which `{name}` stands for one or more characters other than `/`; the build fails if one of its paths doesn't match.
+`Init` then declares the schema by its pattern and carries only those of its instances that have stored values, so a
+module with an instance per engine, as m17n has 197, doesn't send them all at every start. The page fetches it through
+`settingsMetadata` before Init, validates settings and constructs a metadata-driven form. Hangul's keyboard key has no
+generated choices. An engine's `keyboard.layout = "us"` translates physical `event.code` positions; `"default"` uses
+translated `event.key`. This engine keyboard preference is not an OS keyboard-layout detector. The first engine is the
+module's default. Hangul's manifest lists one engine: `hangul`, "Hangul", `["ko"]`, with the US layout and no
+pass-through keys.
 
 `version` is an immutable distribution identity: `<upstream-version>+nix.<output-hash>`. The hash comes from the
 distribution's Nix output path, covering its build recipe and inputs, including the module, data/schema closure,

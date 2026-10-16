@@ -116,7 +116,8 @@ static int32_t route(gpointer data) {
     /* Before the snapshot, whose warnings belong in the output too. */
     ibusweb_log_init();
     g_autoptr(GVariant) snapshot = g_variant_get_child_value(payload, 2);
-    ibusweb_settings_init(snapshot);
+    g_autoptr(GVariant) patterns = g_variant_get_child_value(payload, 3);
+    ibusweb_settings_init(snapshot, patterns);
     engines = g_hash_table_new(g_direct_hash, g_direct_equal);
     initialized = TRUE;
     return 0;

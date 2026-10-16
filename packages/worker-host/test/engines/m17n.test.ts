@@ -31,19 +31,28 @@ type Values = Init["settings"][number]["values"];
 const enginePath = (engine: string) => `/org/freedesktop/ibus/engine/${engine.split(":").join("/")}/`;
 const variablesPath = (engine: string) => `${enginePath(engine)}variables/`;
 
-const metadata = JSON.parse(build.texts["settings"]!) as { schemas: { id: string; paths: string[] }[] };
+const metadata = JSON.parse(build.texts["settings"]!) as {
+  schemas: { id: string; paths: string[]; pattern?: string }[];
+};
 const declared = new Set(metadata.schemas.flatMap(({ paths }) => paths));
+const patterns: Init["patterns"] = metadata.schemas.flatMap(({ id, pattern }) =>
+  pattern === undefined ? [] : [{ schemaId: id, pattern }],
+);
 
-// Every instance the metadata declares, as the page sends them: the given
-// values at their paths and nothing stored anywhere else.
+// The instances the page declares with the given values stored and nothing
+// stored anywhere else: every instance of a schema without a pattern, and a
+// patterned schema's only where values are stored.
 const instances = (values: Readonly<Record<string, Values>> = {}): Init["settings"] => {
   for (const path of Object.keys(values)) expect(declared.has(path), path).toBe(true);
-  return metadata.schemas.flatMap(({ id, paths }) =>
-    paths.map((path) => ({ schemaId: id, path, values: values[path] ?? {} })),
+  return metadata.schemas.flatMap(({ id, paths, pattern }) =>
+    paths.flatMap((path) =>
+      pattern !== undefined && values[path] === undefined ? [] : [{ schemaId: id, path, values: values[path] ?? {} }],
+    ),
   );
 };
 const options = (engine: string, values?: Readonly<Record<string, Values>>): SessionOptions => ({
   settings: instances(values),
+  patterns,
   engine,
 });
 
@@ -91,11 +100,34 @@ const typeText = async (session: PageSession, ic: number, text: string) => {
 };
 
 // Init travels in one request, and the transport's default slot is 64 KiB.
-test("Init with every declared instance fits one request", () => {
-  const settings = instances();
-  const bytes = encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings })).byteLength;
-  h.record("m17n Init", { instances: settings.length, bytes });
-  expect(bytes).toBeLessThan(64 * 1024);
+// The engines' own instances are declared by one pattern, so Init grows only
+// with the values stored, even with one at every engine.
+test("Init declares the engines' instances by pattern, and fits one request with a value stored at each", () => {
+  const init = (settings: Init["settings"]) =>
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings, patterns })).byteLength;
+
+  expect(patterns).toEqual([
+    { schemaId: "org.freedesktop.ibus.engine.m17n", pattern: "/org/freedesktop/ibus/engine/m17n/{lang}/{name}/" },
+  ]);
+  const engines = metadata.schemas.find(({ id }) => id === "org.freedesktop.ibus.engine.m17n")!.paths;
+  const empty = instances();
+  const stored = instances(
+    Object.fromEntries(
+      engines.map((path) => [
+        path,
+        { "preedit-foreground": stringVariant("#ff0000"), "preedit-underline": int32Variant(1) },
+      ]),
+    ),
+  );
+  h.record("m17n Init", {
+    declared: declared.size,
+    instances: empty.length,
+    bytes: init(empty),
+    storedInstances: stored.length,
+    storedBytes: init(stored),
+  });
+  expect(empty.length).toBe(declared.size - engines.length);
+  expect(init(stored)).toBeLessThan(64 * 1024);
 });
 
 describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {

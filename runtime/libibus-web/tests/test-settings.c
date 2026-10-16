@@ -68,11 +68,19 @@ static GVariant *snapshot_value(const gchar *key, GVariant *value) {
   return g_variant_builder_end(&builder);
 }
 
-static void apply(GVariant *instances) {
-  g_variant_ref_sink(instances);
-  ibusweb_settings_init(instances);
-  g_variant_unref(instances);
+static GVariant *no_patterns(void) {
+  return g_variant_new_array(G_VARIANT_TYPE("(ss)"), NULL, 0);
 }
+
+static void apply_with(GVariant *instances, GVariant *patterns) {
+  g_variant_ref_sink(instances);
+  g_variant_ref_sink(patterns);
+  ibusweb_settings_init(instances, patterns);
+  g_variant_unref(instances);
+  g_variant_unref(patterns);
+}
+
+static void apply(GVariant *instances) { apply_with(instances, no_patterns()); }
 
 static void seed(const gchar *key, GVariant *value) {
   apply(snapshot_value(key, value));
@@ -309,6 +317,93 @@ static void refused_instances(void) {
   output_empty();
 }
 
+/* A relocatable schema declared by pattern: any instance it matches takes
+ * changes and writes as one Init named, and no other does. */
+static void patterns(void) {
+  const gchar *pattern = "/org/ibus-web/pattern/{lang}/{name}/";
+  const gchar *inscript = "/org/ibus-web/pattern/hi/inscript/";
+  const gchar *stored = "/org/ibus-web/pattern/vi/telex/";
+
+  GVariantBuilder builder;
+  g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ssa{sv})"));
+  add_instance(&builder, RELOCATABLE, stored, "layout",
+               g_variant_new_string("stored"));
+  GVariant *instances = g_variant_builder_end(&builder);
+  apply_with(instances,
+             g_variant_new_parsed("[(%s, %s)]", RELOCATABLE, pattern));
+
+  GSettings *telex = g_settings_new_with_path(RELOCATABLE, stored);
+  g_autofree gchar *value = g_settings_get_string(telex, "layout");
+  g_assert_cmpstr(value, ==, "stored");
+  g_object_unref(telex);
+
+  GSettings *settings = g_settings_new_with_path(RELOCATABLE, inscript);
+  guint changed = 0;
+  g_signal_connect(settings, "changed::layout", G_CALLBACK(count_changes),
+                   &changed);
+  g_assert_cmpint(change(inscript, "layout", g_variant_new_string("page")), ==,
+                  0);
+  ibusweb_pump();
+  g_assert_cmpuint(changed, ==, 1);
+  g_autofree gchar *changed_value = g_settings_get_string(settings, "layout");
+  g_assert_cmpstr(changed_value, ==, "page");
+  g_object_unref(settings);
+
+  GSettings *written = g_settings_new_with_path(
+      RELOCATABLE, "/org/ibus-web/pattern/t/latn-post/");
+  g_assert_true(g_settings_set_string(written, "layout", "engine"));
+  expect_write("/org/ibus-web/pattern/t/latn-post/", "layout",
+               g_variant_new_string("engine"));
+  g_object_unref(written);
+
+  const gchar *outside[] = {
+      "/org/ibus-web/pattern/hi/",
+      "/org/ibus-web/pattern/hi/inscript/variables/",
+      "/org/ibus-web/other/hi/inscript/",
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(outside); ++i) {
+    g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
+                          "*Unknown settings path*");
+    g_assert_cmpint(change(outside[i], "layout", g_variant_new_string("lost")),
+                    ==, -ENOENT);
+    g_test_assert_expected_messages();
+  }
+  output_empty();
+}
+
+/* A pattern for a schema with a fixed path, or one that isn't a path with
+ * placeholders, declares nothing. */
+static void refused_patterns(void) {
+  const struct {
+    const gchar *schema;
+    const gchar *pattern;
+    const gchar *message;
+  } cases[] = {
+      {"org.ibus-web.Missing", "/org/ibus-web/{name}/",
+       "*Unknown settings schema*"},
+      {SCHEMA, "/org/ibus-web/{name}/", "*has the fixed path*"},
+      {RELOCATABLE, "/org/ibus-web/refused/", "*Invalid settings pattern*"},
+      {RELOCATABLE, "/org/ibus-web/{}/", "*Invalid settings pattern*"},
+      {RELOCATABLE, "/org/ibus-web/{a/b}/", "*Invalid settings pattern*"},
+      {RELOCATABLE, "/org/ibus-web/{name}", "*Invalid settings pattern*"},
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(cases); ++i) {
+    g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING, cases[i].message);
+    apply_with(
+        g_variant_new_array(G_VARIANT_TYPE("(ssa{sv})"), NULL, 0),
+        g_variant_new_parsed("[(%s, %s)]", cases[i].schema, cases[i].pattern));
+    g_test_assert_expected_messages();
+  }
+
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
+                        "*Unknown settings path*");
+  g_assert_cmpint(change("/org/ibus-web/refused/", "layout",
+                         g_variant_new_string("refused")),
+                  ==, -ENOENT);
+  g_test_assert_expected_messages();
+  output_empty();
+}
+
 static gint request(guint16 kind, GVariant *payload) {
   g_variant_ref_sink(payload);
   gsize length = sizeof(IBusWebRequestHeader) + g_variant_get_size(payload);
@@ -336,8 +431,9 @@ static void protocol(void) {
   g_assert_cmpint(
       request(IBUSWEB_REQ_INIT,
               g_variant_new(
-                  "(ub@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION, TRUE,
-                  snapshot_value("layout", g_variant_new_string("initial")))),
+                  "(ub@a(ssa{sv})@a(ss))", IBUSWEB_PROTOCOL_VERSION, TRUE,
+                  snapshot_value("layout", g_variant_new_string("initial")),
+                  no_patterns())),
       ==, 0);
   g_autofree gchar *initial = g_settings_get_string(settings, "layout");
   g_assert_cmpstr(initial, ==, "initial");
@@ -384,6 +480,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/settings/tree", tree_writes);
   g_test_add_func("/settings/relocatable", relocatable);
   g_test_add_func("/settings/refused", refused_instances);
+  g_test_add_func("/settings/patterns", patterns);
+  g_test_add_func("/settings/refused-patterns", refused_patterns);
   g_test_add_func("/settings/protocol", protocol);
   return g_test_run();
 }

@@ -15,6 +15,7 @@
           settingsSchemaDir
           settingsSchemas
           settingsPaths
+          settingsPatterns
           ;
 
         # m17n-host's heap peaks at 25,180,288 bytes asserting and 25,178,368

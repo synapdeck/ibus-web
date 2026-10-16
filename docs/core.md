@@ -243,12 +243,13 @@ change names its schema id, path and key. `settingsInstances(metadata)` lists a 
 `BroadcastChannel("ibus-web:gsettings")` synchronization. It stores one origin-wide record keyed by path and key, with
 GVariant type and normal-form `ArrayBuffer` bytes, and delivers a stored or broadcast change to every schema registered
 at its path whose key accepts it, each with its own default on a reset. Values equal to the schema default delete the
-record. The registry loads metadata and snapshots before Init, which declares every instance with its stored values, and
-says the module's own files are read-only when its host reported `storage: read-only`, accepts `SettingWritten` by
-mapping its path to the module's schema, and forwards changes to the other live modules that declare the same instance.
-Cross-tab recipients update their live Workers without writing the record again. Concurrent writes are last write wins
-per record; live tabs follow the last received broadcast, while future Init reads the database. The Worker host never
-opens this database. See [ibus-web.md](ibus-web.md) for the public API.
+record. The registry loads metadata and snapshots before Init, which declares every instance with its stored values, a
+schema with a `pattern` by the pattern and only its instances that have values, and says the module's own files are
+read-only when its host reported `storage: read-only`, accepts `SettingWritten` by mapping its path to the module's
+schema, and forwards changes to the other live modules that declare the same instance. Cross-tab recipients update their
+live Workers without writing the record again. Concurrent writes are last write wins per record; live tabs follow the
+last received broadcast, while future Init reads the database. The Worker host never opens this database. See
+[ibus-web.md](ibus-web.md) for the public API.
 
 `router.panel` publishes tagged record/hide events with module and context ID for auxiliary text, lazy lookup tables and
 properties. The framework-free default panel consumes facade events; see [panel.md](panel.md). `Logger.Default` maps
@@ -283,7 +284,7 @@ one engine's, and `diagnostic`, the Worker's or the engine's own account; the me
 | `ProtocolMismatch`   | The manifest's protocol version isn't the page's or the runtime's.                                                                                            |
 | `EngineCrashed`      | The Worker crashed; `reason` is the `Crashed` record's (`TRAP`, `FAULT`, `RELAY`, `LOAD`, `HOST`), and a Worker the page lost is `HOST`.                      |
 | `EngineHung`         | A request made no progress for its budget, or more keys waited than the replay queue holds.                                                                   |
-| `ProtocolError`      | A request didn't fit the Worker's request slot.                                                                                                               |
+| `ProtocolError`      | A request didn't fit the Worker's request slot; the diagnostic gives its size and the slot's.                                                                 |
 | `StorageUnavailable` | The settings source failed a read, write or registration.                                                                                                     |
 | `CreateEngineError`  | An engine failed to start (above).                                                                                                                            |
 | `PrepareEngineError` | An engine's own data failed to install (above).                                                                                                               |

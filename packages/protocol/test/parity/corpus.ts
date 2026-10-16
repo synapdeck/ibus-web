@@ -75,6 +75,7 @@ export const lifecycle = {
     settings: [
       { schemaId, path, values: { sample: { _tag: "v", type: "s", value: { _tag: "s", value: "initial" } } } },
     ],
+    patterns: [],
   }),
   create: new P.CreateEngine({ name: "parity" }),
   destroy: new P.DestroyEngine({}),

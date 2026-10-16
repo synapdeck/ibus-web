@@ -126,10 +126,6 @@ decided.
   about 212 files, 2.5 MB, at every start: a start from IndexedDB takes 1014–2906 ms in the browsers
   ([m17n.md](m17n.md#in-the-browser)). m17n keeps no index of its own; a cached list, or each input method read on first
   use, would need changes to m17n-lib or ibus-m17n's listing.
-- **`Init` carries every settings instance.** m17n's `Init` declares each of its 232 instances, 22,378 bytes with
-  nothing stored, of the 64 KiB request slot ([m17n.md](m17n.md#checks)). A user who stores many values across m17n's
-  per-engine instances could push `Init` past the slot, which `Connection.requestAsync` rejects with a `RangeError`, and
-  the module would fail to start.
 - **Rime's prisms for dictionaries not yet installed.** A settings change deployed while some dictionaries aren't
   installed leaves their prisms as prebuilt, so a `fuzzy-pinyin` change reaches an engine installed later only at the
   next deployment ([rime.md](rime.md#deployment)).

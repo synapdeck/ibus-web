@@ -445,9 +445,11 @@ void golden_init(const gchar *schemas_dir, const gchar *module,
 
   Fixture fixture = {.records = g_ptr_array_new_with_free_func(record_free)};
   g_assert_cmpint(
-      golden_request(&fixture, IBUSWEB_REQ_INIT,
-                     g_variant_new("(ub@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
-                                   TRUE, instances_from(instances))),
+      golden_request(
+          &fixture, IBUSWEB_REQ_INIT,
+          g_variant_new("(ub@a(ssa{sv})@a(ss))", IBUSWEB_PROTOCOL_VERSION, TRUE,
+                        instances_from(instances),
+                        g_variant_new_array(G_VARIANT_TYPE("(ss)"), NULL, 0))),
       ==, 0);
   g_log_set_default_handler(g_log_default_handler, NULL);
   /* g_test_init makes warnings fatal where they're logged, which would end

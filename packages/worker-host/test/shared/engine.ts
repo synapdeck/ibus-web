@@ -35,6 +35,7 @@ const init = () =>
     settings: [
       { schemaId: "org.example.echo", path: "/org/example/echo/", values: { value: stringVariant("snapshot") } },
     ],
+    patterns: [],
   });
 const key = (value: string, state = 0) => new ProcessKeyEvent({ keyval: value.charCodeAt(0), keycode: 0, state });
 const modules = async (host: RunningHost): Promise<string[]> => {

@@ -14,6 +14,7 @@ export { IBusAttrType, IBusOrientation, IBusPropType, IBusPropState, IBusPreedit
 export {
   Init,
   SettingsInstanceValues,
+  SettingsPattern,
   CreateEngine,
   DestroyEngine,
   SettingChanged,
@@ -87,6 +88,7 @@ export {
   SettingsMetadata,
   decodeSettingsMetadata,
   encodeSettingsMetadata,
+  settingsPatternMatches,
   type SettingsMetadataJson,
 } from "./settings.ts";
 

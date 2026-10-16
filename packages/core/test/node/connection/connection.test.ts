@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   IBusLookupTable,
   UpdateLookupTable,
+  encodeRequest,
   encodeValue,
   signatureOf,
   Init,
@@ -898,13 +899,23 @@ describe("crashes and hangs", () => {
   });
 });
 
+test("refuses a request past the slot, naming both sizes", async () => {
+  const connection = await start({ layout: transportLayout({ slotBytes: 64 }) });
+  const settings = [{ schemaId: "org.example", path: `/org/example/${"long/".repeat(16)}`, values: {} }];
+  const request = new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings, patterns: [] });
+  await expect(connection.requestAsync(request, 0)).rejects.toThrow(
+    new RangeError(`request of ${encodeRequest(0, request).length} bytes, past the 64-byte request slot`),
+  );
+  expect(host.requests).toEqual([]);
+});
+
 describe("Init watchdog", () => {
   test("Init may finish after the interactive watchdog budget, then a queued key uses its own budget", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const connection = await start();
     host.scripts.push({ after: 8000, ret: 0 }, { after: "never" });
     const initial = connection.requestAsync(
-      new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] }),
+      new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] }),
       0,
     );
     const first = initial.catch((cause: unknown) => cause);
@@ -927,7 +938,7 @@ describe("Init watchdog", () => {
     const connection = await start(initHangMs === undefined ? {} : { initHangMs });
     host.scripts.push({ after: "never" });
     const pending = connection.requestAsync(
-      new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] }),
+      new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] }),
       0,
     );
     const rejected = expect(pending).rejects.toMatchObject({ reason: "hang" });
@@ -946,7 +957,7 @@ describe("Init watchdog", () => {
     const connection = await start({ initHangMs: 5000 });
     host.scripts.push({ after: "never" });
     const pending = connection.requestAsync(
-      new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] }),
+      new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [], patterns: [] }),
       0,
     );
     const rejected = expect(pending).rejects.toMatchObject({ reason: "hang" });

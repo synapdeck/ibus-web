@@ -310,6 +310,9 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           });
 
         const instances = settingsInstances(metadata);
+        const patterns = new Map(
+          metadata.schemas.flatMap(({ id, pattern }) => (pattern === undefined ? [] : [[id, pattern] as const])),
+        );
         entry.instances.clear();
         for (const { schemaId, path } of instances) entry.instances.set(path, schemaId);
 
@@ -369,7 +372,12 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               new Init({
                 version: PROTOCOL_VERSION,
                 userDataWritable,
-                settings: instances.map(({ schemaId, path }) => ({ schemaId, path, values: initial[path] ?? {} })),
+                // A patterned schema's instances need an entry only to carry stored values.
+                settings: instances.flatMap(({ schemaId, path }) => {
+                  const values = initial[path] ?? {};
+                  return patterns.has(schemaId) && Object.keys(values).length === 0 ? [] : [{ schemaId, path, values }];
+                }),
+                patterns: [...patterns].map(([schemaId, pattern]) => ({ schemaId, pattern })),
               }),
               0,
             ),

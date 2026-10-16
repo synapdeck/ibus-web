@@ -16,6 +16,7 @@ const paths: {
   settingsFromAttrs: string;
   settingsFromFile: string;
   settingsSchemasFromFile: string;
+  settingsWithPatterns: string;
   hangulSchemasFromFile: string;
 } = JSON.parse(readFileSync(fixture, "utf8"));
 const raw = JSON.parse(
@@ -94,6 +95,32 @@ test.each([
     ["org.test.Metadata", ["/org/test/metadata/"]],
     ["org.test.Relocatable", ["/org/test/first/", "/org/test/second/"]],
   ]);
+});
+test("mkSettingsMetadata gives a relocatable schema the pattern settingsPatterns names", () => {
+  const settings = protocol.decodeSettingsMetadata(JSON.parse(readFileSync(paths.settingsWithPatterns, "utf8")));
+  expect(settings.schemas.map((schema) => [schema.id, schema.pattern])).toEqual([
+    ["org.test.Metadata", undefined],
+    ["org.test.Relocatable", "/org/test/{name}/"],
+  ]);
+});
+test.each([
+  [{ "org.test.Relocatable": "/org/test/first/{name}/" }, "doesn't match its pattern"],
+  [{ "org.test.Missing": "/org/test/{name}/" }, "org.test.Missing, which isn't listed"],
+])("refuses the patterns %j", (patterns, reason) => {
+  const relocatable = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        paths.helper,
+        paths.schemas,
+        "org.test.Relocatable",
+        "org.test.Relocatable=/org/test/first/",
+        "org.test.Relocatable=/org/test/second/",
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  expect(() => convertMetadata(relocatable, protocol, patterns)).toThrow(reason);
 });
 test("mkSettingsMetadata takes settingsSchemas as a JSON file", () => {
   expect(readFileSync(paths.settingsSchemasFromFile, "utf8")).toBe(readFileSync(paths.settingsFromAttrs, "utf8"));

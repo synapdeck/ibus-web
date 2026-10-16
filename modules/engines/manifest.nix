@@ -22,11 +22,17 @@
           engines,
           settingsSchemas,
           settingsPaths ? { },
+          settingsPatterns ? { },
         }:
         let
           closure = pkgs.closureInfo { rootPaths = [ package ]; };
           settingsMetadata = config.ibusWeb.engines.mkSettingsMetadata {
-            inherit settingsSchemaDir settingsSchemas settingsPaths;
+            inherit
+              settingsSchemaDir
+              settingsSchemas
+              settingsPaths
+              settingsPatterns
+              ;
           };
           license = config.ibusWeb.lib.spdxExpression package.meta.license;
 
