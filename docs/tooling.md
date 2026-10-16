@@ -239,6 +239,7 @@ with a `package.json` naming exactly what that directory imports; the root `pack
 | Directory                                                                             | Packages                                                                                                                                                         |
 | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/*`                                                                          | the published `@ibus-web/protocol`, `@ibus-web/worker-host`, `@ibus-web/core`, `@ibus-web/panel` and `ibus-web`; `@ibus-web/test-programs`; `@ibus-web/tsconfig` |
+| `packages/engines/*`                                                                  | `@ibus-web/engine-<name>`, whose contents Nix builds; in the workspace so that Changesets versions them ([Releases](#releases))                                  |
 | `tools/*`                                                                             | one private package per tool, `@ibus-web/<tool>`                                                                                                                 |
 | `engines/m17n/descriptors`                                                            | `@ibus-web/m17n-descriptors`, which turns the m17n descriptor program's output into the module's descriptors, settings paths and variable schemas                |
 | `examples/*`                                                                          | `@ibus-web/example-demo`, with its end-to-end tests                                                                                                              |
@@ -448,3 +449,31 @@ lacks the claims FlakeHub Cache needs, so those runs build from scratch.
 To read the cache on a workstation, install Determinate Nix and run `determinate-nixd login`, which authenticates it to
 FlakeHub (access is per flake, granted through the organisation). Then a build substitutes from `cache.flakehub.com`;
 `nix build -L .#checks.x86_64-linux.flake-hk` should show `copying path … from 'https://cache.flakehub.com'`.
+
+## Releases
+
+Changesets versions the published packages and writes their changelogs.
+
+- **Changesets** (`tools/release`, whose package depends on `@changesets/cli`). `.changeset/config.json` is generated
+  (`tools/release/changesets.nix`): every published package (`ibusWeb.typescript.publishedPackages`, the engine packages
+  among them, which is why `packages/engines/*` is in the pnpm workspace) is in one `fixed` group, so a release has one
+  version, which names its assets; private packages aren't versioned; Changesets formats nothing, since hk formats what
+  it writes as it is committed. In the dev shell, `changeset` runs the CLI at the repository's root: `changeset` to
+  describe a change, `changeset version` to apply the pending ones. Versioning is local: run `changeset version`,
+  commit, then tag `v<version>`.
+- **`.#release`** (x86_64-linux only: its outputs are WebAssembly and JavaScript, the same whatever builds them) holds
+  `assets/`, the GitHub release's files, and `notes.md`, its text. The assets (design spec §10.7) are every npm tarball
+  (`legacyPackages.<system>.npm.all`), `ibus-runtime.js` and `ibus-runtime.wasm`, `PROTOCOL.md`, each engine's
+  distribution (its `.wasm`, data archives and manifest) as `engine-<name>-<version>.tar`, each engine's source bundle,
+  and `release.json`, which lists each asset's size and SHA-256 with the version, the commit and the runtime ABI. The
+  notes are each package's section of its changelog for the version (`tools/release/notes.ts`), leaving out packages
+  Changesets bumped without changes; the build fails while a changelog lacks the version.
+- **Source bundles** (`packages.engine-<name>-src`, design spec §9.3), one `.tar.xz` per engine: the repository as
+  tagged, every flake input (nixpkgs among them) as Nix fetched it, and under `sources/` the upstream source of every
+  library the engine and the runtime link, of Emscripten, and of what `ibusWeb.release.engines.<name>.extraSources`
+  names (its data, and dependencies its build fetches other than as build inputs). Its README says how to build the
+  engine from them alone. `checks.tools-release-source-bundles` fails when an engine the demo serves has no bundle.
+
+`checks.tools-release` runs the notes tool's tests; `checks.tools-release-changesets` versions a copy of the repository
+with a sample changeset and checks that every published package takes the new version, no private one moves, and the
+notes come out of the changelogs written.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 {
   perSystem =
-    { config, ... }:
+    { config, pkgs, ... }:
     let
       inherit (config.ibusWeb) engines;
       inherit (config.ibusWeb.engines) m17n;
@@ -29,5 +29,12 @@
       };
 
       ibusWeb.demo.modules.m17n = config.packages.ibus-web-m17n-dist;
+
+      # The input methods are m17n-db's.
+      ibusWeb.release.engines.m17n = {
+        dist = config.packages.ibus-web-m17n-dist;
+        module = m17n.package;
+        extraSources = [ pkgs.m17n_db ];
+      };
     };
 }

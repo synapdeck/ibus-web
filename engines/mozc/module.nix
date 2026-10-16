@@ -52,6 +52,20 @@
 
       ibusWeb.demo.modules.mozc = config.packages.ibus-web-mozc-dist;
 
+      # Bazel fetches the libraries Mozc links, Abseil and Protocol Buffers
+      # among them, as one fixed-output derivation; the dictionary build
+      # reads the UT dictionaries and Japan Post's zip codes.
+      ibusWeb.release.engines.mozc = {
+        dist = config.packages.ibus-web-mozc-dist;
+        module = mozc;
+        extraSources = [
+          mozc.deps
+          toolchain.pkgsWasm.buildPackages.jp-zip-codes
+          toolchain.pkgsWasm.buildPackages.merge-ut-dictionaries
+        ]
+        ++ builtins.attrValues mozc.dictionaries;
+      };
+
       # The data closure is the data set and the compiled schema, nothing else.
       checks.mozc-data-closure = pkgs.runCommand "ibus-web-mozc-data-closure" { } ''
         closure=${pkgs.closureInfo { rootPaths = [ mozc ]; }}/store-paths

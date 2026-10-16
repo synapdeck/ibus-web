@@ -1,0 +1,26 @@
+{
+  "access": "public",
+  "baseBranch": "master",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "@ibus-web/core",
+      "ibus-web",
+      "@ibus-web/panel",
+      "@ibus-web/protocol",
+      "@ibus-web/runtime",
+      "@ibus-web/worker-host",
+      "@ibus-web/engine-hangul",
+      "@ibus-web/engine-m17n",
+      "@ibus-web/engine-mozc",
+      "@ibus-web/engine-rime",
+      "@ibus-web/engine-table"
+    ]
+  ],
+  "format": false,
+  "ignore": [],
+  "linked": [],
+  "privatePackages": { "tag": false, "version": false },
+  "updateInternalDependencies": "patch"
+}

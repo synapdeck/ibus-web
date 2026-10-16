@@ -1,0 +1,16 @@
+{
+  "name": "@ibus-web/release",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "@changesets/cli": "^3.0.3"
+  },
+  "devDependencies": {
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

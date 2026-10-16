@@ -113,6 +113,12 @@
 
       ibusWeb.demo.modules.hangul = config.packages.ibus-web-hangul-dist;
 
+      # libhangul's own source holds its Hanja tables.
+      ibusWeb.release.engines.hangul = {
+        dist = config.packages.ibus-web-hangul-dist;
+        module = hangul;
+      };
+
       checks.hangul-data-closure = pkgs.runCommand "ibus-web-hangul-data-closure" { } ''
         closure=${pkgs.closureInfo { rootPaths = [ hangul ]; }}/store-paths
         grep -Fx ${hangul.schemas} "$closure"

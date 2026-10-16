@@ -21,6 +21,9 @@
       generator = "${typescript.workspaceFor [ "tools/latex-table" ]}/tools/latex-table";
     in
     {
+      # The LaTeX table is unicode.xml's data.
+      ibusWeb.release.engines.table.extraSources = [ unicodeXml ];
+
       ibusWeb.engines.table.tables =
         pkgs.runCommand "ibus-web-table-tables"
           {

@@ -22,6 +22,7 @@ catalog:
   vitest: ^5.0.3
 packages:
   - packages/*
+  - packages/engines/*
   - tools/*
   - engines/m17n/descriptors
   - engines/rime/descriptors

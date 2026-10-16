@@ -202,10 +202,8 @@ decided.
   become writer or both install one version. Node suites start hosts that share storage one at a time; a Node store that
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **The published packages aren't released.** `@ibus-web/protocol`, `@ibus-web/worker-host`, `@ibus-web/core`,
-  `@ibus-web/panel` and `ibus-web` are publishable, but their versions stay `0.0.0` and nothing publishes them. Releases
-  are to be versioned with Changesets, with a CI workflow that bumps versions and publishes to npm; neither is set up
-  yet.
+- **Nothing is released yet.** The packages stay at `0.0.0` until the first release's changeset is versioned and tagged,
+  and nothing publishes them.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't removed; the Node
   archive server in the Vitest config process is `unref`'d, not closed; Vite's unanalyzable-import warning is filtered
   by its text.

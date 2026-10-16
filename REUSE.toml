@@ -138,9 +138,9 @@ SPDX-FileCopyrightText = ["Emscripten authors", "2026 Synapdeck, Inc."]
 SPDX-License-Identifier = "MIT OR NCSA"
 
 # Generated from Nix: the workflow's generator writes a header of its own,
-# and the YAML generator writes no comments.
+# the YAML generator writes no comments, and JSON can't hold them.
 [[annotations]]
-path = [".github/workflows/*.yml", "pnpm-workspace.yaml"]
+path = [".github/workflows/*.yml", "pnpm-workspace.yaml", ".changeset/config.json"]
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 

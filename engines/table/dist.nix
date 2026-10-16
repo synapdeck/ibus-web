@@ -30,5 +30,10 @@
       };
 
       ibusWeb.demo.modules.table = config.packages.ibus-web-table-dist;
+
+      ibusWeb.release.engines.table = {
+        dist = config.packages.ibus-web-table-dist;
+        inherit (table) module;
+      };
     };
 }

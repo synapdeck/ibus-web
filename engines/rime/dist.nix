@@ -140,6 +140,7 @@
         manifest.overrideAttrs (old: {
           passthru = old.passthru // {
             inherit licenses licenseTexts notices;
+            module = package;
           };
         })
       ) { };
@@ -148,5 +149,21 @@
       packages.ibus-web-rime-dist = dist;
 
       ibusWeb.demo.modules.rime = dist;
+
+      # librime builds its plugins from their sources inside its own, and the
+      # schemas and dictionaries come from rime-data, rime-loengfan and
+      # rime-ice, with ibus-rime's configuration.
+      ibusWeb.release.engines.rime = {
+        inherit dist;
+        inherit (dist) module;
+        extraSources = [
+          pkgsWasm.librime-lua
+          pkgsWasm.librime-octagram
+          pkgsWasm.ibus-engines.rime
+          pkgs.rime-data
+          pkgsWasm.rime-loengfan
+          pkgs.rime-ice
+        ];
+      };
     };
 }

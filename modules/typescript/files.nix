@@ -10,6 +10,9 @@
       pnpmWorkspace = {
         packages = [
           "packages/*"
+          # Nix builds their contents, but Changesets versions them as it
+          # does the rest, and finds them through the workspace.
+          "packages/engines/*"
           "tools/*"
           "engines/m17n/descriptors"
           "engines/rime/descriptors"
