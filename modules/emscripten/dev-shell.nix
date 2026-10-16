@@ -18,8 +18,7 @@
 
         if [ ! -d "$target" ] || [ "$(cat "$record" 2>/dev/null)" != "$cache" ]; then
           rm -rf "$target"
-          cp -r --no-preserve=mode "$cache" "$target"
-          echo "$cache" > "$record"
+          cp -r --no-preserve=mode "$cache" "$target" && echo "$cache" > "$record"
         fi
       '';
     in
