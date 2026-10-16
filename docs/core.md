@@ -27,9 +27,11 @@ its finalizers. So the registry has each ready Worker persist it (`Persist`) bef
 when its scope closes, and when the page goes away (`pagehide`); `registry.persist()` does the same on demand. When
 nothing else is on the module's wire, the request goes out at once and the page waits for its reply, up to `hangMs`, so
 the engines have written their state before the handler returns and the browser goes on to end the Workers; a Worker
-busy with a request gets it queued behind that one, which a page going away may not live to send. The registry also
-sends it without waiting when a navigation or close is about to start (`beforeunload`), and when the page is hidden
-(`visibilitychange` to `hidden`), since a hidden page can be discarded with no further event but runs until then.
+busy with a request gets it queued behind that one, which a page going away may not live to send. At `unload` and when
+the scope closes, the Worker is ending for good, so `Persist` is followed by `Shutdown`, sent the same way, which has
+each module release what it holds for its lifetime (Hangul's `ibus_hangul_exit`). The registry also sends it without
+waiting when a navigation or close is about to start (`beforeunload`), and when the page is hidden (`visibilitychange`
+to `hidden`), since a hidden page can be discarded with no further event but runs until then.
 
 The wait at `pagehide` doesn't serve WebKit, whose Workers reach IndexedDB through the page's main thread: the wait
 holds that thread, so an engine's write finishes only once the wait has given up, and the Workers end with it. There the

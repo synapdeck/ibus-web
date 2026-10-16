@@ -102,10 +102,12 @@ static void echo_engine_class_init(EchoEngineClass *klass) {
 }
 static void echo_engine_init(EchoEngine *engine) { (void)engine; }
 static void persist(void) { g_message("echo persisted"); }
+static void shut_down(void) { g_message("echo shut down"); }
 void ibusweb_module_init(IBusWebModule *module) {
   ibusweb_module_add_op(module, TEST_OP_WAIT_TRAP, "wait-trap", wait_trap);
   ibusweb_module_add_op(module, TEST_OP_LOG, "log", log_bytes);
   ibusweb_module_set_persist(module, persist);
+  ibusweb_module_set_shutdown(module, shut_down);
   g_debug("echo schemas: %s", ECHO_SCHEMAS);
   GSettings *settings = g_settings_new("org.example.echo");
   gchar *value = g_settings_get_string(settings, "value");

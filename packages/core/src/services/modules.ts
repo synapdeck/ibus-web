@@ -343,11 +343,11 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               resume(Effect.fail(asError(cause)));
             }
           }),
-          // Ending the Worker runs none of its engines' finalizers, so they persist first.
+          // Ending the Worker runs none of its engines' finalizers, so they persist and shut down first.
           (connection) =>
             Effect.sync(() => {
               if (entry.snapshot.connection === connection) {
-                entry.router.persist(config.hangMs);
+                entry.router.shutdown(config.hangMs);
                 entry.router.disconnect();
               }
               ended(connection);
@@ -675,7 +675,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         Effect.gen(function* () {
           const entry = entries.get(name);
           if (!entry) return yield* Effect.fail(new Error(`Unknown module: ${name}`));
-          entry.router.persist(config.hangMs);
+          entry.router.shutdown(config.hangMs);
           const lifetime = entry.lifetime;
           entry.lifetime = undefined;
           entry.snapshot.enabled = false;

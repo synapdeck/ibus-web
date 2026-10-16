@@ -189,10 +189,11 @@ exports `manifest.json`, `hangul.wasm`, `settings.json` and `data/*`. A host ser
 
 ## Startup and patch layers
 
-`ibusweb_module_init` calls `ibus_hangul_init(NULL)`, creates an `IBusFactory`, registers the `hangul` engine type and
-releases its reference. The runtime's registry retains the factory. Send the Init settings snapshot before loading the
-module: upstream initialization reads those settings into globals. Contexts use `FocusIn` and `FocusOut`; the protocol
-has no ID variants.
+`ibusweb_module_init` calls `ibus_hangul_init(NULL)`, registers `ibus_hangul_exit` as the module's shutdown function
+(`ibusweb_module_set_shutdown`), creates an `IBusFactory`, registers the `hangul` engine type and releases its
+reference. The runtime's registry retains the factory. Send the Init settings snapshot before loading the module:
+upstream initialization reads those settings into globals. Contexts use `FocusIn` and `FocusOut`; the protocol has no ID
+variants.
 
 Local patches follow nixpkgs' patches, with `port` before `casts`, each sorted by filename. `port` holds build/startup
 adaptations and engine behavior fixes; `casts` holds exact callback-type fixes and can be removed independently if a
@@ -214,9 +215,9 @@ Hangul has **four port patches and one cast patch**. The port patches:
 The cast patch changes three functions: the two hand-written GType init callbacks get their second argument, and the
 destroy callback its declared pointer type. Its connected settings handlers already have their full declared signature.
 
-The `setup` property is inert because spawning a desktop settings application has no meaning here. There is no module
-shutdown ABI, so `ibus_hangul_exit` does not run. `preedit-mode` is copied into a live engine on focus/capability
-updates, so changing it takes effect after refocus.
+The `setup` property is inert because spawning a desktop settings application has no meaning here. `ibus_hangul_exit`
+runs from the `Shutdown` request the page sends before it ends the Worker. `preedit-mode` is copied into a live engine
+on focus/capability updates, so changing it takes effect after refocus.
 
 ## Cast audit
 

@@ -3,6 +3,7 @@
 import {
   Persist,
   ProcessKeyEvent,
+  Shutdown,
   type DecodedLazyRecord,
   type ModuleManifest,
   type Request,
@@ -376,6 +377,27 @@ export class KeyRouter {
     }
 
     const outcome = connection.requestSync(new Persist({}), 0, budgetMs);
+    if (outcome._tag === "crashed") this.crash(outcome.crash);
+    else if (outcome._tag === "reply") this.apply(outcome.records);
+    else this.output.changed?.();
+  }
+  /**
+   * Has the host persist what its engines keep in memory, then release what its modules hold, before the page ends
+   * the Worker. Each request waits up to `budgetMs` for its reply while nothing else is on the wire; one that can't
+   * goes out behind the work ahead of it, which the Worker ending may cut short.
+   */
+  shutdown(budgetMs: number): void {
+    const connection = this.snapshot.connection;
+    if (!connection || (this.snapshot.status !== "ready" && this.snapshot.status !== "busy")) return;
+
+    this.persist(budgetMs);
+    if (this.snapshot.connection !== connection) return;
+    if (this.busy) {
+      void this.request(new Shutdown({}), 0).catch((cause: unknown) => this.reportError(cause, 0));
+      return;
+    }
+
+    const outcome = connection.requestSync(new Shutdown({}), 0, budgetMs);
     if (outcome._tag === "crashed") this.crash(outcome.crash);
     else if (outcome._tag === "reply") this.apply(outcome.records);
     else this.output.changed?.();

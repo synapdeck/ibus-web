@@ -82,8 +82,6 @@ decided.
   `ibus-daemon` and a toolkit client do on top of the engine needs a separate input-context adapter, which must set
   client-side preedit commits and capabilities explicitly, since both change the observable output. See
   [the test adapter](../tools/ibus-test/README.md).
-- **No module shutdown call.** The ABI has no shutdown entry point; Hangul's `ibus_hangul_exit` never runs and its
-  module globals live for the Worker lifetime.
 - **GLib's pool share under concurrent `GTask`s.** The share of 3 covers one `GTask` in flight; each concurrent one can
   take another worker, up to `G_TASK_POOL_SIZE` (10) and beyond. Engines that run `GTask`s concurrently need a rule.
 - **No public Emscripten API to grow the pthread pool.** The host's top-up uses Emscripten's internal `PThread`; an

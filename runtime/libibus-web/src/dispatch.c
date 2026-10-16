@@ -15,6 +15,9 @@ static GHashTable *engines;
  * be trusted, so no request or source reaches them again. The first fault's
  * reason stays. */
 static gchar *fault_reason; /* (atomic) (owned) */
+/* Set once Shutdown has called the modules' shutdown functions, which may
+ * have freed what the engines use. */
+static gboolean shut_down;
 
 typedef struct {
   IBusWebRequestHeader header;
@@ -122,6 +125,11 @@ static int32_t route(gpointer data) {
   }
   if (kind == IBUSWEB_REQ_PERSIST) {
     ibusweb_modules_persist();
+    return 0;
+  }
+  if (kind == IBUSWEB_REQ_SHUTDOWN) {
+    shut_down = TRUE;
+    ibusweb_modules_shutdown();
     return 0;
   }
   IBusEngine *engine = g_hash_table_lookup(engines, GUINT_TO_POINTER(ic));
@@ -244,9 +252,15 @@ gboolean ibusweb_runtime_faulted(void) {
   return g_atomic_pointer_get(&fault_reason) != NULL;
 }
 
+gboolean ibusweb_runtime_stopped(void) {
+  return ibusweb_runtime_faulted() || shut_down;
+}
+
 int32_t ibusweb_dispatch(const uint8_t *bytes, uint32_t len) {
   if (ibusweb_runtime_faulted())
     return -ENOTRECOVERABLE;
+  if (shut_down)
+    return -ESHUTDOWN;
   if (!g_main_context_is_owner(g_main_context_default()))
     return -EPERM;
   if (bytes == NULL || len < sizeof(IBusWebRequestHeader))

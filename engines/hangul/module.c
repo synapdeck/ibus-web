@@ -9,8 +9,9 @@
 /* Keep the schema data in the side module's store closure. */
 const char ibusweb_hangul_settings_schema_dir[] = IBUSWEB_SETTINGS_SCHEMA_DIR;
 
-void ibusweb_module_init(IBusWebModule *module G_GNUC_UNUSED) {
+void ibusweb_module_init(IBusWebModule *module) {
   ibus_hangul_init(NULL);
+  ibusweb_module_set_shutdown(module, ibus_hangul_exit);
   IBusFactory *factory = g_object_ref_sink(ibus_factory_new(NULL));
   ibus_factory_add_engine(factory, "hangul", IBUS_TYPE_HANGUL_ENGINE);
   g_object_unref(factory);

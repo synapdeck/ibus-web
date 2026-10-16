@@ -8,6 +8,7 @@ import {
   Persist,
   ProcessKeyEvent,
   PROTOCOL_VERSION,
+  Shutdown,
   ReqMode,
   State,
   Word,
@@ -180,6 +181,27 @@ export const engineFault = async (h: Harness, runtime: RuntimeBuild): Promise<vo
     expect(types.indexOf("doorbell")).toBeLessThan(types.indexOf("crashed"));
     await h.sleep(100);
     expect(Atomics.load(new Int32Array(callsAfterFault), 0)).toBe(0);
+  } finally {
+    await host.terminate();
+  }
+};
+
+// Shutdown runs the module's shutdown function after Persist has run its
+// persist function, and the runtime refuses every request after it.
+export const engineShutdown = async (h: Harness, runtime: RuntimeBuild): Promise<void> => {
+  const host = await h.start({ runtime, manifest: h.data.engines.echo, test: { sides: [] } });
+  try {
+    expect(await call(host, 0, init())).toBe(0);
+    expect(await call(host, 1, new CreateEngine({ name: "echo" }))).toBe(0);
+    host.client.page.records();
+    expect(await call(host, 0, new Persist({}))).toBe(0);
+    expect(await call(host, 0, new Shutdown({}))).toBe(0);
+    const messages = host.client.page
+      .records()
+      .flatMap(({ record }) => (record._tag === "Log" && record.message.startsWith("echo ") ? [record.message] : []));
+    expect(messages).toEqual(["echo persisted", "echo shut down"]);
+    expect(await call(host, 1, key("a"))).toBe(-h.data.errno["ESHUTDOWN"]!);
+    expect(await call(host, 0, new Shutdown({}))).toBe(-h.data.errno["ESHUTDOWN"]!);
   } finally {
     await host.terminate();
   }

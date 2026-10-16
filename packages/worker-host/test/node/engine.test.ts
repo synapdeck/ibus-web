@@ -9,6 +9,7 @@ import {
   storeBeforeInit,
   engineFault,
   engineLoadFailure,
+  engineShutdown,
 } from "../shared/engine.ts";
 const h = await nodeHarness();
 afterAll(() => h.cleanUp());
@@ -20,6 +21,7 @@ describe.each(h.data.runtimes)("engine on $name", (runtime) => {
     test("store before Init, memory=" + memory, () => storeBeforeInit(h, runtime, memory));
   }
   test("engine fault", () => engineFault(h, runtime));
+  test("engine shutdown", () => engineShutdown(h, runtime));
   test("engine load failure", () => engineLoadFailure(h, runtime));
 });
 

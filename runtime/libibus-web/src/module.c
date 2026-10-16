@@ -13,6 +13,7 @@ struct _IBusWebModule {
    * check each one. */
   int error;
   IBusWebPersist persist;
+  IBusWebShutdown shutdown;
 };
 
 /* Every module registered, in order; each lives as long as the runtime. */
@@ -44,6 +45,29 @@ int ibusweb_module_set_persist(IBusWebModule *module, IBusWebPersist persist) {
   }
   module->persist = persist;
   return 0;
+}
+
+int ibusweb_module_set_shutdown(IBusWebModule *module,
+                                IBusWebShutdown shutdown) {
+  g_return_val_if_fail(module != NULL, -EINVAL);
+
+  if (shutdown == NULL) {
+    if (module->error == 0)
+      module->error = -EINVAL;
+    return -EINVAL;
+  }
+  module->shutdown = shutdown;
+  return 0;
+}
+
+void ibusweb_modules_shutdown(void) {
+  if (modules == NULL)
+    return;
+  for (guint i = modules->len; i > 0; i--) {
+    IBusWebModule *module = g_ptr_array_index(modules, i - 1);
+    if (module->shutdown != NULL)
+      module->shutdown();
+  }
 }
 
 void ibusweb_modules_persist(void) {

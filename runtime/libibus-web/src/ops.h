@@ -23,6 +23,11 @@ const char *ibusweb_module_get_name(IBusWebModule *module);
 G_GNUC_INTERNAL
 void ibusweb_modules_persist(void);
 
+/* Calls every registered module's shutdown function, last registered first.
+ */
+G_GNUC_INTERNAL
+void ibusweb_modules_shutdown(void);
+
 /* Calls op, opcode's operation. Returns 0, or -ECANCELED if it threw a C++
  * exception, which leaves reply partly written; state that C frames between
  * the throw and op held stays as the exception left it. Exceptions that

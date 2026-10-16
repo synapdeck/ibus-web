@@ -76,6 +76,14 @@ test_dispatch = executable(
 test('dispatch', test_dispatch, protocol: 'tap', env: ['G_MESSAGES_DEBUG='])
 test('dispatch-debug', test_dispatch, protocol: 'tap', env: ['G_MESSAGES_DEBUG=all'])
 
+test_shutdown = executable(
+  'test-shutdown',
+  'test-shutdown.c',
+  dependencies: libibus_web_dep,
+  link_args: get_option('test_main_link_args'),
+)
+test('shutdown', test_shutdown, protocol: 'tap')
+
 test_fault = executable(
   'test-fault',
   'test-fault.c',

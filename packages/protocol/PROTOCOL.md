@@ -132,6 +132,16 @@ ignored.
 | Name | GVariant type | Description |
 | ---- | ------------- | ----------- |
 
+### Shutdown
+
+Kind: **6**. Signature: `()`.
+
+Have every module release what it holds, last registered first, since the page ends the Worker next. No request reaches
+an engine afterwards. The header's ic is ignored.
+
+| Name | GVariant type | Description |
+| ---- | ------------- | ----------- |
+
 ### ProcessKeyEvent
 
 Kind: **16**. Signature: `(uuu)`.

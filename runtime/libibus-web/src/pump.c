@@ -31,8 +31,9 @@ int32_t ibusweb_pump(void) {
                "main context");
     return IBUSWEB_PUMP_ERROR;
   }
-  /* Sources would run engine code over the state an exception left. */
-  if (ibusweb_runtime_faulted())
+  /* Sources would run engine code over the state an exception left, or that
+   * a shutdown function freed. */
+  if (ibusweb_runtime_stopped())
     return -1;
 
   /* An iteration taken apart, as g_main_context_iteration() would run it

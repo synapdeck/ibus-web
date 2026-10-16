@@ -740,24 +740,60 @@ const persistRegistry = (started: FakeConnection[]) =>
   });
 const persists = (connection: FakeConnection) =>
   connection.sent.filter(({ request }) => request._tag === "Persist").map(({ mode, ic }) => ({ mode, ic }));
+// The requests that end a Worker's engines, in the order sent.
+const endings = (connection: FakeConnection) =>
+  connection.sent
+    .filter(({ request }) => request._tag === "Persist" || request._tag === "Shutdown")
+    .map(({ mode, request }) => [mode, request._tag]);
 
-it.effect("a ready Worker persists, waiting up to hangMs, before unload or the registry's end terminates it", () =>
+it.effect(
+  "a ready Worker persists, then shuts down, each waiting up to hangMs, before unload or the registry's end terminates it",
+  () =>
+    Effect.gen(function* () {
+      const started: FakeConnection[] = [];
+      const scope = yield* Scope.make();
+      const registry = yield* persistRegistry(started).pipe(Scope.provide(scope));
+      yield* registry.select("test");
+      started[0]!.duringSync = () => expect(started[0]!.terminated).toBe(false);
+      yield* registry.unload("test");
+      expect(endings(started[0]!)).toEqual([
+        ["sync", "Persist"],
+        ["sync", "Shutdown"],
+      ]);
+      expect(started[0]!.budgets).toEqual([CoreConfig.defaults.hangMs, CoreConfig.defaults.hangMs]);
+      expect(started[0]!.terminated).toBe(true);
+
+      yield* registry.select("test");
+      started[1]!.duringSync = () => expect(started[1]!.terminated).toBe(false);
+      yield* Scope.close(scope, Exit.void);
+      expect(endings(started[1]!)).toEqual([
+        ["sync", "Persist"],
+        ["sync", "Shutdown"],
+      ]);
+      expect(started[1]!.terminated).toBe(true);
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect("a Worker busy at unload is sent Persist and Shutdown behind its request", () =>
   Effect.gen(function* () {
     const started: FakeConnection[] = [];
-    const scope = yield* Scope.make();
-    const registry = yield* persistRegistry(started).pipe(Scope.provide(scope));
+    const registry = yield* persistRegistry(started);
     yield* registry.select("test");
-    started[0]!.duringSync = () => expect(started[0]!.terminated).toBe(false);
+    const connection = started[0]!;
+    const f = fixture();
+    f.context.generation = registry.snapshot("test")!.generation;
+    registry.registerContext("test", f.context);
+    connection.requestAsync = FakeConnection.prototype.requestAsync.bind(connection);
+    const event = Object.assign(key("a"), { preventDefault() {}, stopPropagation() {} });
+    void registry.keyAsync("test", f.context, event);
     yield* registry.unload("test");
-    expect(persists(started[0]!)).toEqual([{ mode: "sync", ic: 0 }]);
-    expect(started[0]!.budgets).toEqual([CoreConfig.defaults.hangMs]);
-    expect(started[0]!.terminated).toBe(true);
-
-    yield* registry.select("test");
-    started[1]!.duringSync = () => expect(started[1]!.terminated).toBe(false);
-    yield* Scope.close(scope, Exit.void);
-    expect(persists(started[1]!)).toEqual([{ mode: "sync", ic: 0 }]);
-    expect(started[1]!.terminated).toBe(true);
+    expect(
+      connection.sent.filter(({ request }) => request._tag !== "Init").map(({ mode, request }) => [mode, request._tag]),
+    ).toEqual([
+      ["async", "ProcessKeyEvent"],
+      ["async", "Persist"],
+      ["async", "Shutdown"],
+    ]);
   }).pipe(Effect.provide(services)),
 );
 

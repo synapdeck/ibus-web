@@ -54,6 +54,16 @@ export class Persist extends Schema.TaggedClass<Persist>()(
   },
 ) {}
 
+export class Shutdown extends Schema.TaggedClass<Shutdown>()(
+  "Shutdown",
+  {},
+  {
+    kind: 6,
+    description:
+      "Have every module release what it holds, last registered first, since the page ends the Worker next. No request reaches an engine afterwards. The header's ic is ignored.",
+  },
+) {}
+
 export class ProcessKeyEvent extends Schema.TaggedClass<ProcessKeyEvent>()("ProcessKeyEvent", KeyEvent, {
   kind: 16,
   reply: "b",
@@ -179,6 +189,7 @@ export const Request = Schema.Union([
   DestroyEngine,
   SettingChanged,
   Persist,
+  Shutdown,
   ProcessKeyEvent,
   FocusIn,
   FocusOut,

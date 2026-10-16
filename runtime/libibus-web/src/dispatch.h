@@ -15,6 +15,9 @@ G_GNUC_INTERNAL void ibusweb_log_init(void);
 G_GNUC_INTERNAL void ibusweb_runtime_fault(const char *reason);
 /* Whether an engine's exception has left the engines unusable. */
 G_GNUC_INTERNAL gboolean ibusweb_runtime_faulted(void);
+/* Whether no request or source may reach an engine again: they faulted, or
+ * Shutdown has run. Pumping thread only. */
+G_GNUC_INTERNAL gboolean ibusweb_runtime_stopped(void);
 /* Bumps the wake word and wakes its waiters, once ibusweb_runtime_init() has
  * set it. Any thread. */
 G_GNUC_INTERNAL void ibusweb_runtime_wake(void);

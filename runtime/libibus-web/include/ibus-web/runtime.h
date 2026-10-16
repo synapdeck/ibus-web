@@ -79,7 +79,8 @@ IBUSWEB_API const char *ibusweb_fault_reason(void);
  *
  * A C++ exception a source's callback throws stops in the runtime's catch
  * and faults the engines (ibusweb_fault_reason()); the pump then dispatches
- * nothing more and returns -1, as it does once the engines have faulted. */
+ * nothing more and returns -1, as it does once the engines have faulted or
+ * a Shutdown has run. */
 IBUSWEB_API int32_t ibusweb_pump(void);
 
 /* Sleeps on the thread that called ibusweb_runtime_init() while *wake_word
@@ -143,6 +144,24 @@ typedef void (*IBusWebPersist)(void);
  * progress. */
 IBUSWEB_API int ibusweb_module_set_persist(IBusWebModule *module,
                                            IBusWebPersist persist);
+
+/* Releases what a module holds for its lifetime, on the pumping thread, for
+ * a Shutdown request: the page sends one, after Persist, just before it ends
+ * the Worker. No request or source reaches an engine afterwards, so the
+ * function may free what its engines use.
+ *
+ * A C++ exception it throws fails the request as an engine's does (see
+ * ibusweb_dispatch()). */
+typedef void (*IBusWebShutdown)(void);
+
+/* Has the Shutdown request call shutdown, once module's registration has
+ * succeeded. Call it from the module's init; a later call replaces the
+ * function. Shutdown calls the modules' functions in the reverse of the
+ * order they were registered, so a module's goes before those of the modules
+ * registered ahead of it. Returns 0, or -EINVAL, which also fails the
+ * registration in progress. */
+IBUSWEB_API int ibusweb_module_set_shutdown(IBusWebModule *module,
+                                            IBusWebShutdown shutdown);
 
 /* Registers a module's operations by calling its init. */
 typedef void (*IBusWebModuleInit)(IBusWebModule *module);
@@ -211,15 +230,17 @@ IBUSWEB_API uint32_t ibusweb_output_last_seq(void);
  * ESRCH for an unregistered engine, EIO for a registered one that wasn't made,
  * EINVAL for a SetSurroundingText cursor or anchor past the text's length in
  * characters, EPERM off-thread, ECANCELED when an engine throws a C++
- * exception, or ENOTRECOVERABLE once one has. Requests failing on their
- * framing, payload or context reach no engine.
+ * exception, ENOTRECOVERABLE once one has, or ESHUTDOWN once a Shutdown has
+ * run. Requests failing on their framing, payload or context reach no engine.
  *
  * SettingChanged ignores the header's ic, so its ENOENT means a path no Init
  * entry declared or a key its schema lacks, never a missing context; it
  * returns EINVAL for a value outside the key's type or range, or ENOTSUP for a
  * default settings backend other than the runtime's. Each of these also
  * writes a Log record. Persist ignores it too, and returns 0 once every
- * module's persist function (ibusweb_module_set_persist()) has returned.
+ * module's persist function (ibusweb_module_set_persist()) has returned, and
+ * so does Shutdown, which calls every module's shutdown function
+ * (ibusweb_module_set_shutdown()), last registered first.
  *
  * ECANCELED means the engines can't be trusted: an exception stopped in the
  * runtime's catch (ibusweb_runtime_init()) partway through engine code, whose

@@ -18,6 +18,7 @@ export {
   DestroyEngine,
   SettingChanged,
   Persist,
+  Shutdown,
   ProcessKeyEvent,
   FocusIn,
   FocusOut,
