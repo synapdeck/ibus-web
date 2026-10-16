@@ -49,6 +49,11 @@ test("default characters and named keys", () => {
   ] as const)
     expect(translateKey(event("KeyA", key), "default")?.keyval).toBe(keyval);
 });
+test("an AltGr key on the US layout types the system layout's character", () => {
+  expect(translateKey(event("Digit0", "@", ["AltGraph"]), "us")).toEqual({ keyval: 0x40, keycode: 11, state: 128 });
+  expect(translateKey(event("KeyE", "€", ["AltGraph"]), "us")?.keyval).toBe(0x20ac);
+  expect(translateKey(event("ArrowLeft", "ArrowLeft", ["AltGraph"]), "us")?.keyval).toBe(0xff51);
+});
 test("IBus modifiers and release", () => {
   expect(translateKey(event("KeyA", "a", ["Control", "Alt", "Meta", "AltGraph"], "keyup"), "us")?.state).toBe(
     0x40000000 | 0x4000000 | 0x10000000 | 64 | 128,

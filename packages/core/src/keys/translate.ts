@@ -34,7 +34,8 @@ export function translateKey(
   let keyval: number | undefined;
   if (event.code === "Lang1" || event.code === "Lang2" || event.key === "HangulMode" || event.key === "HanjaMode")
     keyval = namedKeysym(event.key, event.code);
-  else if (layout === "us")
+  // The US layout has no third level, so an AltGr key types what the system layout gives it.
+  else if (layout === "us" && !altGraph)
     keyval = usKeysym(keycode, event.code, shift, lock, numLock) ?? namedKeysym(event.key, event.code);
   else {
     const points = [...event.key];

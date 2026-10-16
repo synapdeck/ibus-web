@@ -221,6 +221,9 @@ export class KeyRouter {
       return undefined;
     const keyboard = snapshot.keyboards.get(context.engine);
     if (!keyboard) return undefined;
+    // Meta is Command on Apple platforms and Super elsewhere: its chords are the browser's and the system's shortcuts.
+    // Engines that don't know the modifier, as Mozc doesn't, would type the key instead.
+    if (event.getModifierState("Meta")) return undefined;
     const translated = translateKey(event, keyboard.layout);
     if (!translated || keyboard.passThrough.has(translated.keyval)) return undefined;
     const connection = snapshot.connection;

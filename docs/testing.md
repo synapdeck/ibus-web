@@ -534,8 +534,8 @@ and `integration-checks` aggregate above remain extended work, not a matrix to r
 ### Production Playwright integration
 
 `nix build .#playwright-integration` serves the production demo through its Vite preview configuration with COOP/COEP
-and runs 36 trusted-input tests in each of Chromium, Firefox and WebKit (108 total): Hangul's ten, the table module's
-seven, Mozc's five, m17n's seven and Rime's seven. The specs are grouped by module, in
+and runs 41 trusted-input tests in each of Chromium, Firefox and WebKit (123 total): Hangul's ten, the table module's
+seven, Mozc's five, m17n's seven, Rime's seven and the layout matrix's five. The specs are grouped by module, in
 `examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's spec covers real composition, visible
 preedit without value/input leakage, focused native undo, separate blur commit, Hanja paging/click/digit selection,
 password exclusion, actual Worker restart, native Space reset ordering, 3f settings changes across live contexts, tabs
@@ -550,9 +550,21 @@ IndexedDB once the page shows persistent storage. The Rime spec (`rime.spec.ts`)
 installs `rime_ice`'s dictionaries on its first selection and nothing on its second, timing it, converts a phrase, types
 Cangjie, turns `luna_pinyin`'s simplification on with the page's own switch, finds a chosen candidate first after a
 reload, and checks that the settings form holds the selected engine's switches and that the page size reaches the panel;
-each test takes up to 300 s, and the run's limit is 1800 s. It fails on page errors or visible demo errors. The target
-belongs to `ibusWeb.testing.extendedChecks.playwright` and the explicit `integration-checks` aggregate, outside default
-`nix flake check`.
+each test takes up to 300 s, and the run's limit is 1800 s.
+
+The layout matrix (`layouts.spec.ts`) types into Hangul, Rime's `luna_pinyin`, Mozc, m17n's Vietnamese telex and the
+table module's LaTeX from the US, AZERTY, QWERTZ, Dvorak and Colemak layouts, one test per module walking every layout:
+a word typed as the engine reads the layout (by place for a US-layout engine, by character otherwise), Meta+A composing
+and typing nothing, Ctrl+A selecting all, a dead key in the middle of a word leaving its composition alone, an AltGr
+`@`, and, for Rime, the `layout` setting at `default` taking the characters the keys show. Playwright's keyboard knows
+only the US layout, so `layouts.ts` registers each layout's key descriptions with Playwright's server half, which runs
+in the test process: the browsers' own automation input (CDP, Juggler, WebKit's inspector protocol) then delivers
+trusted events with the layout's `key`, `code` and `keyCode`. Only Firefox's automation can hold AltGraph, through a
+pressed AltGraph key; Chromium's and WebKit's carry only Shift, Control, Alt and Meta, so the AltGr check runs in
+Firefox, and elsewhere an AltGr character (LaTeX's backslash on AZERTY and QWERTZ) arrives unmodified. A dead key is its
+`Dead` keydown alone, since no system input method composes under automation. It fails on page errors or visible demo
+errors. The target belongs to `ibusWeb.testing.extendedChecks.playwright` and the explicit `integration-checks`
+aggregate, outside default `nix flake check`.
 
 Pinned Playwright 1.63.0 runs Linux WebKit 26.6 (revision 2359) in the Nix sandbox using pinned Mesa 26.2.3 software EGL
 and an Ubuntu 24.04 Playwright platform override. No CI browser fallback is needed. This is Linux WebKit evidence, not

@@ -99,11 +99,14 @@ level; NumLock selects the keypad's second level. This emulates the engine's req
 keyboard layout.
 
 State carries Shift, Lock, Control, Alt/Mod1, NumLock/Mod2 and Meta/Mod4/Super/Meta. AltGraph sets Mod5 and clears
-Control and Alt. Releases carry RELEASE and use the same attachment mode as presses. Password/private surfaces,
-composing events and Dead keys are excluded before engine processing. Registered hotkeys have their own readiness policy
-and may run before an engine context is ready; manifest `passThrough` and unready-context exclusions govern engine
-processing, not every registered hotkey. Readiness requires Worker ready, successful Init and the surface's
-instance/focus setup; ordinary typing remains native during startup.
+Control and Alt; under `us`, whose layout has no third level, an AltGr key's keyval comes from `event.key` as under
+`default`. Releases carry RELEASE and use the same attachment mode as presses. Password/private surfaces, composing
+events, Dead keys and keys pressed with Meta are excluded before engine processing. Meta is Command on Apple platforms
+and Super elsewhere, whose chords are the browser's and the system's shortcuts; an engine that doesn't know the
+modifier, as Mozc doesn't, would type the key instead. Registered hotkeys have their own readiness policy and may run
+before an engine context is ready; manifest `passThrough` and unready-context exclusions govern engine processing, not
+every registered hotkey. Readiness requires Worker ready, successful Init and the surface's instance/focus setup;
+ordinary typing remains native during startup.
 
 The `us` mode follows physical `event.code` positions, useful for conventional Hangul, while `default` follows the
 translated `event.key`, useful for transliteration. The engine's Hangul keyboard setting is separate from the operating
@@ -119,7 +122,26 @@ does) has no setting. The registry registers these schemas and reads the stored 
 module's first key already follows them, and applies each change to the next key; a settings source that can't supply
 them leaves the declared layouts and logs a `page-settings` warning. `registry.engines(module)` reports each engine's
 `layout`, the one its keys follow now, and `layoutPath`, beside the declared `keyboard.layout`. A host that detects the
-system layout, with `navigator.keyboard.getLayoutMap()` or otherwise, sets the setting through the settings API.
+system layout, with `navigator.keyboard.getLayoutMap()` or otherwise, sets the setting through the settings API. The
+setting chooses keyvals; an engine that maps keycodes through a US keymap of its own, as Hangul does, keeps composing by
+place either way.
+
+The production layout matrix ([testing.md](testing.md#production-playwright-integration)) types through every module
+from five layouts. What each does:
+
+| Layout                               | `us` engines (Hangul, Rime)                                                                                                                                   | `default` engines (Mozc, m17n, table)      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| US                                   | Keys by place and by character agree.                                                                                                                         | The character typed.                       |
+| AZERTY, QWERTZ                       | Letters and digits by place: AZERTY's A key types Hangul's `ㅂ`, Rime's `q`.                                                                                  | The character typed, `é` and `ß` included. |
+| Dvorak, Colemak                      | Every key by place, so a user types as on a US keyboard.                                                                                                      | The character typed.                       |
+| AltGr (AZERTY, QWERTZ)               | The character typed, with Mod5: Hangul declines it and the field takes it.                                                                                    | The character typed, with Mod5.            |
+| Dead keys (AZERTY ^, QWERTZ ^ and ´) | Reach no engine: a composition goes on across them.                                                                                                           | The same.                                  |
+| Ctrl chords                          | The US place's keyval with Control; a declined chord keeps its browser action, which follows the letter the key types (Ctrl+A on AZERTY's A key selects all). | The typed letter's keyval with Control.    |
+| Meta chords                          | Reach no engine; the browser performs them.                                                                                                                   | The same.                                  |
+
+With the `layout` setting at `default`, a US-layout engine that reads keyvals, as Rime does, takes the characters the
+keys show on every layout. Arbitrary layouts beyond these five, and AltGr as Windows reports it (Ctrl and Alt together)
+were not tested.
 
 The tables are generated from pinned xorgproto `keysymdef.h`, Chromium `dom_code_data.inc` and xkeyboard-config US data.
 Their source licenses include MIT-open-group and the Digital HPND-style notice, BSD-3-Clause, and

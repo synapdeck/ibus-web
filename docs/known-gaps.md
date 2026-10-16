@@ -100,9 +100,10 @@ decided.
   adapter covers undo, redo, select all, cut, copy and word, line and document deletion and movement, but not paste or
   browser shortcuts such as find, which a page can't perform. Those are logged as warnings instead. See
   [core.md](core.md).
-- **System keyboard layouts.** The existing `us` translation follows physical `event.code`; `default` follows translated
-  `event.key`, and each engine's `layout` setting overrides its declared one. Arbitrary OS layouts, Dead/AltGr/shortcut
-  behavior and fallback replay have no system-layout matrix.
+- **Keyboard layouts under automation only.** The layout matrix emulates US, AZERTY, QWERTZ, Dvorak and Colemak through
+  each browser's automation input, so no system input method composes its dead keys, Chromium and WebKit can't be given
+  the AltGraph state (only Firefox's AltGr rows carry it), and other layouts, Windows' Ctrl+Alt form of AltGr and Safari
+  are untested ([core.md](core.md#key-translation-and-layouts)).
 
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
   handler's arity. Hangul needs no lazy arity bridge, and Rime's only connected handlers are the module's own GSettings

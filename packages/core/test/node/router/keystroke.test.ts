@@ -16,7 +16,7 @@ test("a synchronous reply applies ordered records in one batch and returns its d
   expect(f.sink.key(key("b"))).toBe("passthrough");
 });
 
-test("unready, disabled, stale, composing, Dead, and configured pass-through keys bypass the connection", () => {
+test("unready, disabled, stale, composing, Dead, Meta and configured pass-through keys bypass the connection", () => {
   const f = fixture();
   f.context.ready = false;
   expect(f.sink.key(key("a"))).toBe("passthrough");
@@ -28,6 +28,7 @@ test("unready, disabled, stale, composing, Dead, and configured pass-through key
   expect(f.sink.key(key("a"))).toBe("passthrough");
   f.snapshot.enabled = true;
   expect(f.sink.key(key("Dead"))).toBe("passthrough");
+  expect(f.sink.key({ ...key("a"), getModifierState: (name: string) => name === "Meta" })).toBe("passthrough");
   expect(f.sink.key({ ...key("a"), isComposing: true })).toBe("passthrough");
   f.snapshot.keyboards = new Map([["test", { layout: "us" as const, passThrough: new Set([97]) }]]);
   expect(f.sink.key(key("a"))).toBe("passthrough");
