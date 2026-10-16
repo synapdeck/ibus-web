@@ -114,7 +114,7 @@
             To build the engine from these alone:
 
             ```sh
-            nix build ./repository#packages.x86_64-linux.ibus-web-${name}-dist \
+            nix build ./repository#packages.${system}.ibus-web-${name}-dist \
             ${
               lib.concatMapStrings (input: "  --override-input ${input} path:./flake-inputs/${input} \\\n") (
                 lib.attrNames flakeInputs
