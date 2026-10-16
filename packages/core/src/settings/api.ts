@@ -12,6 +12,7 @@ import {
 } from "@ibus-web/protocol";
 import { EngineLoadFailed, isIbusWebError, StorageUnavailable } from "../errors.ts";
 import { SettingsSource, type SettingsChange, type SettingsInstance } from "../services/settings.ts";
+import { layoutMetadata } from "./layout.ts";
 export type SettingsSchema = SettingsMetadata["schemas"][number];
 export type SettingsKey = SettingsSchema["keys"][number];
 export type SettingValue = typeof GVariantVariant.Type;
@@ -116,7 +117,8 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
               const manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(
                 await (options.loadManifest ?? fetchJson)(url, controller.signal),
               );
-              metadata = await loadSettingsMetadata(manifest, url, options, controller.signal);
+              const own = await loadSettingsMetadata(manifest, url, options, controller.signal);
+              metadata = { schemas: [...own.schemas, ...layoutMetadata(manifest).schemas] };
             } catch (cause) {
               alive();
               throw new EngineLoadFailed({ module, diagnostic: asError(cause).message });

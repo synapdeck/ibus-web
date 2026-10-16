@@ -45,6 +45,13 @@ import type { AsyncKeyResult, KeySink } from "../router/replay.ts";
 import { makeRestarter, type WaitForWriter } from "../router/restart.ts";
 import { watchDatabases } from "../connection/watch.ts";
 import { loadSettingsMetadata, settingsInstances } from "../settings/api.ts";
+import {
+  isKeyboardLayout,
+  layoutInstances,
+  layoutKey,
+  layoutMetadata,
+  type KeyboardLayout,
+} from "../settings/layout.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
@@ -60,6 +67,13 @@ export interface ModuleRegistryOptions {
   readonly loadMetadata?: (url: URL, signal?: AbortSignal) => Promise<unknown>;
   readonly waitForWriter?: WaitForWriter;
 }
+/** A manifest's engine descriptor, with the layout its keys follow now and where the setting that chooses it lives. */
+export type EngineInfo = EngineDescriptor & {
+  /** The engine's layout setting, or `keyboard.layout`, the one it declares, while that is unset. */
+  readonly layout: KeyboardLayout;
+  /** The settings path of the engine's layout setting; an engine whose name can't form a path has none. */
+  readonly layoutPath?: string;
+};
 export type ModuleEvent =
   /** `error` says why, with `restarting` and `failed`. */
   | {
@@ -87,7 +101,7 @@ export interface ModuleRegistryService {
   debugRestart(name: string): Effect.Effect<void, Error>;
   select(name: string | undefined): Effect.Effect<void, Error>;
   /** Reads and validates the module's manifest without starting its Worker. */
-  engines(name: string): Effect.Effect<readonly EngineDescriptor[], Error>;
+  engines(name: string): Effect.Effect<readonly EngineInfo[], Error>;
   /**
    * Installs the engine's own data in the module's Worker, starting it if need be, once per Worker; an engine with no
    * data of its own needs nothing. Fails with PrepareEngineError for the Worker's reason.
@@ -129,6 +143,8 @@ interface Entry {
   readonly changes: Map<string, SettingsChange>;
   // SettingWritten carries only a path; this maps it back to the schema the persister keys on.
   readonly instances: Map<string, string>;
+  // The page's own layout settings: engine name by path.
+  readonly layouts: Map<string, string>;
   readonly watchers: Set<() => void>;
   crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
   lifetime: Scope.Closeable | undefined;
@@ -179,11 +195,17 @@ const isCrashInfo = (cause: unknown): cause is CrashInfo =>
   !(cause instanceof Error) &&
   typeof (cause as Partial<CrashInfo>).reason === "string" &&
   typeof (cause as Partial<CrashInfo>).message === "string";
-const keyboards = (manifest: ModuleManifest): Map<string, KeyboardPolicy> =>
+const keyboards = (
+  manifest: ModuleManifest,
+  layouts: ReadonlyMap<string, KeyboardLayout> = new Map(),
+): Map<string, KeyboardPolicy> =>
   new Map(
     manifest.engines.map(({ name, keyboard }) => [
       name,
-      { layout: keyboard.layout, passThrough: new Set(keyboard.passThrough.map((key) => keysymByName.get(key)!)) },
+      {
+        layout: layouts.get(name) ?? keyboard.layout,
+        passThrough: new Set(keyboard.passThrough.map((key) => keysymByName.get(key)!)),
+      },
     ]),
   );
 export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
@@ -274,6 +296,39 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       distributions.set(manifest.name, name);
       return manifest;
     };
+    // The layouts stored for a manifest's engines. A source that can't supply them leaves the declared layouts,
+    // which a module can still type with, so it is a warning rather than a failed start.
+    const storedLayouts = async (name: string, entry: Entry, manifest: ModuleManifest) => {
+      const instances = layoutInstances(manifest);
+      const layouts = new Map<string, KeyboardLayout>();
+
+      entry.layouts.clear();
+      for (const [engine, instance] of instances) entry.layouts.set(instance.path, engine);
+      if (instances.size === 0) return layouts;
+
+      try {
+        await settings.register?.(layoutMetadata(manifest));
+        const stored = await settings.snapshot([...instances.values()]);
+        for (const [engine, instance] of instances) {
+          const value = stored[instance.path]?.[layoutKey];
+          if (value?._tag === "v" && value.value._tag === "s" && isKeyboardLayout(value.value.value))
+            layouts.set(engine, value.value.value);
+        }
+      } catch (cause) {
+        logger.enqueue({
+          module: name,
+          ic: 0,
+          record: {
+            _tag: "Log",
+            level: 16,
+            domain: "page-settings",
+            message: `Keyboard layout settings unavailable, so engines use their declared layouts: ${asError(cause).message}`,
+          },
+        });
+      }
+
+      return layouts;
+    };
     // Listing engines and starting the Worker share one read; a failed read is retried on the next use.
     const reads = new Map<string, Promise<ModuleManifest>>();
     const manifestOf = (name: string, entry: Entry): Effect.Effect<ModuleManifest, Error> =>
@@ -282,11 +337,14 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
 
         let read = reads.get(name);
         if (!read) {
+          // The stored layouts are read with the manifest, so no key is translated before they are known.
           read = readManifest(name).then(
-            (manifest) => {
+            async (manifest) => {
+              const layouts = await storedLayouts(name, entry, manifest);
+
               reads.delete(name);
               entry.snapshot.manifest = manifest;
-              entry.snapshot.keyboards = keyboards(manifest);
+              entry.snapshot.keyboards = keyboards(manifest, layouts);
               return manifest;
             },
             (cause: unknown) => {
@@ -463,6 +521,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         writable: false,
         changes: new Map(),
         instances: new Map(),
+        layouts: new Map(),
         watchers: new Set(),
         router: new KeyRouter(snapshot, {
           replayLimit: config.replayLimit,
@@ -562,6 +621,18 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       Stream.runForEach((change) =>
         Effect.gen(function* () {
           for (const entry of entries.values()) {
+            const engine = change.key === layoutKey ? entry.layouts.get(change.path) : undefined;
+            const value = change.value._tag === "v" && change.value.value._tag === "s" ? change.value.value.value : "";
+            if (engine !== undefined && isKeyboardLayout(value)) {
+              const keyboard = entry.snapshot.keyboards.get(engine);
+              if (keyboard)
+                entry.snapshot.keyboards = new Map(entry.snapshot.keyboards).set(engine, {
+                  ...keyboard,
+                  layout: value,
+                });
+              continue;
+            }
+
             if (
               entry.instances.get(change.path) !== change.schemaId ||
               entry.snapshot.status === "failed" ||
@@ -762,7 +833,19 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           const entry = entries.get(name);
           if (!entry) return Effect.fail(new Error(`Unknown module: ${name}`));
           return manifestOf(name, entry).pipe(
-            Effect.map((manifest) => manifest.engines),
+            Effect.map((manifest) => {
+              const paths = new Map([...entry.layouts].map(([path, engine]) => [engine, path]));
+
+              return manifest.engines.map((descriptor): EngineInfo => {
+                const layoutPath = paths.get(descriptor.name);
+
+                return {
+                  ...descriptor,
+                  layout: entry.snapshot.keyboards.get(descriptor.name)?.layout ?? descriptor.keyboard.layout,
+                  ...(layoutPath === undefined ? {} : { layoutPath }),
+                };
+              });
+            }),
             // An unreadable manifest fails the module, as it would when the module started.
             Effect.tapError((cause) =>
               Effect.sync(() => {

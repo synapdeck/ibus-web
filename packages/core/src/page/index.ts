@@ -58,6 +58,7 @@ export {
 export {
   ModuleRegistry,
   makeModuleRegistry,
+  type EngineInfo,
   type ModuleEvent,
   type ModuleRegistryOptions,
   type ModuleRegistryService,
@@ -69,6 +70,7 @@ export {
   type SettingsSnapshot,
   type SettingsSourceService,
 } from "../services/settings.ts";
+export { layoutKey, layoutPath, type KeyboardLayout } from "../settings/layout.ts";
 export { Logger, PanelEvents, glibLevel, type LogLine } from "../services/logging.ts";
 export {
   Router,

@@ -101,8 +101,8 @@ decided.
   but not paste, word-wise deletion or navigation, or browser shortcuts such as find. Those are logged as warnings
   instead. See [core.md](core.md).
 - **System keyboard layouts.** The existing `us` translation follows physical `event.code`; `default` follows translated
-  `event.key`. Arbitrary OS layouts, Dead/AltGr/shortcut behavior and fallback replay have no system-layout matrix. A
-  host override/detection mechanism is a future design recommendation.
+  `event.key`, and each engine's `layout` setting overrides its declared one. Arbitrary OS layouts, Dead/AltGr/shortcut
+  behavior and fallback replay have no system-layout matrix.
 
 - **Connection-time callback audit.** The current cast audit sees explicit casts; it cannot establish every connected
   handler's arity. Hangul needs no lazy arity bridge, and Rime's only connected handlers are the module's own GSettings

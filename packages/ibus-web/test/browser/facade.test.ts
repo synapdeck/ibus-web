@@ -20,6 +20,7 @@ import {
   PropertyActivate,
   encodeSettingsMetadata,
   int32Variant,
+  stringVariant,
   type SettingsMetadata,
   type LazyLookupTable,
 } from "@ibus-web/protocol";
@@ -57,7 +58,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
   document.body.replaceChildren();
 });
-function fixture(options: Partial<IbusWebOptions> = {}) {
+// The default, persistent settings source takes the place of the test's when persistent is set.
+function fixture(options: Partial<IbusWebOptions> = {}, { persistent = false } = {}) {
   const starts: ConnectionOptions[] = [];
   const connections: DomConnection[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(manifest));
@@ -67,7 +69,13 @@ function fixture(options: Partial<IbusWebOptions> = {}) {
     connections.push(c);
     return c as unknown as Connection;
   });
-  const app = createIbusWeb({ runtimeUrl: url, hostUrl: url, modules: { test: url }, settings, ...options });
+  const app = createIbusWeb({
+    runtimeUrl: url,
+    hostUrl: url,
+    modules: { test: url },
+    ...(persistent ? {} : { settings }),
+    ...options,
+  });
   instances.push(app);
   const native = document.createElement("textarea");
   document.body.append(native);
@@ -286,9 +294,32 @@ test("encodes every structural public panel action through the actual protocol b
 });
 test("lists a module's engines without starting a Worker and rejects an unknown module", async () => {
   const f = fixture();
-  expect(await f.app.engines("test")).toEqual(manifest.engines);
+  expect(await f.app.engines("test")).toEqual([
+    { ...manifest.engines[0], layout: "us", layoutPath: "/org/ibus-web/keyboard/test/test/" },
+  ]);
   expect(f.start).not.toHaveBeenCalled();
   await expect(f.app.engines("missing")).rejects.toThrow("Unknown module: missing");
+});
+test("an engine's layout setting is listed with the module's settings and changes what engines() reports", async () => {
+  const f = fixture({}, { persistent: true });
+  const path = "/org/ibus-web/keyboard/test/test/";
+  const layout = async () => (await f.app.engines("test"))[0]!.layout;
+  expect(await f.app.settings.schemas("test")).toMatchObject([
+    {
+      id: "org.ibus-web.keyboard.us",
+      paths: [path],
+      keys: [{ name: "layout", type: "s", default: { value: "us" }, choices: ["us", "default"] }],
+    },
+  ]);
+  expect(await layout()).toBe("us");
+
+  await f.app.settings.set("test", path, "layout", stringVariant("default"));
+  await expect.poll(layout).toBe("default");
+  await expect(f.app.settings.set("test", path, "layout", stringVariant("dvorak"))).rejects.toThrow();
+
+  await f.app.settings.reset("test", path, "layout");
+  await expect.poll(layout).toBe("us");
+  expect(f.start).not.toHaveBeenCalled();
 });
 test("selection and selectionchange follow select, deselect and unload", async () => {
   const f = fixture();
@@ -450,7 +481,10 @@ test("settings load without Workers and publish orientation snapshots with conte
         : { ...manifest, settingsSchemas: [schema], settingsMetadata: { url: "settings.json", size: 1 } },
     ),
   );
-  expect(await f.app.settings.schemas("test")).toEqual(metadata.schemas);
+  expect(await f.app.settings.schemas("test")).toEqual([
+    ...metadata.schemas,
+    expect.objectContaining({ id: "org.ibus-web.keyboard.us", paths: ["/org/ibus-web/keyboard/test/test/"] }),
+  ]);
   expect(f.start).not.toHaveBeenCalled();
   expect(await f.app.settings.get("test", path, name)).toMatchObject({ value: { value: 1 } });
   f.app.attach(f.native);

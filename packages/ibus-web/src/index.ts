@@ -15,6 +15,7 @@ import {
   type AttachOptions,
   type AsyncKeyResult,
   type CoreConfigValues,
+  type EngineInfo,
   type ModuleEvent,
   type ModuleRegistryService,
   type RouterService,
@@ -25,13 +26,15 @@ import {
   type StorageUsage,
   type SurfaceAdapter,
 } from "@ibus-web/core";
-import { errorMessage, PanelAction, type EngineDescriptor } from "@ibus-web/protocol";
+import { errorMessage, PanelAction } from "@ibus-web/protocol";
 import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type {
   AttachOptions,
   AsyncKeyResult,
+  EngineInfo,
   EngineUsage,
+  KeyboardLayout,
   ModuleUsage,
   Selection,
   SettingsSourceService,
@@ -105,8 +108,11 @@ export interface IbusWeb extends PanelHost {
   unload(module: string): Promise<void>;
   /** Development only: terminates the actual Worker and awaits normal recovery. */
   debugRestart(module: string): Promise<void>;
-  /** Reads and validates the module's manifest without starting its Worker. */
-  engines(module: string): Promise<EngineDescriptor[]>;
+  /**
+   * Reads and validates the module's manifest without starting its Worker. Each engine's `layout` is the layout its
+   * keys follow now, its `layout` setting at `layoutPath` or else the `keyboard.layout` it declares.
+   */
+  engines(module: string): Promise<EngineInfo[]>;
   /**
    * Installs the engine's own data ahead of selection, starting the module's Worker if it hasn't, so that selecting
    * the engine later waits for nothing; `install` events report its progress. An engine with no data of its own needs

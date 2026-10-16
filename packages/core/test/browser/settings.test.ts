@@ -134,7 +134,11 @@ const run = (
 
 test("API loads validated metadata and persists ArrayBuffers without starting Workers; Init declares every instance", () =>
   run(async (api, source, registry, connections) => {
-    expect(await api.schemas("a")).toEqual(metadata.schemas);
+    // The page's own keyboard layout settings follow the module's; Init never declares them.
+    expect(await api.schemas("a")).toEqual([
+      ...metadata.schemas,
+      expect.objectContaining({ id: "org.ibus-web.keyboard.us", keys: [expect.objectContaining({ name: "layout" })] }),
+    ]);
     expect(await api.get("a", PATH, "mode")).toEqual(stringVariant("default"));
     await api.set("a", PATH, "mode", stringVariant("chosen"));
     expect(connections).toHaveLength(0);

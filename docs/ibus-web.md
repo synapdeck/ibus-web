@@ -56,7 +56,8 @@ selection stands, as for a `CreateEngineError`, and the next focus tries again. 
 plain browser input and keeps Workers loaded; hosts bind their own shortcut for it, as there are no built-in hotkeys.
 `selection` is the current `{ module, engine }` or `undefined`. `engines(module)` reads and validates a module's
 manifest and resolves to its engine descriptors (`name`, `displayName`, `languages`, `keyboard`, and `data` for an
-engine with data of its own) without starting a Worker. `select`, `deselect`, `engines`, `unload(module)`, `prepare` and
+engine with data of its own) without starting a Worker, each with `layout`, the layout its keys follow now, and
+`layoutPath`, where its `layout` setting lives. `select`, `deselect`, `engines`, `unload(module)`, `prepare` and
 `dispose()` return Promises. Before `unload` or `dispose()` ends a Worker, and whenever the page goes away or is hidden,
 the engines write what they keep only in memory, such as Rime's learning ([core.md](core.md#layers-and-page-lifetime));
 the page needs no handler of its own for it. `debugRestart(module)` is a development-only way to terminate the actual
@@ -70,14 +71,19 @@ one, a relocatable schema one per instance. Use `settings.get(module, path, key)
 generated metadata supplies defaults, descriptions and actual range/choice constraints. Modules may declare different
 schemas at one path, and `get` returns the default for a value another module's schema stored there that this one's
 rejects, which is also what the module itself reads. Hangul's keyboard setting has no generated choices: hosts should
-render a typed input rather than inventing an enum. The default source persists by origin; the optional `settings`
-service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and `install` are typed CustomEvent
-names; `selectionchange` carries the new selection, or `null` after deselection. A `storage` event's detail has the
-`module`, a `state` and a `message`: `read-only` means learning is off in this tab, since another tab of the same origin
-runs the module and writes its user data (Rime learns nothing, Mozc only for as long as the Worker runs), `ephemeral`
-that user data lasts only as long as the Worker, for want of IndexedDB, `closed` that the module's databases were closed
-under it, and `quota` that writes to them failed for want of space. `logLevel` filters both `log` events and the
-optional logger callback.
+render a typed input rather than inventing an enum. Beside the module's own schemas, `schemas` lists the page's keyboard
+layout settings: each engine's `layout` key, `"us"` (keys by their place on a US keyboard) or `"default"` (by the
+character the system layout gives them), at the engine's `layoutPath` and defaulting to the layout it declares. A change
+applies to the engine's next key. A host that knows the user's layout sets it there; for example, on a layout whose
+`KeyQ` doesn't type `q` (per `navigator.keyboard.getLayoutMap()`), set a US-layout engine that should take the
+characters the user sees to `default` ([core.md](core.md#key-translation-and-layouts)). The default source persists by
+origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and
+`install` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection. A
+`storage` event's detail has the `module`, a `state` and a `message`: `read-only` means learning is off in this tab,
+since another tab of the same origin runs the module and writes its user data (Rime learns nothing, Mozc only for as
+long as the Worker runs), `ephemeral` that user data lasts only as long as the Worker, for want of IndexedDB, `closed`
+that the module's databases were closed under it, and `quota` that writes to them failed for want of space. `logLevel`
+filters both `log` events and the optional logger callback.
 
 `storage.usage()` reports every module's storage without starting a module's Worker: for each, `data`, the bytes of its
 version's installed data, `userData`, the bytes of its own files, such as Rime's and Mozc's learning, and `engines`,

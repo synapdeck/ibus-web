@@ -105,11 +105,21 @@ and may run before an engine context is ready; manifest `passThrough` and unread
 processing, not every registered hotkey. Readiness requires Worker ready, successful Init and the surface's
 instance/focus setup; ordinary typing remains native during startup.
 
-The existing `us` mode follows physical `event.code` positions, useful for conventional Hangul, while `default` follows
-the translated `event.key`, useful for transliteration. The engine's Hangul keyboard setting is separate from the
-operating system's layout. We have not validated arbitrary AZERTY, QWERTZ, Dvorak, Colemak or custom layouts, nor their
-Dead-key, AltGr, shortcut and replay behavior. Detecting a host layout or offering a host override is a future design
-option, not part of this API.
+The `us` mode follows physical `event.code` positions, useful for conventional Hangul, while `default` follows the
+translated `event.key`, useful for transliteration. The engine's Hangul keyboard setting is separate from the operating
+system's layout.
+
+Each engine has a `layout` setting, `"us"` or `"default"`, which overrides the layout it declares. It is a page setting:
+the registry translates keys, so the Worker never sees it and `Init` never declares it. Its schema is
+`org.ibus-web.keyboard.us` or `org.ibus-web.keyboard.default`, the two differing only in the key's default, which is the
+layout the engine declares; its path is `/org/ibus-web/keyboard/<distribution>/<engine>/`, the engine name's `:` parts
+each a component, so Rime's `rime:luna_pinyin` keeps its setting at `/org/ibus-web/keyboard/rime/rime/luna_pinyin/`. An
+engine whose name can't form such a path (a `/`, an empty, `.` or `..` part, or a name that splits as another engine's
+does) has no setting. The registry registers these schemas and reads the stored values along with the manifest, so the
+module's first key already follows them, and applies each change to the next key; a settings source that can't supply
+them leaves the declared layouts and logs a `page-settings` warning. `registry.engines(module)` reports each engine's
+`layout`, the one its keys follow now, and `layoutPath`, beside the declared `keyboard.layout`. A host that detects the
+system layout, with `navigator.keyboard.getLayoutMap()` or otherwise, sets the setting through the settings API.
 
 The tables are generated from pinned xorgproto `keysymdef.h`, Chromium `dom_code_data.inc` and xkeyboard-config US data.
 Their source licenses include MIT-open-group and the Digital HPND-style notice, BSD-3-Clause, and
