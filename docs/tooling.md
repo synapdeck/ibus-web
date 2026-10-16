@@ -495,12 +495,12 @@ Changesets versions the published packages and writes their changelogs; a tag pu
 - **`release.yml`**, on a `v*` tag. The `release` job, on the x86_64-linux runner with `contents: write`, builds
   `.#release`, checks that the tag is `v` and its version, creates the GitHub release from `assets/` with `notes.md`
   (`gh release create --verify-tag`), and uploads the npm tarballs as an artifact. The `npm` job then runs `npm publish`
-  on each on GitHub's `ubuntu-latest`, under Node 26 from `actions/setup-node`, with `id-token: write`: npm's trusted
-  publishing exchanges the job's OIDC token for a short-lived credential and accepts only GitHub-hosted runners. No npm
-  token is stored, and npm attaches provenance. It needs npm 11.5.1 or later, which Node 26 carries. A version already
-  on the registry is skipped, so rerunning the `npm` job finishes a partial publish. Each package on npmjs trusts this
-  repository's `release.yml`. npm sets that up only for a package that exists, so a newly published package first needs
-  a placeholder version published by hand, then
+  on each on GitHub's `ubuntu-latest`, under the workspace's Node release from `actions/setup-node`, with
+  `id-token: write`: npm's trusted publishing exchanges the job's OIDC token for a short-lived credential and accepts
+  only GitHub-hosted runners. No npm token is stored, and npm attaches provenance. It needs npm 11.5.1 or later, which
+  that Node carries. A version already on the registry is skipped, so rerunning the `npm` job finishes a partial
+  publish. Each package on npmjs trusts this repository's `release.yml`. npm sets that up only for a package that
+  exists, so a newly published package first needs a placeholder version published by hand, then
   `npm trust github <name> --file release.yml --repo synapdeck/ibus-web --allow-publish`.
 - **`reproducibility.yml`**, weekly and on demand, builds the runtime and each engine's side module, then builds them
   again with `--rebuild`, which compares the new outputs with the first; once a release's changelogs exist, it does the

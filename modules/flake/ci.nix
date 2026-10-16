@@ -257,9 +257,10 @@
               };
             };
 
-          # Trusted publishing needs npm 11.5.1 or later, which Node 26
-          # carries. A version already on the registry is skipped, so
-          # rerunning the job after a partial publish finishes it.
+          # Trusted publishing needs npm 11.5.1 or later, which the
+          # workspace's Node carries; the job installs that same release. A
+          # version already on the registry is skipped, so rerunning the job
+          # after a partial publish finishes it.
           jobs.npm = {
             name = "Publish to npm";
             needs = [ "release" ];
@@ -273,7 +274,7 @@
               {
                 name = "Install Node";
                 uses = "actions/setup-node@v7.1.0";
-                with_.node-version = "26";
+                with_.node-version = config.ibusWeb.typescript.nodejs.version;
               }
               {
                 name = "Download the npm tarballs";
