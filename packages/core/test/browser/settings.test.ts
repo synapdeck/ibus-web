@@ -493,8 +493,11 @@ for (const origin of ["local", "remote"] as const) {
         if (origin === "local") {
           expect(aliased).toEqual({ [PATH]: { mode: stringVariant("chosen") } });
           expect(await source.snapshot([at("test.disjoint")])).toEqual({ [PATH]: {} });
-          await expect(source.snapshot([at("test.incompatible")])).rejects.toThrow("Invalid stored setting");
-          await expect(source.snapshot([at("test.restricted")])).rejects.toThrow("Invalid choice");
+          // As stored, for the module's settings backend to refuse in favour of its own default.
+          expect(await source.snapshot([at("test.incompatible")])).toEqual({
+            [PATH]: { mode: stringVariant("chosen") },
+          });
+          expect(await source.snapshot([at("test.restricted")])).toEqual({ [PATH]: { mode: stringVariant("chosen") } });
           expect(put).toHaveBeenCalledTimes(1);
           expect(post).toHaveBeenCalledTimes(1);
         } else {
@@ -593,6 +596,24 @@ const differingOptions = {
   }),
   loadMetadata: async (url: URL) => encodeSettingsMetadata(url.pathname.startsWith("/b/") ? otherMetadata : metadata),
 };
+test("a value stored through one module's schema that another's rejects reaches the other's Init as stored, and its get returns the default", () =>
+  run(
+    async (api, _source, registry, connections) => {
+      // Only module a's schema accepts "remote".
+      await api.set("a", PATH, "mode", stringVariant("remote"));
+      expect(await api.get("a", PATH, "mode")).toEqual(stringVariant("remote"));
+      expect(await api.get("b", PATH, "mode")).toEqual(stringVariant("default"));
+
+      await Effect.runPromise(registry.ensure("b"));
+      const init = connections[0]!.sent.map(({ request }) => request).find((request) => request._tag === "Init");
+      expect(init?._tag === "Init" && init.settings.find(({ path }) => path === PATH)?.values).toEqual({
+        mode: stringVariant("remote"),
+      });
+    },
+    undefined,
+    differingOptions,
+  ));
+
 test("modules declaring different schemas at one path each receive only their own schema's changes", () =>
   run(
     async (api, _source, registry, connections) => {

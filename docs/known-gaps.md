@@ -112,10 +112,6 @@ decided.
   in an existing engine on refocus or a capabilities update.
 - **Surrounding selection anchor.** The IBus-compatible delete operation updates cached text/cursor but leaves the
   selection anchor unchanged until the host's next `SetSurroundingText`; callers can observe that stale anchor.
-- **A shared-path record one module's schema doesn't accept.** Modules can declare different schemas at one path, and a
-  record stored there by one module's schema is read by the others'. If another module's schema rejects it (a different
-  type, or a value outside its choices or range), that module's Init snapshot and `get` fail until the record changes.
-  Live changes already skip such values.
 - **Mozc settings that wait for a restart.** Changing `active-on-launch` or the keymap style's turn-on keys takes effect
   when the module next starts, and a switch between romaji and kana at the next focus ([mozc.md](mozc.md#settings)).
   Mozc's keymap and romaji table editors and its user dictionary tool have no equivalent on the page.

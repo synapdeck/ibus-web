@@ -67,11 +67,13 @@ adapter is provided.
 one, a relocatable schema one per instance. Use `settings.get(module, path, key)`, `set(module, path, key, variant)` and
 `reset(module, path, key)` with typed GVariant variants, which `variant(type, value)` builds for any type and
 `stringVariant`, `booleanVariant` and `int32Variant` build for the `s`, `b` and `i` keys most settings have. The
-generated metadata supplies defaults, descriptions and actual range/choice constraints. Hangul's keyboard setting has no
-generated choices: hosts should render a typed input rather than inventing an enum. The default source persists by
-origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and
-`install` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection.
-`logLevel` filters both `log` events and the optional logger callback.
+generated metadata supplies defaults, descriptions and actual range/choice constraints. Modules may declare different
+schemas at one path, and `get` returns the default for a value another module's schema stored there that this one's
+rejects, which is also what the module itself reads. Hangul's keyboard setting has no generated choices: hosts should
+render a typed input rather than inventing an enum. The default source persists by origin; the optional `settings`
+service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and `install` are typed CustomEvent
+names; `selectionchange` carries the new selection, or `null` after deselection. `logLevel` filters both `log` events
+and the optional logger callback.
 
 Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:
 `EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,

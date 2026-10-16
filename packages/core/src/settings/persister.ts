@@ -239,14 +239,16 @@ export function indexedDbSettings(): Layer.Layer<SettingsSource> {
               keys.flatMap(({ key, request }) => {
                 if (request.result === undefined) return [];
 
+                // Another module's schema at the same path may have stored a value outside this one's type, choices
+                // or range. It goes to the module as it is stored, whose settings backend takes the default in its
+                // place and says so; only a record that isn't a value at all is left out.
                 const record = request.result as { type?: unknown; bytes?: unknown };
-                if (record.type !== key.type || !(record.bytes instanceof ArrayBuffer))
-                  throw new Error(`Invalid stored setting: ${instance.path}${key.name}`);
-
-                const value: SettingValue = variant(key.type, decodeValue(key.type, new Uint8Array(record.bytes)));
-                validateSetting(key, value);
-
-                return [[key.name, value]];
+                if (typeof record.type !== "string" || !(record.bytes instanceof ArrayBuffer)) return [];
+                try {
+                  return [[key.name, variant(record.type, decodeValue(record.type, new Uint8Array(record.bytes)))]];
+                } catch {
+                  return [];
+                }
               }),
             ),
           ]),

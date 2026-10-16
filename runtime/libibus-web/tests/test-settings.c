@@ -195,8 +195,12 @@ static void invalid_values(void) {
     g_test_assert_expected_messages();
   }
 
+  /* A stored value the schema rejects, as one stored through another
+   * module's schema at the same path can be, is skipped with one warning
+   * naming its path and key. */
   seed("page-size", g_variant_new_int32(9));
-  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING, "*Invalid value*");
+  g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
+                        "Invalid value for settings key: " PATH "page-size");
   seed("page-size", g_variant_new_string("invalid"));
   g_test_assert_expected_messages();
 

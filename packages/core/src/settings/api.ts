@@ -154,8 +154,16 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
             const value = await stored(module, async () =>
               source.read ? source.read(instance, name) : (await source.snapshot([instance]))[path]?.[name],
             );
+            if (value === undefined) return variant(key.type, key.default);
 
-            return value ?? variant(key.type, key.default);
+            // A value stored through another module's schema at the path may be one this schema rejects, which
+            // the module's own settings read as the default.
+            try {
+              validateSetting(key, value);
+              return value;
+            } catch {
+              return variant(key.type, key.default);
+            }
           },
           reset: async (module, path, name) => {
             const { key } = await keyFor(module, path, name);
