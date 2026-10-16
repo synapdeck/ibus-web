@@ -228,9 +228,9 @@ on other Unixes, builds the tools, and works around what Emscripten lacks.
 The rest of 0008's WebAssembly guards were reviewed for 0012; the ones worth revisiting are listed in the plan's
 follow-ups.
 
-**The tools.** The overlay installs each as `<tool>.js` and `<tool>.wasm` with a `<tool>` wrapper beside them that runs
-it under the build machine's Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give exist. Three of the tools reach
-features WebAssembly doesn't have; each reports them as unsupported at run time instead:
+**The tools.** The overlay installs each as one `<tool>.js`, which carries its WebAssembly, with a `<tool>` wrapper
+beside it that runs it under the build machine's Node, so the paths `gio-2.0.pc` and `glib-2.0.pc` give exist. Three of
+the tools reach features WebAssembly doesn't have; each reports them as unsupported at run time instead:
 
 - `gtester` opens its report pipe with `g_unix_open_pipe()`, as upstream, and then can't spawn the test binary.
 - `gio info` leaves out the Unix mount line, and `gio launch` reports "not currently supported on this platform", as on
