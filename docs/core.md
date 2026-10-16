@@ -101,12 +101,15 @@ keyboard layout.
 State carries Shift, Lock, Control, Alt/Mod1, NumLock/Mod2 and Meta/Mod4/Super/Meta. AltGraph sets Mod5 and clears
 Control and Alt; under `us`, whose layout has no third level, an AltGr key's keyval comes from `event.key` as under
 `default`. Releases carry RELEASE and use the same attachment mode as presses. Password/private surfaces, composing
-events, Dead keys and keys pressed with Meta are excluded before engine processing. Meta is Command on Apple platforms
-and Super elsewhere, whose chords are the browser's and the system's shortcuts; an engine that doesn't know the
-modifier, as Mozc doesn't, would type the key instead. Registered hotkeys have their own readiness policy and may run
-before an engine context is ready; manifest `passThrough` and unready-context exclusions govern engine processing, not
-every registered hotkey. Readiness requires Worker ready, successful Init and the surface's instance/focus setup;
-ordinary typing remains native during startup.
+events and Dead keys are excluded before engine processing. Engines never see Meta, which is Command on Apple platforms
+and Super elsewhere: its chords are the browser's and the system's shortcuts, and an engine that doesn't know the
+modifier, as Mozc doesn't, would type the key instead. Neither the Meta key itself nor a key pressed with it reaches the
+engine; a release made with it does when its press did, so the engine never holds a key down. Such a key passes through
+to the browser unless keys or lifecycle requests are still waiting on the engine. Then it queues behind them and the
+adapter performs it once they have applied, as it does a declined key. Registered hotkeys have their own readiness
+policy and may run before an engine context is ready; manifest `passThrough` and unready-context exclusions govern
+engine processing, not every registered hotkey. Readiness requires Worker ready, successful Init and the surface's
+instance/focus setup; ordinary typing remains native during startup.
 
 The `us` mode follows physical `event.code` positions, useful for conventional Hangul, while `default` follows the
 translated `event.key`, useful for transliteration. The engine's Hangul keyboard setting is separate from the operating
@@ -137,7 +140,7 @@ from five layouts. What each does:
 | AltGr (AZERTY, QWERTZ)               | The character typed, with Mod5: Hangul declines it and the field takes it.                                                                                    | The character typed, with Mod5.            |
 | Dead keys (AZERTY ^, QWERTZ ^ and ´) | Reach no engine: a composition goes on across them.                                                                                                           | The same.                                  |
 | Ctrl chords                          | The US place's keyval with Control; a declined chord keeps its browser action, which follows the letter the key types (Ctrl+A on AZERTY's A key selects all). | The typed letter's keyval with Control.    |
-| Meta chords                          | Reach no engine; the browser performs them.                                                                                                                   | The same.                                  |
+| Meta chords                          | Reach no engine; the browser performs them, or the adapter in order behind keys still waiting on the engine.                                                  | The same.                                  |
 
 With the `layout` setting at `default`, a US-layout engine that reads keyvals, as Rime does, takes the characters the
 keys show on every layout. Arbitrary layouts beyond these five, and AltGr as Windows reports it (Ctrl and Alt together)
@@ -203,12 +206,12 @@ function attachEditor(router: RouterService, adapter: SurfaceAdapter) {
 }
 ```
 
-| Settlement    | Ownership and result                                                                        |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| `consumed`    | Engine consumed the key; reply records are already applied.                                 |
-| `replayed`    | Declined/crashed key fallback is already applied by the router. Never replay it again.      |
-| `passthrough` | Key was excluded and never captured; native/editor handling remains available.              |
-| `cancelled`   | Pending owner was detached/disposed; no pending key edit is applied to the removed surface. |
+| Settlement    | Ownership and result                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `consumed`    | Engine consumed the key; reply records are already applied.                                                 |
+| `replayed`    | Declined/crashed key or queued Meta chord fallback is already applied by the router. Never replay it again. |
+| `passthrough` | Key was excluded and never captured; native/editor handling remains available.                              |
+| `cancelled`   | Pending owner was detached/disposed; no pending key edit is applied to the removed surface.                 |
 
 Adapter apply/replay callback failures reject explicit async calls. Background callback failures and automatically
 captured async-call rejections are logged. These are page callback failures, not engine crashes or reasons to restart
@@ -260,21 +263,21 @@ WebKit's `delete` keeps a textarea's final line break when the selection takes i
 whole field hits. Production Chromium blur commit reaches this fallback; focused native undo and blur commit were tested
 as separate behaviors. Unsupported selection APIs retain end-of-value fallback.
 
-A replayed Ctrl chord (Command on Apple platforms) runs the editing command it names: Z undoes, Shift+Z redoes (as does
-Ctrl+Y elsewhere), A selects all, and X and C cut and copy through `execCommand`, which needs the page's transient user
-activation. Inside a batch, the batch's earlier edits are applied first so the command sees them, and the batch
-continues from what the command leaves. Outside one, the command's change is reported through `onReset` once it returns,
-as a native undo's would be. A replayed word, line or document chord moves or deletes as the platform's does: Ctrl+Left
-and Ctrl+Right move by words (Option on Apple platforms), Ctrl+Backspace and Ctrl+Delete delete to the word's start or
-end (Option+Backspace and Option+Delete), Ctrl+Home and Ctrl+End move to the document's ends, and on Apple platforms
-Command+Left and Command+Right move to the line's ends, Command+Up and Command+Down to the document's, and
-Command+Backspace deletes to the line's start. Shift extends the selection from its anchor, a deletion with text
-selected deletes the selection, and a read-only or disabled field moves but deletes nothing. Words are
-`Intl.Segmenter`'s: a move left stops at a word's start, a move right at its end, as on macOS and Linux (Windows stops
-at the next word's start). Deletions are native `delete` edits, each an undo step. Paste has no page-side equivalent,
-since `execCommand("paste")` is refused in web content, and neither has the browser's find; they and every other chord
-return false. These chords cannot be passed through before the engine replies, because engines bind Ctrl chords of their
-own.
+A replayed Ctrl chord (Command on Apple platforms, queued behind keys waiting on the engine) runs the editing command it
+names: Z undoes, Shift+Z redoes (as does Ctrl+Y elsewhere), A selects all, and X and C cut and copy through
+`execCommand`, which needs the page's transient user activation. Inside a batch, the batch's earlier edits are applied
+first so the command sees them, and the batch continues from what the command leaves. Outside one, the command's change
+is reported through `onReset` once it returns, as a native undo's would be. A replayed word, line or document chord
+moves or deletes as the platform's does: Ctrl+Left and Ctrl+Right move by words (Option on Apple platforms),
+Ctrl+Backspace and Ctrl+Delete delete to the word's start or end (Option+Backspace and Option+Delete), Ctrl+Home and
+Ctrl+End move to the document's ends, and on Apple platforms Command+Left and Command+Right move to the line's ends,
+Command+Up and Command+Down to the document's, and Command+Backspace deletes to the line's start. Shift extends the
+selection from its anchor, a deletion with text selected deletes the selection, and a read-only or disabled field moves
+but deletes nothing. Words are `Intl.Segmenter`'s: a move left stops at a word's start, a move right at its end, as on
+macOS and Linux (Windows stops at the next word's start). Deletions are native `delete` edits, each an undo step. Paste
+has no page-side equivalent, since `execCommand("paste")` is refused in web content, and neither has the browser's find;
+they and every other chord return false. These chords cannot be passed through before the engine replies, because
+engines bind Ctrl chords of their own.
 
 The callback remains optional; a concrete CodeMirror adapter is not shipped.
 

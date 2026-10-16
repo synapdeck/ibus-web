@@ -96,10 +96,12 @@ decided.
 - **Native adapter limits.** Focused commits have a mirror/overlay and native undo. If the field is unfocused or
   `execCommand` is unavailable, the `setRangeText` fallback dispatches a synthetic input event and has no native undo.
   Trusted Chromium blur commit reaches this fallback. A concrete CodeMirror adapter is not shipped. A shortcut the
-  engine declines after the router queued it loses its browser action unless the adapter can perform it: the textarea
-  adapter covers undo, redo, select all, cut, copy and word, line and document deletion and movement, but not paste or
-  browser shortcuts such as find, which a page can't perform. Those are logged as warnings instead. See
-  [core.md](core.md).
+  engine declines after the router queued it, or a Meta chord queued behind keys waiting on the engine, loses its
+  browser action unless the adapter can perform it: the textarea adapter covers undo, redo, select all, cut, copy and
+  word, line and document deletion and movement, but not paste or browser shortcuts such as find, which a page can't
+  perform. Those are logged as warnings instead. See [core.md](core.md).
+- **Meta chords never reach engines.** Command on Apple platforms and Super elsewhere are left to the browser and the
+  system, so an engine can't bind a chord with either ([core.md](core.md#key-translation-and-layouts)).
 - **Keyboard layouts under automation only.** The layout matrix emulates US, AZERTY, QWERTZ, Dvorak and Colemak through
   each browser's automation input, so no system input method composes its dead keys, Chromium and WebKit can't be given
   the AltGraph state (only Firefox's AltGr rows carry it), and other layouts, Windows' Ctrl+Alt form of AltGr and Safari

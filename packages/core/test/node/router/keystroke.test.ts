@@ -1,10 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "vitest";
-import { FocusIn } from "@ibus-web/protocol";
+import { FocusIn, type ProcessKeyEvent } from "@ibus-web/protocol";
 import { ctrl, everyRecord, fixture, key, output } from "../../shared/router.ts";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve));
+const meta = (value: string, type = "keydown"): KeyboardEvent =>
+  ({
+    ...key(value),
+    type,
+    metaKey: true,
+    getModifierState: (modifier: string) => modifier === "Meta",
+  }) as unknown as KeyboardEvent;
 
 test("a synchronous reply applies ordered records in one batch and returns its decision", () => {
   const f = fixture();
@@ -28,7 +35,8 @@ test("unready, disabled, stale, composing, Dead, Meta and configured pass-throug
   expect(f.sink.key(key("a"))).toBe("passthrough");
   f.snapshot.enabled = true;
   expect(f.sink.key(key("Dead"))).toBe("passthrough");
-  expect(f.sink.key({ ...key("a"), getModifierState: (name: string) => name === "Meta" })).toBe("passthrough");
+  expect(f.sink.key(meta("a"))).toBe("passthrough");
+  expect(f.sink.key({ ...key("Meta"), code: "MetaLeft" })).toBe("passthrough");
   expect(f.sink.key({ ...key("a"), isComposing: true })).toBe("passthrough");
   f.snapshot.keyboards = new Map([["test", { layout: "us" as const, passThrough: new Set([97]) }]]);
   expect(f.sink.key(key("a"))).toBe("passthrough");
@@ -200,4 +208,34 @@ test("a key whose poll crashes the connection or retires its context passes thro
   };
   expect(stale.sink.key(ctrl("z"))).toBe("passthrough");
   expect(stale.connection.sent.map((sent) => sent.mode)).toEqual(["async"]);
+});
+
+test("a Meta chord behind a pending key is performed after that key's records apply, never by the engine", () => {
+  const f = fixture();
+  f.connection.outcome = { _tag: "pending" };
+  f.sink.key(key("b"));
+
+  expect(f.sink.key(meta("Backspace"))).toBe("consumed");
+  expect(f.calls).toEqual([]);
+
+  f.connection.completeAbandoned(1, [output(1)]);
+  expect(f.calls).toEqual(["batch", "record:1", "consumed", "end", "replay:Backspace"]);
+  expect(f.connection.sent.map((sent) => sent.request)).toMatchObject([{ keyval: 98 }]);
+});
+
+test("an asynchronous Meta chord with nothing ahead of it passes through", async () => {
+  const f = fixture();
+  await expect(f.router.keyAsync(f.context, meta("a"))).resolves.toBe("passthrough");
+  expect(f.connection.sent).toEqual([]);
+});
+
+test("a release made with Meta reaches the engine only when its press did", () => {
+  const f = fixture();
+  f.sink.key(key("a"));
+  expect(f.sink.key(meta("a", "keyup"))).toBe("consumed");
+  expect(f.sink.key(meta("b"))).toBe("passthrough");
+  expect(f.sink.key(meta("b", "keyup"))).toBe("passthrough");
+  expect(f.sink.key({ ...key("Meta"), code: "MetaLeft", type: "keyup" })).toBe("passthrough");
+  expect(f.connection.sent.map((sent) => sent.request)).toMatchObject([{ keyval: 97 }, { keyval: 97 }]);
+  expect((f.connection.sent[1]!.request as ProcessKeyEvent).state & (1 << 30)).toBeTruthy();
 });

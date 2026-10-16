@@ -46,7 +46,8 @@ export interface KeyContext {
 interface PendingKey {
   readonly context: KeyContext;
   readonly event: KeyboardEvent;
-  readonly request: Request;
+  /** Absent for a key that never reaches the engine: it waits only for the keys ahead of it, then the page performs it. */
+  readonly request?: Request;
   readonly generation: number;
   retired?: boolean;
   readonly completion?: { resolve(result: AsyncKeyResult): void; reject(cause: unknown): void };
@@ -75,6 +76,8 @@ export class KeyRouter {
   private readonly accepted = new Set<PendingKey>();
   private readonly replaying = new Set<PendingKey>();
   private readonly drains = new Set<{ keys: Set<PendingKey>; resolve: () => void }>();
+  /** By context, the codes of the keys whose press went to the engine and whose release hasn't yet. */
+  private readonly pressed = new WeakMap<KeyContext, Set<string>>();
   private active: PendingKey | undefined;
   private activeMode: "sync" | "abandoned" | "async" | undefined;
   /** Reservations from holdKeys; only their owner can release them, so keys never overtake one. */
@@ -94,6 +97,10 @@ export class KeyRouter {
   }
   get busy(): boolean {
     return !!this.active || this.replay.size > 0 || this.lifecycle > 0 || !!this.snapshot.connection?.busy;
+  }
+  /** Whether a key typed now has work ahead of it whose edits must land first. */
+  private get ordered(): boolean {
+    return !!this.active || this.replay.size > 0 || this.lifecycle > 0;
   }
   connect(connection: KeyConnection): void {
     this.disconnect();
@@ -220,14 +227,23 @@ export class KeyRouter {
     )
       return undefined;
     const keyboard = snapshot.keyboards.get(context.engine);
-    if (!keyboard) return undefined;
+    if (!keyboard || !snapshot.connection) return undefined;
+
     // Meta is Command on Apple platforms and Super elsewhere: its chords are the browser's and the system's shortcuts.
-    // Engines that don't know the modifier, as Mozc doesn't, would type the key instead.
-    if (event.getModifierState("Meta")) return undefined;
+    // Engines that don't know the modifier, as Mozc doesn't, would type the key instead, so neither the modifier's own
+    // key nor a press made with it reaches them. A release made with it does when its press did, so that the engine
+    // never holds a key down.
+    let pressed = this.pressed.get(context);
+    if (!pressed) this.pressed.set(context, (pressed = new Set()));
+    const code = event.code || event.key;
+    const release = event.type === "keyup";
+    const sent = release && pressed.delete(code);
+    if (event.key === "Meta" || event.key === "OS" || (event.getModifierState("Meta") && !sent))
+      return { context, event, generation: snapshot.generation };
+
     const translated = translateKey(event, keyboard.layout);
     if (!translated || keyboard.passThrough.has(translated.keyval)) return undefined;
-    const connection = snapshot.connection;
-    if (!connection) return undefined;
+    if (!release) pressed.add(code);
     return {
       context,
       event,
@@ -238,7 +254,7 @@ export class KeyRouter {
   /** Invoke during event dispatch: only accepted keys are prevented, before this call returns. */
   keyAsync(context: KeyContext, event: KeyboardEvent): Promise<AsyncKeyResult> {
     const pending = this.prepare(context, event);
-    if (!pending) return Promise.resolve("passthrough");
+    if (!pending || (!pending.request && !this.ordered)) return Promise.resolve("passthrough");
     event.preventDefault();
     event.stopPropagation();
     return new Promise((resolve, reject) => {
@@ -262,6 +278,7 @@ export class KeyRouter {
       connection.poll?.();
       if (snapshot.connection !== connection || !this.current(context)) return "passthrough";
     }
+    if (!pending.request && !this.ordered) return "passthrough";
 
     this.accepted.add(pending);
     if (this.busy) {
@@ -273,7 +290,7 @@ export class KeyRouter {
     // Install ownership before requestSync: it can call onCrash before returning.
     this.active = pending;
     this.activeMode = "sync";
-    const outcome = connection.requestSync(pending.request, context.ic);
+    const outcome = connection.requestSync(pending.request!, context.ic);
     if (outcome._tag === "crashed") {
       this.crash(outcome.crash);
       return "consumed";
@@ -494,27 +511,36 @@ export class KeyRouter {
     if (connection) this.apply(connection.records.take());
   }
   private next(): void {
-    const connection = this.snapshot.connection;
-    if (!connection || connection.busy || this.active || this.lifecycle > 0) return;
-    let pending: PendingKey | undefined;
-    do {
-      pending = this.replay.shift();
-      if (pending && !this.current(pending.context)) this.finished(pending);
-    } while (pending && !this.current(pending.context));
-    if (!pending) return;
+    // A key the engine never sees is performed here, once the keys ahead of it have applied. Performing it can raise a
+    // boundary that starts lifecycle work, so each turn checks again whether the wire is free.
+    for (;;) {
+      const connection = this.snapshot.connection;
+      if (!connection || connection.busy || this.active || this.lifecycle > 0) return;
+      const pending = this.replay.shift();
+      if (!pending) return;
+      if (!this.current(pending.context)) this.finished(pending);
+      else if (pending.request) return this.send(connection, pending, pending.request);
+      else
+        try {
+          this.fallback(pending);
+        } catch (cause) {
+          this.reportError(cause, pending.context.ic);
+        }
+    }
+  }
+  private send(connection: KeyConnection, pending: PendingKey, request: Request): void {
     this.active = pending;
     this.activeMode = "async";
     this.output.changed?.();
-    const owner = pending;
     const failed = () => {
-      if (this.active === owner && this.snapshot.connection === connection)
+      if (this.active === pending && this.snapshot.connection === connection)
         this.crash({ reason: "worker", message: "Asynchronous key request failed" });
     };
     try {
       void connection
-        .requestAsync(pending.request, pending.context.ic)
+        .requestAsync(request, pending.context.ic)
         .then((reply) => {
-          if (this.active !== owner || this.snapshot.connection !== connection) return;
+          if (this.active !== pending || this.snapshot.connection !== connection) return;
           try {
             this.complete(reply);
             this.drainUnsolicited();
@@ -522,7 +548,7 @@ export class KeyRouter {
             this.next();
           }
         }, failed)
-        .catch((cause) => this.reportError(cause, owner.context.ic));
+        .catch((cause) => this.reportError(cause, pending.context.ic));
     } catch {
       failed();
     }
