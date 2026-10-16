@@ -581,9 +581,9 @@ through plain W3C WebDriver (`webdriver.ts`, a few commands over `fetch`). It se
 by `IBUS_WEB_WEBDRIVER` with `--port`, opens one session with the capabilities in `IBUS_WEB_WEBDRIVER_CAPABILITIES`, and
 checks, as a user's keystrokes through WebDriver's key actions: that the page is cross-origin isolated; Hangul composing
 `한` from `gks` and committing it on blur; `rime_ice`'s dictionaries installing and `nihao ` typing `你好`; a candidate
-chosen below the first coming first after a reload, with the module's storage persistent and writable, which is the
-IndexedDB backend in the module's Workers; and no page error. It runs as one session because safaridriver serves one at
-a time.
+chosen below the first coming first after a reload, which is the IndexedDB backend in the module's Workers at work, with
+no read-only or failed-storage report; and no page error. It runs as one session because safaridriver serves one at a
+time.
 
 - `nix run .#safari-smoke` (aarch64-darwin) runs it on Safari through `/usr/bin/safaridriver`, which must be enabled
   once with `sudo safaridriver --enable`. CI's `safari` job does both on the macOS runner.
