@@ -6,13 +6,10 @@
 #include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <ibus-web/runtime.h>
-#include <rime_api.h>
 
 #define RIME_SCHEMA "org.freedesktop.ibus.engine.rime"
 #define RIME_SCHEMA_SCHEMA RIME_SCHEMA ".schema"
 #define RIME_PATH "/org/freedesktop/ibus/engine/rime/"
-
-extern RimeApi *rime_api;
 
 typedef struct {
   const char *schema;
@@ -121,7 +118,8 @@ static const struct {
 static GSettings *settings;
 static GSettings *schema_settings[G_N_ELEMENTS(schemas)];
 
-/* Whether a change came while a deployment ran, which the next one takes. */
+/* Whether a change came while a deployment ran, which is compiled once it
+ * has returned. */
 static gboolean pending;
 
 /* A YAML double-quoted scalar. */
@@ -307,12 +305,31 @@ static gboolean write_patches(void) {
   return changed;
 }
 
-/* A full check: a patch written in the second the last deployment ended
- * looks no newer than it, and a check of modifications alone would skip it. */
-static void deploy(void) {
-  if (rime_api->start_maintenance(True))
-    rime_api->deploy_config_file("ibus_rime.yaml", "config_version");
+static char *checksum(const char *defaults, const char *own) {
+  g_autoptr(GChecksum) sum = g_checksum_new(G_CHECKSUM_SHA256);
+  g_checksum_update(sum, (const guchar *)defaults, -1);
+  g_checksum_update(sum, (const guchar *)"", 1);
+  g_checksum_update(sum, (const guchar *)own, -1);
+  return g_strdup(g_checksum_get_string(sum));
 }
+
+char *ibusweb_rime_fingerprint(const char *id) {
+  if (g_str_equal(id, "ibus_rime")) {
+    g_autofree char *own = ibus_rime_patch();
+    return checksum("", own);
+  }
+
+  g_autofree char *defaults = default_patch();
+  for (gsize i = 0; i < G_N_ELEMENTS(schemas); i++) {
+    if (g_str_equal(schemas[i], id)) {
+      g_autofree char *own = schema_patch(i);
+      return checksum(defaults, own);
+    }
+  }
+  return checksum(defaults, "");
+}
+
+char *ibusweb_rime_prebuilt_fingerprint(void) { return checksum("", ""); }
 
 int ibusweb_rime_page_size(void) {
   g_autoptr(GVariant) value = stored(settings, "page-size");
@@ -328,7 +345,7 @@ static void changed(GSettings *from, const char *key,
   if (ibusweb_rime_deploying())
     pending = TRUE;
   else
-    deploy();
+    ibusweb_rime_compile_open();
 }
 
 void ibusweb_rime_settings_init(void) {
@@ -353,8 +370,6 @@ void ibusweb_rime_settings_deployed(void) {
     return;
   pending = FALSE;
 
-  /* One already at work started after the change, with a full check, and
-   * takes it in. */
   if (!ibusweb_rime_deploying())
-    deploy();
+    ibusweb_rime_compile_open();
 }

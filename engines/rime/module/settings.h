@@ -13,6 +13,20 @@ void ibusweb_rime_settings_init(void);
  * returned, so that one that changed meanwhile can start the next. */
 void ibusweb_rime_settings_deployed(void);
 
+/* What the settings give the file Rime compiles for id, as a SHA-256 in
+ * hexadecimal: "default" for default.yaml, "ibus_rime" for ibus_rime.yaml,
+ * or a schema's id, whose compiled config takes in default.custom.yaml's
+ * presets and its own patch. */
+char *ibusweb_rime_fingerprint(const char *id);
+
+/* What the prebuilt data was compiled with: no patch at all. */
+char *ibusweb_rime_prebuilt_fingerprint(void);
+
+/* Compiles default.yaml and ibus_rime.yaml where the settings changed them,
+ * and the schemas of the engines open, and their dependencies, where the
+ * settings changed them since they were last compiled. */
+void ibusweb_rime_compile_open(void);
+
 /* The page size the page stored, or 0 for the schema's own. */
 int ibusweb_rime_page_size(void);
 

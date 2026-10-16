@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 16 Oct 2026 16:06:35 -0700
+Subject: [PATCH] Let a front end visit every engine's schema
+
+Rime ends every session when it deploys, and an engine makes its next
+one only at its next key, so a front end that visits sessions misses
+the engines between the two. A front end that compiles each engine's
+schema when its settings change needs every engine:
+ibus_rime_engine_foreach_schema() calls a function with each engine's
+schema, whether or not the engine holds a session.
+---
+ rime_engine.c | 17 +++++++++++++++++
+ rime_engine.h |  7 +++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/rime_engine.c b/rime_engine.c
+index 19340cc..3eed2b2 100644
+--- a/rime_engine.c
++++ b/rime_engine.c
+@@ -18,6 +18,8 @@ extern RimeApi *rime_api;
+ 
+ // The engine each session belongs to, for Rime's option notifications.
+ static GHashTable* engines_by_session = NULL;
++// Every engine, whether or not it holds a session.
++static GList* engines = NULL;
+ 
+ typedef struct _IBusRimeEngine IBusRimeEngine;
+ typedef struct _IBusRimeEngineClass IBusRimeEngineClass;
+@@ -154,6 +156,19 @@ ibus_rime_engine_foreach_session (void (*func)(RimeSessionId session_id,
+   }
+ }
+ 
++void
++ibus_rime_engine_foreach_schema (void (*func)(const char* schema_id,
++                                              void* data),
++                                 void* data)
++{
++  for (GList* p = engines; p != NULL; p = p->next) {
++    const char* schema_id = ibus_rime_engine_schema((IBusRimeEngine *)p->data);
++    if (schema_id) {
++      func(schema_id, data);
++    }
++  }
++}
++
+ static void ibus_rime_engine_load_switches (IBusRimeEngine *rime_engine);
+ 
+ static void
+@@ -434,6 +449,7 @@ static void
+ ibus_rime_engine_constructed (GObject *object)
+ {
+   G_OBJECT_CLASS (ibus_rime_engine_parent_class)->constructed (object);
++  engines = g_list_prepend(engines, object);
+   ibus_rime_create_session ((IBusRimeEngine *)object);
+ }
+ 
+@@ -464,6 +480,7 @@ ibus_rime_engine_destroy (IBusRimeEngine *rime_engine)
+     rime_engine->props = NULL;
+   }
+ 
++  engines = g_list_remove(engines, rime_engine);
+   ((IBusObjectClass *) ibus_rime_engine_parent_class)->destroy(
+       (IBusObject *)rime_engine);
+ }
+diff --git a/rime_engine.h b/rime_engine.h
+index e0014fc..13d18b8 100644
+--- a/rime_engine.h
++++ b/rime_engine.h
+@@ -26,4 +26,11 @@ void ibus_rime_engine_foreach_session(void (*func)(RimeSessionId session_id,
+                                                    void* data),
+                                       void* data);
+ 
++// Calls func with each engine's schema, whether or not the engine holds a
++// session: one ends with every other when Rime deploys, and the engine
++// makes another at its next key.
++void ibus_rime_engine_foreach_schema(void (*func)(const char* schema_id,
++                                                  void* data),
++                                     void* data);
++
+ #endif

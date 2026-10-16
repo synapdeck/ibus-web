@@ -4,12 +4,17 @@
 // ibus-rime as a side module: what its main() sets up before it enters
 // ibus_main(), without a bus.
 
+#include <cerrno>
 #include <cstring>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <glog/logging.h>
 #include <leveldb/env.h>
@@ -22,8 +27,10 @@
 #include <rime/dict/user_db.h>
 #include <rime/key_event.h>
 #include <rime/registry.h>
+#include <rime/resource.h>
 #include <rime/schema.h>
 #include <rime/service.h>
+#include <rime/setup.h>
 #include <rime/switcher.h>
 #include <rime_api.h>
 
@@ -144,6 +151,217 @@ void KeepUserDataAsItIs() {
   Replace("user_config", new UnsavedUserConfig);
 }
 
+#define IBUSWEB_RIME_SCHEMA_ID(schema_id) schema_id,
+const char *const kSchemas[] = {IBUSWEB_RIME_SCHEMAS(IBUSWEB_RIME_SCHEMA_ID)};
+#undef IBUSWEB_RIME_SCHEMA_ID
+
+bool Shipped(const std::string &id) {
+  for (const char *schema : kSchemas) {
+    if (id == schema) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// What each file Rime compiles from the settings was last compiled with,
+// by ibusweb_rime_fingerprint's ids, and under "shared" the shared data the
+// last deployment of every schema compiled from. A schema not listed was
+// compiled with "*", that deployment's; with neither, an id is as
+// prebuilt. The record lies in the user directory's build/, beside the
+// compiled files.
+std::map<std::string, std::string> compiled;
+
+// What the deployment at work compiles, recorded once it succeeds, and
+// whether it compiles every schema, which replaces the whole record.
+std::map<std::string, std::string> compiling;
+bool compiling_all;
+
+std::string BuildPath(const char *name) {
+  g_autofree char *path =
+      g_build_filename(g_get_home_dir(), "build", name, nullptr);
+  return path;
+}
+
+void LoadRecord() {
+  g_autofree char *contents = nullptr;
+  if (!g_file_get_contents(BuildPath("ibus_web_compiled.txt").c_str(),
+                           &contents, nullptr, nullptr)) {
+    return;
+  }
+  g_auto(GStrv) lines = g_strsplit(contents, "\n", -1);
+  for (char **line = lines; *line != nullptr; line++) {
+    g_auto(GStrv) fields = g_strsplit(*line, " ", 2);
+    if (g_strv_length(fields) == 2) {
+      compiled[fields[0]] = fields[1];
+    }
+  }
+}
+
+void SaveRecord() {
+  GString *text = g_string_new(nullptr);
+  for (const auto &[id, fingerprint] : compiled) {
+    g_string_append_printf(text, "%s %s\n", id.c_str(), fingerprint.c_str());
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (g_mkdir_with_parents(BuildPath("").c_str(), 0755) != 0) {
+    g_warning("%s: %s", BuildPath("").c_str(), g_strerror(errno));
+  } else if (!g_file_set_contents(BuildPath("ibus_web_compiled.txt").c_str(),
+                                  text->str, text->len, &error)) {
+    g_warning("%s", error->message);
+  }
+  g_string_free(text, TRUE);
+}
+
+std::string Fingerprint(const std::string &id) {
+  g_autofree char *fingerprint = ibusweb_rime_fingerprint(id.c_str());
+  return fingerprint;
+}
+
+bool Stale(const std::string &id) {
+  auto found = compiled.find(id);
+  if (found == compiled.end() && id != "default" && id != "ibus_rime") {
+    found = compiled.find("*");
+  }
+  if (found != compiled.end()) {
+    return found->second != Fingerprint(id);
+  }
+  g_autofree char *prebuilt = ibusweb_rime_prebuilt_fingerprint();
+  return Fingerprint(id) != prebuilt;
+}
+
+void RecordingAll() {
+  compiling.clear();
+  compiling_all = true;
+  for (const char *id : {"*", "default", "ibus_rime"}) {
+    compiling[id] = Fingerprint(id);
+  }
+  compiling["shared"] = kSharedDataDir;
+  for (const char *id : kSchemas) {
+    compiling[id] = Fingerprint(id);
+  }
+}
+
+void Recorded(bool ok) {
+  if (ok && (compiling_all || !compiling.empty())) {
+    if (compiling_all) {
+      compiled.clear();
+    }
+    for (const auto &entry : compiling) {
+      compiled[entry.first] = entry.second;
+    }
+    SaveRecord();
+  }
+  compiling.clear();
+  compiling_all = false;
+}
+
+// Whether Rime must deploy every schema at start: when the shared data
+// isn't what it last deployed. librime's own check compares the newest of
+// the data directories and their YAML with the time of the last
+// deployment, but WasmFS gives a file the time at which it first sees it,
+// so every start would look like a change. The shared data is a store
+// path, which changes with its contents, and the user directory holds only
+// what Rime writes and the module's patches, which reach what is compiled
+// as engines select their schemas.
+bool Modified() {
+  auto shared = compiled.find("shared");
+  return shared == compiled.end() || shared->second != kSharedDataDir;
+}
+
+// RimeStartMaintenance, with the module's own check for changes.
+bool StartMaintenance(bool full_check) {
+  rime::LoadModules(rime::kDeployerModules);
+  rime::Deployer &deployer = rime::Service::instance().deployer();
+  deployer.RunTask("clean_old_log_files");
+  if (!deployer.RunTask("installation_update")) {
+    return false;
+  }
+  if (!full_check && !Modified()) {
+    return false;
+  }
+
+  deployer.ScheduleTask("workspace_update");
+  deployer.ScheduleTask("user_dict_upgrade");
+  deployer.ScheduleTask("cleanup_trash");
+  RecordingAll();
+  return deployer.StartMaintenance();
+}
+
+// Compiles default.yaml and ibus_rime.yaml where the settings changed them
+// since they were last compiled, and of the schemas in ids those the
+// settings changed, on the deployer's thread; whether that started. The
+// rest wait until an engine selects them.
+bool Compile(const std::set<std::string> &ids) {
+  rime::LoadModules(rime::kDeployerModules);
+  rime::Deployer &deployer = rime::Service::instance().deployer();
+  std::vector<std::string> names;
+  compiling.clear();
+  compiling_all = false;
+
+  for (const char *file : {"default", "ibus_rime"}) {
+    if (!Stale(file)) {
+      continue;
+    }
+    std::string name = std::string(file) + ".yaml";
+    deployer.ScheduleTask(
+        "config_file_update",
+        rime::TaskInitializer(
+            std::pair<std::string, std::string>(name, "config_version")));
+    compiling[file] = Fingerprint(file);
+    names.push_back(name);
+  }
+
+  rime::the<rime::ResourceResolver> sources(
+      rime::Service::instance().CreateResourceResolver(
+          {"schema_source_file", "", ".schema.yaml"}));
+  for (const std::string &id : ids) {
+    if (!Stale(id)) {
+      continue;
+    }
+    rime::path source = sources->ResolvePath(id);
+    if (!std::filesystem::exists(source)) {
+      continue;
+    }
+    deployer.ScheduleTask("schema_update", rime::TaskInitializer(source));
+    compiling[id] = Fingerprint(id);
+    names.push_back(id);
+  }
+
+  if (names.empty()) {
+    return false;
+  }
+  std::string list;
+  for (const std::string &name : names) {
+    list += (list.empty() ? "" : ", ") + name;
+  }
+  g_message("Rime compiles %s.", list.c_str());
+  return deployer.StartMaintenance();
+}
+
+// A schema the module ships, and the schemas it depends on, as its
+// compiled config names them.
+void AddSchema(const char *schema_id, void *data) {
+  auto *ids = static_cast<std::set<std::string> *>(data);
+  if (!Shipped(schema_id)) {
+    return;
+  }
+
+  ids->insert(schema_id);
+  rime::the<rime::Config> config(
+      rime::Config::Require("schema")->Create(schema_id));
+  auto dependencies = config ? config->GetList("schema/dependencies") : nullptr;
+  if (!dependencies) {
+    return;
+  }
+  for (auto item = dependencies->begin(); item != dependencies->end(); ++item) {
+    if (auto dependency = rime::As<rime::ConfigValue>(*item)) {
+      ids->insert(dependency->str());
+    }
+  }
+}
+
 void Start(gboolean full_check) {
   rime_api->initialize(&traits);
 
@@ -155,9 +373,9 @@ void Start(gboolean full_check) {
     return;
   }
 
-  if (rime_api->start_maintenance(full_check)) {
+  if (StartMaintenance(full_check)) {
     rime_api->deploy_config_file("ibus_rime.yaml", "config_version");
-  } else {
+  } else if (!Compile({})) {
     // Nothing changed since the last deployment, so none starts and
     // nothing else would say Rime can be used.
     g_message("Rime is ready.");
@@ -178,6 +396,7 @@ gboolean Returned(gpointer) {
     return G_SOURCE_CONTINUE;
   }
   returned_source = 0;
+  Recorded(deployed_ok);
 
   if (restart_requested) {
     restart_requested = false;
@@ -239,9 +458,18 @@ void Notify(void *, RimeSessionId session_id, const char *message_type,
     return;
   }
   // A session has selected a schema: the engine's own as it is made, or
-  // after a deployment ended its last session.
+  // after a deployment ended its last session. Its engine's dictionaries
+  // are installed by then, so this is when a schema left stale by a
+  // settings change is compiled; the session works with what it has until
+  // the deployment ends it.
   if (std::strcmp(message_type, "schema") == 0) {
     ApplyPageSize(session_id, nullptr);
+    if (!ibusweb_rime_deploying()) {
+      std::set<std::string> ids;
+      std::string schema_id(message_value);
+      AddSchema(schema_id.substr(0, schema_id.find('/')).c_str(), &ids);
+      Compile(ids);
+    }
     return;
   }
   if (std::strcmp(message_type, "deploy") != 0) {
@@ -447,6 +675,12 @@ gboolean Input(GSignalInvocationHint *, guint, const GValue *, gpointer) {
 
 } // namespace
 
+extern "C" void ibusweb_rime_compile_open(void) {
+  std::set<std::string> ids;
+  ibus_rime_engine_foreach_schema(AddSchema, &ids);
+  Compile(ids);
+}
+
 extern "C" void ibusweb_rime_page_size_changed(void) {
   ibus_rime_engine_foreach_session(ApplyPageSize, nullptr);
 }
@@ -503,6 +737,7 @@ void ibusweb_module_init(IBusWebModule *module) {
   traits.app_name = "rime.ibus";
 
   ibusweb_rime_settings_init();
+  LoadRecord();
   rime_api->set_notification_handler(Notify, nullptr);
   rime_api->setup(&traits);
 

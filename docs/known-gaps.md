@@ -117,13 +117,6 @@ decided.
 - **m17n key bindings and the per-user customisation file.** m17n's key-binding customisation (`minput_config_command`)
   and its per-user `~/.m17n.d` customisation file are not exposed on the page; only input-method variables are
   ([m17n.md](m17n.md#settings-and-variables)).
-- **Rime's prisms for dictionaries not yet installed.** A settings change deployed while some dictionaries aren't
-  installed leaves their prisms as prebuilt, so a `fuzzy-pinyin` change reaches an engine installed later only at the
-  next deployment ([rime.md](rime.md#deployment)).
-- **A change to Rime's keys recompiles every schema.** `default.custom.yaml` reaches every compiled schema, so changing
-  `switcher-hotkeys` or `ascii-toggle-key` recompiles them all and rebuilds every installed dictionary's prisms in the
-  user's directory, about 3 s on Rime's deployer thread under Node, during which keys pass through
-  ([rime.md](rime.md#settings)).
 - **Rime takes no files of the user's own.** Its configuration comes only from the settings the module writes as
   `*.custom.yaml`: a page can't add a YAML patch beyond what the settings schema offers, or a custom phrase file, and
   nothing moves Rime's user directory in or out of the module's storage ([rime.md](rime.md#settings)).

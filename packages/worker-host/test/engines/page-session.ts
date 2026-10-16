@@ -64,6 +64,9 @@ export interface SessionOptions {
   // Another session whose storage this one shares, as a second tab of the
   // module does; a fresh storage of its own if none.
   sharing?: PageSession;
+  // The engine name to run under, to start again over the storage an
+  // earlier session's host left; a new one of the module's by default.
+  name?: string;
 }
 
 // Every exchange checks the output barrier, including requests that emit
@@ -79,6 +82,10 @@ export class PageSession {
   readonly host: RunningHost;
   readonly manifest: ModuleManifest;
   private readonly options: SessionOptions;
+  // The engine name the host runs under.
+  get name(): string {
+    return this.manifest.name;
+  }
   private constructor(host: RunningHost, manifest: ModuleManifest, options: SessionOptions) {
     this.host = host;
     this.manifest = manifest;
@@ -94,7 +101,7 @@ export class PageSession {
   ): Promise<PageSession> {
     const engine = options.sharing?.manifest ?? {
       ...manifest,
-      name: `${manifest.name}-${runtime.name}-${crypto.randomUUID()}`,
+      name: options.name ?? `${manifest.name}-${runtime.name}-${crypto.randomUUID()}`,
     };
     const host = await h.start({
       runtime,

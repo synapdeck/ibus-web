@@ -347,7 +347,8 @@ static void ascii_toggle_key(Fixture *fixture,
                    g_variant_new_string("shift"));
 }
 
-/* An engine's own settings set its switches' initial states. */
+/* An engine's own settings set its switches' initial states. A change to
+ * a schema no engine has open compiles nothing until one does. */
 static void schema_settings(Fixture *fixture,
                             gconstpointer data G_GNUC_UNUSED) {
   golden_create(fixture, "rime:luna_pinyin");
@@ -356,7 +357,17 @@ static void schema_settings(Fixture *fixture,
   golden_type(fixture, "hanzi");
   preedit(fixture, "汉字");
   escape(fixture);
+  deployed_setting(fixture, RIME_SCHEMA_PATH("luna_pinyin"), "simplification",
+                   g_variant_new_boolean(FALSE));
   golden_destroy(fixture);
+
+  golden_clear(fixture);
+  golden_setting(fixture, RIME_SCHEMA_PATH("luna_pinyin"), "simplification",
+                 g_variant_new_boolean(TRUE));
+  golden_setting(fixture, RIME_SCHEMA_PATH("luna_pinyin"), "simplification",
+                 g_variant_new_boolean(FALSE));
+  g_assert_cmpuint(
+      golden_count_log(fixture, "Rime compiles luna_pinyin, stroke."), ==, 0);
 
   /* rime-ice's engines start traditional. */
   golden_create(fixture, "rime:double_pinyin_flypy");
@@ -367,8 +378,6 @@ static void schema_settings(Fixture *fixture,
   escape(fixture);
 
   deployed_setting(fixture, RIME_PATH, "traditional",
-                   g_variant_new_boolean(FALSE));
-  deployed_setting(fixture, RIME_SCHEMA_PATH("luna_pinyin"), "simplification",
                    g_variant_new_boolean(FALSE));
 }
 

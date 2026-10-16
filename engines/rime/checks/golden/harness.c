@@ -326,6 +326,8 @@ void golden_make(Fixture *fixture, const gchar *engine) {
                   ==, 0);
 }
 
+/* An engine whose schema a settings change left stale compiles it as it
+ * selects it, and types once that deployment has ended. */
 void golden_create(Fixture *fixture, const gchar *engine) {
   golden_make(fixture, engine);
   g_assert_cmpint(golden_request(fixture, IBUSWEB_REQ_SET_CAPABILITIES,
@@ -337,6 +339,14 @@ void golden_create(Fixture *fixture, const gchar *engine) {
   golden_empty_request(fixture, IBUSWEB_REQ_FOCUS_IN);
   g_signal_remove_emission_hook(signal, hook);
   g_assert_nonnull(fixture->engine);
+
+  for (guint i = 0; i < fixture->records->len; ++i) {
+    if (g_str_has_prefix(message_of(g_ptr_array_index(fixture->records, i)),
+                         "Rime compiles ")) {
+      golden_wait_log(fixture, "Rime is ready.");
+      break;
+    }
+  }
   golden_clear(fixture);
 }
 

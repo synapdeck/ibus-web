@@ -4,9 +4,11 @@ import { chmod, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   Persist,
+  PropertyActivate,
   SettingChanged,
   booleanVariant,
   int32Variant,
+  stringVariant,
   type DecodedRecord,
   type Init,
   type OutputRecord,
@@ -29,6 +31,7 @@ const RIME_PATH = "/org/freedesktop/ibus/engine/rime/";
 const RIME_ICE = "rime:rime_ice";
 const READY = "Rime is ready.";
 const MAINTENANCE = "Rime is under maintenance ...";
+const CAPS_LOCK = stringVariant("caps-lock");
 
 const metadata = JSON.parse(build.texts["settings"]!) as { schemas: { id: string; paths: string[] }[] };
 
@@ -40,10 +43,11 @@ const instances = (values: Readonly<Record<string, Values>> = {}): Init["setting
   );
 // Rime's first start in a new user directory warns of the files it lacks,
 // and every deployment of rime-data's configs of their own includes.
-const options = (engine: string): SessionOptions => ({
-  settings: instances(),
+const options = (engine: string, values?: Readonly<Record<string, Values>>, name?: string): SessionOptions => ({
+  settings: instances(values),
   engine,
   deployment: { start: MAINTENANCE, end: READY },
+  ...(name === undefined ? {} : { name }),
 });
 
 // What rime-data's configs warn of whenever they are compiled; a deployment
@@ -80,6 +84,10 @@ const last = <Tag extends OutputRecord["_tag"]>(
   expect(record, tag).toBeDefined();
   return record as Extract<OutputRecord, { _tag: Tag }>;
 };
+// What the module said it compiles, a deployment's worth each.
+const compiles = (session: PageSession): string[] =>
+  session.logs.filter((message) => message.startsWith("Rime compiles "));
+
 const committed = (records: DecodedRecord[]): string =>
   records.map(({ record }) => (record._tag === "CommitText" ? record.text.text : "")).join("");
 
@@ -142,9 +150,13 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
   let current: PageSession | undefined;
   let heapPeak = 0;
   let threadsPeak = 0;
-  const start = async (engine: string): Promise<PageSession> => {
+  const start = async (
+    engine: string,
+    values?: Readonly<Record<string, Values>>,
+    name?: string,
+  ): Promise<PageSession> => {
     const begin = performance.now();
-    current = await PageSession.start(h, runtime, manifest, options(engine));
+    current = await PageSession.start(h, runtime, manifest, options(engine, values, name));
     const ms = performance.now() - begin;
     const { warms, lastWarmed, firstWarmMs, lastWarmMs } = await current.stats();
     h.record(`Rime ${runtime.name} start`, { ms, warms, lastWarmed, firstWarmMs, lastWarmMs });
@@ -270,8 +282,60 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     // session once it has returned, so the context's next key opens one
     // with the change.
     await deployed(session, 2);
+    expect(session.logs).toContain("Rime compiles rime_ice.");
     expect(session.deploymentWarnings.slice(before).filter((warning) => !expected(warning))).toEqual([]);
     await typeText(session, 1, "zhongguo");
     expect(committed(await session.key(1, ...Key.space))).toBe("中國");
+  });
+
+  test("a change of Rime's keys compiles the open engine's schemas, and another's once its engine is made", async () => {
+    const session = await start(RIME_ICE);
+    await deployed(session, 1);
+    await session.request(0, new SettingChanged({ path: RIME_PATH, key: "ascii-toggle-key", value: CAPS_LOCK }));
+    await deployed(session, 2);
+    expect(compiles(session)).toEqual(["Rime compiles default.yaml, melt_eng, radical_pinyin, rime_ice."]);
+
+    await session.create(3, "rime:luna_pinyin");
+    await deployed(session, 3);
+    expect(compiles(session).at(-1)).toBe("Rime compiles luna_pinyin, stroke.");
+    await typeText(session, 3, "zhongguo");
+    expect(committed(await session.key(3, ...Key.space))).toBe("中國");
+    await typeText(session, 1, "nihao");
+    expect(committed(await session.key(1, ...Key.space))).toBe("你好");
+    expect(compiles(session)).toHaveLength(2);
+  });
+
+  test("the Deploy property compiles every schema, with rime_ice's and luna_pinyin's dictionaries installed", async () => {
+    const session = await start(RIME_ICE);
+    await deployed(session, 1);
+    await session.create(2, "rime:luna_pinyin");
+    await session.request(2, new PropertyActivate({ name: "deploy", state: 0 }));
+    await deployed(session, 2);
+    expect(compiles(session)).toEqual([]);
+    await typeText(session, 2, "zhongguo");
+    expect(committed(await session.key(2, ...Key.space))).toBe("中國");
+  });
+
+  test("a host started again over the same user directory deploys nothing, and compiles a stale schema once its engine is made", async () => {
+    const values = { [RIME_PATH]: { "ascii-toggle-key": CAPS_LOCK } };
+    const first = await start(RIME_ICE);
+    await deployed(first, 1);
+    await first.request(0, new SettingChanged({ path: RIME_PATH, key: "ascii-toggle-key", value: CAPS_LOCK }));
+    await deployed(first, 2);
+    await first.host.terminate();
+    current = undefined;
+
+    const session = await start(RIME_ICE, values, first.name);
+    await deployed(session, 1);
+    await typeText(session, 1, "nihao");
+    expect(committed(await session.key(1, ...Key.space))).toBe("你好");
+    expect(
+      session.logs.filter((message) => message === MAINTENANCE),
+      session.logs.join("\n"),
+    ).toEqual([]);
+
+    await session.create(2, "rime:luna_pinyin");
+    await deployed(session, 2);
+    expect(compiles(session)).toEqual(["Rime compiles luna_pinyin, stroke."]);
   });
 });
