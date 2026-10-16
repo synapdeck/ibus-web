@@ -7,12 +7,14 @@
 import { CrashReason, errorReport } from "@ibus-web/protocol";
 import { Cause, Data, Effect, Exit, type Scope } from "effect";
 import { RuntimeRefused } from "./runtime.ts";
+import type { StartupRefusal } from "../shared/messages.ts";
 
 // trapped: a call into the runtime threw, so the runtime can't be called
-// again.
+// again. refused: the module itself was refused, as it would be again.
 export class StartupFailed extends Data.TaggedError("StartupFailed")<{
   readonly message: string;
   readonly trapped?: boolean;
+  readonly refused?: StartupRefusal;
 }> {}
 
 // A call into the runtime threw: a trap, an abort, or Emscripten unwinding
@@ -123,4 +125,9 @@ export const crashMessage = (
 export const startupMessage = (cause: Cause.Cause<unknown>): string => {
   const error = Cause.findErrorOption(cause);
   return error._tag === "Some" && error.value instanceof StartupFailed ? error.value.message : Cause.pretty(cause);
+};
+
+export const startupRefusal = (cause: Cause.Cause<unknown>): StartupRefusal | undefined => {
+  const error = Cause.findErrorOption(cause);
+  return error._tag === "Some" && error.value instanceof StartupFailed ? error.value.refused : undefined;
 };

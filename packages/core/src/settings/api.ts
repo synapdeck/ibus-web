@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Context, Effect, Layer, Schema, type Stream } from "effect";
 import {
+  asError,
   decodeSettingsMetadata,
   encodeValue,
   ModuleManifest,
@@ -9,6 +10,7 @@ import {
   type SettingsMetadata,
   type GVariantVariant,
 } from "@ibus-web/protocol";
+import { EngineLoadFailed, isIbusWebError, StorageUnavailable } from "../errors.ts";
 import { SettingsSource, type SettingsChange, type SettingsInstance } from "../services/settings.ts";
 export type SettingsSchema = SettingsMetadata["schemas"][number];
 export type SettingsKey = SettingsSchema["keys"][number];
@@ -88,6 +90,16 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
         const alive = () => {
           if (controller.signal.aborted) throw new Error("Settings API closed");
         };
+        // The settings source failing is the settings store being unusable, for the module the call named.
+        const stored = async <A>(module: string, call: () => A | Promise<A>): Promise<A> => {
+          try {
+            return await call();
+          } catch (cause) {
+            throw isIbusWebError(cause)
+              ? cause
+              : new StorageUnavailable({ module, diagnostic: asError(cause).message });
+          }
+        };
         const schemas = (module: string): Promise<readonly SettingsSchema[]> => {
           try {
             alive();
@@ -99,12 +111,18 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           const pending = (async () => {
             const url = options.modules[module];
             if (!url) throw new Error(`Unknown module: ${module}`);
-            const manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(
-              await (options.loadManifest ?? fetchJson)(url, controller.signal),
-            );
-            const metadata = await loadSettingsMetadata(manifest, url, options, controller.signal);
+            let metadata: SettingsMetadata;
+            try {
+              const manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(
+                await (options.loadManifest ?? fetchJson)(url, controller.signal),
+              );
+              metadata = await loadSettingsMetadata(manifest, url, options, controller.signal);
+            } catch (cause) {
+              alive();
+              throw new EngineLoadFailed({ module, diagnostic: asError(cause).message });
+            }
             alive();
-            await source.register?.(metadata);
+            await stored(module, () => source.register?.(metadata));
             alive();
             return metadata.schemas;
           })();
@@ -125,8 +143,7 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           alive();
 
           const change = { ...instance, key: name, value };
-          if (source.write) await source.write(change);
-          else source.written(change);
+          await stored(module, () => (source.write ? source.write(change) : source.written(change)));
         };
         return {
           schemas,
@@ -134,11 +151,11 @@ export class SettingsApi extends Context.Service<SettingsApi, SettingsApiService
           changes: source.changes,
           get: async (module, path, name) => {
             const { instance, key } = await keyFor(module, path, name);
-            const stored = source.read
-              ? await source.read(instance, name)
-              : (await source.snapshot([instance]))[path]?.[name];
+            const value = await stored(module, async () =>
+              source.read ? source.read(instance, name) : (await source.snapshot([instance]))[path]?.[name],
+            );
 
-            return stored ?? variant(key.type, key.default);
+            return value ?? variant(key.type, key.default);
           },
           reset: async (module, path, name) => {
             const { key } = await keyFor(module, path, name);

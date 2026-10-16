@@ -45,6 +45,14 @@ describe("manifest startup validation", () => {
       expect(() => checkManifest({ ...manifest, memory }, constants)).toThrow(/65536.*131072/);
     }
   });
+  test("refuses a mismatched or invalid manifest for good", () => {
+    for (const [change, refused] of [
+      [{ runtimeAbi: 2 }, "RuntimeAbiMismatch"],
+      [{ protocol: 2 }, "ProtocolMismatch"],
+      [{ memory: 65537 }, "manifest"],
+    ] as const)
+      expect(() => checkManifest({ ...manifest, ...change }, constants)).toThrow(expect.objectContaining({ refused }));
+  });
   test("identifies both identity mismatches", () => {
     expect(() => checkManifest({ ...manifest, runtimeAbi: 2 }, constants)).toThrow(/RuntimeAbiMismatch.*2.*1/);
     expect(() => checkManifest({ ...manifest, protocol: 2 }, constants)).toThrow(/ProtocolMismatch.*2.*1/);

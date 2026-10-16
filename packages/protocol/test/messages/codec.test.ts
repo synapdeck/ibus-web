@@ -5,7 +5,7 @@ import { Schema } from "effect";
 import {
   CrashReason,
   CreateEngineFailed,
-  ProtocolError,
+  CodecError,
   Request,
   OutputRecord,
   decodeValue,
@@ -105,7 +105,7 @@ test.each([
   [0, 1],
   [0xffffffff, 7],
 ])("rejects Crashed from seq %i and ic %i", (seq, ic) => {
-  expect(() => decodeRecord(crashedRecord(CrashReason.trap, seq, ic))).toThrow(ProtocolError);
+  expect(() => decodeRecord(crashedRecord(CrashReason.trap, seq, ic))).toThrow(CodecError);
 });
 
 test("decodes CreateEngineFailed's reason on its input context", () => {

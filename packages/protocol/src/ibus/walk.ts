@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { type Schema, SchemaAST } from "effect";
-import { parseType, ProtocolError } from "../gvariant/type.ts";
+import { parseType, CodecError } from "../gvariant/type.ts";
 import { type GVariantValue } from "../gvariant/value.ts";
 import { gvariantTypeOf } from "./annotations.ts";
 
@@ -15,7 +15,7 @@ const rootPlans = new WeakMap<SchemaAST.AST, Plan>();
 const memberPlans = new WeakMap<SchemaAST.AST, Plan>();
 
 function fail(message: string): never {
-  throw new ProtocolError({ message });
+  throw new CodecError({ message });
 }
 
 function expectNode<Tag extends GVariantValue["_tag"]>(

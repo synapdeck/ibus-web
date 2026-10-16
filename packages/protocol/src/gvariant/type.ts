@@ -3,8 +3,8 @@
 
 import { Data } from "effect";
 
-const ProtocolErrorBase: ReturnType<typeof Data.TaggedError<"ProtocolError">> = Data.TaggedError("ProtocolError");
-export class ProtocolError extends ProtocolErrorBase<{ readonly message: string }> {}
+const CodecErrorBase: ReturnType<typeof Data.TaggedError<"CodecError">> = Data.TaggedError("CodecError");
+export class CodecError extends CodecErrorBase<{ readonly message: string }> {}
 
 type Alignment = 1 | 2 | 4 | 8;
 type BasicChar = "b" | "y" | "n" | "q" | "i" | "u" | "h" | "x" | "t" | "d" | "s" | "o" | "g";
@@ -63,7 +63,7 @@ const maximumDepth = 128;
 const scan = (signature: string, start: number): GVariantType => {
   let index = start;
   const fail = (reason: string): never => {
-    throw new ProtocolError({ message: `Invalid GVariant type at ${index}: ${reason}` });
+    throw new CodecError({ message: `Invalid GVariant type at ${index}: ${reason}` });
   };
   const parse = (depth: number): GVariantType => {
     const first = index;
@@ -124,7 +124,7 @@ export const parseType = (signature: string): GVariantType => {
   if (cached !== undefined) return cached;
   const type = scan(signature, 0);
   if (type.signature.length !== signature.length)
-    throw new ProtocolError({ message: `Invalid GVariant type at ${type.signature.length}: trailing characters` });
+    throw new CodecError({ message: `Invalid GVariant type at ${type.signature.length}: trailing characters` });
   cache.set(signature, type);
   return type;
 };

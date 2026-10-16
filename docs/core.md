@@ -59,14 +59,14 @@ it. Focus changes, detaches and other selections go on meanwhile. `router.select
 selection at once, through `selectionChanges`, and resolves once the engine is made; a selection changed or undone while
 its engine downloads resolves at once with nothing made, and the download goes on and stays installed.
 
-Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and the engine's `reason`,
-taken from the runtime's `CreateEngineFailed` record when the engine gave one; otherwise its message names the reply.
-Installing its data can fail too: `PrepareEngineError` carries the module, the engine and the Worker's `reason`, and is
-treated as `CreateEngineError` is, and a failed install is tried again at the next prepare. `select` reconciles every
-surface and then rejects with the first such failure; `override` rejects with its surface's. The selection stands, since
-the engine failed to start rather than the change failing. A surface whose engine failed stays on native input, and its
-next focus tries again. A failure on focus has no caller to reject, so it is logged as a warning. The module stays
-ready, and its other contexts keep working.
+Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and, as its `diagnostic`, the
+engine's reason, taken from the runtime's `CreateEngineFailed` record when the engine gave one, or else the reply's
+return value. Installing its data can fail too: `PrepareEngineError` carries the module, the engine and the Worker's
+reason as its `diagnostic`, and is treated as `CreateEngineError` is, and a failed install is tried again at the next
+prepare. `select` reconciles every surface and then rejects with the first such failure; `override` rejects with its
+surface's. The selection stands, since the engine failed to start rather than the change failing. A surface whose engine
+failed stays on native input, and its next focus tries again. A failure on focus has no caller to reject, so it is
+logged as a warning. The module stays ready, and its other contexts keep working.
 
 A surface keeps one input context per module, since the host holds one engine per context. Switching engine within a
 module drains the context and sends `Disable` and `FocusOut` as any switch does, then `DestroyEngine`, and creates the
@@ -266,6 +266,31 @@ are replayed in FIFO order, contexts lose preedit and panel output is hidden. Re
 backoff from 250 ms; three crashes in 60 seconds fail the engine and leave direct input. After termination, unless
 storage was read-only, restart first waits up to 10 seconds for the writer lock. A fresh Init uses current settings;
 instances return lazily on focus. Composition is lost.
+
+### Errors
+
+Every failure an engine or its Worker causes is one of a family of Effect `Data.TaggedError`s in `errors.ts`, which are
+`Error`s with a `_tag` (union `IbusWebError`, `isIbusWebError()`). Each carries `module`, `engine` where the failure was
+one engine's, and `diagnostic`, the Worker's or the engine's own account; the message names all three.
+
+| Error                | When                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EngineLoadFailed`   | The manifest or settings metadata couldn't be fetched or decoded, two names claim one distribution, or the Worker, runtime, module or `Init` failed to start. |
+| `RuntimeAbiMismatch` | The host refused the module for another runtime's ABI.                                                                                                        |
+| `ProtocolMismatch`   | The manifest's protocol version isn't the page's or the runtime's.                                                                                            |
+| `EngineCrashed`      | The Worker crashed; `reason` is the `Crashed` record's (`TRAP`, `FAULT`, `RELAY`, `LOAD`, `HOST`), and a Worker the page lost is `HOST`.                      |
+| `EngineHung`         | A request made no progress for its budget, or more keys waited than the replay queue holds.                                                                   |
+| `ProtocolError`      | A request didn't fit the Worker's request slot.                                                                                                               |
+| `StorageUnavailable` | The settings source failed a read, write or registration.                                                                                                     |
+| `CreateEngineError`  | An engine failed to start (above).                                                                                                                            |
+| `PrepareEngineError` | An engine's own data failed to install (above).                                                                                                               |
+
+The registry's `select`, `prepare`, `engines` and `whenReady` fail with them, as do the settings API's calls. A module
+refused for what it is (a mismatch, a manifest the host can't take, an `Init` the runtime refuses or that doesn't fit)
+fails at once; any other start failure restarts as a crash does. A crash or hang has no call to reject, so the
+registry's `state` event carries the error with `restarting` and `failed`: the one that ended the module, kept while it
+restarts and, after a third crash, as the reason it failed. A module that becomes ready clears it. An unknown module
+name, a disposed facade and an unloaded module are the caller's mistakes and stay plain `Error`s.
 
 Persistent Hangul Init previously spent 7814.7 ms in an observed module load, exceeding the ordinary two-second
 watchdog. A pinned-libhangul patch now gives each Hanja table an owned 64 KiB stdio buffer (two tables, at most 128

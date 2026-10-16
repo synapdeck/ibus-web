@@ -7,7 +7,7 @@ import {
   FocusIn,
   ProcessKeyEvent,
   GVariantDecodeError,
-  ProtocolError,
+  CodecError,
   Request,
   decodeRecord,
   decodeValue,
@@ -124,31 +124,31 @@ test("reads offsets relative to a byte view and returns the padded record size",
 test("rejects nonzero record padding", () => {
   const bytes = commitTextRecord();
   bytes[bytes.length - 1] = 1;
-  expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes)).toThrow(CodecError);
 });
 
 test("rejects payload lengths beyond the byte view", () => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint32(12, bytes.length, true);
-  expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes)).toThrow(CodecError);
 });
 
 test.each([0xffff, 0])("rejects record kind %s without a payload schema", (kind) => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(8, kind, true);
-  expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes)).toThrow(CodecError);
 });
 
 test("rejects continuation records until the ring reader reassembles them", () => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(10, RECORD_CONTINUATION, true);
-  expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes)).toThrow(CodecError);
 });
 
 test("rejects record flags it does not define", () => {
   const bytes = commitTextRecord();
   new DataView(bytes.buffer).setUint16(10, 0x0002, true);
-  expect(() => decodeRecord(bytes)).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes)).toThrow(CodecError);
   expect(() => decodeRecord(bytes)).toThrow(/flags/);
 });
 
@@ -184,15 +184,15 @@ test("reports an attachment without its inner variant as a payload error", () =>
 });
 
 test.each([-1, 0.5, NaN, Infinity])("rejects invalid record offset %s", (offset) => {
-  expect(() => decodeRecord(commitTextRecord(), offset)).toThrow(ProtocolError);
+  expect(() => decodeRecord(commitTextRecord(), offset)).toThrow(CodecError);
 });
 
 test("rejects truncated headers and missing padding", () => {
   const bytes = commitTextRecord();
-  expect(() => decodeRecord(bytes.subarray(0, 15))).toThrow(ProtocolError);
-  expect(() => decodeRecord(bytes.subarray(0, bytes.length - 1))).toThrow(ProtocolError);
+  expect(() => decodeRecord(bytes.subarray(0, 15))).toThrow(CodecError);
+  expect(() => decodeRecord(bytes.subarray(0, bytes.length - 1))).toThrow(CodecError);
 });
 
 test.each([-1, 0.5, 2 ** 32, NaN])("rejects invalid input context %s", (ic) => {
-  expect(() => encodeRequest(ic, new FocusIn({}))).toThrow(ProtocolError);
+  expect(() => encodeRequest(ic, new FocusIn({}))).toThrow(CodecError);
 });

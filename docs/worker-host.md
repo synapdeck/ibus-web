@@ -297,7 +297,7 @@ The record's message is what is known at once; for a thread's crash, which reach
 "a thread crashed". The `crashed` message waits briefly (`crashWaitMs`) in the event loop for the thread's own error and
 carries the full report. Host-written `Log` and `Crashed` records have `seq = ic = 0` and do not advance `replyOutSeq`;
 runtime sequences skip zero when they wrap. The protocol's decoder rejects a `Crashed` record with another reason
-(`SchemaError`) or with a nonzero `seq` or `ic` (`ProtocolError`).
+(`SchemaError`) or with a nonzero `seq` or `ic` (`CodecError`).
 
 **Faults.** On `-ECANCELED` the host drains the output the runtime already wrote, publishes the reply under the
 `reqMode` doorbell rule, then writes `Crashed` with `FAULT` and sets `CRASHED`, so the page reads the request's records,

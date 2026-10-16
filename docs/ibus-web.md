@@ -42,26 +42,26 @@ key event dispatch; its Promise returns `consumed`, `replayed`, `passthrough` or
 already applied exactly once; excluded `passthrough` events are untouched. `select(module, engine?)` selects an engine
 of a module, the module's first when `engine` is left out; switching engine within a module reuses its Worker. An
 unknown module or engine rejects before anything changes. When a focused surface's engine fails to start, `select`
-rejects with a `CreateEngineError`, exported from `ibus-web` for `instanceof`, whose message carries the engine's reason
-(for a table engine, the parser's `path:line: reason`). The selection stands, since the engine failed to start, and that
-surface stays on native input. An engine whose descriptor names data of its own (a Rime schema's dictionaries) downloads
-and installs it the first time it is selected, and `select` waits for it, while the surface stays on native input and
-other selections, focus changes and detaches go on; a selection changed meanwhile resolves without making the engine,
-and the download still completes. `prepare(module, engine)` does that ahead of selection, starting the module's Worker
-if it hasn't, so that the selection later waits for nothing; an engine without data of its own needs nothing. While data
-installs, `install` events carry `{ module, engine, bytes, total }`, unpacked bytes written of the total the storage
-lacked, `bytes` reaching `total` only once all of it is installed; a second selection, or one in a later visit, installs
-nothing and sends none. A failed install rejects `select` or `prepare` with a `PrepareEngineError`, exported from
-`ibus-web`, whose `reason` is the Worker's; the selection stands, as for a `CreateEngineError`, and the next focus tries
-again. `deselect()` returns every surface to plain browser input and keeps Workers loaded; hosts bind their own shortcut
-for it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or `undefined`.
-`engines(module)` reads and validates a module's manifest and resolves to its engine descriptors (`name`, `displayName`,
-`languages`, `keyboard`, and `data` for an engine with data of its own) without starting a Worker. `select`, `deselect`,
-`engines`, `unload(module)`, `prepare` and `dispose()` return Promises. Before `unload` or `dispose()` ends a Worker,
-and whenever the page goes away or is hidden, the engines write what they keep only in memory, such as Rime's learning
-([core.md](core.md#layers-and-page-lifetime)); the page needs no handler of its own for it. `debugRestart(module)` is a
-development-only way to terminate the actual Worker and await recovery; it restores the selection only when `module` is
-the selected one. No concrete CodeMirror adapter is provided.
+rejects with a `CreateEngineError` whose `diagnostic` is the engine's reason (for a table engine, the parser's
+`path:line: reason`). The selection stands, since the engine failed to start, and that surface stays on native input. An
+engine whose descriptor names data of its own (a Rime schema's dictionaries) downloads and installs it the first time it
+is selected, and `select` waits for it, while the surface stays on native input and other selections, focus changes and
+detaches go on; a selection changed meanwhile resolves without making the engine, and the download still completes.
+`prepare(module, engine)` does that ahead of selection, starting the module's Worker if it hasn't, so that the selection
+later waits for nothing; an engine without data of its own needs nothing. While data installs, `install` events carry
+`{ module, engine, bytes, total }`, unpacked bytes written of the total the storage lacked, `bytes` reaching `total`
+only once all of it is installed; a second selection, or one in a later visit, installs nothing and sends none. A failed
+install rejects `select` or `prepare` with a `PrepareEngineError` whose `diagnostic` is the Worker's reason; the
+selection stands, as for a `CreateEngineError`, and the next focus tries again. `deselect()` returns every surface to
+plain browser input and keeps Workers loaded; hosts bind their own shortcut for it, as there are no built-in hotkeys.
+`selection` is the current `{ module, engine }` or `undefined`. `engines(module)` reads and validates a module's
+manifest and resolves to its engine descriptors (`name`, `displayName`, `languages`, `keyboard`, and `data` for an
+engine with data of its own) without starting a Worker. `select`, `deselect`, `engines`, `unload(module)`, `prepare` and
+`dispose()` return Promises. Before `unload` or `dispose()` ends a Worker, and whenever the page goes away or is hidden,
+the engines write what they keep only in memory, such as Rime's learning ([core.md](core.md#layers-and-page-lifetime));
+the page needs no handler of its own for it. `debugRestart(module)` is a development-only way to terminate the actual
+Worker and await recovery; it restores the selection only when `module` is the selected one. No concrete CodeMirror
+adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has
 one, a relocatable schema one per instance. Use `settings.get(module, path, key)`, `set(module, path, key, variant)` and
@@ -73,6 +73,14 @@ origin; the optional `settings` service can replace it. `modulestate`, `selectio
 `install` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection.
 `logLevel` filters both `log` events and the optional logger callback.
 
+Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:
+`EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,
+`StorageUnavailable`, `CreateEngineError` and `PrepareEngineError`, each an `Error` with a `_tag`, `module`, `engine`
+where one applies and the Worker's `diagnostic`; `EngineCrashed` adds the crash's `reason`. A module that fails to start
+rejects `select`, `prepare` and `engines` with its error, and the settings calls reject an unusable store with
+`StorageUnavailable`. A crash or hang has no call to reject, so `modulestate`'s detail carries `error` with `restarting`
+and `failed`. An unknown module name or a disposed facade rejects with a plain `Error`.
+
 Rime's switches, such as simplified or traditional output (`rime:option:simplification`) and full-width characters
 (`rime:option:full_shape`), are IBus properties: a page with its own controls reads them from `panel` events'
 `RegisterProperties` and `UpdateProperty` records, sets one with
@@ -80,9 +88,10 @@ Rime's switches, such as simplified or traditional output (`rime:option:simplifi
 the focus, and leaves `panel.properties` unplaced. [rime.md](rime.md#in-the-browser) has the details, and the demo does
 it when opened as `/?properties=page`.
 
-Subpaths: `ibus-web/effect` exposes the core services, adapters and protocol schemas/types; `ibus-web/panel` exposes the
-framework-free panel and its `style.css`; `ibus-web/worker` exports URL constants (`workerUrl`, `relayUrl`,
-`brotliFallbackUrl`), not Worker implementation code. The scoped packages remain available directly.
+Subpaths: `ibus-web/effect` exposes the core services, adapters, tagged errors and protocol schemas/types;
+`ibus-web/panel` exposes the framework-free panel and its `style.css`; `ibus-web/worker` exports URL constants
+(`workerUrl`, `relayUrl`, `brotliFallbackUrl`), not Worker implementation code. The scoped packages remain available
+directly.
 
 The built [demo](../examples/demo/README.md) shows the engine picker and a deselect shortcut, the panel, settings form,
 restart and attachment controls. A host distributing engine code and data should publish a licenses page linked from its

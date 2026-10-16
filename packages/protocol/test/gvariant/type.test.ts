@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import { describe, expect, test } from "vitest";
-import { parseType, ProtocolError } from "../../src/index.ts";
+import { parseType, CodecError } from "../../src/index.ts";
 
 describe("GVariant types", () => {
   test.each([
@@ -51,7 +51,7 @@ describe("GVariant types", () => {
     "a".repeat(129) + "u",
     "(".repeat(129) + "u" + ")".repeat(129),
   ])("rejects %s", (signature) => {
-    expect(() => parseType(signature)).toThrow(ProtocolError);
+    expect(() => parseType(signature)).toThrow(CodecError);
   });
   test("preserves the tagged grammar tree", () => {
     expect(parseType("a{sv}")).toMatchObject({
@@ -65,8 +65,8 @@ describe("GVariant types", () => {
     for (const signature of ["a".repeat(128) + "u", "(".repeat(128) + "u" + ")".repeat(128)]) {
       expect(parseType(signature).signature).toBe(signature);
     }
-    expect(() => parseType("a".repeat(128) + "(u)")).toThrow(ProtocolError);
-    expect(() => parseType("a".repeat(128) + "{sv}")).toThrow(ProtocolError);
+    expect(() => parseType("a".repeat(128) + "(u)")).toThrow(CodecError);
+    expect(() => parseType("a".repeat(128) + "{sv}")).toThrow(CodecError);
   });
   test("allows an empty tuple below 128 containers, as GLib's type scanner does", () => {
     for (const signature of [
@@ -76,7 +76,7 @@ describe("GVariant types", () => {
     ]) {
       expect(parseType(signature).signature).toBe(signature);
     }
-    expect(() => parseType("a".repeat(129) + "()")).toThrow(ProtocolError);
+    expect(() => parseType("a".repeat(129) + "()")).toThrow(CodecError);
   });
   test.each<[string, number]>([
     ["y", 1],

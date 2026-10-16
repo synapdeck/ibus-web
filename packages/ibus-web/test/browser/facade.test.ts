@@ -25,6 +25,8 @@ import {
 } from "@ibus-web/protocol";
 import {
   createIbusWeb,
+  EngineCrashed,
+  EngineLoadFailed,
   PrepareEngineError,
   type IbusWebOptions,
   type IbusWebEventMap,
@@ -332,6 +334,25 @@ test("publishes state and storage CustomEvents from actual core lifecycle, inclu
   expect(states).toContain("restarting");
   expect(states).toContain("ready");
   expect(states.at(-1)).toBe("unloaded");
+});
+test("a crash's and a failed start's tagged errors reach modulestate, and select rejects with the failure", async () => {
+  const f = fixture();
+  f.app.attach(f.native);
+  f.native.focus();
+  const restarting = nextEvent(f.app, "modulestate", (event) => event.state === "restarting");
+  await f.app.select("test");
+  await f.app.debugRestart("test");
+  const { error } = (await restarting).detail;
+  expect(error).toBeInstanceOf(EngineCrashed);
+  expect(error).toMatchObject({ module: "test", reason: "HOST", diagnostic: "Debug restart" });
+
+  const broken = fixture({ modules: { broken: url } });
+  vi.mocked(globalThis.fetch).mockImplementation(async () => new Response(null, { status: 404 }));
+  const failed = nextEvent(broken.app, "modulestate", (event) => event.state === "failed");
+  const selecting = broken.app.select("broken");
+  await expect(selecting).rejects.toBeInstanceOf(EngineLoadFailed);
+  await expect(selecting).rejects.toMatchObject({ module: "broken", diagnostic: "Manifest fetch failed: 404" });
+  expect((await failed).detail.error).toBe(await selecting.catch((cause: unknown) => cause));
 });
 test("restarting a deselected module leaves the selection alone and fires no selectionchange", async () => {
   const f = fixture();
@@ -642,7 +663,7 @@ test("unload cancels ownership and releases the engine despite a preedit callbac
   expect(f.start).toHaveBeenCalledTimes(2);
 });
 
-test("prepare installs an engine's own data ahead of selection, reporting install events, and rejects with the reason", async () => {
+test("prepare installs an engine's own data ahead of selection, reporting install events, and rejects with the diagnostic", async () => {
   const f = fixture();
   const lazyPath = `/nix/store/${"b".repeat(32)}-lazy`;
   vi.mocked(fetch).mockImplementation(async () =>
@@ -685,7 +706,7 @@ test("prepare installs an engine's own data ahead of selection, reporting instal
   expect(f.connections[0]!.prepared, "selection after prepare").toEqual(["lazy"]);
   const failed = f.app.prepare("test", "broken");
   await expect(failed).rejects.toBeInstanceOf(PrepareEngineError);
-  await expect(failed).rejects.toMatchObject({ module: "test", engine: "broken", reason: "fetch ./lazy.tar: 404" });
+  await expect(failed).rejects.toMatchObject({ module: "test", engine: "broken", diagnostic: "fetch ./lazy.tar: 404" });
   await expect(f.app.prepare("test", "missing")).rejects.toThrow("Unknown engine: missing in module test");
   await expect(f.app.prepare("missing", "lazy")).rejects.toThrow("Unknown module: missing");
 });

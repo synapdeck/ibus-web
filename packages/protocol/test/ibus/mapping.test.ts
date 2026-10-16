@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "@effect/vitest";
 import { Schema } from "effect";
-import { ProtocolError } from "../../src/index.ts";
+import { CodecError } from "../../src/index.ts";
 import { fromTree, toTree } from "../../src/ibus/walk.ts";
 import { IBusText } from "../../src/ibus/types.ts";
 
@@ -41,7 +41,7 @@ test("rejects a different serializable name", () => {
       { _tag: "v", type: "(sa{sv}av)", value: { _tag: "()", items: [] } },
     ],
   } as const;
-  expect(() => fromTree(IBusText)(tree)).toThrow(ProtocolError);
+  expect(() => fromTree(IBusText)(tree)).toThrow(CodecError);
 });
 test("omits the message tag from the wire and restores it", () => {
   class Message extends Schema.TaggedClass<Message>()("Message", { text: IBusText }) {}
@@ -86,5 +86,5 @@ test("wraps IBus attachments in an additional variant and unwraps them on decode
         : item,
     ),
   };
-  expect(() => fromTree(IBusText)(missingWrapper)).toThrow(ProtocolError);
+  expect(() => fromTree(IBusText)(missingWrapper)).toThrow(CodecError);
 });

@@ -4,8 +4,9 @@ import { expect, it, vi } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer, Logger as EffectLogger, References, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { booleanVariant, CreateEngine, stringVariant, type ModuleManifest, type Request } from "@ibus-web/protocol";
-import { makeModuleRegistry, PrepareEngineError } from "../../../src/services/modules.ts";
-import { PrepareFailed } from "../../../src/connection/connection.ts";
+import { makeModuleRegistry } from "../../../src/services/modules.ts";
+import { ConnectionFailed, PrepareFailed } from "../../../src/connection/connection.ts";
+import { PrepareEngineError, RuntimeAbiMismatch } from "../../../src/errors.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
 import { Logger, PanelEvents, glibLevel } from "../../../src/services/logging.ts";
@@ -396,13 +397,18 @@ it.effect("runtime incompatibility is terminal even during relaunch", () =>
       loadMetadata: async () => metadata,
       waitForWriter: () => Effect.void,
       start: async () => {
-        if (++attempts > 1) throw new Error("StartupFailed: RuntimeAbiMismatch: manifest 1, runtime 2");
+        if (++attempts > 1)
+          throw new ConnectionFailed({
+            reason: "load",
+            message: "RuntimeAbiMismatch: manifest 1, runtime 2",
+            refused: "RuntimeAbiMismatch",
+          });
         return c;
       },
     });
     yield* registry.select("test");
     c.crash();
-    expect((yield* Effect.exit(registry.whenReady("test")))._tag).toBe("Failure");
+    expect(yield* Effect.flip(registry.whenReady("test"))).toBeInstanceOf(RuntimeAbiMismatch);
     yield* TestClock.adjust(10000);
     expect(attempts).toBe(2);
   }).pipe(Effect.provide(services)),
@@ -689,7 +695,7 @@ it.effect(
 
       const failed = yield* Effect.flip(registry.prepare("test", "lazy"));
       expect(failed).toBeInstanceOf(PrepareEngineError);
-      expect(failed).toMatchObject({ module: "test", engine: "lazy", reason: "no space left" });
+      expect(failed).toMatchObject({ module: "test", engine: "lazy", diagnostic: "no space left" });
       expect(registry.snapshot("test")!.enabled, "a module prepared but not selected").toBe(false);
       expect(registry.isPrepared("test", "lazy"), "after a failed install").toBe(false);
       yield* registry.prepare("test", "lazy");

@@ -14,11 +14,23 @@ import {
 import type { StorageState } from "@ibus-web/worker-host";
 import {
   Connection,
+  ConnectionFailed,
   PrepareFailed,
   type ConnectionOptions,
   type CrashInfo,
   type Reply,
 } from "../connection/connection.ts";
+import {
+  crashError,
+  EngineLoadFailed,
+  isIbusWebError,
+  PrepareEngineError,
+  ProtocolError,
+  ProtocolMismatch,
+  RuntimeAbiMismatch,
+  StorageUnavailable,
+  type IbusWebError,
+} from "../errors.ts";
 import { keysymByName } from "../keys/keysyms.generated.ts";
 import { validateKeyboard } from "../keys/manifest.ts";
 import {
@@ -48,7 +60,13 @@ export interface ModuleRegistryOptions {
   readonly waitForWriter?: WaitForWriter;
 }
 export type ModuleEvent =
-  | { readonly _tag: "state"; readonly module: string; readonly state: ModuleState }
+  /** `error` says why, with `restarting` and `failed`. */
+  | {
+      readonly _tag: "state";
+      readonly module: string;
+      readonly state: ModuleState;
+      readonly error?: IbusWebError;
+    }
   | { readonly _tag: "storage"; readonly module: string; readonly state: StorageState; readonly message: string }
   /**
    * While an engine's own data installs: bytes written so far of total, what the module's storage lacked. bytes reaches
@@ -61,20 +79,6 @@ export type ModuleEvent =
       readonly bytes: number;
       readonly total: number;
     };
-/** An engine's own data failed to install; `reason` is the Worker's. */
-export class PrepareEngineError extends Error {
-  readonly _tag = "PrepareEngineError";
-  readonly module: string;
-  readonly engine: string;
-  readonly reason: string;
-
-  constructor(module: string, engine: string, reason: string) {
-    super(`Engine ${engine} of module ${module} could not be prepared: ${reason}`);
-    this.module = module;
-    this.engine = engine;
-    this.reason = reason;
-  }
-}
 export interface ModuleRegistryService {
   readonly events: Stream.Stream<ModuleEvent>;
   unload(name: string): Effect.Effect<void, Error>;
@@ -122,16 +126,48 @@ interface Entry {
   crashes: SyncMailbox<{ crash: CrashInfo; at: number }>;
   lifetime: Scope.Closeable | undefined;
   lastState: ModuleState | undefined;
+  // Why the module last crashed or failed, while it is restarting or failed.
+  error: IbusWebError | undefined;
   origin: symbol;
   started: boolean;
   hasReady: boolean;
 }
-class InitializationRejected extends Error {}
-// Host startup errors cross the public message boundary as text with these diagnostic labels.
-const terminalStartup = (cause: Error): boolean =>
-  cause instanceof InitializationRejected ||
-  cause instanceof RangeError ||
-  /\b(?:RuntimeAbiMismatch|ProtocolMismatch):|manifest \(memory bounds /.test(cause.message);
+// The runtime replied to Init with an error.
+class InitRefused extends EngineLoadFailed {}
+// A start that failed as the module's error, and whether a restart could do better: a module refused for what it is,
+// or whose Init the runtime refused, fails for good.
+const startupFailure = (module: string, cause: unknown): { error: IbusWebError; terminal: boolean } => {
+  if (cause instanceof ConnectionFailed) {
+    const { crash } = cause;
+    const diagnostic = crash.message;
+    if (crash.refused === "RuntimeAbiMismatch")
+      return { error: new RuntimeAbiMismatch({ module, diagnostic }), terminal: true };
+    if (crash.refused === "ProtocolMismatch")
+      return { error: new ProtocolMismatch({ module, diagnostic }), terminal: true };
+    return { error: new EngineLoadFailed({ module, diagnostic }), terminal: crash.refused === "manifest" };
+  }
+  if (isCrashInfo(cause)) return { error: crashError(module, cause), terminal: false };
+  if (isIbusWebError(cause))
+    return {
+      error: cause,
+      terminal:
+        cause._tag === "RuntimeAbiMismatch" ||
+        cause._tag === "ProtocolMismatch" ||
+        cause._tag === "ProtocolError" ||
+        cause instanceof InitRefused,
+    };
+  // The page's own request for Init didn't fit the Worker's request slot.
+  if (cause instanceof RangeError)
+    return { error: new ProtocolError({ module, diagnostic: cause.message }), terminal: true };
+  return { error: new EngineLoadFailed({ module, diagnostic: asError(cause).message }), terminal: false };
+};
+// What a connection rejects a request with once its Worker has crashed.
+const isCrashInfo = (cause: unknown): cause is CrashInfo =>
+  typeof cause === "object" &&
+  cause !== null &&
+  !(cause instanceof Error) &&
+  typeof (cause as Partial<CrashInfo>).reason === "string" &&
+  typeof (cause as Partial<CrashInfo>).message === "string";
 const keyboards = (manifest: ModuleManifest): Map<string, KeyboardPolicy> =>
   new Map(
     manifest.engines.map(({ name, keyboard }) => [
@@ -164,14 +200,19 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       const value = state(entry);
       if (entry.lastState !== value) {
         entry.lastState = value;
-        events.enqueue({ _tag: "state", module: entry.snapshot.name, state: value });
+        const error = value === "restarting" || value === "failed" ? entry.error : undefined;
+        events.enqueue({ _tag: "state", module: entry.snapshot.name, state: value, ...(error ? { error } : {}) });
       }
     };
     const notify = (entry: Entry) => {
       changed(entry);
       for (const watcher of entry.watchers) watcher();
     };
-    const fail = (entry: Entry) => {
+    // Keeps the error that ended the module, if it has one already: a restart limit or a failed wait for the writer
+    // ends it for its last crash.
+    const fail = (entry: Entry, error?: IbusWebError) => {
+      if (error) entry.error = error;
+      entry.error ??= new EngineLoadFailed({ module: entry.snapshot.name });
       entry.router.dispose();
       entry.snapshot.status = "failed";
       notify(entry);
@@ -194,20 +235,31 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       });
     const readManifest = async (name: string): Promise<ModuleManifest> => {
       const url = options.modules[name]!;
-      const raw = options.loadManifest
-        ? await options.loadManifest(url)
-        : await fetch(url).then((response) => {
-            if (!response.ok) throw new Error(`Manifest fetch failed: ${response.status}`);
-            return response.json();
-          });
-      const manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(raw);
-      for (const engine of manifest.engines) validateKeyboard(engine.keyboard);
+      let manifest: ModuleManifest;
+      try {
+        const raw = options.loadManifest
+          ? await options.loadManifest(url)
+          : await fetch(url).then((response) => {
+              if (!response.ok) throw new Error(`Manifest fetch failed: ${response.status}`);
+              return response.json();
+            });
+        manifest = Schema.decodeUnknownSync(ModuleManifest, { onExcessProperty: "error" })(raw);
+        for (const engine of manifest.engines) validateKeyboard(engine.keyboard);
+      } catch (cause) {
+        throw new EngineLoadFailed({ module: name, diagnostic: asError(cause).message });
+      }
       if (manifest.protocol !== PROTOCOL_VERSION)
-        throw new InitializationRejected(`ProtocolMismatch: page ${PROTOCOL_VERSION}, manifest ${manifest.protocol}`);
+        throw new ProtocolMismatch({
+          module: name,
+          diagnostic: `page ${PROTOCOL_VERSION}, manifest ${manifest.protocol}`,
+        });
 
       const owner = distributions.get(manifest.name);
       if (owner !== undefined && owner !== name)
-        throw new Error(`Distribution ${manifest.name} is already registered as ${owner}`);
+        throw new EngineLoadFailed({
+          module: name,
+          diagnostic: `distribution ${manifest.name} is already registered as ${owner}`,
+        });
       distributions.set(manifest.name, name);
       return manifest;
     };
@@ -242,15 +294,17 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         const manifest = yield* manifestOf(name, entry);
         const metadata = yield* Effect.tryPromise({
           try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
-          catch: asError,
+          catch: (cause) => new EngineLoadFailed({ module: name, diagnostic: asError(cause).message }),
         });
+        const unstored = (cause: unknown) =>
+          new StorageUnavailable({ module: name, diagnostic: asError(cause).message });
 
         if (settings.register)
           yield* Effect.tryPromise({
             try: async () => {
               await settings.register!(metadata);
             },
-            catch: asError,
+            catch: unstored,
           });
 
         const instances = settingsInstances(metadata);
@@ -259,7 +313,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
 
         const initial = yield* Effect.tryPromise({
           try: () => settings.snapshot(instances),
-          catch: asError,
+          catch: unstored,
         });
         const connection = yield* Effect.acquireRelease(
           Effect.callback<KeyConnection, Error>((resume, signal) => {
@@ -315,9 +369,11 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             ),
           catch: asError,
         });
-        if (reply.ret < 0) return yield* Effect.fail(new InitializationRejected(`Init failed: ${reply.ret}`));
+        if (reply.ret < 0)
+          return yield* Effect.fail(new InitRefused({ module: name, diagnostic: `Init failed: ${reply.ret}` }));
         yield* flushChanges(entry);
         entry.hasReady = true;
+        entry.error = undefined;
         entry.snapshot.status = "ready";
         notify(entry);
       });
@@ -327,8 +383,9 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         return boot(name, entry).pipe(
           Effect.catch((cause) =>
             Effect.sync(() => {
-              if (!entry.snapshot.manifest || terminalStartup(cause)) {
-                fail(entry);
+              const { error, terminal } = startupFailure(name, cause);
+              if (!entry.snapshot.manifest || terminal) {
+                fail(entry, error);
                 return;
               }
               // The connection's crash notification already owns this failed attempt.
@@ -336,6 +393,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               const crash: CrashInfo = { reason: "load", message: cause.message };
               if (entry.snapshot.connection) entry.router.crash(crash);
               else {
+                entry.error = error;
                 entry.snapshot.status = "restarting";
                 entry.crashes.enqueue({ crash, at: clock.currentTimeMillisUnsafe() });
               }
@@ -358,6 +416,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         crashes,
         lifetime: undefined,
         lastState: undefined,
+        error: undefined,
         origin: Symbol(),
         started: false,
         hasReady: false,
@@ -402,6 +461,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               record: { _tag: "Log", level: 8, domain: "page-adapter", message: asError(cause).message },
             }),
           crashed: (crash) => {
+            entry.error = crashError(name, crash);
             if (!entry.hasReady) {
               snapshot.status = "failed";
               notify(entry);
@@ -494,9 +554,12 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           if (entry.snapshot.status === "ready") {
             entry.watchers.delete(check);
             resume(Effect.void);
-          } else if (entry.snapshot.status === "failed" || entry.snapshot.status === "unloaded") {
+          } else if (entry.snapshot.status === "failed") {
             entry.watchers.delete(check);
-            resume(Effect.fail(new Error(`Module ${name} ${entry.snapshot.status}`)));
+            resume(Effect.fail(entry.error ?? new EngineLoadFailed({ module: name })));
+          } else if (entry.snapshot.status === "unloaded") {
+            entry.watchers.delete(check);
+            resume(Effect.fail(new Error(`Module ${name} unloaded`)));
           }
         };
         entry.watchers.add(check);
@@ -545,7 +608,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           yield* startLifetime(name, entry);
           notify(entry);
           yield* boot(name, entry).pipe(
-            Effect.catch(() => Effect.sync(() => fail(entry))),
+            Effect.catch((cause) => Effect.sync(() => fail(entry, startupFailure(name, cause).error))),
             Effect.forkIn(entry.lifetime!),
           );
         }
@@ -599,7 +662,11 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         yield* Effect.tryPromise({
           try: () => waiting,
           catch: (cause) =>
-            cause instanceof PrepareFailed ? new PrepareEngineError(name, engine, cause.message) : asError(cause),
+            cause instanceof PrepareFailed
+              ? new PrepareEngineError({ module: name, engine, diagnostic: cause.message })
+              : isCrashInfo(cause)
+                ? crashError(name, cause)
+                : asError(cause),
         });
       });
     const service: ModuleRegistryService = {
@@ -615,6 +682,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           entry.snapshot.generation++;
           entry.router.dispose();
           entry.snapshot.status = "unloaded";
+          entry.error = undefined;
           entry.started = false;
           entry.hasReady = false;
           entry.changes.clear();
@@ -647,9 +715,9 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           return manifestOf(name, entry).pipe(
             Effect.map((manifest) => manifest.engines),
             // An unreadable manifest fails the module, as it would when the module started.
-            Effect.tapError(() =>
+            Effect.tapError((cause) =>
               Effect.sync(() => {
-                if (!entry.started) fail(entry);
+                if (!entry.started) fail(entry, startupFailure(name, cause).error);
               }),
             ),
           );

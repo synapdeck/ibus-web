@@ -161,6 +161,9 @@ export interface CollectReport {
   error?: string;
 }
 
+// Why a host refused a module before starting it.
+export type StartupRefusal = "RuntimeAbiMismatch" | "ProtocolMismatch" | "manifest";
+
 export type HostMessage =
   | { type: "doorbell" }
   // The host serves requests from here on.
@@ -173,8 +176,10 @@ export type HostMessage =
   | { type: "prepare-progress"; engine: string; bytes: number; total: number }
   | ({ type: "path-install" } & PathInstallReport)
   | ({ type: "prepared" } & PreparedReport)
-  // The host failed to start; it serves nothing.
-  | { type: "error"; message: string }
+  // The host failed to start; it serves nothing. refused: it refused the
+  // module outright, as it would again, for a mismatch or a manifest it
+  // can't take.
+  | { type: "error"; message: string; refused?: StartupRefusal }
   // The runtime stopped after the host was ready: the control buffer says
   // CRASHED, and this says why.
   | { type: "crashed"; message: string };

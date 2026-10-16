@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { describe, expect, test } from "vitest";
-import { encodeValue, ProtocolError, type GVariantValue } from "../../src/index.ts";
+import { encodeValue, CodecError, type GVariantValue } from "../../src/index.ts";
 
 describe("encodeValue", () => {
   test.each<[string, GVariantValue]>([
@@ -26,7 +26,7 @@ describe("encodeValue", () => {
     ["g", { _tag: "g", value: "a{vs}" }],
     ["g", { _tag: "g", value: "a".repeat(129) + "y" }],
   ])("rejects %s %o", (signature, value) => {
-    expect(() => encodeValue(signature, value)).toThrow(ProtocolError);
+    expect(() => encodeValue(signature, value)).toThrow(CodecError);
   });
 
   test.each<[string, GVariantValue]>([
@@ -47,13 +47,13 @@ describe("encodeValue", () => {
     const nested = (levels: number): GVariantValue =>
       levels === 0 ? { _tag: "y", value: 5 } : { _tag: "a", items: [nested(levels - 1)] };
     expect(() => encodeValue("a".repeat(127) + "y", nested(127))).not.toThrow();
-    expect(() => encodeValue("a".repeat(128) + "y", nested(128))).toThrow(ProtocolError);
+    expect(() => encodeValue("a".repeat(128) + "y", nested(128))).toThrow(CodecError);
     const variants = (levels: number): GVariantValue =>
       levels === 1
         ? { _tag: "v", type: "y", value: { _tag: "y", value: 1 } }
         : { _tag: "v", type: "v", value: variants(levels - 1) };
     expect(() => encodeValue("v", variants(127))).not.toThrow();
-    expect(() => encodeValue("v", variants(128))).toThrow(ProtocolError);
+    expect(() => encodeValue("v", variants(128))).toThrow(CodecError);
   });
 
   test("counts the depth of a variant's type", () => {
@@ -63,6 +63,6 @@ describe("encodeValue", () => {
       value: { _tag: "a", items: [] },
     });
     expect(() => encodeValue("v", variant(126))).not.toThrow();
-    expect(() => encodeValue("v", variant(127))).toThrow(ProtocolError);
+    expect(() => encodeValue("v", variant(127))).toThrow(CodecError);
   });
 });

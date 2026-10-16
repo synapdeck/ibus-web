@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { afterEach, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
-import { ProtocolError, type IBusProperty, type IBusText, type LazyLookupTable } from "@ibus-web/protocol";
+import { CodecError, type IBusProperty, type IBusText, type LazyLookupTable } from "@ibus-web/protocol";
 import { createPanel, type PanelHost, type PanelRecord, type PanelUpdate } from "../../src/index.ts";
 import "../../src/style.css";
 
@@ -301,7 +301,7 @@ test("ignores stale hide/geometry events from a different context and clears on 
 });
 test("reports a malformed newly visible page and callback errors without EventTarget exceptions", () => {
   const { host, element } = setup();
-  const error = new ProtocolError({ message: "bad deferred text" });
+  const error = new CodecError({ message: "bad deferred text" });
   const lazy = table({
     visible: () => {
       throw error;

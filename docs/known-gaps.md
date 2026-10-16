@@ -125,10 +125,6 @@ decided.
   browser action unless the adapter can perform it: the textarea adapter covers undo, redo, select all, cut and copy,
   but not paste, word-wise deletion or navigation, or browser shortcuts such as find. Those are logged as warnings
   instead. See [core.md](core.md).
-- **Engine errors reach the host only as state.** A crash, hang or load failure shows as a `modulestate` change
-  (`restarting`, `ready`, `failed`), and `select` rejects with a plain `Error`. The crash reason and the Worker's
-  diagnostic are dropped, and the spec's tagged errors (`EngineCrashed`, `EngineHung`, `EngineLoadFailed` and the rest)
-  aren't defined.
 - **System keyboard layouts.** The existing `us` translation follows physical `event.code`; `default` follows translated
   `event.key`. Arbitrary OS layouts, Dead/AltGr/shortcut behavior and fallback replay have no system-layout matrix. A
   host override/detection mechanism is a future design recommendation.

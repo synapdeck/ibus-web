@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
 import { decodeValueRange, decodeValueWithDeferredArrays, type ElementBoundary } from "../gvariant/decode.ts";
-import { ProtocolError } from "../gvariant/type.ts";
+import { CodecError } from "../gvariant/type.ts";
 import { IBusText } from "../ibus/types.ts";
 import { fromTree, signatureOf } from "../ibus/walk.ts";
 import { decodeRecord, readRecordEnvelope, type DecodedRecord } from "./codec.ts";
@@ -48,13 +48,13 @@ function lookupPayload(payload: Uint8Array): Extract<LazyOutputRecord, { _tag: "
     return true;
   });
   const decoded = decodeLookup(lookupFromTree(tree));
-  if (arrays.length !== 2) throw new ProtocolError({ message: "Expected candidate and label arrays" });
+  if (arrays.length !== 2) throw new CodecError({ message: "Expected candidate and label arrays" });
   const [candidates, labels] = arrays as [readonly ElementBoundary[], readonly ElementBoundary[]];
   const { pageSize, cursorPos, cursorVisible, round, orientation } = decoded.table;
   const read = ({ start, end }: ElementBoundary): IBusText => {
     const variant = decodeValueRange("v", payload, start, end, 4);
     if (variant._tag !== "v" || variant.type !== textSignature)
-      throw new ProtocolError({ message: `Expected IBusText variant type ${textSignature}` });
+      throw new CodecError({ message: `Expected IBusText variant type ${textSignature}` });
     return decodeText(textFromTree(variant.value));
   };
   const table: LazyLookupTable = {
@@ -82,7 +82,7 @@ function lookupPayload(payload: Uint8Array): Extract<LazyOutputRecord, { _tag: "
 /** Owns a snapshot so pages survive caller mutation and output ring reuse. */
 export function decodeLookupTableRecord(bytes: Uint8Array, offset = 0): LazyLookupTable {
   const envelope = readRecordEnvelope(bytes, offset);
-  if (envelope.kind !== lookupKind) throw new ProtocolError({ message: "Expected UpdateLookupTable record" });
+  if (envelope.kind !== lookupKind) throw new CodecError({ message: "Expected UpdateLookupTable record" });
   return lookupPayload(new Uint8Array(envelope.payload)).table;
 }
 

@@ -10,7 +10,7 @@ import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { controlViews, postCrash, type ControlViews } from "../../shared/control.ts";
 import type { HostInit, HostMessage } from "../../shared/messages.ts";
 import { HostConfig } from "../config.ts";
-import { crashMessage, crashRecord, startupMessage, type CrashRecord } from "../failure.ts";
+import { crashMessage, crashRecord, startupMessage, startupRefusal, type CrashRecord } from "../failure.ts";
 import { Mail } from "../mail.ts";
 import { writeHostRecord } from "../output.ts";
 
@@ -133,7 +133,14 @@ export const workerLayer = (
                 const message = await crashMessage(exit.cause, threadError, config.crashWaitMs);
                 env.post({ type: "crashed", message });
               })
-            : Effect.sync(() => env.post({ type: "error", message: startupMessage(exit.cause) })),
+            : Effect.sync(() => {
+                const refused = startupRefusal(exit.cause);
+                env.post({
+                  type: "error",
+                  message: startupMessage(exit.cause),
+                  ...(refused === undefined ? {} : { refused }),
+                });
+              }),
       );
 
       return {

@@ -3,11 +3,9 @@
 import { Context, Effect, Layer, Logger as EffectLogger, ManagedRuntime, References, Schema, Stream } from "effect";
 import {
   CoreConfig,
-  CreateEngineError,
   ModuleRegistry,
   Logger,
   PanelEvents,
-  PrepareEngineError,
   Router,
   SettingsApi,
   SettingsSource,
@@ -28,7 +26,23 @@ import { errorMessage, PanelAction, type EngineDescriptor } from "@ibus-web/prot
 import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
 export type { AttachOptions, AsyncKeyResult, Selection, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
-export { CreateEngineError, PrepareEngineError };
+// The errors calls reject with and modulestate events carry: Error subclasses with a `_tag`, the same classes
+// ibus-web/effect exports, so instanceof holds across both.
+export {
+  CreateEngineError,
+  EngineCrashed,
+  EngineHung,
+  EngineLoadFailed,
+  isIbusWebError,
+  PrepareEngineError,
+  ProtocolError,
+  ProtocolMismatch,
+  RuntimeAbiMismatch,
+  StorageUnavailable,
+  type CrashReasonName,
+  type IbusWebError,
+  type IbusWebErrorFields,
+} from "@ibus-web/core";
 export type { EngineDescriptor } from "@ibus-web/protocol";
 export type { PanelAction, PanelHost, PanelUpdate } from "@ibus-web/panel";
 export { booleanVariant, int32Variant, stringVariant, variant } from "@ibus-web/protocol";
@@ -50,6 +64,7 @@ export interface IbusWebOptions {
   readonly config?: Partial<CoreConfigValues>;
 }
 export interface IbusWebEventMap {
+  /** `error` says why the module is `restarting` or `failed`. */
   modulestate: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "state" }>, "_tag">>;
   storage: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "storage" }>, "_tag">>;
   /**
@@ -67,7 +82,10 @@ export interface IbusWeb extends PanelHost {
   attachAdapter(adapter: SurfaceAdapter, options?: AttachOptions): () => void;
   /** Invoke during original dispatch; replayed means fallback is already applied. */
   keyAsync(adapter: SurfaceAdapter, event: KeyboardEvent): Promise<AsyncKeyResult>;
-  /** Without an engine, selects the module's first. An unknown module or engine rejects before anything changes. */
+  /**
+   * Without an engine, selects the module's first. An unknown module or engine rejects before anything changes; a
+   * module that fails to start rejects with its IbusWebError.
+   */
   select(module: string, engine?: string): Promise<void>;
   /** Returns every surface to plain browser input; Workers stay loaded. */
   deselect(): Promise<void>;
@@ -79,7 +97,7 @@ export interface IbusWeb extends PanelHost {
   /**
    * Installs the engine's own data ahead of selection, starting the module's Worker if it hasn't, so that selecting
    * the engine later waits for nothing; `install` events report its progress. An engine with no data of its own needs
-   * nothing. Rejects with a PrepareEngineError carrying the Worker's reason.
+   * nothing. Rejects with a PrepareEngineError carrying the Worker's diagnostic.
    */
   prepare(module: string, engine: string): Promise<void>;
   readonly selection: Selection | undefined;
@@ -189,7 +207,12 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       yield* registry.events.pipe(
         Stream.runForEach((event) =>
           Effect.sync(() => {
-            if (event._tag === "state") emit("modulestate", { module: event.module, state: event.state });
+            if (event._tag === "state")
+              emit("modulestate", {
+                module: event.module,
+                state: event.state,
+                ...(event.error === undefined ? {} : { error: event.error }),
+              });
             else if (event._tag === "storage")
               emit("storage", { module: event.module, state: event.state, message: event.message });
             else

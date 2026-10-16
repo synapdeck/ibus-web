@@ -16,7 +16,11 @@ test("effect consumers retain core services, tagged errors, adapters and protoco
   expect(api.Router.Default).toBeDefined();
   expect(api.SettingsApi.layer).toBeTypeOf("function");
   expect(api.textareaAdapter).toBeTypeOf("function");
-  expect(new api.ProtocolError({ message: "invalid" })._tag).toBe("ProtocolError");
+  expect(new api.CodecError({ message: "invalid" })._tag).toBe("CodecError");
+  const crashed = new api.EngineCrashed({ module: "hangul", reason: "FAULT", diagnostic: "boom" });
+  expect(crashed).toBeInstanceOf(Error);
+  expect(crashed._tag).toBe("EngineCrashed");
+  expect(new api.ProtocolError({ module: "m17n" })._tag).toBe("ProtocolError");
   expect(new api.ConnectionBusyError()).toBeInstanceOf(Error);
   expect(api.ModuleManifest).toBeDefined();
   expect(api.ProcessKeyEvent).toBeDefined();
@@ -112,7 +116,7 @@ test("published facade declarations support typed lifecycle, manual input, setti
       source,
       `// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { CreateEngineError, type IbusWeb, type AsyncKeyResult, type SurfaceAdapter } from "ibus-web";
+import { CreateEngineError, EngineCrashed, type IbusWeb, type AsyncKeyResult, type SurfaceAdapter } from "ibus-web";
 import type { ModuleState, SettingValue } from "ibus-web/effect";
 import { createPanel, type PanelHost } from "ibus-web/panel";
 import workerUrl from "ibus-web/worker";
@@ -129,6 +133,8 @@ export function consumer(app: IbusWeb, adapter: SurfaceAdapter, event: KeyboardE
   };
   app.addEventListener("modulestate", ({ detail }) => {
     labels[detail.state].toUpperCase();
+    if (detail.error instanceof EngineCrashed) detail.error.reason.toUpperCase();
+    detail.error?._tag.toUpperCase();
   });
   app.addEventListener("storage", ({ detail }) => {
     detail.state.toUpperCase();
@@ -149,7 +155,7 @@ export function consumer(app: IbusWeb, adapter: SurfaceAdapter, event: KeyboardE
     "lookup-table-orientation",
   );
   const hostUrl: URL = workerUrl;
-  const failed = (error: unknown) => error instanceof CreateEngineError && error.reason;
+  const failed = (error: unknown) => error instanceof CreateEngineError && error.diagnostic;
   return { panel, detach, result, setting, hostUrl, failed };
 }
 `,

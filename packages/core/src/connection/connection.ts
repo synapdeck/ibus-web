@@ -3,7 +3,7 @@
 import {
   decodeRecordLazy,
   encodeRequest,
-  ProtocolError,
+  CodecError,
   ReqMode,
   requestKinds,
   RingReader,
@@ -26,9 +26,9 @@ import {
   type PrepareEngine,
   type StorageState,
 } from "@ibus-web/worker-host";
-import { crashFromRecord, type CrashInfo } from "./crash.ts";
+import { ConnectionFailed, crashFromRecord, type CrashInfo } from "./crash.ts";
 import { ConnectionBusyError, type QueuedRequest, type Reply } from "./requests.ts";
-export type { CrashInfo } from "./crash.ts";
+export { ConnectionFailed, type CrashInfo } from "./crash.ts";
 export { ConnectionBusyError } from "./requests.ts";
 export type { Reply } from "./requests.ts";
 export interface ConnectionOptions {
@@ -342,7 +342,7 @@ export class Connection {
     return this.output.splice(0, after < 0 ? this.output.length : after);
   }
   private diagnostic(error: unknown): void {
-    const diagnostic = error instanceof ProtocolError ? error : new ProtocolError({ message: String(error) });
+    const diagnostic = error instanceof CodecError ? error : new CodecError({ message: String(error) });
     if (this.options.development) throw diagnostic;
     console.error(diagnostic);
   }
@@ -364,9 +364,9 @@ export class Connection {
       if (seq !== 0) this.seq = seq;
       try {
         if (seq !== 0 && seq !== expected)
-          throw new ProtocolError({ message: `Expected record sequence ${expected}, received ${seq}` });
+          throw new CodecError({ message: `Expected record sequence ${expected}, received ${seq}` });
         if (seq === 0 && header.getUint32(4, true) !== 0)
-          throw new ProtocolError({ message: "Host records must carry ic 0" });
+          throw new CodecError({ message: "Host records must carry ic 0" });
         const decoded = decodeRecordLazy(bytes);
         if (decoded.record._tag === "Crashed") {
           this.fail(crashFromRecord(decoded.record));
@@ -384,8 +384,10 @@ export class Connection {
     }
   }
   private checkCrash(): void {
-    if (Atomics.load(this.control.words, Word.state) === State.crashed)
-      this.fail({ reason: "host", message: "Worker control state is CRASHED" });
+    if (this.crash || Atomics.load(this.control.words, Word.state) !== State.crashed) return;
+    // The host writes its Crashed record before the state, so one drain finds the crash's own reason.
+    this.drain();
+    this.fail({ reason: "host", message: "Worker control state is CRASHED" });
   }
   private readonly message = (event: MessageEvent<HostMessage>): void => {
     if (this.crash) return;
@@ -402,7 +404,11 @@ export class Connection {
         this.options.onStorage?.({ state: message.state, message: message.message });
         break;
       case "error":
-        this.fail({ reason: "load", message: message.message });
+        this.fail({
+          reason: "load",
+          message: message.message,
+          ...(message.refused === undefined ? {} : { refused: message.refused }),
+        });
         break;
       case "crashed":
         this.drain();
@@ -483,7 +489,7 @@ export class Connection {
     this.worker.removeEventListener("error", this.error);
     this.worker.removeEventListener("messageerror", this.error);
     this.worker.terminate();
-    if (!this.ready) this.rejectStart?.(new Error(crash.message));
+    if (!this.ready) this.rejectStart?.(new ConnectionFailed(crash));
     this.current?.reject(crash);
     this.current = undefined;
     for (const pending of this.queue.splice(0)) pending.reject(crash);

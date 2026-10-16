@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, test } from "@effect/vitest";
 import { Schema } from "effect";
-import { GVariantVariant, ProtocolError } from "../../src/index.ts";
+import { GVariantVariant, CodecError } from "../../src/index.ts";
 import { signatureOf } from "../../src/ibus/walk.ts";
 import { Uint32 } from "../../src/ibus/annotations.ts";
 import {
@@ -35,12 +35,12 @@ test("derives nested dictionaries", () => {
 });
 test("names an unannotated field", () => {
   const schema = Schema.Struct({ missingType: Schema.Number });
-  expect(() => signatureOf(schema)).toThrow(ProtocolError);
+  expect(() => signatureOf(schema)).toThrow(CodecError);
   expect(() => signatureOf(schema)).toThrow(/missingType/);
 });
 test("rejects optional fields, which a GVariant tuple cannot leave out", () => {
   const schema = Schema.Struct({ maybeCount: Schema.optionalKey(Uint32) });
-  expect(() => signatureOf(schema)).toThrow(ProtocolError);
+  expect(() => signatureOf(schema)).toThrow(CodecError);
   expect(() => signatureOf(schema)).toThrow(/maybeCount/);
 });
 test("keeps a scalar's GVariant type through further checks", () => {

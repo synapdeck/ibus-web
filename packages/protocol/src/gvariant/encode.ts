@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { align, isSignature, parseType, ProtocolError, type GVariantType } from "./type.ts";
+import { align, isSignature, parseType, CodecError, type GVariantType } from "./type.ts";
 import { type GVariantValue } from "./value.ts";
 
 export function offsetWidth(size: number): number {
@@ -81,7 +81,7 @@ function writeUtf8(bytes: Uint8Array, start: number, text: string, length: numbe
 }
 
 function invalidValue(message: string): never {
-  throw new ProtocolError({ message });
+  throw new CodecError({ message });
 }
 
 const integerRanges = {

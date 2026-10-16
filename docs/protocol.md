@@ -20,7 +20,7 @@ strings, and GLib's depth rules:
   under 128.
 - **`g` values** are D-Bus signatures: a sequence of complete types, without maybe types.
 
-Invalid bytes raise `GVariantDecodeError` with the offset of the fault; invalid signatures raise `ProtocolError`.
+Invalid bytes raise `GVariantDecodeError` with the offset of the fault; invalid signatures raise `CodecError`.
 
 Accepted bytes re-encode byte for byte, with two exceptions. JavaScript may lose a NaN double's payload bits. And GLib
 accepts a zero-byte encoding of a tuple with at least one member when every member is variable-size and itself accepts
@@ -29,9 +29,9 @@ accepts these as GLib does. Where such a tuple has framing offsets (two or more 
 explicit zeros: the empty `(ayay)` re-encodes as `00`, and `00` read as `m(ayay)` re-encodes as `0000`, read as
 `a(ayay)` or `((ayay)ay)` as `0001`. No other accepted input re-encodes differently.
 
-The encoder refuses, with `ProtocolError`, any value GLib wouldn't read back as given: integers outside their type's
-range or not integers, strings with NUL or lone surrogates, invalid object paths, signatures and variant type strings,
-values that don't match their type's shape, and nesting past the same depth rules.
+The encoder refuses, with `CodecError`, any value GLib wouldn't read back as given: integers outside their type's range
+or not integers, strings with NUL or lone surrogates, invalid object paths, signatures and variant type strings, values
+that don't match their type's shape, and nesting past the same depth rules.
 
 The IBus layer defines each IBus type as a `Schema.Struct` annotated with its IBus name (`ibusType`), built by
 `serializable(name, fields)`, which puts the attachments first; fields carry their GVariant type as an annotation.
@@ -47,8 +47,8 @@ Cached synchronous schema codecs implement `encodeRequest` and `decodeRecord`. R
 output records have a sixteen-byte header and zero padding to eight-byte alignment. `decodeRecord` returns `size`,
 including padding, for advancing a reader. Its errors split by layer: framing faults (a truncated header, an unknown
 kind, any flag set, including `CONTINUATION`, whose fragments the ring reader reassembles first, nonzero padding, a
-length past the buffer, a `Crashed` record with a nonzero `seq` or `ic`) throw `ProtocolError`; a payload that doesn't
-decode as its kind's schema throws Effect's `SchemaError`. `encodeRequest` throws `ProtocolError` for an `ic` outside 32
+length past the buffer, a `Crashed` record with a nonzero `seq` or `ic`) throw `CodecError`; a payload that doesn't
+decode as its kind's schema throws Effect's `SchemaError`. `encodeRequest` throws `CodecError` for an `ic` outside 32
 bits and `SchemaError` for a request that fails its schema.
 
 `Crashed (us)` (kind 34) is written by the host only, with `seq` and `ic` 0: its `reason` is one of `TRAP` 1, `FAULT` 2

@@ -13,15 +13,18 @@ export const checkManifest = (value: unknown, constants: RuntimeConstants): Modu
   } catch (error) {
     throw new StartupFailed({
       message: `manifest (memory bounds ${constants.memory.minimum} to ${constants.memory.maximum} bytes): ${String(error)}`,
+      refused: "manifest",
     });
   }
   if (manifest.runtimeAbi !== constants.runtimeAbi)
     throw new StartupFailed({
       message: `RuntimeAbiMismatch: manifest ${manifest.runtimeAbi}, runtime ${constants.runtimeAbi}`,
+      refused: "RuntimeAbiMismatch",
     });
   if (manifest.protocol !== constants.protocol)
     throw new StartupFailed({
       message: `ProtocolMismatch: manifest ${manifest.protocol}, runtime ${constants.protocol}`,
+      refused: "ProtocolMismatch",
     });
   return manifest;
 };

@@ -3,6 +3,7 @@
 export {
   Connection,
   ConnectionBusyError,
+  ConnectionFailed,
   PrepareFailed,
   type ConnectionOptions,
   type PrepareProgress,
@@ -39,8 +40,23 @@ export {
 } from "../router/keystroke.ts";
 export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
 export {
-  ModuleRegistry,
+  CreateEngineError,
+  crashError,
+  EngineCrashed,
+  EngineHung,
+  EngineLoadFailed,
+  isIbusWebError,
   PrepareEngineError,
+  ProtocolError,
+  ProtocolMismatch,
+  RuntimeAbiMismatch,
+  StorageUnavailable,
+  type CrashReasonName,
+  type IbusWebError,
+  type IbusWebErrorFields,
+} from "../errors.ts";
+export {
+  ModuleRegistry,
   makeModuleRegistry,
   type ModuleEvent,
   type ModuleRegistryOptions,
@@ -55,7 +71,6 @@ export {
 } from "../services/settings.ts";
 export { Logger, PanelEvents, glibLevel, type LogLine } from "../services/logging.ts";
 export {
-  CreateEngineError,
   Router,
   makeRouter,
   type AttachOptions,

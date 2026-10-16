@@ -235,7 +235,7 @@ test("a focus reconcile and a same-tick select each send CreateEngine; the selec
       _tag: "CreateEngineError",
       module: "a",
       engine: "other",
-      reason: selectReason,
+      diagnostic: selectReason,
     });
 
     await expect.poll(createEngines).toHaveLength(1);
@@ -334,7 +334,7 @@ test("a failed install fails the selection with the reason; the selection stands
       _tag: "PrepareEngineError",
       module: "a",
       engine: "lazy",
-      reason: "fetch ./lazy.tar: 404",
+      diagnostic: "fetch ./lazy.tar: 404",
     });
     expect(router.selection).toEqual({ module: "a", engine: "lazy" });
     expect(key(f.element).defaultPrevented).toBe(false);

@@ -17,7 +17,8 @@ import {
   type PanelEvent,
   type Request,
 } from "@ibus-web/protocol";
-import { ModuleRegistry, PrepareEngineError } from "../services/modules.ts";
+import { CreateEngineError, PrepareEngineError } from "../errors.ts";
+import { ModuleRegistry } from "../services/modules.ts";
 import { CoreConfig } from "../services/config.ts";
 import { PanelEvents, SyncMailbox } from "../services/logging.ts";
 import type { AsyncKeyResult, SurfaceAdapter } from "./replay.ts";
@@ -62,21 +63,6 @@ export interface RouterService {
   readonly selectionChanges: Stream.Stream<Selection | undefined>;
   readonly hotkeys: HotkeyRegistry;
   readonly panel: Stream.Stream<PanelEvent>;
-}
-
-/** A surface's engine failed to start; `reason` is the engine's own explanation, when it gave one. */
-export class CreateEngineError extends Error {
-  readonly _tag = "CreateEngineError";
-  readonly module: string;
-  readonly engine: string;
-  readonly reason: string | undefined;
-
-  constructor(module: string, engine: string, ret: number, reason: string | undefined) {
-    super(`Engine ${engine} of module ${module} could not be created: ${reason ?? `CreateEngine returned ${ret}`}`);
-    this.module = module;
-    this.engine = engine;
-    this.reason = reason;
-  }
 }
 
 // An engine that failed to start, its data or itself: the selection stands, and the surface stays on native input.
@@ -234,7 +220,11 @@ export const makeRouter = Effect.gen(function* () {
     const reason = reply.records.flatMap(({ ic, record }) =>
       ic === context.ic && record._tag === "CreateEngineFailed" ? [record.message] : [],
     )[0];
-    return new CreateEngineError(context.module, context.engine, reply.ret, reason);
+    return new CreateEngineError({
+      module: context.module,
+      engine: context.engine,
+      diagnostic: reason ?? `CreateEngine returned ${reply.ret}`,
+    });
   };
 
   const reconcile = (surface: Surface) =>

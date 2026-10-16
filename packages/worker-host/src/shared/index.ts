@@ -28,6 +28,7 @@ export {
   type RuntimeConstants,
   type RuntimeMemory,
   type SideModule,
+  type StartupRefusal,
   type StorageState,
 } from "./messages.ts";
 export {

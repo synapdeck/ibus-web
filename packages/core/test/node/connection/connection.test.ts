@@ -9,7 +9,7 @@ import {
   Init,
   PROTOCOL_VERSION,
   ProcessKeyEvent,
-  ProtocolError,
+  CodecError,
   CrashReason,
   ReqMode,
   State,
@@ -22,7 +22,12 @@ import { toTree } from "../../../../protocol/src/ibus/walk.ts";
 import { InputContext } from "../../../src/router/contexts.ts";
 import { fixture as routerFixture } from "../../shared/router.ts";
 import { postReply } from "@ibus-web/worker-host";
-import { Connection, PrepareFailed, type ConnectionOptions } from "../../../src/connection/connection.ts";
+import {
+  Connection,
+  ConnectionFailed,
+  PrepareFailed,
+  type ConnectionOptions,
+} from "../../../src/connection/connection.ts";
 import { FakeWorker, record } from "../support/fake-worker.ts";
 function deferred<A>() {
   let resolve!: (value: A) => void;
@@ -113,6 +118,21 @@ describe("startup and shutdown", () => {
     vi.spyOn(host, "postMessage").mockImplementation(() => host.message({ type: "error", message: "bad manifest" }));
     await expect(start()).rejects.toThrow("bad manifest");
     expect(host.terminated).toBe(true);
+  });
+
+  test("a module the host refused rejects the start with the refusal", async () => {
+    vi.spyOn(host, "postMessage").mockImplementation(() =>
+      host.message({
+        type: "error",
+        message: "RuntimeAbiMismatch: manifest 1, runtime 2",
+        refused: "RuntimeAbiMismatch",
+      }),
+    );
+    const failed = start();
+    await expect(failed).rejects.toBeInstanceOf(ConnectionFailed);
+    await expect(failed).rejects.toMatchObject({
+      crash: { reason: "load", message: "RuntimeAbiMismatch: manifest 1, runtime 2", refused: "RuntimeAbiMismatch" },
+    });
   });
 
   test("default factory starts a module Worker at hostUrl", async () => {
@@ -556,13 +576,13 @@ describe("output records", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     host.write(bytes);
     expect(connection.records.take()).toEqual([]);
-    expect(log).toHaveBeenCalledWith(expect.any(ProtocolError));
+    expect(log).toHaveBeenCalledWith(expect.any(CodecError));
   });
 
-  test("development throws ProtocolError", async () => {
+  test("development throws CodecError", async () => {
     const connection = await start({ development: true });
     host.write(record(2));
-    expect(() => connection.records.take()).toThrow(ProtocolError);
+    expect(() => connection.records.take()).toThrow(CodecError);
   });
 
   test("doorbell during fragment backpressure does not release an incomplete reply's records", async () => {
@@ -625,7 +645,7 @@ describe("output records", () => {
     host.write(invalid);
     host.write(record(2));
     expect(connection.records.take().map((r) => r.seq)).toEqual([2]);
-    expect(log).toHaveBeenCalledWith(expect.any(ProtocolError));
+    expect(log).toHaveBeenCalledWith(expect.any(CodecError));
   });
 
   test("buffered output access does not drain a live ring or steal in-flight reply records", async () => {
@@ -784,6 +804,16 @@ describe("crashes and hangs", () => {
     vi.advanceTimersByTime(10);
     await rejected;
     expect(host.terminated).toBe(true);
+  });
+
+  test("CRASHED seen before any drain reports the Crashed record's reason, not the state's", async () => {
+    const connection = await start();
+    const listener = vi.fn();
+    connection.onCrash(listener);
+    host.write(record(0, 0, "Crashed", "(us)", [CrashReason.fault, "an engine threw: boom"]));
+    host.crash();
+    expect(connection.records.takeBuffered()).toEqual([]);
+    expect(listener).toHaveBeenCalledExactlyOnceWith({ reason: "fault", message: "an engine threw: boom" });
   });
 
   test("a preexisting CRASHED state returns a crash before posting", async () => {
