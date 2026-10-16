@@ -22,6 +22,7 @@
 #include <rime/dict/user_db.h>
 #include <rime/key_event.h>
 #include <rime/registry.h>
+#include <rime/schema.h>
 #include <rime/service.h>
 #include <rime/switcher.h>
 #include <rime_api.h>
@@ -29,6 +30,9 @@
 #include <ibus-web/runtime.h>
 #include <ibus.h>
 
+// ibus-rime's rime_config.h has the include guard of librime's
+// rime/config.h, which rime/schema.h includes.
+#undef RIME_CONFIG_H_
 extern "C" {
 #include "rime_config.h"
 #include "rime_engine.h"
@@ -207,10 +211,37 @@ gboolean Deployed(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 
+// The page size the page stored, or else the schema's own, which a reset
+// brings back. A schema reads its page size once, when it is loaded, and
+// the menu reads it from the schema, so setting it reaches the session at
+// its next lookup table without compiling any config.
+void ApplyPageSize(RimeSessionId session_id, void *) {
+  auto session = rime::Service::instance().GetSession(session_id);
+  rime::Schema *schema = session ? session->schema() : nullptr;
+  if (!schema) {
+    return;
+  }
+
+  int page_size = ibusweb_rime_page_size();
+  if (page_size <= 0 &&
+      !(schema->config() &&
+        schema->config()->GetInt("menu/page_size", &page_size) &&
+        page_size > 0)) {
+    page_size = 5;
+  }
+  schema->set_page_size(page_size);
+}
+
 void Notify(void *, RimeSessionId session_id, const char *message_type,
             const char *message_value) {
   if (std::strcmp(message_type, "option") == 0) {
     ibus_rime_engine_option_changed(session_id, message_value);
+    return;
+  }
+  // A session has selected a schema: the engine's own as it is made, or
+  // after a deployment ended its last session.
+  if (std::strcmp(message_type, "schema") == 0) {
+    ApplyPageSize(session_id, nullptr);
     return;
   }
   if (std::strcmp(message_type, "deploy") != 0) {
@@ -415,6 +446,10 @@ gboolean Input(GSignalInvocationHint *, guint, const GValue *, gpointer) {
 }
 
 } // namespace
+
+extern "C" void ibusweb_rime_page_size_changed(void) {
+  ibus_rime_engine_foreach_session(ApplyPageSize, nullptr);
+}
 
 extern "C" gboolean ibusweb_rime_deploying(void) {
   return rime::Service::instance().deployer().IsWorking();

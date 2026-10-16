@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   Persist,
   SettingChanged,
+  booleanVariant,
   int32Variant,
   type DecodedRecord,
   type Init,
@@ -27,6 +28,7 @@ type Values = Init["settings"][number]["values"];
 const RIME_PATH = "/org/freedesktop/ibus/engine/rime/";
 const RIME_ICE = "rime:rime_ice";
 const READY = "Rime is ready.";
+const MAINTENANCE = "Rime is under maintenance ...";
 
 const metadata = JSON.parse(build.texts["settings"]!) as { schemas: { id: string; paths: string[] }[] };
 
@@ -41,7 +43,7 @@ const instances = (values: Readonly<Record<string, Values>> = {}): Init["setting
 const options = (engine: string): SessionOptions => ({
   settings: instances(),
   engine,
-  deployment: { start: "Rime is under maintenance ...", end: READY },
+  deployment: { start: MAINTENANCE, end: READY },
 });
 
 // What rime-data's configs warn of whenever they are compiled; a deployment
@@ -248,17 +250,28 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     }
   });
 
+  test("a page-size change reaches the open context's next lookup table without a deployment", async () => {
+    const session = await start(RIME_ICE);
+    await deployed(session, 1);
+    const before = session.logs.length;
+    await session.request(0, new SettingChanged({ path: RIME_PATH, key: "page-size", value: int32Variant(7) }));
+
+    expect(last(await typeText(session, 1, "ni"), "UpdateLookupTable").table.pageSize).toBe(7);
+    expect(session.logs.slice(before)).not.toContain(MAINTENANCE);
+  });
+
   test("a settings change with only rime_ice's dictionaries installed redeploys without warning of a dictionary and reaches the context", async () => {
     const session = await start(RIME_ICE);
     await deployed(session, 1);
     const before = session.deploymentWarnings.length;
-    await session.request(0, new SettingChanged({ path: RIME_PATH, key: "page-size", value: int32Variant(7) }));
+    await session.request(0, new SettingChanged({ path: RIME_PATH, key: "traditional", value: booleanVariant(true) }));
 
     // ibus-rime declines keys while the deployer works, and ends every
     // session once it has returned, so the context's next key opens one
     // with the change.
     await deployed(session, 2);
     expect(session.deploymentWarnings.slice(before).filter((warning) => !expected(warning))).toEqual([]);
-    expect(last(await typeText(session, 1, "ni"), "UpdateLookupTable").table.pageSize).toBe(7);
+    await typeText(session, 1, "zhongguo");
+    expect(committed(await session.key(1, ...Key.space))).toBe("中國");
   });
 });

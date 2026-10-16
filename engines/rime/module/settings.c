@@ -141,15 +141,11 @@ static GVariant *stored(GSettings *from, const char *key) {
   return g_settings_get_user_value(from, key);
 }
 
+/* The page size is no part of it: the module sets it on each session's
+ * schema. */
 static char *default_patch(void) {
   GString *yaml = g_string_new(NULL);
   GVariant *value;
-
-  if ((value = stored(settings, "page-size")) != NULL) {
-    g_string_append_printf(yaml, "  \"menu/page_size\": %d\n",
-                           g_variant_get_int32(value));
-    g_variant_unref(value);
-  }
 
   if ((value = stored(settings, "switcher-hotkeys")) != NULL) {
     g_autofree const char **keys = g_variant_get_strv(value, NULL);
@@ -318,9 +314,15 @@ static void deploy(void) {
     rime_api->deploy_config_file("ibus_rime.yaml", "config_version");
 }
 
-static void changed(GSettings *from G_GNUC_UNUSED,
-                    const char *key G_GNUC_UNUSED,
+int ibusweb_rime_page_size(void) {
+  g_autoptr(GVariant) value = stored(settings, "page-size");
+  return value != NULL ? g_variant_get_int32(value) : 0;
+}
+
+static void changed(GSettings *from, const char *key,
                     gpointer data G_GNUC_UNUSED) {
+  if (from == settings && g_str_equal(key, "page-size"))
+    ibusweb_rime_page_size_changed();
   if (!write_patches())
     return;
   if (ibusweb_rime_deploying())

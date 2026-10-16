@@ -58,7 +58,8 @@ static void without_dictionaries(Fixture *fixture,
 static void redeploy(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_create(fixture, "rime:luna_pinyin");
   golden_clear(fixture);
-  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  golden_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                 g_variant_new_string("caps-lock"));
   golden_wait_log(fixture, "Rime is ready.");
   golden_clear(fixture);
 
@@ -71,9 +72,13 @@ static void redeploy(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_null(strstr(prisms, "rime_ice.prism.bin"));
   g_assert_null(strstr(prisms, "cangjie5.prism.bin"));
 
+  g_autofree gchar *config = NULL;
+  g_assert_true(g_file_get_contents("/engines/rime/build/default.yaml", &config,
+                                    NULL, NULL));
+  g_assert_nonnull(strstr(config, "Shift_L: noop"));
+
   golden_type(fixture, "hanzi");
   preedit(fixture, "漢字");
-  g_assert_cmpuint(page_size(fixture), ==, 7);
 }
 
 int main(int argc, char **argv) {

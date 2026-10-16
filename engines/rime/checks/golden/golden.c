@@ -270,20 +270,23 @@ static void ascii_mode(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   updated(fixture, "rime:option:ascii_mode", PROP_STATE_UNCHECKED, "中");
 }
 
-/* A page-size change deploys, and an open context takes it up at its next
- * key once the deployment has ended. */
+/* A page-size change reaches an open context at its next key, with no
+ * deployment. */
 static void page_size(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_create(fixture, "rime:rime_ice");
   golden_type(fixture, "shi");
   candidates(fixture, (const gchar *[]){NULL}, 5);
   escape(fixture);
 
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  golden_clear(fixture);
+  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
   golden_type(fixture, "shi");
   candidates(fixture, (const gchar *[]){NULL}, 7);
+  g_assert_cmpuint(golden_count_log(fixture, "Rime is under maintenance ..."),
+                   ==, 0);
   escape(fixture);
 
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
 }
 
 static void no_switcher(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
@@ -387,6 +390,29 @@ static void fuzzy_pinyin(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
                    g_variant_new_strv(NULL, 0));
 }
 
+/* Whether Shift alone switches the context to Latin input, as
+ * ascii-toggle-key decides; it switches back if it did. A session made at
+ * the key reports its switches' states first, so the last report counts. */
+static gboolean shift_switches(Fixture *fixture) {
+  golden_clear(fixture);
+  key(fixture, IBUS_Shift_L, 42);
+  gboolean switched = FALSE;
+  for (guint i = 0; i < fixture->records->len; ++i) {
+    Record *record = g_ptr_array_index(fixture->records, i);
+    if (record->kind != IBUSWEB_REC_UPDATE_PROPERTY)
+      continue;
+    IBusProperty *prop =
+        IBUS_PROPERTY(golden_object(record, IBUS_TYPE_PROPERTY));
+    if (g_str_equal(ibus_property_get_key(prop), "rime:option:ascii_mode"))
+      switched = ibus_property_get_state(prop) == PROP_STATE_CHECKED;
+    g_object_unref(prop);
+  }
+  if (switched)
+    key(fixture, IBUS_Shift_L, 42);
+  golden_clear(fixture);
+  return switched;
+}
+
 /* A deployment ends every session, and each engine then makes its own
  * again, though Rime may give a new session the id of one that ended. Each
  * engine types in its own schema whichever makes its session first, and
@@ -397,29 +423,35 @@ static void deployed_sessions(Fixture *fixture, gconstpointer data) {
   golden_create(fixture, "rime:luna_pinyin");
   golden_create(&other, "rime:cangjie5");
 
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  deployed_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                   g_variant_new_string("caps-lock"));
   golden_type(&other, "a");
-  candidates(&other, (const gchar *[]){"日", "曰", NULL}, 7);
+  candidates(&other, (const gchar *[]){"日", "曰", NULL}, 5);
   escape(&other);
+  g_assert_false(shift_switches(&other));
   golden_type(fixture, "hanzi");
   preedit(fixture, "漢字");
   escape(fixture);
 
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+  deployed_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                   g_variant_new_string("shift"));
   golden_type(fixture, "hanzi");
   preedit(fixture, "漢字");
   escape(fixture);
   golden_type(&other, "a");
   candidates(&other, (const gchar *[]){"日", "曰", NULL}, 5);
   escape(&other);
+  g_assert_true(shift_switches(&other));
 
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  deployed_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                   g_variant_new_string("caps-lock"));
   golden_type(&other, "a");
   golden_destroy(fixture);
   golden_type(&other, " ");
   committed(&other, "日");
 
-  deployed_setting(&other, RIME_PATH, "page-size", g_variant_new_int32(5));
+  deployed_setting(&other, RIME_PATH, "ascii-toggle-key",
+                   g_variant_new_string("shift"));
   golden_teardown(&other, data);
 }
 
@@ -427,19 +459,17 @@ static void deployed_sessions(Fixture *fixture, gconstpointer data) {
 static void back_to_back(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_create(fixture, "rime:luna_pinyin");
   golden_clear(fixture);
-  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
-  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(9));
+  golden_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                 g_variant_new_string("caps-lock"));
+  golden_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                 g_variant_new_string("shift"));
   g_assert_cmpuint(golden_count_log(fixture, "Rime is ready."), ==, 0);
   golden_wait_log(fixture, "Rime is ready.");
   golden_clear(fixture);
   golden_wait_log(fixture, "Rime is ready.");
   golden_clear(fixture);
 
-  golden_type(fixture, "shi");
-  candidates(fixture, (const gchar *[]){NULL}, 9);
-  escape(fixture);
-
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+  g_assert_true(shift_switches(fixture));
 }
 
 /* The Deploy property restarts Rime with a full check. During a
@@ -451,24 +481,20 @@ static void deploy(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   activate(fixture, "deploy", PROP_STATE_UNCHECKED);
   golden_wait_log(fixture, "Rime is ready.");
   golden_clear(fixture);
-  golden_type(fixture, "shi");
-  candidates(fixture, (const gchar *[]){NULL}, 5);
-  escape(fixture);
+  g_assert_true(shift_switches(fixture));
 
-  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(7));
+  golden_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                 g_variant_new_string("caps-lock"));
   g_assert_cmpuint(golden_count_log(fixture, "Rime is ready."), ==, 0);
   activate(fixture, "deploy", PROP_STATE_UNCHECKED);
-  golden_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(9));
+  golden_setting(fixture, RIME_PATH, "ascii-toggle-key",
+                 g_variant_new_string("shift"));
   golden_wait_log(fixture, "Rime is ready.");
   g_assert_cmpuint(golden_count_log(fixture, "Rime is under maintenance ..."),
                    ==, 2);
   golden_clear(fixture);
 
-  golden_type(fixture, "shi");
-  candidates(fixture, (const gchar *[]){NULL}, 9);
-  escape(fixture);
-
-  deployed_setting(fixture, RIME_PATH, "page-size", g_variant_new_int32(5));
+  g_assert_true(shift_switches(fixture));
 }
 
 int main(int argc, char **argv) {

@@ -13,6 +13,12 @@ void ibusweb_rime_settings_init(void);
  * returned, so that one that changed meanwhile can start the next. */
 void ibusweb_rime_settings_deployed(void);
 
+/* The page size the page stored, or 0 for the schema's own. */
+int ibusweb_rime_page_size(void);
+
+/* Sets the page size on every session's schema. */
+void ibusweb_rime_page_size_changed(void);
+
 /* Whether Rime's deployer is at work: from a deployment's start until it
  * returns, which is after it reports the deployment's end. */
 gboolean ibusweb_rime_deploying(void);

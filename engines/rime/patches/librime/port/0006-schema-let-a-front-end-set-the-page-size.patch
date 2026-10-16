@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 16 Oct 2026 15:34:32 -0700
+Subject: [PATCH] schema: let a front end set the page size
+
+A schema reads its page size from menu/page_size when it is loaded, and
+the menu, the selector and the API all read it from the schema. A front
+end that keeps the page size as a setting of its own sets it on each
+session's schema, so a change reaches running sessions at once, without
+compiling every schema's config again to change one number.
+---
+ src/rime/schema.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/rime/schema.h b/src/rime/schema.h
+index bb68bcd..76578a5 100644
+--- a/src/rime/schema.h
++++ b/src/rime/schema.h
+@@ -26,6 +26,7 @@ class Schema {
+   void set_config(Config* config) { config_.reset(config); }
+ 
+   int page_size() const { return page_size_; }
++  void set_page_size(int page_size) { page_size_ = page_size; }
+   bool page_down_cycle() const { return page_down_cycle_; }
+   const string& select_keys() const { return select_keys_; }
+   void set_select_keys(const string& keys) { select_keys_ = keys; }
