@@ -57,13 +57,19 @@ with the IBus-compatible delete; and Hangul's `preedit-mode` taking effect in a 
   Juggler, WebKit's inspector protocol) delivers trusted events with the layout's `key`, `code` and `keyCode`. One
   test per module and browser walks every layout, so Rime installs its data once per browser.
 
+- **What the matrix found, and how it is fixed.** Under `us`, an AltGr key took the US place's keyval, so Rime on
+  QWERTZ typed `去` for AltGr+Q (`@`); the US layout has no third level, so an AltGr key's keyval comes from `event.key`.
+  Mozc composed on Meta+A, ignoring the modifier, which on Apple platforms swallows Command shortcuts; keys pressed with
+  Meta are excluded before engine processing and left to the browser.
+- **Hangul and the layout setting.** Hangul maps keycodes through its own US keymap, so the setting, which chooses
+  keyvals, can't move it; the matrix checks the setting on Rime and records Hangul's behaviour.
+
 ## Departures from the spec
 
 - **AltGr in Chromium and WebKit.** Their automation protocols carry only Shift, Control, Alt and Meta, so no emulated
   event there has `getModifierState("AltGraph")`; only Firefox's (whose input processor tracks a pressed AltGraph key)
-  does. The AltGr rows run with the AltGraph state in Firefox, and in Chromium and WebKit they send the AltGr character
-  with no modifier, which checks the character's path but not the AltGraph state. Recorded in `docs/core.md` and
-  `docs/testing.md`.
+  does. The AltGr check runs in Firefox only; in Chromium and WebKit an AltGr character inside a word (LaTeX's backslash
+  on AZERTY and QWERTZ) arrives unmodified. Recorded in `docs/core.md`, `docs/testing.md` and `docs/known-gaps.md`.
 - **Dead keys are emulated, not composed.** No OS input method runs under automation, so a dead key is its `Dead`
   keydown followed by the composed character's own keydown, the sequence Firefox and Chromium deliver on Linux.
 
