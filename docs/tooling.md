@@ -412,10 +412,10 @@ the tree as `.github/workflows/ci.yml`, `release.yml` and `reproducibility.yml`.
 
 ### Runners
 
-Every job runs on WarpBuild, as Synapdeck's other repositories do: `warp-ubuntu-latest-x64-8x` for x86_64-linux,
-`warp-ubuntu-latest-arm64-8x` for aarch64-linux and `warp-macos-26-arm64-6x` for aarch64-darwin. The Linux runners have
-150 GB of disk, enough for a cold run, which rebuilds the patched Emscripten and everything WebAssembly; eight cores
-keep one within the jobs' 360-minute limit. A job that builds with Nix:
+Every job runs on WarpBuild: `warp-ubuntu-latest-x64-8x` for x86_64-linux, `warp-ubuntu-latest-arm64-8x` for
+aarch64-linux and `warp-macos-26-arm64-6x` for aarch64-darwin. The Linux runners have 150 GB of disk, enough for a cold
+run, which rebuilds the patched Emscripten and everything WebAssembly; eight cores keep one within the jobs' 360-minute
+limit. A job that builds with Nix:
 
 - checks out;
 - installs Determinate Nix;

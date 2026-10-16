@@ -18,10 +18,9 @@
         id-token = "write";
       };
 
-      # WarpBuild's runners, as Synapdeck's other repositories use. Their
-      # 150 GB of disk holds a cold run, which rebuilds the patched Emscripten
-      # and everything WebAssembly; eight cores keep one inside the timeout.
-      # macOS comes in one size.
+      # WarpBuild's runners: their 150 GB of disk holds a cold run, which
+      # rebuilds the patched Emscripten and everything WebAssembly; eight
+      # cores keep one inside the timeout. macOS comes in one size.
       runners = {
         x86_64-linux = "warp-ubuntu-latest-x64-8x";
         aarch64-linux = "warp-ubuntu-latest-arm64-8x";
