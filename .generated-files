@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Written by `nix run .#write-files`: the files it manages, which it
+# deletes once the Nix no longer configures them.
+.github/workflows/ci.yml
+LICENSES/LicenseRef-xkeyboard-config.txt
+NOTICES/chromium.txt
+NOTICES/keysymdef.txt
+packages/core/src/keys/dom-codes.generated.ts
+packages/core/src/keys/keysyms.generated.ts
+packages/core/src/keys/us.generated.ts
+packages/protocol/PROTOCOL.md
+pnpm-workspace.yaml
+runtime/libibus-web/include/ibus-web/protocol.h
+runtime/libibus-web/src/ibus/us-keymap.generated.h

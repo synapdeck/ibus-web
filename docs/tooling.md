@@ -25,7 +25,8 @@ What it provides:
   ([the pnpm workspace](#the-pnpm-workspace)), libibus-web's `protocol.h` and `packages/protocol/PROTOCOL.md`, generated
   from the protocol's schemas ([protocol.md](protocol.md#generated-artifacts)), and the keysym tables in
   `packages/core/src/keys/` (`*.generated.ts`), libibus-web's US keymap table (`us-keymap.generated.h`) and the
-  `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that accompany their sources.
+  `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that accompany their sources. `.generated-files` lists
+  them all; the writer deletes a file it listed once the Nix stops generating it.
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against garbage collection:
 
@@ -401,7 +402,8 @@ tree as `.github/workflows/ci.yml`. Never edit the YAML:
 - `nix run .#write-files` (or `write-files` in the dev shell) rewrites every generated file.
 - `checks."files:.github/workflows/ci.yml"` fails while the tracked file differs from what the Nix generates, so a
   change to `ci.nix` without `write-files` fails `nix flake check`.
-- The writer only writes and checks the files it configures; a workflow removed from the Nix must be `git rm`ed by hand.
+- The writer lists the files it manages in `.generated-files`, itself generated, and deletes a file that list names once
+  the Nix no longer configures it, so a workflow removed from the Nix leaves the tree at the next run.
 - The generator writes its own header line, so the workflow's SPDX annotation is in `REUSE.toml`.
 - actionlint (in hk) checks the generated file.
 

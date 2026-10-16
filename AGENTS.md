@@ -51,6 +51,8 @@ Instructions for coding agents. Read [CONTRIBUTING.md](CONTRIBUTING.md) too: eve
 Change the Nix that declares them, then run `nix run .#write-files`. Each has a `files:<path>` check that fails while
 the tracked copy differs.
 
+- `.generated-files`, the list of them, from `modules/flake/files.nix`; the writer deletes a file it lists once nothing
+  generates it
 - `.github/workflows/ci.yml`, from `modules/flake/ci.nix`
 - `pnpm-workspace.yaml`, from `modules/typescript/files.nix`
 - `packages/protocol/PROTOCOL.md` and `runtime/libibus-web/include/ibus-web/protocol.h`, from

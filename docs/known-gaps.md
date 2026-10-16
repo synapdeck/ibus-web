@@ -264,7 +264,6 @@ decided.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
 - **Only x86_64-linux is checked**; the flake's checks are defined for Darwin and aarch64 too.
-- **The files writer never deletes** a file it no longer configures; a removed workflow needs `git rm`.
 
 ## Upstream
 
