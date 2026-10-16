@@ -202,6 +202,38 @@ it.effect("a ready module's crash and hang reach modulestate as EngineCrashed an
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("a restart that fails after its Worker started keeps that start's tagged error, not a load crash", () =>
+  Effect.gen(function* () {
+    const connections: FakeConnection[] = [];
+    const registry = yield* registryWith({
+      start: async () => {
+        const connection = new FakeConnection();
+        connection.requestAsync =
+          connections.length === 0
+            ? async () => emptyReply
+            : async () => {
+                throw new Error("Init lost its reply");
+              };
+        connections.push(connection);
+        return connection;
+      },
+    });
+    const states = yield* stateEvents(registry.events);
+    yield* registry.select("test");
+
+    // Every restart fails its Init, until the third crash in a minute fails the module.
+    connections[0]!.crash({ reason: "fault", message: "an engine threw: boom" });
+    for (let i = 0; i < 20 && !states.some((event) => event.state === "failed"); i++) {
+      yield* settle;
+      yield* TestClock.adjust(250);
+    }
+    expect(connections.length).toBeGreaterThan(1);
+    const failed = states.find((event) => event.state === "failed")?.error;
+    expect(failed).toBeInstanceOf(EngineLoadFailed);
+    expect(failed).toMatchObject({ module: "test", diagnostic: "Init lost its reply" });
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect(
   "the settings calls reject an unusable store with StorageUnavailable and an unreadable module with EngineLoadFailed",
   () =>

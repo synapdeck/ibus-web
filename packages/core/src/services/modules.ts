@@ -128,6 +128,8 @@ interface Entry {
   lastState: ModuleState | undefined;
   // Why the module last crashed or failed, while it is restarting or failed.
   error: IbusWebError | undefined;
+  // A failed start's own error, for the crash that ends its connection to report in place of a load crash.
+  startError: IbusWebError | undefined;
   origin: symbol;
   started: boolean;
   hasReady: boolean;
@@ -391,8 +393,14 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               // The connection's crash notification already owns this failed attempt.
               if (entry.snapshot.generation !== generation) return;
               const crash: CrashInfo = { reason: "load", message: cause.message };
-              if (entry.snapshot.connection) entry.router.crash(crash);
-              else {
+              if (entry.snapshot.connection) {
+                entry.startError = error;
+                try {
+                  entry.router.crash(crash);
+                } finally {
+                  entry.startError = undefined;
+                }
+              } else {
                 entry.error = error;
                 entry.snapshot.status = "restarting";
                 entry.crashes.enqueue({ crash, at: clock.currentTimeMillisUnsafe() });
@@ -417,6 +425,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         lifetime: undefined,
         lastState: undefined,
         error: undefined,
+        startError: undefined,
         origin: Symbol(),
         started: false,
         hasReady: false,
@@ -461,7 +470,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
               record: { _tag: "Log", level: 8, domain: "page-adapter", message: asError(cause).message },
             }),
           crashed: (crash) => {
-            entry.error = crashError(name, crash);
+            entry.error = entry.startError ?? crashError(name, crash);
             if (!entry.hasReady) {
               snapshot.status = "failed";
               notify(entry);

@@ -291,8 +291,10 @@ The registry's `select`, `prepare`, `engines` and `whenReady` fail with them, as
 refused for what it is (a mismatch, a manifest the host can't take, an `Init` the runtime refuses or that doesn't fit)
 fails at once; any other start failure restarts as a crash does. A crash or hang has no call to reject, so the
 registry's `state` event carries the error with `restarting` and `failed`: the one that ended the module, kept while it
-restarts and, after a third crash, as the reason it failed. A module that becomes ready clears it. An unknown module
-name, a disposed facade and an unloaded module are the caller's mistakes and stay plain `Error`s.
+restarts and, after a third crash, as the reason it failed. A restart that fails once its Worker has started ends that
+Worker as a load crash but keeps the start's own error, such as `EngineLoadFailed` with its diagnostic. A module that
+becomes ready clears it. An unknown module name, a disposed facade and an unloaded module are the caller's mistakes and
+stay plain `Error`s.
 
 Persistent Hangul Init previously spent 7814.7 ms in an observed module load, exceeding the ordinary two-second
 watchdog. A pinned-libhangul patch now gives each Hanja table an owned 64 KiB stdio buffer (two tables, at most 128
