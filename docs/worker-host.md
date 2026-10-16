@@ -116,7 +116,7 @@ in reverse.
 | Runtime         | Checks the memory's size, makes it, imports and instantiates the runtime, checks its JavaScript surface, allocates the wake word and the request and reply buffers, calls `ibusweb_runtime_init()`.                                                                                                              | Nothing: the runtime ends with the Worker.                                                                                                      |
 | Wake relay      | Starts the relay Worker, which bumps a word in the runtime's memory, so it follows the runtime.                                                                                                                                                                                                                  | Terminates the relay.                                                                                                                           |
 | Storage         | Mounts the module's own files at `/engines/<encodeComponent(name)>`, posts `storage` events, installs or finds the version's base data and mounts it at `/nix/store`, posts `install` and `collect`, and sets `GSETTINGS_SCHEMA_DIR` to the manifest's `settingsSchemaDir` and `HOME` to the module's own files. | Seals the backends, while the runtime can still be called; their threads and connections end with the Worker.                                   |
-| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`, then warms the pool (The pool top-up, below).                                                                                                                                                                                        | Nothing: side modules are never unloaded and the runtime has no module shutdown call.                                                           |
+| Engine module   | Writes the side modules into WasmFS and loads them after successful `Init`, then warms the pool (The pool top-up, below).                                                                                                                                                                                        | Nothing: side modules are never unloaded, and the page, not the host, sends `Shutdown`.                                                         |
 
 **The storage plan comes before the runtime** because the memory can't grow later: without IndexedDB the data is
 installed into a memory backend, and the memory must be made larger by the data's size. **The relay comes after the
@@ -131,8 +131,8 @@ Closing the host with the runtime intact dispatches `DestroyEngine` for every op
 rounds, stopping at the first that leaves nothing due at once, so the engines' finalizers can finish work they queued
 without the host chasing a source that keeps itself due; it drains what that wrote and rings the doorbell if it wrote
 records, since they belong to no request. A trap skips runtime cleanup; a `DestroyEngine` that returns `-ECANCELED`
-drains what the runtime wrote before the fault and stops there. The engine-module scope has no release action: no
-shutdown ABI exists.
+drains what the runtime wrote before the fault and stops there. The engine-module scope has no release action: the page
+has the modules release what they hold with `Shutdown` (below).
 
 **Finalizers inspect the `Exit`.** After a trap the runtime's memory can't be trusted, so a finalizer that calls into
 the runtime (`runtimeFinalizer`, the seals) runs only while the runtime is intact; JavaScript-side cleanup and crash
