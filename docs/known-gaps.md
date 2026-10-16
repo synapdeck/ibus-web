@@ -17,8 +17,6 @@ decided.
   hello-world (spec R12); our own checks are the evidence.
 - **Autotools configure scripts can't run their test programs**: autotools configures as a cross build, and only Meson
   has an exe wrapper (Node), so a recipe that needs run-time configure checks will meet it.
-- **The dev shell's `.emcache` is never refreshed.** It is copied from the frozen cache only when it doesn't exist, so
-  it goes stale when the cache changes; delete it to reseed.
 - **Thread fixes not proven red in our checks.** The fix checks for patches 0014, 0015 and 0018 keep the conditions
   their bugs need, but nothing runs them against a toolchain missing their patch; that needs a toolchain and cache built
   with one patch left out. (Emscripten's own suite tests fail without each patch and pass with it; see the drafts.)

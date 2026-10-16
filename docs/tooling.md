@@ -15,8 +15,9 @@ What it provides:
 - **The WASM toolchain** ([toolchain.md](toolchain.md)): Emscripten with its patches, pkgsWasm's wrapped compiler,
   binutils and `pkg-config` under their target-prefixed names, `meson`, `ninja`, and `meson-setup-wasm` (`meson setup`
   with pkgsWasm's cross files). `PKG_CONFIG_PATH` covers the registered dev libraries and their propagated inputs.
-  `EM_CACHE` is `.emcache` in the checkout, a writable copy seeded from the frozen cache the first time the shell
-  starts.
+  `EM_CACHE` is `.emcache` in the checkout, a writable copy of the frozen cache. The copy records which frozen cache it
+  came from, and the shell replaces it on entry once the frozen cache's store path changes, dropping whatever builds in
+  the shell added to it (`checks.emscripten-dev-cache`).
 - **TypeScript:** Node 26, nixpkgs' pnpm, and the workspace's `tsc`.
 - **hk and the tools its steps run:** `hk`, `pkl`, `oxfmt`, `oxlint`, `nixfmt`, `clang-format` (from Emscripten's LLVM,
   so it agrees with clangd), `shfmt`, `reuse`, `actionlint`, `lychee`.
