@@ -6,10 +6,13 @@ import {
   FocusIn,
   FocusOut,
   IBusCapability,
+  Persist,
+  ProcessKeyEvent,
   Reset,
   SetCapabilities,
   SetSurroundingText,
   SettingChanged,
+  Shutdown,
   stringVariant,
   type DecodedRecord,
   type OutputRecord,
@@ -218,6 +221,15 @@ describe.each(h.data.runtimes)("Hangul through $name host", (runtime) => {
       "HideAuxiliaryText",
       "HidePreeditText",
     ]);
+  });
+  // The page sends Shutdown last, so ibus_hangul_exit runs while engines still hold the module's globals.
+  test("Shutdown after Persist exits Hangul cleanly with engines open and refuses requests after", async () => {
+    await compose();
+    await session.request(0, new Persist({}));
+    await session.request(0, new Shutdown({}));
+    const shutDown = -h.data.errno["ESHUTDOWN"]!;
+    await session.request(1, new ProcessKeyEvent({ keyval: Key.space[0], keycode: Key.space[1], state: 0 }), shutDown);
+    await session.request(0, new Shutdown({}), shutDown);
   });
   test("Hanja and repeated lifecycle stay within the declared heap and threads", async () => {
     const before = await session.stats();

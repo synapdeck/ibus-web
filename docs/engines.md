@@ -215,8 +215,9 @@ The cast patch changes three functions: the two hand-written GType init callback
 destroy callback its declared pointer type. Its connected settings handlers already have their full declared signature.
 
 The `setup` property is inert because spawning a desktop settings application has no meaning here. `ibus_hangul_exit`
-runs from the `Shutdown` request the page sends before it ends the Worker. `preedit-mode` is copied into a live engine
-on focus/capability updates, so changing it takes effect after refocus.
+runs from the `Shutdown` request the page sends before it ends the Worker; `checks.hangul-host` sends it after `Persist`
+with an engine still open and checks that it logs nothing and that every later request is refused. `preedit-mode` is
+copied into a live engine on focus/capability updates, so changing it takes effect after refocus.
 
 ## Cast audit
 
