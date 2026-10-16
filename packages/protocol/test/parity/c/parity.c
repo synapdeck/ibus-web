@@ -577,6 +577,7 @@ static void run_runtime(JsonArray *requests) {
   gchar *initial = g_settings_get_string(settings, "sample");
   string_member(results, "value", initial);
   g_free(initial);
+  boolean_member(results, "writable", ibusweb_user_data_writable());
   json_builder_end_object(results);
   g_signal_connect(settings, "changed", G_CALLBACK(setting_changed), NULL);
   json_builder_set_member_name(results, "create");

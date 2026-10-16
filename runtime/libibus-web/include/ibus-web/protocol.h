@@ -49,9 +49,11 @@ typedef struct {
 #define IBUSWEB_RECORD_CONTINUATION 0x0001
 
 enum IBusWebRequestKind {
-  /* (ua(ssa{sv})) version, settings
+  /* (uba(ssa{sv})) version, userDataWritable, settings
    * Initialize the runtime with the host's protocol version and settings.
    * version: Protocol version supported by the host.
+   * userDataWritable: Whether the module's own files can be written: false
+   *   while another host holds its writer lock.
    * settings: Every GSettings schema instance the module declares, with its
    *   stored values. */
   IBUSWEB_REQ_INIT = 1,
@@ -244,7 +246,7 @@ static inline const char *ibusweb_request_signature(uint16_t kind) {
     uint16_t kind;
     const char *signature;
   } signatures[] = {
-      {IBUSWEB_REQ_INIT, "(ua(ssa{sv}))"},
+      {IBUSWEB_REQ_INIT, "(uba(ssa{sv}))"},
       {IBUSWEB_REQ_CREATE_ENGINE, "(s)"},
       {IBUSWEB_REQ_DESTROY_ENGINE, "()"},
       {IBUSWEB_REQ_SETTING_CHANGED, "(ssv)"},

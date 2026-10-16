@@ -336,7 +336,7 @@ static void protocol(void) {
   g_assert_cmpint(
       request(IBUSWEB_REQ_INIT,
               g_variant_new(
-                  "(u@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
+                  "(ub@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION, TRUE,
                   snapshot_value("layout", g_variant_new_string("initial")))),
       ==, 0);
   g_autofree gchar *initial = g_settings_get_string(settings, "layout");

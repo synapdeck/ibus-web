@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
 import { GVariantVariant } from "../gvariant/schema.ts";
-import { Int32, Str, Uint32 } from "../ibus/annotations.ts";
+import { Bool, Int32, Str, Uint32 } from "../ibus/annotations.ts";
 import { IBusText, KeyEvent } from "../ibus/types.ts";
 
 export const SettingsInstanceValues = Schema.Struct({
@@ -15,6 +15,9 @@ export class Init extends Schema.TaggedClass<Init>()(
   "Init",
   {
     version: Uint32.annotate({ description: "Protocol version supported by the host." }),
+    userDataWritable: Bool.annotate({
+      description: "Whether the module's own files can be written: false while another host holds its writer lock.",
+    }),
     settings: Schema.Array(SettingsInstanceValues).annotate({
       description: "Every GSettings schema instance the module declares, with its stored values.",
     }),

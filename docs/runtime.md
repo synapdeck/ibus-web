@@ -73,11 +73,15 @@ fragments a record. The sequence starts at one, wraps at 2^32 and skips zero. Ho
 never advance the runtime watermark.
 
 Call `ibusweb_runtime_init`, map the schemas/data, and send `Init` with the settings snapshot **before loading the
-engine module**: engine initialization reads settings. Init installs the log writer before it applies the snapshot, so
-the snapshot's warnings (an unknown schema or key, an invalid value) become `Log` records on context 0. Then create
-contexts and dispatch their requests. The dispatcher copies request bytes, validates their framing and payload, and
-calls the engine signal. It returns 0/1 for `ProcessKeyEvent`, zero for other successful requests, or a negative errno.
-It does not pump; the host pumps and drains output after each request and on wakes.
+engine module**: engine initialization reads settings. `Init` also says whether the module's own files can be written,
+which `ibusweb_user_data_writable()` reports from then on to any thread: the page says they can't once the host has
+reported `storage: read-only`, since another host holds the module's writer lock and every change to those files fails.
+A module that keeps data there then leaves it closed rather than meet failures it can't recover from. Init installs the
+log writer before it applies the snapshot, so the snapshot's warnings (an unknown schema or key, an invalid value)
+become `Log` records on context 0. Then create contexts and dispatch their requests. The dispatcher copies request
+bytes, validates their framing and payload, and calls the engine signal. It returns 0/1 for `ProcessKeyEvent`, zero for
+other successful requests, or a negative errno. It does not pump; the host pumps and drains output after each request
+and on wakes.
 
 `SetContentType` emits `set-content-type` only when the purpose or hints differ from the context's current ones, which
 start at 0 and 0. `CandidateClicked`'s index is page-relative, as IBus's GTK panel sends it: the position of the clicked
@@ -183,6 +187,7 @@ All of it is declared in `ibus-web/runtime.h`. Errors are negative errno values,
 | `ibusweb_register_module(name, init, out)`, `ibusweb_module_add_op(…)` | Register a module's operations; a registration either adds all of them or none.                                                                                                                                                                         |
 | `ibusweb_module_set_persist(module, persist)`                          | From a module's init: has each `Persist` call `persist` (Protocol, dispatch and output, above). `-EINVAL` for no function, which fails the registration.                                                                                                |
 | `ibusweb_module_set_shutdown(module, shutdown)`                        | From a module's init: has `Shutdown` call `shutdown`, last registered module first (Protocol, dispatch and output, above). `-EINVAL` for no function, which fails the registration.                                                                     |
+| `ibusweb_user_data_writable()`                                         | Any thread: whether `Init` said the module's own files can be written; true until `Init` has run.                                                                                                                                                       |
 | `ibusweb_factory_fail_create(reason)`                                  | From a `create-engine` handler: fails the `CreateEngine` in progress with `reason` (Protocol, dispatch and output, above).                                                                                                                              |
 | `ibusweb_test_dispatch(request, len, reply, cap)`                      | The test dispatcher (below).                                                                                                                                                                                                                            |
 | `ibusweb_dispatch(request, len)`                                       | Dispatches one `protocol.h` request on the pumping thread without pumping: a key event's 0/1 reply, zero for other requests, or a negative errno (Protocol, dispatch and output, above).                                                                |

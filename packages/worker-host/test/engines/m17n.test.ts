@@ -93,7 +93,7 @@ const typeText = async (session: PageSession, ic: number, text: string) => {
 // Init travels in one request, and the transport's default slot is 64 KiB.
 test("Init with every declared instance fits one request", () => {
   const settings = instances();
-  const bytes = encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings })).byteLength;
+  const bytes = encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings })).byteLength;
   h.record("m17n Init", { instances: settings.length, bytes });
   expect(bytes).toBeLessThan(64 * 1024);
 });

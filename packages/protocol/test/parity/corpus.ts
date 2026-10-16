@@ -71,6 +71,7 @@ export const objects = [
 export const lifecycle = {
   init: new P.Init({
     version: 1,
+    userDataWritable: false,
     settings: [
       { schemaId, path, values: { sample: { _tag: "v", type: "s", value: { _tag: "s", value: "initial" } } } },
     ],

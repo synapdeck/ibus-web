@@ -83,6 +83,33 @@ it.effect("registry restarts with current settings and leaves contexts uncreated
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("registry tells Init the user data is read-only once the host reported so, and writable otherwise", () =>
+  Effect.gen(function* () {
+    const inits: Request[] = [];
+    let starts = 0;
+    const registry = yield* makeModuleRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      modules: { test: url },
+      loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
+      waitForWriter: () => Effect.void,
+      start: async (options) => {
+        if (starts++ === 0) options.onStorage?.({ state: "read-only", message: "another host writes" });
+        const connection = new FakeConnection();
+        connection.requestAsync = async (request) => {
+          if (request._tag === "Init") inits.push(request);
+          return emptyReply;
+        };
+        return connection;
+      },
+    });
+    yield* registry.select("test");
+    yield* registry.debugRestart("test");
+    expect(inits).toMatchObject([{ userDataWritable: false }, { userDataWritable: true }]);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("registry validates keyboard names before starting a Worker", () =>
   Effect.gen(function* () {
     let started = false;

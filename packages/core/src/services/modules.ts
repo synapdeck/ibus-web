@@ -317,6 +317,8 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           try: () => settings.snapshot(instances),
           catch: unstored,
         });
+        // The host reports its storage before it is ready, and a read-only one stays so for the Worker's life.
+        let userDataWritable = true;
         const connection = yield* Effect.acquireRelease(
           Effect.callback<KeyConnection, Error>((resume, signal) => {
             try {
@@ -331,6 +333,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                 layout: transportLayout({ ringBytes: config.ringBytes, slotBytes: config.slotBytes }),
                 signal,
                 onStorage: (message) => {
+                  if (message.state === "read-only") userDataWritable = false;
                   if (entry.lifetime === lifetime) events.enqueue({ _tag: "storage", module: name, ...message });
                 },
               }).then(
@@ -365,6 +368,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             entry.router.request(
               new Init({
                 version: PROTOCOL_VERSION,
+                userDataWritable,
                 settings: instances.map(({ schemaId, path }) => ({ schemaId, path, values: initial[path] ?? {} })),
               }),
               0,

@@ -27,9 +27,15 @@ import { Page } from "./page.ts";
 
 export const protocolRoundtrip = async (h: Harness, { client }: RunningHost): Promise<void> => {
   const page = client.page;
-  page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.sync);
+  page.post(
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    ReqMode.sync,
+  );
   expect((await page.waitForReply()).ret).toBe(0);
-  page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.sync);
+  page.post(
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    ReqMode.sync,
+  );
   expect((await page.waitForReply()).ret).toBe(-h.data.errno["EALREADY"]!);
   page.post(encodeRequest(1, new CreateEngine({ name: "absent" })), ReqMode.sync);
   expect((await page.waitForReply()).ret).toBe(-h.data.errno["ESRCH"]!);
@@ -42,6 +48,7 @@ export const replySequence = async (h: Harness, { client }: RunningHost): Promis
       0,
       new Init({
         version: PROTOCOL_VERSION,
+        userDataWritable: true,
         settings: [
           {
             schemaId: "org.example.absent",
@@ -103,7 +110,10 @@ export const requestModes = async (
 
 export const timerOutput = async (h: Harness, { client, messages }: RunningHost): Promise<void> => {
   const page = client.page;
-  page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.sync);
+  page.post(
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    ReqMode.sync,
+  );
   expect((await page.waitForReply()).ret).toBe(0);
   expect((await client.call(h.data.constants.ops["TIMER_OUTPUT"]!)).ret).toBe(0);
   // Hold the page's event loop through two distinct timer pumps. Neither
@@ -132,7 +142,11 @@ export const timerOutput = async (h: Harness, { client, messages }: RunningHost)
 export const crashWinsReply = (): void => {
   for (const crashFirst of [true, false]) {
     const views = controlViews(createControl());
-    postRequest(views, encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.sync);
+    postRequest(
+      views,
+      encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+      ReqMode.sync,
+    );
     if (crashFirst) postCrash(views);
     expect(postReply(views, 0, 0)).toBe(!crashFirst);
     if (!crashFirst) postCrash(views);
@@ -164,7 +178,7 @@ const crashAfterStateRead = (views: ControlViews, use: () => void): void => {
 
 export const crashWinsRequestPublication = (): void => {
   const views = controlViews(createControl());
-  const request = encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] }));
+  const request = encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] }));
   crashAfterStateRead(views, () => {
     expect(() => postRequest(views, request, ReqMode.async)).toThrow("crashed");
   });
@@ -174,7 +188,11 @@ export const crashWinsRequestPublication = (): void => {
 
 export const crashWinsTakingReply = (): void => {
   const views = controlViews(createControl());
-  postRequest(views, encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.sync);
+  postRequest(
+    views,
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    ReqMode.sync,
+  );
   expect(postReply(views, -42, 0xfedcba98)).toBe(true);
   crashAfterStateRead(views, () => {
     expect(() => takeReply(views)).toThrow("crashed");
@@ -198,7 +216,10 @@ export const crashRejectsAsyncReply = async (): Promise<void> => {
     },
     1000,
   );
-  page.post(encodeRequest(0, new Init({ version: PROTOCOL_VERSION, settings: [] })), ReqMode.async);
+  page.post(
+    encodeRequest(0, new Init({ version: PROTOCOL_VERSION, userDataWritable: true, settings: [] })),
+    ReqMode.async,
+  );
   const result = page.waitForReply().catch((error: unknown) => {
     rejected++;
     return error;

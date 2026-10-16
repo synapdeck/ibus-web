@@ -4,6 +4,7 @@
 #pragma once
 
 #include <glib.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 G_BEGIN_DECLS
@@ -176,6 +177,15 @@ typedef void (*IBusWebShutdown)(void);
  * registration in progress. */
 IBUSWEB_API int ibusweb_module_set_shutdown(IBusWebModule *module,
                                             IBusWebShutdown shutdown);
+
+/* Whether the modules may write their own files, as Init said: false while
+ * another host holds the module's writer lock, so that its files are
+ * mounted read-only and every change to them fails. A module that keeps
+ * data there should then not open it for writing at all, since what it
+ * would do about such a failure (recover, reset, retry) can't succeed
+ * either. Init runs before any side module loads; until it has, this is
+ * true. Any thread may call it. */
+IBUSWEB_API bool ibusweb_user_data_writable(void);
 
 /* Registers a module's operations by calling its init. */
 typedef void (*IBusWebModuleInit)(IBusWebModule *module);

@@ -18,6 +18,8 @@ static gchar *fault_reason; /* (atomic) (owned) */
 /* Set once Shutdown has called the modules' shutdown functions, which may
  * have freed what the engines use. */
 static gboolean shut_down;
+/* What Init said; true until it has run. */
+static gint user_data_writable = TRUE; /* (atomic) */
 
 typedef struct {
   IBusWebRequestHeader header;
@@ -107,9 +109,13 @@ static int32_t route(gpointer data) {
     g_variant_get_child(payload, 0, "u", &version);
     if (version != IBUSWEB_PROTOCOL_VERSION)
       return -EPROTO;
+    gboolean writable;
+    g_variant_get_child(payload, 1, "b", &writable);
+    g_atomic_int_set(&user_data_writable, writable);
+
     /* Before the snapshot, whose warnings belong in the output too. */
     ibusweb_log_init();
-    g_autoptr(GVariant) snapshot = g_variant_get_child_value(payload, 1);
+    g_autoptr(GVariant) snapshot = g_variant_get_child_value(payload, 2);
     ibusweb_settings_init(snapshot);
     engines = g_hash_table_new(g_direct_hash, g_direct_equal);
     initialized = TRUE;
@@ -246,6 +252,10 @@ void ibusweb_runtime_fault(const char *reason) {
 
 const char *ibusweb_fault_reason(void) {
   return g_atomic_pointer_get(&fault_reason);
+}
+
+bool ibusweb_user_data_writable(void) {
+  return g_atomic_int_get(&user_data_writable);
 }
 
 gboolean ibusweb_runtime_faulted(void) {

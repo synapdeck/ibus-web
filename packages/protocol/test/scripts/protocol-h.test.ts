@@ -6,7 +6,7 @@ import { renderProtocolH } from "../../scripts/protocol-h.ts";
 type MessageFixture = readonly [name: string, kind: number, signature: string];
 
 const requests: readonly MessageFixture[] = [
-  ["INIT", 1, "(ua(ssa{sv}))"],
+  ["INIT", 1, "(uba(ssa{sv}))"],
   ["CREATE_ENGINE", 2, "(s)"],
   ["DESTROY_ENGINE", 3, "()"],
   ["SETTING_CHANGED", 4, "(ssv)"],

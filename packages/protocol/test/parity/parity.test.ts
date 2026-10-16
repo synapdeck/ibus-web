@@ -35,6 +35,7 @@ interface RequestFixture {
   result: number;
   calls: Observation[];
   value?: string;
+  writable?: boolean;
   created?: boolean;
   destroyed?: boolean;
 }
@@ -89,6 +90,7 @@ describe("real IBus parity", () => {
     expect(Object.keys(observed)).toEqual(["init", "create", ...requests.map((request) => request.name), "destroy"]);
     expect(observed.init!.result).toBe(0);
     expect(observed.init!.value).toBe("initial");
+    expect(observed.init!.writable).toBe(false);
     expect(observed.create!.result).toBe(0);
     expect(observed.create!.created).toBe(true);
     expect(observed.destroy!.result).toBe(0);

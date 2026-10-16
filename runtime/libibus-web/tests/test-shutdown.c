@@ -46,7 +46,7 @@ static gint send(guint16 kind, guint32 ic, GVariant *payload) {
 
 static GVariant *init(void) {
   return g_variant_new(
-      "(u@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
+      "(ub@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION, TRUE,
       g_variant_new_array(G_VARIANT_TYPE("(ssa{sv})"), NULL, 0));
 }
 

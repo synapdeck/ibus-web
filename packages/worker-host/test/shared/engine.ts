@@ -31,6 +31,7 @@ const call = async (host: RunningHost, ic: number, request: Request): Promise<nu
 const init = () =>
   new Init({
     version: PROTOCOL_VERSION,
+    userDataWritable: true,
     settings: [
       { schemaId: "org.example.echo", path: "/org/example/echo/", values: { value: stringVariant("snapshot") } },
     ],

@@ -95,7 +95,11 @@ export class PageSession {
     });
     const session = new PageSession(host, engine, options);
     try {
-      await session.request(0, new Init({ version: PROTOCOL_VERSION, settings: options.settings }));
+      // As the page does: a host that reported read-only storage keeps it for its life.
+      const userDataWritable = !host.messages.some(
+        (message) => message.type === "storage" && message.state === "read-only",
+      );
+      await session.request(0, new Init({ version: PROTOCOL_VERSION, userDataWritable, settings: options.settings }));
       await session.create(1);
       return session;
     } catch (error) {

@@ -243,11 +243,12 @@ change names its schema id, path and key. `settingsInstances(metadata)` lists a 
 `BroadcastChannel("ibus-web:gsettings")` synchronization. It stores one origin-wide record keyed by path and key, with
 GVariant type and normal-form `ArrayBuffer` bytes, and delivers a stored or broadcast change to every schema registered
 at its path whose key accepts it, each with its own default on a reset. Values equal to the schema default delete the
-record. The registry loads metadata and snapshots before Init, which declares every instance with its stored values,
-accepts `SettingWritten` by mapping its path to the module's schema, and forwards changes to the other live modules that
-declare the same instance. Cross-tab recipients update their live Workers without writing the record again. Concurrent
-writes are last write wins per record; live tabs follow the last received broadcast, while future Init reads the
-database. The Worker host never opens this database. See [ibus-web.md](ibus-web.md) for the public API.
+record. The registry loads metadata and snapshots before Init, which declares every instance with its stored values, and
+says the module's own files are read-only when its host reported `storage: read-only`, accepts `SettingWritten` by
+mapping its path to the module's schema, and forwards changes to the other live modules that declare the same instance.
+Cross-tab recipients update their live Workers without writing the record again. Concurrent writes are last write wins
+per record; live tabs follow the last received broadcast, while future Init reads the database. The Worker host never
+opens this database. See [ibus-web.md](ibus-web.md) for the public API.
 
 `router.panel` publishes tagged record/hide events with module and context ID for auxiliary text, lazy lookup tables and
 properties. The framework-free default panel consumes facade events; see [panel.md](panel.md). `Logger.Default` maps

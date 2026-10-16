@@ -119,7 +119,7 @@ static GVariant *snapshot(guint version) {
   g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ssa{sv})"));
   g_variant_builder_add_parsed(&builder,
                                "('review', '/review/', {'value': <true>})");
-  return g_variant_new("(u@a(ssa{sv}))", version,
+  return g_variant_new("(ub@a(ssa{sv}))", version, FALSE,
                        g_variant_builder_end(&builder));
 }
 
@@ -580,8 +580,10 @@ static void protocol(void) {
   g_assert_cmpint(send(IBUSWEB_REQ_PERSIST, 0, g_variant_new("()")), ==,
                   -ENOTCONN);
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(2)), ==, -EPROTO);
+  g_assert_true(ibusweb_user_data_writable());
   g_assert_cmpint(send(IBUSWEB_REQ_INIT, 0, snapshot(IBUSWEB_PROTOCOL_VERSION)),
                   ==, 0);
+  g_assert_false(ibusweb_user_data_writable());
   skip_debug_logs();
   expect_log(G_LOG_LEVEL_WARNING, "ibus-web",
              "Unknown settings schema: review");

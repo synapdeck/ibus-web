@@ -231,8 +231,8 @@ void golden_init(const gchar *schemas_dir, const gchar *module) {
   Fixture fixture = {.records = g_ptr_array_new_with_free_func(record_free)};
   g_assert_cmpint(
       golden_request(&fixture, IBUSWEB_REQ_INIT,
-                     g_variant_new("(u@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
-                                   g_variant_builder_end(&instances))),
+                     g_variant_new("(ub@a(ssa{sv}))", IBUSWEB_PROTOCOL_VERSION,
+                                   TRUE, g_variant_builder_end(&instances))),
       ==, 0);
   g_log_set_default_handler(g_log_default_handler, NULL);
   g_assert_cmpint(ibusweb_load_module("/sides/hangul.wasm", NULL), ==, 0);

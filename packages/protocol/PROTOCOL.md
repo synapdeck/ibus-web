@@ -82,14 +82,15 @@ is authoritative for crashes; Crashed is a best-effort host record.
 
 ### Init
 
-Kind: **1**. Signature: `(ua(ssa{sv}))`.
+Kind: **1**. Signature: `(uba(ssa{sv}))`.
 
 Initialize the runtime with the host's protocol version and settings.
 
-| Name       | GVariant type | Description                                                                  |
-| ---------- | ------------- | ---------------------------------------------------------------------------- |
-| `version`  | `u`           | Protocol version supported by the host.                                      |
-| `settings` | `a(ssa{sv})`  | Every GSettings schema instance the module declares, with its stored values. |
+| Name               | GVariant type | Description                                                                                    |
+| ------------------ | ------------- | ---------------------------------------------------------------------------------------------- |
+| `version`          | `u`           | Protocol version supported by the host.                                                        |
+| `userDataWritable` | `b`           | Whether the module's own files can be written: false while another host holds its writer lock. |
+| `settings`         | `a(ssa{sv})`  | Every GSettings schema instance the module declares, with its stored values.                   |
 
 ### CreateEngine
 
