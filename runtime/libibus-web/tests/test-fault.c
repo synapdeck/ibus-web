@@ -23,22 +23,26 @@ static gpointer throw_elsewhere(gpointer closure_whole) {
 
 /* A source's exception stops in the runtime's catch: the pump returns at
  * once and keeps the reason, and GLib finished the dispatch, keeping the
- * source, so its own main loop still runs sources, though the pump runs
- * none. A handler's exception on another thread, after the first, keeps the
- * first reason but still wakes the host. */
+ * source. Nothing more reaches an engine on the pumping thread, neither the
+ * rest of the thrower's batch nor sources GLib's own iteration dispatches. A
+ * handler's exception on another thread, after the first, keeps the first
+ * reason but still wakes the host. */
 static void test_fault(void) {
   static int32_t wake_word;
   g_assert_cmpint(ibusweb_runtime_init(&wake_word), ==, 0);
 
   int ran = 0;
+  int ran_alongside = 0;
   guint thrower = g_idle_add(test_throwing_source, NULL);
-  g_idle_add_full(G_PRIORITY_LOW, count, &ran, NULL);
+  guint alongside = g_idle_add(count, &ran_alongside);
+  guint later = g_idle_add_full(G_PRIORITY_LOW, count, &ran, NULL);
   g_test_expect_message("ibus-web", G_LOG_LEVEL_WARNING,
                         "An engine threw: thrown by a source");
   g_assert_cmpint(ibusweb_pump(), ==, -1);
   g_test_assert_expected_messages();
   g_assert_cmpstr(ibusweb_fault_reason(), ==, "thrown by a source");
   g_assert_cmpint(g_main_depth(), ==, 0);
+  g_assert_cmpint(ran_alongside, ==, 0);
   g_assert_cmpint(ran, ==, 0);
   g_assert_cmpint(ibusweb_pump(), ==, -1);
   g_assert_cmpint(ran, ==, 0);
@@ -50,11 +54,15 @@ static void test_fault(void) {
   memcpy(reset, &header, sizeof header);
   g_assert_cmpint(ibusweb_dispatch(reset, sizeof reset), ==, -ENOTRECOVERABLE);
 
+  g_assert_true(g_main_context_iteration(NULL, FALSE));
+  g_assert_cmpint(ran_alongside, ==, 0);
   g_assert_nonnull(g_main_context_find_source_by_id(NULL, thrower));
+  g_assert_nonnull(g_main_context_find_source_by_id(NULL, alongside));
   g_source_remove(thrower);
-  while (g_main_context_iteration(NULL, FALSE))
-    ;
-  g_assert_cmpint(ran, ==, 1);
+  g_source_remove(alongside);
+  g_assert_true(g_main_context_iteration(NULL, FALSE));
+  g_assert_cmpint(ran, ==, 0);
+  g_source_remove(later);
 
   gboolean closure_whole = FALSE;
   int32_t seen = g_atomic_int_get(&wake_word);

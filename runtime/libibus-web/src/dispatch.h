@@ -22,7 +22,8 @@ G_GNUC_INTERNAL gboolean ibusweb_runtime_stopped(void);
  * set it. Any thread. */
 G_GNUC_INTERNAL void ibusweb_runtime_wake(void);
 /* GLib's dispatch hook: calls func inside a C++ try, faulting the engines
- * with what an exception says. */
+ * with what an exception says. On the pumping thread, once they are faulted,
+ * it calls nothing. */
 G_GNUC_INTERNAL void ibusweb_dispatch_hook(GWasmDispatchFunc func,
                                            gpointer data);
 G_END_DECLS

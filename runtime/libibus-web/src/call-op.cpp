@@ -54,7 +54,18 @@ int32_t ibusweb_dispatch_call(uint16_t kind, IBusWebDispatchCall call,
 // dispatch, so its state stays whole for the host to drain output and log
 // through until it ends the engines; frames of the engine's own between the
 // throw and here still skip their cleanup, so the engines are faulted.
+//
+// Once they are, the pumping thread makes no more calls: the rest of the
+// batch the faulting source was dispatched in, and the handlers still to run
+// in a faulted request, would run engine code over that state. GLib keeps a
+// source whose call was skipped, which the pump never dispatches again.
+// Other threads' calls still go through, since a thread running a loop of
+// its own would spin on a kept source until the host ended the engines.
 void ibusweb_dispatch_hook(GWasmDispatchFunc func, gpointer data) {
+  if (ibusweb_runtime_faulted() &&
+      g_main_context_is_owner(g_main_context_default()))
+    return;
+
   try {
     func(data);
   } catch (const std::exception &e) {

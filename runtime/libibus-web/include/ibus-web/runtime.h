@@ -35,7 +35,8 @@ G_BEGIN_DECLS
  * It also has every signal handler and source callback GLib calls, on any
  * thread, run inside a C++ try: an engine's exception stops there, GLib
  * finishes the emission or dispatch as for a call that returned, and the
- * runtime marks its engines faulted (ibusweb_fault_reason()).
+ * runtime marks its engines faulted (ibusweb_fault_reason()). From then on,
+ * GLib skips every handler and callback on this thread, keeping the source.
  *
  * Returns 0, -EINVAL without a word, -EALREADY if already set up, or -EBUSY
  * if another thread owns the default context. */

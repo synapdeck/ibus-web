@@ -126,12 +126,14 @@ instance's reference, the closure's marshalling flag, the context's dispatch dep
 between the throw and the catch still skipped their cleanup, and engines keep state in globals, so the trampoline logs a
 warning, `An engine threw: <what()>`, and faults the engines: `ibusweb_fault_reason()` returns the first fault's
 `what()` (or a description of an exception that isn't a `std::exception`) for the runtime's lifetime, and a fault off
-the pumping thread wakes the host. A request during which an engine faulted returns `-ECANCELED` whatever its reply.
-Afterwards every `ibusweb_dispatch` returns `-ENOTRECOVERABLE` without reaching any engine, and `ibusweb_pump` stops at
-the dispatch that faulted and returns -1 from then on. The runtime itself stays usable until the host ends it: output
-peek, consume and `ibusweb_output_last_seq`, the log writer and the settings backend keep working, so the host drains
-what was written, the warning included, and reports the crash with the reason. JavaScript errors and WASM traps remain
-host failures.
+the pumping thread wakes the host. On the pumping thread, the trampoline then calls nothing more: the sources left in
+the faulting source's batch and the handlers left in a faulting request are skipped, and GLib keeps those sources as for
+a call that returned. Other threads' calls still run, since a thread looping on a context of its own would spin on a
+source kept that way. A request during which an engine faulted returns `-ECANCELED` whatever its reply. Afterwards every
+`ibusweb_dispatch` returns `-ENOTRECOVERABLE` without reaching any engine, and `ibusweb_pump` stops at the dispatch that
+faulted and returns -1 from then on. The runtime itself stays usable until the host ends it: output peek, consume and
+`ibusweb_output_last_seq`, the log writer and the settings backend keep working, so the host drains what was written,
+the warning included, and reports the crash with the reason. JavaScript errors and WASM traps remain host failures.
 
 Emitters serialize owned snapshots immediately. Calls from other threads queue those snapshots on the default main
 context; the pumping thread assigns their sequence numbers and appends them to a mutex-protected `GByteArray`.
@@ -274,8 +276,9 @@ module, no entry point). The suite also covers serialization, key helpers, emitt
 (including fresh cursor/capabilities/content values inside non-chaining subclass callbacks and ordinary connected
 handlers), protocol validation, engine creation failures, logs and settings (63 C cases in total). `test-fault`, a
 program of its own since a fault lasts the runtime's lifetime, throws from a source and from a signal handler on another
-thread: the pump stops at once with the first reason kept, GLib finished both calls, and the second fault still wakes
-the host. The real Hangul side module has its own [golden tests](engines.md#golden-tests). See [testing.md](testing.md).
+thread: the pump stops at once with the first reason kept, a source ready alongside the thrower never runs, GLib
+finished both calls, and the second fault still wakes the host. The real Hangul side module has its own
+[golden tests](engines.md#golden-tests). See [testing.md](testing.md).
 
 ## `ibus-runtime.wasm`
 
