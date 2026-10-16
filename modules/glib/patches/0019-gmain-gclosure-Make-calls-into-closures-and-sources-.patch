@@ -81,13 +81,13 @@ index 94ea7e857..772ef09e0 100644
  } GLibPrivateVTable;
  
 diff --git a/glib/gmain.c b/glib/gmain.c
-index 87f6be5ae..f76379674 100644
+index 87f6be5ae..23436ae45 100644
 --- a/glib/gmain.c
 +++ b/glib/gmain.c
-@@ -3536,6 +3536,25 @@ unblock_source (GSource      *source,
+@@ -3535,6 +3535,25 @@ unblock_source (GSource      *source,
+     }
  }
  
- /* HOLDS: context's lock */
 +#ifdef G_PLATFORM_WASM
 +typedef struct
 +{
@@ -107,9 +107,9 @@ index 87f6be5ae..f76379674 100644
 +}
 +#endif
 +
+ /* HOLDS: context's lock */
  static void
  g_main_dispatch (GMainContext *context)
- {
 @@ -3596,7 +3615,23 @@ g_main_dispatch (GMainContext *context)
  
            TRACE (GLIB_MAIN_BEFORE_DISPATCH (g_source_get_name (source), source,
