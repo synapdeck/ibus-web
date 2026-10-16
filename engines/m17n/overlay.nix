@@ -26,13 +26,36 @@ in
             in
             lib.optionals (builtins.pathExists dir) (patchesIn dir);
 
+          # Native m17n-lib's entries for every input method of m17n-db:
+          # each one's tags, file and required version, as m17n reads them
+          # from the files' headers.
+          inputMethodEntries =
+            pkgs.runCommandCC "ibus-web-m17n-input-methods" { buildInputs = [ pkgs.m17n_lib ]; }
+              ''
+                $CC ${./mdb-dir/mdb-dir.c} -lm17n -lm17n-core -o mdb-dir
+                M17NDIR=${pkgs.m17n_db}/share/m17n ./mdb-dir | sort > $out
+              '';
+
           # The data alone: scripts/ holds shell and awk, which would bring
-          # bash and gawk into the module's data closure.
+          # bash and gawk into the module's data closure. mdb.dir names each
+          # input method's file in place of the wildcard, which m17n expands
+          # by reading every input method's file to its end the first time it
+          # looks any of them up.
           m17nDb = pkgs.runCommand "ibus-web-m17n-db" { } ''
             mkdir -p $out/share
             cp -r ${pkgs.m17n_db}/share/m17n $out/share/m17n
             chmod -R u+w $out/share/m17n
             rm -r $out/share/m17n/scripts
+
+            awk -v entries=${inputMethodEntries} '
+              $0 == "(input-method * \"*.mim\")" {
+                while ((getline line < entries) > 0) print line
+                replaced++
+                next
+              }
+              { print }
+              END { exit replaced != 1 }
+            ' ${pkgs.m17n_db}/share/m17n/mdb.dir > $out/share/m17n/mdb.dir
           '';
 
           # configure takes M17NDIR, where the library reads its data, from
@@ -115,12 +138,15 @@ in
           });
 
           # The step's files, with the program's own output beside them.
+          # engines.xml is the listing's index, read from every input
+          # method's file: the program's own data directory holds no index.
           descriptors =
             pkgs.runCommand "ibus-web-m17n-descriptors" { nativeBuildInputs = [ typescript.nodejs ]; }
               ''
                 node ${descriptorProgram}/descriptors.js > raw.json
                 node ${./descriptors/descriptors.ts} raw.json ${lib.escapeShellArg config.ibusWeb.engines.m17n.defaultEngine} $out
                 cp raw.json $out/raw.json
+                node ${descriptorProgram}/descriptors.js --index > $out/engines.xml
               '';
         in
         {
@@ -236,7 +262,7 @@ in
                 installPhase = ''
                   runHook preInstall
                   install -Dm644 src/m17n.wasm -t $out
-                  install -Dm644 src/default.xml -t $data/share/ibus-m17n
+                  install -Dm644 src/default.xml ${descriptors}/engines.xml -t $data/share/ibus-m17n
                   runHook postInstall
                 '';
 
@@ -252,6 +278,7 @@ in
                 passthru = (old.passthru or { }) // {
                   inherit
                     m17n_lib
+                    inputMethodEntries
                     schemas
                     settingsSchemaDir
                     descriptorProgram

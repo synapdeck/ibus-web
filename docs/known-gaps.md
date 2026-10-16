@@ -117,10 +117,6 @@ decided.
 - **m17n key bindings and the per-user customisation file.** m17n's key-binding customisation (`minput_config_command`)
   and its per-user `~/.m17n.d` customisation file are not exposed on the page; only input-method variables are
   ([m17n.md](m17n.md#settings-and-variables)).
-- **m17n reads every input method at each start.** Listing m17n's input methods parses each `.mim`, so module init reads
-  about 212 files, 2.5 MB, at every start: a start from IndexedDB takes 1014–2906 ms in the browsers
-  ([m17n.md](m17n.md#in-the-browser)). m17n keeps no index of its own; a cached list, or each input method read on first
-  use, would need changes to m17n-lib or ibus-m17n's listing.
 - **Rime's prisms for dictionaries not yet installed.** A settings change deployed while some dictionaries aren't
   installed leaves their prisms as prebuilt, so a `fuzzy-pinyin` change reaches an engine installed later only at the
   next deployment ([rime.md](rime.md#deployment)).

@@ -74,6 +74,8 @@ export class PageSession {
   private deploying: boolean;
   readonly deploymentWarnings: string[] = [];
   readonly logs: string[] = [];
+  // How long start's Init and first CreateEngine took.
+  readonly timings = { initMs: 0, createMs: 0 };
   readonly host: RunningHost;
   readonly manifest: ModuleManifest;
   private readonly options: SessionOptions;
@@ -106,6 +108,7 @@ export class PageSession {
       const userDataWritable = !host.messages.some(
         (message) => message.type === "storage" && message.state === "read-only",
       );
+      const begin = performance.now();
       await session.request(
         0,
         new Init({
@@ -115,7 +118,10 @@ export class PageSession {
           patterns: options.patterns ?? [],
         }),
       );
+      const initialized = performance.now();
       await session.create(1);
+      session.timings.initMs = initialized - begin;
+      session.timings.createMs = performance.now() - initialized;
       return session;
     } catch (error) {
       await host.terminate();

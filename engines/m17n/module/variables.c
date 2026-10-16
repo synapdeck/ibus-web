@@ -67,6 +67,9 @@ static void changed(GSettings *settings, const gchar *key, gpointer data) {
       configure(&variables[i], settings);
 }
 
+/* Only a value the page stored is configured: a schema's default is its
+ * input method's own, and configuring a variable reads its input method's
+ * file, which m17n otherwise reads only once an engine opens it. */
 void ibusweb_m17n_variables_init(void) {
   GSettings *settings = NULL;
   for (gsize i = 0; i < G_N_ELEMENTS(variables); i++) {
@@ -77,6 +80,10 @@ void ibusweb_m17n_variables_init(void) {
       g_signal_connect(settings, "changed", G_CALLBACK(changed),
                        (gpointer)variables[i].schema);
     }
-    configure(&variables[i], settings);
+
+    g_autoptr(GVariant) stored =
+        g_settings_get_user_value(settings, variables[i].key);
+    if (stored != NULL)
+      configure(&variables[i], settings);
   }
 }

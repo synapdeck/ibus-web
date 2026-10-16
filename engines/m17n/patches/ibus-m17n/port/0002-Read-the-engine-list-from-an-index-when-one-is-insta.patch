@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Fri, 16 Oct 2026 15:22:55 -0700
+Subject: [PATCH] Read the engine list from an index when one is installed
+
+Listing the engines calls minput_list and asks m17n for each input
+method's title, description and variables, which reads every input
+method's file at each start. ibus-engine-m17n --xml prints that list as
+IBus engine XML; a distribution that installs it as engines.xml beside
+default.xml has the listing read it instead, and fall back to m17n's own
+listing when it is missing or invalid.
+---
+ src/m17nutil.c | 43 ++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/src/m17nutil.c b/src/m17nutil.c
+index 7c7a4e0..4cc6afd 100644
+--- a/src/m17nutil.c
++++ b/src/m17nutil.c
+@@ -339,6 +339,42 @@ ibus_m17n_engine_config_parse_xml_node (EngineConfigNode *cnode,
+     return TRUE;
+ }
+ 
++/* An index of the engines, as ibus-engine-m17n --xml prints them, saves
++ * reading every input method's file to list them. */
++static GList *
++ibus_m17n_read_index (const gchar *index_xml)
++{
++    GList *engines = NULL;
++    XMLNode *node;
++    GList *p;
++
++    if (!g_file_test (index_xml, G_FILE_TEST_EXISTS))
++        return NULL;
++
++    node = ibus_xml_parse_file (index_xml);
++    if (!node || g_strcmp0 (node->name, "engines") != 0) {
++        g_warning ("failed to parse %s", index_xml);
++        if (node)
++            ibus_xml_free (node);
++        return NULL;
++    }
++
++    for (p = node->sub_nodes; p != NULL; p = p->next) {
++        IBusEngineDesc *desc = ibus_engine_desc_new_from_xml_node (p->data);
++
++        if (desc == NULL) {
++            g_warning ("%s holds an invalid engine", index_xml);
++            g_list_free_full (engines, g_object_unref);
++            engines = NULL;
++            break;
++        }
++        engines = g_list_append (engines, desc);
++    }
++
++    ibus_xml_free (node);
++    return engines;
++}
++
+ IBusComponent *
+ ibus_m17n_get_component (void)
+ {
+@@ -347,6 +383,7 @@ ibus_m17n_get_component (void)
+     XMLNode *node;
+     const gchar *pkgdatadir;
+     gchar *default_xml;
++    gchar *index_xml;
+ 
+     component = ibus_component_new ("org.freedesktop.IBus.M17n",
+                                     N_("M17N"),
+@@ -389,7 +426,11 @@ ibus_m17n_get_component (void)
+ 
+     g_free (default_xml);
+ 
+-    engines = ibus_m17n_list_engines ();
++    index_xml = g_build_filename (pkgdatadir, "engines.xml", NULL);
++    engines = ibus_m17n_read_index (index_xml);
++    if (engines == NULL)
++        engines = ibus_m17n_list_engines ();
++    g_free (index_xml);
+ 
+     for (p = engines; p != NULL; p = p->next)
+         ibus_component_add_engine (component, p->data);

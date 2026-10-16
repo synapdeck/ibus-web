@@ -131,12 +131,38 @@ static void engine(GString *out, IBusEngineDesc *desc) {
   g_string_append(out, "]}");
 }
 
-int main(void) {
+/* Prints the engine list as the listing's index, IBus engine XML. Given a
+ * directory, it lists the engines with that directory's default.xml and
+ * index, as m17n.wasm does with its own. */
+static int print_index(const char *pkgdatadir) {
+  if (pkgdatadir != NULL) {
+    g_assert_cmpint(
+        wasmfs_create_directory("/pkgdata", 0777,
+                                wasmfs_create_node_backend(pkgdatadir)),
+        ==, 0);
+    g_setenv("IBUS_M17N_PKGDATADIR", "/pkgdata", TRUE);
+  }
+
+  ibus_m17n_init_common();
+  IBusComponent *component = g_object_ref_sink(ibus_m17n_get_component());
+  GString *out = g_string_new(NULL);
+  ibus_component_output_engines(component, out, 0);
+  fputs(out->str, stdout);
+
+  g_string_free(out, TRUE);
+  g_object_unref(component);
+  return 0;
+}
+
+int main(int argc, char **argv) {
   g_assert_cmpint(mkdir("/nix", 0777), ==, 0);
   g_assert_cmpint(
       wasmfs_create_directory("/nix/store", 0777,
                               wasmfs_create_node_backend("/nix/store")),
       ==, 0);
+
+  if (argc > 1 && g_str_equal(argv[1], "--index"))
+    return print_index(argc > 2 ? argv[2] : NULL);
 
   ibus_m17n_init_common();
   IBusComponent *component = g_object_ref_sink(ibus_m17n_get_component());

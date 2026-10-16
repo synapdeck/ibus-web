@@ -136,7 +136,7 @@ describe.each(h.data.runtimes)("m17n through $name host", (runtime) => {
   const start = async (engine: string, values?: Readonly<Record<string, Values>>): Promise<PageSession> => {
     const begin = performance.now();
     current = await PageSession.start(h, runtime, manifest, options(engine, values));
-    h.record(`m17n ${runtime.name} start`, { ms: performance.now() - begin });
+    h.record(`m17n ${runtime.name} start`, { ms: performance.now() - begin, ...current.timings });
     return current;
   };
   afterEach(async () => {

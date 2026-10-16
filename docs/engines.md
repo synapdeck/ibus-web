@@ -145,8 +145,8 @@ page prepares the engine, before its first `CreateEngine` in a Worker, rather th
 `lazyStorePaths(manifest)` in `@ibus-web/protocol` gives the former. Per-engine data suits large, optional data that an
 engine alone uses, such as Rime's dictionaries, of which a user downloads only those of the schemas they type in. Data
 every engine reads, or that the module reads as it starts, stays base data: m17n keeps its whole closure there, since it
-is 1.5 MB as Brotli and ibus-m17n reads every input method's file as it lists them at startup. A store path several
-engines name is installed once, by whichever is prepared first.
+is 1.5 MB as Brotli and any engine may be the first selected. A store path several engines name is installed once, by
+whichever is prepared first.
 
 ### Archives and serving
 

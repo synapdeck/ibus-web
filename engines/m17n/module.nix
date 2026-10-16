@@ -61,6 +61,40 @@
           });
     in
     {
+      # The listing m17n.wasm reads from its index matches the one it would
+      # make from every input method's file, and is read from the index:
+      # given an index of one engine, it lists that engine alone. mdb.dir
+      # names each of m17n-db's input methods once.
+      checks.m17n-index =
+        pkgs.runCommand "ibus-web-m17n-index" { nativeBuildInputs = [ config.ibusWeb.typescript.nodejs ]; }
+          ''
+            program=${m17n.descriptorProgram}/descriptors.js
+
+            node $program --index > parsed.xml
+            node $program --index ${m17n.data}/share/ibus-m17n > indexed.xml
+            diff -u parsed.xml indexed.xml
+            cmp parsed.xml ${m17n.data}/share/ibus-m17n/engines.xml
+            test "$(grep -c '<engine>' indexed.xml)" -eq 197
+
+            mkdir one
+            cp ${m17n.data}/share/ibus-m17n/default.xml one/
+            awk '/<engine>/ { n++ } n <= 1 && !/<\/engines>/ { print } END { print "</engines>" }' indexed.xml > one/engines.xml
+            node $program --index "$PWD/one" > one.xml
+            test "$(grep -c '<engine>' one.xml)" -eq 1
+            cmp one/engines.xml one.xml
+
+            db=${ibus-web-m17n-db}/share/m17n
+            (cd $db && ls *.mim) | sort > files
+            sed -n 's/^(input-method .* "\([^"]*\.mim\)".*/\1/p' $db/mdb.dir | sort > named
+            diff -u files named
+            if grep -qF '(input-method * "*.mim")' $db/mdb.dir; then
+              echo "mdb.dir keeps the input methods' wildcard" >&2
+              exit 1
+            fi
+
+            cp indexed.xml $out
+          '';
+
       packages.ibus-web-m17n = m17n;
       packages.ibus-web-m17n-descriptors = m17n.descriptors;
 
