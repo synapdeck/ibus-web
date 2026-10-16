@@ -69,7 +69,9 @@
       # A minor change to the facade, versioned in a copy of the repository:
       # every published package takes the one new version, nothing private
       # moves, and the notes come from the changelogs written. Changesets
-      # reads the changesets' history from git.
+      # reads the changesets' history from git. Pending changesets are
+      # dropped so that the sample alone decides the version, which follows
+      # from whatever version the packages are at.
       checks.tools-release-changesets =
         pkgs.runCommand "ibus-web-tools-release-changesets"
           {
@@ -83,20 +85,25 @@
             cp -r --no-preserve=mode ${inputs.self} repo
             cd repo
             cp ${changesetConfig} .changeset/config.json
+            rm -f .changeset/*.md
             printf -- '---\n"ibus-web": minor\n---\n\nPreloading.\n' > .changeset/sample.md
             git init -q
             git add -A
             git -c user.name=check -c user.email=check@example.invalid commit -qm sample
 
+            from=$(node -p 'require("./packages/ibus-web/package.json").version')
+            to=$(node -p "const [major, minor] = '$from'.split('.'); [major, +minor + 1, 0].join('.')")
+            private=$(node -p 'require("./packages/tsconfig/package.json").version')
+
             node ${changeset} version
 
             ${lib.concatMapStrings (dir: ''
-              test "$(node -p 'require("./${dir}/package.json").version')" = 0.1.0
+              test "$(node -p 'require("./${dir}/package.json").version')" = "$to"
             '') typescript.publishedPackages}
-            test "$(node -p 'require("./packages/tsconfig/package.json").version')" = 0.0.0
+            test "$(node -p 'require("./packages/tsconfig/package.json").version')" = "$private"
             test ! -e .changeset/sample.md
 
-            node ${tool}/cli.ts 0.1.0 ${lib.escapeShellArgs typescript.publishedPackages} > notes.md
+            node ${tool}/cli.ts "$to" ${lib.escapeShellArgs typescript.publishedPackages} > notes.md
             grep -qx "## ibus-web" notes.md
             grep -q -- ": Preloading.$" notes.md
             cp notes.md $out

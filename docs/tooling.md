@@ -498,5 +498,5 @@ Changesets versions the published packages and writes their changelogs; a tag pu
   same for `.#release`. `--rebuild` compares only the derivations it names.
 
 `checks.tools-release` runs the notes tool's tests; `checks.tools-release-changesets` versions a copy of the repository
-with a sample changeset and checks that every published package takes the new version, no private one moves, and the
-notes come out of the changelogs written.
+with a sample minor changeset in place of any pending ones and checks that every published package takes the new
+version, no private one moves, and the notes come out of the changelogs written.
