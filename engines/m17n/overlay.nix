@@ -26,14 +26,45 @@ in
             in
             lib.optionals (builtins.pathExists dir) (patchesIn dir);
 
+          # nixpkgs builds m17n-db on Linux only, since it generates its
+          # charset maps from the installed glibc's charmaps. Elsewhere they
+          # come from glibc's source, which gives the same maps but for the
+          # comment naming the file each was generated from.
+          glibcCharmaps = pkgs.runCommand "ibus-web-glibc-charmaps" { } ''
+            tar -xf ${pkgs.glibc.src} --wildcards '*/localedata/charmaps/*'
+            mv */localedata/charmaps $out
+          '';
+          m17nDbUpstream =
+            if pkgs.stdenv.hostPlatform.isLinux then
+              pkgs.m17n_db
+            else
+              pkgs.m17n_db.overrideAttrs (old: {
+                configureFlags = [ "--with-charmaps=${glibcCharmaps}" ];
+                meta = old.meta // {
+                  platforms = lib.platforms.unix;
+                };
+              });
+
+          # nixpkgs builds m17n-lib on Linux only as well; the index below
+          # needs it on the build machine.
+          m17nLibNative =
+            if pkgs.stdenv.hostPlatform.isLinux then
+              pkgs.m17n_lib
+            else
+              (pkgs.m17n_lib.override { m17n_db = m17nDbUpstream; }).overrideAttrs (old: {
+                meta = old.meta // {
+                  platforms = lib.platforms.unix;
+                };
+              });
+
           # Native m17n-lib's entries for every input method of m17n-db:
           # each one's tags, file and required version, as m17n reads them
           # from the files' headers.
           inputMethodEntries =
-            pkgs.runCommandCC "ibus-web-m17n-input-methods" { buildInputs = [ pkgs.m17n_lib ]; }
+            pkgs.runCommandCC "ibus-web-m17n-input-methods" { buildInputs = [ m17nLibNative ]; }
               ''
                 $CC ${./mdb-dir/mdb-dir.c} -lm17n -lm17n-core -o mdb-dir
-                M17NDIR=${pkgs.m17n_db}/share/m17n ./mdb-dir | sort > $out
+                M17NDIR=${m17nDbUpstream}/share/m17n ./mdb-dir | sort > $out
               '';
 
           # The data alone: scripts/ holds shell and awk, which would bring
@@ -43,7 +74,7 @@ in
           # looks any of them up.
           m17nDb = pkgs.runCommand "ibus-web-m17n-db" { } ''
             mkdir -p $out/share
-            cp -r ${pkgs.m17n_db}/share/m17n $out/share/m17n
+            cp -r ${m17nDbUpstream}/share/m17n $out/share/m17n
             chmod -R u+w $out/share/m17n
             rm -r $out/share/m17n/scripts
 
@@ -55,7 +86,7 @@ in
               }
               { print }
               END { exit replaced != 1 }
-            ' ${pkgs.m17n_db}/share/m17n/mdb.dir > $out/share/m17n/mdb.dir
+            ' ${m17nDbUpstream}/share/m17n/mdb.dir > $out/share/m17n/mdb.dir
           '';
 
           # configure takes M17NDIR, where the library reads its data, from
