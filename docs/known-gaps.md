@@ -86,8 +86,6 @@ decided.
   take another worker, up to `G_TASK_POOL_SIZE` (10) and beyond. Engines that run `GTask`s concurrently need a rule.
 - **No public Emscripten API to grow the pthread pool.** The host's top-up uses Emscripten's internal `PThread`; an
   upstream call to add Workers and settle once they can run threads would replace it. No draft yet.
-- **Per-Worker memory figures** (about 18 MiB per pool Worker in Chromium, 12–16 MiB in Firefox, 41–42 MiB under Node)
-  predate the host's final JavaScript; re-measure once the host and runtime settle.
 - **Expected stderr noise isn't marked as such** in check output: `dlopen` errors from refusal cases, and Emscripten's
   `received "7" command from terminated worker` at an `ASSERTIONS` + `PROXY_TO_PTHREAD` exit.
 - **WebKit scope.** Production Playwright integration ran pinned Linux WebKit 26.6 in the Nix sandbox with software EGL.

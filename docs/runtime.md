@@ -670,19 +670,21 @@ imported memory, so the runtime takes any size up to it, still without growing i
 
 ### What a pool Worker costs
 
-Every pool Worker holds an instance of the runtime. Adding 20 Workers to a fixed-memory host's pool, each loading the
-runtime, then running a first thread on each (which loads the side modules into it), grew the browser's processes
-(proportional set size, from `/proc`) or Node's resident set, per Worker:
+Every pool Worker holds an instance of the runtime, and once warmed (The pool, above) it has run a thread, which loads
+the side modules into it. Measured with the released runtime and the test engine, a host of 128 MiB of memory left idle
+for 15 s, then given 42 more Workers through top-ups, each warmed; the browser's processes' proportional set size (from
+`/proc`) or Node's resident set was read 5 s after each step, and the heap the held threads' stacks touched subtracted:
 
-|                           | Chromium 149  | Firefox 151   | Node 24       |
-| ------------------------- | ------------- | ------------- | ------------- |
-| per added pool Worker     | 17.8–17.9 MiB | 11.7–15.6 MiB | 41.4–41.8 MiB |
-| per Worker's first thread | 4.4–4.7 MiB   | 2.8–3.1 MiB   | 9.7–9.8 MiB   |
+|                                       | Chromium 153  | Firefox 155  | Node 26       |
+| ------------------------------------- | ------------- | ------------ | ------------- |
+| per added pool Worker, warmed         | 20.1–20.3 MiB | 9.4–15.9 MiB | 48.8–49.6 MiB |
+| of which its first thread, at warming | 1.6–2.2 MiB   | 1.9–2.4 MiB  | 2.6–3.1 MiB   |
 
-A pool of 11 then cost about 200 MiB in Chromium and up to 170 MiB in Firefox, 250 and 200 MiB once each had run a
-thread, on top of the runtime's memory. A page's budget for an engine is its memory, touched or not, plus each pool
-Worker's cost. These figures were taken with a pool of 11 and a host without Effect, and want re-measuring once the
-host's and the runtime's JavaScript settle ([known-gaps.md](known-gaps.md#runtime)).
+Three or four runs each; Firefox's figure spreads with its collector, and a shorter settle gives larger first-thread
+figures in every browser (Chromium 5.2–5.3 MiB at 1.5 s). A side module larger than the test engine's adds its own code
+to each Worker's first thread. A pool of 12, the test runtime's, then costs about 240 MiB in Chromium and up to 190 MiB
+in Firefox on top of the runtime's memory. A page's budget for an engine is its memory, touched or not, plus each pool
+Worker's cost.
 
 ## Browsers and Node
 
