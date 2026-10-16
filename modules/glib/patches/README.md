@@ -533,12 +533,17 @@ void g_main_context_wasm_set_wake_hook (GMainContext  *context,
   record pointer from `NULL`; a signal loads the pointer once and calls `record->hook (record->user_data)`, so it never
   pairs one setter's hook with another's data. A hook can be set once per context and is never replaced or removed: a
   later setter loses the exchange, frees its record and reports a `g_critical()`, which `G_DISABLE_CHECKS` doesn't
-  remove. The record is freed with the wakeup. A signal racing with the setter may or may not call it.
+  remove. A `NULL` hook is refused the same way, not through `g_return_if_fail()`, which `G_DISABLE_CHECKS` would
+  compile out and leave a `NULL` hook for every later signal to call. The record is freed with the wakeup. A signal
+  racing with the setter may or may not call it.
+- **Lifetime.** A signal calls the hook after waking the context's waiters, so a woken waiter may drop the last
+  reference to the context while the hook still runs; a thread that wakes a context must keep it alive until the wakeup
+  returns, as `g_main_context_wakeup()` already requires. The documentation says so.
 - **Ownership.** GLib wakes a context for a source attached from another thread only while some other thread owns it
   (`g_source_attach_unlocked()` checks `context->owner`), so the host's thread must acquire the default context for as
   long as it relies on the hook. Acquiring is recursive, so its non-blocking iterations still work; a context acquired
   and released around each iteration is unowned between pumps, and an attach then calls no hook. `checks.glib-smoke`
-  checks both, and that a second hook is refused while the first keeps firing (`wakehook 1 0 1`).
+  checks both, and that a second hook and a `NULL` one are refused while the first keeps firing (`wakehook 1 0 1`).
 - **Where it is declared.** `gmain.h`, under `#ifdef G_PLATFORM_WASM`, beside the context's other low-level functions
   and in the same way `gmain.h` declares its Unix-only API, so it is installed with GLib and reached through `glib.h`.
   The setter on the `GWakeup` it calls is private (`gwakeup.h`).

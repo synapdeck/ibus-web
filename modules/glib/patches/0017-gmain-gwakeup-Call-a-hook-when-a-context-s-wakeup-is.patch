@@ -1,4 +1,4 @@
-From 3a1b5f83d46b1430702d4b24bfa57d6832ff4b96 Mon Sep 17 00:00:00 2001
+From da20da338365ff1cd163ef5ffbca07fc7f057620 Mon Sep 17 00:00:00 2001
 From: Alexis Williams <alexis@typedr.at>
 Date: Thu, 1 Oct 2026 00:43:02 -0700
 Subject: [PATCH 17/17] gmain, gwakeup: Call a hook when a context's wakeup is
@@ -17,9 +17,12 @@ are published together as one immutable record, swapped in from NULL
 with a compare-and-exchange, and a signal loads that record once, so it
 never pairs one setter's hook with another's data. A hook can be set
 only once per context: a later setter loses the exchange, frees its
-record and reports a critical, whether or not checks are compiled in.
-The record is freed with the wakeup. Waiting and acknowledging are
-unchanged.
+record and reports a critical, whether or not checks are compiled in,
+and a NULL hook is refused the same way rather than installed for every
+later signal to call. The record is freed with the wakeup, and a signal
+calls the hook after waking the context's waiters, so a thread that
+signals a context must keep it alive until the signal returns, as any
+wakeup already requires. Waiting and acknowledging are unchanged.
 
 GLib wakes a context for a source attached from another thread only
 while some thread owns the context, so a host relying on the hook must
@@ -35,17 +38,17 @@ unchanged.
 
 Upstream-Status: Inappropriate [Wasm-specific]
 ---
- glib/gmain.c   | 51 +++++++++++++++++++++++++++++++++++++++++++++
- glib/gmain.h   | 16 +++++++++++++++
- glib/gwakeup.c | 56 +++++++++++++++++++++++++++++++++++++++++++++++++-
- glib/gwakeup.h |  6 ++++++
- 4 files changed, 128 insertions(+), 1 deletion(-)
+ glib/gmain.c   | 64 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ glib/gmain.h   | 16 +++++++++++++
+ glib/gwakeup.c | 56 ++++++++++++++++++++++++++++++++++++++++++-
+ glib/gwakeup.h |  6 +++++
+ 4 files changed, 141 insertions(+), 1 deletion(-)
 
 diff --git a/glib/gmain.c b/glib/gmain.c
-index da655051f..e8165e25f 100644
+index da655051f..87f6be5ae 100644
 --- a/glib/gmain.c
 +++ b/glib/gmain.c
-@@ -5285,6 +5285,57 @@ g_main_context_wakeup (GMainContext *context)
+@@ -5285,6 +5285,70 @@ g_main_context_wakeup (GMainContext *context)
    g_wakeup_signal (context->wakeup);
  }
  
@@ -77,8 +80,15 @@ index da655051f..e8165e25f 100644
 + * tolerate wakes that find no new work.
 + *
 + * A hook can be set only once for each context, and stays set for the
-+ * context's lifetime.  Setting another is a programmer error: it is
-+ * reported with a critical warning and leaves the first hook in place.
++ * context's lifetime.  Setting another, or a `NULL` one, is a programmer
++ * error: it is reported with a critical warning, whether or not GLib was
++ * built with checks, and leaves the first hook in place.
++ *
++ * The hook is freed with @context.  A thread that wakes @context calls
++ * @hook after waking its waiters, so it must keep @context alive until the
++ * wakeup returns, as it must for [method@GLib.MainContext.wakeup]: a waiter
++ * it has woken may otherwise drop the last reference while @hook still
++ * runs.
 + *
 + * This function is only available on WebAssembly.
 + */
@@ -87,7 +97,13 @@ index da655051f..e8165e25f 100644
 +                                   GWasmWakeHook  hook,
 +                                   gpointer       user_data)
 +{
-+  g_return_if_fail (hook != NULL);
++  /* Not g_return_if_fail(): with checks compiled out, a NULL hook would be
++   * installed, and every later wakeup would call it. */
++  if (hook == NULL)
++    {
++      g_critical ("%s: the hook must not be NULL", G_STRFUNC);
++      return;
++    }
 +
 +  if (!context)
 +    context = g_main_context_default ();

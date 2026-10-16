@@ -55,9 +55,6 @@ decided.
   bytes that aren't UTF-8 are replaced and a last line without a line break gets one, which keeps GLib's tools on
   `-sNODERAWFS`; an empty pipe whose writer is still open reads as end of file, so test-printf's reader waits for its
   writer (0016). A byte-exact stdout under Node would mean writing to the process's descriptors, past `Module.print`.
-- **The wake hook (0017).** Under `G_DISABLE_CHECKS` a `NULL` hook is installed and its signal calls `NULL`; the
-  documentation doesn't say that a context must outlive concurrent wakeups, which the hook call widens; the smoke test's
-  log handler counts in a plain `int` and leaves parameters unused.
 - **GLib's patches apply with offsets and fuzz** on the current nixpkgs GLib; rebase them on the next GLib bump.
 
 ## Runtime

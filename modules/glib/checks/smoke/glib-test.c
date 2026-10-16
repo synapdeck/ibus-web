@@ -111,9 +111,14 @@ static void check_fd_wait(int fd_pipe[2]) {
 
 static void count_wake(gpointer counter) { g_atomic_int_inc((gint *)counter); }
 
+/* Counts atomically: GLib logs from whichever thread a critical is raised
+ * on. */
 static void count_log(const gchar *domain, GLogLevelFlags level,
                       const gchar *message, gpointer counter) {
-  (*(int *)counter)++;
+  (void)domain;
+  (void)level;
+  (void)message;
+  g_atomic_int_inc((gint *)counter);
 }
 
 static gpointer add_idle(gpointer counter) {
@@ -125,7 +130,8 @@ static gpointer add_idle(gpointer counter) {
  * through its wake hook. GLib wakes a context for a source attached from
  * another thread only while some thread owns it, so the hook sees the
  * attach while the main thread holds the context, and not otherwise. A
- * second hook is refused with a critical, and the first keeps firing. */
+ * second hook and a NULL one are each refused with a critical, and the
+ * first keeps firing. */
 static void check_wake_hook(void) {
   static gint woken; /* (atomic) */
   g_main_context_wasm_set_wake_hook(NULL, count_wake, &woken);
@@ -146,14 +152,16 @@ static void check_wake_hook(void) {
     ;
 
   static gint stolen; /* (atomic) */
-  int criticals = 0;
+  gint criticals = 0;
   guint handler =
       g_log_set_handler("GLib", G_LOG_LEVEL_CRITICAL, count_log, &criticals);
   g_main_context_wasm_set_wake_hook(NULL, count_wake, &stolen);
+  g_main_context_wasm_set_wake_hook(NULL, NULL, &stolen);
   g_log_remove_handler("GLib", handler);
   before = g_atomic_int_get(&woken);
   g_main_context_wakeup(NULL);
-  int kept = criticals == 1 && g_atomic_int_get(&woken) > before &&
+  int kept = g_atomic_int_get(&criticals) == 2 &&
+             g_atomic_int_get(&woken) > before &&
              g_atomic_int_get(&stolen) == 0;
   printf("wakehook %d %d %d\n",
          owned_woken && owned_dispatched && unowned_idled, unowned_woken, kept);
