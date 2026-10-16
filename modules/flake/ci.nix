@@ -126,35 +126,45 @@
 
             # Playwright's WebKit on macOS is closer to Safari than its Linux
             # build; the other extended checks gain nothing from a second
-            # system at macOS's price.
-            playwright-macos = nixJob {
-              name = "Playwright (aarch64-darwin)";
-              system = "aarch64-darwin";
-              steps = [
-                {
-                  name = "Check";
-                  run = "nix build .#packages.aarch64-darwin.playwright-integration -L --max-jobs 1";
-                }
-              ];
-            };
+            # system at macOS's price. It and the Safari job wait for the
+            # macOS check, so they substitute the WebAssembly it built from
+            # FlakeHub Cache instead of each building it again.
+            playwright-macos =
+              nixJob {
+                name = "Playwright (aarch64-darwin)";
+                system = "aarch64-darwin";
+                steps = [
+                  {
+                    name = "Check";
+                    run = "nix build .#packages.aarch64-darwin.playwright-integration -L --max-jobs 1";
+                  }
+                ];
+              }
+              // {
+                needs = [ "check-aarch64-darwin" ];
+              };
 
             # Playwright's WebKit isn't Safari: this drives the real one
             # through safaridriver, against the production demo. safaridriver
             # serves one session at a time and must be enabled first, as root.
-            safari = nixJob {
-              name = "Safari smoke";
-              system = "aarch64-darwin";
-              steps = [
-                {
-                  name = "Enable safaridriver";
-                  run = "sudo safaridriver --enable";
-                }
-                {
-                  name = "Smoke";
-                  run = "nix run .#safari-smoke -L";
-                }
-              ];
-            };
+            safari =
+              nixJob {
+                name = "Safari smoke";
+                system = "aarch64-darwin";
+                steps = [
+                  {
+                    name = "Enable safaridriver";
+                    run = "sudo safaridriver --enable";
+                  }
+                  {
+                    name = "Smoke";
+                    run = "nix run .#safari-smoke -L";
+                  }
+                ];
+              }
+              // {
+                needs = [ "check-aarch64-darwin" ];
+              };
 
             # FlakeHub Cache grants access per published flake, so the cache
             # needs this one published; only a master that passed its checks
@@ -191,11 +201,10 @@
           };
         };
 
-        # A tag publishes what `.#release` built from it (design spec §10.5):
-        # the GitHub release, then each npm tarball. Publishing builds
-        # nothing, and npm's trusted publishing trades the job's OIDC token
-        # for a short-lived credential, so no npm token is stored, and npm
-        # attaches provenance.
+        # A tag publishes what `.#release` built from it: the GitHub release,
+        # then each npm tarball. Publishing builds nothing, and npm's trusted
+        # publishing trades the job's OIDC token for a short-lived
+        # credential, so no npm token is stored, and npm attaches provenance.
         workflows.release = {
           name = "Release";
           on.push.tags = [ "v*" ];

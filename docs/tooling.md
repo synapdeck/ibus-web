@@ -440,7 +440,9 @@ the job's OIDC token.
   macOS WebKit, closer to Safari than its Linux build. The rest of `integration-checks` gains nothing from a second
   system at macOS's price, about 13 times Linux's.
 - **`safari`** enables safaridriver (`sudo safaridriver --enable`) and runs `nix run .#safari-smoke` on the macOS
-  runner, the WebDriver smoke suite in real Safari ([testing.md](testing.md#safari-and-webdriver)).
+  runner, the WebDriver smoke suite in real Safari ([testing.md](testing.md#safari-and-webdriver)). It and
+  `playwright-macos` need `check-aarch64-darwin`, so they substitute the WebAssembly it built from FlakeHub Cache rather
+  than each building it again at macOS's price.
 - **`publish`** needs every other job, and runs only on a push to `master`
   (`if: github.event_name == 'push' && github.ref == 'refs/heads/master'`). It publishes the flake to FlakeHub as
   `synapdeck/ibus-web`, rolling (`flakehub-push`), within 30 minutes. Its visibility follows the repository's

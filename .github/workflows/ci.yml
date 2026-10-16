@@ -76,6 +76,8 @@ jobs:
     timeout-minutes: 360
   playwright-macos:
     name: Playwright (aarch64-darwin)
+    needs:
+      - check-aarch64-darwin
     permissions:
       contents: read
       id-token: write
@@ -118,6 +120,8 @@ jobs:
     timeout-minutes: 30
   safari:
     name: Safari smoke
+    needs:
+      - check-aarch64-darwin
     permissions:
       contents: read
       id-token: write
