@@ -347,10 +347,10 @@ nix build .#npm.worker-host  # one
 The TypeScript packages, those `ibusWeb.typescript.publishedPackages` lists, are packed from their build in the
 workspace, so pnpm rewrites their `workspace:` and `catalog:` versions and `tools/pack-licenses` runs. A package whose
 files a Nix build makes says so with `"ibusWeb": { "nixBuilt": true }` in its `package.json`, holds nothing else but its
-README, and adds its own tarball to `ibusWeb.typescript.npmPackages` from its `module.nix`, passing the `license` its
-contents have: `@ibus-web/runtime` (`docs/runtime.md`) and each engine's (`docs/engines.md`). `checks.typescript-npm`
-builds `npm.all`, and `checks.tools-pack-licenses-tarball` looks in worker-host's for the license of the `effect` it
-bundles.
+README and the `CHANGELOG.md` Changesets writes, and adds its own tarball to `ibusWeb.typescript.npmPackages` from its
+`module.nix`, passing the `license` its contents have: `@ibus-web/runtime` (`docs/runtime.md`) and each engine's
+(`docs/engines.md`). `checks.typescript-npm` builds `npm.all`, and `checks.tools-pack-licenses-tarball` looks in
+worker-host's for the license of the `effect` it bundles.
 
 ## Editor tooling
 
