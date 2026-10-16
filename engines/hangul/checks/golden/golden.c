@@ -402,8 +402,8 @@ static void surrounding(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   ibus_engine_get_surrounding_text(fixture->engine, &text, &cursor, &anchor);
   g_assert_cmpstr(text->text, ==, "");
   g_assert_cmpuint(cursor, ==, 0);
-  /* Upstream leaves the selection anchor until the next host update. */
-  g_assert_cmpuint(anchor, ==, 1);
+  /* The anchor moves back with the deleted syllable before it. */
+  g_assert_cmpuint(anchor, ==, 0);
   g_object_unref(text);
 }
 

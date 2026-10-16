@@ -464,9 +464,17 @@ void ibus_engine_delete_surrounding_text(IBusEngine *engine,
       text = ibus_text_new_from_ucs4(ucs);
       g_free(ucs);
       priv->surrounding_cursor_pos = cursor_pos;
+
+      /* The anchor marks a place in the text, so it moves with the text
+         around it, as the client's own anchor does. */
+      if (priv->selection_anchor_pos >= cursor_pos + nchars)
+        priv->selection_anchor_pos -= nchars;
+      else if (priv->selection_anchor_pos > cursor_pos)
+        priv->selection_anchor_pos = cursor_pos;
     } else {
       text = text_empty;
       priv->surrounding_cursor_pos = 0;
+      priv->selection_anchor_pos = 0;
     }
 
     g_object_unref(priv->surrounding_text);

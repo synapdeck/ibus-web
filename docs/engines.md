@@ -269,8 +269,8 @@ asserts that `DestroyEngine` frees it; the lifecycle case also counts the `chang
 objects, of which none may have the destroyed engine as data, leaving only the module handler on each.
 
 Preedit attributes are compared after IBus normalizes their endpoints: `-1` means the actual text length, and an empty
-underline range is omitted. Cached surrounding text and cursor change on deletion; upstream leaves the selection anchor
-until the next host update. The tests preserve that behavior.
+underline range is omitted. The runtime's cached surrounding text, cursor and selection anchor all change on deletion,
+the anchor moving with the text around it; upstream IBus leaves the anchor until the next host update.
 
 `checks.hangul-differential` runs ten engine-owned traces against the stock native Hangul engine and the WASM side
 module. It compares typed replies and engine signals in order, then checks scenario-specific coverage on both sides. The

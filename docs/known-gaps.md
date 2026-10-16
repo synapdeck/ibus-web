@@ -110,8 +110,6 @@ decided.
 - **Hangul setup.** The `setup` property does not launch an application.
 - **Hangul preedit-mode updates.** Module settings stay current even with no live engines. `preedit-mode` takes effect
   in an existing engine on refocus or a capabilities update.
-- **Surrounding selection anchor.** The IBus-compatible delete operation updates cached text/cursor but leaves the
-  selection anchor unchanged until the host's next `SetSurroundingText`; callers can observe that stale anchor.
 - **Mozc settings that wait for a restart.** Changing `active-on-launch` or the keymap style's turn-on keys takes effect
   when the module next starts, and a switch between romaji and kana at the next focus ([mozc.md](mozc.md#settings)).
   Mozc's keymap and romaji table editors and its user dictionary tool have no equivalent on the page.

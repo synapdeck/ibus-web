@@ -316,6 +316,21 @@ static void surrounding_text(void) {
   g_assert_cmpuint(anchor, ==, 1);
   g_object_unref(text);
   expect_record(IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, g_variant_new("()"));
+
+  /* The anchor moves with the text it marks. */
+  text = g_object_ref_sink(ibus_text_new_from_string("a한글z"));
+  g_signal_emit_by_name(engine, "set-surrounding-text", text, 1u, 4u);
+  g_object_unref(text);
+  ibus_engine_delete_surrounding_text(engine, 0, 2);
+  expect_record(IBUSWEB_REC_DELETE_SURROUNDING_TEXT,
+                g_variant_new("(iu)", 0, 2u));
+  ibus_engine_get_surrounding_text(engine, &text, &cursor, &anchor);
+  g_assert_cmpstr(text->text, ==, "az");
+  g_assert_cmpuint(cursor, ==, 1);
+  g_assert_cmpuint(anchor, ==, 2);
+  g_object_unref(text);
+  expect_record(IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, g_variant_new("()"));
+
   ibus_engine_get_surrounding_text(engine, NULL, NULL, NULL);
   expect_record(IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, g_variant_new("()"));
   g_signal_emit_by_name(engine, "set-capabilities", 123u);
@@ -332,22 +347,33 @@ static void surrounding_text(void) {
 static void surrounding_bounds(void) {
   const struct {
     guint cursor;
+    guint anchor;
     gint offset;
     guint count;
     const gchar *text;
     guint resulting_cursor;
+    guint resulting_anchor;
   } cases[] = {
-      {3, -2, 2, "az", 1},      {4, 0, 0, "a한글z", 4},
-      {2, 3, 1, "", 0},         {0, -1, 1, "", 0},
-      {2, 0, G_MAXUINT, "", 0}, {2, G_MAXINT, 1, "", 0},
-      {2, G_MININT, 1, "", 0},  {G_MAXUINT, 2, 1, "", 0},
+      {3, 3, -2, 2, "az", 1, 1},
+      {4, 4, 0, 0, "a한글z", 4, 4},
+      {2, 2, 3, 1, "", 0, 0},
+      {0, 0, -1, 1, "", 0, 0},
+      {2, 2, 0, G_MAXUINT, "", 0, 0},
+      {2, 2, G_MAXINT, 1, "", 0, 0},
+      {2, 2, G_MININT, 1, "", 0, 0},
+      {G_MAXUINT, G_MAXUINT, 2, 1, "", 0, 0},
+      /* An anchor before the deleted span stays, one inside it moves to its
+         start, and one after it moves back by its length. */
+      {3, 0, -2, 2, "az", 1, 0},
+      {3, 2, -2, 2, "az", 1, 1},
+      {1, 4, 0, 2, "az", 1, 2},
   };
   for (guint i = 0; i < G_N_ELEMENTS(cases); ++i) {
     g_test_message("deletion boundary %u", i);
     IBusEngine *engine = new_engine();
     IBusText *text = g_object_ref_sink(ibus_text_new_from_string("a한글z"));
     g_signal_emit_by_name(engine, "set-surrounding-text", text, cases[i].cursor,
-                          cases[i].cursor);
+                          cases[i].anchor);
     g_object_unref(text);
     ibus_engine_delete_surrounding_text(engine, cases[i].offset,
                                         cases[i].count);
@@ -357,6 +383,7 @@ static void surrounding_bounds(void) {
     ibus_engine_get_surrounding_text(engine, &text, &cursor, &anchor);
     g_assert_cmpstr(text->text, ==, cases[i].text);
     g_assert_cmpuint(cursor, ==, cases[i].resulting_cursor);
+    g_assert_cmpuint(anchor, ==, cases[i].resulting_anchor);
     g_object_unref(text);
     expect_record(IBUSWEB_REC_REQUIRE_SURROUNDING_TEXT, g_variant_new("()"));
     g_object_unref(engine);
