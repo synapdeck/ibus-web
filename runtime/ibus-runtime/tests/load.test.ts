@@ -242,6 +242,18 @@ describe.each([
   });
 });
 
+// The IndexedDB backend's JavaScript calls back into it through function
+// pointers, so no export of the runtime is an internal of the backend that a
+// side module could import.
+test("released and asserting runtimes export none of the IndexedDB backend's internals", async () => {
+  for (const runtime of [data("released"), data("asserting")]) {
+    const wasm = await WebAssembly.compile(await readFile(new URL("ibus-runtime.wasm", pathToFileURL(runtime))));
+    const names = WebAssembly.Module.exports(wasm).map(({ name }) => name);
+    expect(names).toContain("wasmfs_create_idb_backend");
+    expect(names.filter((name) => name.startsWith("_wasmfs_idb_"))).toEqual([]);
+  }
+});
+
 test("released and asserting distributions ship the generated runtime constants", async () => {
   const expected = await readFile(data("constants"), "utf8");
   const constants = JSON.parse(expected) as Record<string, unknown>;

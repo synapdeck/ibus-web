@@ -91,9 +91,10 @@ any positive size stored is read.
 `proxySyncWithCtx()`. On the thread, an asynchronous JavaScript import runs one IndexedDB transaction, writes its
 results through the out-pointers it was given and calls `_emscripten_proxy_finish(ctx)`, which releases the blocked
 caller. Calls from several threads overlap on the backend's thread, each in its own transaction, and IndexedDB orders
-them. Nothing on that thread calls back into WasmFS; directory entries and symlink targets come back through two
-exported helpers that only fill a `std::vector` or a `std::string`, as `_wasmfs_opfs_record_entry` does. Offsets and
-sizes cross as `double`s and inode numbers as `uint32_t`, so no import needs `__i53abi`. The database's state lives in a
+them. Nothing on that thread calls back into WasmFS; directory entries and symlink targets come back through two helpers
+that only fill a `std::vector` or a `std::string`, which the backend passes as function pointers and the library calls
+through `dynCall`, where the OPFS backend exports `_wasmfs_opfs_record_entry` instead. Offsets and sizes cross as
+`double`s and inode numbers as `uint32_t`, so no import needs `__i53abi`. The database's state lives in a
 `HandleAllocator` on the backend's thread; the C++ objects hold its handle and their inode numbers.
 
 **Writes are write-through.** Each `write()` is one read-write transaction, with the browser's default durability, that

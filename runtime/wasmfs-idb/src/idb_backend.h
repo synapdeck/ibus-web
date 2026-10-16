@@ -47,6 +47,13 @@ static_assert(wasmfs::File::SymlinkKind == 3);
 
 extern "C" {
 
+// The two calls the JavaScript library makes back into the backend, which it
+// is handed by function pointer, so that neither is an export a side module
+// could import: a lookup's symlink target, and one entry of a listing.
+typedef void (*IdbSetString)(std::string *string, const char *value);
+typedef void (*IdbRecordEntry)(std::vector<wasmfs::Directory::Entry> *entries,
+                               const char *name, int kind);
+
 // Opens the database `name`, creating it with chunks of `chunk_size` bytes if
 // it doesn't exist, and unless `read_only`, deletes the inodes no directory
 // holds. Writes the backend's handle, or an error, to `id` and the root
@@ -61,10 +68,10 @@ void _wasmfs_idb_get_attrs(em_proxying_ctx *ctx, int id, uint32_t ino,
                            IdbAttrs *attrs);
 
 // The child `name` of `parent`, with its attributes and, for a symlink, its
-// target; attrs->err is -ENOENT if there is none.
+// target, which set_target stores; attrs->err is -ENOENT if there is none.
 void _wasmfs_idb_get_child(em_proxying_ctx *ctx, int id, uint32_t parent,
                            const char *name, IdbAttrs *attrs,
-                           std::string *target);
+                           std::string *target, IdbSetString set_target);
 
 // Creates an inode of `kind` as the child `name` of `parent`. `target` is a
 // symlink's target and null otherwise.
@@ -84,10 +91,10 @@ void _wasmfs_idb_remove(em_proxying_ctx *ctx, int id, uint32_t parent,
 void _wasmfs_idb_count_entries(em_proxying_ctx *ctx, int id, uint32_t dir,
                                int32_t *count);
 
-// Calls _wasmfs_idb_record_entry for each of the directory's entries.
+// Calls record for each of the directory's entries.
 void _wasmfs_idb_get_entries(em_proxying_ctx *ctx, int id, uint32_t dir,
                              std::vector<wasmfs::Directory::Entry> *entries,
-                             int *err);
+                             int *err, IdbRecordEntry record);
 
 // Counts a descriptor open on `ino`, so that unlinking it keeps its data;
 // -ENOENT if an unlink deleted the inode first.

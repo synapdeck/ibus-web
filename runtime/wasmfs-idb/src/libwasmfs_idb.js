@@ -389,8 +389,9 @@ const _wasmfs_idb_get_attrs = (ctx, id, ino, attrsPtr) => {
  * @param {number} namePtr
  * @param {number} attrsPtr
  * @param {number} targetPtr
+ * @param {number} setTarget
  */
-const _wasmfs_idb_get_child = (ctx, id, parent, namePtr, attrsPtr, targetPtr) => {
+const _wasmfs_idb_get_child = (ctx, id, parent, namePtr, attrsPtr, targetPtr, setTarget) => {
   parent >>>= 0;
   const name = UTF8ToString(namePtr);
   wasmfsIdbRun(
@@ -415,7 +416,7 @@ const _wasmfs_idb_get_child = (ctx, id, parent, namePtr, attrsPtr, targetPtr) =>
       wasmfsIdbWriteAttrs(attrsPtr, found.ino, found.inode);
       if (found.inode.target !== undefined) {
         const sp = stackSave();
-        __wasmfs_idb_set_string(targetPtr, stringToUTF8OnStack(found.inode.target));
+        dynCall("vpp", setTarget, [targetPtr, stringToUTF8OnStack(found.inode.target)]);
         stackRestore(sp);
       }
     },
@@ -577,8 +578,9 @@ const _wasmfs_idb_count_entries = (ctx, id, dir, countPtr) => {
  * @param {number} dir
  * @param {number} entriesPtr
  * @param {number} errPtr
+ * @param {number} record
  */
-const _wasmfs_idb_get_entries = (ctx, id, dir, entriesPtr, errPtr) => {
+const _wasmfs_idb_get_entries = (ctx, id, dir, entriesPtr, errPtr, record) => {
   dir >>>= 0;
   wasmfsIdbRun(
     ctx,
@@ -602,7 +604,7 @@ const _wasmfs_idb_get_entries = (ctx, id, dir, entriesPtr, errPtr) => {
     (list) => {
       for (const { name, kind } of list) {
         const sp = stackSave();
-        __wasmfs_idb_record_entry(entriesPtr, stringToUTF8OnStack(name), kind);
+        dynCall("vppi", record, [entriesPtr, stringToUTF8OnStack(name), kind]);
         stackRestore(sp);
       }
     },
@@ -992,7 +994,7 @@ addToLibrary({
   ],
   _wasmfs_idb_get_attrs: _wasmfs_idb_get_attrs,
 
-  _wasmfs_idb_get_child__sig: "vpiippp",
+  _wasmfs_idb_get_child__sig: "vpiipppp",
   _wasmfs_idb_get_child__deps: [
     "$wasmfsIdbRun",
     "$wasmfsIdbTransact",
@@ -1003,7 +1005,7 @@ addToLibrary({
     "$stringToUTF8OnStack",
     "$stackSave",
     "$stackRestore",
-    "_wasmfs_idb_set_string",
+    "$dynCall",
   ],
   _wasmfs_idb_get_child: _wasmfs_idb_get_child,
 
@@ -1051,7 +1053,7 @@ addToLibrary({
   _wasmfs_idb_count_entries__deps: ["$wasmfsIdbRun", "$wasmfsIdbTransact", "$wasmfsIdbRequest", "$wasmfsIdbEntryRange"],
   _wasmfs_idb_count_entries: _wasmfs_idb_count_entries,
 
-  _wasmfs_idb_get_entries__sig: "vpiipp",
+  _wasmfs_idb_get_entries__sig: "vpiippp",
   _wasmfs_idb_get_entries__deps: [
     "$wasmfsIdbRun",
     "$wasmfsIdbTransact",
@@ -1060,7 +1062,7 @@ addToLibrary({
     "$stringToUTF8OnStack",
     "$stackSave",
     "$stackRestore",
-    "_wasmfs_idb_record_entry",
+    "$dynCall",
   ],
   _wasmfs_idb_get_entries: _wasmfs_idb_get_entries,
 

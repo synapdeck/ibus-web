@@ -70,8 +70,9 @@ plus an Emscripten JS library (`src/libwasmfs_idb.js`) that links with `--js-lib
   pool's storage share is 2 ([runtime.md](runtime.md)).
 - **Nothing on the backend's thread calls back into WasmFS.** WasmFS calls a backend method with that file's recursive
   lock held and the caller blocked, so the backend's thread may take no file lock and make no file system call.
-  Directory entries and symlink targets come back through two exported helpers, `_wasmfs_idb_record_entry` and
-  `_wasmfs_idb_set_string`, that only fill a `std::vector` or a `std::string`.
+  Directory entries and symlink targets come back through two helpers that only fill a `std::vector` or a `std::string`,
+  which the backend hands the library as function pointers and the library calls through `dynCall`, so neither is a
+  runtime export a side module could import.
 - **State.** The JS side keeps each open database in a `HandleAllocator` on the backend's thread; the C++ objects
   (`IdbFile`, `IdbDirectory`, `IdbSymlink`) hold its handle and their inode numbers. Each file's constructor loads its
   stored mode and times in place of the ones WasmFS makes up. WasmFS keeps file identity in its own cache

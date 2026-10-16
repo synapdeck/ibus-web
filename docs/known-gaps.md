@@ -203,8 +203,6 @@ decided.
   the reader's next read fails with `ENOENT`. No current engine meets it: engine data is never unlinked, a read-only
   Rime fails at LevelDB's `LOCK` before it opens any of a user dictionary's files, and Mozc reads its files whole.
 
-- **The backend's internals are runtime exports.** `_wasmfs_idb_record_entry` and `_wasmfs_idb_set_string` are
-  `EMSCRIPTEN_KEEPALIVE`; only the export manifest keeps side modules off them.
 - **Node.** The Node backend has no read-only mode, so a read-only mount and a seal are conventions there; Web Locks
   don't coordinate separate Node processes sharing a directory; and the Node marker's directory sync swallows every
   error, `EIO` included.

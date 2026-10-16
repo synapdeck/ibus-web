@@ -50,6 +50,15 @@ static_assert(defaultChunkSize <= maxChunkSize,
 // Every offset a file may reach is a double holding an integer exactly.
 constexpr off_t maxFileSize = (off_t(1) << 53) - 1;
 
+static void setString(std::string *string, const char *value) {
+  *string = value;
+}
+
+static void recordEntry(std::vector<Directory::Entry> *entries,
+                        const char *name, int kind) {
+  entries->push_back({name, File::FileKind(kind), 0});
+}
+
 class IdbBackend : public wasmfs::Backend {
 public:
   ProxyWorker proxy;
@@ -289,7 +298,7 @@ private:
     std::string target;
     backend.proxy([&](auto ctx) {
       _wasmfs_idb_get_child(ctx.ctx, backend.id, ino, name.c_str(), &attrs,
-                            &target);
+                            &target, setString);
     });
     if (attrs.err) {
       return attrs.err;
@@ -388,7 +397,8 @@ private:
     std::vector<Directory::Entry> entries;
     int err = 0;
     backend.proxy([&](auto ctx) {
-      _wasmfs_idb_get_entries(ctx.ctx, backend.id, ino, &entries, &err);
+      _wasmfs_idb_get_entries(ctx.ctx, backend.id, ino, &entries, &err,
+                              recordEntry);
     });
     if (err) {
       return {err};
@@ -474,16 +484,6 @@ int wasmfs_idb_backend_closed(backend_t backend) {
   auto *idb =
       static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend));
   return idb->closed.load() != 0;
-}
-
-void EMSCRIPTEN_KEEPALIVE _wasmfs_idb_record_entry(
-    std::vector<Directory::Entry> *entries, const char *name, int kind) {
-  entries->push_back({name, File::FileKind(kind), 0});
-}
-
-void EMSCRIPTEN_KEEPALIVE _wasmfs_idb_set_string(std::string *string,
-                                                 const char *value) {
-  *string = value;
 }
 
 } // extern "C"
