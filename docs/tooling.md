@@ -492,12 +492,16 @@ Changesets versions the published packages and writes their changelogs; a tag pu
   the copies under `sources/` keep them at hand should an upstream go away. `checks.tools-release-source-bundles` fails
   when an engine the demo serves has no bundle, and `integration-checks` builds every bundle
   (`ibusWeb.testing.extendedChecks.release-source-bundles`), so one that can't be built fails before a tag is pushed.
-- **`release.yml`**, on a `v*` tag, on the x86_64-linux runner with `contents: write` and `id-token: write`: builds
+- **`release.yml`**, on a `v*` tag. The `release` job, on the x86_64-linux runner with `contents: write`, builds
   `.#release`, checks that the tag is `v` and its version, creates the GitHub release from `assets/` with `notes.md`
-  (`gh release create --verify-tag`), then runs `npm publish` on each tarball. npm's trusted publishing exchanges the
-  job's OIDC token for a short-lived credential, so no npm token is stored, and npm attaches provenance; it needs npm
-  11.5.1 or later, which the workspace's Node 26 carries. Each package on npmjs must trust this repository's
-  `release.yml`.
+  (`gh release create --verify-tag`), and uploads the npm tarballs as an artifact. The `npm` job then runs `npm publish`
+  on each on GitHub's `ubuntu-latest`, under Node 26 from `actions/setup-node`, with `id-token: write`: npm's trusted
+  publishing exchanges the job's OIDC token for a short-lived credential and accepts only GitHub-hosted runners. No npm
+  token is stored, and npm attaches provenance. It needs npm 11.5.1 or later, which Node 26 carries. A version already
+  on the registry is skipped, so rerunning the `npm` job finishes a partial publish. Each package on npmjs trusts this
+  repository's `release.yml`. npm sets that up only for a package that exists, so a newly published package first needs
+  a placeholder version published by hand, then
+  `npm trust github <name> --file release.yml --repo synapdeck/ibus-web --allow-publish`.
 - **`reproducibility.yml`**, weekly and on demand, builds the runtime and each engine's side module, then builds them
   again with `--rebuild`, which compares the new outputs with the first; once a release's changelogs exist, it does the
   same for `.#release`. `--rebuild` compares only the derivations it names.

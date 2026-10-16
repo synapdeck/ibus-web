@@ -205,9 +205,8 @@ decided.
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
 - **Nothing is released yet.** The packages stay at `0.0.0` until the first release's changeset is versioned and tagged.
-  Whether npm lets a trusted publisher be configured before a package's first version exists is unverified (design spec
-  R14); if not, each package's first version needs one manual publish with a token. The release workflow hasn't run, and
-  a rerun after a partial publish fails on the versions already published.
+  Each package holds a `0.0.0-placeholder` published by hand, since npm configures a trusted publisher only for a
+  package that exists, and each trusts `release.yml`. The release workflow hasn't run.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't removed; the Node
   archive server in the Vitest config process is `unref`'d, not closed; Vite's unanalyzable-import warning is filtered
   by its text.

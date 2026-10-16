@@ -205,6 +205,8 @@
         # then each npm tarball. Publishing builds nothing, and npm's trusted
         # publishing trades the job's OIDC token for a short-lived
         # credential, so no npm token is stored, and npm attaches provenance.
+        # npm trusts only GitHub-hosted runners, so the tarballs move to one
+        # for the publish.
         workflows.release = {
           name = "Release";
           on.push.tags = [ "v*" ];
@@ -232,15 +234,19 @@
                   run = ''gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file release/notes.md release/assets/*'';
                   env.GH_TOKEN = "\${{ github.token }}";
                 }
-                # Trusted publishing needs npm 11.5.1 or later, which the
-                # workspace's Node carries.
+                # The upload doesn't follow the result symlink's directory.
                 {
-                  name = "Publish to npm";
-                  run = ''
-                    for tarball in release/assets/*.tgz; do
-                      nix shell --inputs-from . nixpkgs#nodejs_26 -c npm publish "$tarball" --access public
-                    done
-                  '';
+                  name = "Collect the npm tarballs";
+                  run = "mkdir npm && cp release/assets/*.tgz npm/";
+                }
+                {
+                  name = "Upload the npm tarballs";
+                  uses = "actions/upload-artifact@v7.0.2";
+                  with_ = {
+                    name = "npm";
+                    path = "npm/*.tgz";
+                    if-no-files-found = "error";
+                  };
                 }
               ];
             }
@@ -250,6 +256,48 @@
                 id-token = "write";
               };
             };
+
+          # Trusted publishing needs npm 11.5.1 or later, which Node 26
+          # carries. A version already on the registry is skipped, so
+          # rerunning the job after a partial publish finishes it.
+          jobs.npm = {
+            name = "Publish to npm";
+            needs = [ "release" ];
+            runsOn = "ubuntu-latest";
+            timeoutMinutes = 30;
+            permissions = {
+              contents = "read";
+              id-token = "write";
+            };
+            steps = [
+              {
+                name = "Install Node";
+                uses = "actions/setup-node@v7.1.0";
+                with_.node-version = "26";
+              }
+              {
+                name = "Download the npm tarballs";
+                uses = "actions/download-artifact@v8.0.2";
+                with_ = {
+                  name = "npm";
+                  path = "npm";
+                };
+              }
+              {
+                name = "Publish";
+                run = ''
+                  for tarball in npm/*.tgz; do
+                    spec=$(tar -xOzf "$tarball" package/package.json | jq -r '.name + "@" + .version')
+                    if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
+                      echo "$spec is already published"
+                    else
+                      npm publish "$tarball" --access public
+                    fi
+                  done
+                '';
+              }
+            ];
+          };
         };
 
         # Builds the release's WebAssembly again and compares it with what

@@ -4,6 +4,35 @@ concurrency:
   cancel-in-progress: false
   group: release
 jobs:
+  npm:
+    name: Publish to npm
+    needs:
+      - release
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "26"
+      - name: Download the npm tarballs
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: npm
+          path: npm
+      - name: Publish
+        run: |
+          for tarball in npm/*.tgz; do
+            spec=$(tar -xOzf "$tarball" package/package.json | jq -r '.name + "@" + .version')
+            if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
+              echo "$spec is already published"
+            else
+              npm publish "$tarball" --access public
+            fi
+          done
+    timeout-minutes: 30
   release:
     name: Release
     permissions:
@@ -27,11 +56,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         name: Create the GitHub release
         run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file release/notes.md release/assets/*
-      - name: Publish to npm
-        run: |
-          for tarball in release/assets/*.tgz; do
-            nix shell --inputs-from . nixpkgs#nodejs_26 -c npm publish "$tarball" --access public
-          done
+      - name: Collect the npm tarballs
+        run: mkdir npm && cp release/assets/*.tgz npm/
+      - name: Upload the npm tarballs
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          if-no-files-found: error
+          name: npm
+          path: npm/*.tgz
     timeout-minutes: 360
 name: Release
 "on":
