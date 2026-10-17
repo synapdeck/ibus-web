@@ -31,5 +31,5 @@ Worker takes 77 MiB of memory. Details are in
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-m17n` packs the
 tarball.
 
-Licensed under `GPL-2.0-or-later AND LGPL-2.1-or-later`: ibus-m17n is GPL-2.0-or-later, and m17n-lib, which the module
-links, and m17n-db, whose input methods are its data, are LGPL-2.1-or-later. Both texts are in `LICENSES/`.
+Licensed under GPL-2.0-or-later, which covers the package as a whole: ibus-m17n is GPL-2.0-or-later, and m17n-lib, which
+the module links, and m17n-db, whose input methods are its data, are LGPL-2.1-or-later. Both texts are in `LICENSES/`.

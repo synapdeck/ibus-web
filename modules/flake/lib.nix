@@ -80,7 +80,8 @@ in
     in
     {
       # Deprecated ids are renamed and repeats dropped, but no license is
-      # merged into another, and an id SPDX doesn't know fails.
+      # merged into another, and an id SPDX doesn't know fails. A summary
+      # takes in what a GPL in it can, and fails on anything else.
       checks.flake-spdx-expression =
         let
           inherit (config.ibusWeb.lib) spdxExpression;
@@ -102,6 +103,23 @@ in
           test "$(< ${spdxExpression gpl2Plus})" = GPL-2.0-or-later
           if python3 ${./spdx-expression.py} Nonsense-1.0; then
             echo "an unknown id was accepted" >&2
+            exit 1
+          fi
+
+          summary() { python3 ${./spdx-expression.py} --summary "$@"; }
+          test "$(summary GPL-3.0-only GPL-3.0-or-later MIT Apache-2.0 LGPL-3.0-only CC-BY-4.0)" = GPL-3.0-only
+          test "$(summary GPL-2.0-or-later GPL-2.0+ LGPL-2.1-or-later BSD-3-Clause)" = GPL-2.0-or-later
+          test "$(summary 'GPL-2.0-only AND CC-BY-SA-4.0' GPL-2.0 GPL-2.0-or-later CC-BY-SA-4.0 NAIST-2003)" \
+            = "GPL-2.0-only AND CC-BY-SA-4.0"
+          for refused in "GPL-2.0-only Apache-2.0" "GPL-2.0-only GPL-3.0-only" "MIT BSD-3-Clause" \
+            "GPL-3.0-only CC-BY-SA-4.0"; do
+            if summary $refused 2>/dev/null; then
+              echo "summary $refused was accepted" >&2
+              exit 1
+            fi
+          done
+          if summary GPL-3.0-only "MIT OR Apache-2.0" 2>/dev/null; then
+            echo "a choice of licenses was summarized" >&2
             exit 1
           fi
           touch $out
@@ -138,6 +156,17 @@ in
           licenses:
           pkgs.runCommand "ibus-web-license-expression" { nativeBuildInputs = [ spdxPython ]; } ''
             python3 ${./spdx-expression.py} ${
+              lib.escapeShellArgs (map (license: license.spdxId) (lib.toList licenses))
+            } > $out
+          '';
+
+        # A file holding summary, an SPDX conjunction the contents under all of
+        # licenses can be passed on under as a whole: every license is one of
+        # its or one a GNU GPL in it takes in, else the build fails.
+        spdxSummary =
+          summary: licenses:
+          pkgs.runCommand "ibus-web-license-summary" { nativeBuildInputs = [ spdxPython ]; } ''
+            python3 ${./spdx-expression.py} --summary ${lib.escapeShellArg summary} ${
               lib.escapeShellArgs (map (license: license.spdxId) (lib.toList licenses))
             } > $out
           '';

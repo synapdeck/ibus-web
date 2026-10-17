@@ -190,8 +190,11 @@ abort) passes through as it is, and a fallback that fails to load says so.
 only its `package.json` and README, since Nix builds its contents: `nix build .#npm.engine-hangul` copies
 `ibus-web-hangul-dist` into it as `dist/`, adds the license texts of the engine and libhangul to `LICENSES/`, and packs
 it with `ibusWeb.typescript.npmTarball`, which fails unless the package's `license` is the engine's `meta.license` as
-`spdxExpression` normalizes it, the manifest's license. `checks.typescript-npm` builds it with the other tarballs. It
-exports `manifest.json`, `hangul.wasm`, `settings.json` and `data/*`. A host serves `dist/` as it is and passes
+`spdxExpression` normalizes it, the manifest's license. The m17n, Mozc and Rime packages state instead what the package
+can be passed on under as a whole, which `ibusWeb.lib.spdxSummary` checks against the same licenses: each must be in it
+or be one a GNU GPL in it takes in, a permissive license, an LGPL it can be converted to or its own version's or-later
+form. Their manifests keep the full expression. `checks.typescript-npm` builds it with the other tarballs. It exports
+`manifest.json`, `hangul.wasm`, `settings.json` and `data/*`. A host serves `dist/` as it is and passes
 `manifest.json`'s URL to ibus-web.
 
 ## Startup and patch layers

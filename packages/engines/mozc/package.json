@@ -12,7 +12,7 @@
   ],
   "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/mozc.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
-  "license": "BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0-only AND CC-BY-SA-4.0 AND GPL-2.0-or-later",
+  "license": "GPL-2.0-only AND Apache-2.0 AND CC-BY-SA-4.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/synapdeck/ibus-web.git",

@@ -26,8 +26,8 @@ module's Worker takes 134 MiB of memory. Details are in
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-mozc` packs the
 tarball.
 
-Licensed under
-`BSD-3-Clause AND Apache-2.0 AND NAIST-2003 AND MIT AND Unicode-DFS-2015 AND GPL-2.0-only AND CC-BY-SA-4.0 AND GPL-2.0-or-later`:
-Mozc and the components its own credits name, and the UT dictionaries, each under its own terms. `LICENSES/` holds the
-texts the repository has, Mozc's licence and credits in `LICENSES/mozc/`, and each UT dictionary's licence in
-`LICENSES/mozcdic-ut-<name>/LICENSE`.
+Licensed under `GPL-2.0-only AND Apache-2.0 AND CC-BY-SA-4.0`, which covers the package as a whole. Mozc and the
+components its own credits name are under the BSD-3-Clause, Apache-2.0, MIT, NAIST-2003 and Unicode-DFS-2015 licences,
+and the UT dictionaries, merged into Mozc's, under GPL-2.0-only, GPL-2.0-or-later, Apache-2.0 and CC-BY-SA-4.0. GPL-2.0
+takes in the rest but Apache-2.0 and CC-BY-SA-4.0. `LICENSES/` holds the texts the repository has, Mozc's licence and
+credits in `LICENSES/mozc/`, and each UT dictionary's licence in `LICENSES/mozcdic-ut-<name>/LICENSE`.

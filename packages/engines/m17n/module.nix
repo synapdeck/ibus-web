@@ -24,7 +24,8 @@
 
         files.dist = config.packages.ibus-web-m17n-dist;
         inherit licenses;
-        license = config.ibusWeb.lib.spdxExpression package.meta.license;
+        # ibus-m17n's GPL takes in m17n-lib's and m17n-db's LGPL.
+        license = config.ibusWeb.lib.spdxSummary "GPL-2.0-or-later" package.meta.license;
 
         # The exports name the rest; the data archives' names are hashes.
         expect = map (id: "LICENSES/${id}.txt") licenses;

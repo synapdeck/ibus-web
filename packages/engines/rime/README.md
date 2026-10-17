@@ -37,12 +37,11 @@ Details are in [docs/rime.md](https://github.com/synapdeck/ibus-web/blob/master/
 `dist/` comes from the Nix build of the module, never from this directory: `nix build .#npm.engine-rime` packs the
 tarball.
 
-Licensed under
-`GPL-3.0-or-later AND BSD-3-Clause AND GPL-3.0-only AND MIT AND Apache-2.0 AND BSD-2-Clause AND BSL-1.0 AND LGPL-3.0-only AND CC-BY-4.0`:
-ibus-rime is GPL-3.0-or-later; librime, its plugins and their dependencies, linked into the module, are under the BSD,
-MIT, Apache and Boost licences and librime-octagram under GPL-3.0-only; `rime-data`'s schemas are GPL-3.0-only,
-LGPL-3.0-only, Apache-2.0 and CC-BY-4.0 between them, rime-loengfan is CC-BY-4.0 and rime-ice GPL-3.0-only. The
-Cantonese dictionary `jyut6ping3`, from [rime-cantonese](https://github.com/rime/rime-cantonese), and `loengfan`, from
+Licensed under GPL-3.0-only, which covers the package as a whole: ibus-rime is GPL-3.0-or-later; librime, its plugins
+and their dependencies, linked into the module, are under the BSD, MIT, Apache and Boost licences and librime-octagram
+under GPL-3.0-only; `rime-data`'s schemas are GPL-3.0-only, LGPL-3.0-only, Apache-2.0 and CC-BY-4.0 between them,
+rime-loengfan is CC-BY-4.0 and rime-ice GPL-3.0-only. The Cantonese dictionary `jyut6ping3`, from
+[rime-cantonese](https://github.com/rime/rime-cantonese), and `loengfan`, from
 [rime-loengfan](https://github.com/CanCLID/rime-loengfan), are CanCLID's, under CC-BY-4.0, compiled into Rime's tables;
 `LICENSES/ATTRIBUTION.md` credits them. Each licence text is in `LICENSES/`, and the copyright notices of librime,
 librime-lua, LevelDB, yaml-cpp, glog, Lua, MARISA and rime-loengfan in `LICENSES/<component>/`.

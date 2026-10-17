@@ -36,7 +36,9 @@
           dist = config.packages.ibus-web-mozc-dist;
         };
         inherit licenses;
-        license = config.ibusWeb.lib.spdxExpression mozc.meta.license;
+        # The dictionaries' GPL takes in Mozc's permissive licenses and its
+        # data's, all but Apache-2.0, which version 2 can't.
+        license = config.ibusWeb.lib.spdxSummary "GPL-2.0-only AND Apache-2.0 AND CC-BY-SA-4.0" mozc.meta.license;
 
         # The exports name the rest; the data archives' names are hashes.
         expect = map (id: "LICENSES/${id}.txt") licenses ++ lib.attrNames notices;

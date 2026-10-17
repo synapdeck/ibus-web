@@ -16,7 +16,7 @@
   ],
   "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/rime.md",
   "bugs": "https://github.com/synapdeck/ibus-web/issues",
-  "license": "GPL-3.0-or-later AND BSD-3-Clause AND GPL-3.0-only AND MIT AND Apache-2.0 AND BSD-2-Clause AND BSL-1.0 AND LGPL-3.0-only AND CC-BY-4.0",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/synapdeck/ibus-web.git",

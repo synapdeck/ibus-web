@@ -52,7 +52,9 @@
               dist = dist.override { inherit schemas; };
             };
           inherit licenses;
-          license = config.ibusWeb.lib.spdxExpression dist.licenses;
+          # librime-octagram's GPL takes in every other component's license and
+          # the data's.
+          license = config.ibusWeb.lib.spdxSummary "GPL-3.0-only" dist.licenses;
 
           # The exports name the rest; the data archives' names are hashes.
           expect = map (id: "LICENSES/${id}.txt") ids ++ lib.attrNames dist.notices;
