@@ -203,6 +203,38 @@ test("usage gives every version's data still stored, an older one's beside the c
   });
 });
 
+test("a Rime dictionary's database moved aside is user data, counted, exported and reset with the rest", async () => {
+  const aside = "rime_ice.userdb.corrupt-20261016T120000";
+  const current = new TextEncoder().encode("MANIFEST-000002\n");
+  const node = (kind: number, mode: number, size = 0) => ({ kind, mode, size, atime: 0, mtime: 0, ctime: 0 });
+  await make(user, ["meta", "inodes", "entries", "chunks"], (tx) => {
+    const meta = tx.objectStore("meta");
+    meta.put(1, "format");
+    meta.put(chunkSize, "chunkSize");
+    meta.put(4, "nextIno");
+    meta.put(1, "root");
+    const inodes = tx.objectStore("inodes");
+    inodes.put(node(2, 0o777), 1);
+    inodes.put(node(2, 0o755), 2);
+    inodes.put(node(1, 0o644, current.length), 3);
+    tx.objectStore("entries").put(2, [1, aside]);
+    tx.objectStore("entries").put(3, [2, "CURRENT"]);
+    tx.objectStore("chunks").put(current.slice().buffer, [3, 0]);
+  });
+  const { app } = facade();
+
+  expect((await app.storage.usage()).modules.test!.userData).toBe(current.length);
+  const archive = new Uint8Array(await (await app.storage.export("test")).arrayBuffer());
+  expect(members(archive).map(({ name, data }) => [name, data.length])).toEqual([
+    [`${aside}/`, 0],
+    [`${aside}/CURRENT`, current.length],
+  ]);
+
+  await app.storage.reset("test");
+  expect((await indexedDB.databases()).map(({ name }) => name)).not.toContain(user);
+  expect((await app.storage.usage()).modules.test!.userData).toBe(0);
+});
+
 test("export gives the user data as a tar, once a running module has persisted", async () => {
   await stored();
   const { app, connections } = facade();
