@@ -28,8 +28,8 @@ const manifest: ModuleManifest = {
   memory: 65536,
   threads: 0,
   data: [
-    { storePath: basePath, url: "./data/base.tar.br", size: 1000, encoding: "br" },
-    { storePath: lazyPath, url: "./data/lazy.tar.br", size: 5000, encoding: "br" },
+    { storePath: basePath, url: "./data/base.tar.br", size: 1000, files: 1, encoding: "br" },
+    { storePath: lazyPath, url: "./data/lazy.tar.br", size: 5000, files: 1, encoding: "br" },
   ],
   settingsSchemaDir: `${basePath}/schemas`,
   engines: [
