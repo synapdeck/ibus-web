@@ -163,8 +163,8 @@
       # backend thread leaves in the pool, and for a memory imported, without
       # growth, at a size between its initial size and its maximum, for
       # output that a reader takes in more slowly than the program writes it,
-      # for pipes on both file systems, and for a NUL byte written to WasmFS's
-      # standard streams.
+      # for pipes on both file systems, for a NUL byte written to WasmFS's
+      # standard streams, and for unlink() on a directory under NODERAWFS.
       checks.emscripten-fixes = testing.programs {
         name = "emscripten-fixes";
 
@@ -176,6 +176,10 @@
           })
           (program {
             name = "fstat-stdio";
+            linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
+          })
+          (program {
+            name = "noderawfs-unlink";
             linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
           })
           (program {
