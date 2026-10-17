@@ -157,8 +157,8 @@ const preloaded = (message: Message): message is { type: "preloaded" } => messag
 
 // An install-only host installs the base data and the lazy engine's own,
 // answers for the engine, and says it is done once it has let go of every
-// lock: a host started after it finds both installed, and takes the writer
-// lock.
+// lock: a host started then, while the installer's Worker still runs, finds
+// both installed, and takes the writer lock.
 export const installOnly = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = lazyEngineFor(h, "install-only", runtime);
@@ -172,7 +172,6 @@ export const installOnly = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
       installer.messages.filter(({ type }) => type === "prepared"),
       "the engine's answer",
     ).toEqual([{ type: "prepared", engine: LAZY_ENGINE }]);
-    await installer.terminate();
 
     const host = await launch(engine).ready;
     expect(installOf(host.messages)?.state, "the base data after").toBe("present");
@@ -180,6 +179,7 @@ export const installOnly = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
       host.messages.some(({ type }) => type === "storage"),
       "a host that writes",
     ).toBe(false);
+    await installer.terminate();
     await prepareLazy(h, host, "present");
   });
 
