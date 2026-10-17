@@ -96,8 +96,10 @@ writer's and every change to it fails, so the module saves nothing there. It loa
 and IBus configuration as they are when it starts, and its config, `config1.db`, into Mozc's in-memory config file
 (`memory://config1.db`), where the settings then write it. The session handler's engine is wrapped in one whose `Sync`,
 which the handler calls to save what Mozc learned and its user dictionary as a context's engine goes and at a sync, does
-nothing: Mozc learns within the Worker's life, and loses it with the Worker. The module doesn't write
-`ibus_config.textproto`, so `active-on-launch` follows the writer's file.
+nothing: Mozc learns within the Worker's life, and loses it with the Worker. Its segment history, `segment.db`, is the
+exception: Mozc maps it read-write, which the read-only mount refuses, and its rewriter, finding no file it can create
+either, turns itself off, so a read-only tab doesn't rank a segment's candidates by the choices made before. The module
+doesn't write `ibus_config.textproto`, so `active-on-launch` follows the writer's file.
 
 ## Settings
 
@@ -167,9 +169,9 @@ names, as `LICENSES/mozc/`, and each UT dictionary's `LICENSE`, from its source,
   with 漢字 among the candidates; the panel's cursor, next-page and previous-page controls move through them; a click on
   the second page commits that page's candidate; settings from Init and from a later change reach the converter, and
   `active-on-launch` starts `mozc-jp` in hiragana; the direct-input engine passes keys through; a second host on the
-  same storage, read-only, converts and takes a settings change while the user directory stays as the writer left it,
-  byte for byte and time for time. It holds the program break and threads to the manifest's declaration and records each
-  start, 674–833 ms with the data installed from its archive.
+  same storage, read-only (the host's file system refusing the writes), converts and takes a settings change while the
+  user directory stays as the writer left it, byte for byte and time for time. It holds the program break and threads to
+  the manifest's declaration and records each start, 674–833 ms with the data installed from its archive.
 - `checks.mozc-cast-audit` reports on the build's cast reports and compares the findings with
   `engines/mozc/cast-audit.jsonc`. All 416 WebAssembly compiles are audited, 139 of them Abseil's, 78 Protocol Buffers'
   and 15 zlib's; the only findings are casts to `GCallback`, which the audit excludes, so the allow-list is empty.

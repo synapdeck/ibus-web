@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { readdir, stat } from "node:fs/promises";
+import { chmod, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   CandidateClicked,
@@ -58,6 +58,20 @@ const listing = async (dir: string): Promise<Record<string, { size: number; mtim
       }),
     ),
   );
+
+// Node's backend has no read-only mount, so the host file system refuses the
+// writes a browser's read-only mount would, a read-write open of segment.db
+// among them, whose mapped writes would otherwise reach the file only once
+// it is unmapped.
+const writable = async (dir: string, allowed: boolean): Promise<void> => {
+  const mode = (directory: boolean) => (allowed ? (directory ? 0o755 : 0o644) : directory ? 0o555 : 0o444);
+  if (allowed) await chmod(dir, mode(true));
+  for (const name of await readdir(dir, { recursive: true })) {
+    const path = join(dir, name);
+    await chmod(path, mode((await stat(path)).isDirectory()));
+  }
+  if (!allowed) await chmod(dir, mode(true));
+};
 
 // Types ASCII, whose keysyms are its code points.
 const typeText = async (session: PageSession, ic: number, text: string, ret = 1): Promise<DecodedRecord[]> => {
@@ -217,6 +231,7 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
     const user = userDirectory(writer);
     const before = await listing(user);
     expect(Object.keys(before)).toContain("config1.db");
+    await writable(user, false);
     let reader: PageSession | undefined;
     try {
       reader = await PageSession.start(h, runtime, manifest, {
@@ -239,6 +254,7 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
       expect(await listing(user)).toEqual(before);
     } finally {
       await reader?.host.terminate();
+      await writable(user, true);
     }
   });
 
