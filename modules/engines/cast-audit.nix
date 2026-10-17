@@ -75,8 +75,10 @@
             done
 
             mkdir $out
-            node ${script} report "''${reports[@]}" > $out/report.json 2> $out/report.txt
+            status=0
+            node ${script} report "''${reports[@]}" > $out/report.json 2> $out/report.txt || status=$?
             cat $out/report.txt
+            [ "$status" -eq 0 ] || exit "$status"
             runHook postBuild
           '';
           installPhase = ''

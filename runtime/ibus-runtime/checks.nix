@@ -179,9 +179,11 @@
       checks.ibus-runtime-exports = exportListCheck;
       checks.ibus-runtime-exports-script =
         pkgs.runCommand "ibus-web-ibus-runtime-exports-script"
+          # The runtime's headers are parsed for its target, as emcc parses
+          # them: Mach-O's mangled names would carry a leading underscore.
           {
-            CC = "${emscripten.llvmEnv}/bin/clang";
-            CXX = "${emscripten.llvmEnv}/bin/clang++";
+            CC = "${emscripten.llvmEnv}/bin/clang --target=wasm32-unknown-emscripten";
+            CXX = "${emscripten.llvmEnv}/bin/clang++ --target=wasm32-unknown-emscripten";
           }
           ''
             cp ${./exports.py} exports.py
