@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <glib/gstdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* rime_ice's user dictionary, a LevelDB database. */
@@ -289,6 +290,59 @@ static void unrepairable(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_true(tree_holds(aside, "种"));
 }
 
+/* The descriptor LevelDB writes the log through, found by the file it has
+ * open. */
+static int log_descriptor(void) {
+  g_autofree gchar *dir = g_build_filename(home, USERDB, NULL);
+  g_autoptr(GDir) entries = g_dir_open(dir, 0, NULL);
+  g_assert_nonnull(entries);
+  g_autofree gchar *path = NULL;
+  const gchar *name;
+  while ((name = g_dir_read_name(entries)) != NULL)
+    if (g_str_has_suffix(name, ".log"))
+      path = g_build_filename(dir, name, NULL);
+  g_assert_nonnull(path);
+
+  struct stat file;
+  g_assert_cmpint(stat(path, &file), ==, 0);
+  for (int fd = 3; fd < 1024; fd++) {
+    struct stat opened;
+    if (fstat(fd, &opened) == 0 && opened.st_ino == file.st_ino &&
+        opened.st_dev == file.st_dev)
+      return fd;
+  }
+  g_assert_not_reached();
+}
+
+/* A held write that fails reaches LevelDB at the log's next write, which
+ * fails as a write during a key would: the commit after it isn't learned. */
+static void held_failure(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  golden_create(fixture, "rime:rime_ice");
+  g_autofree gchar *held = choose(fixture, "guo", 2);
+  golden_type(fixture, "guo");
+  g_autofree gchar *learned = first_candidate(fixture);
+  g_assert_cmpstr(learned, ==, held);
+  g_assert_false(log_holds(held));
+  g_assert_cmpint(golden_key(fixture, IBUS_Escape, 1, 0), ==, 1);
+
+  /* The log's descriptor refuses writes from now on. */
+  int fd = log_descriptor();
+  int refusing = open("/dev/null", O_RDONLY);
+  g_assert_cmpint(refusing, >=, 0);
+  g_assert_cmpint(dup2(refusing, fd), ==, fd);
+  g_assert_cmpint(close(refusing), ==, 0);
+
+  golden_expect_log(G_LOG_LEVEL_WARNING,
+                    "Rime's user dictionary log wasn't written: *");
+  golden_empty_request(fixture, IBUSWEB_REQ_PERSIST);
+  golden_assert_expected_logs();
+
+  g_autofree gchar *lost = choose(fixture, "ren", 2);
+  golden_type(fixture, "ren");
+  g_autofree gchar *first = first_candidate(fixture);
+  g_assert_cmpstr(first, !=, lost);
+}
+
 /* Each time the dictionary is opened again, LevelDB turns its log into a
  * table; at four, it compacts them on its own thread. */
 static void compaction(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
@@ -318,7 +372,7 @@ int main(int argc, char **argv) {
                              "FILE"},
                             {"step", 0, 0, G_OPTION_ARG_STRING, &step,
                              "learn, remember, io-error, repair, "
-                             "unrepairable or compact",
+                             "unrepairable, held-failure or compact",
                              "STEP"},
                             {NULL}};
   GOptionContext *context_options = g_option_context_new(NULL);
@@ -333,7 +387,7 @@ int main(int argc, char **argv) {
    * through this one, which can't serve it while closing the database
    * waits for that thread, so compaction keeps them in memory, as the
    * IndexedDB backend's own thread would. */
-  if (g_str_equal(step, "compact")) {
+  if (g_str_equal(step, "compact") || g_str_equal(step, "held-failure")) {
     home = g_strdup("/engines/rime");
   } else {
     golden_mount_host("/host");
@@ -364,6 +418,9 @@ int main(int argc, char **argv) {
   else if (g_str_equal(step, "unrepairable"))
     g_test_add("/rime-userdb/unrepairable", Fixture, NULL, golden_setup,
                unrepairable, golden_teardown);
+  else if (g_str_equal(step, "held-failure"))
+    g_test_add("/rime-userdb/held-failure", Fixture, NULL, golden_setup,
+               held_failure, golden_teardown);
   else
     g_test_add("/rime-userdb/compaction", Fixture, NULL, golden_setup,
                compaction, golden_teardown);

@@ -138,9 +138,6 @@ decided.
   100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
   Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
 
-- **A failed held log write is only logged.** The module holds a user dictionary's log writes back until input pauses
-  ([rime.md](rime.md#learning)); when one then fails, it logs a warning, but LevelDB, told earlier that the write
-  succeeded, never enters its error state.
 - **Rime's heap in the worst case passes 147 MiB.** A redeployment that ends with the heap at 122.5 MB, followed by a
   session that loads `rime_ice`'s 60.7 MB table above it, would pass the declared 147 MiB. The traced sessions added
   nothing or 8.4 MB, and none of 36 runs reached it ([rime.md](rime.md#distribution)).

@@ -250,6 +250,11 @@ void ArmIdle();
 // through the page's main thread. What the pumping thread writes stays in
 // the file's buffer until input pauses or the page asks for Persist. Other
 // threads, which handle no keys, write through.
+//
+// LevelDB was told a held write succeeded, so one that fails later is kept
+// and returned from every later call: the records it held are lost, and the
+// log's blocks no longer line up after them, so nothing more is written to
+// it. The next write fails as a write that failed during a key would.
 class HeldLog : public leveldb::WritableFile {
 public:
   explicit HeldLog(leveldb::WritableFile *file);
@@ -257,11 +262,17 @@ public:
 
   leveldb::Status Append(const leveldb::Slice &data) override {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (!failed_.ok()) {
+      return failed_;
+    }
     return file_->Append(data);
   }
 
   leveldb::Status Flush() override {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (!failed_.ok()) {
+      return failed_;
+    }
     if (g_main_context_is_owner(g_main_context_default())) {
       held_ = true;
       ArmIdle();
@@ -273,6 +284,9 @@ public:
 
   leveldb::Status Sync() override {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (!failed_.ok()) {
+      return failed_;
+    }
     held_ = false;
     return file_->Sync();
   }
@@ -280,7 +294,8 @@ public:
   leveldb::Status Close() override {
     std::lock_guard<std::mutex> lock(mutex_);
     held_ = false;
-    return file_->Close();
+    leveldb::Status closed = file_->Close();
+    return failed_.ok() ? closed : failed_;
   }
 
   // Writes out what Flush held back. Another thread writing to the file
@@ -294,6 +309,7 @@ public:
     held_ = false;
     leveldb::Status status = file_->Flush();
     if (!status.ok()) {
+      failed_ = status;
       g_warning("Rime's user dictionary log wasn't written: %s",
                 status.ToString().c_str());
     }
@@ -303,6 +319,7 @@ private:
   std::mutex mutex_;
   leveldb::WritableFile *file_;
   bool held_ = false;
+  leveldb::Status failed_;
 };
 
 std::mutex held_logs_mutex;
