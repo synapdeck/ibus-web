@@ -43,13 +43,11 @@ describe.each(data.runtimes)("storage through $name host", (runtime) => {
           const current = await settled(indexedDB.open(name));
           const { version } = current;
           current.close();
-          const upgradedAt = performance.now();
           (await settled(indexedDB.open(name, version + 1))).close();
 
           const deadline = performance.now() + 5000;
           while (events.length === 0 && performance.now() < deadline)
             await new Promise((resolve) => setTimeout(resolve, 10));
-          console.log(`storage closed after ${Math.round(performance.now() - upgradedAt)} ms`);
           expect(events).toEqual([
             {
               _tag: "storage",

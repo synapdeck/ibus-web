@@ -223,13 +223,13 @@ user directory.
 A module whose user data is read-only (`ibusweb_user_data_writable()`, which `Init` sets once another tab holds the
 writer lock) learns nothing and changes nothing in the user directory. On a read-only mount, opening a user dictionary's
 LevelDB fails at its `LOCK` file; Rime then schedules a recovery, which fails too, ends every session when it does, and
-does it all again for each new session, so compositions were cut off and nothing learned showed. So the module replaces
-Rime's `userdb`, `plain_userdb` and `tabledb` database classes with ones whose databases start disabled, which no user
-dictionary opens (`stabledb`, read-only by design, stays), and the `user_config` with one kept in memory, from what the
-writer last saved, since each session saves the schema it selected. It starts no maintenance and writes no settings
-patches: the writer deploys into the user directory, and a read-only Rime uses what it deployed last, taking a settings
-change at its next start. It types from the shipped dictionaries alone, schedules no recovery and ends no session for
-it.
+does it all again for each new session, so compositions would be cut off and nothing learned would show. So the module
+replaces Rime's `userdb`, `plain_userdb` and `tabledb` database classes with ones whose databases start disabled, which
+no user dictionary opens (`stabledb`, read-only by design, stays), and the `user_config` with one kept in memory, from
+what the writer last saved, since each session saves the schema it selected. It starts no maintenance and writes no
+settings patches: the writer deploys into the user directory, and a read-only Rime uses what it deployed last, taking a
+settings change at its next start. It types from the shipped dictionaries alone, schedules no recovery and ends no
+session for it.
 
 ## Engines
 

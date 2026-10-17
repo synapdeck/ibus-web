@@ -212,9 +212,9 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     expect(committed(await session.key(3, ...Key.space))).toBe("中國");
   });
 
-  // Before the module knew its user data was read-only, opening LevelDB failed
-  // at its lock file, Rime scheduled a recovery that failed too and ended
-  // every session, and each new session did it again.
+  // A read-only mount refuses LevelDB's lock file, so a module that opened its
+  // user dictionaries there would schedule a recovery that fails too and ends
+  // every session, and each new session would do it again.
   test("a second host on the same storage is read-only: it types from the shipped dictionaries, opens no user dictionary and ends no session", async () => {
     const writer = await start(RIME_ICE);
     await deployed(writer, 1);
