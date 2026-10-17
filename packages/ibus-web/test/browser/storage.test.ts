@@ -148,7 +148,7 @@ afterEach(async () => {
   for (const name of [user, data]) await settled(indexedDB.deleteDatabase(name));
 });
 
-test("usage gives each module's installed data, user data and engines' own data, starting no Worker", async () => {
+test("usage gives each module's installed data, user data and engines' own data, starting no module's Worker", async () => {
   await stored();
   const { app, connections } = facade();
   expect(await app.storage.usage()).toEqual({

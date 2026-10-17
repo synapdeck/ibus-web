@@ -688,12 +688,12 @@ one request and ends it once it has answered (`src/worker/storage.ts`, `src/shar
 connections of its own that close at a version change, opened without creating a database, in read-only transactions, so
 it holds up a host's writes only as long as one of them lasts.
 
-- **`usage()`** reads, for every module the page was given, its manifest (starting no Worker), then the version's
-  markers, `meta.installed` and each engine's own store path's `meta.paths/<storePath>`, and the user data's inodes:
-  `data` is the base data's bytes and every installed path's, `userData` the sizes of the module's own files, and each
-  engine's `data` the bytes of its own paths that are installed. A database or marker that doesn't exist counts as none,
-  so a module never started reports zeros. It covers the current version only; another version's data stays until the
-  next host collects it.
+- **`usage()`** reads, for every module the page was given, its manifest (starting no module's Worker), then the
+  version's markers, `meta.installed` and each engine's own store path's `meta.paths/<storePath>`, and the user data's
+  inodes: `data` is the base data's bytes and every installed path's, `userData` the sizes of the module's own files,
+  and each engine's `data` the bytes of its own paths that are installed. A database or marker that doesn't exist counts
+  as none, so a module never started reports zeros. It covers the current version only; another version's data stays
+  until the next host collects it.
 - **`export(module)`** has the module's writer write what its engines keep only in memory (`Persist`), then reads the
   user database's `meta`, `inodes`, `entries` and `chunks` in one read-only transaction, which is the snapshot, and
   packs every directory, file and link, named from the module's directory, with its mode and modification time, as a tar

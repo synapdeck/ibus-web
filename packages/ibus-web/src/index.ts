@@ -115,10 +115,10 @@ export interface IbusWeb extends PanelHost {
   readonly selection: Selection | undefined;
   readonly settings: Omit<SettingsApiService, "changes">;
   /**
-   * The modules' storage. `usage()` reads every module's, starting no Worker; `export(module)` gives its user data as
-   * a tar Blob, having the Worker that writes it, in this tab or another, persist first; `reset(module)` deletes its
-   * user data, and a module that was running starts again. They reject with StorageUnavailable when storage can't be
-   * read or reset.
+   * The modules' storage. `usage()` reads every module's, starting no module's Worker; `export(module)` gives its user
+   * data as a tar Blob, having the Worker that writes it, in this tab or another, persist first; `reset(module)` deletes
+   * its user data, and a module that was running starts again. They reject with StorageUnavailable when storage can't
+   * be read or reset.
    */
   readonly storage: {
     usage(): Promise<StorageUsage>;
