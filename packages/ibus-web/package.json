@@ -1,6 +1,6 @@
 {
   "name": "ibus-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Browser IBus facade for native and custom editor surfaces.",
   "keywords": [
     "hangul",

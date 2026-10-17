@@ -1,6 +1,6 @@
 {
   "name": "@ibus-web/engine-m17n",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ibus-m17n with every m17n-db input method it offers, for ibus-web: its WebAssembly module, data and manifest.",
   "keywords": [
     "ibus",

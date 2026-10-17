@@ -1,6 +1,6 @@
 {
   "name": "@ibus-web/panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Framework-free IBus candidate and property panel.",
   "keywords": [
     "candidate-window",

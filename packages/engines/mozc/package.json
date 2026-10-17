@@ -1,6 +1,6 @@
 {
   "name": "@ibus-web/engine-mozc",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Mozc, Google's open-source Japanese input method, with the UT dictionaries, for ibus-web: its WebAssembly module, data and manifest.",
   "keywords": [
     "ibus",

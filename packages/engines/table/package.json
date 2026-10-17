@@ -1,6 +1,6 @@
 {
   "name": "@ibus-web/engine-table",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ibus-web's table engines, LaTeX to Unicode and X-SAMPA to IPA: their WebAssembly module, tables and manifest.",
   "keywords": [
     "ibus",
