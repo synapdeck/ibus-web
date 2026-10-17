@@ -200,8 +200,13 @@ closes on its own (`close` event) does the same. Nothing reopens it: a newer ver
 database.
 
 The host checks `wasmfs_idb_backend_closed()` for both mounts each time it wakes and posts `storage: closed` once (spec
-§8). It notices only when it next wakes for a request or a GLib source; the close itself doesn't wake it
-([known gaps](known-gaps.md#storage)).
+§8). The close itself wakes nothing, so a host asleep with nothing due would report it only when a request or a GLib
+source next woke it. So the page keeps a connection of its own to each of the module's two databases while its host
+runs, opened without creating either and with no transaction on it ever, only to hear the same `versionchange`: it
+closes that connection at once, so as not to hold the change up, and posts the host `CheckStorage` through the mail word
+([worker-host.md](worker-host.md#messages)), which wakes it. The host then polls its backends' flags, serving meanwhile,
+until one has closed, which each backend's thread sets once it has heard the change itself, or for at most `closeWaitMs`
+(1 s), and posts `storage: closed`.
 
 ### The page keeps out
 

@@ -61,6 +61,8 @@ export const runHost = (
     dispatch: (field: Field, key: string, code?: string) => KeyboardEvent;
     nextCrash: () => Promise<CrashInfo>;
   }) => Promise<void>,
+  // The module's storage: none, or the browser's, IndexedDB.
+  storage: "browser" | "none" = "none",
 ) => {
   const logs: LogLine[] = [];
   const crashes: CrashInfo[] = [];
@@ -103,7 +105,7 @@ export const runHost = (
           hostUrl: new URL(data.hostUrl, location.href),
           runtimeUrl: new URL(runtime.url, location.href),
           modules: { [alias]: new URL(engine === "hangul" ? data.hangulUrl : data.recoverableUrl, location.href) },
-          storage: "none",
+          storage,
           start: async (options) => {
             const connection = await Connection.start(options);
             connections.push(connection);

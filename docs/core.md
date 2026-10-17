@@ -267,6 +267,12 @@ inactivity budgets must be finite and positive. Only the protocol Init request u
 including subsequent queued keys, use hangMs. A pending request with no reply and no ring movement for its budget is a
 hang; ring movement refreshes the inactivity window. These are progress bounds, not universal startup deadlines.
 
+While a module's Worker runs on IndexedDB, the registry keeps a connection to each of the module's databases, on which
+it opens no transaction, to hear a `versionchange` the host's own connections hear too: it closes its own at once and
+has the host check its storage (`Connection.checkStorage()`, `CheckStorage` through the mail word), so that a host
+asleep with nothing due posts `storage: closed` at once rather than when it next wakes
+([storage.md](storage.md#version-changes)).
+
 CRASHED, the host's crashed message, Worker errors, inactivity and queue overflow terminate the connection. Owned keys
 are replayed in FIFO order, contexts lose preedit and panel output is hidden. Restart is immediate, then exponential
 backoff from 250 ms; three crashes in 60 seconds fail the engine and leave direct input. After termination, unless

@@ -129,6 +129,16 @@ export interface PrepareEngine {
   engine: string;
 }
 
+// The page heard one of the module's databases asked to close for a version
+// change: the host checks its connections and posts "storage: closed" as
+// soon as one has, which a close alone wouldn't wake it to do.
+export interface CheckStorage {
+  type: "check-storage";
+}
+
+// What the page posts after HostInit, each counted in the mail word.
+export type PageMessage = PrepareEngine | CheckStorage;
+
 // How the host found one store path of an engine's own data: "installed",
 // this Worker installed it, for this engine or another that needs it too;
 // "present", its marker was there. files and bytes are the regular files

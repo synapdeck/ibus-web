@@ -185,6 +185,26 @@ export const storageClosed = async (h: Harness, { client, messages }: RunningHos
   await h.printed.take(/^wasmfs-idb: ibus-web\/\S+ closed for a version change$/, { count: 1 });
 };
 
+// A version change while the host sleeps, with nothing due, wakes nothing;
+// the page, which hears the change too, tells the host to check its
+// storage, and the host reports the close without a request.
+export const storageClosedIdle = async (h: Harness, host: RunningHost, engine: ModuleManifest) => {
+  if (h.upgradeDatabase === undefined) throw new Error("this environment can't upgrade a database");
+  const { client, messages } = host;
+  expect((await stats(client)).storageClosed, "closed before").toBe(false);
+  const upgrading = h.upgradeDatabase(engine);
+  host.checkStorage();
+  const upgradeMs = await upgrading;
+  const deadline = h.now() + h.pendingLimitMs;
+  while (storageEvents(messages).length === 0 && h.now() < deadline) await h.sleep(10);
+  const events = storageEvents(messages);
+  h.record("storage-closed-idle", { upgradeMs: round(upgradeMs, 2), events });
+  expect(events, "storage events, with no request made").toEqual([
+    { state: "closed", message: "the IndexedDB connection closed; the engine's storage fails with EIO" },
+  ]);
+  await h.printed.take(/^wasmfs-idb: ibus-web\/\S+ closed for a version change$/, { count: 1 });
+};
+
 const readOnlyOf = (host: RunningHost): boolean =>
   storageEvents(host.messages).some(({ state }) => state === "read-only");
 

@@ -9,6 +9,7 @@ import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { HostConfigValues } from "../../src/shared/config.ts";
 import { controlViews, createControl, postMail } from "../../src/shared/control.ts";
 import type {
+  CheckStorage,
   EngineStorage,
   HostInit,
   PreparedReport,
@@ -133,6 +134,9 @@ export interface RunningHost {
   // Posts PrepareEngine for the engine, as a page does, and resolves with
   // the host's answer.
   prepare(engine: string): Promise<Prepared>;
+  // Posts CheckStorage, as a page does when one of the module's databases
+  // is asked to close.
+  checkStorage(): void;
   // Whether the host is the test build, which answers HostOp requests.
   instrumented: boolean;
   startupMs: number;
@@ -417,9 +421,15 @@ export const hostLauncher =
         }
       };
 
+      const checkStorage = (): void => {
+        worker.postMessage({ type: "check-storage" } satisfies CheckStorage);
+        postMail(views);
+      };
+
       return {
         client,
         prepare,
+        checkStorage,
         instrumented: options.released !== true,
         startupMs,
         messages,

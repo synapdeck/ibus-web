@@ -25,6 +25,8 @@ export {
   type PathInstallReport,
   type PreparedReport,
   type PrepareEngine,
+  type CheckStorage,
+  type PageMessage,
   type RuntimeConstants,
   type RuntimeMemory,
   type SideModule,

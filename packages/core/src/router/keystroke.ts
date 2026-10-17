@@ -16,7 +16,7 @@ export type KeyConnection = Pick<
   Connection,
   "busy" | "requestSync" | "requestAsync" | "onDoorbell" | "onCrash" | "records" | "replies" | "terminate" | "prepare"
 > &
-  Partial<Pick<Connection, "poll">>;
+  Partial<Pick<Connection, "poll" | "checkStorage">>;
 export interface KeyboardPolicy {
   readonly layout: "us" | "default";
   readonly passThrough: ReadonlySet<number>;

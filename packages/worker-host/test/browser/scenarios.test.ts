@@ -35,6 +35,7 @@ import {
   promiseProxiedFsync,
   sealThrows,
   storageClosed,
+  storageClosedIdle,
   storageCosts,
   storageFallback,
   storageRoundtrip,
@@ -201,6 +202,10 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
   test("storage-closed", () =>
     ownHost(engineFor(h, "storage-closed", runtime), async (host, engine) => {
       await storageClosed(h, host, engine);
+    }));
+  test("storage-closed without a wake", () =>
+    ownHost(engineFor(h, "storage-closed-idle", runtime), async (host, engine) => {
+      await storageClosedIdle(h, host, engine);
     }));
   test("writer-lock", () => writerLock(h, runtime, engineFor(h, "writer-lock", runtime)));
   test("a crash with the runtime intact seals the user data and lets go of every lock", () =>

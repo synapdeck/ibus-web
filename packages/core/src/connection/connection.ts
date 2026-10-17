@@ -23,6 +23,7 @@ import {
   type HostInit,
   type HostMessage,
   type ControlViews,
+  type CheckStorage,
   type PrepareEngine,
   type StorageState,
 } from "@ibus-web/worker-host";
@@ -283,6 +284,20 @@ export class Connection {
         this.fail({ reason: "worker", message: String(error) });
       }
     });
+  }
+  /**
+   * Has the host check its storage's connections, through the mail word, which wakes a host asleep with nothing due:
+   * one of them has been asked to close for a version change, which the host would otherwise report only when it next
+   * woke for something else.
+   */
+  checkStorage(): void {
+    if (this.crash) return;
+    try {
+      this.worker.postMessage({ type: "check-storage" } satisfies CheckStorage);
+      postMail(this.control);
+    } catch (error) {
+      this.fail({ reason: "worker", message: String(error) });
+    }
   }
   /**
    * Settle an asynchronous request whose reply is already in shared memory, without waiting for the doorbell

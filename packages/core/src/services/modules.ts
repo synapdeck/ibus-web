@@ -11,7 +11,7 @@ import {
   transportLayout,
   type Request,
 } from "@ibus-web/protocol";
-import type { StorageState } from "@ibus-web/worker-host";
+import { engineDatabase, engineDataDatabase, type StorageState } from "@ibus-web/worker-host";
 import {
   Connection,
   ConnectionFailed,
@@ -43,6 +43,7 @@ import {
 } from "../router/keystroke.ts";
 import type { AsyncKeyResult, KeySink } from "../router/replay.ts";
 import { makeRestarter, type WaitForWriter } from "../router/restart.ts";
+import { watchDatabases } from "../connection/watch.ts";
 import { loadSettingsMetadata, settingsInstances } from "../settings/api.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
@@ -322,6 +323,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         });
         // The host reports its storage before it is ready, and a read-only one stays so for the Worker's life.
         let userDataWritable = true;
+        let inMemory = false;
         const connection = yield* Effect.acquireRelease(
           Effect.callback<KeyConnection, Error>((resume, signal) => {
             try {
@@ -337,6 +339,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                 signal,
                 onStorage: (message) => {
                   if (message.state === "read-only") userDataWritable = false;
+                  if (message.state === "ephemeral") inMemory = true;
                   if (entry.lifetime === lifetime) events.enqueue({ _tag: "storage", module: name, ...message });
                 },
               }).then(
@@ -363,6 +366,13 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             }),
           { interruptible: true },
         ).pipe(Scope.provide(lifetime));
+        // The page hears of a version change on the module's databases for its host, which can't wake for one.
+        const checkStorage = connection.checkStorage?.bind(connection);
+        if (checkStorage && (options.storage ?? "browser") === "browser" && !inMemory)
+          yield* Effect.acquireRelease(
+            Effect.sync(() => watchDatabases([engineDatabase(manifest), engineDataDatabase(manifest)], checkStorage)),
+            (stop) => Effect.sync(stop),
+          ).pipe(Scope.provide(lifetime));
         entry.origin = Symbol();
         entry.router.connect(connection);
         started(connection);

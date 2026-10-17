@@ -26,6 +26,10 @@ export interface HostConfigValues {
   // How long the deletion of a database may stay blocked by a connection
   // that doesn't close when asked to.
   readonly deleteLimitMs: number;
+  // How long a host told to check its storage waits for a backend's
+  // connection to close: each backend hears the version change on its own
+  // thread, after the page has.
+  readonly closeWaitMs: number;
 }
 
 // An archive reaches the tar decoder in pieces of at most this size, and each

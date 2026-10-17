@@ -6,22 +6,22 @@
 // counts each in the control buffer's mail word too (postMail()), and the
 // host, seeing the count change, goes to its event loop to take them.
 
-import type { PrepareEngine } from "../shared/messages.ts";
+import type { PageMessage } from "../shared/messages.ts";
 
-const isPrepare = (message: unknown): message is PrepareEngine =>
-  typeof message === "object" &&
-  message !== null &&
-  (message as { type?: unknown }).type === "prepare-engine" &&
-  typeof (message as { engine?: unknown }).engine === "string";
+const isPageMessage = (message: unknown): message is PageMessage => {
+  if (typeof message !== "object" || message === null) return false;
+  const { type, engine } = message as { type?: unknown; engine?: unknown };
+  return (type === "prepare-engine" && typeof engine === "string") || type === "check-storage";
+};
 
 export class Mail {
-  readonly #queue: (PrepareEngine | undefined)[] = [];
+  readonly #queue: (PageMessage | undefined)[] = [];
   #arrived: (() => void) | undefined;
 
   // A message the page posted. It counts in the mail word whatever it is,
   // so one the host doesn't know is kept as undefined, which it skips.
   receive(message: unknown): void {
-    this.#queue.push(isPrepare(message) ? message : undefined);
+    this.#queue.push(isPageMessage(message) ? message : undefined);
     this.#arrived?.();
     this.#arrived = undefined;
   }
@@ -40,7 +40,7 @@ export class Mail {
   }
 
   // Takes the next message, once it has arrived.
-  async next(): Promise<PrepareEngine | undefined> {
+  async next(): Promise<PageMessage | undefined> {
     await this.arrival();
     return this.#queue.shift()!;
   }

@@ -14,6 +14,7 @@ export const defaultHostConfig: HostConfigValues = {
   progressIntervalMs: 1000,
   archiveIdleMs: 30_000,
   deleteLimitMs: 10_000,
+  closeWaitMs: 1000,
 };
 
 export class HostConfig extends Context.Service<HostConfig, HostConfigValues>()("@ibus-web/worker-host/HostConfig") {

@@ -190,12 +190,20 @@ export const serve: Effect.Effect<
       }
     });
 
+  // Waits, as the host serves meanwhile, until a backend's connection has
+  // closed, or for closeWaitMs, and reports it.
+  const closing = async (): Promise<void> => {
+    const deadline = performance.now() + config.closeWaitMs;
+    while (!storage.closed() && performance.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    watchStorage();
+  };
+
   // The page's messages arrive only through the event loop. The host takes
   // each as it arrives, as many as the mail word counts, and prepares its
-  // engine at once, beside any other prepare still running, while it serves
-  // requests as it would asleep; it goes back to its synchronous section
-  // once every prepare has ended and no message is waiting. A call into the
-  // runtime that threw while installing stops the host.
+  // engine, or checks its storage, at once, beside any other such work still
+  // running, while it serves requests as it would asleep; it goes back to its
+  // synchronous section once all of it has ended and no message is waiting.
+  // A call into the runtime that threw while installing stops the host.
   const takeMail = Effect.gen(function* () {
     instruments.eventLoopTurn();
     let outcome: { error: unknown } | "done" | undefined;
@@ -206,8 +214,10 @@ export const serve: Effect.Effect<
           const message = await worker.mail.next();
           ctx.mailTaken = (ctx.mailTaken + 1) | 0;
           if (message === undefined) continue;
-          const preparing: Promise<void> = storage.prepare(message.engine).finally(() => running.delete(preparing));
-          running.add(preparing);
+          const work: Promise<void> = (
+            message.type === "prepare-engine" ? storage.prepare(message.engine) : closing()
+          ).finally(() => running.delete(work));
+          running.add(work);
         } else await Promise.race([...running, worker.mail.arrival()]);
       }
     })().then(
