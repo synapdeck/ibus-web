@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "../golden/harness.h"
 #include <fcntl.h>
+#include <glib/gstdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -140,6 +141,154 @@ static void remembered(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   g_assert_cmpstr(first, ==, "种");
 }
 
+/* The user directory's entries, sorted, joined by spaces. */
+static gchar *home_entries(void) {
+  g_autoptr(GDir) entries = g_dir_open(home, 0, NULL);
+  g_assert_nonnull(entries);
+  g_autoptr(GPtrArray) names = g_ptr_array_new_with_free_func(g_free);
+  const gchar *name;
+  while ((name = g_dir_read_name(entries)) != NULL)
+    g_ptr_array_add(names, g_strdup(name));
+  g_ptr_array_sort_values(names, (GCompareFunc)g_strcmp0);
+  g_ptr_array_add(names, NULL);
+  return g_strjoinv(" ", (gchar **)names->pdata);
+}
+
+/* Breaks the database's CURRENT, which LevelDB then reports as corrupt. */
+static void break_current(void) {
+  g_autofree gchar *current = in_userdb("CURRENT");
+  g_assert_true(g_file_set_contents(current, "MANIFEST-000002", -1, NULL));
+}
+
+static gboolean ready_at_least(gconstpointer data) {
+  const struct {
+    Fixture *fixture;
+    guint count;
+  } *wait = data;
+  return golden_count_log(wait->fixture, "Rime is ready.") >= wait->count;
+}
+
+/* Waits for the end of a deployment that began after the fixture's last. */
+static void wait_redeployed(Fixture *fixture) {
+  struct {
+    Fixture *fixture;
+    guint count;
+  } wait = {fixture, golden_count_log(fixture, "Rime is ready.") + 1};
+  g_assert_true(golden_pump_until(fixture, ready_at_least, &wait, 60000));
+}
+
+/* An open that fails for anything but corruption, here a lock file that is
+ * a directory, disables the dictionary for the session: Rime types from its
+ * shipped dictionary, schedules no recovery and renames nothing. */
+static void io_error(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  g_autofree gchar *lock = in_userdb("LOCK");
+  g_assert_cmpint(g_unlink(lock), ==, 0);
+  g_assert_cmpint(g_mkdir(lock, 0755), ==, 0);
+  g_autofree gchar *before = home_entries();
+
+  golden_expect_log(G_LOG_LEVEL_WARNING,
+                    "*db 'rime_ice' is disabled, as it can't be opened: IO "
+                    "error: *LOCK*");
+  golden_create(fixture, "rime:rime_ice");
+  golden_type(fixture, "zhong");
+  g_autofree gchar *first = first_candidate(fixture);
+  g_assert_cmpstr(first, ==, "中");
+  golden_assert_expected_logs();
+
+  g_assert_cmpuint(golden_count_log(fixture, "Rime is under maintenance ..."),
+                   ==, 0);
+  g_autofree gchar *after = home_entries();
+  g_assert_cmpstr(after, ==, before);
+  g_assert_cmpint(g_rmdir(lock), ==, 0);
+}
+
+/* Rime logs an error, a critical, for a database that is corrupt, which the
+ * harness expects as a record rather than where it is logged. */
+static void criticals_as_records(void) {
+  g_log_set_always_fatal(G_LOG_FATAL_MASK);
+}
+
+/* A database LevelDB reports as corrupt, its CURRENT broken and its log
+ * torn, is repaired in place, keeping what it learned. */
+static void repaired(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  criticals_as_records();
+  break_current();
+  tear_log();
+  g_autofree gchar *before = home_entries();
+
+  golden_expect_log(G_LOG_LEVEL_CRITICAL,
+                    "*Error opening db 'rime_ice': Corruption: *");
+  golden_create(fixture, "rime:rime_ice");
+  wait_redeployed(fixture);
+  golden_assert_expected_logs();
+
+  golden_type(fixture, "zhong");
+  g_autofree gchar *first = first_candidate(fixture);
+  g_assert_cmpstr(first, ==, "种");
+  g_autofree gchar *after = home_entries();
+  g_assert_cmpstr(after, ==, before);
+}
+
+/* Whether any file under dir holds text. */
+static gboolean tree_holds(const gchar *dir, const gchar *text) {
+  g_autoptr(GDir) entries = g_dir_open(dir, 0, NULL);
+  g_assert_nonnull(entries);
+  const gchar *name;
+  while ((name = g_dir_read_name(entries)) != NULL) {
+    g_autofree gchar *path = g_build_filename(dir, name, NULL);
+    if (g_file_test(path, G_FILE_TEST_IS_DIR)) {
+      if (tree_holds(path, text))
+        return TRUE;
+      continue;
+    }
+    g_autofree gchar *contents = NULL;
+    gsize length;
+    g_assert_true(g_file_get_contents(path, &contents, &length, NULL));
+    gsize size = strlen(text);
+    for (gsize at = 0; at + size <= length; at++)
+      if (memcmp(contents + at, text, size) == 0)
+        return TRUE;
+  }
+  return FALSE;
+}
+
+/* A repair that fails, here for a directory where it writes its new
+ * manifest, moves the database aside, whole, and starts an empty one: none
+ * is deleted. */
+static void unrepairable(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  criticals_as_records();
+  break_current();
+  g_autofree gchar *manifest = in_userdb("000001.dbtmp");
+  g_assert_cmpint(g_mkdir(manifest, 0755), ==, 0);
+
+  golden_expect_log(G_LOG_LEVEL_CRITICAL,
+                    "*Error opening db 'rime_ice': Corruption: *");
+  golden_expect_log(G_LOG_LEVEL_CRITICAL, "*db recovery failed: *");
+  golden_expect_log(G_LOG_LEVEL_WARNING,
+                    "*moved db file '*rime_ice.userdb' aside to "
+                    "*rime_ice.userdb.corrupt-*");
+  golden_create(fixture, "rime:rime_ice");
+  wait_redeployed(fixture);
+  golden_assert_expected_logs();
+
+  golden_type(fixture, "zhong");
+  g_autofree gchar *first = first_candidate(fixture);
+  g_assert_cmpstr(first, ==, "中");
+
+  g_autoptr(GDir) entries = g_dir_open(home, 0, NULL);
+  g_assert_nonnull(entries);
+  g_autofree gchar *aside = NULL;
+  const gchar *name;
+  while ((name = g_dir_read_name(entries)) != NULL) {
+    if (g_str_has_prefix(name, USERDB ".corrupt-")) {
+      g_assert_null(aside);
+      aside = g_build_filename(home, name, NULL);
+    }
+  }
+  g_assert_nonnull(aside);
+  g_assert_true(tree_holds(aside, "种"));
+}
+
 /* Each time the dictionary is opened again, LevelDB turns its log into a
  * table; at four, it compacts them on its own thread. */
 static void compaction(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
@@ -168,7 +317,9 @@ int main(int argc, char **argv) {
                              &instances, "The module's settings instances",
                              "FILE"},
                             {"step", 0, 0, G_OPTION_ARG_STRING, &step,
-                             "learn, remember or compact", "STEP"},
+                             "learn, remember, io-error, repair, "
+                             "unrepairable or compact",
+                             "STEP"},
                             {NULL}};
   GOptionContext *context_options = g_option_context_new(NULL);
   g_option_context_add_main_entries(context_options, options, NULL);
@@ -204,6 +355,15 @@ int main(int argc, char **argv) {
   } else if (g_str_equal(step, "remember"))
     g_test_add("/rime-userdb/remember", Fixture, NULL, golden_setup, remembered,
                golden_teardown);
+  else if (g_str_equal(step, "io-error"))
+    g_test_add("/rime-userdb/io-error", Fixture, NULL, golden_setup, io_error,
+               golden_teardown);
+  else if (g_str_equal(step, "repair"))
+    g_test_add("/rime-userdb/repair", Fixture, NULL, golden_setup, repaired,
+               golden_teardown);
+  else if (g_str_equal(step, "unrepairable"))
+    g_test_add("/rime-userdb/unrepairable", Fixture, NULL, golden_setup,
+               unrepairable, golden_teardown);
   else
     g_test_add("/rime-userdb/compaction", Fixture, NULL, golden_setup,
                compaction, golden_teardown);

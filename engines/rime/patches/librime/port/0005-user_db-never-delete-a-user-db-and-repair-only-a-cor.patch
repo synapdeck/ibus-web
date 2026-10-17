@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Mon, 12 Oct 2026 10:00:00 -0700
+Subject: [PATCH] user_db: never delete a user db, and repair only a corrupt
+ one
+
+Opening a LevelDB that fails for anything but corruption (an I/O error, a
+full disk, the storage closing under it) disables the db and logs a
+warning, rather than scheduling a recovery: a repair can't mend it and
+could make it worse. Only a corrupt db is repaired. A repair that fails
+moves the db aside under a timestamped name and starts a new one in its
+place; it never deletes one, and a db it can't move aside stays disabled.
+---
+ src/rime/dict/level_db.cc              |  8 +++++++-
+ src/rime/dict/user_db_recovery_task.cc | 28 ++++++++++++++++----------
+ src/rime/dict/user_dictionary.cc       |  4 ++++
+ 3 files changed, 28 insertions(+), 12 deletions(-)
+
+diff --git a/src/rime/dict/level_db.cc b/src/rime/dict/level_db.cc
+index 842a657..45be4c6 100644
+--- a/src/rime/dict/level_db.cc
++++ b/src/rime/dict/level_db.cc
+@@ -268,8 +268,14 @@ bool LevelDb::Open() {
+         Close();
+       }
+     }
+-  } else {
++  } else if (status.IsCorruption()) {
+     LOG(ERROR) << "Error opening db '" << name() << "': " << status.ToString();
++  } else {
++    // An I/O error, which a repair can't mend and could make worse; trying
++    // again needs a new instance.
++    disable();
++    LOG(WARNING) << "db '" << name() << "' is disabled, as it can't be opened: "
++                 << status.ToString();
+   }
+   return loaded_;
+ }
+diff --git a/src/rime/dict/user_db_recovery_task.cc b/src/rime/dict/user_db_recovery_task.cc
+index e602147..3437680 100644
+--- a/src/rime/dict/user_db_recovery_task.cc
++++ b/src/rime/dict/user_db_recovery_task.cc
+@@ -5,8 +5,8 @@
+ // 2013-04-22 GONG Chen <chen.sst@gmail.com>
+ //
+ #include <boost/algorithm/string.hpp>
++#include <ctime>
+ #include <filesystem>
+-#include <boost/scope_exit.hpp>
+ #include <rime/deployer.h>
+ #include <rime/dict/db.h>
+ #include <rime/dict/user_db.h>
+@@ -24,30 +24,36 @@ bool UserDbRecoveryTask::Run(Deployer* deployer) {
+   if (!db_) {
+     return false;
+   }
+-  BOOST_SCOPE_EXIT((&db_)) {
+-    db_->enable();
+-  }
+-  BOOST_SCOPE_EXIT_END
+-
+   if (db_->loaded()) {
+     LOG(WARNING) << "cannot recover loaded db '" << db_->name() << "'.";
++    db_->enable();
+     return false;
+   }
+   auto r = As<Recoverable>(db_);
+   if (r && r->Recover()) {
++    db_->enable();
+     return true;
+   }
+-  // repair didn't work on the damaged db file; remove and recreate it
++  // The repair failed: the database is moved aside under a name of its own,
++  // never deleted, and a new one takes its place. One that can't be moved
++  // stays disabled.
+   LOG(INFO) << "recreating db file.";
+   if (db_->Exists()) {
++    char stamp[sizeof "19700101T000000"];
++    std::time_t now = std::time(nullptr);
++    std::strftime(stamp, sizeof stamp, "%Y%m%dT%H%M%S", std::gmtime(&now));
++    path aside = path(db_->file_path()).concat(".corrupt-").concat(stamp);
+     std::error_code ec;
+-    std::filesystem::rename(db_->file_path(),
+-                            path(db_->file_path()).concat(".old"), ec);
+-    if (ec && !db_->Remove()) {
+-      LOG(ERROR) << "Error removing db file '" << db_->file_path() << "'.";
++    std::filesystem::rename(db_->file_path(), aside, ec);
++    if (ec) {
++      LOG(ERROR) << "Error moving db file '" << db_->file_path()
++                 << "' aside: " << ec.message();
+       return false;
+     }
++    LOG(WARNING) << "moved db file '" << db_->file_path() << "' aside to "
++                 << aside << ".";
+   }
++  db_->enable();
+   if (!db_->Open()) {
+     LOG(ERROR) << "Error creating db '" << db_->name() << "'.";
+     return false;
+diff --git a/src/rime/dict/user_dictionary.cc b/src/rime/dict/user_dictionary.cc
+index 2944c2d..75ee8c6 100644
+--- a/src/rime/dict/user_dictionary.cc
++++ b/src/rime/dict/user_dictionary.cc
+@@ -170,6 +170,10 @@ bool UserDictionary::Load() {
+   if (!db_ || db_->disabled())
+     return false;
+   if (!db_->loaded() && !db_->Open()) {
++    // A database that failed to open other than as corrupt disables itself;
++    // only a corrupt one is worth repairing.
++    if (db_->disabled())
++      return false;
+     // try to recover managed db in available work thread
+     Deployer& deployer(Service::instance().deployer());
+     auto task = DeploymentTask::Require("userdb_recovery_task");

@@ -32,6 +32,12 @@ void golden_mount(const gchar *store_path);
 void golden_mount_host(const gchar *mount_point);
 void golden_wait_file(const gchar *path, const gchar *text);
 void golden_wait_log(Fixture *fixture, const gchar *message);
+/* Expects the next log of level whose message the glob pattern matches,
+ * which then fails nothing, however it would otherwise. A critical is fatal
+ * where it is logged unless the program makes it otherwise. */
+void golden_expect_log(GLogLevelFlags level, const gchar *pattern);
+/* Fails unless every log expected has been seen. */
+void golden_assert_expected_logs(void);
 gboolean golden_pump_until(Fixture *fixture,
                            gboolean (*done)(gconstpointer data),
                            gconstpointer data, guint timeout_ms);

@@ -138,9 +138,6 @@ decided.
   100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
   Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
 
-- **Rime's user dictionary recovery can discard learning.** If the writer's LevelDB open ever fails (`EIO`, IndexedDB
-  closing, a full quota, corruption LevelDB can't repair), librime renames the database to `.old` and starts it empty,
-  restoring only from a sync snapshot, which nothing makes; a second failure deletes the live database.
 - **A failed held log write is only logged.** The module holds a user dictionary's log writes back until input pauses
   ([rime.md](rime.md#learning)); when one then fails, it logs a warning, but LevelDB, told earlier that the write
   succeeded, never enters its error state.

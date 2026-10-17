@@ -15,6 +15,40 @@ backend_t wasmfs_create_root_dir(void) {
  * own quirks, which the cases report without failing on. */
 static gboolean deploying = TRUE;
 
+/* The logs a case expects, in order: each a level and a glob of the message,
+ * which the next log of that level and message meets, failing nothing. */
+typedef struct {
+  GLogLevelFlags level;
+  gchar *pattern;
+} Expected;
+static GQueue expected = G_QUEUE_INIT;
+
+void golden_expect_log(GLogLevelFlags level, const gchar *pattern) {
+  Expected *log = g_new(Expected, 1);
+  log->level = level;
+  log->pattern = g_strdup(pattern);
+  g_queue_push_tail(&expected, log);
+}
+
+void golden_assert_expected_logs(void) {
+  Expected *missing = g_queue_peek_head(&expected);
+  if (missing != NULL)
+    g_error("Expected log not seen: %s", missing->pattern);
+}
+
+/* Whether a log is the next one expected, which it then takes. */
+static gboolean take_expected(guint level, const gchar *message) {
+  Expected *next = g_queue_peek_head(&expected);
+  if (next == NULL || !(level & next->level) ||
+      !g_pattern_match_simple(next->pattern, message))
+    return FALSE;
+
+  g_queue_pop_head(&expected);
+  g_free(next->pattern);
+  g_free(next);
+  return TRUE;
+}
+
 /* A Log record's message, or "" for any other record. */
 static const gchar *message_of(Record *record) {
   if (record->kind != IBUSWEB_REC_LOG)
@@ -64,7 +98,9 @@ static void collect(Fixture *fixture) {
       g_variant_get(record->payload, "(u&s&s)", &level, &domain, &message);
       if (g_str_equal(message, "Rime is under maintenance ..."))
         deploying = TRUE;
-      if (deploying && (level & G_LOG_LEVEL_WARNING))
+      if (take_expected(level, message))
+        g_test_message("Expected (%s): %s", domain, message);
+      else if (deploying && (level & G_LOG_LEVEL_WARNING))
         g_test_message("Deploying (%s): %s", domain, message);
       else if (level &
                (G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_ERROR))
