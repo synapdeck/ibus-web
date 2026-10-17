@@ -82,10 +82,13 @@ in
                     # apple_support registers an Xcode toolchain for the build
                     # machine's tools, which needs an SDK the sandbox doesn't
                     # have; Bazel's own then configures one from $CC, archiving
-                    # with Apple's libtool.
+                    # with Apple's libtool. Found to be clang, it checks layering
+                    # against a module map that leaves out clang's own headers,
+                    # such as arm_neon.h.
                     ++ lib.optionals final.stdenv.buildPlatform.isDarwin [
                       "--repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1"
                       "--repo_env=LIBTOOL=${final.pkgsBuildBuild.cctools.libtool}/bin/libtool"
+                      "--host_features=-layering_check"
                     ];
 
                     bazelTargets = [
