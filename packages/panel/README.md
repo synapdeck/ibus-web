@@ -15,7 +15,7 @@ toolbar.append(panel.properties);
 ```
 
 The stylesheet is separate, and every rule in it can be overridden. Most applications import the panel through
-[`ibus-web`](../ibus-web/README.md) as `ibus-web/panel`. Details are in
+[`ibus-web`](https://www.npmjs.com/package/ibus-web) as `ibus-web/panel`. Details are in
 [docs/panel.md](https://github.com/synapdeck/ibus-web/blob/master/docs/panel.md).
 
 Licensed under MIT OR Apache-2.0, at your option.

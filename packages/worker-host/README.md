@@ -10,8 +10,9 @@ for the page. Keep `dist/worker/` together when deploying, since the host loads 
 beside itself, and the page finds the storage Worker beside the host. The package root exports only what the page shares
 with the host: the control buffer layout, the messages and the storage names.
 
-Most applications use [`ibus-web`](../ibus-web/README.md), which ships these scripts as `ibus-web/host/*`. The design is
-in [docs/worker-host.md](https://github.com/synapdeck/ibus-web/blob/master/docs/worker-host.md).
+Most applications use [`ibus-web`](https://www.npmjs.com/package/ibus-web), which ships these scripts as
+`ibus-web/host/*`. The design is in
+[docs/worker-host.md](https://github.com/synapdeck/ibus-web/blob/master/docs/worker-host.md).
 
 The Worker scripts bundle `effect`, `brotli-dec-wasm` and `modern-tar`; their licenses are in `LICENSES/`. The package
 itself is licensed under MIT OR Apache-2.0, at your option.

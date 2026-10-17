@@ -9,8 +9,8 @@ shared transport definitions: Worker, runtime and engine code load by URL and ne
 IndexedDB settings persister; this lists the main ones. `@ibus-web/core/keys` exports key translation alone. `effect` 4
 is a peer dependency.
 
-Most applications use [`ibus-web`](../ibus-web/README.md), which wraps this package in a promise API. The design and the
-layer wiring are in [docs/core.md](https://github.com/synapdeck/ibus-web/blob/master/docs/core.md).
+Most applications use [`ibus-web`](https://www.npmjs.com/package/ibus-web), which wraps this package in a promise API.
+The design and the layer wiring are in [docs/core.md](https://github.com/synapdeck/ibus-web/blob/master/docs/core.md).
 
 Licensed under MIT OR Apache-2.0, at your option. The generated key tables come from xorgproto, Chromium and
 xkeyboard-config; their licenses and notices are in `LICENSES/`.

@@ -4,8 +4,8 @@ The wire protocol between ibus-web's page and its Worker hosts: strict GVariant 
 sends, and the shared-memory transport they travel over. Everything ibus-web sends between the page and an engine's
 Worker goes through this package, and its decoder accepts exactly what GLib's `g_variant_is_normal_form` accepts.
 
-Most applications use [`ibus-web`](../ibus-web/README.md), which depends on this package; use it directly to write your
-own host or page side.
+Most applications use [`ibus-web`](https://www.npmjs.com/package/ibus-web), which depends on this package; use it
+directly to write your own host or page side.
 
 ```ts
 import { decodeValue, encodeValue } from "@ibus-web/protocol";

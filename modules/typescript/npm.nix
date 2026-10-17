@@ -25,6 +25,22 @@
       publishedPackages = lib.filter isPublished (packagesIn "packages" ++ packagesIn "packages/engines");
       isNixBuilt = dir: (lib.importJSON (root + "/${dir}/package.json")).ibusWeb.nixBuilt or false;
 
+      # The package's README and the regular files its manifest lists, as
+      # they are in the repository, such as a generated document: the
+      # workspace holds sources alone, so their edits rebuild no workspace.
+      repositoryFiles =
+        dir:
+        let
+          listed = [ "README.md" ] ++ (lib.importJSON (root + "/${dir}/package.json")).files or [ ];
+          inRepository =
+            path:
+            let
+              source = root + "/${dir}/${path}";
+            in
+            builtins.pathExists source && builtins.readFileType source == "regular";
+        in
+        lib.genAttrs (lib.filter inRepository listed) (path: root + "/${dir}/${path}");
+
       # Each packed from its build in the workspace, so its scripts, and pnpm's
       # rewriting of workspace: and catalog: versions, see the workspace.
       workspaceTarballs = lib.listToAttrs (
@@ -34,9 +50,7 @@
             name = "ibus-web-npm-${baseNameOf dir}";
             src = workspaceFor [ dir ];
             inherit dir;
-            # The workspace holds sources alone, so a README's edit rebuilds
-            # no workspace.
-            files."README.md" = root + "/${dir}/README.md";
+            files = repositoryFiles dir;
 
             # tools/pack-licenses adds these whatever the bundle holds.
             expect = [
