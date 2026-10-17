@@ -43,15 +43,27 @@ function fail(message: string): never {
 // rather than starting an empty one, and an empty file has none.
 const lines = (text: string): string[] => (text === "" ? [] : text.replace(/\r?\n$/, "").split(/\r?\n/));
 
-const readLog = (path: string): Map<string, string> => {
-  const results = new Map<string, string>();
-  for (const line of lines(readFileSync(path, "utf8"))) {
-    if (line.trim() === "") continue;
-    const entry = JSON.parse(line) as { name: string; result: string };
-    results.set(entry.name, entry.result);
-  }
-  return results;
-};
+interface Entry {
+  name: string;
+  result: string;
+  stdout?: string;
+}
+
+const readEntries = (path: string): Entry[] =>
+  lines(readFileSync(path, "utf8"))
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as Entry);
+
+const readLog = (path: string): Map<string, string> =>
+  new Map(readEntries(path).map(({ name, result }) => [name, result]));
+
+// Each test's output, which Meson's log holds whole.
+const readOutputs = (path: string): Map<string, string> =>
+  new Map(readEntries(path).map(({ name, stdout }) => [name, stdout ?? ""]));
+
+// The last lines of a failure's output a build log shows, where the test's
+// own messages say why it failed.
+const OUTPUT_LINES = 40;
 
 const splitSuite = (suite: string): [project: string, name: string] => {
   const colon = suite.indexOf(":");
@@ -223,6 +235,7 @@ if (mode === "failing") {
 if (mode !== "report") fail(`gate: no mode ${mode}`);
 const outDir = rest[1] ?? fail("gate: report takes OUT_DIR");
 const rerun = rest[2] === undefined ? new Map<string, string>() : readLog(rest[2]);
+const outputs = new Map([...readOutputs(rest[0]!), ...(rest[2] === undefined ? [] : readOutputs(rest[2]))]);
 const flaky = failing.filter((name) => PASSING.includes(rerun.get(name)));
 const failures = failing.filter((name) => !flaky.includes(name));
 
@@ -254,4 +267,10 @@ const proposed = stringify({ results: Object.fromEntries([...results].sort(([a],
 writeFileSync(join(outDir, "proposed-baseline.toml"), `# name = result, from this run\n${proposed}`);
 
 console.log(summary.join("\n"));
+for (const name of failures) {
+  const output = lines(outputs.get(name) ?? "");
+  if (output.length === 0) continue;
+  console.log(`\noutput of ${name}, its last ${Math.min(output.length, OUTPUT_LINES)} lines:`);
+  console.log(output.slice(-OUTPUT_LINES).join("\n"));
+}
 process.exit(failures.length > 0 ? 1 : 0);

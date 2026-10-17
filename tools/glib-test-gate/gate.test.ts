@@ -163,10 +163,13 @@ describe("runnable", () => {
   });
 });
 
-// A log as Meson writes one, a JSON object a line.
-const testlog = (name: string, results: Record<string, string>): string => {
+// A log as Meson writes one, a JSON object a line, with each test's output
+// where outputs gives one.
+const testlog = (name: string, results: Record<string, string>, outputs: Record<string, string> = {}): string => {
   const path = join(build, name);
-  const lines = Object.entries(results).map(([test, result]) => JSON.stringify({ name: test, result }));
+  const lines = Object.entries(results).map(([test, result]) =>
+    JSON.stringify({ name: test, result, ...(outputs[test] === undefined ? {} : { stdout: outputs[test] }) }),
+  );
   writeFileSync(path, `${lines.join("\n")}\n`);
   return path;
 };
@@ -189,10 +192,14 @@ describe("failing", () => {
 });
 
 describe("report", () => {
-  const report = (results: Record<string, string>, rerun?: Record<string, string>): Result & { dir: string } => {
+  const report = (
+    results: Record<string, string>,
+    rerun?: Record<string, string>,
+    outputs: Record<string, string> = {},
+  ): Result & { dir: string } => {
     const dir = mkdtempSync(join(scratch, "report-"));
     const log = testlog(`${dir.split("/").at(-1)}.json`, results);
-    const rest = rerun === undefined ? [] : [testlog(`${dir.split("/").at(-1)}-rerun.json`, rerun)];
+    const rest = rerun === undefined ? [] : [testlog(`${dir.split("/").at(-1)}-rerun.json`, rerun, outputs)];
     return { dir, ...gate(build, "report", { mustPass: ["b - gate:y"], excluded: ["c - gate:y"] }, log, dir, ...rest) };
   };
   const read = (dir: string, name: string): string => readFileSync(join(dir, name), "utf8");
@@ -229,6 +236,20 @@ describe("report", () => {
     const { status, dir } = report({ "b - gate:y": "FAIL" }, { "b - gate:y": "FAIL" });
     expect(status).toBe(1);
     expect(read(dir, "summary.txt")).toContain("  gating failure: b - gate:y (FAIL, FAIL alone)\n");
+  });
+
+  test("prints the end of a gating failure's output, from its rerun", () => {
+    const output = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+    const { status, stdout, dir } = report(
+      { "b - gate:y": "FAIL" },
+      { "b - gate:y": "FAIL" },
+      { "b - gate:y": output },
+    );
+    expect(status).toBe(1);
+    expect(stdout).toContain("\noutput of b - gate:y, its last 40 lines:\nline 11\n");
+    expect(stdout).toContain("line 50\n");
+    expect(stdout).not.toContain("line 10\n");
+    expect(read(dir, "summary.txt")).not.toContain("line 50");
   });
 
   test("fails on a must_pass test that didn't run", () => {
