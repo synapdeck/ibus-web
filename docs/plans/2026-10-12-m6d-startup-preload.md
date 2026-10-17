@@ -31,14 +31,18 @@ size without compiling at all, and a page can fetch, or install, the engines it 
 4. **Preloading by fetch.** `preload(entries, options?)` on the facade and the registry: when the page is idle, each
    entry's manifest, `.wasm` and data archives are fetched at low priority into the `ibus-web-preload` cache, keyed by
    URL and the manifest's version, with `preload` events; the Worker's module and archive fetches look in that cache
-   first; a module's start deletes other versions' entries. Proved by `core-browser` (cache filled, events, no Worker,
-   no storage), `worker-host-browser` (a cached archive is installed with no network fetch, and a start deletes another
-   version's entries) and `core-node` (entries validated, unknown module and engine rejected).
+   first; a module's start deletes other versions' entries. Proved by `core-node`, over a fake cache, network and
+   install (cache filled at low priority, events, no Worker, entries validated, unknown module and engine rejected, a
+   failed file rejected as what it is), `worker-host-browser` (a cached archive is installed with no network fetch, and a
+   start deletes another version's entries) and the demo's Playwright specs.
 5. **Preloading by install.** With `install: true`, a short-lived install-only host per module installs the base data
    and the entries' engine data into IndexedDB and exits, holding the writer lock; a module another tab holds is
-   skipped, one this page runs installs through its own Worker. Proved by `worker-host-node` and `worker-host-browser`
-   (the install-only host installs and ends with every lock let go, and skips when the writer lock is held) and
-   `core-browser` (a later selection installs nothing).
+   skipped, one this page runs installs through its own Worker; a module's install-only Workers run one at a time, and
+   a start waits for the last. Proved by `worker-host-node` and `worker-host-browser` (the install-only host installs,
+   and a host started once it says it has ended, before its Worker is terminated, takes the writer lock; it skips when
+   the writer lock is held), `core-node` (a start waits for the install, the base data's progress is reported, a page's
+   own Worker prepares instead, two installs of one module don't overlap) and the demo's Playwright specs (a later
+   selection installs nothing).
 6. **Both modes and m17n's start in the browsers.** The demo gains ahead-of-time Fetch and Install controls, and
    Playwright specs: a Rime engine fetched ahead has its dictionaries in the page's cache and types once selected, one
    installed ahead installs nothing once selected; m17n's start from IndexedDB is re-measured. Proved by
@@ -91,7 +95,12 @@ size without compiling at all, and a page can fetch, or install, the engines it 
   new `StartupRefusal`s, `writer` and `ephemeral`. Without IndexedDB it can't keep anything, so the module's entries
   are fetched into the cache instead. A module whose Worker this page already runs installs through that Worker's
   `prepare`, since its writer lock is this page's; a start of a module waits for its install-only Worker, which holds
-  the writer lock the module's own would otherwise go without for good.
+  the writer lock the module's own would otherwise go without for good. A second install of a module waits for the
+  first, which would hold the lock it needs, and leaves the install to the module's Worker if the module started
+  meanwhile.
+- **Rime's compile record** marks a schema whose dictionary wasn't installed when a full deployment started as prebuilt,
+  so it is compiled once its engine selects it, and a compile that failed isn't tried again with the same patches until
+  the Deploy property restarts Rime.
 - **Cached entries stay** after the data is installed, until a start of their module with another version deletes them.
 
 ## Departures from the spec
