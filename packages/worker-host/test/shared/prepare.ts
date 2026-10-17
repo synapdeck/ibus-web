@@ -153,6 +153,52 @@ export const prepareFresh = (h: Harness, runtime: RuntimeBuild): Promise<void> =
     );
   });
 
+const preloaded = (message: Message): message is { type: "preloaded" } => message.type === "preloaded";
+
+// An install-only host installs the base data and the lazy engine's own,
+// answers for the engine, and says it is done once it has let go of every
+// lock: a host started after it finds both installed, and takes the writer
+// lock.
+export const installOnly = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = lazyEngineFor(h, "install-only", runtime);
+    const installer = launch(engine, { install: [LAZY_ENGINE] });
+    await waitFor(h, installer, preloaded, "the installer's end");
+    expect(installOf(installer.messages)?.state, "the base data").toBe("installed");
+    expect(pathInstalls(installer.messages), "the lazy path").toMatchObject([
+      { storePath: LAZY_PATH, state: "installed" },
+    ]);
+    expect(
+      installer.messages.filter(({ type }) => type === "prepared"),
+      "the engine's answer",
+    ).toEqual([{ type: "prepared", engine: LAZY_ENGINE }]);
+    await installer.terminate();
+
+    const host = await launch(engine).ready;
+    expect(installOf(host.messages)?.state, "the base data after").toBe("present");
+    expect(
+      host.messages.some(({ type }) => type === "storage"),
+      "a host that writes",
+    ).toBe(false);
+    await prepareLazy(h, host, "present");
+  });
+
+// An install-only host refuses a module whose writer lock another host
+// holds, installing nothing. Browsers only: Node's Web Locks can grant one
+// exclusive lock twice.
+export const installOnlyWriterHeld = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = lazyEngineFor(h, "install-only-writer-held", runtime);
+    const host = await launch(engine).ready;
+    const installer = launch(engine, { install: [LAZY_ENGINE] });
+    await expect(installer.ready, "the installer").rejects.toThrow(/another host holds/);
+    expect(
+      installer.messages.some(({ type }) => type === "path-install"),
+      "what it installed",
+    ).toBe(false);
+    expect(await listed(h, host.client, LAZY_PATH), "the lazy path").toBe(-errno(h, "ENOENT"));
+  });
+
 // A host started after another installed the lazy path finds its marker and
 // installs nothing.
 export const prepareSkip = (h: Harness, runtime: RuntimeBuild): Promise<void> =>

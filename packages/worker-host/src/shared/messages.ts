@@ -85,6 +85,9 @@ export type EngineStorage =
 // The page's first message to the host. Wasm is the runtime's
 // compiled WebAssembly.Module, typed by the environment that has one. Test
 // is read only by the host's test build; the host as released ignores it.
+// install makes a host that only installs: the base data and the named
+// engines' own, with the module's writer lock, then "preloaded" once it has
+// let go of every lock; it loads no engine module and serves nothing.
 export type HostInit<Wasm = unknown, Test = never> = {
   // The runtime's ibus-runtime.js, which the host imports.
   runtimeUrl: string;
@@ -92,6 +95,7 @@ export type HostInit<Wasm = unknown, Test = never> = {
   control: SharedArrayBuffer;
   layout?: TransportLayout;
   storage: EngineStorage;
+  install?: { engines: readonly string[] };
   test?: Test;
 } & ({ manifest: ModuleManifest; manifestUrl?: never } | { manifest?: never; manifestUrl: string });
 
@@ -183,8 +187,11 @@ export interface CollectReport {
   error?: string;
 }
 
-// Why a host refused a module before starting it.
-export type StartupRefusal = "RuntimeAbiMismatch" | "ProtocolMismatch" | "manifest";
+// Why a host refused a module before starting it. An install-only host
+// refuses with "writer" when another host holds the module's writer lock,
+// and with "ephemeral" when its storage would be in memory and so kept
+// nothing.
+export type StartupRefusal = "RuntimeAbiMismatch" | "ProtocolMismatch" | "manifest" | "writer" | "ephemeral";
 
 export type HostMessage =
   | { type: "doorbell" }
@@ -204,4 +211,7 @@ export type HostMessage =
   | { type: "error"; message: string; refused?: StartupRefusal }
   // The runtime stopped after the host was ready: the control buffer says
   // CRASHED, and this says why.
-  | { type: "crashed"; message: string };
+  | { type: "crashed"; message: string }
+  // An install-only host installed what it was asked to, or said in
+  // "prepared" why not, and has let go of every lock.
+  | { type: "preloaded" };

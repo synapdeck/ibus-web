@@ -89,6 +89,8 @@ import {
   prepareConcurrent,
   preparedDistribution,
   preparedInMemory,
+  installOnly,
+  installOnlyWriterHeld,
   prepareFresh,
   prepareInterrupted,
   prepareMovedUnmarked,
@@ -283,6 +285,8 @@ describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => 
 describe.each(h.data.runtimes)("an engine's own data on the $name runtime", (runtime) => {
   test("prepare-fresh", () => prepareFresh(h, runtime));
   test("prepare-skip", () => prepareSkip(h, runtime));
+  test("install-only", () => installOnly(h, runtime));
+  test("install-only-writer-held", () => installOnlyWriterHeld(h, runtime));
   test("preloaded-files", () => preloadedFiles(h, runtime));
   test("preload-collected", () => preloadCollected(h, runtime));
   test("prepare-concurrent", () => prepareConcurrent(h, runtime));

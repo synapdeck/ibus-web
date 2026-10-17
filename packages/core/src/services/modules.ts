@@ -59,8 +59,10 @@ import {
   cacheManifest,
   fetchEntries,
   openPreloads,
+  type InstallOutcome,
   type PreloadEntry,
   type PreloadEnvironment,
+  type PreloadOptions,
 } from "./preload.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
 export interface ModuleRegistryOptions {
@@ -132,11 +134,12 @@ export interface ModuleRegistryService {
   isPrepared(name: string, engine: string): boolean;
   /**
    * Once the page is idle, fetches each entry's files the page's preload cache lacks: the module's manifest, `.wasm`
-   * and base data, and the engine's own data when it names one, at low priority, starting no Worker. Fails with an
-   * Error for an unknown module before anything is fetched, or an unknown engine before anything but its manifest,
-   * and with EngineLoadFailed, ProtocolMismatch or PrepareEngineError for a file that failed.
+   * and base data, and the engine's own data when it names one, at low priority, starting no Worker. With `install`,
+   * a short-lived Worker per module installs them into its storage instead, with the module's writer lock, and a
+   * module another host holds that lock for is skipped. Fails with an Error for an unknown module before anything is
+   * fetched, or an unknown engine before anything but its manifest, and with the tagged errors for what failed.
    */
-  preload(entries: readonly PreloadEntry[]): Effect.Effect<void, Error>;
+  preload(entries: readonly PreloadEntry[], options?: PreloadOptions): Effect.Effect<void, Error>;
   ensure(name: string): Effect.Effect<void, Error>;
   /** Starts the module's Worker, if it hasn't, and waits until it is ready, without enabling the module. */
   start(name: string): Effect.Effect<void, Error>;
@@ -219,6 +222,7 @@ const startupFailure = (module: string, cause: unknown): { error: IbusWebError; 
   return { error: new EngineLoadFailed({ module, diagnostic: asError(cause).message }), terminal: false };
 };
 // What a connection rejects a request with once its Worker has crashed.
+const noop = (): void => {};
 const isCrashInfo = (cause: unknown): cause is CrashInfo =>
   typeof cause === "object" &&
   cause !== null &&
@@ -390,9 +394,14 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         const pending = read;
         return Effect.tryPromise({ try: () => pending, catch: asError });
       });
+    // The install-only Workers preloading runs, by module: a start of the module waits for its own, which holds the
+    // writer lock its Worker would otherwise lack for good.
+    const installers = new Map<string, Promise<unknown>>();
     const boot = (name: string, entry: Entry) =>
       Effect.gen(function* () {
         const lifetime = entry.lifetime!;
+        const installing = installers.get(name);
+        if (installing !== undefined) yield* Effect.promise(() => installing.then(noop, noop));
         const manifest = yield* manifestOf(name, entry);
         const metadata = yield* Effect.tryPromise({
           try: (signal) => loadSettingsMetadata(manifest, options.modules[name]!, options, signal),
@@ -817,7 +826,62 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         });
       });
     const preloading: PreloadEnvironment = { ...browserPreload, ...options.preload };
-    const preload = (requested: readonly PreloadEntry[]): Effect.Effect<void, Error> =>
+    // An entry's progress, if the page asked for that entry.
+    const preloaded =
+      (requested: readonly PreloadEntry[], module: string) =>
+      (engine: string | undefined, bytes: number, total: number) => {
+        if (requested.some((entry) => entry.module === module && entry.engine === engine))
+          events.enqueue({ _tag: "preload", module, ...(engine === undefined ? {} : { engine }), bytes, total });
+      };
+    // Installs a module's entries, through its Worker if this page runs it, which holds the writer lock, or else
+    // through a Worker of their own, which a start of the module waits for. Resolves with how it went.
+    const install = (
+      name: string,
+      manifest: ModuleManifest,
+      requested: readonly PreloadEntry[],
+    ): Effect.Effect<InstallOutcome, Error> =>
+      Effect.gen(function* () {
+        const engines = [
+          ...new Set(
+            requested.flatMap(({ module, engine }) =>
+              module === name &&
+              engine !== undefined &&
+              (manifest.engines.find((descriptor) => descriptor.name === engine)?.data ?? []).length > 0
+                ? [engine]
+                : [],
+            ),
+          ),
+        ];
+        if (get(name).started) {
+          for (const engine of engines) yield* prepare(name, engine);
+          return "installed" as const;
+        }
+
+        const installing = preloading.install({
+          module: name,
+          hostUrl: options.hostUrl,
+          runtimeUrl: options.runtimeUrl,
+          manifestUrl: options.modules[name]!,
+          engines,
+          progress: preloaded(requested, name),
+        });
+        installers.set(name, installing);
+        return yield* Effect.tryPromise({
+          try: () => installing,
+          catch: (cause) =>
+            isIbusWebError(cause) ? cause : new EngineLoadFailed({ module: name, diagnostic: asError(cause).message }),
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (installers.get(name) === installing) installers.delete(name);
+            }),
+          ),
+        );
+      });
+    const preload = (
+      requested: readonly PreloadEntry[],
+      preloadOptions: PreloadOptions = {},
+    ): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
         for (const { module } of requested)
           if (!entries.has(module)) return yield* Effect.fail(new Error(`Unknown module: ${module}`));
@@ -831,11 +895,19 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             return yield* Effect.fail(new Error(`Unknown engine: ${engine} in module ${module}`));
         }
 
+        // A module whose storage would be memory keeps nothing installed, so its files are fetched instead.
+        let fetching = modules;
+        if (preloadOptions.install === true) {
+          fetching = [];
+          for (const name of modules)
+            if ((yield* install(name, manifests.get(name)!, requested)) === "ephemeral") fetching.push(name);
+        }
+
         yield* Effect.tryPromise({
           try: async () => {
             const cache = await openPreloads(preloading);
             if (cache === undefined) return;
-            for (const name of modules) {
+            for (const name of fetching) {
               const manifest = manifests.get(name)!;
               const own = requested.filter(({ module }) => module === name);
               try {
@@ -847,16 +919,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                   manifest,
                   base,
                   own.map(({ engine }) => engine),
-                  (index, bytes, total) => {
-                    const engine = own[index]!.engine;
-                    events.enqueue({
-                      _tag: "preload",
-                      module: name,
-                      ...(engine === undefined ? {} : { engine }),
-                      bytes,
-                      total,
-                    });
-                  },
+                  (index, bytes, total) => preloaded(requested, name)(own[index]!.engine, bytes, total),
                 );
               } catch (cause) {
                 throw isIbusWebError(cause)

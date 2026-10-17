@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Stream } from "effect";
+import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import type { ModuleManifest } from "@ibus-web/protocol";
 import { preloadKey } from "@ibus-web/worker-host";
 import { makeModuleRegistry, type ModuleEvent } from "../../../src/services/modules.ts";
+import type { InstallOptions, InstallOutcome } from "../../../src/services/preload.ts";
 import { EngineLoadFailed, PrepareEngineError } from "../../../src/errors.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
 import { Logger, PanelEvents } from "../../../src/services/logging.ts";
+import { FakeConnection } from "../../shared/router.ts";
 
 const services = Layer.mergeAll(CoreConfig.Default, SettingsSource.layer(), Logger.Default, PanelEvents.Default);
 const basePath = `/nix/store/${"a".repeat(32)}-base`;
@@ -79,19 +81,35 @@ const network = (missing: readonly string[] = []) => {
   return { requests, fetch };
 };
 
-const registryWith = (cache: MemoryCache, fetch: typeof globalThis.fetch) =>
+const registryWith = (
+  cache: MemoryCache,
+  fetch: typeof globalThis.fetch,
+  more: {
+    install?: (options: InstallOptions) => Promise<InstallOutcome>;
+    start?: () => Promise<FakeConnection>;
+  } = {},
+) =>
   makeModuleRegistry({
     hostUrl: manifestUrl,
     runtimeUrl: manifestUrl,
     modules: { test: manifestUrl },
     loadManifest: async () => manifest,
-    start: async () => {
-      throw new Error("preloading started a Worker");
-    },
+    loadMetadata: async () => ({ schemas: [] }),
+    waitForWriter: () => Effect.void,
+    start:
+      more.start ??
+      (async () => {
+        throw new Error("preloading started a Worker");
+      }),
     preload: {
       caches: () => ({ open: async () => cache }) as unknown as CacheStorage,
       fetch,
       idle: async () => {},
+      install:
+        more.install ??
+        (async () => {
+          throw new Error("preloading installed");
+        }),
     },
   });
 
@@ -176,5 +194,86 @@ it.effect("a file that fails to fetch rejects with the error for what it is", ()
     );
     expect(moduleFailed).toBeInstanceOf(EngineLoadFailed);
     expect(moduleFailed).toMatchObject({ module: "test" });
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("install mode installs through a Worker of the module's own, which a start of the module waits for", () =>
+  Effect.gen(function* () {
+    const asked: InstallOptions[] = [];
+    const called = yield* Deferred.make<void>();
+    const installed = yield* Deferred.make<void>();
+    let started = 0;
+    const registry = yield* registryWith(new MemoryCache(), network().fetch, {
+      install: async (options) => {
+        asked.push(options);
+        Deferred.doneUnsafe(called, Effect.void);
+        options.progress(undefined, 1000, 1000);
+        options.progress("lazy", 2500, 5000);
+        await Effect.runPromise(Deferred.await(installed));
+        options.progress("lazy", 5000, 5000);
+        return "installed";
+      },
+      start: async () => {
+        started++;
+        const connection = new FakeConnection();
+        connection.requestAsync = async () => ({ ret: 0, outSeq: 0, records: [] });
+        return connection;
+      },
+    });
+    const events = yield* registry.events.pipe(
+      Stream.takeUntil((event) => event._tag === "preload" && event.bytes === 5000),
+      Stream.runCollect,
+      Effect.forkChild,
+    );
+    yield* Effect.yieldNow;
+
+    const preloading = yield* registry
+      .preload([{ module: "test", engine: "lazy" }, { module: "test" }], {
+        install: true,
+      })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(called);
+    expect(asked.map(({ module, engines }) => ({ module, engines }))).toEqual([{ module: "test", engines: ["lazy"] }]);
+
+    const selecting = yield* registry.select("test").pipe(Effect.forkChild);
+    yield* Effect.yieldNow;
+    expect(started, "a start while the install runs").toBe(0);
+    yield* Deferred.succeed(installed, undefined);
+    yield* Fiber.join(preloading);
+    yield* Fiber.join(selecting);
+    expect(started, "once it has ended").toBe(1);
+    expect(preloads([...(yield* Fiber.join(events))])).toEqual([
+      { engine: undefined, bytes: 1000, total: 1000 },
+      { engine: "lazy", bytes: 2500, total: 5000 },
+      { engine: "lazy", bytes: 5000, total: 5000 },
+    ]);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("install mode skips a module another host writes, and fetches one whose storage would be memory", () =>
+  Effect.gen(function* () {
+    const skipped = new MemoryCache();
+    yield* Effect.flatMap(registryWith(skipped, network().fetch, { install: async () => "writer" }), (registry) =>
+      registry.preload([{ module: "test", engine: "lazy" }], { install: true }),
+    );
+    expect(skipped.stored.size).toBe(0);
+
+    const fetched = new MemoryCache();
+    yield* Effect.flatMap(registryWith(fetched, network().fetch, { install: async () => "ephemeral" }), (registry) =>
+      registry.preload([{ module: "test", engine: "lazy" }], { install: true }),
+    );
+    expect(fetched.stored.has(preloadKey(at("./data/lazy.tar.br"), manifest))).toBe(true);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("install mode prepares through the Worker this page runs for the module", () =>
+  Effect.gen(function* () {
+    const connection = new FakeConnection();
+    connection.requestAsync = async () => ({ ret: 0, outSeq: 0, records: [] });
+    const registry = yield* registryWith(new MemoryCache(), network().fetch, { start: async () => connection });
+    yield* registry.select("test");
+
+    yield* registry.preload([{ module: "test", engine: "lazy" }, { module: "test" }], { install: true });
+    expect(connection.prepared).toEqual(["lazy"]);
   }).pipe(Effect.provide(services)),
 );

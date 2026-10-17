@@ -65,7 +65,7 @@ export const runtimeLayer: Layer.Layer<HostRuntime, StartupFailed, HostWorker | 
         return Promise.race([
           createRuntime({
             wasmMemory: memory,
-            ibuswebEngineThreads: manifest.threads,
+            ibuswebEngineThreads: init.install === undefined ? manifest.threads : 0,
             ...(wasm === undefined
               ? {}
               : {

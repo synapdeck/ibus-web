@@ -4,6 +4,7 @@
 import type { ModuleManifest } from "@ibus-web/protocol";
 import { Context, Effect, Layer } from "effect";
 import type { RuntimeMemory } from "../../shared/messages.ts";
+import { engineWriterLock } from "../../shared/naming.ts";
 import { StartupFailed, startupFailed } from "../failure.ts";
 import { Instruments } from "../instruments.ts";
 import { fetchPreloaded } from "../preloaded.ts";
@@ -53,6 +54,28 @@ export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWo
       try: () => planStorage(init.storage, manifest, constants.idbReadOnly, held),
       catch: startupFailed,
     });
+
+    // An install-only host keeps what it installs only in storage it may
+    // write, and needs no engine module, nor more memory than the runtime's
+    // least, since the data goes to storage.
+    if (init.install !== undefined) {
+      if (plan.mount === "memory" || plan.mount === "none")
+        return yield* new StartupFailed({ message: "nothing installed in memory would be kept", refused: "ephemeral" });
+      if (plan.readOnly)
+        return yield* new StartupFailed({
+          message: `another host holds ${engineWriterLock(manifest)}`,
+          refused: "writer",
+        });
+      const least = constants.memory.minimum;
+      return {
+        constants,
+        plan,
+        held,
+        manifest,
+        module: new ArrayBuffer(0),
+        memory: { initial: least, maximum: least },
+      };
+    }
 
     const module = yield* Effect.tryPromise({
       try: async () => {

@@ -18,6 +18,7 @@ import {
   type EngineInfo,
   type ModuleEvent,
   type PreloadEntry,
+  type PreloadOptions,
   type ModuleRegistryService,
   type RouterService,
   type Selection,
@@ -38,6 +39,7 @@ export type {
   KeyboardLayout,
   ModuleUsage,
   PreloadEntry,
+  PreloadOptions,
   Selection,
   SettingsSourceService,
   StorageUsage,
@@ -129,10 +131,12 @@ export interface IbusWeb extends PanelHost {
   /**
    * Once the page is idle, fetches what the page's cache lacks of each entry, at low priority, without starting a
    * Worker: the module's manifest, `.wasm` and base data, and the engine's own data when the entry names one. A
-   * module's Worker reads them from there. `preload` events report its progress. Rejects with a plain Error for an
-   * unknown module or engine, and with the tagged errors for a file that failed.
+   * module's Worker reads them from there. With `install: true`, a short-lived Worker per module installs them into
+   * its storage instead, so that the first selection only starts the module; it needs the module's writer lock, and
+   * a module another tab holds is skipped. `preload` events report its progress. Rejects with a plain Error for an
+   * unknown module or engine, and with the tagged errors for what failed.
    */
-  preload(entries: readonly PreloadEntry[]): Promise<void>;
+  preload(entries: readonly PreloadEntry[], options?: PreloadOptions): Promise<void>;
   readonly selection: Selection | undefined;
   readonly settings: Omit<SettingsApiService, "changes">;
   /**
@@ -381,12 +385,12 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       const current = await initialize();
       await runtime.runPromise(current.registry.prepare(module, engine));
     },
-    preload: async (entries: readonly PreloadEntry[]) => {
+    preload: async (entries: readonly PreloadEntry[], preloadOptions?: PreloadOptions) => {
       alive();
       const unknown = entries.find(({ module }) => !Object.hasOwn(options.modules, module));
       if (unknown !== undefined) throw new Error(`Unknown module: ${unknown.module}`);
       const current = await initialize();
-      await runtime.runPromise(current.registry.preload(entries));
+      await runtime.runPromise(current.registry.preload(entries, preloadOptions));
     },
     selection: undefined as Selection | undefined,
     settings: {

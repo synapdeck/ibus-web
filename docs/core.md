@@ -71,8 +71,15 @@ file two entries share counting for the first ([storage.md](storage.md#preloaded
 archives' unpacked ones: an archive is credited in proportion to its body as it arrives where the response gives a
 length, and `bytes` reaches `total` only once all of it is stored. A failed file fails the preload as what it is:
 `PrepareEngineError` for an engine's own data, `EngineLoadFailed` otherwise, and the manifest's own refusals as when a
-module starts. Without Cache Storage it fetches nothing and resolves. The environment it uses (the cache, `fetch` and
-the idle wait) is the registry's `preload` option, which tests replace.
+module starts. Without Cache Storage it fetches nothing and resolves. With `{ install: true }` it installs instead: a
+module the page runs prepares the entries' engines through its Worker, whose `install` events report it, and any other
+gets a short-lived Worker whose host only installs (`installModule`, [worker-host.md](worker-host.md#messages)), with
+the module's writer lock, the base data and the entries' engines' own data into the module's storage, then ends. Its
+`preload` events report the base data once installed, as an entry without an engine, and each engine's as it is written.
+A module another host holds the writer lock for is skipped, and one whose storage would be memory has its files fetched
+instead, since memory would keep nothing. A start of the module waits for its install-only Worker to end, since that
+Worker holds the writer lock the module's own would otherwise go without for good. The environment it uses (the cache,
+`fetch`, the idle wait and the install) is the registry's `preload` option, which tests replace.
 
 Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and, as its `diagnostic`, the
 engine's reason, taken from the runtime's `CreateEngineFailed` record when the engine gave one, or else the reply's

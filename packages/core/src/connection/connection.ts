@@ -64,7 +64,8 @@ export type SyncOutcome =
   | { _tag: "pending" }
   | { _tag: "crashed"; crash: CrashInfo };
 const modules = new Map<string, Promise<WebAssembly.Module>>();
-function compile(runtimeUrl: URL): Promise<WebAssembly.Module> {
+/** The runtime's module, compiled once per page and URL. */
+export function compile(runtimeUrl: URL): Promise<WebAssembly.Module> {
   const url = new URL("ibus-runtime.wasm", runtimeUrl);
   let pending = modules.get(url.href);
   if (!pending) {

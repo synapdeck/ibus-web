@@ -125,6 +125,9 @@ export interface HostOptions {
   wasm?: Uint8Array;
   // Side modules the host loads after the test side modules.
   moreSides?: SideModule[];
+  // Makes the host one that only installs, the base data and these
+  // engines' own, and never says "ready".
+  install?: readonly string[];
 }
 
 // A PrepareEngine's answer, as the host posts it.
@@ -384,6 +387,7 @@ export const hostLauncher =
             }
           : { manifestUrl: env.resolve(options.manifestUrl) }),
         storage: options.storage ?? { kind: "none" },
+        ...(options.install === undefined ? {} : { install: { engines: options.install } }),
         test,
       };
       const startupMs = await startHost(worker, init, messages);

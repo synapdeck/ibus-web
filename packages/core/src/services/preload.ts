@@ -7,8 +7,15 @@
 // module's storage.
 
 import { asError, lazyStorePaths, type ModuleManifest } from "@ibus-web/protocol";
-import { preloadCacheName, preloadKey } from "@ibus-web/worker-host";
-import { EngineLoadFailed, PrepareEngineError } from "../errors.ts";
+import { createControl, preloadCacheName, preloadKey, type HostInit, type HostMessage } from "@ibus-web/worker-host";
+import { compile } from "../connection/connection.ts";
+import {
+  EngineLoadFailed,
+  PrepareEngineError,
+  ProtocolMismatch,
+  RuntimeAbiMismatch,
+  type IbusWebError,
+} from "../errors.ts";
 
 /** A module to preload, and one of its engines, whose own data comes too. */
 export interface PreloadEntry {
@@ -27,6 +34,7 @@ export interface PreloadEnvironment {
   readonly fetch: typeof fetch;
   /** Resolves once the page is idle. */
   readonly idle: () => Promise<void>;
+  readonly install: (options: InstallOptions) => Promise<InstallOutcome>;
 }
 
 // WebKit has no requestIdleCallback, so a page there waits a second.
@@ -40,6 +48,7 @@ export const browserPreload: PreloadEnvironment = {
   caches: () => (globalThis as { caches?: CacheStorage }).caches,
   fetch: (input, init) => fetch(input, init),
   idle,
+  install: (options) => installModule(options),
 };
 
 /** Hears an entry's bytes fetched so far, of the total the cache lacked. */
@@ -198,3 +207,74 @@ export const fetchEntries = async (
 /** The page's preload cache, or undefined where the page has none. */
 export const openPreloads = async (environment: PreloadEnvironment): Promise<Cache | undefined> =>
   environment.caches()?.open(preloadCacheName);
+
+/** What an install-only Worker did: installed, or skipped for the reason its host refused. */
+export type InstallOutcome = "installed" | "writer" | "ephemeral";
+
+export interface InstallOptions {
+  readonly module: string;
+  readonly hostUrl: URL;
+  readonly runtimeUrl: URL;
+  readonly manifestUrl: URL;
+  /** The engines whose own data is installed beside the base data. */
+  readonly engines: readonly string[];
+  readonly worker?: (url: URL) => Worker;
+  /** Hears the base data's bytes once installed, with no engine, and each engine's as they are written. */
+  readonly progress: (engine: string | undefined, bytes: number, total: number) => void;
+}
+
+/**
+ * Runs a short-lived Worker whose host installs the module's base data and the engines' own into its storage, with
+ * the module's writer lock, and ends it once the host has let go of every lock. Resolves with "writer" when another
+ * host holds that lock and with "ephemeral" when the storage would be memory, installing nothing in either case.
+ */
+export const installModule = async (options: InstallOptions): Promise<InstallOutcome> => {
+  const { module } = options;
+  const wasm = await compile(options.runtimeUrl);
+  const worker = options.worker?.(options.hostUrl) ?? new Worker(options.hostUrl, { type: "module" });
+  try {
+    return await new Promise<InstallOutcome>((resolve, reject) => {
+      let failed: IbusWebError | undefined;
+      worker.addEventListener("message", ({ data }: MessageEvent<HostMessage>) => {
+        switch (data.type) {
+          case "install":
+            options.progress(undefined, data.bytes, data.bytes);
+            break;
+          case "prepare-progress":
+            options.progress(data.engine, data.bytes, data.total);
+            break;
+          case "prepared":
+            if (data.error !== undefined)
+              failed ??= new PrepareEngineError({ module, engine: data.engine, diagnostic: data.error });
+            break;
+          case "preloaded":
+            if (failed === undefined) resolve("installed");
+            else reject(failed);
+            break;
+          case "error":
+            if (data.refused === "writer" || data.refused === "ephemeral") resolve(data.refused);
+            else if (data.refused === "RuntimeAbiMismatch")
+              reject(new RuntimeAbiMismatch({ module, diagnostic: data.message }));
+            else if (data.refused === "ProtocolMismatch")
+              reject(new ProtocolMismatch({ module, diagnostic: data.message }));
+            else reject(new EngineLoadFailed({ module, diagnostic: data.message }));
+            break;
+        }
+      });
+      worker.addEventListener("error", (event) =>
+        reject(new EngineLoadFailed({ module, diagnostic: event.message || "Worker error" })),
+      );
+      const init: HostInit<WebAssembly.Module> = {
+        runtimeUrl: options.runtimeUrl.href,
+        manifestUrl: options.manifestUrl.href,
+        wasm,
+        control: createControl(),
+        storage: { kind: "browser" },
+        install: { engines: options.engines },
+      };
+      worker.postMessage(init);
+    });
+  } finally {
+    worker.terminate();
+  }
+};

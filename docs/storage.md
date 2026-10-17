@@ -507,7 +507,9 @@ manifest from the network: it names the version every other key needs. A host th
 it, fetches from the network, and opening the cache would make it, so a host only looks into one a page made. The cache
 holds the files as served, compressed archives and all; installing from it is installing from the network, without the
 network. Entries stay after their data is installed, so that a later install of the version, after its storage was
-deleted or into the memory fallback's, fetches nothing either.
+deleted or into the memory fallback's, fetches nothing either. `preload` with `install` puts the files into the
+version's database instead, through a host that only installs, which takes the module's writer lock as any writer does
+and skips the module if another host holds it ([worker-host.md](worker-host.md#messages)).
 
 ### Old versions
 

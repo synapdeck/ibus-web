@@ -41,6 +41,9 @@ export {
 export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
 export {
   browserPreload,
+  installModule,
+  type InstallOptions,
+  type InstallOutcome,
   type PreloadEntry,
   type PreloadEnvironment,
   type PreloadOptions,
