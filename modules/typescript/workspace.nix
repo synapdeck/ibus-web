@@ -160,6 +160,10 @@
         hash = "sha256-jVswUCJ96qacuJuDo4aUXoA0k8CSp061+KvCo0SLKRM=";
       };
 
+      # tree-sitter-cpp 0.23.4's linux-arm64 prebuild is an x86-64 binary.
+      # node-gyp-build loads a build of the package's own before a prebuild.
+      buildsTreeSitterCpp = pkgs.stdenv.hostPlatform.system == "aarch64-linux";
+
       # Each package's node_modules, and the root's, installed offline
       # without the sources.
       nodeModules = pkgs.stdenvNoCC.mkDerivation {
@@ -171,11 +175,23 @@
           nodejs
           pnpm
           pkgs.pnpmConfigHook
+        ]
+        ++ lib.optionals buildsTreeSitterCpp [
+          pkgs.node-gyp
+          pkgs.python3
+          pkgs.stdenv.cc
         ];
 
         buildPhase = ''
           runHook preBuild
           ${assertPlaywrightVersion}
+        ''
+        + lib.optionalString buildsTreeSitterCpp ''
+          for dir in node_modules/.pnpm/tree-sitter-cpp@*/node_modules/tree-sitter-cpp; do
+            (cd "$dir" && node-gyp rebuild --nodedir=${nodejs})
+          done
+        ''
+        + ''
           runHook postBuild
         '';
 
@@ -268,6 +284,12 @@
             nodejs
             pnpm
           ];
+
+          # pnpm takes an install made in another directory for stale and,
+          # before running a script, installs again, pruning what the
+          # filtered packages don't use; Darwin builds in a directory of
+          # their own each time.
+          pnpm_config_verify_deps_before_run = "false";
 
           configurePhase = ''
             runHook preConfigure

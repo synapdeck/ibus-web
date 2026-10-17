@@ -32,6 +32,9 @@
           ''
             export HOME=$TMPDIR
             export pnpm_config_pm_on_fail=ignore
+            # The install was made in another directory, which pnpm would
+            # take for stale and install again before prepack.
+            export pnpm_config_verify_deps_before_run=false
 
             # Writable, so files can be copied in and prepack can write.
             cp -R ${src} work
