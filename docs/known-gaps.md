@@ -146,6 +146,13 @@ decided.
 - **WebKit's `unload()` and `dispose()` with unsaved learning** wait `hangMs` (2 s by default) and still lose it:
   WebKit's Workers reach IndexedDB through the page's main thread, which the wait holds
   ([core.md](core.md#layers-and-page-lifetime)).
+- **A read-only tab learns nothing that lasts.** Only the tab holding a module's writer lock saves learning. A read-only
+  Rime opens no user dictionary and takes a settings change only at its next start
+  ([rime.md](rime.md#a-read-only-module)); a read-only Mozc learns for its Worker's life alone, with its segment history
+  off ([mozc.md](mozc.md#a-read-only-module)).
+- **Rime's moved-aside databases are never removed.** A user dictionary whose repair failed stays in the user directory
+  as `<name>.userdb.corrupt-<time>`, counted in `userData`, until the user resets the module
+  ([rime.md](rime.md#recovery)).
 
 ## Storage
 
@@ -187,6 +194,11 @@ decided.
   KiB), not read from its source.
 - **WebKit's IndexedDB in Workers** is checked only through Rime's browser tests (spec R5, R13): the backend's own
   programs (`checks.wasmfs-idb-browser`) run in Chromium and Firefox.
+- **The storage API's limits.** `usage()` counts each module's current version only, not another version's data still
+  waiting for collection; an export whose writer is in another tab that doesn't answer within 5 s takes what is stored,
+  without what that writer keeps in memory; and in WebKit an export's read-only transaction, reaching IndexedDB through
+  the page's main thread, can't finish while the page spins on a key's reply, so a host write queued behind it waits for
+  the spin to end ([storage.md](storage.md#the-host-api)).
 - **The backend's costs**: every `open()` costs one read-only transaction; the open/unlink race is argued in a comment,
   not tested.
 - **Installing writes in 64 KiB pieces.** Each piece of a file's data is one write transaction at a 64 KiB boundary of

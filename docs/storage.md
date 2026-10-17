@@ -686,7 +686,10 @@ The facade's `storage` object reports, exports and resets modules' storage (spec
 ([above](#the-page-keeps-out)), so each call starts a storage Worker, `storage.js` beside the host's script, posts it
 one request and ends it once it has answered (`src/worker/storage.ts`, `src/shared/storage.ts`). The Worker reads on
 connections of its own that close at a version change, opened without creating a database, in read-only transactions, so
-it holds up a host's writes only as long as one of them lasts.
+it holds up a host's writes only as long as one of them lasts. In WebKit, whose Workers reach IndexedDB through the
+page's main thread, one of them can't finish while the page spins on a key's reply, so a host write queued behind it
+waits for the spin to end; an export's, reading every chunk, lasts longest. The snapshot needs that one transaction, so
+the export isn't split into shorter ones.
 
 - **`usage()`** reads, for every module the page was given, its manifest (starting no module's Worker), then the
   version's markers, `meta.installed` and each engine's own store path's `meta.paths/<storePath>`, and the user data's
