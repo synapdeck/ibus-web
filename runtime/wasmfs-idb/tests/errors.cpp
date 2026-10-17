@@ -284,6 +284,28 @@ TEST_F(Errors, QuotaRenameLeavesNothingChanged) {
   expect_unchanged();
 }
 
+// Each change that fails with ENOSPC counts, and nothing else does: neither
+// a change that succeeds nor one refused for another reason.
+TEST_F(Errors, QuotaFailuresAreCounted) {
+  ASSERT_NO_FATAL_FAILURE(mount_read_only());
+  EXPECT_EQ(wasmfs_idb_backend_quota_failures(backend), 0u);
+  const int fd = open(path("file").c_str(), O_RDWR);
+  ASSERT_GE(fd, 0) << errno_text();
+  const uint8_t byte = 'x';
+  fail_put(IDB_CHUNKS, 0);
+  EXPECT_ERRNO(pwrite(fd, &byte, 1, 0), ENOSPC);
+  EXPECT_EQ(wasmfs_idb_backend_quota_failures(backend), 1u);
+  fail_put(IDB_META, 0);
+  EXPECT_ERRNO(mkdir(path("newdir").c_str(), 0755), ENOSPC);
+  EXPECT_EQ(wasmfs_idb_backend_quota_failures(backend), 2u);
+
+  EXPECT_EQ(pwrite(fd, &byte, 1, 0), 1) << errno_text();
+  EXPECT_ERRNO(mkdir(read_only_path("newdir").c_str(), 0755), EROFS);
+  EXPECT_EQ(wasmfs_idb_backend_quota_failures(backend), 2u);
+  EXPECT_EQ(wasmfs_idb_backend_quota_failures(read_only), 0u);
+  EXPECT_EQ(close(fd), 0) << errno_text();
+}
+
 TEST_F(Errors, ReadOnlyRefusesEveryChange) {
   ASSERT_NO_FATAL_FAILURE(mount_read_only());
   const auto ro = [&](std::string_view name) { return read_only_path(name); };

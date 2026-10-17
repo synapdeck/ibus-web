@@ -13,6 +13,8 @@ export interface MountedStorage {
   readonly mount: Mount;
   // Whether the IndexedDB backend's connection has closed under it.
   readonly closed: () => boolean;
+  // How many changes have failed for want of space.
+  readonly quotaFailures: () => number;
   // Makes a read-write IndexedDB backend refuse every change from here on.
   readonly seal?: () => void;
 }
@@ -46,7 +48,7 @@ export const mountAt = (handle: RuntimeHandle, backend: number, dir: string, wha
 // its calls for good, and blocks this thread while that thread opens the
 // database; it reports why it couldn't on stderr.
 export const mount = async (handle: RuntimeHandle, plan: StoragePlan, dir: string): Promise<MountedStorage> => {
-  if (plan.mount === "none") return { mount: "none", closed: () => false };
+  if (plan.mount === "none") return { mount: "none", closed: () => false, quotaFailures: () => 0 };
   const { rt } = handle;
   makeDirs(handle, dir.slice(0, dir.lastIndexOf("/")));
   let backend: number;
@@ -70,10 +72,11 @@ export const mount = async (handle: RuntimeHandle, plan: StoragePlan, dir: strin
       break;
   }
   mountAt(handle, backend, dir, plan.mount);
-  if (plan.mount !== "indexeddb") return { mount: plan.mount, closed: () => false };
+  if (plan.mount !== "indexeddb") return { mount: plan.mount, closed: () => false, quotaFailures: () => 0 };
   return {
     mount: plan.mount,
     closed: () => rt._wasmfs_idb_backend_closed(backend) !== 0,
+    quotaFailures: () => rt._wasmfs_idb_backend_quota_failures(backend) >>> 0,
     ...(plan.readOnly ? {} : { seal: () => rt._wasmfs_idb_backend_seal(backend) }),
   };
 };

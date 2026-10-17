@@ -155,6 +155,43 @@ it.effect("registry declares a patterned schema by its pattern, and only its ins
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("registry passes on the storage a running Worker reports, a quota failure among it", () =>
+  Effect.gen(function* () {
+    let report: ((message: { state: "quota"; message: string }) => void) | undefined;
+    const registry = yield* makeModuleRegistry({
+      hostUrl: url,
+      runtimeUrl: url,
+      modules: { test: url },
+      loadManifest: async () => manifest,
+      loadMetadata: async () => metadata,
+      start: async (options) => {
+        report = options.onStorage;
+        const connection = new FakeConnection();
+        connection.requestAsync = async () => emptyReply;
+        return connection;
+      },
+    });
+    const storage = yield* registry.events.pipe(
+      Stream.filter((event) => event._tag === "storage"),
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.forkChild,
+    );
+    yield* Effect.yieldNow;
+    yield* registry.select("test");
+
+    report!({ state: "quota", message: "1 change to the engine's storage failed for want of space (ENOSPC)" });
+    expect(yield* Fiber.join(storage)).toEqual([
+      {
+        _tag: "storage",
+        module: "test",
+        state: "quota",
+        message: "1 change to the engine's storage failed for want of space (ENOSPC)",
+      },
+    ]);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("registry validates keyboard names before starting a Worker", () =>
   Effect.gen(function* () {
     let started = false;

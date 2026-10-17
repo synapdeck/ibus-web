@@ -75,8 +75,9 @@ service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `l
 names; `selectionchange` carries the new selection, or `null` after deselection. A `storage` event's detail has the
 `module`, a `state` and a `message`: `read-only` means learning is off in this tab, since another tab of the same origin
 runs the module and writes its user data (Rime learns nothing, Mozc only for as long as the Worker runs), `ephemeral`
-that user data lasts only as long as the Worker, for want of IndexedDB, and `closed` that the module's databases were
-closed under it. `logLevel` filters both `log` events and the optional logger callback.
+that user data lasts only as long as the Worker, for want of IndexedDB, `closed` that the module's databases were closed
+under it, and `quota` that writes to them failed for want of space. `logLevel` filters both `log` events and the
+optional logger callback.
 
 Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:
 `EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,

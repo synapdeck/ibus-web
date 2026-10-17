@@ -88,6 +88,7 @@ describe("install lock lifetime", () => {
         },
         remove: async () => {},
         closed: () => false,
+        quotaFailures: () => 0,
         quiet: () => undefined,
       };
       vi.spyOn(stores, "nodeStore").mockResolvedValue(store);

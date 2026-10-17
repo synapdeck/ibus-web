@@ -96,8 +96,9 @@ export type Mount = "none" | "node" | "indexeddb" | "memory";
 // data lasts only as long as the Worker; "read-only", another host holds the
 // engine's writer lock, so this one's user data refuses changes with EROFS
 // for as long as it runs; "closed", the IndexedDB backend's connection closed
-// under it, so every later call that reaches the database fails with EIO.
-export type StorageState = "ephemeral" | "read-only" | "closed";
+// under it, so every later call that reaches the database fails with EIO;
+// "quota", a change to its storage failed with ENOSPC for want of space.
+export type StorageState = "ephemeral" | "read-only" | "closed" | "quota";
 
 // How the host found the engine's data at start: "installed", it installed
 // it; "present", the version's data was installed already. files and bytes

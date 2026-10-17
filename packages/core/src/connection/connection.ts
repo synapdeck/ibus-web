@@ -106,7 +106,9 @@ export class Connection {
   private current: QueuedRequest | undefined;
   private inFlight = false;
   private crash: CrashInfo | undefined;
-  private storage: StorageState | undefined;
+  // What the module's storage is, as the crash that ends the connection
+  // reports it: a quota failure is an event, not what the storage is.
+  private storage: Exclude<StorageState, "quota"> | undefined;
   private seq = 0;
   private movedAt = 0;
   private requestHangMs = 0;
@@ -402,7 +404,7 @@ export class Connection {
         this.rejectStart = undefined;
         break;
       case "storage":
-        this.storage = message.state;
+        if (message.state !== "quota") this.storage = message.state;
         this.options.onStorage?.({ state: message.state, message: message.message });
         break;
       case "error":

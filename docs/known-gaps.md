@@ -166,7 +166,7 @@ decided.
   names of their own and a move that refuses an existing target, and the sweep would need to tell a dead installer's
   tree from a live one's. The shared database, the lock-free installs and per-path deletion are not implemented.
 
-- **Host API**: usage report, export and reset (spec §5.6), and the quota `storage` events of spec §8, aren't built.
+- **Host API**: usage report, export and reset (spec §5.6) aren't built.
 - **`storage: closed` waits for a wake.** The host notices a closed connection only when it next wakes, so a version
   change while the engine is idle goes unreported until a request or a GLib source wakes it. The relay could wake it, or
   the page could restart the Worker on its own `versionchange`.

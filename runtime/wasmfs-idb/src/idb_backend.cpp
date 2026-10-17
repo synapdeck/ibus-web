@@ -81,6 +81,11 @@ public:
   // JavaScript sets it with Atomics.store on the bare int32.
   static_assert(sizeof(closed) == sizeof(int32_t));
   static_assert(std::atomic<int32_t>::is_always_lock_free);
+  // Counted from the backend's thread for each change that fails with
+  // ENOSPC, by Atomics.add on the bare uint32.
+  std::atomic<uint32_t> quotaFailures{0};
+  static_assert(sizeof(quotaFailures) == sizeof(uint32_t));
+  static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
   explicit IdbBackend(bool readOnly)
       : readOnly(readOnly), everWritable(!readOnly) {}
@@ -440,9 +445,10 @@ backend_t wasmfs_create_idb_backend(const char *database, uint32_t flags) {
   int id = 0;
   uint32_t root = 0;
   auto *closed = reinterpret_cast<int32_t *>(&backend->closed);
+  auto *quotaFailures = reinterpret_cast<uint32_t *>(&backend->quotaFailures);
   backend->proxy([&](auto ctx) {
-    _wasmfs_idb_open(ctx.ctx, database, defaultChunkSize, readOnly, closed, &id,
-                     &root);
+    _wasmfs_idb_open(ctx.ctx, database, defaultChunkSize, readOnly, closed,
+                     quotaFailures, &id, &root);
   });
   // Destroying the backend ends its thread.
   if (id <= 0) {
@@ -484,6 +490,12 @@ int wasmfs_idb_backend_closed(backend_t backend) {
   auto *idb =
       static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend));
   return idb->closed.load() != 0;
+}
+
+uint32_t wasmfs_idb_backend_quota_failures(backend_t backend) {
+  auto *idb =
+      static_cast<IdbBackend *>(reinterpret_cast<wasmfs::Backend *>(backend));
+  return idb->quotaFailures.load();
 }
 
 } // extern "C"

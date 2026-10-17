@@ -58,10 +58,11 @@ typedef void (*IdbRecordEntry)(std::vector<wasmfs::Directory::Entry> *entries,
 // it doesn't exist, and unless `read_only`, deletes the inodes no directory
 // holds. Writes the backend's handle, or an error, to `id` and the root
 // directory's inode to `root`. Sets `*closed` to 1, atomically, once the
-// connection has closed.
+// connection has closed, and adds 1 to `*quota_failures`, atomically, for
+// each change that fails with ENOSPC.
 void _wasmfs_idb_open(em_proxying_ctx *ctx, const char *name,
                       uint32_t chunk_size, int read_only, int32_t *closed,
-                      int *id, uint32_t *root);
+                      uint32_t *quota_failures, int *id, uint32_t *root);
 
 // The inode's stored attributes; attrs->err is -ENOENT if it doesn't exist.
 void _wasmfs_idb_get_attrs(em_proxying_ctx *ctx, int id, uint32_t ino,

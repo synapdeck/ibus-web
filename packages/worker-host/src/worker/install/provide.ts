@@ -51,6 +51,8 @@ interface ProvideData {
 export interface DataMount {
   // Whether its IndexedDB backend's connection has closed under it.
   readonly closed: () => boolean;
+  // How many changes to it have failed for want of space.
+  readonly quotaFailures: () => number;
   // Installs the named engine's own data where the version's storage lacks
   // it, posting what it does and, last, "prepared". Rejects only with what
   // a call into the runtime threw, which leaves the runtime unfit to call.
@@ -125,7 +127,7 @@ export const provideData = ({
         lockedAt,
         releasedAt: Date.now(),
       });
-      return { closed: () => false, prepare: preparer({ engine, post }) };
+      return { closed: () => false, quotaFailures: () => 0, prepare: preparer({ engine, post }) };
     }
 
     const lazy = lazyStorePaths(engine);
@@ -182,6 +184,7 @@ export const provideData = ({
     post({ type: "collect", ...(yield* Effect.promise(() => collect(store, engine))) });
     return {
       closed: () => store.closed(),
+      quotaFailures: () => store.quotaFailures(),
       prepare: preparer({
         engine,
         post,

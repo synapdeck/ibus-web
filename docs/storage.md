@@ -54,6 +54,9 @@ nothing else of the backend:
   with its install locks ([below](#an-engines-own-data)).
 - `wasmfs_idb_backend_closed(backend)` says whether the database's connection has closed under the backend. It is an
   atomic load, cheap whatever the backend's thread is doing.
+- `wasmfs_idb_backend_quota_failures(backend)` counts the changes through the backend that have failed with `ENOSPC`
+  (the browser's `QuotaExceededError`, or the database out of inode numbers), which the backend's thread adds to as each
+  fails. It is an atomic load too.
 
 ### How it plugs into WasmFS
 
@@ -179,7 +182,13 @@ A failed write aborts its transaction with its error, and every request after it
 reports the abort's error, the cause. A lookup in a closed database is `EIO` too, never `ENOENT`, since callers take
 `ENOENT` as leave to create a file or fall back to defaults (patch 0019). Quota failures are tested by injecting the
 error into a write, a truncation, a `chmod()`, a create, a `mkdir()`, a `rename()` and a `symlink()`, each leaving the
-database unchanged byte for byte; a real quota isn't reached in tests ([known gaps](known-gaps.md#storage)).
+database unchanged byte for byte, and each counting once among the backend's quota failures, which nothing else adds to;
+a real quota isn't reached in tests ([known gaps](known-gaps.md#storage)).
+
+The host checks both mounts' counts each time it wakes, as it checks for a closed connection
+([below](#version-changes)), and posts `storage: quota` whenever it finds more failures than it last saw, with how many,
+which the page passes on as a `storage` event of kind `quota` naming the module. What the engine does about the failure
+is its own: Rime's user dictionary, for one, disables itself ([rime.md](rime.md#recovery)).
 
 ### Version changes
 
@@ -664,6 +673,6 @@ chunk is written in part. Installing is off the request path, so its cost only d
 
 ## Not built yet
 
-The host API's usage report, export (a tar of the engine directory) and reset, and the `storage` usage events spec §8
-gives for quota, are spec §5.6 and §8 for later milestones. WebKit's IndexedDB in Workers is unchecked (spec R5, R13).
-Open items are collected in [known-gaps.md](known-gaps.md#storage).
+The host API's usage report, export (a tar of the engine directory) and reset are spec §5.6 for later milestones.
+WebKit's IndexedDB in Workers is unchecked (spec R5, R13). Open items are collected in
+[known-gaps.md](known-gaps.md#storage).

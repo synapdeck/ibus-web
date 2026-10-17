@@ -78,6 +78,7 @@ export const storageLayer: Layer.Layer<Storage, StartupFailed, HostWorker | Host
       const storage: StorageShape = {
         ...mounted,
         closed: () => mounted.closed() || data.closed(),
+        quotaFailures: () => mounted.quotaFailures() + data.quotaFailures(),
         prepare: data.prepare,
       };
 

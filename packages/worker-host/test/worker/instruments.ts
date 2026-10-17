@@ -85,7 +85,7 @@ export const makeInstruments = (
 ): Instruments => {
   let workers = workerCounts();
   let runtime: RuntimeHandle | undefined;
-  let storage: MountedStorage = { mount: "none", closed: () => false };
+  let storage: MountedStorage = { mount: "none", closed: () => false, quotaFailures: () => 0 };
   let scratch = 0;
   let requestBuffer = 0;
   let replyBuffer = 0;

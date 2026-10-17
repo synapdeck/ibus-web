@@ -39,6 +39,8 @@
  * @property {Map<number, number>} openCounts The open descriptors on each
  *   inode that has any.
  * @property {Set<number>} unlinked Open inodes no directory holds any more.
+ * @property {number} quotaPtr The count of changes that have failed for want
+ *   of space, which the C++ side reads.
  */
 
 /** @typedef {InstanceType<typeof HandleAllocator>} WasmfsIdbHandleAllocator */
@@ -157,7 +159,9 @@ const wasmfsIdbRun = async (ctx, id, op, report, fail) => {
   try {
     report(await op(wasmfsIdbBackends.get(id)));
   } catch (e) {
-    fail(wasmfsIdbErrno(e));
+    const errno = wasmfsIdbErrno(e);
+    if (errno === -ERRNO_CODES.ENOSPC) Atomics.add(HEAPU32, wasmfsIdbBackends.get(id).quotaPtr >> 2, 1);
+    fail(errno);
   }
   _emscripten_proxy_finish(ctx);
 };
@@ -273,10 +277,11 @@ const wasmfsIdbSweep = (state) =>
  * @param {number} chunkSize
  * @param {number} readOnly
  * @param {number} closedPtr
+ * @param {number} quotaPtr
  * @param {number} idPtr
  * @param {number} rootPtr
  */
-const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, readOnly, closedPtr, idPtr, rootPtr) => {
+const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, readOnly, closedPtr, quotaPtr, idPtr, rootPtr) => {
   const name = UTF8ToString(namePtr);
   try {
     const request = indexedDB.open(name, 1);
@@ -301,6 +306,7 @@ const _wasmfs_idb_open = async (ctx, namePtr, chunkSize, readOnly, closedPtr, id
       root: 0,
       openCounts: new Map(),
       unlinked: new Set(),
+      quotaPtr,
     };
     // Calls after this fail. The flag is set before the connection closes,
     // so whoever is waiting for the close sees it.
@@ -947,7 +953,7 @@ addToLibrary({
   $wasmfsIdbTransact__deps: ["$ERRNO_CODES", "$WasmfsIdbError"],
   $wasmfsIdbTransact: wasmfsIdbTransact,
 
-  $wasmfsIdbRun__deps: ["emscripten_proxy_finish", "$wasmfsIdbBackends", "$wasmfsIdbErrno"],
+  $wasmfsIdbRun__deps: ["emscripten_proxy_finish", "$wasmfsIdbBackends", "$wasmfsIdbErrno", "$ERRNO_CODES"],
   $wasmfsIdbRun: wasmfsIdbRun,
 
   $wasmfsIdbChunkRange: wasmfsIdbChunkRange,
@@ -971,7 +977,7 @@ addToLibrary({
   $wasmfsIdbSweep__deps: ["$wasmfsIdbTransact", "$wasmfsIdbRequest", "$wasmfsIdbDeleteInode"],
   $wasmfsIdbSweep: wasmfsIdbSweep,
 
-  _wasmfs_idb_open__sig: "vppiippp",
+  _wasmfs_idb_open__sig: "vppiipppp",
   _wasmfs_idb_open__deps: [
     "emscripten_proxy_finish",
     "$wasmfsIdbBackends",

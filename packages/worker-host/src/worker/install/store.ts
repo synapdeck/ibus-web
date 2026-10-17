@@ -79,6 +79,8 @@ export interface DataStore {
   remove(version: string): Promise<void>;
   // Whether the backend's connection has closed under it.
   closed(): boolean;
+  // How many changes through the backend have failed for want of space.
+  quotaFailures(): number;
   // While the host has a transaction of its own open on this version's
   // storage, a promise that settles once it has none; otherwise undefined.
   quiet(): Promise<void> | undefined;
@@ -245,6 +247,7 @@ export const idbStore = (
     },
     remove: (version) => deleteDatabase(`${prefix}${version}`, deleteLimitMs),
     closed: () => backend !== 0 && rt._wasmfs_idb_backend_closed(backend) !== 0,
+    quotaFailures: () => (backend === 0 ? 0 : rt._wasmfs_idb_backend_quota_failures(backend) >>> 0),
     quiet: () => quieted,
   };
 };
@@ -349,6 +352,7 @@ export const nodeStore = async (
     ],
     remove,
     closed: () => false,
+    quotaFailures: () => 0,
     quiet: () => undefined,
   };
 };

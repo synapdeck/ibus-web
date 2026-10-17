@@ -24,6 +24,7 @@ import {
 import { drainOutput, HostDefect } from "./output.ts";
 import { alloc, loadSides, RuntimeRefused, warmPool } from "./runtime.ts";
 import { EngineScopes } from "./scopes.ts";
+import { storageWatcher } from "./storage/watch.ts";
 
 // The most pumps the host runs to settle the engines it destroys on its way
 // out.
@@ -63,17 +64,7 @@ export const serve: Effect.Effect<
 
   const scopes = new EngineScopes(buffers.request, constants.canceled);
   let moduleLoaded = false;
-  // The page hears of it once.
-  let closedReported = false;
-  const watchStorage = (): void => {
-    if (closedReported || !storage.closed()) return;
-    closedReported = true;
-    worker.env.post({
-      type: "storage",
-      state: "closed",
-      message: "the IndexedDB connection closed; the engine's storage fails with EIO",
-    });
-  };
+  const watchStorage = storageWatcher(storage, worker.env.post);
 
   const outputLength = yield* guarded(() => new Int32Array(handle.bytes.buffer, alloc(handle, 4), 1));
   const ctx: LoopContext = {

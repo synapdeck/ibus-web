@@ -49,6 +49,12 @@ int wasmfs_idb_backend_set_writable(backend_t backend, bool writable);
  * reaches the database then fails with EIO, and nothing reopens it. */
 int wasmfs_idb_backend_closed(backend_t backend);
 
+/* How many changes through `backend` have failed with ENOSPC: the browser
+ * refused the write for want of space (QuotaExceededError), or the database
+ * ran out of inode numbers. It is an atomic load, cheap whatever the
+ * backend's thread is doing. */
+uint32_t wasmfs_idb_backend_quota_failures(backend_t backend);
+
 #ifdef __cplusplus
 }
 #endif
