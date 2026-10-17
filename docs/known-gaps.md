@@ -123,6 +123,10 @@ decided.
   nothing moves Rime's user directory in or out of the module's storage ([rime.md](rime.md#settings)).
 - **Rime has no grammar model.** `librime-octagram` is built but no shipped schema configures a grammar: upstream
   replaces RIME-LMDG's model, 398 MB, in place, so it can't be pinned ([rime.md](rime.md#librime)).
+- **A stale Rime schema compiles at its first use.** After a settings change, a schema whose engine wasn't open compiles
+  when an engine next selects it, and a change to `switcher-hotkeys` or `ascii-toggle-key` still compiles the open
+  engines' schemas. While Rime's deployer works, keys pass through in every engine, and its end gives each engine a new
+  session ([rime.md](rime.md#compiling-what-is-open)).
 - **Table sessions each copy their candidate list.** An open bare `\` in LaTeX holds all ~2,749 candidates, about
   100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
   Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
@@ -210,6 +214,8 @@ decided.
 - **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't removed; the Node
   archive server in the Vitest config process is `unref`'d, not closed; Vite's unanalyzable-import warning is filtered
   by its text.
+- **Prepare progress falls back when an archive is fetched again.** An archive whose connection fails is written again
+  from its start, so the bytes an engine's prepare reports drop and climb again.
 - **WebKit IndexedDB stalls for other engines.** In WebKit a Worker reaches IndexedDB through the page's main thread,
   which spins on a key's reply; a key whose work waits on IndexedDB waits until the page gives up on the reply. Rime
   holds its writes back until input pauses, but no host guard lets the page stop waiting for other engines.
@@ -240,6 +246,12 @@ decided.
 - **The workspace output copies the root `node_modules`** (disk only): it can't link to the shared install's instead,
   since pnpm's hoisted `.pnpm/node_modules` links to the workspace packages by relative paths, which would then resolve
   inside the install, where the packages hold no sources.
+- **Timing bounds fail under load.** With other builds sharing the machine, a few tests have each failed once and passed
+  when run alone: `timerOutput` saw two doorbells in its 30 ms window instead of one, "one host, in order" got a reply
+  124 ms after the page released a thread it had held for 1 s, and a Rime test and a preload test failed in Chromium's
+  Playwright run.
+- **A check's `results.json` differs between runs**, so `nix build --rebuild` calls every passing check
+  non-deterministic. To run a check again, delete its output with `nix store delete` and build it.
 
 ## Tooling
 
