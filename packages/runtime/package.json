@@ -1,6 +1,6 @@
 {
   "name": "@ibus-web/runtime",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "ibus-web's WebAssembly runtime: GLib and libibus-web, which each engine's Worker loads.",
   "keywords": [
     "glib",

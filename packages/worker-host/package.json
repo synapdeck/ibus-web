@@ -1,6 +1,6 @@
 {
   "name": "@ibus-web/worker-host",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The Worker host for ibus-web: runs the WebAssembly IBus runtime and its engines in a dedicated Worker, with storage and engine-data install.",
   "keywords": [
     "ibus",
