@@ -12,9 +12,11 @@ version stay 1. The branch is `typedrat/m6a-data-safety`, from `typedrat/m6b-run
 
 ## Tasks
 
+Each task is summarized with the checks that prove it, not spelled out step by step.
+
 1. **Init says whether user data is writable.** `Init` gains `userDataWritable`; the runtime keeps it and exposes
    `ibusweb_user_data_writable()`; the page sends `false` after the host reported `storage: read-only`. Proven by
-   `protocol-node` (signature), `libibus-web-tests` (`/dispatch/init` reads it back), `core-node` (the registry's Init
+   `protocol-node` (signature), `libibus-web-tests` (`/dispatch/protocol` reads it back), `core-node` (the registry's Init
    after a read-only start) and `protocol-parity`.
 2. **Settings declared by pattern.** Settings metadata gives a relocatable schema an optional `pattern`, which
    `mkEngineManifest`'s `settingsPatterns` declares and checks against its paths; `Init` gains `patterns`, and carries
