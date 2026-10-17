@@ -110,7 +110,8 @@
             contents whose license the build knows, or a derivation whose
             output file holds it, as `ibusWeb.lib.spdxExpression` makes;
           - `expect`, paths in the package the tarball must contain, beyond
-            every file its `exports` names without a wildcard;
+            its README.md and every file its `exports` names without a
+            wildcard;
           - `postPack`, shell run in the package directory once it is packed.
         '';
       };

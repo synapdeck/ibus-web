@@ -80,7 +80,7 @@
 
             tar -tzf $out/*.tgz > $TMPDIR/contents.txt
             {
-              printf '%s\n' ${lib.escapeShellArgs expect}
+              printf '%s\n' README.md ${lib.escapeShellArgs expect}
               jq -r '[.exports // {} | .. | strings | select(contains("*") | not)] | unique[] | ltrimstr("./")' package.json
             } | while IFS= read -r entry; do
               [ -n "$entry" ] || continue

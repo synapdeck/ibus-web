@@ -34,6 +34,9 @@
             name = "ibus-web-npm-${baseNameOf dir}";
             src = workspaceFor [ dir ];
             inherit dir;
+            # The workspace holds sources alone, so a README's edit rebuilds
+            # no workspace.
+            files."README.md" = root + "/${dir}/README.md";
 
             # tools/pack-licenses adds these whatever the bundle holds.
             expect = [
