@@ -75,10 +75,12 @@ module starts. Without Cache Storage it fetches nothing and resolves. With `{ in
 module the page runs prepares the entries' engines through its Worker, whose `install` events report it, and any other
 gets a short-lived Worker whose host only installs (`installModule`, [worker-host.md](worker-host.md#messages)), with
 the module's writer lock, the base data and the entries' engines' own data into the module's storage, then ends. Its
-`preload` events report the base data once installed, as an entry without an engine, and each engine's as it is written.
-A module another host holds the writer lock for is skipped, and one whose storage would be memory has its files fetched
-instead, since memory would keep nothing. A start of the module waits for its install-only Worker to end, since that
-Worker holds the writer lock the module's own would otherwise go without for good. The environment it uses (the cache,
+`preload` events report the base data once installed, as an entry without an engine whatever the entries named, and each
+engine's as it is written. A module's install-only Workers run one at a time, each waiting for the one before, and one
+whose module has started by then leaves the install to the module's Worker. A module another host holds the writer lock
+for is skipped, and one whose storage would be memory has its files fetched instead, since memory would keep nothing. A
+start of the module waits for its install-only Worker to end, since that Worker holds the writer lock the module's own
+would otherwise go without for good; with several queued, it waits for the last. The environment it uses (the cache,
 `fetch`, the idle wait and the install) is the registry's `preload` option, which tests replace.
 
 Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and, as its `diagnostic`, the

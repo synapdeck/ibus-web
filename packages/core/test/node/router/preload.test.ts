@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import type { ModuleManifest } from "@ibus-web/protocol";
 import { preloadKey } from "@ibus-web/worker-host";
@@ -197,7 +198,7 @@ it.effect("a file that fails to fetch rejects with the error for what it is", ()
   }).pipe(Effect.provide(services)),
 );
 
-it.effect("install mode installs through a Worker of the module's own, which a start of the module waits for", () =>
+it.effect("install mode installs through a Worker of its own, reporting the base data, which a start waits for", () =>
   Effect.gen(function* () {
     const asked: InstallOptions[] = [];
     const called = yield* Deferred.make<void>();
@@ -228,9 +229,7 @@ it.effect("install mode installs through a Worker of the module's own, which a s
     yield* Effect.yieldNow;
 
     const preloading = yield* registry
-      .preload([{ module: "test", engine: "lazy" }, { module: "test" }], {
-        install: true,
-      })
+      .preload([{ module: "test", engine: "lazy" }], { install: true })
       .pipe(Effect.forkChild);
     yield* Deferred.await(called);
     expect(asked.map(({ module, engines }) => ({ module, engines }))).toEqual([{ module: "test", engines: ["lazy"] }]);
@@ -275,5 +274,91 @@ it.effect("install mode prepares through the Worker this page runs for the modul
 
     yield* registry.preload([{ module: "test", engine: "lazy" }, { module: "test" }], { install: true });
     expect(connection.prepared).toEqual(["lazy"]);
+  }).pipe(Effect.provide(services)),
+);
+
+// Install-only Workers that each run until the test ends them, counting how
+// many run at once.
+const installs = () => {
+  const asked: InstallOptions[] = [];
+  const ends: (() => void)[] = [];
+  let running = 0;
+  let most = 0;
+  const install = async (options: InstallOptions): Promise<InstallOutcome> => {
+    asked.push(options);
+    running++;
+    most = Math.max(most, running);
+    await new Promise<void>((resolve) => ends.push(resolve));
+    running--;
+    return "installed";
+  };
+  return { asked, ends, install, most: () => most };
+};
+
+// Lets what the fibers started run for a while, on the real clock.
+const settle = Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
+
+const fakeStart = (count: () => void) => async () => {
+  count();
+  const connection = new FakeConnection();
+  connection.requestAsync = async () => ({ ret: 0, outSeq: 0, records: [] });
+  return connection;
+};
+
+it.effect("install mode runs one install-only Worker of a module at a time, and a start waits for the last", () =>
+  Effect.gen(function* () {
+    const fake = installs();
+    let started = 0;
+    const registry = yield* registryWith(new MemoryCache(), network().fetch, {
+      install: fake.install,
+      start: fakeStart(() => started++),
+    });
+
+    const first = yield* registry
+      .preload([{ module: "test", engine: "lazy" }], { install: true })
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => vi.waitFor(() => expect(fake.asked).toHaveLength(1)));
+    const second = yield* registry.preload([{ module: "test" }], { install: true }).pipe(Effect.forkChild);
+    yield* settle;
+    expect(fake.asked, "the second while the first runs").toHaveLength(1);
+
+    fake.ends[0]!();
+    yield* Fiber.join(first);
+    yield* Effect.promise(() => vi.waitFor(() => expect(fake.asked).toHaveLength(2)));
+    const selecting = yield* registry.select("test").pipe(Effect.forkChild);
+    yield* settle;
+    expect(started, "a start while the second runs").toBe(0);
+
+    fake.ends[1]!();
+    yield* Fiber.join(second);
+    yield* Fiber.join(selecting);
+    expect(started).toBe(1);
+    expect(fake.most(), "install-only Workers at once").toBe(1);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("an install preload waiting on another leaves its module to the Worker a start made meanwhile", () =>
+  Effect.gen(function* () {
+    const fake = installs();
+    let started = 0;
+    const registry = yield* registryWith(new MemoryCache(), network().fetch, {
+      install: fake.install,
+      start: fakeStart(() => started++),
+    });
+
+    const first = yield* registry.preload([{ module: "test" }], { install: true }).pipe(Effect.forkChild);
+    yield* Effect.promise(() => vi.waitFor(() => expect(fake.asked).toHaveLength(1)));
+    const second = yield* registry.preload([{ module: "test" }], { install: true }).pipe(Effect.forkChild);
+    yield* settle;
+    const selecting = yield* registry.select("test").pipe(Effect.forkChild);
+    yield* settle;
+    expect(started, "a start while the first runs").toBe(0);
+
+    fake.ends[0]!();
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+    yield* Fiber.join(selecting);
+    expect(started).toBe(1);
+    expect(fake.asked, "install-only Workers").toHaveLength(1);
   }).pipe(Effect.provide(services)),
 );

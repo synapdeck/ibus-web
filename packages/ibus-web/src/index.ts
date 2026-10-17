@@ -94,7 +94,8 @@ export interface IbusWebEventMap {
   install: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "install" }>, "_tag">>;
   /**
    * While preload entries are fetched: bytes so far of total, what the cache lacked, in the manifest's sizes. bytes
-   * reaches total only once all of it is stored. engine is the entry's, if it named one.
+   * reaches total only once all of it is stored. engine is the entry's, if it named one; an install reports the base
+   * data without one.
    */
   preload: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "preload" }>, "_tag">>;
   /** `null` after deselection: a CustomEvent can't carry an undefined detail. */

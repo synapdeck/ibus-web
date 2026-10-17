@@ -3,8 +3,9 @@
 
 // Fetching engines' files before they are selected: each into the page's
 // preload cache, keyed by the module's version, where its Worker's host
-// looks before the network. Nothing here starts a Worker or opens a
-// module's storage.
+// looks before the network, starting no Worker and opening no module's
+// storage; or installing them into that storage through a Worker whose host
+// only installs.
 
 import { asError, lazyStorePaths, type ModuleManifest } from "@ibus-web/protocol";
 import { createControl, preloadCacheName, preloadKey, type HostInit, type HostMessage } from "@ibus-web/worker-host";

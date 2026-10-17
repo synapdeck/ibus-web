@@ -108,7 +108,8 @@ export type ModuleEvent =
     }
   /**
    * While an entry preloads: bytes fetched so far of total, what the cache lacked, in the manifest's sizes. bytes
-   * reaches total only once all of it is stored. engine is the entry's, if it named one.
+   * reaches total only once all of it is stored. engine is the entry's, if it named one; an install reports the base
+   * data without one.
    */
   | {
       readonly _tag: "preload";
@@ -221,8 +222,8 @@ const startupFailure = (module: string, cause: unknown): { error: IbusWebError; 
     return { error: new ProtocolError({ module, diagnostic: cause.message }), terminal: true };
   return { error: new EngineLoadFailed({ module, diagnostic: asError(cause).message }), terminal: false };
 };
-// What a connection rejects a request with once its Worker has crashed.
 const noop = (): void => {};
+// What a connection rejects a request with once its Worker has crashed.
 const isCrashInfo = (cause: unknown): cause is CrashInfo =>
   typeof cause === "object" &&
   cause !== null &&
@@ -394,8 +395,8 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         const pending = read;
         return Effect.tryPromise({ try: () => pending, catch: asError });
       });
-    // The install-only Workers preloading runs, by module: a start of the module waits for its own, which holds the
-    // writer lock its Worker would otherwise lack for good.
+    // The last install-only Worker preloading runs, by module, each waiting for the one before: a start of the module
+    // waits for it, since it holds the writer lock the module's Worker would otherwise lack for good.
     const installers = new Map<string, Promise<unknown>>();
     const boot = (name: string, entry: Entry) =>
       Effect.gen(function* () {
@@ -826,11 +827,12 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         });
       });
     const preloading: PreloadEnvironment = { ...browserPreload, ...options.preload };
-    // An entry's progress, if the page asked for that entry.
+    // An entry's progress, if the page asked for that entry, and an install's base data, which has no engine, for any
+    // entry of its module.
     const preloaded =
       (requested: readonly PreloadEntry[], module: string) =>
       (engine: string | undefined, bytes: number, total: number) => {
-        if (requested.some((entry) => entry.module === module && entry.engine === engine))
+        if (requested.some((entry) => entry.module === module && (engine === undefined || entry.engine === engine)))
           events.enqueue({ _tag: "preload", module, ...(engine === undefined ? {} : { engine }), bytes, total });
       };
     // Installs a module's entries, through its Worker if this page runs it, which holds the writer lock, or else
@@ -852,21 +854,30 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             ),
           ),
         ];
-        if (get(name).started) {
+        const prepared = Effect.gen(function* () {
           for (const engine of engines) yield* prepare(name, engine);
           return "installed" as const;
-        }
-
-        const installing = preloading.install({
-          module: name,
-          hostUrl: options.hostUrl,
-          runtimeUrl: options.runtimeUrl,
-          manifestUrl: options.modules[name]!,
-          engines,
-          progress: preloaded(requested, name),
         });
+        if (get(name).started) return yield* prepared;
+
+        // One install-only Worker of a module at a time: a second would find the first holding the writer lock and
+        // install nothing. The module may have started by the time the last one ends, its Worker then holding the
+        // lock, so that Worker installs instead.
+        const previous = installers.get(name);
+        const installing = (async (): Promise<InstallOutcome | "started"> => {
+          await previous?.then(noop, noop);
+          if (get(name).started) return "started";
+          return preloading.install({
+            module: name,
+            hostUrl: options.hostUrl,
+            runtimeUrl: options.runtimeUrl,
+            manifestUrl: options.modules[name]!,
+            engines,
+            progress: preloaded(requested, name),
+          });
+        })();
         installers.set(name, installing);
-        return yield* Effect.tryPromise({
+        const outcome = yield* Effect.tryPromise({
           try: () => installing,
           catch: (cause) =>
             isIbusWebError(cause) ? cause : new EngineLoadFailed({ module: name, diagnostic: asError(cause).message }),
@@ -877,6 +888,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             }),
           ),
         );
+        return outcome === "started" ? yield* prepared : outcome;
       });
     const preload = (
       requested: readonly PreloadEntry[],
