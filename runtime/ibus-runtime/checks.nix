@@ -186,8 +186,10 @@
           ''
             cp ${./exports.py} exports.py
             cp ${./test-exports.py} test-exports.py
-            ${pkgs.python3}/bin/python3 -B test-exports.py > $out 2>&1
+            status=0
+            ${pkgs.python3}/bin/python3 -B test-exports.py > $out 2>&1 || status=$?
             cat $out
+            exit $status
           '';
 
       # The released and the asserting runtime each load side modules (C,

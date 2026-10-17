@@ -268,10 +268,9 @@ decided.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
 - **aarch64 and macOS haven't passed CI.** The workflows check aarch64-linux and aarch64-darwin on WarpBuild's runners,
-  and every check evaluates on all three systems, but only x86_64-linux has built them. On both aarch64 systems the
-  patched Emscripten fails its install check: the programs it links against its LTO system libraries miss libc++abi's
-  type information (`undefined symbol: typeinfo for void` and the rest), which nixpkgs' unpatched Emscripten doesn't.
-  The macOS Playwright and Safari jobs wait on the aarch64-darwin checks, so they haven't run.
+  and every check evaluates on all three systems, but only x86_64-linux has built them. The last aarch64-darwin run
+  failed `checks.ibus-runtime-exports-script` for a reason its log didn't show, and the macOS Playwright and Safari jobs
+  wait on the aarch64-darwin checks, so they haven't run.
 
 ## Upstream
 

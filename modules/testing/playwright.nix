@@ -51,7 +51,10 @@
           IBUS_WEB_CHROMIUM_SANDBOX = if playwright.chromiumSandbox then "1" else "0";
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE = "ubuntu-24.04";
+          # Playwright takes the browsers' directory names from the
+          # platform's architecture suffix.
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE =
+            if pkgs.stdenv.hostPlatform.isAarch64 then "ubuntu24.04-arm64" else "ubuntu24.04-x64";
           # WebKit needs an EGL platform even headless; the sandbox has no host GPU driver.
           LIBGL_ALWAYS_SOFTWARE = "1";
           __EGL_VENDOR_LIBRARY_FILENAMES = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
