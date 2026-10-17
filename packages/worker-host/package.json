@@ -64,7 +64,7 @@
     "@ibus-web/protocol": "workspace:*",
     "@ibus-web/runtime": "workspace:*",
     "brotli-dec-wasm": "catalog:",
-    "modern-tar": "0.8.5"
+    "modern-tar": "^0.8.5"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

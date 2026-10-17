@@ -489,7 +489,7 @@ importers:
         specifier: 'catalog:'
         version: 2.3.2
       modern-tar:
-        specifier: 0.8.5
+        specifier: ^0.8.5
         version: 0.8.5
     devDependencies:
       '@effect/vitest':
