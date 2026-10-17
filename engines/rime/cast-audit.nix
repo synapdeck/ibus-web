@@ -124,7 +124,7 @@
         # lua.c and luac.c are the programs.
         lua = engines.castAudit {
           name = "rime-lua";
-          inherit (pkgsWasm.lua) src;
+          inherit (pkgsWasm.lua5_2_compat) src;
           cflags = "-O2 -fPIC -DLUA_USE_POSIX";
           sourcesFrom = "ls src/*.c | grep -v -e '^src/lua\\.c$' -e '^src/luac\\.c$'";
           allowList = ./cast-audit/lua.jsonc;

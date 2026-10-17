@@ -6,7 +6,7 @@ browser and Node versions, the cross package set `pkgsWasm` that builds nixpkgs 
 linking. GLib, the largest thing built with it, has a page of its own, [glib.md](glib.md).
 
 Versions below are what the current `flake.lock` evaluates to: Emscripten 6.0.9, which nixpkgs builds against clang
-22.1.8; Node 26.10.0; GLib 2.88.3. Nothing in the build spells them out; see
+22.1.8; Node 26.11.1; GLib 2.88.3. Nothing in the build spells them out; see
 [Derive, don't hardcode](#derive-dont-hardcode).
 
 ## Emscripten
@@ -144,14 +144,14 @@ hand, so Emscripten's own glue assumes what the project's hand-written TypeScrip
 - **Floors** raise a browser's minimum where the design needs more than Baseline gives ([below](#the-firefox-floor)).
 
 The derivation (`legacyPackages.<system>.emscriptenMinimumVersions`) holds `date`, `versions.json` and `link-flags`.
-With baseline-browser-mapping 2.11.27 (data of 2026-10-01) and Node 26.10.0 they are:
+With baseline-browser-mapping 2.11.27 (data of 2026-10-01) and Node 26.11.1 they are:
 
 | Target  | Minimum | Source                    |
 | ------- | ------- | ------------------------- |
 | Chrome  | 123     | Baseline Widely available |
 | Firefox | 126     | the floor (Baseline: 124) |
 | Safari  | 17.4    | Baseline Widely available |
-| Node    | 26.10.0 | the workspace's Node      |
+| Node    | 26.11.1 | the workspace's Node      |
 
 ### Only for the environments a link targets
 

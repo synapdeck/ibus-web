@@ -80,7 +80,7 @@ in
             '';
           });
 
-          lua = prev.lua.overrideAttrs (old: {
+          lua5_2_compat = prev.lua5_2_compat.overrideAttrs (old: {
             buildInputs = [ ];
             propagatedBuildInputs = [ ];
             # librime-lua sets the search path for Rime's scripts. Outside the
@@ -117,7 +117,7 @@ in
                   marisa
                   opencc
                   yaml-cpp
-                  lua
+                  lua5_2_compat
                 ];
                 cmakeFlags = [
                   "-DBUILD_STATIC=ON"

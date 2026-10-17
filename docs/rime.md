@@ -48,9 +48,10 @@ links its own copy.
   OpenCC's own data directory out of the store. The library then refers to no store path and nothing of the loader.
 - **glog** 0.7.1 is built without gflags, libunwind and its tests. Its `libglog.pc` gains `-DGLOG_USE_GLOG_EXPORT`,
   which glog's CMake package gives its consumers and its headers require.
-- **Lua** is the `lua` nixpkgs' `librime-lua` takes, 5.2.4, built with `PLAT=posix`: POSIX without `LUA_USE_DLOPEN`, and
-  without readline. `rime-ice`'s scripts need of later Lua only the `utf8` library, which librime-lua supplies. Its
-  `LUA_ROOT` is `/usr/local/`, as upstream's: librime-lua sets the scripts' search path itself.
+- **Lua** is the `lua5_2_compat` nixpkgs' `librime-lua` takes, 5.2.4, built with `PLAT=posix`: POSIX without
+  `LUA_USE_DLOPEN`, and without readline. `rime-ice`'s scripts need of later Lua only the `utf8` library, which
+  librime-lua supplies. Its `LUA_ROOT` is `/usr/local/`, as upstream's: librime-lua sets the scripts' search path
+  itself.
 - **yaml-cpp** 0.9.0 is nixpkgs' as it is, which already builds without its tools, and without tests when it can't run
   them.
 - **Boost**: `ibus-web-boost-headers` is the build machine's Boost 1.91 headers and its `Boost` and `boost_headers`

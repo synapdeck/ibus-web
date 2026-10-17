@@ -31,7 +31,7 @@
           }
           ''
             export HOME=$TMPDIR
-            export npm_config_manage_package_manager_versions=false
+            export pnpm_config_pm_on_fail=ignore
 
             # Writable, so files can be copied in and prepack can write.
             cp -R ${src} work
