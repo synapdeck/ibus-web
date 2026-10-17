@@ -46,12 +46,15 @@ in
               });
 
           # nixpkgs builds m17n-lib on Linux only as well; the index below
-          # needs it on the build machine.
+          # needs it on the build machine. Without glibc's gettext, m17n-lib
+          # would compile the copy of gettext it bundles, which today's clang
+          # refuses; the index needs no translated messages.
           m17nLibNative =
             if pkgs.stdenv.hostPlatform.isLinux then
               pkgs.m17n_lib
             else
               (pkgs.m17n_lib.override { m17n_db = m17nDbUpstream; }).overrideAttrs (old: {
+                configureFlags = (old.configureFlags or [ ]) ++ [ "--disable-nls" ];
                 meta = old.meta // {
                   platforms = lib.platforms.unix;
                 };
