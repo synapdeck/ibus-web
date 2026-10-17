@@ -37,6 +37,7 @@ export type {
   SettingsSourceService,
   StorageUsage,
   SurfaceAdapter,
+  VersionUsage,
 } from "@ibus-web/core";
 // The errors calls reject with and modulestate events carry: Error subclasses with a `_tag`, the same classes
 // ibus-web/effect exports, so instanceof holds across both.

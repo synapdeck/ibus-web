@@ -16,6 +16,9 @@ export interface ModuleDatabases {
   // The store paths of the engines' own data, whose markers say whether
   // each is installed.
   paths: string[];
+  // What every version's data database is named, the encoded version
+  // following it, so that the versions still stored are found by name.
+  dataPrefix: string;
 }
 
 export type StorageRequest =
@@ -33,6 +36,10 @@ export interface DatabaseUsage {
   userData: number;
   base: number;
   paths: Record<string, number>;
+  // Every version whose data database exists, by version: its base data
+  // and every store path marked installed in it. Where the browser can't
+  // list databases, the current version alone, if it exists.
+  versions: Record<string, number>;
 }
 
 export type StorageReply =

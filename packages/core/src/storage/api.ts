@@ -5,6 +5,7 @@ import { asError, Persist, type ModuleManifest } from "@ibus-web/protocol";
 import {
   engineDatabase,
   engineDataDatabase,
+  engineDataDatabasePrefix,
   engineWriterLock,
   type DatabaseUsage,
   type ModuleDatabases,
@@ -20,14 +21,27 @@ import { ModuleRegistry } from "../services/modules.ts";
 export interface EngineUsage {
   readonly data: number;
 }
+/** Bytes of file data: a version's installed data, base and every engine's own. */
+export interface VersionUsage {
+  readonly data: number;
+}
 /**
  * A module's storage, in bytes of file data: its version's installed data, base and every engine's own, its own files,
- * and each engine's own data.
+ * and each engine's own data; every version whose data is stored, and all of it together.
  */
 export interface ModuleUsage {
   readonly data: number;
   readonly userData: number;
   readonly engines: Readonly<Record<string, EngineUsage>>;
+  /** The version the module's manifest names, the one `data` and `engines` count. */
+  readonly version: string;
+  /**
+   * Every version whose data is stored, by version, the current one among them once installed, older ones until a
+   * host of the module collects them. Where the browser can't list databases, the current version alone.
+   */
+  readonly versions: Readonly<Record<string, VersionUsage>>;
+  /** `userData` and every version's data. */
+  readonly total: number;
 }
 /** Every module's, by the name the page gave it. */
 export interface StorageUsage {
@@ -63,6 +77,7 @@ const databasesOf = (manifest: ModuleManifest): ModuleDatabases => ({
   data: engineDataDatabase(manifest),
   version: manifest.version,
   paths: [...new Set(manifest.engines.flatMap(({ data }) => data ?? []))],
+  dataPrefix: engineDataDatabasePrefix(manifest),
 });
 
 // Between tabs, on one channel: an export asks the tab whose Worker writes the module's user data to persist, and that
@@ -90,7 +105,7 @@ const writerHeld = (name: string): Promise<boolean> =>
         .then(({ held = [] }) => held.some((lock) => lock.name === engineWriterLock({ name })))
         .catch(() => false);
 
-const usageOf = (manifest: ModuleManifest, { userData, base, paths }: DatabaseUsage): ModuleUsage => ({
+const usageOf = (manifest: ModuleManifest, { userData, base, paths, versions }: DatabaseUsage): ModuleUsage => ({
   data: Object.values(paths).reduce((sum, bytes) => sum + bytes, base),
   userData,
   engines: Object.fromEntries(
@@ -99,6 +114,9 @@ const usageOf = (manifest: ModuleManifest, { userData, base, paths }: DatabaseUs
       { data: (data ?? []).reduce((sum, path) => sum + (paths[path] ?? 0), 0) },
     ]),
   ),
+  version: manifest.version,
+  versions: Object.fromEntries(Object.entries(versions).map(([version, data]) => [version, { data }])),
+  total: Object.values(versions).reduce((sum, bytes) => sum + bytes, userData),
 });
 
 export class StorageApi extends Context.Service<StorageApi, StorageApiService>()("@ibus-web/core/StorageApi") {

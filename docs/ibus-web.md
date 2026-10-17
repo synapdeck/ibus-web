@@ -81,12 +81,14 @@ optional logger callback.
 
 `storage.usage()` reports every module's storage without starting a module's Worker: for each, `data`, the bytes of its
 version's installed data, `userData`, the bytes of its own files, such as Rime's and Mozc's learning, and `engines`,
-each engine's `data`, the bytes of its own data installed. `storage.export(module)` resolves to the module's user data
-as a tar `Blob`, its entries named from the module's directory; the Worker writing the module's user data, in this tab
-or another, writes what it keeps in memory first. `storage.reset(module)` deletes the module's user data, whoever holds
-it, and leaves its installed data; a module that was running starts again, one that was selected is selected again, and
-a field's override naming it is given back. They reject with `StorageUnavailable` when the storage can't be read or
-reset, a reset among them when another tab keeps the database open for more than 10 s
+each engine's `data`, the bytes of its own data installed, all of these for the `version` its manifest names;
+`versions`, every version whose data is still stored, by version, each with its `data`, so that older versions waiting
+to be collected show; and `total`, its user data and every version's data. `storage.export(module)` resolves to the
+module's user data as a tar `Blob`, its entries named from the module's directory; the Worker writing the module's user
+data, in this tab or another, writes what it keeps in memory first. `storage.reset(module)` deletes the module's user
+data, whoever holds it, and leaves its installed data; a module that was running starts again, one that was selected is
+selected again, and a field's override naming it is given back. They reject with `StorageUnavailable` when the storage
+can't be read or reset, a reset among them when another tab keeps the database open for more than 10 s
 ([storage.md](storage.md#the-host-api)). The storage Worker they start is `host/storage.js`, beside the host's script.
 
 Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:

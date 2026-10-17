@@ -3,7 +3,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { Stream } from "effect";
 import { Connection, type SettingsSourceService } from "@ibus-web/core";
-import { engineWriterLock } from "@ibus-web/worker-host";
+import { engineDataDatabase, engineWriterLock } from "@ibus-web/worker-host";
 import { createIbusWeb, StorageUnavailable, type IbusWeb } from "../../src/index.ts";
 import { DomConnection } from "../../../core/test/browser/support/dom.ts";
 
@@ -31,6 +31,7 @@ const manifest = {
 };
 const user = "ibus-web/test";
 const data = "ibus-web/test/data/1";
+const older = engineDataDatabase({ name: "test", version: "0.9 beta" });
 const chunkSize = 16384;
 const deep = Uint8Array.from({ length: 20000 }, (_, i) => (i % 251) + 1);
 const settings: SettingsSourceService = { snapshot: async () => ({}), written: () => {}, changes: Stream.empty };
@@ -145,14 +146,23 @@ const facade = () => {
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.dispose();
   vi.restoreAllMocks();
-  for (const name of [user, data]) await settled(indexedDB.deleteDatabase(name));
+  for (const name of [user, data, older]) await settled(indexedDB.deleteDatabase(name));
 });
 
 test("usage gives each module's installed data, user data and engines' own data, starting no module's Worker", async () => {
   await stored();
   const { app, connections } = facade();
   expect(await app.storage.usage()).toEqual({
-    modules: { test: { data: 1010, userData: 5 + deep.length, engines: { test: { data: 0 }, lazy: { data: 10 } } } },
+    modules: {
+      test: {
+        data: 1010,
+        userData: 5 + deep.length,
+        engines: { test: { data: 0 }, lazy: { data: 10 } },
+        version: "1",
+        versions: { "1": { data: 1010 } },
+        total: 1010 + 5 + deep.length,
+      },
+    },
   });
   expect(connections).toEqual([]);
 });
@@ -160,7 +170,36 @@ test("usage gives each module's installed data, user data and engines' own data,
 test("usage counts a module with no databases as none", async () => {
   const { app } = facade();
   expect(await app.storage.usage()).toEqual({
-    modules: { test: { data: 0, userData: 0, engines: { test: { data: 0 }, lazy: { data: 0 } } } },
+    modules: {
+      test: {
+        data: 0,
+        userData: 0,
+        engines: { test: { data: 0 }, lazy: { data: 0 } },
+        version: "1",
+        versions: {},
+        total: 0,
+      },
+    },
+  });
+});
+
+test("usage gives every version's data still stored, an older one's beside the current one's", async () => {
+  await stored();
+  await make(older, ["meta"], (tx) => {
+    const meta = tx.objectStore("meta");
+    meta.put({ version: "0.9 beta", files: 2, bytes: 700 }, "installed");
+    meta.put({ files: 1, bytes: 30 }, `paths/${lazy}`);
+    meta.put({ files: 1, bytes: 4 }, `paths//nix/store/${"c".repeat(32)}-gone`);
+  });
+  const { app } = facade();
+  const { test: usage } = (await app.storage.usage()).modules;
+  expect(usage).toEqual({
+    data: 1010,
+    userData: 5 + deep.length,
+    engines: { test: { data: 0 }, lazy: { data: 10 } },
+    version: "1",
+    versions: { "1": { data: 1010 }, "0.9 beta": { data: 734 } },
+    total: 1010 + 734 + 5 + deep.length,
   });
 });
 

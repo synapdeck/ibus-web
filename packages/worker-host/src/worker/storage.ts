@@ -25,7 +25,8 @@ const FILE = 1;
 const DIRECTORY = 2;
 
 // Runs body in one read-only transaction over stores of the database, and
-// resolves once it has completed; a database that doesn't exist gives none.
+// resolves once it has completed; a database that doesn't exist, or lacks
+// one of the stores, gives none.
 const reading = async <T>(
   database: string,
   stores: string[],
@@ -35,6 +36,7 @@ const reading = async <T>(
   const db = await openExisting(database);
   if (db === null) return none;
   try {
+    if (!stores.every((store) => db.objectStoreNames.contains(store))) return none;
     const tx = db.transaction(stores, "readonly");
     const done = new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
@@ -62,8 +64,53 @@ const markedBytes = (value: unknown, version?: string): number | undefined => {
   return typeof marker.bytes === "number" ? marker.bytes : undefined;
 };
 
-const usageOf = async ({ user, data, version, paths }: ModuleDatabases): Promise<DatabaseUsage> => {
-  const userData = await userBytes(user);
+// Every store path's marker in a version's meta store, by its key's prefix;
+// store paths are ASCII, so no key sorts past the last.
+const pathMarkers = IDBKeyRange.bound(enginePathMarker(""), enginePathMarker("\uffff"));
+
+// The bytes a version's data holds, its base data and every store path
+// marked installed, or undefined if its database doesn't exist.
+const versionBytes = (database: string, version: string): Promise<number | undefined> =>
+  reading(database, ["meta"], undefined, async (tx) => {
+    const meta = tx.objectStore("meta");
+    const [base, marked] = await Promise.all([idbRequest(meta.get("installed")), idbRequest(meta.getAll(pathMarkers))]);
+    return marked.reduce((sum: number, marker) => sum + (markedBytes(marker) ?? 0), markedBytes(base, version) ?? 0);
+  });
+
+// The encoded versions of the module whose data databases exist, or
+// undefined where the browser can't list databases.
+const storedVersions = async (dataPrefix: string): Promise<string[] | undefined> => {
+  if (typeof indexedDB.databases !== "function") return undefined;
+  return (await indexedDB.databases())
+    .map(({ name }) => name ?? "")
+    .filter((name) => name.startsWith(dataPrefix))
+    .map((name) => name.slice(dataPrefix.length))
+    .filter((version) => version !== "" && !version.includes("/"));
+};
+
+const decodedVersion = (encoded: string): string => {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+};
+
+const versionsOf = async ({ data, version, dataPrefix }: ModuleDatabases): Promise<Record<string, number>> => {
+  const current = data.slice(dataPrefix.length);
+  const encoded = (await storedVersions(dataPrefix)) ?? [current];
+  const found = await Promise.all(
+    encoded.map(async (each) => {
+      const name = each === current ? version : decodedVersion(each);
+      return [name, await versionBytes(`${dataPrefix}${each}`, name)] as const;
+    }),
+  );
+  return Object.fromEntries(found.filter((entry): entry is readonly [string, number] => entry[1] !== undefined));
+};
+
+const usageOf = async (databases: ModuleDatabases): Promise<DatabaseUsage> => {
+  const { user, data, version, paths } = databases;
+  const [userData, versions] = await Promise.all([userBytes(user), versionsOf(databases)]);
   const markers = await reading(data, ["meta"], undefined, async (tx) => {
     const meta = tx.objectStore("meta");
     const [base, ...each] = await Promise.all([
@@ -72,14 +119,14 @@ const usageOf = async ({ user, data, version, paths }: ModuleDatabases): Promise
     ]);
     return { base, each };
   });
-  if (markers === undefined) return { userData, base: 0, paths: {} };
+  if (markers === undefined) return { userData, base: 0, paths: {}, versions };
 
   const installed: Record<string, number> = {};
   paths.forEach((path, i) => {
     const bytes = markedBytes(markers.each[i]);
     if (bytes !== undefined) installed[path] = bytes;
   });
-  return { userData, base: markedBytes(markers.base, version) ?? 0, paths: installed };
+  return { userData, base: markedBytes(markers.base, version) ?? 0, paths: installed, versions };
 };
 
 // Every file, directory and link of the user data, as the transaction sees

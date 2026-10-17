@@ -96,5 +96,6 @@ export {
   type StorageApiService,
   type StorageOptions,
   type StorageUsage,
+  type VersionUsage,
 } from "../storage/api.ts";
 export type { PanelEvent, PanelRecord } from "@ibus-web/protocol";

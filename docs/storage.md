@@ -695,8 +695,12 @@ the export isn't split into shorter ones.
   version's markers, `meta.installed` and each engine's own store path's `meta.paths/<storePath>`, and the user data's
   inodes: `data` is the base data's bytes and every installed path's, `userData` the sizes of the module's own files,
   and each engine's `data` the bytes of its own paths that are installed. A database or marker that doesn't exist counts
-  as none, so a module never started reports zeros. It covers the current version only; another version's data stays
-  until the next host collects it.
+  as none, so a module never started reports zeros. Those figures are the current version's; `versions` adds every
+  version whose data database is stored, the current one once installed and older ones that wait for the next host to
+  collect them ([above](#old-versions)), found by name with `indexedDB.databases()`, each version's `data` the bytes its
+  markers record, its base data's and every store path's marked installed in it. A browser without
+  `indexedDB.databases()`, which none at the floor lacks, lists the current version alone. `total` is `userData` and
+  every version's `data`.
 - **`export(module)`** has the module's writer write what its engines keep only in memory (`Persist`), then reads the
   user database's `meta`, `inodes`, `entries` and `chunks` in one read-only transaction, which is the snapshot, and
   packs every directory, file and link, named from the module's directory, with its mode and modification time, as a tar

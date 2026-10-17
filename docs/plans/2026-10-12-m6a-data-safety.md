@@ -54,8 +54,9 @@ Each task is summarized with the checks that prove it, not spelled out step by s
     against a measured install of many entries).
 11. **The host storage API.** A storage Worker beside the host (`storage.js`) reads the module's databases in
     read-only transactions; core's `ModuleStorage` and the facade's `storage` object give `usage()`, `export(module)`
-    and `reset(module)`. Proven by `worker-host-browser` (usage and export over real databases) and `ibus-web-browser`
-    (the facade: usage per engine, an export's tar, a reset restarting the module empty).
+    and `reset(module)`. Proven by `worker-host-browser` (usage, an older version's data among it, and export over real
+    databases) and `ibus-web-browser` (the facade: usage per engine and per version, an export's tar, a reset
+    restarting the module empty, a Rime database moved aside counted, exported and reset).
 12. **Hand-off.** `nix run .#write-files` with no drift, `nix flake check -L`, `nix build .#integration-checks -L`,
     `nix develop -c hk check --all`.
 
@@ -82,9 +83,11 @@ Each task is summarized with the checks that prove it, not spelled out step by s
   as it checks for a closed connection.
 - **`check-storage`** waits at most `closeWaitMs` (1 s, `HostConfig`) for a backend to report its close.
 - **`files`** counts an archive's directories, files and links, the entries the installer makes.
-- **Storage API.** `usage()` covers every module the facade was given, each module's current version only: `data`, the
-  installed bytes of its version (base and every installed path), `userData`, the sizes of its files, and per engine
-  the installed bytes of its own paths; a module never started reports zeros. `export(module)` has the module's writer
+- **Storage API.** `usage()` covers every module the facade was given: `data`, the installed bytes of its current
+  version (base and every installed path), `userData`, the sizes of its files, and per engine the installed bytes of its
+  own paths; a module never started reports zeros. Beside them, `version` names the current version, `versions` gives
+  each version whose data database is stored, found with `indexedDB.databases()` (the current one alone without it),
+  its `data` the bytes its markers record, and `total` is `userData` and every version's `data`. `export(module)` has the module's writer
   write what it keeps in memory (`Persist`) first, this tab's Worker if it may write, or else, when another holds the
   writer lock, every tab whose Worker may write, asked over a `BroadcastChannel` and waited for up to 5 s, then tars
   the user database in one read-only transaction, which is the snapshot; the archive's entries are relative to the

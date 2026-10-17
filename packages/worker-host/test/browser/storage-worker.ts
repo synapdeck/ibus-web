@@ -7,7 +7,13 @@
 import type { ModuleManifest } from "@ibus-web/protocol";
 import { unpackTar } from "modern-tar";
 import { expect } from "vitest";
-import { engineDatabase, engineDataDatabase, engineDir } from "../../src/shared/naming.ts";
+import {
+  engineDatabase,
+  engineDataDatabase,
+  engineDataDatabasePrefix,
+  engineDir,
+  enginePathMarker,
+} from "../../src/shared/naming.ts";
 import type { StorageReply, StorageRequest } from "../../src/shared/storage.ts";
 import type { Harness, RunningHost } from "../shared/harness.ts";
 import { installOf } from "../shared/install.ts";
@@ -28,10 +34,35 @@ const askStorage = (h: Harness, request: StorageRequest): Promise<StorageReply> 
     worker.postMessage(request);
   });
 
+const settled = <T>(request: IDBRequest<T>): Promise<T> =>
+  new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+const deleteDatabase = (name: string): Promise<unknown> => settled(indexedDB.deleteDatabase(name));
+
+// A version's data as a host leaves it installed, its markers alone: its
+// base data's and one store path's of an engine's own.
+const olderVersion = async (database: string, version: string): Promise<void> => {
+  const request = indexedDB.open(database, 1);
+  request.onupgradeneeded = () => request.result.createObjectStore("meta");
+  const db = await settled(request);
+  const tx = db.transaction(["meta"], "readwrite");
+  tx.objectStore("meta").put({ version, files: 3, bytes: 1000 }, "installed");
+  tx.objectStore("meta").put({ files: 2, bytes: 24 }, enginePathMarker(`/nix/store/${"c".repeat(32)}-older`));
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+};
+
 // The storage Worker reads a module's databases as a running host made them:
-// the user data's bytes and the version's as its marker records them, the
-// user data as a tar of its files, whole across chunks; and it deletes the
-// user data, whose host closes its connection for it.
+// the user data's bytes, the version's as its marker records them and every
+// version's stored, an older one's among them; the user data as a tar of its
+// files, whole across chunks; and it deletes the user data, whose host
+// closes its connection for it.
 export const storageWorker = async (h: Harness, host: RunningHost, engine: ModuleManifest): Promise<void> => {
   const dir = engineDir(engine);
   const big = "0123456789".repeat(4000);
@@ -39,15 +70,38 @@ export const storageWorker = async (h: Harness, host: RunningHost, engine: Modul
   expect(await writeFile(h, host.client, `${dir}/big.txt`, big)).toBe(big.length);
   const user = engineDatabase(engine);
 
-  expect(
-    await askStorage(h, {
+  // An older version's data, which no host has collected yet.
+  const older = { name: engine.name, version: `${engine.version}-older` };
+  await olderVersion(engineDataDatabase(older), older.version);
+  try {
+    const base = installOf(host.messages)!.bytes;
+    expect(
+      await askStorage(h, {
+        type: "usage",
+        modules: [
+          {
+            user,
+            data: engineDataDatabase(engine),
+            version: engine.version,
+            paths: [],
+            dataPrefix: engineDataDatabasePrefix(engine),
+          },
+        ],
+      }),
+    ).toEqual({
       type: "usage",
-      modules: [{ user, data: engineDataDatabase(engine), version: engine.version, paths: [] }],
-    }),
-  ).toEqual({
-    type: "usage",
-    modules: [{ userData: 5 + big.length, base: installOf(host.messages)!.bytes, paths: {} }],
-  });
+      modules: [
+        {
+          userData: 5 + big.length,
+          base,
+          paths: {},
+          versions: { [engine.version]: base, [older.version]: 1000 + 24 },
+        },
+      ],
+    });
+  } finally {
+    await deleteDatabase(engineDataDatabase(older));
+  }
 
   const exported = await askStorage(h, { type: "export", database: user });
   if (exported.type !== "export") throw new Error(`export answered ${JSON.stringify(exported)}`);
