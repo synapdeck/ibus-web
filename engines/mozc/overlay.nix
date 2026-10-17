@@ -28,6 +28,10 @@ in
             ${final.glib.dev}/bin/glib-compile-schemas --strict $out/share/glib-2.0/schemas
           '';
           settingsSchemaDir = "${schemas}/share/glib-2.0/schemas";
+
+          # The machine Bazel runs the cross tools on, as @platforms names it.
+          bazelCpu = if final.stdenv.buildPlatform.isAarch64 then "aarch64" else "x86_64";
+          bazelOs = if final.stdenv.buildPlatform.isDarwin then "osx" else "linux";
         in
         {
           mozc =
@@ -157,7 +161,9 @@ in
                     --replace-fail @nm@ "$(command -v $NM)" \
                     --replace-fail @objcopy@ "$(command -v $OBJCOPY)" \
                     --replace-fail @objdump@ "$(command -v $OBJDUMP)" \
-                    --replace-fail @strip@ "$(command -v $STRIP)"
+                    --replace-fail @strip@ "$(command -v $STRIP)" \
+                    --replace-fail @execCpu@ ${bazelCpu} \
+                    --replace-fail @execOs@ ${bazelOs}
                   substitute ${./bazel/cc} src/ibus_web_toolchain/cc \
                     --replace-fail @shell@ "${final.buildPackages.runtimeShell}" \
                     --replace-fail @cc@ "$(command -v $CC)" \

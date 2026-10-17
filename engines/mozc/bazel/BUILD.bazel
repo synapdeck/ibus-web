@@ -84,8 +84,8 @@ cc_toolchain(
 toolchain(
     name = "cc-toolchain-wasm",
     exec_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
+        "@platforms//cpu:@execCpu@",
+        "@platforms//os:@execOs@",
     ],
     target_compatible_with = [
         "@platforms//cpu:wasm32",
