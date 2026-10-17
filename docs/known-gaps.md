@@ -15,9 +15,9 @@ decided.
   but the combination stays a risk (spec R3).
 - **Emscripten and LLVM are paired by nixpkgs** (6.0.9 on clang 22.1.8), which tests that pairing with little more than
   hello-world (spec R12); our own checks are the evidence.
-- **Thread fixes not proven red in our checks.** The fix checks for patches 0014, 0015 and 0018 keep the conditions
-  their bugs need, but nothing runs them against a toolchain missing their patch; that needs a toolchain and cache built
-  with one patch left out. (Emscripten's own suite tests fail without each patch and pass with it; see the drafts.)
+- **No standing red runs for the thread fixes.** The fix checks for patches 0014, 0015 and 0018 keep the conditions
+  their bugs need, and each was seen failing without its patch in a one-off run (see the drafts), but nothing runs them
+  against a toolchain missing their patch; that needs a toolchain and cache built with one patch left out.
 - **0018 off our backend.** The heartbeat fix wasn't run with Emscripten's browser OPFS or fetch backends, and a
   `ProxyWorker` thread that ended other than through its destructor would still leave its timer (none can today).
 - **0014's upstream test exit path** is reasoned, not run; Emscripten's own
@@ -35,10 +35,10 @@ decided.
   `gdbus-tool.py` (needs PyGObject) and the four lint scripts.
 - **Platform-skipped subtests.** The locale ones return with spec §5.1.4's backends: collation
   (`/unicode/collate{,-key}/{0,1}`, `/unicode/collate-filename/0`), `/option/arg/repetition/locale`, and localized dates
-  and times (`/date/month_substring`, `/GDateTime/modifiers`, the `de_DE` `format_mixed` cases, `/GDateTime/eras/*`).
-  The rest stay skipped while their reason holds: sockets and spawning, Unix signals, IPv6 scope IDs and interfaces,
-  WasmFS's millisecond file times, TZif files by path, the content-type backend, and `/pollable/unix/pty` (WasmFS has no
-  `/dev/ptmx`).
+  and times (`/date/month_substring`, `/GDateTime/modifiers`, the `de_DE` `format_mixed` cases, `/GDateTime/eras/japan`
+  and `/thailand`). The rest stay skipped while their reason holds: sockets and spawning, Unix signals, IPv6 scope IDs
+  and interfaces, WasmFS's millisecond file times, TZif files by path, the content-type backend, and
+  `/pollable/unix/pty` (WasmFS has no `/dev/ptmx`).
 - **WebAssembly guards still in place**, each possible on Emscripten: `g_application_command_line_get_stdin()` returns
   `NULL`; local file and socket streams don't implement `GFileDescriptorBased`; GLib's `unix` and GIO's `unix-streams`
   tests aren't built; local file output streams don't use `writev()`; socket sources and non-blocking sockets are stubs
@@ -51,7 +51,6 @@ decided.
   bytes that aren't UTF-8 are replaced and a last line without a line break gets one, which keeps GLib's tools on
   `-sNODERAWFS`; an empty pipe whose writer is still open reads as end of file, so test-printf's reader waits for its
   writer (0016). A byte-exact stdout under Node would mean writing to the process's descriptors, past `Module.print`.
-- **GLib's patches apply with offsets and fuzz** on the current nixpkgs GLib; rebase them on the next GLib bump.
 
 ## Runtime
 
@@ -95,9 +94,10 @@ decided.
   `execCommand` is unavailable, the `setRangeText` fallback dispatches a synthetic input event and has no native undo.
   Trusted Chromium blur commit reaches this fallback. A concrete CodeMirror adapter is not shipped. A shortcut the
   engine declines after the router queued it, or a Meta chord queued behind keys waiting on the engine, loses its
-  browser action unless the adapter can perform it: the textarea adapter covers undo, redo, select all, cut, copy and
-  word, line and document deletion and movement, but not paste or browser shortcuts such as find, which a page can't
-  perform. Those are logged as warnings instead. See [core.md](core.md).
+  browser action unless the adapter can perform it: the textarea adapter covers undo, redo, select all, cut, copy, word
+  deletion and movement, line and document movement, and Command+Backspace's deletion to the line's start, but not paste
+  or browser shortcuts such as find, which a page can't perform. Those are logged as warnings instead. See
+  [core.md](core.md).
 - **Meta chords never reach engines.** Command on Apple platforms and Super elsewhere are left to the browser and the
   system, so an engine can't bind a chord with either ([core.md](core.md#key-translation-and-layouts)).
 - **Keyboard layouts under automation only.** The layout matrix emulates US, AZERTY, QWERTZ, Dvorak and Colemak through
@@ -115,12 +115,12 @@ decided.
 - **m17n key bindings and the per-user customisation file.** m17n's key-binding customisation (`minput_config_command`)
   and its per-user `~/.m17n.d` customisation file are not exposed on the page; only input-method variables are
   ([m17n.md](m17n.md#settings-and-variables)).
-- **m17n starts slowly in Chromium.** A start over installed data takes about 2.3 s in Chromium, about four times
-  Firefox's and WebKit's, though module init reads no input method; where Chromium spends it is not investigated
+- **m17n starts slowly in Chromium.** A start over installed data takes about 2.3 s in Chromium, against about 0.4 s in
+  Firefox and 0.6 s in WebKit, though module init reads no input method; where Chromium spends it is not investigated
   ([m17n.md](m17n.md#in-the-browser)).
 - **Rime takes no files of the user's own.** Its configuration comes only from the settings the module writes as
-  `*.custom.yaml`: a page can't add a YAML patch beyond what the settings schema offers, or a custom phrase file, and
-  nothing moves Rime's user directory in or out of the module's storage ([rime.md](rime.md#settings)).
+  `*.custom.yaml`: a page can't add a YAML patch beyond what the settings schema offers, or a custom phrase file, and a
+  user directory can be exported but not imported ([rime.md](rime.md#settings)).
 - **Rime has no grammar model.** `librime-octagram` is built but no shipped schema configures a grammar: upstream
   replaces RIME-LMDG's model, 398 MB, in place, so it can't be pinned ([rime.md](rime.md#librime)).
 - **A stale Rime schema compiles at its first use.** After a settings change, a schema whose engine wasn't open compiles
@@ -131,18 +131,19 @@ decided.
   100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
   Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
 
-- **Rime's heap in the worst case passes 147 MiB.** A redeployment that ends with the heap at 122.5 MB, followed by a
-  session that loads `rime_ice`'s 60.7 MB table above it, would pass the declared 147 MiB. The traced sessions added
-  nothing or 8.4 MB, and none of 36 runs reached it ([rime.md](rime.md#distribution)).
+- **Rime's heap in the worst case passes 147 MiB.** A deployment that rebuilds every `rime_ice` schema, as a change of
+  Rime's keys with all of their engines open does, and ends with the heap at 122.5 MB, followed by a session that loads
+  `rime_ice`'s 60.7 MB table above it, would pass the declared 147 MiB. The traced sessions added nothing or 8.4 MB, and
+  the highest peak measured is 149.7 MB ([rime.md](rime.md#distribution)).
 - **Backspace can't take a commit back after `Persist`.** Hiding the tab sends `Persist`, which commits Rime's learning,
   so a Backspace afterwards takes nothing back.
 - **WebKit's `unload()` and `dispose()` with unsaved learning** wait `hangMs` (2 s by default) and still lose it:
   WebKit's Workers reach IndexedDB through the page's main thread, which the wait holds
   ([core.md](core.md#layers-and-page-lifetime)).
 - **A read-only tab learns nothing that lasts.** Only the tab holding a module's writer lock saves learning. A read-only
-  Rime opens no user dictionary and takes a settings change only at its next start
-  ([rime.md](rime.md#a-read-only-module)); a read-only Mozc learns for its Worker's life alone, with its segment history
-  off ([mozc.md](mozc.md#a-read-only-module)).
+  Rime opens no user dictionary and takes a settings change other than the page size only at its next start, once the
+  writer has compiled it ([rime.md](rime.md#a-read-only-module)); a read-only Mozc learns for its Worker's life alone,
+  with its segment history off ([mozc.md](mozc.md#a-read-only-module)).
 
 ## Storage
 
@@ -185,14 +186,14 @@ decided.
 - **Measurements on one machine.** The fsync and storage figures come from one host's ZFS. Chromium's 64 KiB cliff is
   attributed to Blink's value wrapping, not traced; Firefox's out-of-line threshold is measured (between 768 and 896
   KiB), not read from its source.
-- **WebKit's IndexedDB in Workers** is checked only through Rime's browser tests (spec R5, R13): the backend's own
-  programs (`checks.wasmfs-idb-browser`) run in Chromium and Firefox.
+- **WebKit's IndexedDB in Workers** is checked only through the demo's Playwright suite and the Safari smoke suite (spec
+  R5, R13): the backend's own programs (`checks.wasmfs-idb-browser`) run in Chromium and Firefox.
 - **The storage API's limits.** An export whose writer is in another tab that doesn't answer within 5 s takes what is
   stored, without what that writer keeps in memory; and in WebKit an export's read-only transaction, reaching IndexedDB
   through the page's main thread, can't finish while the page spins on a key's reply, so a host write queued behind it
   waits for the spin to end ([storage.md](storage.md#the-host-api)).
-- **The backend's costs**: every `open()` costs one read-only transaction; the open/unlink race is argued in a comment,
-  not tested.
+- **The backend's costs**: every `open()` costs one read-only transaction. The open/unlink race is tested in the orders
+  a test can replay; an unlink whose transaction sees the open's count first is argued in a comment, not tested.
 - **Installing writes in 64 KiB pieces.** Each piece of a file's data is one write transaction at a 64 KiB boundary of
   the file, which covers the 16 KiB chunks the backend creates whole; in a database created with chunks that don't
   divide 64 KiB, most writes would cover a chunk in part at each end and read it first. Installing is off the request
@@ -204,16 +205,16 @@ decided.
 ## Worker host
 
 - **Node hosts are for tests only.** Node's Web Locks grant one exclusive lock to two `worker_threads` at once in about
-  3% of races (12 of 300 with `ifAvailable`, 8 of 300 queued; Node 24.21.0), so two Node hosts started together can both
+  3% of races (9 of 300 with `ifAvailable`, 11 of 300 queued; Node 26.10.0), so two Node hosts started together can both
   become writer or both install one version. Node suites start hosts that share storage one at a time; a Node store that
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **Nothing is released yet.** The packages stay at `0.0.0` until the first release's changeset is versioned and tagged.
-  Each package holds a `0.0.0-placeholder` published by hand, since npm configures a trusted publisher only for a
-  package that exists, and each trusts `release.yml`. The release workflow hasn't run.
-- **Test-harness leftovers**: the failing-relay temporary copies and the Node scratch directory aren't removed; the Node
-  archive server in the Vitest config process is `unref`'d, not closed; Vite's unanalyzable-import warning is filtered
-  by its text.
+- **Nothing is released yet.** The packages stay at `0.0.0` until a changeset for the first release is written,
+  versioned and tagged. Each package holds a `0.0.0-placeholder` published by hand, since npm configures a trusted
+  publisher only for a package that exists, and each trusts `release.yml`. The release workflow hasn't run.
+- **Test-harness leftovers**: the failing-relay and broken-constants temporary copies and the Node scratch directory
+  aren't removed; the Node archive server in the Vitest config process is `unref`'d, not closed; Vite's
+  unanalyzable-import warning is filtered by its text.
 - **Prepare progress falls back when an archive is fetched again.** An archive whose connection fails is written again
   from its start, so the bytes an engine's prepare reports drop and climb again.
 - **WebKit IndexedDB stalls for other engines.** In WebKit a Worker reaches IndexedDB through the page's main thread,
@@ -241,8 +242,6 @@ decided.
   messages across Worker targets in the order the browser sent them. A line that arrived later anyway would fail the
   next test as unexpected output, not pass unseen; if that ever happens, the fix is a marker printed by the host's own
   Workers.
-- **A check's Vitest file shows under its store name** (`../../../<hash>-fixes.test.ts`): it is copied into the store
-  alone, so it can't use relative imports.
 - **The workspace output copies the root `node_modules`** (disk only): it can't link to the shared install's instead,
   since pnpm's hoisted `.pnpm/node_modules` links to the workspace packages by relative paths, which would then resolve
   inside the install, where the packages hold no sources.
@@ -269,14 +268,15 @@ decided.
 - **FlakeHub visibility follows the repository's**, read from `github.event.repository.private` at each publish.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
-- **WarpBuild, aarch64 and macOS are unexercised.** The workflows target WarpBuild's runners and check aarch64-linux and
-  aarch64-darwin, but no run has happened; every check evaluates on all three systems, and only x86_64-linux has built
-  them.
+- **aarch64 and macOS haven't passed CI.** The workflows check aarch64-linux and aarch64-darwin on WarpBuild's runners,
+  and every check evaluates on all three systems, but only x86_64-linux has built them. The first run lost its
+  aarch64-darwin job to a timeout while installing Nix, and aarch64-linux built Node from source, which nixpkgs' cache
+  lacks, and failed in V8 (`CHAR_BIT` undeclared in `memcopy.h`), so the macOS Playwright and Safari jobs never ran.
 
 ## Upstream
 
 - **Most reports are filed; some fixes and one proposal aren't.** [upstream/README.md](upstream/README.md) lists what is
-  left to post, in order (two PRs, a Node issue, two Emscripten issues, the follow-up PRs for filed issues, and the
+  left to post, in order (two PRs, a Node issue, four Emscripten issues, the follow-up PRs for filed issues, and the
   IndexedDB backend proposal), and what was filed where.
 - **IBus's observed paths serialize `mtime` wrongly on 32-bit targets.** `mtime` is a `glong`, but its serializer passes
   it to a 64-bit `"x"` through varargs and its deserializer writes 64 bits over it and the field after it. The vendored

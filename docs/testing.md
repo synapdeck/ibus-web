@@ -337,8 +337,9 @@ as a check, for `ibusWeb.testing.programs` and the Worker host alike; its output
 
 ## Running tests locally
 
-- **One check:** `nix build .#checks.x86_64-linux.<name> -L`. A check that passed is cached; add `--rebuild` to run it
-  again.
+- **One check:** `nix build .#checks.x86_64-linux.<name> -L`. A check that passed is cached; to run it again, delete its
+  output (`nix store delete $(nix path-info .#checks.x86_64-linux.<name>)`) and build it: `--rebuild` would fail it,
+  since its `results.json` differs from run to run.
 - **Vitest from the checkout,** against a check's built programs, without rebuilding the check: enter the dev shell,
   build the shim (`pnpm install` once, then `pnpm -r run build` or `pnpm run build` in `packages/test-programs`), and
   point it at the check's manifest. The manifest and the programs it names exist once the check has been built.

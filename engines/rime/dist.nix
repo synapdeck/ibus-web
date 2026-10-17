@@ -118,17 +118,16 @@
               "/org/freedesktop/ibus/engine/rime/{schema}/";
 
             # Rime maps its tables, which WasmFS serves as copies in memory, and
-            # dlmalloc never lowers the break. A settings change's redeployment
-            # loads each schema's table to check it, rime_ice's 60.7 MB copy
-            # once for every schema that uses it, and the next key opens a
-            # session that loads it again. Where those copies land among the
-            # blocks that outlive them differs from run to run: in the runs
-            # traced, rime-host's page-size change ended its redeployment at 84
-            # to 125 MB of break and its session added nothing or 8.4 MB, while
-            # the highest break measured, 152,223,744 bytes, a heap of
-            # 149,747,776, had the session's table above it all. Without the
-            # change the heap peaks at 99,764,288 bytes, with rime_ice and
-            # luna_pinyin open in one Worker. The workload runs one engine
+            # dlmalloc never lowers the break. A deployment that rebuilds every
+            # schema using rime_ice's dictionary loads each one's table to check
+            # it, a 60.7 MB copy each time, and the next key opens a session that
+            # loads it again. Where those copies land among the blocks that
+            # outlive them differs from run to run: in the runs traced, the
+            # deployment ended at 84 to 125 MB of break and its session added
+            # nothing or 8.4 MB, while the highest break measured, 152,223,744
+            # bytes, a heap of 149,747,776, had the session's table above it
+            # all. rime-host's workload, rime_ice and luna_pinyin open in one
+            # Worker, peaks at 103.9 MB. The workload runs one engine
             # thread at a time, the deployer's; LevelDB's compaction thread
             # stays once started, so a deployment after it needs a second. The
             # declaration leaves several MiB above the highest peak, and the
