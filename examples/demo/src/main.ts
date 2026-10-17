@@ -33,6 +33,9 @@ const form = query<HTMLFieldSetElement>("#settings");
 const settingsState = query<HTMLOutputElement>("#settings-state");
 const switches = query<HTMLDivElement>("#switches");
 const install = query<HTMLOutputElement>("#install");
+const preloadPicker = query<HTMLSelectElement>("#preload-picker");
+const preloadButtons = [query<HTMLButtonElement>("#preload-fetch"), query<HTMLButtonElement>("#preload-install")];
+const preloadState = query<HTMLOutputElement>("#preload");
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 const logger = (entry: LogEntry) => {
@@ -133,6 +136,34 @@ app.addEventListener("install", ({ detail }) => {
       ? `Installing ${detail.engine}: ${megabytes(detail.bytes)} of ${megabytes(detail.total)}`
       : `Installed ${detail.engine}: ${megabytes(detail.total)}`;
 });
+// Preloading an engine fetches its files, or installs them, before any selection of it; the field shows the engine's
+// own progress, and what came of it once the preload settles.
+app.addEventListener("preload", ({ detail }) => {
+  if (detail.engine === undefined) return;
+  preloadState.textContent = `Preloading ${detail.engine}: ${megabytes(detail.bytes)} of ${megabytes(detail.total)}`;
+});
+const preloadEngine = (install: boolean) => {
+  const choice = choices[Number(preloadPicker.value)];
+  if (choice === undefined) return;
+  for (const button of preloadButtons) button.disabled = true;
+  preloadState.textContent = `Preloading ${choice.engine}`;
+  void app
+    .preload([choice], { install })
+    .then(
+      () => {
+        preloadState.textContent = `${install ? "Installed" : "Fetched"} ${choice.engine}`;
+      },
+      (cause: unknown) => {
+        preloadState.textContent = `Not preloaded ${choice.engine}`;
+        failure("Preloading failed", cause);
+      },
+    )
+    .finally(() => {
+      for (const button of preloadButtons) button.disabled = false;
+    });
+};
+preloadButtons[0]!.addEventListener("click", () => preloadEngine(false));
+preloadButtons[1]!.addEventListener("click", () => preloadEngine(true));
 // A failed install ends without reaching the total, so the field would go on saying it is installing.
 const switchingFailed = (cause: unknown) => {
   if (cause instanceof PrepareEngineError) install.textContent = `Not installed ${cause.engine}`;
@@ -461,7 +492,10 @@ const start = async () => {
   }
   const first = choices[0];
   if (!first) throw new Error("No module could be loaded");
+  for (const group of picker.querySelectorAll("optgroup")) preloadPicker.append(group.cloneNode(true));
   picker.disabled = false;
+  preloadPicker.disabled = false;
+  for (const button of preloadButtons) button.disabled = false;
   showSettings(first.module, first.engine);
   await app.select(first.module, first.engine);
   enabled.disabled = false;

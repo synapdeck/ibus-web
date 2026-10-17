@@ -24,6 +24,13 @@
         <button id="restart" type="button" disabled>Restart module</button>
         <div id="switches" class="switches" role="group" aria-label="Input method switches" hidden></div>
       </div>
+      <div class="toolbar">
+        <label for="preload-picker">Ahead of time</label>
+        <select id="preload-picker" disabled></select>
+        <button id="preload-fetch" type="button" disabled>Fetch</button>
+        <button id="preload-install" type="button" disabled>Install</button>
+        <output id="preload">—</output>
+      </div>
       <p role="status">
         Module: <output id="engine">starting</output> · Storage: <output id="storage">starting</output> · Input mode:
         <output id="mode">—</output> · Data: <output id="install">—</output>

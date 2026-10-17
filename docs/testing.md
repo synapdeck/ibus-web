@@ -547,10 +547,11 @@ The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi,
 field's own consonant, checks that the settings form holds only the selected engine's instance, shows a variable saved
 in the form reaching the field once the field has lost focus after the save and regained it, and times a restart from
 IndexedDB once the page shows persistent storage. The Rime spec (`rime.spec.ts`) checks the picker's language groups,
-installs `rime_ice`'s dictionaries on its first selection and nothing on its second, timing it, converts a phrase, types
-Cangjie, turns `luna_pinyin`'s simplification on with the page's own switch, finds a chosen candidate first after a
-reload, and checks that the settings form holds the selected engine's switches and that the page size reaches the panel;
-each test takes up to 300 s, and the run's limit is 1800 s.
+installs `rime_ice`'s dictionaries on its first selection and nothing on its second, timing it, fetches `luna_pinyin`
+ahead of time into the page's cache and types with it, installs `cangjie5` ahead of time and finds nothing to install
+once it is selected, converts a phrase, types Cangjie, turns `luna_pinyin`'s simplification on with the page's own
+switch, finds a chosen candidate first after a reload, and checks that the settings form holds the selected engine's
+switches and that the page size reaches the panel; each test takes up to 300 s, and the run's limit is 1800 s.
 
 The layout matrix (`layouts.spec.ts`) types into Hangul, Rime's `luna_pinyin`, Mozc, m17n's Vietnamese telex and the
 table module's LaTeX from the US, AZERTY, QWERTZ, Dvorak and Colemak layouts, one test per module walking every layout:

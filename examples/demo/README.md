@@ -23,6 +23,11 @@ The status line's Data field shows an engine's own data installing the first tim
 dictionaries do, and what it installed, or that it was not installed if the install failed; a later selection, in the
 same page or after a reload, installs nothing.
 
+The second row preloads an engine before any selection of it: Fetch fetches its module's files and its own data into the
+page's cache, which the module's Worker reads before the network; Install has a short-lived Worker install them into the
+module's storage, so that selecting it later installs nothing. Its field shows the engine's progress, then
+`Fetched <engine>` or `Installed <engine>`.
+
 Opened as `/?properties=page` (`http://127.0.0.1:5173/?properties=page`), the page places none of the panel's properties
 and draws the focused engine's toggle properties as switches of its own beside the picker, as a page that styles its own
 controls would: Hangul's input and Hanja modes, or a Rime schema's switches such as simplified and traditional output. A

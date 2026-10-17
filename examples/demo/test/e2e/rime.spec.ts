@@ -121,6 +121,50 @@ test("rime_ice's dictionaries install on its first selection and not on its seco
   expect(await installShown(page)).toEqual([]);
 });
 
+// Picks the engine in the ahead-of-time picker and fetches or installs it.
+const preload = async (page: Page, engine: string, how: "fetch" | "install") => {
+  const value = await page.locator(`#preload-picker option[data-engine='${engine}']`).getAttribute("value");
+  await page.locator("#preload-picker").selectOption(value!);
+  await page.locator(`#preload-${how}`).click();
+};
+
+// The URLs of the engine's own archives, as the served manifest names them.
+const ownArchives = (page: Page, engine: string) =>
+  page.evaluate(async (engine) => {
+    const url = new URL("/ibus-web/modules/rime/manifest.json", location.href);
+    const manifest = (await (await fetch(url)).json()) as {
+      data: { storePath: string; url: string }[];
+      engines: { name: string; data?: string[] }[];
+    };
+    const own = new Set(manifest.engines.find(({ name }) => name === engine)?.data ?? []);
+    return manifest.data.filter(({ storePath }) => own.has(storePath)).map((entry) => new URL(entry.url, url).href);
+  }, engine);
+
+test("an engine fetched ahead of time has its dictionaries in the page's cache, and types once selected", async ({
+  page,
+}) => {
+  await preload(page, "rime:luna_pinyin", "fetch");
+  await expect(page.locator("#preload")).toHaveText("Fetched rime:luna_pinyin", { timeout: 240_000 });
+  const cached = await page.evaluate(async () =>
+    (await (await caches.open("ibus-web-preload")).keys()).map(({ url }) => url),
+  );
+  const archives = await ownArchives(page, "rime:luna_pinyin");
+  expect(archives.length).toBeGreaterThan(0);
+  for (const archive of archives)
+    expect(cached.some((key) => key.startsWith(`${archive}?ibus-web-preload=`))).toBe(true);
+
+  await rime(page, "rime:luna_pinyin");
+});
+
+test("an engine installed ahead of time installs nothing once selected", async ({ page }) => {
+  await preload(page, "rime:cangjie5", "install");
+  await expect(page.locator("#preload")).toHaveText("Installed rime:cangjie5", { timeout: 240_000 });
+  await watchInstall(page);
+
+  await rime(page, "rime:cangjie5");
+  expect(await installShown(page)).toEqual([]);
+});
+
 test("rime_ice converts a phrase whole and commits it on Space", async ({ page }) => {
   await rime(page, "rime:rime_ice");
   await page.keyboard.type("nihaoshijie");
