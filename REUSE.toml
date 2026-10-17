@@ -144,6 +144,14 @@ path = [".github/workflows/*.yml", "pnpm-workspace.yaml", ".changeset/config.jso
 SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 
+# Written for Changesets and by it: a changeset is front matter and its
+# summary, which the changelog takes verbatim, and Changesets writes each
+# changelog's head itself.
+[[annotations]]
+path = [".changeset/*.md", "**/CHANGELOG.md"]
+SPDX-FileCopyrightText = "2026 Synapdeck, Inc."
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
 # Claude Code's manifests are strict JSON.
 [[annotations]]
 path = [
