@@ -1,8 +1,9 @@
 # Using ibus-web
 
-The packages aren't on npm yet. To try them, build their tarballs from this repository with `nix build .#npm.all`, which
-holds one for each of `protocol`, `worker-host`, `core`, `panel` and `ibus-web`, the runtime's and each engine's.
-Install the five page packages' tarballs and the runtime's together, with `effect`, their peer dependency.
+Install `ibus-web` from npm with `effect`, its peer dependency, then `@ibus-web/runtime` and the engine packages the
+page offers, such as `@ibus-web/engine-hangul`. `ibus-web` brings the other page packages with it. To try a change
+before it's released, build every package's tarball from this repository with `nix build .#npm.all` and install those
+instead.
 
 The runtime and the engines are files the page serves, not code it imports, and `ibus-web` doesn't carry them: serve
 `@ibus-web/runtime`'s `dist/` and pass its `ibus-runtime.js` as `runtimeUrl`, and serve each engine package's `dist/`

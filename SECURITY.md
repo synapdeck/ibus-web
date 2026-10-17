@@ -4,9 +4,9 @@
 
 Report security problems privately. Don't open a public issue or pull request for them.
 
-Email [security@synapdeck.com](mailto:security@synapdeck.com). Once the repository is public, you can also use GitHub's
-private vulnerability reporting:
-[open a draft security advisory](https://github.com/synapdeck/ibus-web/security/advisories/new).
+Use GitHub's private vulnerability reporting:
+[open a draft security advisory](https://github.com/synapdeck/ibus-web/security/advisories/new). You can also email
+[security@synapdeck.com](mailto:security@synapdeck.com).
 
 Include:
 
@@ -27,4 +27,4 @@ tell us too if ibus-web ships the affected code.
 
 ## Supported versions
 
-Nothing has been released yet. Fixes land on `master`.
+Only the latest release gets fixes. Fixes land on `master` and ship in the next release.

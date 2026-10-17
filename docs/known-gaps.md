@@ -209,8 +209,8 @@ decided.
   become writer or both install one version. Node suites start hosts that share storage one at a time; a Node store that
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **Releases carry no provenance while the repository is private.** npm generates provenance only for a package
-  published from a public repository, so 0.1.0 and every release before the repository goes public has none.
+- **0.1.0 and 0.1.1 carry no provenance.** npm generates provenance only for a package published from a public
+  repository, and they were published before this one was public.
 - **Test-harness leftovers**: the failing-relay and broken-constants temporary copies and the Node scratch directory
   aren't removed; the Node archive server in the Vitest config process is `unref`'d, not closed; Vite's
   unanalyzable-import warning is filtered by its text.

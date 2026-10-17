@@ -51,7 +51,7 @@ while. [examples/demo](examples/demo/README.md) has the demo's other options.
 | [`@ibus-web/engine-m17n`](packages/engines/m17n)     | ibus-m17n with m17n-db's input methods: its WebAssembly module, data and manifest, built by Nix       |
 | [`@ibus-web/engine-rime`](packages/engines/rime)     | Rime with rime-data's and rime-ice's schemas: its WebAssembly module, data and manifest, built by Nix |
 
-They aren't published to npm yet; [docs/ibus-web.md](docs/ibus-web.md) says how to build, pack and use them.
+They're published to npm; [docs/ibus-web.md](docs/ibus-web.md) says how to install, serve and use them.
 
 ## Repository layout
 
