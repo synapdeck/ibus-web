@@ -5,6 +5,7 @@ concurrency:
   group: release
 jobs:
   npm:
+    if: '!cancelled() && (needs.release.result == ''success'' || github.event_name == ''workflow_dispatch'')'
     name: Publish to npm
     needs:
       - release
@@ -17,14 +18,22 @@ jobs:
         uses: actions/setup-node@v7.1.0
         with:
           node-version: 26.11.1
-      - name: Download the npm tarballs
+      - if: github.event_name == 'push'
+        name: Download the npm tarballs
         uses: actions/download-artifact@v8.0.2
         with:
           name: npm
           path: npm
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        if: github.event_name == 'workflow_dispatch'
+        name: Download the release's npm tarballs
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.tgz' --dir npm
       - name: Publish
         run: |
-          for tarball in npm/*.tgz; do
+          # A bare relative path is read as GitHub's owner/repo shorthand.
+          for tarball in ./npm/*.tgz; do
             spec=$(tar -xOzf "$tarball" package/package.json | jq -r '.name + "@" + .version')
             if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
               echo "$spec is already published"
@@ -34,6 +43,7 @@ jobs:
           done
     timeout-minutes: 30
   release:
+    if: github.event_name == 'push'
     name: Release
     permissions:
       contents: write
@@ -70,5 +80,11 @@ name: Release
   push:
     tags:
       - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag, such as v1.2.3
+        required: true
+        type: string
 permissions:
   contents: read

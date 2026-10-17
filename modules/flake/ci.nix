@@ -6,7 +6,7 @@
   imports = [ inputs.github-actions-nix.flakeModules.default ];
 
   perSystem =
-    { config, ... }:
+    { config, pkgs, ... }:
     let
       # Each job sets its own: Determinate Nix and FlakeHub authenticate with
       # the job's OIDC token, which a job that doesn't use them shouldn't get.
@@ -258,7 +258,16 @@
         # for the publish.
         workflows.release = {
           name = "Release";
-          on.push.tags = [ "v*" ];
+          on = {
+            push.tags = [ "v*" ];
+            # Publishes a release's tarballs to npm again, from its GitHub
+            # assets, for a publish that failed after the release was made.
+            workflowDispatch.inputs.tag = {
+              description = "The release's tag, such as v1.2.3";
+              required = true;
+              type = "string";
+            };
+          };
           inherit permissions;
           concurrency = {
             group = "release";
@@ -300,6 +309,7 @@
               ];
             }
             // {
+              if_ = "github.event_name == 'push'";
               permissions = {
                 contents = "write";
                 id-token = "write";
@@ -313,6 +323,8 @@
           jobs.npm = {
             name = "Publish to npm";
             needs = [ "release" ];
+            # Run by hand, the workflow skips the release job.
+            if_ = "!cancelled() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')";
             runsOn = "ubuntu-latest";
             timeoutMinutes = 30;
             permissions = {
@@ -327,6 +339,7 @@
               }
               {
                 name = "Download the npm tarballs";
+                if_ = "github.event_name == 'push'";
                 uses = "actions/download-artifact@v8.0.2";
                 with_ = {
                   name = "npm";
@@ -334,9 +347,19 @@
                 };
               }
               {
+                name = "Download the release's npm tarballs";
+                if_ = "github.event_name == 'workflow_dispatch'";
+                run = ''gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.tgz' --dir npm'';
+                env = {
+                  GH_TOKEN = "\${{ github.token }}";
+                  TAG = "\${{ inputs.tag }}";
+                };
+              }
+              {
                 name = "Publish";
                 run = ''
-                  for tarball in npm/*.tgz; do
+                  # A bare relative path is read as GitHub's owner/repo shorthand.
+                  for tarball in ./npm/*.tgz; do
                     spec=$(tar -xOzf "$tarball" package/package.json | jq -r '.name + "@" + .version')
                     if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
                       echo "$spec is already published"
@@ -389,9 +412,16 @@
         };
       };
 
+      # The generator writes a workflow_dispatch input's unset fields as
+      # nulls, which GitHub and actionlint refuse.
       files.file =
         lib.mapAttrs' (
-          file: source: lib.nameValuePair ".github/workflows/${file}" { inherit source; }
+          file: generated:
+          lib.nameValuePair ".github/workflows/${file}" {
+            source = pkgs.runCommandLocal file { nativeBuildInputs = [ pkgs.yq-go ]; } ''
+              yq eval 'del(.on.workflow_dispatch.inputs[][] | select(. == null))' ${generated} > $out
+            '';
+          }
         ) config.githubActions.workflowFiles
         // {
           # actionlint knows GitHub's own runner labels only.

@@ -510,7 +510,9 @@ Changesets versions the published packages and writes their changelogs; a tag pu
   `id-token: write`: npm's trusted publishing exchanges the job's OIDC token for a short-lived credential and accepts
   only GitHub-hosted runners. No npm token is stored, and npm attaches provenance. It needs npm 11.5.1 or later, which
   that Node carries. A version already on the registry is skipped, so rerunning the `npm` job finishes a partial
-  publish. Each package on npmjs trusts this repository's `release.yml`. npm sets that up only for a package that
+  publish. Run by hand with a release's tag (`gh workflow run release.yml -f tag=v<version>`), the workflow skips the
+  `release` job and publishes that release's tarballs from its GitHub assets, with the workflow as it is on the branch
+  it runs from. Each package on npmjs trusts this repository's `release.yml`. npm sets that up only for a package that
   exists, so a newly published package first needs a placeholder version published by hand, then
   `npm trust github <name> --file release.yml --repo synapdeck/ibus-web --allow-publish`.
 - **`reproducibility.yml`**, weekly and on demand, builds the runtime and each engine's side module, then builds them
