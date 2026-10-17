@@ -177,6 +177,13 @@ std::map<std::string, std::string> compiled;
 std::map<std::string, std::string> compiling;
 bool compiling_all;
 
+// What each file was to be compiled with when a deployment that compiled it
+// failed. A compile that fails once, as in a user directory that can't be
+// written, fails each time, and every session a schema notification
+// compiles from would start one; so a file isn't compiled again with the
+// same settings until the Deploy property starts Rime again.
+std::map<std::string, std::string> failed;
+
 std::string BuildPath(const char *name) {
   g_autofree char *path =
       g_build_filename(g_get_home_dir(), "build", name, nullptr);
@@ -231,6 +238,38 @@ bool Stale(const std::string &id) {
   return Fingerprint(id) != prebuilt;
 }
 
+// Whether id needs compiling: the settings changed it since it was last
+// compiled, and its last compile didn't fail with them.
+bool Due(const std::string &id) {
+  if (!Stale(id)) {
+    return false;
+  }
+  auto found = failed.find(id);
+  return found == failed.end() || found->second != Fingerprint(id);
+}
+
+// What a deployment that compiles id records it as compiled with: the
+// settings, or the prebuilt data's while the schema's dictionary is a
+// prebuilt table linked before its data was installed. librime leaves such
+// a dictionary's prism as prebuilt, so the schema stays stale, and is
+// compiled once an engine that installed the dictionary selects it.
+std::string CompiledWith(const std::string &id) {
+  rime::the<rime::Config> config(rime::Config::Require("schema")->Create(id));
+  std::string dictionary;
+  if (config && config->GetString("translator/dictionary", &dictionary)) {
+    std::filesystem::path table =
+        rime::Service::instance().deployer().prebuilt_data_dir /
+        (dictionary + ".table.bin");
+    if (std::filesystem::is_symlink(table) && !std::filesystem::exists(table)) {
+      g_autofree char *prebuilt = ibusweb_rime_prebuilt_fingerprint();
+      return prebuilt;
+    }
+  }
+  return Fingerprint(id);
+}
+
+void AddSchema(const char *schema_id, void *data);
+
 void RecordingAll() {
   compiling.clear();
   compiling_all = true;
@@ -238,8 +277,13 @@ void RecordingAll() {
     compiling[id] = Fingerprint(id);
   }
   compiling["shared"] = kSharedDataDir;
+
+  std::set<std::string> ids;
   for (const char *id : kSchemas) {
-    compiling[id] = Fingerprint(id);
+    AddSchema(id, &ids);
+  }
+  for (const std::string &id : ids) {
+    compiling[id] = CompiledWith(id);
   }
 }
 
@@ -252,6 +296,10 @@ void Recorded(bool ok) {
       compiled[entry.first] = entry.second;
     }
     SaveRecord();
+  } else if (!ok) {
+    for (const auto &entry : compiling) {
+      failed[entry.first] = entry.second;
+    }
   }
   compiling.clear();
   compiling_all = false;
@@ -301,7 +349,7 @@ bool Compile(const std::set<std::string> &ids) {
   compiling_all = false;
 
   for (const char *file : {"default", "ibus_rime"}) {
-    if (!Stale(file)) {
+    if (!Due(file)) {
       continue;
     }
     std::string name = std::string(file) + ".yaml";
@@ -317,7 +365,7 @@ bool Compile(const std::set<std::string> &ids) {
       rime::Service::instance().CreateResourceResolver(
           {"schema_source_file", "", ".schema.yaml"}));
   for (const std::string &id : ids) {
-    if (!Stale(id)) {
+    if (!Due(id)) {
       continue;
     }
     rime::path source = sources->ResolvePath(id);
@@ -325,7 +373,7 @@ bool Compile(const std::set<std::string> &ids) {
       continue;
     }
     deployer.ScheduleTask("schema_update", rime::TaskInitializer(source));
-    compiling[id] = Fingerprint(id);
+    compiling[id] = CompiledWith(id);
     names.push_back(id);
   }
 
@@ -363,6 +411,7 @@ void AddSchema(const char *schema_id, void *data) {
 }
 
 void Start(gboolean full_check) {
+  failed.clear();
   rime_api->initialize(&traits);
 
   // The writer deploys into the user directory, which a read-only module
@@ -460,8 +509,9 @@ void Notify(void *, RimeSessionId session_id, const char *message_type,
   // A session has selected a schema: the engine's own as it is made, or
   // after a deployment ended its last session. Its engine's dictionaries
   // are installed by then, so this is when a schema left stale by a
-  // settings change is compiled; the session works with what it has until
-  // the deployment ends it.
+  // settings change, or by a deployment that came before its dictionaries,
+  // is compiled; the session works with what it has until the deployment
+  // ends it.
   if (std::strcmp(message_type, "schema") == 0) {
     ApplyPageSize(session_id, nullptr);
     if (!ibusweb_rime_deploying()) {

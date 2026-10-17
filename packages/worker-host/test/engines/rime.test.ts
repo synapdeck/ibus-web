@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+import { writeFileSync } from "node:fs";
 import { chmod, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -29,6 +30,7 @@ type Values = Init["settings"][number]["values"];
 
 const RIME_PATH = "/org/freedesktop/ibus/engine/rime/";
 const RIME_ICE = "rime:rime_ice";
+const LUNA_PINYIN_PATH = `${RIME_PATH}luna_pinyin/`;
 const READY = "Rime is ready.";
 const MAINTENANCE = "Rime is under maintenance ...";
 const CAPS_LOCK = stringVariant("caps-lock");
@@ -41,13 +43,22 @@ const instances = (values: Readonly<Record<string, Values>> = {}): Init["setting
   metadata.schemas.flatMap(({ id, paths }) =>
     paths.map((path) => ({ schemaId: id, path, values: values[path] ?? {} })),
   );
+// What a case starts its host with besides the engine: stored values, the
+// name of an earlier host's storage, and the criticals it brings about.
+interface StartOptions {
+  readonly values?: Readonly<Record<string, Values>>;
+  readonly name?: string;
+  readonly failures?: readonly RegExp[];
+}
+
 // Rime's first start in a new user directory warns of the files it lacks,
 // and every deployment of rime-data's configs of their own includes.
-const options = (engine: string, values?: Readonly<Record<string, Values>>, name?: string): SessionOptions => ({
+const options = (engine: string, { values, name, failures }: StartOptions = {}): SessionOptions => ({
   settings: instances(values),
   engine,
   deployment: { start: MAINTENANCE, end: READY },
   ...(name === undefined ? {} : { name }),
+  ...(failures === undefined ? {} : { failures }),
 });
 
 // What rime-data's configs warn of whenever they are compiled; a deployment
@@ -150,13 +161,9 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
   let current: PageSession | undefined;
   let heapPeak = 0;
   let threadsPeak = 0;
-  const start = async (
-    engine: string,
-    values?: Readonly<Record<string, Values>>,
-    name?: string,
-  ): Promise<PageSession> => {
+  const start = async (engine: string, extra?: StartOptions): Promise<PageSession> => {
     const begin = performance.now();
-    current = await PageSession.start(h, runtime, manifest, options(engine, values, name));
+    current = await PageSession.start(h, runtime, manifest, options(engine, extra));
     const ms = performance.now() - begin;
     const { warms, lastWarmed, firstWarmMs, lastWarmMs } = await current.stats();
     h.record(`Rime ${runtime.name} start`, { ms, warms, lastWarmed, firstWarmMs, lastWarmMs });
@@ -325,7 +332,7 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     await first.host.terminate();
     current = undefined;
 
-    const session = await start(RIME_ICE, values, first.name);
+    const session = await start(RIME_ICE, { values, name: first.name });
     await deployed(session, 1);
     await typeText(session, 1, "nihao");
     expect(committed(await session.key(1, ...Key.space))).toBe("你好");
@@ -337,5 +344,45 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     await session.create(2, "rime:luna_pinyin");
     await deployed(session, 2);
     expect(compiles(session)).toEqual(["Rime compiles luna_pinyin, stroke."]);
+  });
+
+  test("a schema whose dictionaries the first start's deployment came before is compiled once its engine is made", async () => {
+    const session = await start(RIME_ICE, { values: { [LUNA_PINYIN_PATH]: { simplification: booleanVariant(true) } } });
+    await deployed(session, 1);
+    expect(compiles(session)).toEqual([]);
+
+    await session.create(2, "rime:luna_pinyin");
+    await deployed(session, 2);
+    expect(compiles(session)).toEqual(["Rime compiles luna_pinyin."]);
+    await typeText(session, 2, "zhongguo");
+    expect(committed(await session.key(2, ...Key.space))).toBe("中国");
+  });
+
+  test("a schema whose compile failed isn't compiled again by the sessions made after it", async () => {
+    const first = await start(RIME_ICE);
+    await deployed(first, 1);
+    await first.host.terminate();
+    current = undefined;
+
+    // A schema source Rime can't read fails every compile of that schema.
+    const storage = h.storage({ ...manifest, name: first.name });
+    if (storage.kind !== "node") throw new Error(`storage ${storage.kind}`);
+    writeFileSync(join(storage.hostPath, "user", "rime_ice.schema.yaml"), "schema: {}\n");
+
+    const session = await start(RIME_ICE, { name: first.name, failures: [/invalid schema definition/] });
+    await deployed(session, 1);
+    await session.request(0, new SettingChanged({ path: RIME_PATH, key: "traditional", value: booleanVariant(true) }));
+    const deadline = h.now() + 60_000;
+    while (!session.logs.includes("Rime has encountered an error.")) {
+      expect(h.now(), "the failed compile").toBeLessThan(deadline);
+      await h.sleep(50);
+      session.read();
+    }
+    expect(compiles(session)).toEqual(["Rime compiles rime_ice."]);
+    expect(session.failures).toHaveLength(1);
+
+    await typeText(session, 1, "nihao");
+    expect(committed(await session.key(1, ...Key.space))).toBe("你好");
+    expect(compiles(session)).toHaveLength(1);
   });
 });

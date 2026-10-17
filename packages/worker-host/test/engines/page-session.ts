@@ -67,6 +67,9 @@ export interface SessionOptions {
   // The engine name to run under, to start again over the storage an
   // earlier session's host left; a new one of the module's by default.
   name?: string;
+  // Criticals a case brings about on purpose, kept in failures rather than
+  // failed.
+  failures?: readonly RegExp[];
 }
 
 // Every exchange checks the output barrier, including requests that emit
@@ -76,6 +79,7 @@ export class PageSession {
   private lastSeq = 0;
   private deploying: boolean;
   readonly deploymentWarnings: string[] = [];
+  readonly failures: string[] = [];
   readonly logs: string[] = [];
   // How long start's Init and first CreateEngine took.
   readonly timings = { initMs: 0, createMs: 0 };
@@ -150,6 +154,8 @@ export class PageSession {
       if (record.message === this.options.deployment?.start) this.deploying = true;
       if (record.message === this.options.deployment?.end) this.deploying = false;
       if (this.deploying && (record.level & (4 | 8 | 16)) === 16) this.deploymentWarnings.push(record.message);
+      else if ((record.level & 8) !== 0 && this.options.failures?.some((pattern) => pattern.test(record.message)))
+        this.failures.push(record.message);
       else expect(record.level & (4 | 8 | 16), record.message).toBe(0);
     }
     return records;
