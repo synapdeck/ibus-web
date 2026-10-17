@@ -117,6 +117,9 @@ decided.
 - **m17n key bindings and the per-user customisation file.** m17n's key-binding customisation (`minput_config_command`)
   and its per-user `~/.m17n.d` customisation file are not exposed on the page; only input-method variables are
   ([m17n.md](m17n.md#settings-and-variables)).
+- **m17n starts slowly in Chromium.** A start over installed data takes about 2.3 s in Chromium, about four times
+  Firefox's and WebKit's, though module init reads no input method; where Chromium spends it is not investigated
+  ([m17n.md](m17n.md#in-the-browser)).
 - **Rime takes no files of the user's own.** Its configuration comes only from the settings the module writes as
   `*.custom.yaml`: a page can't add a YAML patch beyond what the settings schema offers, or a custom phrase file, and
   nothing moves Rime's user directory in or out of the module's storage ([rime.md](rime.md#settings)).
@@ -171,6 +174,9 @@ decided.
 - **An install of an engine's own data cut short leaves its staging tree** in the version's database until the next
   install of the path sweeps it; its bytes are counted nowhere meanwhile. A failed install removes its own, unless the
   runtime can no longer be called or the removal fails.
+- **Preloaded files stay beside the installed data.** The preload cache keeps a version's files as served, compressed
+  archives and all, after a host has installed them, until a start of another version deletes them, so a preloaded
+  engine's data takes space in both ([storage.md](storage.md#preloaded-files)).
 - **A memory mount installs every engine's own data at start**, since its memory can't grow: without IndexedDB a page
   downloads the data of engines it never selects.
 - **Real quota failures** aren't reached in tests; the backend's tests inject the state one leaves.
