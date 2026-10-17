@@ -209,9 +209,8 @@ decided.
   become writer or both install one version. Node suites start hosts that share storage one at a time; a Node store that
   needs real exclusion would take an `O_EXCL` lock file or an `Atomics` lock.
   [Draft bug report](upstream/node-web-locks-worker-threads.md).
-- **Nothing is released yet.** The packages stay at `0.0.0` until a changeset for the first release is written,
-  versioned and tagged. Each package holds a `0.0.0-placeholder` published by hand, since npm configures a trusted
-  publisher only for a package that exists, and each trusts `release.yml`. The release workflow hasn't run.
+- **Releases carry no provenance while the repository is private.** npm generates provenance only for a package
+  published from a public repository, so 0.1.0 and every release before the repository goes public has none.
 - **Test-harness leftovers**: the failing-relay and broken-constants temporary copies and the Node scratch directory
   aren't removed; the Node archive server in the Vitest config process is `unref`'d, not closed; Vite's
   unanalyzable-import warning is filtered by its text.
@@ -269,9 +268,10 @@ decided.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
 - **aarch64 and macOS haven't passed CI.** The workflows check aarch64-linux and aarch64-darwin on WarpBuild's runners,
-  and every check evaluates on all three systems, but only x86_64-linux has built them. The first run lost its
-  aarch64-darwin job to a timeout while installing Nix, and aarch64-linux built Node from source, which nixpkgs' cache
-  lacks, and failed in V8 (`CHAR_BIT` undeclared in `memcopy.h`), so the macOS Playwright and Safari jobs never ran.
+  and every check evaluates on all three systems, but only x86_64-linux has built them. On both aarch64 systems the
+  patched Emscripten fails its install check: the programs it links against its LTO system libraries miss libc++abi's
+  type information (`undefined symbol: typeinfo for void` and the rest), which nixpkgs' unpatched Emscripten doesn't.
+  The macOS Playwright and Safari jobs wait on the aarch64-darwin checks, so they haven't run.
 
 ## Upstream
 

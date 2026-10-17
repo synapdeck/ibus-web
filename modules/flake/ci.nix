@@ -253,9 +253,9 @@
         # A tag publishes what `.#release` built from it: the GitHub release,
         # then each npm tarball. Publishing builds nothing, and npm's trusted
         # publishing trades the job's OIDC token for a short-lived
-        # credential, so no npm token is stored, and npm attaches provenance.
-        # npm trusts only GitHub-hosted runners, so the tarballs move to one
-        # for the publish.
+        # credential, so no npm token is stored, and npm attaches provenance
+        # to a package from a public repository. npm trusts only
+        # GitHub-hosted runners, so the tarballs move to one for the publish.
         workflows.release = {
           name = "Release";
           on = {
