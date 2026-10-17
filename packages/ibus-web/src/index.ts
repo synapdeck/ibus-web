@@ -9,6 +9,7 @@ import {
   Router,
   SettingsApi,
   SettingsSource,
+  StorageApi,
   glibLevel,
   textareaAdapter,
   type AttachOptions,
@@ -20,12 +21,23 @@ import {
   type Selection,
   type SettingsApiService,
   type SettingsSourceService,
+  type StorageApiService,
+  type StorageUsage,
   type SurfaceAdapter,
 } from "@ibus-web/core";
 import { errorMessage, PanelAction, type EngineDescriptor } from "@ibus-web/protocol";
 import type { PanelHost, PanelUpdate } from "@ibus-web/panel";
 import { workerUrl } from "./worker.ts";
-export type { AttachOptions, AsyncKeyResult, Selection, SurfaceAdapter, SettingsSourceService } from "@ibus-web/core";
+export type {
+  AttachOptions,
+  AsyncKeyResult,
+  EngineUsage,
+  ModuleUsage,
+  Selection,
+  SettingsSourceService,
+  StorageUsage,
+  SurfaceAdapter,
+} from "@ibus-web/core";
 // The errors calls reject with and modulestate events carry: Error subclasses with a `_tag`, the same classes
 // ibus-web/effect exports, so instanceof holds across both.
 export {
@@ -102,6 +114,16 @@ export interface IbusWeb extends PanelHost {
   prepare(module: string, engine: string): Promise<void>;
   readonly selection: Selection | undefined;
   readonly settings: Omit<SettingsApiService, "changes">;
+  /**
+   * The modules' storage. `usage()` reads every module's, starting no Worker; `export(module)` gives its user data as
+   * a tar Blob, having a running Worker persist first; `reset(module)` deletes its user data, and a module that was
+   * running starts again. They reject with StorageUnavailable when storage can't be read or reset.
+   */
+  readonly storage: {
+    usage(): Promise<StorageUsage>;
+    export(module: string): Promise<Blob>;
+    reset(module: string): Promise<void>;
+  };
   dispose(): Promise<void>;
   addEventListener<K extends keyof IbusWebEventMap>(
     type: K,
@@ -118,6 +140,7 @@ interface Services {
   router: RouterService;
   registry: ModuleRegistryService;
   settings: SettingsApiService;
+  storage: StorageApiService;
 }
 class FacadeServices extends Context.Service<FacadeServices, Services>()("ibus-web/FacadeServices") {}
 const panelSchema = "org.freedesktop.ibus.panel",
@@ -195,15 +218,19 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
     runtimeUrl: options.runtimeUrl,
     modules: options.modules,
   }).pipe(Layer.provideMerge(base));
-  const dependencies = Layer.mergeAll(Router.Default, SettingsApi.layer({ modules: options.modules })).pipe(
+  const routed = Layer.mergeAll(Router.Default, SettingsApi.layer({ modules: options.modules })).pipe(
     Layer.provideMerge(registry),
+  );
+  const dependencies = StorageApi.layer({ hostUrl: options.hostUrl ?? workerUrl, modules: options.modules }).pipe(
+    Layer.provideMerge(routed),
   );
   const layer = Layer.effect(
     FacadeServices,
     Effect.gen(function* () {
       const router = yield* Router,
         registry = yield* ModuleRegistry,
-        settings = yield* SettingsApi;
+        settings = yield* SettingsApi,
+        storage = yield* StorageApi;
       yield* registry.events.pipe(
         Stream.runForEach((event) =>
           Effect.sync(() => {
@@ -239,7 +266,7 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         ),
         Effect.forkScoped,
       );
-      return { router, registry, settings };
+      return { router, registry, settings, storage };
     }),
   ).pipe(
     Layer.provide(dependencies),
@@ -346,6 +373,20 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
         const current = await initialize();
         await current.settings.reset(module, path, key);
         await refreshOrientation(module, current.settings);
+      },
+    },
+    storage: {
+      usage: async () => {
+        const current = await initialize();
+        return runtime.runPromise(current.storage.usage());
+      },
+      export: async (module: string) => {
+        const current = await initialize();
+        return runtime.runPromise(current.storage.export(module));
+      },
+      reset: async (module: string) => {
+        const current = await initialize();
+        await runtime.runPromise(current.storage.reset(module));
       },
     },
     caretRect: () => {

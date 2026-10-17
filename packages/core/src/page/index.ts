@@ -89,4 +89,12 @@ export {
   type SettingValue,
 } from "../settings/api.ts";
 export { indexedDbSettings } from "../settings/persister.ts";
+export {
+  StorageApi,
+  type EngineUsage,
+  type ModuleUsage,
+  type StorageApiService,
+  type StorageOptions,
+  type StorageUsage,
+} from "../storage/api.ts";
 export type { PanelEvent, PanelRecord } from "@ibus-web/protocol";

@@ -75,7 +75,7 @@ export const storedHost = (
   more: Partial<HostOptions> = {},
 ) => h.start({ runtime, engine, storage: h.storage(engine), ...more });
 
-const storageEvents = (messages: readonly Message[]): { state: StorageState; message: string }[] =>
+export const storageEvents = (messages: readonly Message[]): { state: StorageState; message: string }[] =>
   messages.flatMap((message) =>
     message.type === "storage" ? [{ state: message.state, message: message.message }] : [],
   );
@@ -92,7 +92,7 @@ const readFile = async (h: Harness, client: Client, path: string, readWrite = fa
 
 // write-file creates the file, writes the text into it, fsync()s and closes
 // it; it replies with the bytes written.
-const writeFile = (h: Harness, client: Client, path: string, text: string): Promise<number> =>
+export const writeFile = (h: Harness, client: Client, path: string, text: string): Promise<number> =>
   call32(client, opsOf(h).writeFile, utf8(`${path}\0${text}`));
 
 // fsync(path) from a thread while the host sleeps: the thread creates the

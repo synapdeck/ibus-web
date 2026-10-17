@@ -21,7 +21,7 @@ import {
 import type { ModuleManifest } from "@ibus-web/protocol";
 import { nodeFs } from "../node-fs.ts";
 import { check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
-import { openExisting } from "../storage/plan.ts";
+import { deleteDatabase, idbRequest, openExisting } from "../storage/idb.ts";
 
 // The marker of a version's data installed whole: the regular files and
 // bytes of file data its install wrote.
@@ -116,44 +116,9 @@ export const sharedWindow = (
   };
 };
 
-// Deletes the database, failing if another connection to it stays open
-// past limitMs after it was asked to close. Every connection the runtime
-// and the host make closes when asked, so only one that doesn't holds a
-// deletion up.
-export const deleteDatabase = (name: string, limitMs: number): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(name);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    request.onsuccess = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    request.onerror = () => {
-      clearTimeout(timer);
-      reject(request.error ?? new Error(`deleting ${name} failed`));
-    };
-    request.onblocked = () => {
-      timer ??= setTimeout(
-        () =>
-          reject(
-            new Error(
-              `deleting ${name}: another connection to it stayed open for ${limitMs} ms after it was asked to close`,
-            ),
-          ),
-        limitMs,
-      );
-    };
-  });
-
 // The key of the marker in the database's meta store. The store is the
 // backend's, which reads only its own keys.
 const MARKER_KEY = "installed";
-
-const idbRequest = <T>(request: IDBRequest<T>): Promise<T> =>
-  new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
 
 // Puts value at key in the database's meta store, on a connection of the
 // host's own, apart from the backend's. Every file was fsync()ed, so the

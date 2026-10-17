@@ -96,6 +96,10 @@ export interface ModuleRegistryService {
   /** Whether the engine can be made in the module's Worker as it is: it has no data of its own, or the Worker has it. */
   isPrepared(name: string, engine: string): boolean;
   ensure(name: string): Effect.Effect<void, Error>;
+  /** Starts the module's Worker, if it hasn't, and waits until it is ready, without enabling the module. */
+  start(name: string): Effect.Effect<void, Error>;
+  /** Whether the module's Worker has been started and not unloaded since. */
+  started(name: string): boolean;
   /** Has every ready Worker persist what its engines keep in memory, waiting for each that the wire lets it. */
   persist(): void;
   whenReady(name: string): Effect.Effect<void, Error>;
@@ -730,6 +734,9 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
           yield* whenReady(name);
         }),
       ensure,
+      start: (name) =>
+        Effect.suspend(() => (entries.has(name) ? start(name) : Effect.fail(new Error(`Unknown module: ${name}`)))),
+      started: (name) => get(name).started,
       persist: leaving,
       prepare,
       isPrepared: (name, engine) => {

@@ -76,6 +76,12 @@ new engine in the same context and Worker with `CreateEngine{engine}`. Attachmen
 idempotent detach function. Instances are created lazily on focus. `router.hotkeys.add(predicate, action)` returns a
 removal function; there are no default router hotkeys.
 
+`StorageApi.layer({ hostUrl, modules })`, beside the router, gives `usage()`, `export(module)` and `reset(module)` over
+the modules' databases through a storage Worker started from beside the host's script
+([storage.md](storage.md#the-host-api)); `reset` unloads a running module through the router and selects it again
+afterwards. The registry's `start(name)` starts a module's Worker without enabling it, and `started(name)` says whether
+it has been.
+
 ## Key translation and layouts
 
 `keycode` comes from the evdev column for `event.code`. Each engine descriptor in the manifest has a required `keyboard`

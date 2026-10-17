@@ -679,8 +679,30 @@ The installer writes each file's data as it arrives, a 64 KiB piece at a time fr
 write transaction. At the 16 KiB chunks the backend creates, each piece covers four chunks whole, so only a file's last
 chunk is written in part. Installing is off the request path, so its cost only delays startup.
 
-## Not built yet
+## The host API
 
-The host API's usage report, export (a tar of the engine directory) and reset are spec §5.6 for later milestones.
+The facade's `storage` object reports, exports and resets modules' storage (spec §5.6): `usage()`, `export(module)` and
+`reset(module)` ([ibus-web.md](ibus-web.md)), core's `StorageApi`. The page opens no transaction on a module's databases
+([above](#the-page-keeps-out)), so each call starts a storage Worker, `storage.js` beside the host's script, posts it
+one request and ends it once it has answered (`src/worker/storage.ts`, `src/shared/storage.ts`). The Worker reads on
+connections of its own that close at a version change, opened without creating a database, in read-only transactions, so
+it holds up a host's writes only as long as one of them lasts.
+
+- **`usage()`** reads, for every module the page was given, its manifest (starting no Worker), then the version's
+  markers, `meta.installed` and each engine's own store path's `meta.paths/<storePath>`, and the user data's inodes:
+  `data` is the base data's bytes and every installed path's, `userData` the sizes of the module's own files, and each
+  engine's `data` the bytes of its own paths that are installed. A database or marker that doesn't exist counts as none,
+  so a module never started reports zeros. It covers the current version only; another version's data stays until the
+  next host collects it.
+- **`export(module)`** has a running module's Worker write what its engines keep only in memory (`Persist`), then reads
+  the user database's `meta`, `inodes`, `entries` and `chunks` in one read-only transaction, which is the snapshot, and
+  packs every directory, file and link, named from the module's directory, with its mode and modification time, as a tar
+  (`modern-tar`'s `packTar`), each file whole however its chunks lie. A writer in another tab isn't asked to persist.
+- **`reset(module)`** ends the module's Worker, if it runs, waits for its writer lock to come free (bounded at 10 s),
+  and has the storage Worker delete `ibus-web/<name>`, waiting while connections other tabs keep on it close, which
+  every host's do at the version change; one that stays open past 10 s fails the reset. The version's data stays. A
+  module that was selected is selected again, with its engine, and one that was only running starts again.
+
+Each rejects with `StorageUnavailable` naming the module when the storage Worker can't start or its request fails.
 WebKit's IndexedDB in Workers is unchecked (spec R5, R13). Open items are collected in
 [known-gaps.md](known-gaps.md#storage).

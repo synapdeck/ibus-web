@@ -8,6 +8,7 @@ import { errorSummary, type ModuleManifest } from "@ibus-web/protocol";
 import { memoryWithData, type EngineStorage, type RuntimeMemory } from "../../shared/messages.ts";
 import { engineDatabase, engineWriterLock } from "../../shared/naming.ts";
 import type { Held } from "./held.ts";
+import { openExisting } from "./idb.ts";
 import { requestLock } from "./locks.ts";
 
 // readOnly: another host holds the engine's writer lock.
@@ -17,32 +18,6 @@ export type StoragePlan =
   | { mount: "indexeddb"; database: string; flags: number; readOnly: boolean }
   // why: IndexedDB can't be opened.
   | { mount: "memory"; why: string };
-
-// Opens the database if it exists, without creating it: opening a database
-// that doesn't exist would create it, empty, at the version the backend
-// creates its object stores in, so that creation is aborted, which leaves
-// nothing behind. Resolves with the connection, or null if there is no
-// such database; a connection closes when another asks for a version
-// change, so that it never holds one up.
-export const openExisting = (database: string): Promise<IDBDatabase | null> =>
-  new Promise((resolve, reject) => {
-    const request = indexedDB.open(database);
-    let creating = false;
-    request.onupgradeneeded = () => {
-      creating = true;
-      request.transaction?.abort();
-    };
-    request.onsuccess = () => {
-      const db = request.result;
-      db.onversionchange = () => db.close();
-      resolve(db);
-    };
-    request.onerror = (event) => {
-      event.preventDefault();
-      if (creating && request.error?.name === "AbortError") resolve(null);
-      else reject(request.error ?? new Error(`opening ${database} failed`));
-    };
-  });
 
 // Whether IndexedDB opens the database: null if it does, or why not. The
 // backend opens its own connection, on its own thread, so this one closes

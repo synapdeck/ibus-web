@@ -79,6 +79,15 @@ that user data lasts only as long as the Worker, for want of IndexedDB, `closed`
 under it, and `quota` that writes to them failed for want of space. `logLevel` filters both `log` events and the
 optional logger callback.
 
+`storage.usage()` reports every module's storage without starting a Worker: for each, `data`, the bytes of its version's
+installed data, `userData`, the bytes of its own files, such as Rime's and Mozc's learning, and `engines`, each engine's
+`data`, the bytes of its own data installed. `storage.export(module)` resolves to the module's user data as a tar
+`Blob`, its entries named from the module's directory; a module running in this tab writes what it keeps in memory
+first. `storage.reset(module)` deletes the module's user data, whoever holds it, and leaves its installed data; a module
+that was running starts again, and one that was selected is selected again. They reject with `StorageUnavailable` when
+the storage can't be read or reset, a reset among them when another tab keeps the database open for more than 10 s
+([storage.md](storage.md#the-host-api)). The storage Worker they start is `host/storage.js`, beside the host's script.
+
 Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:
 `EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,
 `StorageUnavailable`, `CreateEngineError` and `PrepareEngineError`, each an `Error` with a `_tag`, `module`, `engine`
@@ -96,8 +105,8 @@ it when opened as `/?properties=page`.
 
 Subpaths: `ibus-web/effect` exposes the core services, adapters, tagged errors and protocol schemas/types;
 `ibus-web/panel` exposes the framework-free panel and its `style.css`; `ibus-web/worker` exports URL constants
-(`workerUrl`, `relayUrl`, `brotliFallbackUrl`), not Worker implementation code. The scoped packages remain available
-directly.
+(`workerUrl`, `relayUrl`, `brotliFallbackUrl`, `storageUrl`), not Worker implementation code. The scoped packages remain
+available directly.
 
 The built [demo](../examples/demo/README.md) shows the engine picker and a deselect shortcut, the panel, settings form,
 restart and attachment controls. A host distributing engine code and data should publish a licenses page linked from its

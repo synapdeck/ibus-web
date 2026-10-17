@@ -9,6 +9,9 @@
 //   worker/index.js   the host's Worker script, which the page starts by URL.
 //   worker/relay.js   the wake relay's Worker script, which the host starts
 //                     by URL from beside its own.
+//   worker/storage.js the storage Worker's script, which the page starts by
+//                     URL from beside the host's to read or reset a module's
+//                     databases.
 //   test/worker/      the host's test build, the same host with its
 //                     instruments, and a relay that fails on purpose. No
 //                     export names them and they aren't published.
@@ -62,6 +65,7 @@ export default defineConfig([
   })),
   worker("worker/index", "src/worker/index.ts", "tsconfig.worker.json"),
   worker("worker/relay", "src/worker/relay.ts", "tsconfig.worker.json"),
+  worker("worker/storage", "src/worker/storage.ts", "tsconfig.worker.json"),
   worker("test/worker/host", "test/worker/host.ts", "tsconfig.test-worker.json"),
   worker("test/worker/failing-relay", "test/worker/failing-relay.ts", "tsconfig.test-worker.json"),
 ]);

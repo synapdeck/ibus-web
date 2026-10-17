@@ -34,7 +34,7 @@ test("a built package consumer ships URL-only page code and serves every preserv
     await symlink(packageRoot, join(root, "node_modules/ibus-web"));
     const entry = join(root, "consumer.ts"),
       out = join(root, "out");
-    await writeFile(entry, 'export { workerUrl, relayUrl, brotliFallbackUrl } from "ibus-web/worker";');
+    await writeFile(entry, 'export { workerUrl, relayUrl, brotliFallbackUrl, storageUrl } from "ibus-web/worker";');
     await build({
       config: false,
       entry: [entry],
@@ -65,9 +65,11 @@ test("a built package consumer ships URL-only page code and serves every preserv
       workerUrl: URL;
       relayUrl: URL;
       brotliFallbackUrl: URL;
+      storageUrl: URL;
     };
-    const urls = [consumer.workerUrl, consumer.relayUrl, consumer.brotliFallbackUrl];
+    const urls = [consumer.workerUrl, consumer.relayUrl, consumer.brotliFallbackUrl, consumer.storageUrl];
     expect(urls.map((url) => dirname(fileURLToPath(url)))).toEqual([
+      join(out, "host"),
       join(out, "host"),
       join(out, "host"),
       join(out, "host"),

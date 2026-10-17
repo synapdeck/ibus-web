@@ -22,6 +22,7 @@
     "dist/worker",
     "types/worker.d.ts",
     "types/relay.d.ts",
+    "types/storage.d.ts",
     "LICENSES",
     "LICENSE-MIT",
     "LICENSE-APACHE"
@@ -29,7 +30,8 @@
   "type": "module",
   "sideEffects": [
     "./dist/worker/index.js",
-    "./dist/worker/relay.js"
+    "./dist/worker/relay.js",
+    "./dist/worker/storage.js"
   ],
   "exports": {
     ".": {
@@ -43,6 +45,10 @@
     "./relay": {
       "types": "./types/relay.d.ts",
       "default": "./dist/worker/relay.js"
+    },
+    "./storage": {
+      "types": "./types/storage.d.ts",
+      "default": "./dist/worker/storage.js"
     }
   },
   "publishConfig": {

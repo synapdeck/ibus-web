@@ -7,4 +7,5 @@
 export const workerUrl = new URL("./host/index.js", import.meta.url);
 export const relayUrl = new URL("./host/relay.js", import.meta.url);
 export const brotliFallbackUrl = new URL("./host/brotli-fallback.js", import.meta.url);
+export const storageUrl = new URL("./host/storage.js", import.meta.url);
 export default workerUrl;

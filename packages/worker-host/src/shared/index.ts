@@ -40,6 +40,7 @@ export {
   engineDataDatabasePrefix,
   engineDataDir,
   engineDataLock,
+  enginePathMarker,
   engineDataRoot,
   engineDir,
   engineInstallLock,
@@ -47,3 +48,4 @@ export {
   type EngineIdentity,
 } from "./naming.ts";
 export type { HostConfigValues } from "./config.ts";
+export type { DatabaseUsage, ModuleDatabases, StorageReply, StorageRequest } from "./storage.ts";

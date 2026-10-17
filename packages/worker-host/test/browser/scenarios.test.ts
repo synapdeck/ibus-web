@@ -43,6 +43,7 @@ import {
   trapKeepsWriter,
   writerLock,
 } from "../shared/storage.ts";
+import { storageWorker } from "./storage-worker.ts";
 import {
   blockedDeletion,
   dataReadOnly,
@@ -207,6 +208,10 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
   test("storage-closed without a wake", () =>
     ownHost(engineFor(h, "storage-closed-idle", runtime), async (host, engine) => {
       await storageClosedIdle(h, host, engine);
+    }));
+  test("the storage Worker reads, exports and resets what the host stored", () =>
+    ownHost(engineFor(h, "storage-worker", runtime), async (host, engine) => {
+      await storageWorker(h, host, engine);
     }));
   test("writer-lock", () => writerLock(h, runtime, engineFor(h, "writer-lock", runtime)));
   test("a crash with the runtime intact seals the user data and lets go of every lock", () =>

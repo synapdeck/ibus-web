@@ -166,7 +166,6 @@ decided.
   names of their own and a move that refuses an existing target, and the sweep would need to tell a dead installer's
   tree from a live one's. The shared database, the lock-free installs and per-path deletion are not implemented.
 
-- **Host API**: usage report, export and reset (spec §5.6) aren't built.
 - **A writer that unlinks a file another tab has open** deletes its inode at once: open counts are per connection, so
   the reader's next read fails with `ENOENT`. No current engine meets it: engine data is never unlinked, a read-only
   Rime opens no user dictionary, and Mozc reads its files whole.
