@@ -27,7 +27,7 @@ const manifest: ModuleManifest = {
   module: { url: "engine.so", size: 1 },
   memory: 65536,
   threads: 0,
-  data: [{ storePath: dataPath, url: "data.tar", size: 0, encoding: "identity" }],
+  data: [{ storePath: dataPath, url: "data.tar", size: 0, files: 1, encoding: "identity" }],
   settingsSchemaDir: `${dataPath}/schemas`,
   engines: [engine("test", "us"), engine("rime:luna_pinyin", "us"), engine("free", "default")],
   settingsSchemas: [],
