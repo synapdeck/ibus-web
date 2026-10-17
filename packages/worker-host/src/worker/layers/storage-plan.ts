@@ -6,7 +6,8 @@ import { Context, Effect, Layer } from "effect";
 import type { RuntimeMemory } from "../../shared/messages.ts";
 import { StartupFailed, startupFailed } from "../failure.ts";
 import { Instruments } from "../instruments.ts";
-import { fetchBytes, readManifest, readRuntimeConstants, type RuntimeDistributionConstants } from "../startup.ts";
+import { fetchPreloaded } from "../preloaded.ts";
+import { readManifest, readRuntimeConstants, type RuntimeDistributionConstants } from "../startup.ts";
 import { Held } from "../storage/held.ts";
 import { memoryFor, planStorage, type StoragePlan } from "../storage/plan.ts";
 import { HostWorker } from "./worker.ts";
@@ -53,7 +54,14 @@ export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWo
       catch: startupFailed,
     });
 
-    const module = yield* Effect.tryPromise({ try: () => fetchBytes(manifest.module.url), catch: startupFailed });
+    const module = yield* Effect.tryPromise({
+      try: async () => {
+        const response = await fetchPreloaded(manifest.module.url, manifest);
+        if (!response.ok) throw new Error(`fetch ${manifest.module.url}: ${response.status}`);
+        return new Uint8Array(await response.arrayBuffer());
+      },
+      catch: startupFailed,
+    });
     if (module.length !== manifest.module.size)
       return yield* new StartupFailed({ message: `module size ${module.length}, expected ${manifest.module.size}` });
 

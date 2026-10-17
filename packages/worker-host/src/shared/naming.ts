@@ -67,6 +67,30 @@ export const enginePathInstallLock = (engine: EngineIdentity, storePath: string)
 export const engineWriterLock = ({ name }: Pick<EngineIdentity, "name">): string =>
   `ibus-web:writer:${encodeComponent(name)}`;
 
+// The Cache Storage cache a page preloads engines' files into, which hosts
+// read before the network.
+export const preloadCacheName = "ibus-web-preload";
+
+const preloadParameter = "ibus-web-preload";
+
+// The key a file of an engine's version is cached under: its URL, without a
+// fragment, with the engine's name and version added as a query parameter,
+// so that two versions' files at one URL are two entries, and a host finds
+// only its own version's.
+export const preloadKey = (url: string, engine: EngineIdentity): string => {
+  const base = url.split("#", 1)[0]!;
+  const owner = encodeURIComponent(`${encodeComponent(engine.name)}/${encodeComponent(engine.version)}`);
+  return `${base}${base.includes("?") ? "&" : "?"}${preloadParameter}=${owner}`;
+};
+
+// The engine and version, each encoded, whose file a cache key holds, or
+// undefined for a key no preload made.
+export const preloadOwner = (key: string): EngineIdentity | undefined => {
+  const value = new RegExp(`[?&]${preloadParameter}=([^&#]*)`).exec(key)?.[1];
+  const parts = value === undefined ? undefined : decodeURIComponent(value).split("/");
+  return parts?.length === 2 ? { name: parts[0]!, version: parts[1]! } : undefined;
+};
+
 // The Web Lock every host using a version's data holds, shared, for as long
 // as it runs; a host takes it exclusively to delete that version's data.
 export const engineDataLock = ({ name }: Pick<EngineIdentity, "name">, encodedVersion: string): string =>

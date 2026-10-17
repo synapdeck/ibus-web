@@ -48,21 +48,26 @@ engine whose descriptor names data of its own (a Rime schema's dictionaries) dow
 is selected, and `select` waits for it, while the surface stays on native input and other selections, focus changes and
 detaches go on; a selection changed meanwhile resolves without making the engine, and the download still completes.
 `prepare(module, engine)` does that ahead of selection, starting the module's Worker if it hasn't, so that the selection
-later waits for nothing; an engine without data of its own needs nothing. While data installs, `install` events carry
-`{ module, engine, bytes, total }`, unpacked bytes written of the total the storage lacked, `bytes` reaching `total`
-only once all of it is installed; a second selection, or one in a later visit, installs nothing and sends none. A failed
-install rejects `select` or `prepare` with a `PrepareEngineError` whose `diagnostic` is the Worker's reason; the
-selection stands, as for a `CreateEngineError`, and the next focus tries again. `deselect()` returns every surface to
-plain browser input and keeps Workers loaded; hosts bind their own shortcut for it, as there are no built-in hotkeys.
-`selection` is the current `{ module, engine }` or `undefined`. `engines(module)` reads and validates a module's
-manifest and resolves to its engine descriptors (`name`, `displayName`, `languages`, `keyboard`, and `data` for an
-engine with data of its own) without starting a Worker, each with `layout`, the layout its keys follow now, and
-`layoutPath`, where its `layout` setting lives. `select`, `deselect`, `engines`, `unload(module)`, `prepare` and
-`dispose()` return Promises. Before `unload` or `dispose()` ends a Worker, and whenever the page goes away or is hidden,
-the engines write what they keep only in memory, such as Rime's learning ([core.md](core.md#layers-and-page-lifetime));
-the page needs no handler of its own for it. `debugRestart(module)` is a development-only way to terminate the actual
-Worker and await recovery; it restores the selection only when `module` is the selected one. No concrete CodeMirror
-adapter is provided.
+later waits for nothing; an engine without data of its own needs nothing. `preload(entries)` goes less far and costs
+less: once the page is idle, it fetches each entry's files at low priority into a Cache Storage cache of ibus-web's,
+`ibus-web-preload`, without starting a Worker, so that a later start fetches nothing over the network. An entry is
+`{ module, engine? }`: the module's manifest, `.wasm` and base data, and with `engine`, that engine's own data.
+`preload` events carry `{ module, engine, bytes, total }` like `install` events, `engine` only for an entry that names
+one, and the Promise settles once every entry is fetched. A module's start deletes other versions' files from the cache.
+While data installs, `install` events carry `{ module, engine, bytes, total }`, unpacked bytes written of the total the
+storage lacked, `bytes` reaching `total` only once all of it is installed; a second selection, or one in a later visit,
+installs nothing and sends none. A failed install rejects `select` or `prepare` with a `PrepareEngineError` whose
+`diagnostic` is the Worker's reason; the selection stands, as for a `CreateEngineError`, and the next focus tries again.
+`deselect()` returns every surface to plain browser input and keeps Workers loaded; hosts bind their own shortcut for
+it, as there are no built-in hotkeys. `selection` is the current `{ module, engine }` or `undefined`. `engines(module)`
+reads and validates a module's manifest and resolves to its engine descriptors (`name`, `displayName`, `languages`,
+`keyboard`, and `data` for an engine with data of its own) without starting a Worker, each with `layout`, the layout its
+keys follow now, and `layoutPath`, where its `layout` setting lives. `select`, `deselect`, `engines`, `unload(module)`,
+`prepare`, `preload` and `dispose()` return Promises. Before `unload` or `dispose()` ends a Worker, and whenever the
+page goes away or is hidden, the engines write what they keep only in memory, such as Rime's learning
+([core.md](core.md#layers-and-page-lifetime)); the page needs no handler of its own for it. `debugRestart(module)` is a
+development-only way to terminate the actual Worker and await recovery; it restores the selection only when `module` is
+the selected one. No concrete CodeMirror adapter is provided.
 
 `settings.schemas(module)` returns the generated schemas and keys. Each schema lists its `paths`: a fixed schema has
 one, a relocatable schema one per instance. Use `settings.get(module, path, key)`, `set(module, path, key, variant)` and
@@ -77,13 +82,13 @@ character the system layout gives them), at the engine's `layoutPath` and defaul
 applies to the engine's next key. A host that knows the user's layout sets it there; for example, on a layout whose
 `KeyQ` doesn't type `q` (per `navigator.keyboard.getLayoutMap()`), set a US-layout engine that should take the
 characters the user sees to `default` ([core.md](core.md#key-translation-and-layouts)). The default source persists by
-origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log` and
-`install` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after deselection. A
-`storage` event's detail has the `module`, a `state` and a `message`: `read-only` means learning is off in this tab,
-since another tab of the same origin runs the module and writes its user data (Rime learns nothing, Mozc only for as
-long as the Worker runs), `ephemeral` that user data lasts only as long as the Worker, for want of IndexedDB, `closed`
-that the module's databases were closed under it, and `quota` that writes to them failed for want of space. `logLevel`
-filters both `log` events and the optional logger callback.
+origin; the optional `settings` service can replace it. `modulestate`, `selectionchange`, `storage`, `panel`, `log`,
+`install` and `preload` are typed CustomEvent names; `selectionchange` carries the new selection, or `null` after
+deselection. A `storage` event's detail has the `module`, a `state` and a `message`: `read-only` means learning is off
+in this tab, since another tab of the same origin runs the module and writes its user data (Rime learns nothing, Mozc
+only for as long as the Worker runs), `ephemeral` that user data lasts only as long as the Worker, for want of
+IndexedDB, `closed` that the module's databases were closed under it, and `quota` that writes to them failed for want of
+space. `logLevel` filters both `log` events and the optional logger callback.
 
 `storage.usage()` reports every module's storage without starting a module's Worker: for each, `data`, the bytes of its
 version's installed data, `userData`, the bytes of its own files, such as Rime's and Mozc's learning, and `engines`,
@@ -101,9 +106,10 @@ Calls reject with the tagged errors of [core.md](core.md#errors), exported from 
 `EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,
 `StorageUnavailable`, `CreateEngineError` and `PrepareEngineError`, each an `Error` with a `_tag`, `module`, `engine`
 where one applies and the Worker's `diagnostic`; `EngineCrashed` adds the crash's `reason`. A module that fails to start
-rejects `select`, `prepare` and `engines` with its error, and the settings calls reject an unusable store with
-`StorageUnavailable`. A crash or hang has no call to reject, so `modulestate`'s detail carries `error` with `restarting`
-and `failed`. An unknown module name or a disposed facade rejects with a plain `Error`.
+rejects `select`, `prepare` and `engines` with its error, a file `preload` couldn't fetch rejects it with
+`PrepareEngineError` for an engine's own data and `EngineLoadFailed` otherwise, and the settings calls reject an
+unusable store with `StorageUnavailable`. A crash or hang has no call to reject, so `modulestate`'s detail carries
+`error` with `restarting` and `failed`. An unknown module name or a disposed facade rejects with a plain `Error`.
 
 Rime's switches, such as simplified or traditional output (`rime:option:simplification`) and full-width characters
 (`rime:option:full_shape`), are IBus properties: a page with its own controls reads them from `panel` events'

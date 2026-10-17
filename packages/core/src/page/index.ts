@@ -40,6 +40,12 @@ export {
 } from "../router/keystroke.ts";
 export { CoreConfig, type CoreConfigValues } from "../services/config.ts";
 export {
+  browserPreload,
+  type PreloadEntry,
+  type PreloadEnvironment,
+  type PreloadOptions,
+} from "../services/preload.ts";
+export {
   CreateEngineError,
   crashError,
   EngineCrashed,

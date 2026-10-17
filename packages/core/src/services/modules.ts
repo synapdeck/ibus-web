@@ -54,6 +54,14 @@ import {
 } from "../settings/layout.ts";
 import { CoreConfig } from "./config.ts";
 import { Logger, PanelEvents, SyncMailbox } from "./logging.ts";
+import {
+  browserPreload,
+  cacheManifest,
+  fetchEntries,
+  openPreloads,
+  type PreloadEntry,
+  type PreloadEnvironment,
+} from "./preload.ts";
 import { SettingsSource, type SettingsChange } from "./settings.ts";
 export interface ModuleRegistryOptions {
   readonly hostUrl: URL;
@@ -66,6 +74,8 @@ export interface ModuleRegistryOptions {
   readonly loadManifest?: (url: URL) => Promise<unknown>;
   readonly loadMetadata?: (url: URL, signal?: AbortSignal) => Promise<unknown>;
   readonly waitForWriter?: WaitForWriter;
+  /** What preloading takes of the page, each part the browser's unless given. */
+  readonly preload?: Partial<PreloadEnvironment>;
 }
 /** A manifest's engine descriptor, with the layout its keys follow now and where the setting that chooses it lives. */
 export type EngineInfo = EngineDescriptor & {
@@ -93,6 +103,17 @@ export type ModuleEvent =
       readonly engine: string;
       readonly bytes: number;
       readonly total: number;
+    }
+  /**
+   * While an entry preloads: bytes fetched so far of total, what the cache lacked, in the manifest's sizes. bytes
+   * reaches total only once all of it is stored. engine is the entry's, if it named one.
+   */
+  | {
+      readonly _tag: "preload";
+      readonly module: string;
+      readonly engine?: string;
+      readonly bytes: number;
+      readonly total: number;
     };
 export interface ModuleRegistryService {
   readonly events: Stream.Stream<ModuleEvent>;
@@ -109,6 +130,13 @@ export interface ModuleRegistryService {
   prepare(name: string, engine: string): Effect.Effect<void, Error>;
   /** Whether the engine can be made in the module's Worker as it is: it has no data of its own, or the Worker has it. */
   isPrepared(name: string, engine: string): boolean;
+  /**
+   * Once the page is idle, fetches each entry's files the page's preload cache lacks: the module's manifest, `.wasm`
+   * and base data, and the engine's own data when it names one, at low priority, starting no Worker. Fails with an
+   * Error for an unknown module before anything is fetched, or an unknown engine before anything but its manifest,
+   * and with EngineLoadFailed, ProtocolMismatch or PrepareEngineError for a file that failed.
+   */
+  preload(entries: readonly PreloadEntry[]): Effect.Effect<void, Error>;
   ensure(name: string): Effect.Effect<void, Error>;
   /** Starts the module's Worker, if it hasn't, and waits until it is ready, without enabling the module. */
   start(name: string): Effect.Effect<void, Error>;
@@ -788,6 +816,58 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                 : asError(cause),
         });
       });
+    const preloading: PreloadEnvironment = { ...browserPreload, ...options.preload };
+    const preload = (requested: readonly PreloadEntry[]): Effect.Effect<void, Error> =>
+      Effect.gen(function* () {
+        for (const { module } of requested)
+          if (!entries.has(module)) return yield* Effect.fail(new Error(`Unknown module: ${module}`));
+        yield* Effect.promise(() => preloading.idle());
+
+        const modules = [...new Set(requested.map(({ module }) => module))];
+        const manifests = new Map<string, ModuleManifest>();
+        for (const name of modules) manifests.set(name, yield* manifestOf(name, get(name)));
+        for (const { module, engine } of requested) {
+          if (engine !== undefined && !manifests.get(module)!.engines.some(({ name }) => name === engine))
+            return yield* Effect.fail(new Error(`Unknown engine: ${engine} in module ${module}`));
+        }
+
+        yield* Effect.tryPromise({
+          try: async () => {
+            const cache = await openPreloads(preloading);
+            if (cache === undefined) return;
+            for (const name of modules) {
+              const manifest = manifests.get(name)!;
+              const own = requested.filter(({ module }) => module === name);
+              try {
+                const base = await cacheManifest(preloading, cache, name, options.modules[name]!, manifest);
+                await fetchEntries(
+                  preloading,
+                  cache,
+                  name,
+                  manifest,
+                  base,
+                  own.map(({ engine }) => engine),
+                  (index, bytes, total) => {
+                    const engine = own[index]!.engine;
+                    events.enqueue({
+                      _tag: "preload",
+                      module: name,
+                      ...(engine === undefined ? {} : { engine }),
+                      bytes,
+                      total,
+                    });
+                  },
+                );
+              } catch (cause) {
+                throw isIbusWebError(cause)
+                  ? cause
+                  : new EngineLoadFailed({ module: name, diagnostic: asError(cause).message });
+              }
+            }
+          },
+          catch: asError,
+        });
+      });
     const service: ModuleRegistryService = {
       events: Stream.fromPubSub(pubsub),
       unload: (name) =>
@@ -828,6 +908,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       },
       persist: leaving,
       prepare,
+      preload,
       isPrepared: (name, engine) => {
         const snapshot = entries.get(name)?.snapshot;
         const descriptor = snapshot?.manifest?.engines.find((candidate) => candidate.name === engine);

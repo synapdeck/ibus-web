@@ -45,6 +45,9 @@ export {
   engineDir,
   engineInstallLock,
   engineWriterLock,
+  preloadCacheName,
+  preloadKey,
+  preloadOwner,
   type EngineIdentity,
 } from "./naming.ts";
 export type { HostConfigValues } from "./config.ts";

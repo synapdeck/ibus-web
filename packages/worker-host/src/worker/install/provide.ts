@@ -31,6 +31,7 @@ import type { Held } from "../storage/held.ts";
 import { makeDirs, mountAt } from "../storage/mount.ts";
 import type { StoragePlan } from "../storage/plan.ts";
 import { requestLock } from "../storage/locks.ts";
+import { collectPreloaded } from "../preloaded.ts";
 import { installArchives, type ArchiveHooks, type Tally } from "./archive.ts";
 import { preparer } from "./prepare.ts";
 import { idbStore, nodeStore, sharedWindow, type DataStore } from "./store.ts";
@@ -62,9 +63,12 @@ export interface DataMount {
 // Deletes the data of every other version no host is using. A host using a
 // version holds its data lock shared, so one granted exclusively at once is
 // one no host uses, and no host can start using it until it is let go.
-// Best-effort: a failure is reported, never thrown.
+// Best-effort: a failure is reported, never thrown. The page's preloads of
+// other versions go too, which no host reads.
 const collect = async (store: DataStore, engine: ModuleManifest): Promise<CollectReport> => {
   const report: CollectReport = { removed: [], inUse: [] };
+  const preloaded = await collectPreloaded(engine);
+  if (preloaded !== undefined) report.error = preloaded;
   try {
     for (const version of await store.others()) {
       const lock = await requestLock(engineDataLock(engine, version), { mode: "exclusive", ifAvailable: true });
@@ -80,7 +84,7 @@ const collect = async (store: DataStore, engine: ModuleManifest): Promise<Collec
       }
     }
   } catch (error) {
-    report.error = errorSummary(error);
+    report.error = report.error === undefined ? errorSummary(error) : `${report.error}; ${errorSummary(error)}`;
   }
   return report;
 };
@@ -127,6 +131,8 @@ export const provideData = ({
         lockedAt,
         releasedAt: Date.now(),
       });
+      const preloaded = yield* Effect.promise(() => collectPreloaded(engine));
+      if (preloaded !== undefined) post({ type: "collect", removed: [], inUse: [], error: preloaded });
       return { closed: () => false, quotaFailures: () => 0, prepare: preparer({ engine, post }) };
     }
 

@@ -17,6 +17,7 @@ import {
   type CoreConfigValues,
   type EngineInfo,
   type ModuleEvent,
+  type PreloadEntry,
   type ModuleRegistryService,
   type RouterService,
   type Selection,
@@ -36,6 +37,7 @@ export type {
   EngineUsage,
   KeyboardLayout,
   ModuleUsage,
+  PreloadEntry,
   Selection,
   SettingsSourceService,
   StorageUsage,
@@ -88,6 +90,11 @@ export interface IbusWebEventMap {
    * total only once all of it is installed.
    */
   install: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "install" }>, "_tag">>;
+  /**
+   * While preload entries are fetched: bytes so far of total, what the cache lacked, in the manifest's sizes. bytes
+   * reaches total only once all of it is stored. engine is the entry's, if it named one.
+   */
+  preload: CustomEvent<Omit<Extract<ModuleEvent, { _tag: "preload" }>, "_tag">>;
   /** `null` after deselection: a CustomEvent can't carry an undefined detail. */
   selectionchange: CustomEvent<Selection | null>;
   panel: CustomEvent<PanelUpdate>;
@@ -119,6 +126,13 @@ export interface IbusWeb extends PanelHost {
    * nothing. Rejects with a PrepareEngineError carrying the Worker's diagnostic.
    */
   prepare(module: string, engine: string): Promise<void>;
+  /**
+   * Once the page is idle, fetches what the page's cache lacks of each entry, at low priority, without starting a
+   * Worker: the module's manifest, `.wasm` and base data, and the engine's own data when the entry names one. A
+   * module's Worker reads them from there. `preload` events report its progress. Rejects with a plain Error for an
+   * unknown module or engine, and with the tagged errors for a file that failed.
+   */
+  preload(entries: readonly PreloadEntry[]): Promise<void>;
   readonly selection: Selection | undefined;
   readonly settings: Omit<SettingsApiService, "changes">;
   /**
@@ -250,8 +264,15 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
               });
             else if (event._tag === "storage")
               emit("storage", { module: event.module, state: event.state, message: event.message });
-            else
+            else if (event._tag === "install")
               emit("install", { module: event.module, engine: event.engine, bytes: event.bytes, total: event.total });
+            else
+              emit("preload", {
+                module: event.module,
+                ...(event.engine === undefined ? {} : { engine: event.engine }),
+                bytes: event.bytes,
+                total: event.total,
+              });
           }),
         ),
         Effect.forkScoped,
@@ -359,6 +380,13 @@ export function createIbusWeb(options: IbusWebOptions): IbusWeb {
       if (!Object.hasOwn(options.modules, module)) throw new Error(`Unknown module: ${module}`);
       const current = await initialize();
       await runtime.runPromise(current.registry.prepare(module, engine));
+    },
+    preload: async (entries: readonly PreloadEntry[]) => {
+      alive();
+      const unknown = entries.find(({ module }) => !Object.hasOwn(options.modules, module));
+      if (unknown !== undefined) throw new Error(`Unknown module: ${unknown.module}`);
+      const current = await initialize();
+      await runtime.runPromise(current.registry.preload(entries));
     },
     selection: undefined as Selection | undefined,
     settings: {

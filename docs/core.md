@@ -61,6 +61,19 @@ it. Focus changes, detaches and other selections go on meanwhile. `router.select
 selection at once, through `selectionChanges`, and resolves once the engine is made; a selection changed or undone while
 its engine downloads resolves at once with nothing made, and the download goes on and stays installed.
 
+`registry.preload(entries)` fetches what a page will want before it selects it, starting no Worker and opening no
+module's storage. Each entry is `{ module, engine? }`. An unknown module fails it before anything is fetched, and an
+unknown engine before anything but the module's manifest. Once the page is idle (`requestIdleCallback`, or a second
+where it is missing, as in WebKit), it fetches each module's manifest at low priority, then, one file at a time and at
+low priority, what the preload cache lacks of the module's `.wasm`, its base data and the entries' engines' own data, a
+file two entries share counting for the first ([storage.md](storage.md#preloaded-files)). `preload` events,
+`{ module, engine?, bytes, total }`, report each entry's progress in the manifest's sizes, the `.wasm`'s and the
+archives' unpacked ones: an archive is credited in proportion to its body as it arrives where the response gives a
+length, and `bytes` reaches `total` only once all of it is stored. A failed file fails the preload as what it is:
+`PrepareEngineError` for an engine's own data, `EngineLoadFailed` otherwise, and the manifest's own refusals as when a
+module starts. Without Cache Storage it fetches nothing and resolves. The environment it uses (the cache, `fetch` and
+the idle wait) is the registry's `preload` option, which tests replace.
+
 Creating a surface's engine can fail. `CreateEngineError` carries the module, the engine and, as its `diagnostic`, the
 engine's reason, taken from the runtime's `CreateEngineFailed` record when the engine gave one, or else the reply's
 return value. Installing its data can fail too: `PrepareEngineError` carries the module, the engine and the Worker's

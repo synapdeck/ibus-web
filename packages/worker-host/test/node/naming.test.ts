@@ -5,7 +5,14 @@
 // any character: none runs into another's.
 
 import { describe, expect, test } from "vitest";
-import { encodeComponent, engineDatabase, engineDataDatabasePrefix, engineDir } from "../../src/shared/naming.ts";
+import {
+  encodeComponent,
+  engineDatabase,
+  engineDataDatabasePrefix,
+  engineDir,
+  preloadKey,
+  preloadOwner,
+} from "../../src/shared/naming.ts";
 
 describe("storage-names", () => {
   const inputs = ["/", ":", ".", "..", "a/b:c", "%2F"];
@@ -33,5 +40,26 @@ describe("storage-names", () => {
 
   test("engine a/data/x's database isn't one of engine a's data databases", () => {
     expect(engineDatabase({ name: "a/data/x" }).startsWith(engineDataDatabasePrefix({ name: "a" }))).toBe(false);
+  });
+
+  test("a preload's key names its engine and version, whatever they hold, beside the URL's own query", () => {
+    for (const input of inputs) {
+      for (const url of ["https://example.test/m.wasm", "https://example.test/m.wasm?v=1#top"]) {
+        const engine = { name: input, version: `1.0+${input}` };
+        const key = preloadKey(url, engine);
+        expect(key, input).not.toContain("#");
+        expect(key.startsWith(url.split("#")[0]!), input).toBe(true);
+        expect(preloadOwner(key), input).toEqual({
+          name: encodeComponent(engine.name),
+          version: encodeComponent(engine.version),
+        });
+      }
+    }
+    expect(preloadOwner("https://example.test/m.wasm?v=1")).toBeUndefined();
+  });
+
+  test("no two versions of an engine share a preload's key", () => {
+    const url = "https://example.test/m.wasm";
+    expect(new Set(inputs.map((version) => preloadKey(url, { name: "a", version }))).size).toBe(inputs.length);
   });
 });

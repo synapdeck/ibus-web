@@ -12,6 +12,7 @@ import { entryWriter, type Written } from "./writer.ts";
 import { engineDataRoot } from "../../shared/naming.ts";
 import { INSTALL_PIECE } from "../../shared/config.ts";
 import type { FsConstants } from "../../shared/messages.ts";
+import { fetchPreloaded } from "../preloaded.ts";
 import { RuntimeRefused, type RuntimeHandle } from "../runtime.ts";
 import { makeDirs } from "../storage/mount.ts";
 
@@ -215,11 +216,13 @@ export const extract = async (
   }
 };
 
-// Fetches the archive at url and extracts it into dir, the store's root,
-// where its entries must all lie under storeName, writing them under
-// placedAs; its regular files must hold exactly expectedBytes.
+// Fetches the archive at url, from the page's preloads of the engine's
+// version first, and extracts it into dir, the store's root, where its
+// entries must all lie under storeName, writing them under placedAs; its
+// regular files must hold exactly expectedBytes.
 const installArchive = async (
   handle: RuntimeHandle,
+  engine: ModuleManifest,
   url: string,
   dir: string,
   storeName: string,
@@ -238,7 +241,7 @@ const installArchive = async (
   try {
     arrived();
     hooks.fetching?.(url);
-    const response = await outside(`fetch ${url}`, fetch(url, { signal: idle.signal }));
+    const response = await outside(`fetch ${url}`, fetchPreloaded(url, engine, { signal: idle.signal }));
     if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
     const source = decompressed(response.body, encoding, hooks.forceBrotliFallback, hooks.brotliDecoder);
     await quieted(hooks.quiet);
@@ -282,6 +285,7 @@ export const installArchives = async (
     const storeName = data.storePath.slice(data.storePath.lastIndexOf("/") + 1);
     await installArchive(
       handle,
+      engine,
       data.url,
       root,
       storeName,

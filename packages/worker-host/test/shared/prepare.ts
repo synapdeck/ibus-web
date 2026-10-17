@@ -107,7 +107,7 @@ const expectPrepared = (
 
 // Prepares the lazy engine and checks the host's answer: no error, and the
 // lazy path found in state.
-const prepareLazy = async (
+export const prepareLazy = async (
   h: Harness,
   host: RunningHost,
   state: PathInstallReport["state"],
@@ -122,7 +122,7 @@ const prepareLazy = async (
 const overlapped = (a: PathInstallReport, b: PathInstallReport): boolean =>
   a.lockedAt < b.releasedAt && b.lockedAt < a.releasedAt;
 
-const expectLazyTree = async (h: Harness, client: Client, what = "the lazy tree"): Promise<void> => {
+export const expectLazyTree = async (h: Harness, client: Client, what = "the lazy tree"): Promise<void> => {
   expect(await listed(h, client, LAZY_PATH), what).toBe(h.data.archives.lazy.listing);
 };
 

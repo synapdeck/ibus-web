@@ -495,13 +495,28 @@ engine's own data. The backend's own tests check that a directory moved onto a n
 there whole, that a failed move leaves it where it was, and that a move onto a directory another backend filled is
 refused.
 
+### Preloaded files
+
+A page can fetch a module's files before it selects one of its engines: `preload` (`src/services/preload.ts` in
+`@ibus-web/core`, [core.md](core.md#layers-and-page-lifetime)) puts them in the page's Cache Storage cache
+`ibus-web-preload`, and a host reads its `.wasm` and each archive from there before the network
+(`src/worker/preloaded.ts`). Each file's key is its URL, without a fragment, with an `ibus-web-preload` query parameter
+naming the module and the version its manifest gives, both encoded as above (`preloadKey`), so two versions' files at
+one URL are two entries and a host finds only its own version's. The manifest is cached the same way, but hosts read the
+manifest from the network: it names the version every other key needs. A host that finds no such cache, or can't read
+it, fetches from the network, and opening the cache would make it, so a host only looks into one a page made. The cache
+holds the files as served, compressed archives and all; installing from it is installing from the network, without the
+network. Entries stay after their data is installed, so that a later install of the version, after its storage was
+deleted or into the memory fallback's, fetches nothing either.
+
 ### Old versions
 
 Once it has installed or found its version, the host lists the engine's other versions (`indexedDB.databases()`, which
 Firefox has only from 126: hence the toolchain's one-way Firefox floor, [toolchain.md](toolchain.md)) and, for each,
 requests its data lock exclusively with `ifAvailable`. Granted, no host uses that version and none can start to until
-the lock is let go, so it deletes the database. Collection is best-effort: a failure is reported in `collect.error`,
-which the page's connection logs as a warning, and never fails the start.
+the lock is let go, so it deletes the database. It deletes the engine's other versions' preloaded files too, which no
+host reads, a memory mount as well. Collection is best-effort: a failure is reported in `collect.error`, which the
+page's connection logs as a warning, and never fails the start.
 
 ### `install` and `collect`
 
