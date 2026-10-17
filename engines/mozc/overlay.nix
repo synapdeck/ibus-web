@@ -89,6 +89,10 @@ in
                       "--repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1"
                       "--repo_env=LIBTOOL=${final.pkgsBuildBuild.cctools.libtool}/bin/libtool"
                       "--host_features=-layering_check"
+                      # zlib 1.2.13 defines fdopen() away wherever TARGET_OS_MAC
+                      # is defined, unless fdopen is a macro already, which
+                      # breaks the SDK's stdio.h.
+                      "--host_copt=-Dfdopen=fdopen"
                     ];
 
                     bazelTargets = [
