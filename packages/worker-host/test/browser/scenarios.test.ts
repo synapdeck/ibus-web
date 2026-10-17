@@ -47,6 +47,7 @@ import { storageWorker } from "./storage-worker.ts";
 import {
   blockedDeletion,
   dataReadOnly,
+  droppedArchiveRefetched,
   failedInstallReleasesLocks,
   installConcurrent,
   installedInMemory,
@@ -274,6 +275,7 @@ describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => 
   test("interrupted-upgrade-then-old", () => interruptedUpgradeThenOld(h, runtime));
   test("stale-file", () => staleFile(h, runtime));
   test("failed-start-releases-locks", () => failedInstallReleasesLocks(h, runtime));
+  test("dropped-archive-refetched", () => droppedArchiveRefetched(h, runtime));
   test("data-read-only", () => dataReadOnly(h, runtime));
   test("a deletion blocked past the delete limit fails the start and lets go of every lock", () =>
     blockedDeletion(h, runtime));

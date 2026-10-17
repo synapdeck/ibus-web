@@ -5,7 +5,7 @@
 // each entry through the runtime's file system as its bytes arrive, so
 // neither a whole archive nor a whole file is ever held.
 
-import { errorMessage, type ModuleManifest } from "@ibus-web/protocol";
+import { errorMessage, errorSummary, type ModuleManifest } from "@ibus-web/protocol";
 import { createTarDecoder, type TarHeader } from "modern-tar";
 import { decompressed, type BrotliDecoder } from "./decompress.ts";
 import { entryWriter, type Written } from "./writer.ts";
@@ -55,13 +55,31 @@ export interface ExtractHooks extends Partial<Pick<ArchiveHooks, "beforePiece" |
 // A store path's archive, as the manifest lists it.
 export type DataEntry = ModuleManifest["data"][number];
 
+// An archive whose connection fails is fetched again, this many times in
+// all, the wait before each try doubling from the first.
+const ARCHIVE_TRIES = 3;
+const RETRY_WAIT_MS = 500;
+
+// The error's message and those of the errors it names as its cause: a
+// failed fetch says only "fetch failed" or "terminated", its cause what the
+// connection did.
+export const withCauses = (error: unknown): string => {
+  let message = errorMessage(error);
+  let cause = (error as { cause?: unknown } | null)?.cause;
+  for (let depth = 0; cause !== undefined && depth < 4; depth++) {
+    message += `, caused by ${errorSummary(cause)}`;
+    cause = (cause as { cause?: unknown } | null)?.cause;
+  }
+  return message;
+};
+
 // Work outside the runtime, fetching and reading, or the host's own storage
 // and locks, leaves it fit to call.
 export const outside = async <T>(what: string, promise: Promise<T>): Promise<T> => {
   try {
     return await promise;
   } catch (error) {
-    throw new RuntimeRefused(`${what}: ${errorMessage(error)}`);
+    throw new RuntimeRefused(`${what}: ${withCauses(error)}`);
   }
 };
 
@@ -149,7 +167,7 @@ export const extract = async (
     try {
       return await promise;
     } catch (error) {
-      throw new RuntimeRefused(errorMessage(error));
+      throw new RuntimeRefused(withCauses(error));
     }
   };
   let done = false;
@@ -216,10 +234,26 @@ export const extract = async (
   }
 };
 
+// The body, its failure going through failed(), which rethrows it: the
+// decoder reading the body gives that failure as its own.
+const watched = (body: ReadableStream<Uint8Array>, failed: (error: unknown) => never): ReadableStream<Uint8Array> => {
+  const reader = body.getReader();
+  return new ReadableStream({
+    async pull(controller) {
+      const next = await reader.read().catch(failed);
+      if (next.done) controller.close();
+      else controller.enqueue(next.value);
+    },
+    cancel: (reason) => reader.cancel(reason),
+  });
+};
+
 // Fetches the archive at url, from the page's preloads of the engine's
 // version first, and extracts it into dir, the store's root, where its
 // entries must all lie under storeName, writing them under placedAs; its
-// regular files must hold exactly expectedBytes.
+// regular files must hold exactly expectedBytes. An archive whose fetch or
+// body fails, short of going idle, is fetched and extracted again over what
+// it wrote, which every entry it has replaces.
 const installArchive = async (
   handle: RuntimeHandle,
   engine: ModuleManifest,
@@ -232,41 +266,58 @@ const installArchive = async (
   tally: Tally,
   hooks: ArchiveHooks,
 ): Promise<void> => {
-  const idle = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const arrived = (): void => {
-    clearTimeout(timer);
-    timer = setTimeout(() => idle.abort(new Error(`nothing arrived for ${hooks.idleMs} ms`)), hooks.idleMs);
-  };
-  try {
-    arrived();
-    hooks.fetching?.(url);
-    const response = await outside(`fetch ${url}`, fetchPreloaded(url, engine, { signal: idle.signal }));
-    if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
-    const source = decompressed(response.body, encoding, hooks.forceBrotliFallback, hooks.brotliDecoder);
-    await quieted(hooks.quiet);
-    makeDirs(handle, dir);
-    const { files, bytes } = await extract(
-      handle,
-      source,
-      `install ${url}`,
-      dir,
-      storeName,
-      expectedBytes,
-      tally,
-      {
-        ...hooks,
-        arrived,
-        holding: () => clearTimeout(timer),
-      },
-      placedAs,
-    );
-    if (bytes !== expectedBytes)
-      throw new RuntimeRefused(`install ${url} size: expected ${expectedBytes} regular-file bytes, got ${bytes}`);
-    tally.files += files;
-    tally.bytes += bytes;
-  } finally {
-    clearTimeout(timer);
+  const fed = tally.fed;
+  for (let tries = 1, wait = RETRY_WAIT_MS; ; tries++, wait *= 2) {
+    const idle = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arrived = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(() => idle.abort(new Error(`nothing arrived for ${hooks.idleMs} ms`)), hooks.idleMs);
+    };
+    let lost = false;
+    const losing = (error: unknown): never => {
+      lost = true;
+      throw error;
+    };
+    try {
+      arrived();
+      hooks.fetching?.(url);
+      const response = await outside(
+        `fetch ${url}`,
+        fetchPreloaded(url, engine, { signal: idle.signal }).catch(losing),
+      );
+      if (!response.ok || response.body === null) throw new RuntimeRefused(`fetch ${url}: ${response.status}`);
+      const body = watched(response.body, losing);
+      const source = decompressed(body, encoding, hooks.forceBrotliFallback, hooks.brotliDecoder);
+      await quieted(hooks.quiet);
+      makeDirs(handle, dir);
+      const { files, bytes } = await extract(
+        handle,
+        source,
+        `install ${url}`,
+        dir,
+        storeName,
+        expectedBytes,
+        tally,
+        {
+          ...hooks,
+          arrived,
+          holding: () => clearTimeout(timer),
+        },
+        placedAs,
+      );
+      if (bytes !== expectedBytes)
+        throw new RuntimeRefused(`install ${url} size: expected ${expectedBytes} regular-file bytes, got ${bytes}`);
+      tally.files += files;
+      tally.bytes += bytes;
+      return;
+    } catch (error) {
+      if (!lost || idle.signal.aborted || tries === ARCHIVE_TRIES || !(error instanceof RuntimeRefused)) throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+    tally.fed = fed;
+    await new Promise((resolve) => setTimeout(resolve, wait));
   }
 };
 

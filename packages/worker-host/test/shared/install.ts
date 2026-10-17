@@ -424,6 +424,25 @@ export const failedInstallReleasesLocks = (h: Harness, runtime: RuntimeBuild): P
       );
   });
 
+// An archive whose connection drops halfway through is fetched again, once,
+// and installs whole over what the first try wrote.
+export const droppedArchiveRefetched = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
+  withHosts(h, runtime, async (launch) => {
+    const engine = engineFor(h, "dropped-archive-refetched", runtime);
+    const url = `${h.data.archives.tree.url}?drop=${encodeURIComponent(engine.name)}`;
+    const dropping: ModuleManifest = {
+      ...engine,
+      data: engine.data.map((data) => (data.url === h.data.archives.tree.url ? { ...data, url } : data)),
+    };
+    const host = await launch(dropping).ready;
+    expect(
+      host.messages.filter((message) => message.type === "fetching" && message.url === url),
+      "the archive's fetches",
+    ).toHaveLength(2);
+    expectInstall(h, host.messages, "installed", h.data.archives.tree);
+    await expectTree(h, host.client, engine, h.data.archives.tree);
+  });
+
 // With IndexedDB, a file written under the engine's data directory fails
 // with EROFS, on the host that installed the data and on one that found it
 // present, and the tree stays the archive's. The Node backend has no

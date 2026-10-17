@@ -44,6 +44,7 @@ import {
 } from "../shared/storage.ts";
 import {
   dataReadOnly,
+  droppedArchiveRefetched,
   failedInstallReleasesLocks,
   installedInMemory,
   installFresh,
@@ -257,6 +258,7 @@ describe.each(h.data.runtimes)("engine data on the $name runtime", (runtime) => 
   test("interrupted-upgrade-then-old", () => interruptedUpgradeThenOld(h, runtime));
   test("stale-file", () => staleFile(h, runtime));
   test("failed-start-releases-locks", () => failedInstallReleasesLocks(h, runtime));
+  test("dropped-archive-refetched", () => droppedArchiveRefetched(h, runtime));
   test("data-read-only", () => dataReadOnly(h, runtime));
   test("a stray marking of its own version is installed over, and another version's collected", () =>
     strayMarking(h, runtime));

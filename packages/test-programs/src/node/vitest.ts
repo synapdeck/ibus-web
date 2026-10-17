@@ -6,7 +6,7 @@
 // on disk, and Playwright's browsers as Nix provides them.
 
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, resolve as resolvePath, sep } from "node:path";
 import process from "node:process";
@@ -36,8 +36,11 @@ export type Handler = (request: IncomingMessage, response: ServerResponse, next:
 
 // Serves each directory under prefix + its name, as it is on disk: Vite
 // would rewrite module scripts. A request under the prefix that names no
-// file of a known type is a 404; any other goes to next().
+// file of a known type is a 404; any other goes to next(). The first
+// request whose query has drop=<token> for each token gets half the file
+// and then its connection closed, as a network that drops it would.
 export const serveDirs = (prefix: string, dirs: Readonly<Record<string, string>>): Handler => {
+  const dropped = new Set<string>();
   const resolve = (pathname: string): string | undefined => {
     const [name, ...rest] = pathname.slice(prefix.length).split("/");
     const dir = dirs[name ?? ""];
@@ -52,8 +55,11 @@ export const serveDirs = (prefix: string, dirs: Readonly<Record<string, string>>
   };
   return (request, response, next) => {
     let pathname: string;
+    let drop: string | null;
     try {
-      pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
+      const url = new URL(request.url ?? "/", "http://localhost");
+      pathname = decodeURIComponent(url.pathname);
+      drop = url.searchParams.get("drop");
     } catch {
       return next();
     }
@@ -71,6 +77,13 @@ export const serveDirs = (prefix: string, dirs: Readonly<Record<string, string>>
           "Cache-Control": "no-store",
         });
         if (request.method === "HEAD") response.end();
+        else if (drop !== null && !dropped.has(drop)) {
+          dropped.add(drop);
+          readFile(file).then(
+            (bytes) => response.write(bytes.subarray(0, bytes.length >> 1), () => response.destroy()),
+            () => response.destroy(),
+          );
+        }
         // The status is out by now, so a read that fails can only cut the
         // response short, which pipeline() does by destroying it.
         else pipeline(createReadStream(file), response, () => {});
