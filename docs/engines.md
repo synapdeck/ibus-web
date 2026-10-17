@@ -72,7 +72,7 @@ type ModuleManifest = {
   module: { url: string; size: number };
   memory: number;
   threads: number;
-  data: { storePath: string; url: string; size: number; encoding: "br" | "identity" }[];
+  data: { storePath: string; url: string; size: number; files: number; encoding: "br" | "identity" }[];
   settingsSchemaDir: string;
   engines: EngineDescriptor[];
   settingsSchemas: string[];
@@ -87,6 +87,10 @@ type EngineDescriptor = {
   data?: string[]; // store paths of `data` this engine alone needs
 };
 ```
+
+An archive's `size` is the bytes of file data it installs, and `files` its entries, the store path's own directory,
+every directory, file and link under it, each of which WasmFS's memory backend keeps an object for where the data is
+installed in memory ([storage.md](storage.md#without-indexeddb-the-memory-fallback)).
 
 `settings.json` comes from the compiled schema directory via pinned GLib running under WebAssembly, then the strict
 TypeScript GVariant decoder. It records each listed schema's paths (a fixed schema's own path; a relocatable schema's

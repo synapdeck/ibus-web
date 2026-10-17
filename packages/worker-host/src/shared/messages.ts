@@ -11,20 +11,25 @@ export interface RuntimeMemory {
   maximum: number;
 }
 
-// The engine's data's size, unpacked.
+// The engine's data's size, unpacked, and its entries' count.
 const engineDataBytes = ({ data }: Pick<ModuleManifest, "data">): number =>
   data.reduce((sum, { size }) => sum + size, 0);
+const engineDataEntries = ({ data }: Pick<ModuleManifest, "data">): number =>
+  data.reduce((sum, { files }) => sum + files, 0);
 
 // The page size of WebAssembly memory, in bytes.
 export const WASM_PAGE = 65536;
 
 // The runtime's memory, initial and maximum, when the engine's data sits in
-// it: the data's size more, in whole pages.
+// it: the data's size more, and fileBytes for each of its entries, which
+// WasmFS's memory backend keeps a file object and a directory entry for, in
+// whole pages.
 export const memoryWithData = (
   { initial, maximum }: { initial: number; maximum: number },
   engine: Pick<ModuleManifest, "data">,
+  fileBytes: number,
 ): { initial: number; maximum: number } => {
-  const data = Math.ceil(engineDataBytes(engine) / WASM_PAGE) * WASM_PAGE;
+  const data = Math.ceil((engineDataBytes(engine) + engineDataEntries(engine) * fileBytes) / WASM_PAGE) * WASM_PAGE;
   return { initial: initial + data, maximum: maximum + data };
 };
 
@@ -59,6 +64,9 @@ export interface RuntimeConstants {
   // The least and the most memory the runtime's memory import admits, in
   // bytes.
   memory: { minimum: number; maximum: number };
+  // What WasmFS's memory backend takes for each file, directory or link
+  // beside a file's data, at most.
+  memoryFileBytes: number;
   fs: FsConstants;
 }
 

@@ -253,7 +253,9 @@ export const installInterruptedStray = (h: Harness, runtime: RuntimeBuild): Prom
     const { upgrade } = h.data.archives;
     const stray: ModuleManifest = {
       ...engine,
-      data: engine.data.map((data, i) => (i === 0 ? { ...data, url: upgrade.url, size: upgrade.size } : data)),
+      data: engine.data.map((data, i) =>
+        i === 0 ? { ...data, url: upgrade.url, size: upgrade.size, files: upgrade.files } : data,
+      ),
     };
     const first = await stalledHost(h, launch, stray, upgrade);
     await first.terminate();

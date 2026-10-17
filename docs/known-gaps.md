@@ -174,9 +174,6 @@ decided.
 - **Node.** The Node backend has no read-only mode, so a read-only mount and a seal are conventions there; Web Locks
   don't coordinate separate Node processes sharing a directory; and the Node marker's directory sync swallows every
   error, `EIO` included.
-- **The memory fallback's headroom for metadata.** Without IndexedDB the memory grows by the page-rounded data size,
-  which covers file contents only; WasmFS's file objects and directory entries come out of the base memory's spare,
-  which a manifest of many small files could exhaust.
 - **The install window is weaker than the seal.** While a host installs an engine's own data, its data backend takes
   changes from any thread of its runtime, an engine's included. None writes there, and the window lasts as long as
   extractions overlap.

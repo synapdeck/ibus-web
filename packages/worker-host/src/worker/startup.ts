@@ -72,6 +72,7 @@ const runtimeConstants = Schema.Struct({
   waitTimedOut: integer,
   idbReadOnly: count,
   memory: Schema.Struct({ minimum: memoryBytes, maximum: memoryBytes }),
+  memoryFileBytes: count,
   fs: Schema.Struct({
     errno: Schema.Struct({
       EEXIST: count,

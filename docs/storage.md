@@ -342,10 +342,10 @@ to four times it in Firefox (15 µs). At 64 KiB IndexedDB cost 157–300 µs aga
 ## Engine data: a database per version
 
 Read-only engine data (m17n-db, Hangul's Hanja tables, Rime's prebuilt schemas) is listed in the engine manifest as
-archives (`storePath`, `url`, unpacked `size`, `encoding`), fetched, installed once per version and read lazily like any
-other file. The archives an engine's descriptor names in its `data` are that engine's own, installed when a page first
-prepares the engine ([below](#an-engines-own-data)); the rest are the version's base data, installed at start. The
-protocol lives in `packages/worker-host/src/worker/install/`.
+archives (`storePath`, `url`, unpacked `size`, entry count `files`, `encoding`), fetched, installed once per version and
+read lazily like any other file. The archives an engine's descriptor names in its `data` are that engine's own,
+installed when a page first prepares the engine ([below](#an-engines-own-data)); the rest are the version's base data,
+installed at start. The protocol lives in `packages/worker-host/src/worker/install/`.
 
 ### Names and locks
 
@@ -581,14 +581,17 @@ session ends.
 The runtime's memory is fixed once made ([runtime.md](runtime.md)), so the host probes IndexedDB before making it: it
 opens the module's database without creating it and closes it at once. If that fails, the module's directory is WasmFS's
 memory backend, and the host makes the runtime's memory, and its maximum, larger than the manifest's `memory` by the
-data's size: the sum of the manifest's data sizes (unpacked bytes), rounded up to whole 64 KiB pages. That covers the
-files' contents, since the installer sizes each file before writing it, so the memory backend allocates each file once
-at its size; per-file metadata (WasmFS's file objects and directory entries) comes out of the spare in the manifest's
-base memory. A memory this takes past the runtime's maximum fails the memory check, a load failure. The data is
-installed at every start, with no lock, and the host posts `storage: ephemeral` with the reason IndexedDB couldn't be
-opened; user data lasts only as long as the Worker. A backend that fails to open after the probe succeeded is a load
-failure, not this fallback: the memory has been made by then. The memory and Node backends run on the calling thread and
-take no pool thread.
+data's size: the sum of the manifest's data sizes (unpacked bytes) and an allowance for each of its entries, its
+archives' `files`, rounded up to whole 64 KiB pages. The sizes cover the files' contents, since the installer sizes each
+file before writing it, so the memory backend allocates each file once at its size; the allowance, `memoryFileBytes`
+(512 bytes) in the runtime's `constants.json`, covers what the backend keeps for each directory, file and link beside
+its data, its file object and its directory entry. An install of 451 entries, 25 directories of 16 one-byte files and a
+link each, took 180 bytes an entry beyond the data on both runtime builds, which the installer's tests hold to the
+allowance. A memory this takes past the runtime's maximum fails the memory check, a load failure. The data is installed
+at every start, with no lock, and the host posts `storage: ephemeral` with the reason IndexedDB couldn't be opened; user
+data lasts only as long as the Worker. A backend that fails to open after the probe succeeded is a load failure, not
+this fallback: the memory has been made by then. The memory and Node backends run on the calling thread and take no pool
+thread.
 
 ## Node hosts
 

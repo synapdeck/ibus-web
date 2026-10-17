@@ -77,6 +77,7 @@ import {
   installSymlinks,
   installTarget,
   installThroughLinks,
+  installPerEntry,
   installWhole,
 } from "../shared/installer.ts";
 import {
@@ -228,6 +229,7 @@ describe.each(h.data.runtimes)("the installer on the $name runtime", (runtime) =
   test("never through a link", () => installThroughLinks(h, host));
   test("its directory", () => installTarget(h, host));
   test("a large file in its own size", () => installLargeFile(h, host));
+  test("each entry within the memory fallback's allowance", () => installPerEntry(h, host));
   test("FS calls failing", () => fsFailures(h, host));
 });
 

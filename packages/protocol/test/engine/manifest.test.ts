@@ -21,7 +21,7 @@ const valid = {
   module: { url: "./hangul.wasm", size: 1024 },
   memory: bounds.minimum,
   threads: 0,
-  data: [{ storePath, url: "./data/hangul.tar.br", size: 4096, encoding: "br" }],
+  data: [{ storePath, url: "./data/hangul.tar.br", size: 4096, files: 1, encoding: "br" }],
   settingsSchemaDir: `${storePath}/share/glib-2.0/schemas`,
   engines: [engine],
   settingsSchemas: ["org.freedesktop.ibus.engine.hangul"],
@@ -52,6 +52,12 @@ describe("module manifests", () => {
   test("requires the version", () => {
     const { version: _, ...missing } = valid;
     expect(() => decodeModuleManifest(missing, bounds)).toThrow();
+  });
+  test("requires each archive's entry count", () => {
+    const { files: _, ...missing } = valid.data[0]!;
+    expect(() => decodeModuleManifest({ ...valid, data: [missing] }, bounds)).toThrow();
+    for (const files of [-1, 1.5])
+      expect(() => decodeModuleManifest({ ...valid, data: [{ ...valid.data[0], files }] }, bounds)).toThrow();
   });
   test.each([undefined, "gzip"])("rejects encoding %s", (encoding) => {
     expect(() => decodeModuleManifest({ ...valid, data: [{ ...valid.data[0], encoding }] }, bounds)).toThrow();
@@ -132,7 +138,10 @@ describe("an engine's own data", () => {
   const dictionary = "/nix/store/1123456789abcdfghijklmnpqrsvwxyz-dictionary";
   const withDictionary = {
     ...valid,
-    data: [...valid.data, { storePath: dictionary, url: "./data/dictionary.tar.br", size: 8192, encoding: "br" }],
+    data: [
+      ...valid.data,
+      { storePath: dictionary, url: "./data/dictionary.tar.br", size: 8192, files: 1, encoding: "br" },
+    ],
     engines: [
       { ...engine, data: [dictionary] },
       { ...engine, name: "romaja" },

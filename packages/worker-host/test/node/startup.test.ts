@@ -12,6 +12,7 @@ const constants = {
   runtimeIdentity: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   protocol: 1,
   memory: { minimum: 65536, maximum: 131072 },
+  memoryFileBytes: 512,
   pumpError: -1,
   waitTimedOut: -2,
   idbReadOnly: 1,
@@ -32,7 +33,7 @@ const manifest = {
   memory: 65536,
   threads: 0,
   module: { url: "https://example.test/test.wasm", size: 1 },
-  data: [{ storePath: root, url: "https://example.test/schemas.tar", size: 0, encoding: "identity" }],
+  data: [{ storePath: root, url: "https://example.test/schemas.tar", size: 0, files: 1, encoding: "identity" }],
   settingsSchemaDir: `${root}/schemas`,
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: [],
@@ -115,7 +116,14 @@ describe("runtime constants startup", () => {
       await expect(readRuntimeConstants(runtimeUrl)).rejects.toThrow(/constants\.json/);
       await directory.writeFile(`${path}/constants.json`, "{");
       await expect(readRuntimeConstants(runtimeUrl)).rejects.toThrow(/constants\.json/);
-      for (const value of [{}, { ...shipped, poolLowWater: -1 }, { ...shipped, canceled: "errno" }]) {
+      const { memoryFileBytes: _, ...withoutFileBytes } = shipped;
+      for (const value of [
+        {},
+        { ...shipped, poolLowWater: -1 },
+        { ...shipped, canceled: "errno" },
+        withoutFileBytes,
+        { ...shipped, memoryFileBytes: -1 },
+      ]) {
         await directory.writeFile(`${path}/constants.json`, JSON.stringify(value));
         await expect(readRuntimeConstants(runtimeUrl)).rejects.toThrow(/constants\.json/);
       }

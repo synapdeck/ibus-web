@@ -262,6 +262,7 @@ test("released and asserting distributions ship the generated runtime constants"
     "fs",
     "idbReadOnly",
     "memory",
+    "memoryFileBytes",
     "poolLowWater",
     "protocol",
     "pumpError",

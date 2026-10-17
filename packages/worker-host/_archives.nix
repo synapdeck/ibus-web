@@ -8,7 +8,8 @@
 # tree.tar holds a tree of nested directories and files spanning several
 # storage chunks under dataName, and tree-upgrade.tar the next version's
 # tree; tree.json describes each, its version (from its bytes), its unpacked
-# size in bytes and its listing, one `PATH<TAB>d` or `PATH<TAB>f SIZE
+# size in bytes, its entries' count, the store path's own included, and its
+# listing, one `PATH<TAB>d` or `PATH<TAB>f SIZE
 # SHA256` line per entry relative to the store path, sorted bytewise, with
 # tree-upgrade.tar's under `upgrade`. lazy.tar and lazy2.tar are tree.tar
 # under each of lazyNames' store paths, which the tests make engines' own
@@ -58,12 +59,13 @@ runCommand "ibus-web-worker-host-archives"
 
     # Describes the archive $1 of the tree $2, whose listing is $3, as JSON.
     describe() {
-      local archive=$1 tree=$2 listing=$3 size version
+      local archive=$1 tree=$2 listing=$3 size files version
       size=$(find "$tree" -type f -printf '%s\n' | awk '{ sum += $1 } END { print sum + 0 }')
+      files=$(find "$tree" | wc -l)
       version=$(sha256sum "$out/$archive" | cut -c1-16)
-      jq -n --arg archive "$archive" --arg version "$version" --argjson size "$size" \
+      jq -n --arg archive "$archive" --arg version "$version" --argjson size "$size" --argjson files "$files" \
         --rawfile listing "$out/$listing" \
-        '{ $archive, $version, $size, $listing }'
+        '{ $archive, $version, $size, $files, $listing }'
     }
 
     python3 ${./test/archives/make-tree.py} tree $out

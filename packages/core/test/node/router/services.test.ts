@@ -22,7 +22,7 @@ const manifest: ModuleManifest = {
   module: { url: "engine.so", size: 1 },
   memory: 65536,
   threads: 0,
-  data: [{ storePath: dataPath, url: "data.tar", size: 0, encoding: "identity" }],
+  data: [{ storePath: dataPath, url: "data.tar", size: 0, files: 1, encoding: "identity" }],
   settingsSchemaDir: `${dataPath}/schemas`,
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: ["settings"],
@@ -762,7 +762,7 @@ it.effect(
       const lazyPath = `/nix/store/${"b".repeat(32)}-lazy`;
       const lazy: ModuleManifest = {
         ...manifest,
-        data: [...manifest.data, { storePath: lazyPath, url: "lazy.tar", size: 10, encoding: "identity" }],
+        data: [...manifest.data, { storePath: lazyPath, url: "lazy.tar", size: 10, files: 1, encoding: "identity" }],
         engines: [...manifest.engines, { ...manifest.engines[0]!, name: "lazy", data: [lazyPath] }],
       };
       const started: FakeConnection[] = [];

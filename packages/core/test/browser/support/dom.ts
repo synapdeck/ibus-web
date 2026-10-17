@@ -42,8 +42,8 @@ const manifest: ModuleManifest = {
   memory: 65536,
   threads: 0,
   data: [
-    { storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" },
-    { storePath: `/nix/store/${"b".repeat(32)}-lazy`, url: "lazy.tar", size: 0, encoding: "identity" },
+    { storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, files: 1, encoding: "identity" },
+    { storePath: `/nix/store/${"b".repeat(32)}-lazy`, url: "lazy.tar", size: 0, files: 1, encoding: "identity" },
   ],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
   // The second engine passes `a` through, so a test can tell whose keyboard policy applies; the third has data of

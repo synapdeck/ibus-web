@@ -67,6 +67,14 @@
       # numbers unless linked for more.
       maximumMemory = 2048 * 1024 * 1024;
 
+      # What WasmFS's memory backend takes for each directory, file or link
+      # beyond a file's data, which a host without IndexedDB adds to the
+      # runtime's memory for each entry of its engine's data. Installing 451
+      # entries, 25 directories of 16 one-byte files and a link each, took
+      # 180 bytes an entry beyond the data on both runtime builds; this
+      # leaves room for an entry dearer than that mix.
+      memoryFileBytes = 512;
+
       linkFlags = lib.concatStringsSep " " [
         toolchain.runtimeMainFlags
 
@@ -180,8 +188,9 @@
           $CXX ${toolchain.testMainFlags} constants.o -o constants.js
           node constants.js | jq -c --argjson minimum ${toString minimumMemory} \
             --argjson maximum ${toString maximumMemory} --argjson poolLowWater ${toString lowWater} \
+            --argjson memoryFileBytes ${toString memoryFileBytes} \
             --arg runtimeIdentity "$(jq -r .identity ${exportList}/exports.json)" \
-            '. + { memory: { $minimum, $maximum }, $poolLowWater, $runtimeIdentity }' > constants.json
+            '. + { memory: { $minimum, $maximum }, $memoryFileBytes, $poolLowWater, $runtimeIdentity }' > constants.json
           runHook postBuild
         '';
 

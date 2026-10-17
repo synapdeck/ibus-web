@@ -48,6 +48,7 @@ export interface TestArchive {
   archive: string;
   version: string;
   size: number;
+  files: number;
   listing: string;
   url: string;
 }

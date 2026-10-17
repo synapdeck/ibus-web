@@ -106,5 +106,10 @@ export const planStorage = async (
 
 // Both the browser fallback and the default filesystem used without user
 // storage keep the engine's data in runtime memory.
-export const memoryFor = (memory: RuntimeMemory, plan: StoragePlan, engine: ModuleManifest): RuntimeMemory =>
-  plan.mount === "memory" || plan.mount === "none" ? memoryWithData(memory, engine) : memory;
+export const memoryFor = (
+  memory: RuntimeMemory,
+  plan: StoragePlan,
+  engine: ModuleManifest,
+  fileBytes: number,
+): RuntimeMemory =>
+  plan.mount === "memory" || plan.mount === "none" ? memoryWithData(memory, engine, fileBytes) : memory;

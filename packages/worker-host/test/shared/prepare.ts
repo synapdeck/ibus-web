@@ -43,8 +43,8 @@ export const lazyEngineFor = (h: Harness, scenario: string, runtime: RuntimeBuil
     version: lazy.version,
     data: [
       ...empty.data,
-      { storePath: LAZY_PATH, url: lazy.url, size: lazy.size, encoding: "identity" },
-      { storePath: LAZY2_PATH, url: lazy2.url, size: lazy2.size, encoding: "identity" },
+      { storePath: LAZY_PATH, url: lazy.url, size: lazy.size, files: lazy.files, encoding: "identity" },
+      { storePath: LAZY2_PATH, url: lazy2.url, size: lazy2.size, files: lazy2.files, encoding: "identity" },
     ],
     engines: [
       ...empty.engines,

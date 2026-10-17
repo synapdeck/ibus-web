@@ -8,7 +8,7 @@
 import { expect } from "vitest";
 import type { Client } from "./client.ts";
 import type { Harness, RunningHost } from "./harness.ts";
-import { opsOf } from "./scenarios.ts";
+import { opsOf, stats } from "./scenarios.ts";
 import { counts } from "./install.ts";
 import { replyFile } from "./storage.ts";
 import type { Member } from "./tar.ts";
@@ -479,6 +479,43 @@ export const installLargeFile = async (h: Harness, host: RunningHost): Promise<v
   const path = `${dir}/${BASE}/large.bin`;
   expect((await one(host.client, { op: "pattern", path })).value).toEqual({ size });
   expect(await one(host.client, { op: "unlink", path })).toEqual({});
+};
+
+// WasmFS's memory backend keeps a file object and a directory entry for each
+// directory, file and link it holds, beside a file's data, which the memory
+// fallback allows memoryFileBytes for: an install of many small entries
+// takes no more than that each beyond the data.
+export const installPerEntry = async (h: Harness, host: RunningHost): Promise<void> => {
+  // As many as the request slot carries as JSON.
+  const dirs = 25;
+  const filesEach = 16;
+  const list: Member[] = [{ name: `${BASE}/`, type: "5", mode: 0o755 }];
+  for (let d = 0; d < dirs; d++) {
+    list.push({ name: `${BASE}/d${d}/`, type: "5", mode: 0o755 });
+    for (let f = 0; f < filesEach; f++) list.push(file(`d${d}/f${f}`, "x"));
+    list.push({ name: `${BASE}/d${d}/link`, type: "2", linkname: "f0" });
+  }
+  const entries = list.length;
+  const bytes = dirs * filesEach;
+
+  const dir = await freshDir(host.client);
+  const before = (await stats(host.client)).heapInUse;
+  expect(await install(host.client, { dir, storeName: BASE, archive: members(...list) })).toEqual({
+    ok: true,
+    files: bytes,
+    bytes,
+  });
+  const after = (await stats(host.client)).heapInUse;
+  const each = (after - before - bytes) / entries;
+  h.record("install per entry", {
+    entries,
+    bytes,
+    heapInUse: after - before,
+    each,
+    allowed: h.data.constants.memoryFileBytes,
+  });
+  expect(each).toBeGreaterThan(0);
+  expect(each).toBeLessThanOrEqual(h.data.constants.memoryFileBytes);
 };
 
 // Each FS call the installer makes, made to fail: WasmFS's JavaScript layer

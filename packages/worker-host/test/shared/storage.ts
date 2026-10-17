@@ -46,11 +46,11 @@ export const DATA_PATH = "/nix/store/00000000000000000000000000000000-test-data"
 
 // The engine with the archive as its data, and the archive's version as its
 // own.
-export const withData = (engine: ModuleManifest, { version, url, size }: TestArchive): ModuleManifest => ({
+export const withData = (engine: ModuleManifest, { version, url, size, files }: TestArchive): ModuleManifest => ({
   ...engine,
   version,
   data: [
-    { url, storePath: DATA_PATH, size, encoding: "identity" },
+    { url, storePath: DATA_PATH, size, files, encoding: "identity" },
     ...engine.data.filter((entry) => entry.storePath !== DATA_PATH),
   ],
 });
@@ -150,7 +150,7 @@ export const storageFallback = async (
   h.record("storage-fallback", { mount: at.mount, memoryBytes: at.memoryBytes, events });
   expect(at.mount, "mount").toBe("memory");
   expect(at.memoryBytes, "the runtime's memory").toBe(
-    memoryWithData({ initial: memoryBytes, maximum: memoryBytes }, engine).initial,
+    memoryWithData({ initial: memoryBytes, maximum: memoryBytes }, engine, h.data.constants.memoryFileBytes).initial,
   );
   expect(at.idleWorkers, "idle Workers").toBe(h.data.pool.size);
   expect(events, "storage events").toEqual([{ state: "ephemeral", message: expect.any(String) }]);

@@ -59,7 +59,7 @@ const manifest: ModuleManifest = {
   module: { url: "engine.so", size: 1 },
   memory: 65536,
   threads: 0,
-  data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
+  data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, files: 1, encoding: "identity" }],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: ["test.settings", "test.relocatable"],

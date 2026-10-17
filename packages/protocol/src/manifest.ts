@@ -45,6 +45,9 @@ export const ModuleManifest = Schema.Struct({
       storePath,
       url: nonEmpty,
       size: count,
+      // The entries the archive installs: its directories, files and links, each of which takes memory of its own
+      // beside its data where the data is installed in memory.
+      files: count,
       encoding: Schema.Literals(["br", "identity"]),
     }),
   ),

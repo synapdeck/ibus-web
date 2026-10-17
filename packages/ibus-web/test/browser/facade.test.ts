@@ -45,7 +45,7 @@ const manifest = {
   module: { url: "engine.so", size: 1 },
   memory: 65536,
   threads: 0,
-  data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, encoding: "identity" }],
+  data: [{ storePath: `/nix/store/${"a".repeat(32)}-test`, url: "data.tar", size: 0, files: 1, encoding: "identity" }],
   settingsSchemaDir: `/nix/store/${"a".repeat(32)}-test/schemas`,
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: [],
@@ -670,7 +670,7 @@ test("prepare installs an engine's own data ahead of selection, reporting instal
   vi.mocked(fetch).mockImplementation(async () =>
     Response.json({
       ...manifest,
-      data: [...manifest.data, { storePath: lazyPath, url: "lazy.tar", size: 10, encoding: "identity" }],
+      data: [...manifest.data, { storePath: lazyPath, url: "lazy.tar", size: 10, files: 1, encoding: "identity" }],
       engines: [
         ...manifest.engines,
         { ...manifest.engines[0], name: "lazy", data: [lazyPath] },

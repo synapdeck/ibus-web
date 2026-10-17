@@ -63,7 +63,12 @@ export const storagePlanLayer: Layer.Layer<PlannedStorage, StartupFailed, HostWo
       held,
       manifest,
       module: module.buffer as ArrayBuffer,
-      memory: memoryFor({ initial: manifest.memory, maximum: manifest.memory }, plan, manifest),
+      memory: memoryFor(
+        { initial: manifest.memory, maximum: manifest.memory },
+        plan,
+        manifest,
+        constants.memoryFileBytes,
+      ),
     };
   }),
 );

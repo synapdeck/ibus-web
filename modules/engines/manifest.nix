@@ -90,9 +90,11 @@
               # The bytes the installer writes: every name of a hard-linked
               # file in full, and nothing for a link.
               size=$(find "$storePath" -type f -printf '%s\n' | awk '{ sum += $1 } END { print sum + 0 }')
+              # Every entry the installer makes, the store path's own included.
+              files=$(find "$storePath" | wc -l)
               brotli --quality=11 --output="$out/data/$file" data.tar
-              jq -nc --arg storePath "$storePath" --arg url "./data/$file" --argjson size "$size" \
-                '{ $storePath, $url, $size, encoding: "br" }' >> data.jsonl
+              jq -nc --arg storePath "$storePath" --arg url "./data/$file" --argjson size "$size" --argjson files "$files" \
+                '{ $storePath, $url, $size, $files, encoding: "br" }' >> data.jsonl
             done < ${closure}/store-paths
             mib=1048576
             # The module's static data is allocated in the heap as it loads,
