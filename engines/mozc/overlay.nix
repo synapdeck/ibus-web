@@ -78,7 +78,11 @@ in
                       # Emscripten's JavaScript, which a side module can't
                       # import; its standalone builds use neither.
                       "--per_file_copt=external/com_google_absl/absl/debugging/.*@-DSTANDALONE_WASM"
-                    ];
+                    ]
+                    # apple_support registers an Xcode toolchain for the build
+                    # machine's tools, which needs an SDK the sandbox doesn't
+                    # have; Bazel's own then configures one from $CC.
+                    ++ lib.optional final.stdenv.buildPlatform.isDarwin "--repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1";
 
                     bazelTargets = [
                       "//data_manager/oss:mozc_dataset_for_oss"
