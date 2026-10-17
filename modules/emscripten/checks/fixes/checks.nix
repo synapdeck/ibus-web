@@ -164,7 +164,7 @@
       # growth, at a size between its initial size and its maximum, for
       # output that a reader takes in more slowly than the program writes it,
       # for pipes on both file systems, for a NUL byte written to WasmFS's
-      # standard streams, and for unlink() on a directory under NODERAWFS.
+      # standard streams, and for unlink() on a directory on both Node file systems.
       checks.emscripten-fixes = testing.programs {
         name = "emscripten-fixes";
 
@@ -179,8 +179,14 @@
             linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
           })
           (program {
-            name = "noderawfs-unlink";
+            name = "unlink-directory-noderawfs";
+            sources = [ "unlink-directory.cpp" ];
             linkFlags = "-sASSERTIONS=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1";
+          })
+          (program {
+            name = "unlink-directory-wasmfs";
+            sources = [ "unlink-directory.cpp" ];
+            linkFlags = testing.nodeLinkFlags;
           })
           (program {
             name = "pipes-wasmfs";
