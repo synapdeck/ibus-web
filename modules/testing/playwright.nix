@@ -4,6 +4,12 @@
 { lib, flake-parts-lib, ... }:
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption {
+    options.ibusWeb.testing.browserChecks = lib.mkOption {
+      type = lib.types.lazyAttrsOf lib.types.package;
+      default = { };
+      description = "Checks that launch browsers, which become the flake's checks where playwright.inChecks.";
+    };
+
     options.ibusWeb.testing.playwright = {
       chromiumSandbox = lib.mkOption {
         type = lib.types.bool;
@@ -13,6 +19,15 @@
           to the harnesses. It needs unprivileged user namespaces, which the Nix build
           sandbox allows on Linux unless the builder forbids them; on such a builder, set it
           to false.
+        '';
+      };
+
+      inChecks = lib.mkOption {
+        type = lib.types.bool;
+        description = ''
+          Whether the flake's checks launch browsers. On Darwin, Chromium fails in a Nix
+          build there (an assertion in Playwright's connection to it), so they don't; CI's
+          macOS Playwright job and the Safari smoke suite cover the browsers there.
         '';
       };
 
@@ -41,7 +56,11 @@
       };
     in
     {
+      checks = lib.mkIf playwright.inChecks config.ibusWeb.testing.browserChecks;
+
       ibusWeb.testing.playwright = {
+        inChecks = !pkgs.stdenv.hostPlatform.isDarwin;
+
         env = {
           PLAYWRIGHT_BROWSERS_PATH = "${browsers}";
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";

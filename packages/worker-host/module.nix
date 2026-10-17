@@ -310,12 +310,13 @@
         };
       };
 
-      checks.worker-host-browser =
+      ibusWeb.testing.browserChecks.worker-host-browser = (
         check "worker-host-browser"
           [ "chromium" "firefox" ]
           [
             "test/browser/smoke.test.ts"
-          ];
+          ]
+      );
       packages.worker-host-node-integration = check "worker-host-node-integration" [ "node" ] [ ];
       packages.worker-host-browser-integration =
         check "worker-host-browser-integration"

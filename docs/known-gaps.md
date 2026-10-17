@@ -268,9 +268,11 @@ decided.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
 - **aarch64 and macOS haven't passed CI.** The workflows check aarch64-linux and aarch64-darwin on WarpBuild's runners,
-  and every check evaluates on all three systems, but only x86_64-linux has built them. The last aarch64-darwin run
-  failed `checks.ibus-runtime-exports-script` for a reason its log didn't show, and the macOS Playwright and Safari jobs
-  wait on the aarch64-darwin checks, so they haven't run.
+  and every check evaluates on all three systems, but only x86_64-linux has built them; the macOS Playwright and Safari
+  jobs wait on the aarch64-darwin checks, so they haven't run.
+- **Darwin's checks launch no browsers.** Chromium fails in a Nix build on Darwin, with an assertion in Playwright's
+  connection to it, for a reason not found, so `ibusWeb.testing.browserChecks` stay out of Darwin's checks. The browsers
+  there are left to CI's macOS Playwright job, itself a Nix build, and the Safari smoke suite.
 
 ## Upstream
 

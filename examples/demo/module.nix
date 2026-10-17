@@ -201,7 +201,7 @@
 
         devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) env;
 
-        checks.example-demo-smoke =
+        ibusWeb.testing.browserChecks.example-demo-smoke = (
           pkgs.runCommand "ibus-web-example-demo-smoke"
             (
               pageEnv
@@ -214,7 +214,8 @@
               ${enterExample}
               timeout --kill-after=10 90 node test/smoke.ts > "$out" 2>&1 || { cat "$out"; exit 1; }
               cat "$out"
-            '';
+            ''
+        );
       }
 
       (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {

@@ -90,80 +90,82 @@
       ]
       ++ testing.gtestCflagList;
 
-      checks.wasmfs-idb-browser = testing.programs {
-        name = "wasmfs-idb-browser";
-        environments = [
-          "chromium"
-          "firefox"
-        ];
-        programs = map program [
-          {
-            name = "basic.1";
-            backends = 2;
-          }
-          {
-            name = "basic.2";
-            backends = 1;
-          }
-          {
-            name = "open-unlinked";
-            backends = 3;
-          }
-          {
-            name = "lazy";
-            backends = 8;
-          }
-          {
-            name = "sizes";
-            backends = 6;
-          }
-          # A read-only backend beside one case's own.
-          {
-            name = "fsync";
-            backends = 6;
-          }
-          # Two backends for each of five cases, one for each of the other
-          # seven, and one more for each of the two that open a fresh
-          # database after one that fails to open, whose thread has ended by
-          # then.
-          {
-            name = "errors";
-            backends = 19;
-            postJs = [
-              ./tests/stderr-post.js
-              ./tests/errors-post.js
-            ];
-          }
-          {
-            name = "seal";
-            backends = 5;
-          }
-          # The fixture's backend and a reader beside it, for each of five
-          # cases.
-          {
-            name = "visibility";
-            backends = 10;
-          }
-          # The fixture's backend for each of seven cases, and a read-only
-          # one beside it in two.
-          {
-            name = "writable";
-            backends = 9;
-          }
-          {
-            name = "sweep.1";
-            backends = 1;
-          }
-          # One for the database sweep.1 left, one for each fresh case's,
-          # and the read-only backend, the writers whose sweeps fail and the
-          # writer after one.
-          {
-            name = "sweep.2";
-            backends = 9;
-            postJs = [ ./tests/stderr-post.js ];
-          }
-        ];
-      };
+      ibusWeb.testing.browserChecks.wasmfs-idb-browser = (
+        testing.programs {
+          name = "wasmfs-idb-browser";
+          environments = [
+            "chromium"
+            "firefox"
+          ];
+          programs = map program [
+            {
+              name = "basic.1";
+              backends = 2;
+            }
+            {
+              name = "basic.2";
+              backends = 1;
+            }
+            {
+              name = "open-unlinked";
+              backends = 3;
+            }
+            {
+              name = "lazy";
+              backends = 8;
+            }
+            {
+              name = "sizes";
+              backends = 6;
+            }
+            # A read-only backend beside one case's own.
+            {
+              name = "fsync";
+              backends = 6;
+            }
+            # Two backends for each of five cases, one for each of the other
+            # seven, and one more for each of the two that open a fresh
+            # database after one that fails to open, whose thread has ended by
+            # then.
+            {
+              name = "errors";
+              backends = 19;
+              postJs = [
+                ./tests/stderr-post.js
+                ./tests/errors-post.js
+              ];
+            }
+            {
+              name = "seal";
+              backends = 5;
+            }
+            # The fixture's backend and a reader beside it, for each of five
+            # cases.
+            {
+              name = "visibility";
+              backends = 10;
+            }
+            # The fixture's backend for each of seven cases, and a read-only
+            # one beside it in two.
+            {
+              name = "writable";
+              backends = 9;
+            }
+            {
+              name = "sweep.1";
+              backends = 1;
+            }
+            # One for the database sweep.1 left, one for each fresh case's,
+            # and the read-only backend, the writers whose sweeps fail and the
+            # writer after one.
+            {
+              name = "sweep.2";
+              backends = 9;
+              postJs = [ ./tests/stderr-post.js ];
+            }
+          ];
+        }
+      );
 
       checks.wasmfs-idb-types =
         pkgs.runCommand "ibus-web-wasmfs-idb-types-check"
