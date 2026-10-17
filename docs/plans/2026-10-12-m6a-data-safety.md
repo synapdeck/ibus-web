@@ -82,9 +82,11 @@ version stay 1. The branch is `typedrat/m6a-data-safety`, from `typedrat/m6b-run
   installed bytes of its version (base and every installed path), `userData`, the sizes of its files, and per engine
   the installed bytes of its own paths; a module never started reports zeros. `export(module)` has a running module of
   this tab write what it keeps in memory (`Persist`) first, then tars the user database in one read-only transaction,
-  which is the snapshot; the archive's entries are relative to the module's directory. `reset(module)` ends the
-  module's Worker without `Persist`, deletes `ibus-web/<name>` and starts the module again if it was running. All three
-  reject with the tagged errors, `StorageUnavailable` when IndexedDB is missing or fails.
+  which is the snapshot; the archive's entries are relative to the module's directory. `reset(module)` unloads the
+  module through `router.reload`, whose shutdown sends `Persist` and `Shutdown` before the Worker ends, deletes
+  `ibus-web/<name>`, then gives back the page's selection and each field's override that named the module, and starts
+  it again if it was running for neither. All three reject with the tagged errors, `StorageUnavailable` when IndexedDB
+  is missing or fails.
 
 ## Departures from the spec
 

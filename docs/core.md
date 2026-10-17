@@ -78,9 +78,10 @@ removal function; there are no default router hotkeys.
 
 `StorageApi.layer({ hostUrl, modules })`, beside the router, gives `usage()`, `export(module)` and `reset(module)` over
 the modules' databases through a storage Worker started from beside the host's script
-([storage.md](storage.md#the-host-api)); `reset` unloads a running module through the router and selects it again
-afterwards. The registry's `start(name)` starts a module's Worker without enabling it, and `started(name)` says whether
-it has been.
+([storage.md](storage.md#the-host-api)); `reset` clears a running module's storage inside
+`router.reload(module, between)`, which unloads the module, runs `between`, and gives back the page's selection and each
+surface's override that named it, where nothing has replaced them meanwhile. The registry's `start(name)` starts a
+module's Worker without enabling it, and `started(name)` says whether it has been.
 
 ## Key translation and layouts
 

@@ -84,9 +84,10 @@ installed data, `userData`, the bytes of its own files, such as Rime's and Mozc'
 `data`, the bytes of its own data installed. `storage.export(module)` resolves to the module's user data as a tar
 `Blob`, its entries named from the module's directory; a module running in this tab writes what it keeps in memory
 first. `storage.reset(module)` deletes the module's user data, whoever holds it, and leaves its installed data; a module
-that was running starts again, and one that was selected is selected again. They reject with `StorageUnavailable` when
-the storage can't be read or reset, a reset among them when another tab keeps the database open for more than 10 s
-([storage.md](storage.md#the-host-api)). The storage Worker they start is `host/storage.js`, beside the host's script.
+that was running starts again, one that was selected is selected again, and a field's override naming it is given back.
+They reject with `StorageUnavailable` when the storage can't be read or reset, a reset among them when another tab keeps
+the database open for more than 10 s ([storage.md](storage.md#the-host-api)). The storage Worker they start is
+`host/storage.js`, beside the host's script.
 
 Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:
 `EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,

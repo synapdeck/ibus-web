@@ -701,7 +701,8 @@ it holds up a host's writes only as long as one of them lasts.
 - **`reset(module)`** ends the module's Worker, if it runs, waits for its writer lock to come free (bounded at 10 s),
   and has the storage Worker delete `ibus-web/<name>`, waiting while connections other tabs keep on it close, which
   every host's do at the version change; one that stays open past 10 s fails the reset. The version's data stays. A
-  module that was selected is selected again, with its engine, and one that was only running starts again.
+  module that was selected is selected again, with its engine, each field's override that named it is given back, and
+  one that was only running starts again; they come back after a reset that failed too.
 
 Each rejects with `StorageUnavailable` naming the module when the storage Worker can't start or its request fails.
 WebKit's IndexedDB in Workers is unchecked (spec R5, R13). Open items are collected in

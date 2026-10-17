@@ -53,6 +53,11 @@ export interface RouterService {
   /** Returns every surface, overrides included, to plain browser input; Workers stay loaded. */
   deselect(): Effect.Effect<void, Error>;
   unload(module: string): Effect.Effect<void, Error>;
+  /**
+   * Unloads the module, runs `between`, then gives back the page's selection and each surface's override that named the
+   * module, where nothing has replaced them meanwhile; they come back whether `between` succeeds or not.
+   */
+  reload(module: string, between: Effect.Effect<void, Error>): Effect.Effect<void, Error>;
   activeContext(): { module: string; engine: string; ic: number; adapter: SurfaceAdapter } | undefined;
   /** Without an engine, the module's first; `undefined` returns the surface to the page's selection. */
   override(
@@ -533,6 +538,21 @@ export const makeRouter = Effect.gen(function* () {
               errors.length ? Effect.fail(new AggregateError(errors, "Module surface teardown failed")) : Effect.void,
             ),
           );
+      }),
+    reload: (module, between) =>
+      Effect.gen(function* () {
+        const selection = selected?.module === module ? selected : undefined;
+        const overrides = [...surfaces.values()].flatMap((surface) =>
+          surface.override?.module === module ? [{ surface, override: surface.override }] : [],
+        );
+        yield* service.unload(module);
+        const exit = yield* Effect.exit(between);
+
+        if (selection && selected === undefined) yield* service.select(module, selection.engine);
+        for (const { surface, override } of overrides)
+          if (surfaces.get(surface.adapter) === surface && surface.override === undefined)
+            yield* service.override(surface.adapter, override);
+        return yield* exit;
       }),
     hotkeys: {
       add: (predicate, action) => {

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Exit, Layer } from "effect";
 import { asError, Persist, type ModuleManifest } from "@ibus-web/protocol";
 import {
   engineDatabase,
@@ -45,7 +45,10 @@ export interface StorageApiService {
   usage(): Effect.Effect<StorageUsage, Error>;
   /** The module's user data as a tar archive, from one read-only snapshot, once a running Worker has persisted. */
   export(module: string): Effect.Effect<Blob, Error>;
-  /** Deletes the module's user data; a module that was running starts again, its selection restored. */
+  /**
+   * Deletes the module's user data; a module that was running starts again, the page's selection and the surfaces'
+   * overrides that named it restored.
+   */
   reset(module: string): Effect.Effect<void, Error>;
 }
 
@@ -141,20 +144,26 @@ export class StorageApi extends Context.Service<StorageApi, StorageApiService>()
           reset: (module) =>
             Effect.gen(function* () {
               const manifest = yield* manifestOf(module);
-              const selection = router.selection;
-              const running = registry.started(module);
-              if (running) yield* router.unload(module);
-              // A Worker the page just ended may keep the writer lock a while, and a module started meanwhile
-              // would run read-only.
-              yield* (options.waitForWriter ?? lockWait)(manifest.name).pipe(Effect.timeout(10_000), Effect.ignore);
-              const reply = yield* ask(module, {
-                type: "reset",
-                database: engineDatabase(manifest),
-                limitMs: options.resetLimitMs ?? 10_000,
+              const clear = Effect.gen(function* () {
+                // A Worker the page just ended may keep the writer lock a while, and a module started meanwhile
+                // would run read-only.
+                yield* (options.waitForWriter ?? lockWait)(manifest.name).pipe(Effect.timeout(10_000), Effect.ignore);
+                const reply = yield* ask(module, {
+                  type: "reset",
+                  database: engineDatabase(manifest),
+                  limitMs: options.resetLimitMs ?? 10_000,
+                });
+                if (reply.type !== "reset")
+                  return yield* Effect.fail(new Error(`storage Worker answered ${reply.type}`));
               });
-              if (reply.type !== "reset") return yield* Effect.fail(new Error(`storage Worker answered ${reply.type}`));
-              if (selection?.module === module) yield* router.select(module, selection.engine);
-              else if (running) yield* registry.start(module);
+              if (!registry.started(module)) return yield* clear;
+
+              // A module running for neither the selection nor an override, prepared ahead, say, starts again too. The
+              // error that ends the reset is the clearing's, if it failed.
+              const exit = yield* Effect.exit(router.reload(module, clear));
+              if (!registry.started(module))
+                yield* Exit.isSuccess(exit) ? registry.start(module) : Effect.ignore(registry.start(module));
+              return yield* exit;
             }),
         } satisfies StorageApiService;
       }),

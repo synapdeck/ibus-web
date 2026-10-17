@@ -45,6 +45,36 @@ test("preserves per-surface overrides across global switch and restart, reusing 
     await Effect.runPromise(router.override(f.adapter, undefined));
     expect(connections.b[0]!.sent.some((x) => x.request._tag === "FocusIn")).toBe(true);
   }));
+test("reload gives an override naming the module back once the module is down and its body has run", () =>
+  run(async ({ router, registry, connections, field }) => {
+    const f = field();
+    await Effect.runPromise(router.override(f.adapter, { module: "a" }));
+    f.element.focus();
+    await select(router, "b");
+    expect(key(f.element).defaultPrevented).toBe(true);
+
+    let startedDuring: boolean | undefined;
+    await Effect.runPromise(
+      router.reload(
+        "a",
+        Effect.sync(() => (startedDuring = registry.started("a"))),
+      ),
+    );
+    expect(startedDuring).toBe(false);
+    expect(connections.a).toHaveLength(2);
+    expect(registry.snapshot("a")!.enabled).toBe(true);
+    expect(router.selection).toEqual({ module: "b", engine: "factory" });
+    expect(key(f.element).defaultPrevented).toBe(true);
+    expect(connections.a[1]!.sent.map(({ request }) => request._tag)).toContain("ProcessKeyEvent");
+  }));
+test("reload gives the page's selection back even when its body fails", () =>
+  run(async ({ router, connections }) => {
+    await Effect.runPromise(router.select("a", "other"));
+    const failed = await Effect.runPromise(Effect.flip(router.reload("a", Effect.fail(new Error("cleared nothing")))));
+    expect(failed.message).toBe("cleared nothing");
+    expect(router.selection).toEqual({ module: "a", engine: "other" });
+    expect(connections.a).toHaveLength(2);
+  }));
 test("switching engine within a module reuses its Worker and destroys the old engine first", () =>
   run(async ({ router, connections, field }) => {
     const f = field();
