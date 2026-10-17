@@ -694,10 +694,13 @@ it holds up a host's writes only as long as one of them lasts.
   engine's `data` the bytes of its own paths that are installed. A database or marker that doesn't exist counts as none,
   so a module never started reports zeros. It covers the current version only; another version's data stays until the
   next host collects it.
-- **`export(module)`** has a running module's Worker write what its engines keep only in memory (`Persist`), then reads
-  the user database's `meta`, `inodes`, `entries` and `chunks` in one read-only transaction, which is the snapshot, and
+- **`export(module)`** has the module's writer write what its engines keep only in memory (`Persist`), then reads the
+  user database's `meta`, `inodes`, `entries` and `chunks` in one read-only transaction, which is the snapshot, and
   packs every directory, file and link, named from the module's directory, with its mode and modification time, as a tar
-  (`modern-tar`'s `packTar`), each file whole however its chunks lie. A writer in another tab isn't asked to persist.
+  (`modern-tar`'s `packTar`), each file whole however its chunks lie. The writer is this tab's Worker when it may write;
+  otherwise, if another holds the module's writer lock, the page asks over the `ibus-web:storage` `BroadcastChannel`,
+  and each tab whose Worker of that name may write sends it `Persist` and answers once it has. A holder that doesn't
+  answer within `writerPersistMs` (5 s), such as a page that is closing, leaves the export what is already stored.
 - **`reset(module)`** ends the module's Worker, if it runs, waits for its writer lock to come free (bounded at 10 s),
   and has the storage Worker delete `ibus-web/<name>`, waiting while connections other tabs keep on it close, which
   every host's do at the version change; one that stays open past 10 s fails the reset. The version's data stays. A

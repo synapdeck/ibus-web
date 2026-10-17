@@ -3,6 +3,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { Stream } from "effect";
 import { Connection, type SettingsSourceService } from "@ibus-web/core";
+import { engineWriterLock } from "@ibus-web/worker-host";
 import { createIbusWeb, StorageUnavailable, type IbusWeb } from "../../src/index.ts";
 import { DomConnection } from "../../../core/test/browser/support/dom.ts";
 
@@ -187,6 +188,35 @@ test("export gives the user data as a tar, once a running module has persisted",
   ]);
   const deepBin = members(new Uint8Array(await archive.arrayBuffer())).find(({ name }) => name === "sub/deep.bin")!;
   expect(deepBin.data).toEqual(deep);
+});
+
+test("export in a tab not running the module has the tab holding its writer lock persist first", async () => {
+  await stored();
+  const writer = facade();
+  await writer.app.select("test");
+  const reader = facade();
+  const persists = () => writer.connections[0]!.sent.filter(({ request }) => request._tag === "Persist").length;
+  const before = persists();
+
+  // The writer's host is a stand-in that takes no lock, so the test holds it in the host's place.
+  let release!: () => void;
+  const holding = new Promise<void>((resolve) => (release = resolve));
+  await new Promise<void>((acquired) => {
+    void navigator.locks.request(engineWriterLock({ name: "test" }), () => {
+      acquired();
+      return holding;
+    });
+  });
+  try {
+    const started = performance.now();
+    const archive = await reader.app.storage.export("test");
+    expect(persists()).toBe(before + 1);
+    expect(performance.now() - started, "answered, not waited out").toBeLessThan(5000);
+    expect(reader.connections).toEqual([]);
+    expect(archive.size).toBeGreaterThan(0);
+  } finally {
+    release();
+  }
 });
 
 test("reset deletes the user data and starts the selected module again, with its selection", async () => {

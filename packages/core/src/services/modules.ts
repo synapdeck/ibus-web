@@ -100,6 +100,8 @@ export interface ModuleRegistryService {
   start(name: string): Effect.Effect<void, Error>;
   /** Whether the module's Worker has been started and not unloaded since. */
   started(name: string): boolean;
+  /** Whether the module's Worker is ready and may write its user data, holding the writer lock if it uses IndexedDB. */
+  writable(name: string): boolean;
   /** Has every ready Worker persist what its engines keep in memory, waiting for each that the wire lets it. */
   persist(): void;
   whenReady(name: string): Effect.Effect<void, Error>;
@@ -138,6 +140,8 @@ interface Entry {
   origin: symbol;
   started: boolean;
   hasReady: boolean;
+  // Whether the Worker that last reached Init may write the module's user data.
+  writable: boolean;
 }
 // The runtime replied to Init with an error.
 class InitRefused extends EngineLoadFailed {}
@@ -400,6 +404,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         if (reply.ret < 0)
           return yield* Effect.fail(new InitRefused({ module: name, diagnostic: `Init failed: ${reply.ret}` }));
         yield* flushChanges(entry);
+        entry.writable = userDataWritable;
         entry.hasReady = true;
         entry.error = undefined;
         entry.snapshot.status = "ready";
@@ -455,6 +460,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
         origin: Symbol(),
         started: false,
         hasReady: false,
+        writable: false,
         changes: new Map(),
         instances: new Map(),
         watchers: new Set(),
@@ -737,6 +743,11 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
       start: (name) =>
         Effect.suspend(() => (entries.has(name) ? start(name) : Effect.fail(new Error(`Unknown module: ${name}`)))),
       started: (name) => get(name).started,
+      writable: (name) => {
+        const entry = get(name);
+        const value = state(entry);
+        return entry.writable && (value === "ready" || value === "busy");
+      },
       persist: leaving,
       prepare,
       isPrepared: (name, engine) => {

@@ -5,6 +5,7 @@ import { asError, Persist, type ModuleManifest } from "@ibus-web/protocol";
 import {
   engineDatabase,
   engineDataDatabase,
+  engineWriterLock,
   type DatabaseUsage,
   type ModuleDatabases,
   type StorageReply,
@@ -40,10 +41,15 @@ export interface StorageOptions {
   readonly waitForWriter?: WaitForWriter;
   /** How long a reset waits for other tabs' connections to the module's user data to close. */
   readonly resetLimitMs?: number;
+  /** How long an export waits for the tab whose Worker holds the module's writer lock to persist. */
+  readonly writerPersistMs?: number;
 }
 export interface StorageApiService {
   usage(): Effect.Effect<StorageUsage, Error>;
-  /** The module's user data as a tar archive, from one read-only snapshot, once a running Worker has persisted. */
+  /**
+   * The module's user data as a tar archive, from one read-only snapshot, once the Worker writing it, in this tab or
+   * another, has persisted.
+   */
   export(module: string): Effect.Effect<Blob, Error>;
   /**
    * Deletes the module's user data; a module that was running starts again, the page's selection and the surfaces'
@@ -58,6 +64,31 @@ const databasesOf = (manifest: ModuleManifest): ModuleDatabases => ({
   version: manifest.version,
   paths: [...new Set(manifest.engines.flatMap(({ data }) => data ?? []))],
 });
+
+// Between tabs, on one channel: an export asks the tab whose Worker writes the module's user data to persist, and that
+// tab answers once it has.
+type PersistMessage =
+  | { readonly type: "persist"; readonly name: string; readonly id: string }
+  | { readonly type: "persisted"; readonly id: string };
+
+const persistChannel = "ibus-web:storage";
+
+const isPersistMessage = (value: unknown): value is PersistMessage => {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Record<string, unknown>;
+  return (
+    (message.type === "persist" && typeof message.name === "string" && typeof message.id === "string") ||
+    (message.type === "persisted" && typeof message.id === "string")
+  );
+};
+
+const writerHeld = (name: string): Promise<boolean> =>
+  typeof navigator === "undefined" || navigator.locks === undefined
+    ? Promise.resolve(false)
+    : navigator.locks
+        .query()
+        .then(({ held = [] }) => held.some((lock) => lock.name === engineWriterLock({ name })))
+        .catch(() => false);
 
 const usageOf = (manifest: ModuleManifest, { userData, base, paths }: DatabaseUsage): ModuleUsage => ({
   data: Object.values(paths).reduce((sum, bytes) => sum + bytes, base),
@@ -78,6 +109,52 @@ export class StorageApi extends Context.Service<StorageApi, StorageApiService>()
         const registry = yield* ModuleRegistry;
         const router = yield* Router;
         const url = new URL("storage.js", options.hostUrl);
+
+        const answered = new Map<string, () => void>();
+        const channel = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            typeof BroadcastChannel === "undefined" ? undefined : new BroadcastChannel(persistChannel),
+          ),
+          (channel) => Effect.sync(() => channel?.close()),
+        );
+        if (channel)
+          channel.onmessage = ({ data }: MessageEvent<unknown>) => {
+            if (!isPersistMessage(data)) return;
+            if (data.type === "persisted") {
+              answered.get(data.id)?.();
+              return;
+            }
+
+            const writers = Object.keys(options.modules).filter(
+              (module) => registry.snapshot(module)?.manifest?.name === data.name && registry.writable(module),
+            );
+            if (writers.length === 0) return;
+            void Promise.allSettled(writers.map((module) => registry.request(module, new Persist({}), 0))).then(() =>
+              channel.postMessage({ type: "persisted", id: data.id } satisfies PersistMessage),
+            );
+          };
+
+        // Another tab's writer that doesn't answer in time leaves the export what is already stored.
+        const persistElsewhere = (name: string): Effect.Effect<void> =>
+          Effect.callback<void>((resume) => {
+            if (!channel) {
+              resume(Effect.void);
+              return;
+            }
+            const id = crypto.randomUUID();
+            const done = () => {
+              clearTimeout(timer);
+              answered.delete(id);
+              resume(Effect.void);
+            };
+            const timer = setTimeout(done, options.writerPersistMs ?? 5_000);
+            answered.set(id, done);
+            channel.postMessage({ type: "persist", name, id } satisfies PersistMessage);
+            return Effect.sync(() => {
+              clearTimeout(timer);
+              answered.delete(id);
+            });
+          });
 
         // One request a Worker of its own, which the page ends once it has answered.
         const ask = (module: string, request: StorageRequest): Effect.Effect<StorageReply, Error> =>
@@ -129,13 +206,14 @@ export class StorageApi extends Context.Service<StorageApi, StorageApiService>()
           export: (module) =>
             Effect.gen(function* () {
               const manifest = yield* manifestOf(module);
-              // What the engines keep only in memory, written first, so that the snapshot takes it in.
-              const state = registry.state(module);
-              if (state === "ready" || state === "busy")
+              // What the engines keep only in memory, written first, so that the snapshot takes it in: by this tab's
+              // Worker, or by another tab's that holds the writer lock.
+              if (registry.writable(module))
                 yield* Effect.tryPromise({
                   try: () => registry.request(module, new Persist({}), 0),
                   catch: asError,
                 });
+              else if (yield* Effect.promise(() => writerHeld(manifest.name))) yield* persistElsewhere(manifest.name);
               const reply = yield* ask(module, { type: "export", database: engineDatabase(manifest) });
               if (reply.type !== "export")
                 return yield* Effect.fail(new Error(`storage Worker answered ${reply.type}`));

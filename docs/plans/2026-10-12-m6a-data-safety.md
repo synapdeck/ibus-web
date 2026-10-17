@@ -80,13 +80,14 @@ version stay 1. The branch is `typedrat/m6a-data-safety`, from `typedrat/m6b-run
 - **`files`** counts an archive's directories, files and links, the entries the installer makes.
 - **Storage API.** `usage()` covers every module the facade was given, each module's current version only: `data`, the
   installed bytes of its version (base and every installed path), `userData`, the sizes of its files, and per engine
-  the installed bytes of its own paths; a module never started reports zeros. `export(module)` has a running module of
-  this tab write what it keeps in memory (`Persist`) first, then tars the user database in one read-only transaction,
-  which is the snapshot; the archive's entries are relative to the module's directory. `reset(module)` unloads the
-  module through `router.reload`, whose shutdown sends `Persist` and `Shutdown` before the Worker ends, deletes
-  `ibus-web/<name>`, then gives back the page's selection and each field's override that named the module, and starts
-  it again if it was running for neither. All three reject with the tagged errors, `StorageUnavailable` when IndexedDB
-  is missing or fails.
+  the installed bytes of its own paths; a module never started reports zeros. `export(module)` has the module's writer
+  write what it keeps in memory (`Persist`) first, this tab's Worker if it may write, or else, when another holds the
+  writer lock, every tab whose Worker may write, asked over a `BroadcastChannel` and waited for up to 5 s, then tars
+  the user database in one read-only transaction, which is the snapshot; the archive's entries are relative to the
+  module's directory. `reset(module)` unloads the module through `router.reload`, whose shutdown sends `Persist` and
+  `Shutdown` before the Worker ends, deletes `ibus-web/<name>`, then gives back the page's selection and each field's
+  override that named the module, and starts it again if it was running for neither. All three reject with the tagged
+  errors, `StorageUnavailable` when IndexedDB is missing or fails.
 
 ## Departures from the spec
 
