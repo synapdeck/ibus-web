@@ -20,12 +20,14 @@ size without compiling at all, and a page can fetch, or install, the engines it 
    `menu/page_size` into `default.custom.yaml` and sets each session's page size when it selects its schema and when the
    setting changes. Proved by `rime-host`: a `page-size` change starts no deployment and the context's next lookup table
    has the new page size.
-3. **Rime's lazy compiling.** A settings change writes the patches, then compiles only the schemas of the sessions open
+3. **Rime's lazy compiling.** A settings change writes the patches, then compiles only the schemas of the engines open
    in the Worker and their dependencies; every other schema is stale, recorded per schema by a fingerprint of the
    patches it was compiled with, and compiled when an engine selects it, which an engine does only once its
-   dictionaries are installed. The start's modification check passes over the module's own `*.custom.yaml`. Proved by
+   dictionaries are installed. An ibus-rime port patch lists every engine's schema, whether or not it holds a session.
+   The start deploys every schema only when the shared data isn't the store path the record names. Proved by
    `rime-host`: a change with `rime:rime_ice` open compiles its schemas only, `rime:luna_pinyin` made afterwards compiles
-   its own, and a host restarted over the same user directory deploys nothing at start.
+   its own, the Deploy property still compiles everything, and a host restarted over the same user directory deploys
+   nothing at start; and by `rime-golden` and `rime-deploy`.
 4. **Preloading by fetch.** `preload(entries, options?)` on the facade and the registry: when the page is idle, each
    entry's manifest, `.wasm` and data archives are fetched at low priority into the `ibus-web-preload` cache, keyed by
    URL and the manifest's version, with `preload` events; the Worker's module and archive fetches look in that cache
@@ -37,9 +39,11 @@ size without compiling at all, and a page can fetch, or install, the engines it 
    skipped, one this page runs installs through its own Worker. Proved by `worker-host-node` and `worker-host-browser`
    (the install-only host installs and ends with every lock let go, and skips when the writer lock is held) and
    `core-browser` (a later selection installs nothing).
-6. **Both modes and m17n's start in the browsers.** Playwright specs in the demo: a preloaded Rime engine's selection
-   fetches nothing over the network, an installed one installs nothing; m17n's start from IndexedDB is re-measured.
-   Proved by `integration-checks`' Playwright run; the figures go into `docs/m17n.md`.
+6. **Both modes and m17n's start in the browsers.** The demo gains ahead-of-time Fetch and Install controls, and
+   Playwright specs: a Rime engine fetched ahead has its dictionaries in the page's cache and types once selected, one
+   installed ahead installs nothing once selected; m17n's start from IndexedDB is re-measured. Proved by
+   `integration-checks`' Playwright run; the figures go into `docs/m17n.md`. That a host reads the cache rather than the
+   network is proved in task 4 (`preloaded-files`).
 7. **Verify the phase.** `nix run .#write-files` (no drift), `nix flake check -L`, `nix build .#integration-checks -L`,
    `nix develop -c hk check --all`.
 
@@ -61,8 +65,13 @@ size without compiling at all, and a page can fetch, or install, the engines it 
   `default.custom.yaml`'s and its own patch's contents when it was last compiled; a schema it doesn't list is as
   prebuilt, with no patches. A full deployment (the first start, a new version, the Deploy property) records every
   schema.
-- **"Open"** is a schema a live Rime session has selected, and its dependencies. An engine whose session ended at a
-  deployment's end selects its schema again at its next key, which is when it is checked.
+- **"Open"** is the schema of every Rime engine in the Worker, and its dependencies as its compiled config names them,
+  whether or not the engine holds a session: a deployment's end ends every session, and the engine makes its next at
+  its next key. ibus-rime's port patch 0006 lists them.
+- **Rime's start** deploys every schema only when the shared data isn't the store path the record names. librime's own
+  check compares file times, and WasmFS gives a file the time at which it first sees it, so it fired at every start.
+- **A schema compiled as its engine selects it** holds the engine's keys, as any deployment does, until it ends;
+  `rime-golden`'s harness waits for such a compile when it makes an engine.
 - **"Its dictionaries finish installing"**: the module hears of an install only through the engine selection that
   follows it, so a stale schema is compiled when an engine selects it, which is after the page has prepared its data.
 - **Preload's cache key** is the asset's URL with an `ibus-web-preload` search parameter of the encoded manifest name and
@@ -74,11 +83,15 @@ size without compiling at all, and a page can fetch, or install, the engines it 
 - **Idle** is `requestIdleCallback`, or a 1 s timeout where it is missing (WebKit). Entries are fetched one file at a
   time with `priority: "low"`.
 - **Errors.** A failed manifest, module or base-data fetch rejects with `EngineLoadFailed`, a failed engine-data fetch
-  with `PrepareEngineError`, a refused manifest with `ProtocolMismatch` or `RuntimeAbiMismatch`; an unknown module or
-  engine rejects with a plain `Error` before anything is fetched, as the other calls do.
-- **Install mode's host** runs at the runtime's minimum memory with no engine threads and never loads the side module.
-  Without IndexedDB it can't keep anything, so the module's entries are fetched into the cache instead. A module whose
-  Worker this page already runs installs through that Worker's `prepare`, since its writer lock is this page's.
+  with `PrepareEngineError`, a refused manifest with `ProtocolMismatch` or `RuntimeAbiMismatch`; an unknown module rejects
+  with a plain `Error` before anything is fetched, and an unknown engine before anything but its module's manifest, as
+  the other calls do.
+- **Install mode's host** is the Worker host started with `HostInit.install`: it runs at the runtime's minimum memory
+  with no engine threads, never loads the side module, posts `preloaded` once every scope has closed, and refuses with
+  new `StartupRefusal`s, `writer` and `ephemeral`. Without IndexedDB it can't keep anything, so the module's entries
+  are fetched into the cache instead. A module whose Worker this page already runs installs through that Worker's
+  `prepare`, since its writer lock is this page's; a start of a module waits for its install-only Worker, which holds
+  the writer lock the module's own would otherwise go without for good.
 - **Cached entries stay** after the data is installed, until a start of their module with another version deletes them.
 
 ## Departures from the spec
@@ -88,6 +101,9 @@ size without compiling at all, and a page can fetch, or install, the engines it 
   which the module can't load. Native m17n-lib generates the explicit `mdb.dir`, where only the files' headers matter.
 - **The page size patch** is in librime (`Schema` has no setter); the module sets it on each session.
 - **The manifest is not read from the cache by hosts** (above): its version is what every other entry is keyed by.
+- **Rime's start deploys less than before**, beyond what the spec asks: only a new user directory or new shared data
+  deploys every schema at start (above). Without it, settings changes compiled lazily would all be compiled at the next
+  start.
 
 ## What the spike proved and what it didn't
 
