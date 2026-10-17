@@ -237,10 +237,11 @@ LevelDB fails at its `LOCK` file; Rime then schedules a recovery, which fails to
 does it all again for each new session, so compositions would be cut off and nothing learned would show. So the module
 replaces Rime's `userdb`, `plain_userdb` and `tabledb` database classes with ones whose databases start disabled, which
 no user dictionary opens (`stabledb`, read-only by design, stays), and the `user_config` with one kept in memory, from
-what the writer last saved, since each session saves the schema it selected. It starts no maintenance and writes no
-settings patches: the writer deploys into the user directory, and a read-only Rime uses what it deployed last, taking a
-settings change at its next start. It types from the shipped dictionaries alone, schedules no recovery and ends no
-session for it.
+what the writer last saved, since each session saves the schema it selected. It starts no maintenance, compiles nothing
+and writes no settings patches: the writer deploys and compiles into the user directory, and a read-only Rime uses what
+it compiled last, taking a settings change once the writer has compiled it and the read-only Rime next starts. The page
+size, which no patch carries, it sets on its sessions as the writer does, a change reaching them at once. It types from
+the shipped dictionaries alone, schedules no recovery and ends no session for it.
 
 ## Engines
 

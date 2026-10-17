@@ -414,8 +414,8 @@ void Start(gboolean full_check) {
   failed.clear();
   rime_api->initialize(&traits);
 
-  // The writer deploys into the user directory, which a read-only module
-  // can't; it uses what the writer deployed last.
+  // The writer deploys and compiles into the user directory, which a
+  // read-only module can't; it uses what the writer compiled last.
   if (!ibusweb_user_data_writable()) {
     KeepUserDataAsItIs();
     g_message("Rime is ready.");
@@ -514,7 +514,8 @@ void Notify(void *, RimeSessionId session_id, const char *message_type,
   // ends it.
   if (std::strcmp(message_type, "schema") == 0) {
     ApplyPageSize(session_id, nullptr);
-    if (!ibusweb_rime_deploying()) {
+    // A read-only module compiles nothing: it uses what the writer compiled.
+    if (ibusweb_user_data_writable() && !ibusweb_rime_deploying()) {
       std::set<std::string> ids;
       std::string schema_id(message_value);
       AddSchema(schema_id.substr(0, schema_id.find('/')).c_str(), &ids);

@@ -269,6 +269,41 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     }
   });
 
+  // A read-only module writes no patch, so the page size reaches its sessions
+  // only through the settings it reads.
+  test("a read-only host takes the stored page size and a change of it, compiling nothing", async () => {
+    const writer = await start(RIME_ICE);
+    await deployed(writer, 1);
+    await writer.request(0, new Persist({}));
+
+    const user = userDirectory(writer);
+    const before = await listing(user);
+    await writable(user, false);
+    let reader: PageSession | undefined;
+    try {
+      const stored = { [RIME_PATH]: { "page-size": int32Variant(7) } };
+      reader = await PageSession.start(h, runtime, manifest, {
+        ...options(RIME_ICE, { values: stored }),
+        sharing: writer,
+      });
+      expect(reader.host.messages).toContainEqual(expect.objectContaining({ type: "storage", state: "read-only" }));
+      await deployed(reader, 1);
+
+      expect(last(await typeText(reader, 1, "ni"), "UpdateLookupTable").table.pageSize).toBe(7);
+      await reader.key(1, ...Key.escape);
+
+      await reader.request(0, new SettingChanged({ path: RIME_PATH, key: "page-size", value: int32Variant(4) }));
+      expect(last(await typeText(reader, 1, "ni"), "UpdateLookupTable").table.pageSize).toBe(4);
+
+      expect(compiles(reader)).toEqual([]);
+      expect(reader.logs.filter((message) => message.startsWith("Rime is under maintenance"))).toEqual([]);
+      expect(await listing(user)).toEqual(before);
+    } finally {
+      await reader?.host.terminate();
+      await writable(user, true);
+    }
+  });
+
   test("a page-size change reaches the open context's next lookup table without a deployment", async () => {
     const session = await start(RIME_ICE);
     await deployed(session, 1);

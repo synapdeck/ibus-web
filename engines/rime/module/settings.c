@@ -340,7 +340,7 @@ static void changed(GSettings *from, const char *key,
                     gpointer data G_GNUC_UNUSED) {
   if (from == settings && g_str_equal(key, "page-size"))
     ibusweb_rime_page_size_changed();
-  if (!write_patches())
+  if (!ibusweb_user_data_writable() || !write_patches())
     return;
   if (ibusweb_rime_deploying())
     pending = TRUE;
@@ -348,13 +348,11 @@ static void changed(GSettings *from, const char *key,
     ibusweb_rime_compile_open();
 }
 
+/* The patches and what they compile are the writer's, in the user directory a
+ * read-only module can't change. A read-only module still reads the settings:
+ * the page size, which no patch carries, and the fingerprints of what the
+ * writer compiled. */
 void ibusweb_rime_settings_init(void) {
-  /* The patches and the deployments they cause are the writer's, in the
-   * user directory a read-only module can't change; it takes a change at its
-   * next start. */
-  if (!ibusweb_user_data_writable())
-    return;
-
   settings = g_settings_new(RIME_SCHEMA);
   g_signal_connect(settings, "changed", G_CALLBACK(changed), NULL);
   for (gsize i = 0; i < G_N_ELEMENTS(schemas); i++) {
@@ -362,7 +360,8 @@ void ibusweb_rime_settings_init(void) {
     schema_settings[i] = g_settings_new_with_path(RIME_SCHEMA_SCHEMA, path);
     g_signal_connect(schema_settings[i], "changed", G_CALLBACK(changed), NULL);
   }
-  write_patches();
+  if (ibusweb_user_data_writable())
+    write_patches();
 }
 
 void ibusweb_rime_settings_deployed(void) {
