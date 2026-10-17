@@ -253,10 +253,25 @@ static gboolean tree_holds(const gchar *dir, const gchar *text) {
   return FALSE;
 }
 
-/* A repair that fails, here for a directory where it writes its new
- * manifest, moves the database aside, whole, and starts an empty one: none
- * is deleted. */
-static void unrepairable(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+/* The one copy of the dictionary's database moved aside. */
+static gchar *moved_aside(void) {
+  g_autoptr(GDir) entries = g_dir_open(home, 0, NULL);
+  g_assert_nonnull(entries);
+  gchar *aside = NULL;
+  const gchar *name;
+  while ((name = g_dir_read_name(entries)) != NULL) {
+    if (g_str_has_prefix(name, USERDB ".corrupt-")) {
+      g_assert_null(aside);
+      aside = g_build_filename(home, name, NULL);
+    }
+  }
+  g_assert_nonnull(aside);
+  return aside;
+}
+
+/* Makes the database's repair fail, for a directory where it writes its new
+ * manifest, and starts an engine, which repairs it. */
+static void fail_repair(Fixture *fixture) {
   criticals_as_records();
   break_current();
   g_autofree gchar *manifest = in_userdb("000001.dbtmp");
@@ -271,23 +286,39 @@ static void unrepairable(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
   golden_create(fixture, "rime:rime_ice");
   wait_redeployed(fixture);
   golden_assert_expected_logs();
+}
+
+/* A repair that fails moves the database aside, whole, and starts an empty
+ * one: none is deleted. */
+static void unrepairable(Fixture *fixture, gconstpointer data G_GNUC_UNUSED) {
+  fail_repair(fixture);
 
   golden_type(fixture, "zhong");
   g_autofree gchar *first = first_candidate(fixture);
   g_assert_cmpstr(first, ==, "中");
 
-  g_autoptr(GDir) entries = g_dir_open(home, 0, NULL);
-  g_assert_nonnull(entries);
-  g_autofree gchar *aside = NULL;
-  const gchar *name;
-  while ((name = g_dir_read_name(entries)) != NULL) {
-    if (g_str_has_prefix(name, USERDB ".corrupt-")) {
-      g_assert_null(aside);
-      aside = g_build_filename(home, name, NULL);
-    }
-  }
-  g_assert_nonnull(aside);
+  g_autofree gchar *aside = moved_aside();
   g_assert_true(tree_holds(aside, "种"));
+}
+
+/* A second repair that fails moves the new database aside too, and removes
+ * the first copy: the dictionary keeps only its newest. Another
+ * dictionary's copy stays. */
+static void unrepairable_again(Fixture *fixture,
+                               gconstpointer data G_GNUC_UNUSED) {
+  g_autofree gchar *older = moved_aside();
+  g_assert_true(tree_holds(older, "种"));
+  g_autofree gchar *other = g_build_filename(
+      home, "luna_pinyin.userdb.corrupt-20260101T000000", NULL);
+  g_assert_cmpint(g_mkdir(other, 0755), ==, 0);
+
+  fail_repair(fixture);
+
+  g_autofree gchar *newest = moved_aside();
+  g_assert_cmpint(strcmp(newest, older), >, 0);
+  g_assert_false(tree_holds(newest, "种"));
+  g_assert_false(g_file_test(older, G_FILE_TEST_EXISTS));
+  g_assert_true(g_file_test(other, G_FILE_TEST_IS_DIR));
 }
 
 /* The descriptor LevelDB writes the log through, found by the file it has
@@ -372,7 +403,8 @@ int main(int argc, char **argv) {
                              "FILE"},
                             {"step", 0, 0, G_OPTION_ARG_STRING, &step,
                              "learn, remember, io-error, repair, "
-                             "unrepairable, held-failure or compact",
+                             "unrepairable, unrepairable-again, "
+                             "held-failure or compact",
                              "STEP"},
                             {NULL}};
   GOptionContext *context_options = g_option_context_new(NULL);
@@ -418,6 +450,9 @@ int main(int argc, char **argv) {
   else if (g_str_equal(step, "unrepairable"))
     g_test_add("/rime-userdb/unrepairable", Fixture, NULL, golden_setup,
                unrepairable, golden_teardown);
+  else if (g_str_equal(step, "unrepairable-again"))
+    g_test_add("/rime-userdb/unrepairable-again", Fixture, NULL, golden_setup,
+               unrepairable_again, golden_teardown);
   else if (g_str_equal(step, "held-failure"))
     g_test_add("/rime-userdb/held-failure", Fixture, NULL, golden_setup,
                held_failure, golden_teardown);

@@ -150,9 +150,6 @@ decided.
   Rime opens no user dictionary and takes a settings change only at its next start
   ([rime.md](rime.md#a-read-only-module)); a read-only Mozc learns for its Worker's life alone, with its segment history
   off ([mozc.md](mozc.md#a-read-only-module)).
-- **Rime's moved-aside databases are never removed.** A user dictionary whose repair failed stays in the user directory
-  as `<name>.userdb.corrupt-<time>`, counted in `userData`, until the user resets the module
-  ([rime.md](rime.md#recovery)).
 
 ## Storage
 

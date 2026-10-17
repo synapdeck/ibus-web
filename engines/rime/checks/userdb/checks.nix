@@ -58,6 +58,7 @@
           (program "rime-userdb.3" "io-error")
           (program "rime-userdb.4" "repair")
           (program "rime-userdb.5" "unrepairable")
+          (program "rime-userdb.6" "unrepairable-again")
           (program "rime-userdb-held-failure" "held-failure")
           (program "rime-userdb-compaction" "compact")
         ];

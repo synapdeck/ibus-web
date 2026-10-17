@@ -35,8 +35,9 @@ Each task is summarized with the checks that prove it, not spelled out step by s
    user directory byte for byte as the writer left it.
 6. **Rime's recovery.** librime port patch 0005: an open that fails for anything but corruption disables that user
    dictionary until Rime restarts and logs a warning; only `Corruption` schedules the repair; a failed repair moves the
-   database aside under a timestamped name and starts empty, and never deletes one. Proven by `rime-userdb` (an I/O
-   error, a corrupt database repaired, a repair that fails).
+   database aside under a timestamped name and starts empty, and never deletes the database it moves, keeping only the
+   newest copy moved aside of each dictionary. Proven by `rime-userdb` (an I/O error, a corrupt database repaired, a
+   repair that fails, a second that fails leaving one copy, the newer).
 7. **Held log writes.** A held log write that fails is kept, and every later write, flush, sync and close of that file
    returns it. Proven by `rime-userdb` (a failed held write: the next commit fails and nothing more reaches the log).
 8. **Quota events.** The IndexedDB backend counts changes that failed with `ENOSPC`
@@ -74,8 +75,9 @@ Each task is summarized with the checks that prove it, not spelled out step by s
   settings change only at its next start.
 - **Read-only Mozc** keeps what it learns for the Worker's life; nothing is saved.
 - **A disabled user dictionary** stays disabled while any session holds it; once none does, the next session tries
-  again. A database moved aside is named `<name>.userdb.corrupt-<UTC yyyymmddThhmmss>`; a move that fails leaves the
-  dictionary disabled.
+  again. A database moved aside is named `<name>.userdb.corrupt-<UTC yyyymmddThhmmss>`, with `-2`, `-3`, … after it
+  when that name is taken; a move that fails leaves the dictionary disabled. Each dictionary keeps one copy moved aside,
+  the newest: once the move is done, every older `<name>.userdb.corrupt-*` of that dictionary is removed.
 - **`quota`** is posted each time the host finds either mount's count higher than when it last looked, which it does
   as it checks for a closed connection.
 - **`check-storage`** waits at most `closeWaitMs` (1 s, `HostConfig`) for a backend to report its close.

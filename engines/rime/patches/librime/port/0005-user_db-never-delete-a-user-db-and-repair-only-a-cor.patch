@@ -9,12 +9,14 @@ full disk, the storage closing under it) disables the db and logs a
 warning, rather than scheduling a recovery: a repair can't mend it and
 could make it worse. Only a corrupt db is repaired. A repair that fails
 moves the db aside under a timestamped name and starts a new one in its
-place; it never deletes one, and a db it can't move aside stays disabled.
+place; it never deletes the db it moves, and a db it can't move aside
+stays disabled. Once the db is in its new place, every older copy of that
+db moved aside is removed, so each keeps at most one, the newest.
 ---
- src/rime/dict/level_db.cc              |  8 +++++++-
- src/rime/dict/user_db_recovery_task.cc | 28 ++++++++++++++++----------
- src/rime/dict/user_dictionary.cc       |  4 ++++
- 3 files changed, 28 insertions(+), 12 deletions(-)
+ src/rime/dict/level_db.cc              |  8 ++-
+ src/rime/dict/user_db_recovery_task.cc | 72 +++++++++++++++++++++-----
+ src/rime/dict/user_dictionary.cc       |  4 ++
+ 3 files changed, 72 insertions(+), 12 deletions(-)
 
 diff --git a/src/rime/dict/level_db.cc b/src/rime/dict/level_db.cc
 index 842a657..45be4c6 100644
@@ -37,20 +39,61 @@ index 842a657..45be4c6 100644
    return loaded_;
  }
 diff --git a/src/rime/dict/user_db_recovery_task.cc b/src/rime/dict/user_db_recovery_task.cc
-index e602147..3437680 100644
+index e602147..698ec71 100644
 --- a/src/rime/dict/user_db_recovery_task.cc
 +++ b/src/rime/dict/user_db_recovery_task.cc
-@@ -5,8 +5,8 @@
+@@ -5,8 +5,10 @@
  // 2013-04-22 GONG Chen <chen.sst@gmail.com>
  //
  #include <boost/algorithm/string.hpp>
 +#include <ctime>
  #include <filesystem>
 -#include <boost/scope_exit.hpp>
++#include <string>
++#include <vector>
  #include <rime/deployer.h>
  #include <rime/dict/db.h>
  #include <rime/dict/user_db.h>
-@@ -24,30 +24,36 @@ bool UserDbRecoveryTask::Run(Deployer* deployer) {
+@@ -14,6 +16,38 @@
+ 
+ namespace rime {
+ 
++// Removes every copy of the database at file that a failed repair moved
++// aside, except kept, the one just made: a dictionary whose repair keeps
++// failing would otherwise fill the user's storage with copies. The prefix
++// ends at the extension, so no other dictionary's copies match it.
++static void RemoveOlderCopies(const path& file, const path& kept) {
++  const string prefix = file.filename().string() + ".corrupt-";
++  const string newest = kept.filename().string();
++  std::vector<path> older;
++  std::error_code ec;
++  for (std::filesystem::directory_iterator it(file.parent_path(), ec), end;
++       !ec && it != end; it.increment(ec)) {
++    const string name = it->path().filename().string();
++    if (name.compare(0, prefix.size(), prefix) == 0 && name != newest)
++      older.push_back(path(it->path()));
++  }
++  if (ec) {
++    LOG(WARNING) << "Error listing the copies of db file '" << file
++                 << "' moved aside: " << ec.message();
++  }
++
++  for (const auto& copy : older) {
++    std::error_code removed;
++    std::filesystem::remove_all(copy, removed);
++    if (removed) {
++      LOG(WARNING) << "Error removing older copy " << copy << ": "
++                   << removed.message();
++    } else {
++      LOG(INFO) << "removed older copy " << copy << ".";
++    }
++  }
++}
++
+ UserDbRecoveryTask::UserDbRecoveryTask(an<Db> db) : db_(db) {
+   if (db_) {
+     db_->disable();
+@@ -24,30 +58,46 @@
    if (!db_) {
      return false;
    }
@@ -72,18 +115,27 @@ index e602147..3437680 100644
 -  // repair didn't work on the damaged db file; remove and recreate it
 +  // The repair failed: the database is moved aside under a name of its own,
 +  // never deleted, and a new one takes its place. One that can't be moved
-+  // stays disabled.
++  // stays disabled. Only the newest copy is kept, and only once it is in
++  // place.
    LOG(INFO) << "recreating db file.";
    if (db_->Exists()) {
 +    char stamp[sizeof "19700101T000000"];
 +    std::time_t now = std::time(nullptr);
 +    std::strftime(stamp, sizeof stamp, "%Y%m%dT%H%M%S", std::gmtime(&now));
 +    path aside = path(db_->file_path()).concat(".corrupt-").concat(stamp);
++    // A repair that failed earlier in the same second took that name.
      std::error_code ec;
 -    std::filesystem::rename(db_->file_path(),
 -                            path(db_->file_path()).concat(".old"), ec);
 -    if (ec && !db_->Remove()) {
 -      LOG(ERROR) << "Error removing db file '" << db_->file_path() << "'.";
++    for (int n = 2; std::filesystem::exists(aside, ec); n++) {
++      aside = path(db_->file_path())
++                  .concat(".corrupt-")
++                  .concat(stamp)
++                  .concat("-" + std::to_string(n));
++    }
++
 +    std::filesystem::rename(db_->file_path(), aside, ec);
 +    if (ec) {
 +      LOG(ERROR) << "Error moving db file '" << db_->file_path()
@@ -92,6 +144,7 @@ index e602147..3437680 100644
      }
 +    LOG(WARNING) << "moved db file '" << db_->file_path() << "' aside to "
 +                 << aside << ".";
++    RemoveOlderCopies(db_->file_path(), aside);
    }
 +  db_->enable();
    if (!db_->Open()) {
