@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <gio/gio.h>
 #include <glib/gstdio.h>
+#include <ibus-web/runtime.h>
 #include <rime_api.h>
 
 #define RIME_SCHEMA "org.freedesktop.ibus.engine.rime"
@@ -329,6 +330,12 @@ static void changed(GSettings *from G_GNUC_UNUSED,
 }
 
 void ibusweb_rime_settings_init(void) {
+  /* The patches and the deployments they cause are the writer's, in the
+   * user directory a read-only module can't change; it takes a change at its
+   * next start. */
+  if (!ibusweb_user_data_writable())
+    return;
+
   settings = g_settings_new(RIME_SCHEMA);
   g_signal_connect(settings, "changed", G_CALLBACK(changed), NULL);
   for (gsize i = 0; i < G_N_ELEMENTS(schemas); i++) {

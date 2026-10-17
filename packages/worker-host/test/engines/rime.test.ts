@@ -1,6 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { SettingChanged, int32Variant, type DecodedRecord, type Init, type OutputRecord } from "@ibus-web/protocol";
+import { chmod, readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  Persist,
+  SettingChanged,
+  int32Variant,
+  type DecodedRecord,
+  type Init,
+  type OutputRecord,
+} from "@ibus-web/protocol";
 import { afterAll, afterEach, describe, expect, inject, test } from "vitest";
 import type { PathInstallReport } from "../../src/shared/messages.ts";
 import { nodeHarness } from "../node/harness.ts";
@@ -81,6 +90,43 @@ const deployed = async (session: PageSession, times: number): Promise<void> => {
     await h.sleep(50);
     session.read();
   }
+};
+
+// The user directory of a session's storage, which a Node host mounts from
+// the host's file system.
+const userDirectory = (session: PageSession): string => {
+  const storage = h.storage(session.manifest);
+  if (storage.kind !== "node") throw new Error(`storage ${storage.kind}`);
+  return join(storage.hostPath, "user");
+};
+
+// Every file and directory under dir, with what a write would change.
+const listing = async (dir: string): Promise<Record<string, { size: number; mtimeMs: number }>> => {
+  const entries = await readdir(dir, { recursive: true });
+  return Object.fromEntries(
+    await Promise.all(
+      entries.toSorted().map(async (name) => {
+        const { size, mtimeMs, isDirectory } = await stat(join(dir, name)).then((stats) => ({
+          size: stats.size,
+          mtimeMs: stats.mtimeMs,
+          isDirectory: stats.isDirectory(),
+        }));
+        return [name, { size: isDirectory ? 0 : size, mtimeMs }] as const;
+      }),
+    ),
+  );
+};
+
+// Node's backend has no read-only mount, so the host file system refuses the
+// writes a browser's read-only mount would.
+const writable = async (dir: string, allowed: boolean): Promise<void> => {
+  const mode = (directory: boolean) => (allowed ? (directory ? 0o755 : 0o644) : directory ? 0o555 : 0o444);
+  if (allowed) await chmod(dir, mode(true));
+  for (const name of await readdir(dir, { recursive: true })) {
+    const path = join(dir, name);
+    await chmod(path, mode((await stat(path)).isDirectory()));
+  }
+  if (!allowed) await chmod(dir, mode(true));
 };
 
 // Types ASCII, whose keysyms are its code points; ibus-rime reads the keysym.
@@ -164,6 +210,42 @@ describe.each(h.data.runtimes)("Rime through $name host", (runtime) => {
     ).toBe(true);
     await typeText(session, 3, "zhongguo");
     expect(committed(await session.key(3, ...Key.space))).toBe("中國");
+  });
+
+  // Before the module knew its user data was read-only, opening LevelDB failed
+  // at its lock file, Rime scheduled a recovery that failed too and ended
+  // every session, and each new session did it again.
+  test("a second host on the same storage is read-only: it types from the shipped dictionaries, opens no user dictionary and ends no session", async () => {
+    const writer = await start(RIME_ICE);
+    await deployed(writer, 1);
+    await typeText(writer, 1, "nihao");
+    expect(committed(await writer.key(1, ...Key.space))).toBe("你好");
+    await writer.request(0, new Persist({}));
+
+    const user = userDirectory(writer);
+    const before = await listing(user);
+    expect(Object.keys(before)).toContain("rime_ice.userdb");
+    await writable(user, false);
+    let reader: PageSession | undefined;
+    try {
+      reader = await PageSession.start(h, runtime, manifest, { ...options(RIME_ICE), sharing: writer });
+      expect(reader.host.messages).toContainEqual(expect.objectContaining({ type: "storage", state: "read-only" }));
+      await deployed(reader, 1);
+
+      await typeText(reader, 1, "ni");
+      await reader.create(2);
+      await typeText(reader, 1, "hao");
+      expect(committed(await reader.key(1, ...Key.space))).toBe("你好");
+      await typeText(reader, 2, "zhongguo");
+      expect(committed(await reader.key(2, ...Key.space))).toBe("中国");
+
+      expect(reader.logs.filter((message) => message.startsWith("Rime is under maintenance"))).toEqual([]);
+      expect(reader.logs.filter((message) => message.startsWith("Rime has encountered an error"))).toEqual([]);
+      expect(await listing(user)).toEqual(before);
+    } finally {
+      await reader?.host.terminate();
+      await writable(user, true);
+    }
   });
 
   test("a settings change with only rime_ice's dictionaries installed redeploys without warning of a dictionary and reaches the context", async () => {

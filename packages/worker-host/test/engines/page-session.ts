@@ -61,6 +61,9 @@ export interface SessionOptions {
   // deploymentWarnings rather than failed, for a module whose deployments
   // warn of what a new user directory lacks or of its own configs.
   deployment?: { start: string; end: string };
+  // Another session whose storage this one shares, as a second tab of the
+  // module does; a fresh storage of its own if none.
+  sharing?: PageSession;
 }
 
 // Every exchange checks the output barrier, including requests that emit
@@ -72,7 +75,7 @@ export class PageSession {
   readonly deploymentWarnings: string[] = [];
   readonly logs: string[] = [];
   readonly host: RunningHost;
-  private readonly manifest: ModuleManifest;
+  readonly manifest: ModuleManifest;
   private readonly options: SessionOptions;
   private constructor(host: RunningHost, manifest: ModuleManifest, options: SessionOptions) {
     this.host = host;
@@ -87,7 +90,10 @@ export class PageSession {
     manifest: ModuleManifest,
     options: SessionOptions,
   ): Promise<PageSession> {
-    const engine = { ...manifest, name: `${manifest.name}-${runtime.name}-${crypto.randomUUID()}` };
+    const engine = options.sharing?.manifest ?? {
+      ...manifest,
+      name: `${manifest.name}-${runtime.name}-${crypto.randomUUID()}`,
+    };
     const host = await h.start({
       runtime,
       manifest: engine,

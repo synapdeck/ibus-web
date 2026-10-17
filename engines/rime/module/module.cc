@@ -5,16 +5,23 @@
 // ibus_main(), without a bus.
 
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <string>
 
 #include <glog/logging.h>
 #include <leveldb/env.h>
+#include <rime/config/config_component.h>
 #include <rime/context.h>
 #include <rime/deployer.h>
 #include <rime/dict/level_db.h>
+#include <rime/dict/table_db.h>
+#include <rime/dict/text_db.h>
+#include <rime/dict/user_db.h>
 #include <rime/key_event.h>
+#include <rime/registry.h>
 #include <rime/service.h>
 #include <rime/switcher.h>
 #include <rime_api.h>
@@ -82,8 +89,68 @@ guint returned_source;
 bool restart_requested;
 gboolean restart_full_check;
 
+// Makes every database it is asked for disabled, so that a dictionary never
+// opens it.
+template <class Component> class Disabled : public Component {
+public:
+  auto Create(const std::string &name)
+      -> decltype(Component::Create(name)) override {
+    auto *db = Component::Create(name);
+    db->disable();
+    return db;
+  }
+};
+
+// The user's configuration as the writer last saved it, kept in memory: each
+// session saves the schema it selects there.
+class UnsavedUserConfig : public rime::Config::Component {
+public:
+  rime::Config *Create(const std::string &name) override {
+    std::unique_ptr<rime::Config> saved(user_.Create(name));
+    std::stringstream yaml;
+    auto *config = new rime::Config;
+    if (saved->SaveToStream(yaml)) {
+      config->LoadFromStream(yaml);
+    }
+    return config;
+  }
+
+private:
+  rime::ConfigComponent<rime::ConfigLoader, rime::UserConfigResourceProvider>
+      user_;
+};
+
+void Replace(const char *name, rime::ComponentBase *component) {
+  rime::Registry &registry = rime::Registry::instance();
+  // Replacing a component outright warns.
+  registry.Unregister(name);
+  registry.Register(name, component);
+}
+
+// A read-only mount refuses every write to the user directory. Opening a
+// LevelDB fails at its lock file, Rime schedules a recovery that fails too
+// and ends every session when it does, and so on for each new session; a
+// session's saved configuration fails to save. So no user dictionary opens
+// its database, whatever its class (the stable table, read-only by design,
+// stays), and the user's configuration is kept in memory.
+void KeepUserDataAsItIs() {
+  Replace("userdb", new Disabled<rime::UserDbComponent<rime::LevelDb>>);
+  Replace("plain_userdb", new Disabled<rime::UserDbComponent<rime::TextDb>>);
+  Replace("tabledb", new Disabled<rime::DbComponent<rime::TableDb>>);
+  Replace("user_config", new UnsavedUserConfig);
+}
+
 void Start(gboolean full_check) {
   rime_api->initialize(&traits);
+
+  // The writer deploys into the user directory, which a read-only module
+  // can't; it uses what the writer deployed last.
+  if (!ibusweb_user_data_writable()) {
+    KeepUserDataAsItIs();
+    g_message("Rime is ready.");
+    return;
+  }
+
   if (rime_api->start_maintenance(full_check)) {
     rime_api->deploy_config_file("ibus_rime.yaml", "config_version");
   } else {

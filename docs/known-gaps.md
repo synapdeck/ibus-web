@@ -138,11 +138,7 @@ decided.
   100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
   Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
 
-- **Rime in a second tab is nearly unusable.** Only one tab holds a module's writer lock, so the data is safe, but a
-  read-only Rime can't open its user dictionaries: LevelDB opens its `LOCK` file read-write, which the read-only mount
-  refuses. Rime then runs a recovery task, which fails too, and the module resets every session on that failure:
-  compositions are cut off mid-word, nothing learned shows, and "Rime has encountered an error." repeats. Mozc in a
-  second tab loads the writer's data but silently loses its own learning.
+- **Mozc in a second tab** loads the writer's data but silently loses its own learning.
 - **Rime's user dictionary recovery can discard learning.** If the writer's LevelDB open ever fails (`EIO`, IndexedDB
   closing, a full quota, corruption LevelDB can't repair), librime renames the database to `.old` and starts it empty,
   restoring only from a sync snapshot, which nothing makes; a second failure deletes the live database.
@@ -183,7 +179,7 @@ decided.
   the page could restart the Worker on its own `versionchange`.
 - **A writer that unlinks a file another tab has open** deletes its inode at once: open counts are per connection, so
   the reader's next read fails with `ENOENT`. No current engine meets it: engine data is never unlinked, a read-only
-  Rime fails at LevelDB's `LOCK` before it opens any of a user dictionary's files, and Mozc reads its files whole.
+  Rime opens no user dictionary, and Mozc reads its files whole.
 
 - **Node.** The Node backend has no read-only mode, so a read-only mount and a seal are conventions there; Web Locks
   don't coordinate separate Node processes sharing a directory; and the Node marker's directory sync swallows every
