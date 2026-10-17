@@ -138,7 +138,6 @@ decided.
   100–200 KB, in that input context's session. The table module's `heapBytes` was measured with one such context open.
   Many simultaneous open compositions would need a candidate view the sessions share or borrow, or a larger `heapBytes`.
 
-- **Mozc in a second tab** loads the writer's data but silently loses its own learning.
 - **Rime's user dictionary recovery can discard learning.** If the writer's LevelDB open ever fails (`EIO`, IndexedDB
   closing, a full quota, corruption LevelDB can't repair), librime renames the database to `.old` and starts it empty,
   restoring only from a sync snapshot, which nothing makes; a second failure deletes the live database.

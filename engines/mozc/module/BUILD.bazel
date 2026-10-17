@@ -13,11 +13,13 @@ cc_binary(
     copts = ["@libibusWebCflags@"],
     linkopts = ["@sideModuleFlags@"],
     deps = [
+        "//base:config_file_stream",
         "//base:file_util",
         "//base:system_util",
         "//base/protobuf:text_format",
         "//client",
         "//client:client_interface",
+        "//config:config_handler",
         "//ibus_web_in_process:in_process",
         "//protocol:config_cc_proto",
         "//session:session_handler_interface",

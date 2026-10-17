@@ -1,8 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
+import { readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
 import {
   CandidateClicked,
   CursorDown,
+  DestroyEngine,
   PageDown,
   PageUp,
   SettingChanged,
@@ -36,6 +39,25 @@ const last = <Tag extends OutputRecord["_tag"]>(
 };
 const committed = (records: DecodedRecord[]): string =>
   records.map(({ record }) => (record._tag === "CommitText" ? record.text.text : "")).join("");
+
+// The user directory of a session's storage, which a Node host mounts from
+// the host's file system.
+const userDirectory = (session: PageSession): string => {
+  const storage = h.storage(session.manifest);
+  if (storage.kind !== "node") throw new Error(`storage ${storage.kind}`);
+  return join(storage.hostPath, "user");
+};
+
+// Every file under dir, with what a write would change.
+const listing = async (dir: string): Promise<Record<string, { size: number; mtimeMs: number }>> =>
+  Object.fromEntries(
+    await Promise.all(
+      (await readdir(dir, { recursive: true })).toSorted().map(async (name) => {
+        const { size, mtimeMs } = await stat(join(dir, name));
+        return [name, { size, mtimeMs }] as const;
+      }),
+    ),
+  );
 
 // Types ASCII, whose keysyms are its code points.
 const typeText = async (session: PageSession, ic: number, text: string, ret = 1): Promise<DecodedRecord[]> => {
@@ -180,6 +202,44 @@ describe.each(h.data.runtimes)("Mozc through $name host", (runtime) => {
     });
     await typeText(on, 1, "a");
     expect(committed(await on.key(1, ...enter))).toBe("あ");
+  });
+
+  // The session handler syncs what Mozc learned to the profile directory as
+  // a context's engine goes; Node's backend refuses no write, so a write is
+  // seen in the directory itself.
+  test("a second host on the same storage is read-only: it converts, and saves neither its config nor what it learns", async () => {
+    const writer = await start(hiragana);
+    await typeText(writer, 1, "kyouhaiitenkidesu");
+    await writer.key(1, ...Key.space);
+    expect(committed(await writer.key(1, ...enter))).toBe("今日はいい天気です");
+    await writer.request(1, new DestroyEngine({}));
+
+    const user = userDirectory(writer);
+    const before = await listing(user);
+    expect(Object.keys(before)).toContain("config1.db");
+    let reader: PageSession | undefined;
+    try {
+      reader = await PageSession.start(h, runtime, manifest, {
+        ...hiragana,
+        settings: [{ schemaId: MOZC_SCHEMA, path: MOZC_PATH, values: {} }],
+        sharing: writer,
+      });
+      expect(reader.host.messages).toContainEqual(expect.objectContaining({ type: "storage", state: "read-only" }));
+      await typeText(reader, 1, "kyouhaiitenkidesu");
+      await reader.key(1, ...Key.space);
+      expect(committed(await reader.key(1, ...enter))).toBe("今日はいい天気です");
+      await reader.request(
+        0,
+        new SettingChanged({ path: MOZC_PATH, key: "punctuation-method", value: stringVariant("comma-period") }),
+      );
+      await typeText(reader, 1, "a,");
+      expect(committed(await reader.key(1, ...enter))).toBe("あ，");
+      await reader.request(1, new DestroyEngine({}));
+
+      expect(await listing(user)).toEqual(before);
+    } finally {
+      await reader?.host.terminate();
+    }
   });
 
   test("the direct-input engine passes keys through", async () => {

@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
@@ -16,6 +17,7 @@
 #include "client/client.h"
 #include "data_manager/data_manager.h"
 #include "engine/engine.h"
+#include "engine/engine_interface.h"
 #include "protocol/commands.pb.h"
 #include "session/session_handler.h"
 
@@ -96,10 +98,63 @@ private:
   std::string server_program_;
 };
 
+// The engine as it is, but for Sync, which the session handler calls to
+// write what the engine learned and its user dictionary to the profile
+// directory, and which does nothing: another host writes that directory.
+class UnsavedEngine : public mozc::EngineInterface {
+public:
+  explicit UnsavedEngine(std::unique_ptr<mozc::EngineInterface> engine)
+      : engine_(std::move(engine)) {}
+
+  mozc::ConverterInterface *GetConverter() const override {
+    return engine_->GetConverter();
+  }
+  absl::string_view GetPredictorName() const override {
+    return engine_->GetPredictorName();
+  }
+  mozc::dictionary::SuppressionDictionary *GetSuppressionDictionary() override {
+    return engine_->GetSuppressionDictionary();
+  }
+  bool Reload() override { return engine_->Reload(); }
+  bool Sync() override { return true; }
+  bool Wait() override { return engine_->Wait(); }
+  bool ReloadAndWait() override { return engine_->ReloadAndWait(); }
+  absl::Status ReloadModules(std::unique_ptr<mozc::engine::Modules> modules,
+                             bool is_mobile) override {
+    return engine_->ReloadModules(std::move(modules), is_mobile);
+  }
+  mozc::UserDataManagerInterface *GetUserDataManager() override {
+    return engine_->GetUserDataManager();
+  }
+  absl::string_view GetDataVersion() const override {
+    return engine_->GetDataVersion();
+  }
+  const mozc::DataManagerInterface *GetDataManager() const override {
+    return engine_->GetDataManager();
+  }
+  std::vector<std::string> GetPosList() const override {
+    return engine_->GetPosList();
+  }
+  void SetSupplementalModel(const mozc::engine::SupplementalModelInterface
+                                *supplemental_model) override {
+    engine_->SetSupplementalModel(supplemental_model);
+  }
+  bool MaybeReloadEngine(mozc::EngineReloadResponse *response) override {
+    return engine_->MaybeReloadEngine(response);
+  }
+  bool
+  SendEngineReloadRequest(const mozc::EngineReloadRequest &request) override {
+    return engine_->SendEngineReloadRequest(request);
+  }
+
+private:
+  std::unique_ptr<mozc::EngineInterface> engine_;
+};
+
 } // namespace
 
 absl::StatusOr<std::unique_ptr<mozc::SessionHandlerInterface>>
-CreateSessionHandler(const std::string &data_path) {
+CreateSessionHandler(const std::string &data_path, bool read_only) {
   absl::StatusOr<std::unique_ptr<mozc::DataManager>> data_manager =
       mozc::DataManager::CreateFromFile(data_path);
   if (!data_manager.ok()) {
@@ -112,6 +167,10 @@ CreateSessionHandler(const std::string &data_path) {
     return engine.status();
   }
 
+  if (read_only) {
+    return std::make_unique<mozc::SessionHandler>(
+        std::make_unique<UnsavedEngine>(*std::move(engine)));
+  }
   return std::make_unique<mozc::SessionHandler>(*std::move(engine));
 }
 

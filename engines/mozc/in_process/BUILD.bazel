@@ -13,6 +13,7 @@ cc_library(
         "//client:client_interface",
         "//data_manager",
         "//engine",
+        "//engine:engine_interface",
         "//ipc",
         "//protocol:commands_cc_proto",
         "//session:session_handler",

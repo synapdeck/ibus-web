@@ -16,6 +16,8 @@
 #include "unix/ibus/ibus_config.h"
 #include "unix/ibus/ibus_config.pb.h"
 
+#include <ibus-web/runtime.h>
+
 namespace ibus_web {
 namespace {
 
@@ -168,6 +170,11 @@ void FollowSettings(GSettings *settings) {
 }
 
 void ApplyLaunchSetting(GSettings *settings) {
+  // The file is the writer's; a read-only module reads it as it is.
+  if (!ibusweb_user_data_writable()) {
+    return;
+  }
+
   mozc::IbusConfig current;
   current.Initialize();
   const bool active = g_settings_get_boolean(settings, kLaunchKey);

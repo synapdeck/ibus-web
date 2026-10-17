@@ -4,14 +4,18 @@
 // Mozc as a side module: what ibus-mozc's main() sets up before it enters
 // ibus_main(), with the converter in this process instead of mozc_server.
 
+#include <istream>
+#include <iterator>
 #include <memory>
 #include <string>
 
 #include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "absl/status/statusor.h"
+#include "base/config_file_stream.h"
 #include "base/system_util.h"
 #include "client/client.h"
+#include "config/config_handler.h"
 #include "ibus_web_in_process/in_process.h"
 #include "ibus_web_module/settings.h"
 #include "session/session_handler_interface.h"
@@ -43,6 +47,21 @@ IBusEngine *CreateEngine(IBusFactory *, const gchar *, gpointer) {
   return nullptr;
 }
 
+// Mozc writes its config whenever the settings set it. Read-only, the config
+// stays in memory, from the writer's as the module starts.
+void KeepConfigInMemory() {
+  const std::string stored = mozc::config::ConfigHandler::GetConfigFileName();
+  std::string contents;
+  if (std::unique_ptr<std::istream> saved =
+          mozc::ConfigFileStream::OpenReadBinary(stored)) {
+    contents.assign(std::istreambuf_iterator<char>(*saved), {});
+  }
+
+  constexpr char kInMemory[] = "memory://config1.db";
+  mozc::ConfigFileStream::AtomicUpdate(kInMemory, contents);
+  mozc::config::ConfigHandler::SetConfigFileName(kInMemory);
+}
+
 } // namespace
 
 // Keeps the compiled panel schema, which the module's settings metadata
@@ -60,10 +79,17 @@ void ibusweb_module_init(IBusWebModule *) {
   // The candidate window is the page's, drawn from IBus's lookup table.
   absl::SetFlag(&FLAGS_use_mozc_renderer, false);
 
+  // Another host writes the profile directory, which every change of this
+  // one's would fail on.
+  const bool read_only = !ibusweb_user_data_writable();
+  if (read_only) {
+    KeepConfigInMemory();
+  }
+
   failure = new std::string;
   GType type = IBUS_TYPE_ENGINE;
   absl::StatusOr<std::unique_ptr<mozc::SessionHandlerInterface>> handler =
-      ibus_web::CreateSessionHandler(kDataFile);
+      ibus_web::CreateSessionHandler(kDataFile, read_only);
   if (handler.ok()) {
     mozc::client::ClientFactory::SetClientFactory(
         new ibus_web::InProcessClientFactory(handler->release()));

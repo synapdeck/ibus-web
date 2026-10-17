@@ -19,9 +19,11 @@
 
 namespace ibus_web {
 
-// The desktop engine on the data set at `data_path`.
+// The desktop engine on the data set at `data_path`. A `read_only` engine
+// learns as one in the writer's profile directory does, from what it held at
+// the start, but saves nothing there.
 absl::StatusOr<std::unique_ptr<mozc::SessionHandlerInterface>>
-CreateSessionHandler(const std::string &data_path);
+CreateSessionHandler(const std::string &data_path, bool read_only = false);
 
 // Connections to `handler`, which must outlive the factory and every client
 // it makes.

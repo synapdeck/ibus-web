@@ -19,7 +19,8 @@ void FollowSettings(GSettings *settings);
 
 // Writes active-on-launch into ibus_config.textproto, which Mozc's engine
 // reads when it is made: call it before making the engine. FollowSettings
-// writes later changes, which take effect when the module next starts.
+// writes later changes, which take effect when the module next starts. A
+// module whose user data is read-only writes nothing.
 void ApplyLaunchSetting(GSettings *settings);
 
 } // namespace ibus_web
