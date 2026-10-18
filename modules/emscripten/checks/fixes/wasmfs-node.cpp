@@ -72,10 +72,13 @@ EM_JS(int, host_ignores_permissions, (const char *probe), {
   }
 });
 
-// How many descriptors the Node process has open.
+// How many descriptors the Node process has open. macOS has no /proc; its
+// /dev/fd lists the process's own.
 EM_JS(int, host_open_fds, (void), {
   const fs = process.getBuiltinModule("node:fs");
-  return fs.readdirSync("/proc/self/fd").length;
+  return fs
+      .readdirSync(process.platform == "linux" ? "/proc/self/fd" : "/dev/fd")
+      .length;
 });
 
 EM_JS(void, host_chmod, (const char *path, int mode), {
