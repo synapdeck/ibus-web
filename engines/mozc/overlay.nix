@@ -93,9 +93,9 @@ in
                       # is defined, unless fdopen is a macro already, which
                       # breaks the SDK's stdio.h.
                       "--host_copt=-Dfdopen=fdopen"
-                      # nixpkgs' compiler wrapper takes the macOS it targets from
-                      # the environment, which Bazel clears for each action.
-                      "--host_action_env=MACOSX_DEPLOYMENT_TARGET=${final.pkgsBuildBuild.stdenv.hostPlatform.darwinMinVersion}"
+                      # Bazel's toolchain targets the macOS --host_macos_minimum_os
+                      # names, which without Xcode to ask is 10.11.
+                      "--host_macos_minimum_os=${final.pkgsBuildBuild.stdenv.hostPlatform.darwinMinVersion}"
                     ];
 
                     bazelTargets = [
