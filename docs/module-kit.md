@@ -9,8 +9,11 @@ and never the contract's records.
 The kit runs inside a module's own bundle, in the module's Worker, beside the host that loads it. It depends on
 `@ibus-web/protocol` for two subpaths alone: `module-script`, which imports nothing, and `descriptor`, which imports
 only `effect`, so the kit adds the contract's constants and the `EngineDescriptor` schema to a bundle and no other code
-of the protocol. `effect` is a peer dependency, since an engine declares its settings as a `Schema.Struct` of the
-module's own `effect`; the kit also uses it to decode descriptors, read settings and run handlers' Effects.
+of the protocol. Its build entry, `@ibus-web/module-kit/build` ([below](#the-post-processor)), runs under Node instead,
+with the protocol's main entry and `es-module-lexer`, and so do its bundler plugins ([below](#the-bundler-plugin)), with
+`unplugin`; each bundler is an optional peer dependency. `effect` is a peer dependency, since an engine declares its
+settings as a `Schema.Struct` of the module's own `effect`; the kit also uses it to decode descriptors, read settings
+and run handlers' Effects.
 
 ## The contract
 
@@ -401,6 +404,8 @@ nothing but build the module value:
 - No Worker or DOM globals: no `self.postMessage`, `document`, `window` or `localStorage`. The same script is imported
   under Node, where they don't exist, and a script that touches one at its top level fails to import there. Reaching one
   from inside a handler is the same bug later.
+- No `import.meta.url` as a base: a build imports the script from a `data:` URL, against which a relative
+  `new URL(…, import.meta.url)` doesn't resolve. The script is one file, with nothing beside it to point at.
 
 ## Size
 
@@ -410,5 +415,340 @@ the module's own Worker. A fixture of two engines with settings comes to about 1
 
 ## Building a module
 
-Bundling a module into the single ES module file the host loads, and publishing it, is covered by the build tooling.
-This page doesn't describe it.
+A module's build bundles its entry into one ES module file, with the kit and Effect inlined, and hands that script to
+the post-processor, which writes the directory a page serves. The bundler plugin does both in the build a project
+already has; the command line runs the post-processor on a script bundled any other way.
+
+### The post-processor
+
+`@ibus-web/module-kit/build` runs under Node, and the root entry never imports it, so a module's bundle carries none of
+it. It exports `buildModule({ script, sourceMap, outDir })`, an Effect program, and
+`buildModuleFiles({ script, sourceMap, sourceMapComment })`, the same without writing, for a bundler that emits the
+files itself. `script` is the bundled script's bytes, or its text as UTF-8, and the optional `sourceMap` its source
+map's. `sourceMapComment` is true unless given, and false keeps the comment naming the map out of the script. Both
+succeed with the decoded manifest and the files, in the order they are written:
+
+- `module.<hash>.js`, the script byte for byte but for a trailing `//# sourceMappingURL=` comment, `<hash>` the first 16
+  hexadecimal digits of the SHA-256 of that code, followed, when there is a source map, by the map's bytes as given. The
+  name changes with the code and the map, so a server can cache the script and its map as immutable. Minifying is the
+  bundler's choice.
+- `module.<hash>.js.map`, when there is a source map: `sourceMap`, or, unset, a map the comment inlines as a `data:`
+  URL. Its `file` names the script, and the script ends in a comment naming the map, so the map resolves wherever the
+  directory is served; with `sourceMapComment: false` the map is still written under that name, and the script has no
+  comment. A comment naming a map that isn't given is dropped. The map's `sources` are written as given.
+- `settings.json`, when any engine has settings: the `SettingsMetadata` the page validates values and builds its form
+  from, each engine's schema `<settingsPrefix>.<engine>` at that id's path, its keys in the order the engine declares
+  them with their types, defaults, summaries, descriptions, ranges and choices.
+- `manifest.json`: `kind: "js"`, the module's `name` and `license`, the protocol version and `moduleAbi`, the script's
+  URL and size (the bytes served, the comment included), each engine's descriptor under its name in the engines' order,
+  the settings schema ids and, with settings, the metadata's URL and size. URLs are relative to the manifest. `version`
+  is `<version>+js.<hash>`, `<hash>` the first 16 hexadecimal digits of SHA-256 over the script's code followed by
+  `settings.json`, so a change to either is a new version. A module version that already carries build metadata, as
+  `1.2.0+meta`, gets the hash as a further identifier: `1.2.0+meta.js.<hash>`.
+
+The JSON is written with two-space indentation and a final newline, its keys in the schemas' order, so building the same
+script again writes the same bytes. The manifest is written last, so one on disk never names a file not yet written;
+files a build of another script left behind stay.
+
+It fails with a `Data.TaggedError` whose `message` says what is wrong, and, but for `WriteFailed`, before writing
+anything:
+
+| Tag                       | Fields            | When                                                                                           |
+| ------------------------- | ----------------- | ---------------------------------------------------------------------------------------------- |
+| `ScriptUnreadable`        | `reason`          | the script isn't UTF-8, or `es-module-lexer` can't read it as an ES module                     |
+| `ScriptHasImports`        | `imports`         | it has a static import, an `export … from` or a dynamic `import()`; `import.meta` is fine      |
+| `ScriptThrew`             | `reason`, `cause` | importing it under Node throws, as a `ModuleDefinitionError` or a top-level Worker global does |
+| `ModuleRefused`           | `reason`          | its default export isn't a module script, states another module ABI, or breaks the contract    |
+| `SettingsMetadataRefused` | `reason`          | `decodeSettingsMetadata` refuses the settings metadata, as for an engine name with no path     |
+| `SourceMapUnreadable`     | `reason`          | the source map isn't a JSON object                                                             |
+| `ManifestRefused`         | `reason`          | the JavaScript manifest's decoder refuses the manifest, as for a name or descriptor            |
+| `WriteFailed`             | `path`, `reason`  | `outDir` or a file in it can't be written; only `buildModule` fails with it                    |
+
+Each of `imports` is the import's `specifier` (undefined for a computed one) and its `line`. A module script is one
+file, so preloading has one URL to fetch and the hash in its name covers everything that runs.
+
+```ts
+import { buildModule } from "@ibus-web/module-kit/build";
+import { Effect } from "effect";
+import { readFile } from "node:fs/promises";
+
+const script = await readFile("dist/module.js");
+
+const built = await Effect.runPromise(
+  buildModule({ script, outDir: "dist/module" }).pipe(
+    Effect.catchTag("ScriptHasImports", ({ imports }) =>
+      Effect.die(`the bundle still imports ${imports.map((item) => item.specifier).join(", ")}`),
+    ),
+  ),
+);
+
+console.log(built.manifest.version);
+```
+
+The default export is checked against the contract by the protocol's `scriptProblem`, the check the host runs at start
+before comparing the export with its manifest, so a script that builds also starts. The build then requires a string
+`name`, `version` and `license` and a descriptor on each engine, and reads everything else in the manifest from the
+script, so the two can't disagree.
+
+### The command line
+
+The package's `bin`, `ibus-web-module`, runs `buildModule` on a script already bundled by whatever tool the module uses:
+
+```sh
+ibus-web-module build dist/module.js --out dist/module
+```
+
+A map the script's trailing comment names, inlined or in a file beside the script, is written beside the built script,
+its relative `sources` rewritten to lead from `--out` to the same files. It prints the output directory and the
+manifest's version on success. A refusal is one line on stderr, `<script>: <tag>: <message>`, the tag naming the check
+that failed and the message the engine or key and the reason, and the exit code is 1; so is a script that can't be read.
+`--help` prints the usage. An unknown option, a missing script or `--out`, or another command prints the usage to stderr
+and exits 2.
+
+### The bundler plugin
+
+`@ibus-web/module-kit/unplugin` exports the plugin as an [unplugin](https://unplugin.unjs.io/) instance (`unplugin`,
+also the default export) and its factory (`unpluginFactory`), and `@ibus-web/module-kit/<bundler>` exports it ready for
+Vite, Rollup, Rolldown, esbuild, webpack and Rspack. It goes in a build whose one input is the module's entry, which in
+Vite is the plugin's `entry` option. It sets the bundler's output to one ES module file, with every dependency inlined,
+no chunk split out, no runtime chunk and the entry's exports kept, and runs `buildModuleFiles` on that script. The
+module's files take the entry script's place in the bundler's output, under `ibus-module/<module name>/`. A setting of
+the build's own that the plugin replaces, as a `format` other than ES modules or a split of chunks, is replaced with a
+warning (`ibus-web-module replaces <setting>: …`), not refused, since a framework may set it for every build.
+
+It takes these options:
+
+- `entry`, in Vite only: the module's entry, relative to Vite's `root`. Given, `vite build` is the module's own build
+  and the dev server serves the module; unset, the plugin only builds the modules `?ibus-module` imports name, and an
+  application's build stays the application's whatever its input.
+- `outDir`: the directory, relative to the bundler's output directory, that the files go to. A path outside it, or the
+  output directory itself, fails the build with `OutDirRefused`.
+- `minify`: whether the bundler's own minifier runs on the script. Unset, Rolldown and esbuild minify, and Vite, webpack
+  and Rspack do what they do without the plugin: minify a production build. Rolldown keeps a minifier setting of the
+  build's own, such as `output.minify: "dce-only"`, unless `minify` is false. Rollup has no minifier, so a Rollup build
+  adds one, such as `@rollup/plugin-terser`, which runs before the plugin reads the script, and the Rollup plugin takes
+  no `minify`: given `true` anyway, it fails the build. A module is mostly Effect, and a fixture of two engines is about
+  115 KB minified against 560 KB not.
+
+A refusal of `buildModuleFiles` fails the bundler's build with `<tag>: <message>`, the message on one line, and so does
+a build that gives more than one script, as from two entries (`NotOneFile`). A build that emits a file besides the
+script and its map, as for an imported stylesheet or image or an asset another plugin emits, fails with
+`ModuleHasAssets`, naming the files: the module is served as one file, and nothing would serve them. The one exception
+is the `*.LICENSE.txt` file that webpack's and Rspack's minimizers extract comments to, which the script's own comment
+names: it is moved beside the module's files. A source map the bundler writes for the entry goes with it, as
+`module.<hash>.js.map`, its relative `sources` rewritten to lead to the same files, and its old name leaves the output.
+A hidden map, which a bundler writes without a comment, is written the same way and the script gets no comment. Vite's
+builds write a map as `build.sourcemap` says, and its dev server always.
+
+Building imports the script under Node to read its engines and settings, and Node never releases an imported module, so
+each of the plugin's builds runs `buildModuleFiles` in a `worker_threads` Worker of its own that ends with it.
+Rebuilding on every edit, in Vite's dev server or a bundler's watch mode, then leaves the process's heap where it was.
+
+The bundlers reach the script in different places, since unplugin's shared hooks don't see output files:
+
+| Bundler  | Import                          | Output set                                                                    | Script read                                                             |
+| -------- | ------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Vite     | `@ibus-web/module-kit/vite`     | `format: "es"`, `codeSplitting: false`, `preserveEntrySignatures: "strict"`   | a nested build's one chunk; emitted as assets ([below](#vites-builds))  |
+| Rollup   | `@ibus-web/module-kit/rollup`   | `format: "es"`, `inlineDynamicImports: true`                                  | as Vite                                                                 |
+| Rolldown | `@ibus-web/module-kit/rolldown` | `format: "es"`, `codeSplitting: false`                                        | as Vite                                                                 |
+| esbuild  | `@ibus-web/module-kit/esbuild`  | `bundle`, `format: "esm"`, no `splitting`, `metafile`                         | the metafile's entry output, at the end of the build; written beside it |
+| webpack  | `@ibus-web/module-kit/webpack`  | ES module output and library, no split or runtime chunk, `asyncChunks: false` | `processAssets`, after minifying; emitted as minimized assets           |
+| Rspack   | `@ibus-web/module-kit/rspack`   | as webpack                                                                    | as webpack                                                              |
+
+In Vite, the plugin's `entry` names the module, and the plugin makes it the build's input in place of whatever
+`build.rolldownOptions.input` (or its alias `build.rollupOptions.input`) names. Without `entry`, an application's build
+imports modules instead ([below](#importing-a-module-in-vite)):
+
+```ts
+// vite.config.ts
+import ibusModule from "@ibus-web/module-kit/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [ibusModule({ entry: "src/module.ts" })],
+});
+```
+
+Rollup resolves the kit and `effect` from `node_modules` only with `@rollup/plugin-node-resolve`, and reads TypeScript
+only with a plugin for it:
+
+```js
+// rollup.config.js
+import ibusModule from "@ibus-web/module-kit/rollup";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+import terser from "@rollup/plugin-terser";
+
+export default {
+  input: "src/module.js",
+  output: { dir: "dist" },
+  plugins: [nodeResolve(), terser(), ibusModule()],
+};
+```
+
+Rolldown and esbuild need nothing else:
+
+```js
+// rolldown.config.js
+import ibusModule from "@ibus-web/module-kit/rolldown";
+
+export default { input: "src/module.ts", output: { dir: "dist" }, plugins: [ibusModule()] };
+```
+
+```js
+import ibusModule from "@ibus-web/module-kit/esbuild";
+import { build } from "esbuild";
+
+await build({ entryPoints: ["src/module.ts"], outdir: "dist", plugins: [ibusModule()] });
+```
+
+esbuild writes the files itself and removes the entry script once the build ends. With `write: false`, they replace the
+entry in the result's `outputFiles` instead. esbuild doesn't drop the parts of Effect's namespaces a module leaves
+unused, so its script is about three times the others': the fixture comes to about 360 KB with esbuild, 170 KB with
+Rspack, and 105 to 120 KB with Rollup and terser, webpack, Vite or Rolldown.
+
+webpack and Rspack take the plugin in `plugins`, and a TypeScript entry needs a loader, as any of their builds does:
+
+```js
+// webpack.config.js
+import ibusModule from "@ibus-web/module-kit/webpack";
+
+export default { mode: "production", entry: "./src/module.js", plugins: [ibusModule()] };
+```
+
+```js
+// rspack.config.js
+import ibusModule from "@ibus-web/module-kit/rspack";
+
+export default { mode: "production", entry: "./src/module.js", plugins: [ibusModule()] };
+```
+
+The `module-kit-bundlers` check builds a fixture module, and the TypeScript example in
+[`examples/pinyin-tones`](../examples/pinyin-tones/README.md), with each of the six and compares the manifest and
+`settings.json` with the command line's build of the same source, all but the script's hash and size. With source maps
+on, each writes the map beside the script, named for it and leading to the fixture's source. Rollup and webpack read
+only JavaScript, so the check gives them a plugin and a loader that strip the types; Rspack uses its
+`builtin:swc-loader`, and the other three read TypeScript.
+
+### Vite's builds
+
+The Vite plugin builds a module the same way whichever path asks for it: `vite build` of the module's own entry, an
+application's `?ibus-module` import, and the dev server. Every one of them uses the application's `resolve`, `define`
+and `worker.plugins`. The module is bundled by Vite's own `build()`, not by the build the plugin is in, which for a
+module's own entry bundles nothing itself and gets the module's files in its output. The nested build runs with no
+configuration file and these pieces of the application's resolved configuration: `root`, `base`, `mode`, `cacheDir`,
+`envDir`, `envPrefix`, `resolve`, `define` and `build.target`, and the plugins `worker.plugins` returns, called afresh
+for each build. A module script runs in a Worker, so it gets what the application's Workers get: its aliases and
+`define`d constants, and the plugins of its Workers, not its top-level `plugins`. A plugin the module's source needs, as
+for a file type Vite doesn't read itself, goes in `worker.plugins`. The nested build's warnings go to the application's
+logger, prefixed `[ibus-web-module]`; its errors fail the module's build. Its output is the one ES module file a module
+is, minified as `build.minify` and the plugin's `minify` say, except in the dev server, which doesn't minify.
+
+In `vite build --watch`, each file the module bundled is watched, dependencies under `node_modules` aside, and a change
+to one rebuilds it with the rest. A build that fails keeps watching what the last good one bundled, and the files the
+failing one read.
+
+### Importing a module in Vite
+
+An application imports a module from its own build, as it imports a `?worker`:
+
+```ts
+import transliteration from "./transliteration.module.ts?ibus-module";
+
+ModuleRegistry.layer({ hostUrl, runtimeUrl, modules: { transliteration } });
+```
+
+In `vite build`, the import builds the entry, emits its files as assets under `<assetsDir>/<module name>/`
+(`assets/transliteration/manifest.json` by default), and gives the manifest's URL under `base`, as a `?url` import does:
+`/assets/transliteration/manifest.json`, or relative to the importing script for a relative `base`. The plugin's
+`outDir` is for a module's own build and doesn't apply. Each module's name sets its directory, so modules of different
+names never collide, and two entries building modules of one name fail the build with `DuplicateModuleName`, naming
+both. One entry imported from several places is built once.
+
+In the dev server, the import gives the path its middleware serves the module at, the same `<assetsDir>/<module name>/`
+under `base`; the module builds when the import is first loaded, and a failure of that build fails the import.
+
+`@ibus-web/module-kit/client` declares `*?ibus-module` imports as a default-exported string, for a `tsconfig`'s `types`
+as `vite/client` is:
+
+```json
+{ "compilerOptions": { "types": ["vite/client", "@ibus-web/module-kit/client"] } }
+```
+
+The same import in the other bundlers would need a nested build in each, and they build a module as its own entry.
+
+### Vite's dev server
+
+In `vite` (the dev server), the Vite plugin serves modules from middleware at the paths `vite build` writes their files
+to, under the server's `base`: for the module the plugin's `entry` names, `/ibus-module/<module name>/manifest.json` and
+its neighbours, or under `outDir`, built on the first request under that directory; for an import, as above. The
+manifest and `settings.json` are the ones `vite build` writes, all but the script's hash and size in the manifest; files
+are served as `application/json` and `text/javascript` with `Cache-Control: no-cache`, and any other path under a
+module's directory, as a script an older manifest names, answers 404. A path under `outDir` but outside the module's
+directory, such as a file of `publicDir`, goes on to Vite's own middleware.
+
+The server watches each file a module's build bundled, dependencies under `node_modules` aside. A change to one rebuilds
+the module and, once the build succeeds, reloads the page, which loads the new version afresh, an import's URL with it:
+hot replacement can't carry an engine's state in its Worker over. Vite's own update of an import, which would reload the
+page before the rebuild, is dropped. Changes during a build are built together once it ends. A build that fails, as a
+source that doesn't bundle (`BundleFailed`) or a refusal of `buildModuleFiles`, logs `<tag>: <message>` through Vite's
+logger and in the page's error overlay, and leaves the last good build served; with none yet, a request answers 500 with
+that line. A failed build can't list what it would have bundled, so until a build succeeds, a file created or changed in
+a directory holding a file it read rebuilds the module too, as creating the file a new import names does. A module whose
+name another module of the dev server already has fails as `DuplicateModuleName`.
+
+`module-kit-bundlers` starts a dev server on the fixture module and compares what it serves with `vite build`'s output,
+edits the source to get a new version and a reload message, breaks it and recovers with the refusal in the overlay,
+answers 404 for a stale script, recovers a first build that fails on a missing import once the file is created, and
+rebuilds 20 times to check the server's heap doesn't grow with each build. It also builds a fixture application
+importing the fixture module and one whose engine only the application's alias reaches: the import's files against the
+command line's, the import's value under a `base` of `/app/`, an application whose input is its script built as an
+application, the nested build's warnings in the application's log, two entries of one module name refused, a rebuild
+under `vite build --watch`, the dev server serving each module at its import's URL, and its rebuild of an imported
+module on an edit, with one reload.
+
+### Serving a module
+
+A build's output directory is static files: `manifest.json`, `module.<hash>.js` and, for a module with settings,
+`settings.json`. The page passes the manifest's URL to the facade, and the host resolves the script's and the settings'
+URLs against it. Three things in how the files are served matter:
+
+- **CORS**, when the module comes from another origin than the page. The script, the manifest and `settings.json` are
+  each fetched across origins, so each response carries an `Access-Control-Allow-Origin` that allows the page's origin,
+  as a `.wasm` from another origin needs ([worker-host.md](worker-host.md#the-program-and-its-scopes)).
+- **`script-src`**, under a Content Security Policy. The script is loaded by `import()` in the module's Worker, so the
+  policy's `script-src` must allow the script's origin; a module from the page's own origin needs nothing.
+- **An immutable cache for the script.** `module.<hash>.js`, and its map, are named for their bytes, so
+  `Cache-Control: public, max-age=31536000, immutable` is safe for them, and a new build is a new URL. `manifest.json`
+  and `settings.json` keep their names and name the current script, so they are served to be revalidated
+  (`Cache-Control: no-cache`), as the dev server serves every file.
+
+The page itself must be cross-origin isolated for the host's `SharedArrayBuffer`, with COOP `same-origin` and COEP
+`require-corp`, as for any module ([ibus-web.md](ibus-web.md)). The plugin sets no headers, since they apply to the
+whole server. The application's Vite configuration sets them, for its dev server and `vite preview` alike, as the demo's
+does:
+
+```ts
+// vite.config.ts
+import ibusModule from "@ibus-web/module-kit/vite";
+import { defineConfig } from "vite";
+
+const crossOriginIsolation = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+};
+
+export default defineConfig({
+  server: { headers: crossOriginIsolation },
+  preview: { headers: crossOriginIsolation },
+  plugins: [ibusModule({ entry: "src/module.ts" })],
+});
+```
+
+### The version's identity
+
+A built manifest's `version` is the module's own `version` with `+js.<hash>` appended (or `.js.<hash>` after build
+metadata it already has). `<hash>` is the first 16 hexadecimal digits of SHA-256 over the script's code, without a
+`sourceMappingURL` comment, followed by `settings.json`, so the version changes exactly when the code that runs or the
+metadata the page builds its form from changes. Both derive from the script, so the same script gives the same version;
+a kit that writes different metadata for an unchanged script gives a new one. The script's file name hashes the script's
+code and its source map, if it has one, so it stays the same when only the metadata changes.

@@ -158,23 +158,23 @@ has the modules release what they hold with `Shutdown` (below).
 
 **A JavaScript module** (`kind: "js"`) has no storage plan, runtime, wake relay, storage or engine module. Its one scope
 inside the Worker's, the module script (`src/worker/layers/script.ts`), imports `module.url` with `import()`, resolved
-against the manifest's final URL as a `.wasm` URL is, and checks the default export against the manifest
-(`src/worker/script.ts`): the `ibusWebModule` brand equal to the host's module ABI, its `name` the manifest's, `persist`
-and `shutdown` functions where present, an engine for every descriptor in the manifest and none besides, in the
-manifest's order, none named as an array index (an object enumerates those first, whatever order the script wrote), each
-with a `create` function and a descriptor equal to the manifest's (`displayName`, `languages`, `keyboard`). Settings
-need a `settingsPrefix` of dot-separated components (letters, digits, `_` and `-`), and each engine's `settings` an
-object of declarations, each of a known type, with a range only on `i` or `d` (finite bounds of the type, `min` at most
-`max`), choices only on `s` (strings), a summary and description that are text, and a default its own declaration
-accepts. A setting's name must be text a record can carry: not empty, and without NUL or a lone surrogate. The schema
-ids so derived, `<settingsPrefix>.<engine>` for each engine with settings, must be the manifest's `settingsSchemas`, so
-a manifest built from another version of the script is refused. Each refusal is for good, with `refused: "manifest"`.
-The host doesn't compare the declarations with the settings metadata the page reads: the build writes both from the same
-script, so they agree. A manifest that doesn't belong to its script so fails at start rather than at a key. The script's
-name is its content hash, so its URL is the identity of the bytes that run; the host doesn't fetch it a second time to
-check its size, since `import()` can't be handed bytes it has checked. A script from another origin needs CORS headers,
-as a `.wasm` does, and a Content Security Policy's `script-src` must allow its origin. Nothing is released: a module
-stays loaded until the Worker ends.
+against the manifest's final URL as a `.wasm` URL is, and checks the default export against the contract, with the
+protocol's `scriptProblem`, and against the manifest (`src/worker/script.ts`): the `ibusWebModule` brand equal to the
+host's module ABI, its `name` the manifest's, `persist` and `shutdown` functions where present, an engine for every
+descriptor in the manifest and none besides, in the manifest's order, none named as an array index (an object enumerates
+those first, whatever order the script wrote), each with a `create` function and a descriptor equal to the manifest's
+(`displayName`, `languages`, `keyboard`). Settings need a `settingsPrefix` of dot-separated components (letters, digits,
+`_` and `-`), and each engine's `settings` an object of declarations, each of a known type, with a range only on `i` or
+`d` (finite bounds of the type, `min` at most `max`), choices only on `s` (strings), a summary and description that are
+text, and a default its own declaration accepts. A setting's name must be text a record can carry: not empty, and
+without NUL or a lone surrogate. The schema ids so derived, `<settingsPrefix>.<engine>` for each engine with settings,
+must be the manifest's `settingsSchemas`, so a manifest built from another version of the script is refused. Each
+refusal is for good, with `refused: "manifest"`. The host doesn't compare the declarations with the settings metadata
+the page reads: the build writes both from the same script, so they agree. A manifest that doesn't belong to its script
+so fails at start rather than at a key. The script's name is its content hash, so its URL is the identity of the bytes
+that run; the host doesn't fetch it a second time to check its size, since `import()` can't be handed bytes it has
+checked. A script from another origin needs CORS headers, as a `.wasm` does, and a Content Security Policy's
+`script-src` must allow its origin. Nothing is released: a module stays loaded until the Worker ends.
 
 **Finalizers inspect the `Exit`.** After a trap the runtime's memory can't be trusted, so a finalizer that calls into
 the runtime (`runtimeFinalizer`, the seals) runs only while the runtime is intact; JavaScript-side cleanup and crash
@@ -549,10 +549,10 @@ running timers on a fake clock (due order, cancelling, destroyed sessions, a thr
 with its output and doorbell and crashing on a timer's throw, a request and an idle timer each writing more than a
 256-byte ring holds, a record larger than the ring among them, while the page drains as it goes, and its settings store
 converting each type, and a module written with `@ibus-web/module-kit` (`test/fixtures/kit-module/`, bundled by the test
-with Effect and the kit inlined) served a trace of a transform engine with a toggle-bound setting, paged candidates and
-Effect handlers. `checks.worker-host-browser` runs `protocolRoundtrip`, `replySequence` and `jsModuleSmoke` (the fixture
-module started and a key typed on its `trace` engine) with real Workers on both runtime builds in Chromium and Firefox,
-twelve smoke cases.
+with Effect and the kit inlined and built by the kit's `buildModule`) served a trace of a transform engine with a
+toggle-bound setting, paged candidates and Effect handlers. `checks.worker-host-browser` runs `protocolRoundtrip`,
+`replySequence` and `jsModuleSmoke` (the fixture module started and a key typed on its `trace` engine) with real Workers
+on both runtime builds in Chromium and Firefox, twelve smoke cases.
 
 The complete matrices run as `packages.worker-host-node-integration` and `packages.worker-host-browser-integration`,
 also included in `packages.integration-checks`. Node integration retains every `test/node/*.test.ts`, including the

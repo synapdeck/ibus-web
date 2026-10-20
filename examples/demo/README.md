@@ -40,6 +40,9 @@ The settings form shows the selected module's settings. A setting at a path that
 m17n's input-method variables, at `variables/` below an engine's path, reach every input context made afterwards and an
 existing one at its next focus-out or reset; a composition already under way keeps the old value.
 
-A module joins the demo when its Nix module sets `ibusWeb.demo.modules.<name>` to its distribution. The page opens on
-the default engine of the first module in name order. Each module's end-to-end tests are in `test/e2e/<name>.spec.ts`,
-with their helpers beside them.
+A module joins the demo when its Nix module sets `ibusWeb.demo.modules.<name>` to its distribution. The JavaScript
+module [`pinyin-tones`](../pinyin-tones/README.md) instead builds with the page: `src/main.ts` imports its entry with
+`?ibus-module`, and the kit's Vite plugin in `vite.config.ts` builds it into `assets/pinyin-tones/`, in `vite build` and
+in the dev server alike ([building a module](../../docs/module-kit.md#building-a-module)). The page opens on the default
+engine of the first module in name order. Each module's end-to-end tests are in `test/e2e/<name>.spec.ts`, with their
+helpers beside them.

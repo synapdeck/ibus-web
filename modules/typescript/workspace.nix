@@ -42,32 +42,36 @@
       # directory (.ts, .mts, .cts, .json), plus the files it lists in
       # package.json under `ibusWeb.assets` (paths relative to the package,
       # such as an HTML page). Anything else, such as C sources, stays out, so
-      # editing it rebuilds nothing here.
+      # editing it rebuilds nothing here. A package inside another's directory
+      # is its own, not the outer one's.
       packageSources =
         dir:
         let
           assets = (lib.importJSON (root + "/${dir}/package.json")).ibusWeb.assets or [ ];
+          nested = lib.filter (other: lib.hasPrefix "${dir}/" other) packageDirs;
           assetPath =
             asset:
             if lib.hasPrefix "/" asset || lib.elem ".." (lib.splitString "/" asset) then
               throw "${dir}/package.json: ibusWeb.assets must stay inside the package, not ${asset}"
             else
               root + "/${dir}/${asset}";
+
+          sources = lib.fileset.unions (
+            [
+              (lib.fileset.fileFilter (
+                file:
+                lib.any file.hasExt [
+                  "ts"
+                  "mts"
+                  "cts"
+                  "json"
+                ]
+              ) (root + "/${dir}"))
+            ]
+            ++ map assetPath assets
+          );
         in
-        lib.fileset.unions (
-          [
-            (lib.fileset.fileFilter (
-              file:
-              lib.any file.hasExt [
-                "ts"
-                "mts"
-                "cts"
-                "json"
-              ]
-            ) (root + "/${dir}"))
-          ]
-          ++ map assetPath assets
-        );
+        lib.fileset.difference sources (lib.fileset.unions (map (other: root + "/${other}") nested));
 
       rootManifest = lib.importJSON (root + "/package.json");
 
@@ -157,7 +161,7 @@
         src = manifests;
         inherit pnpm;
         fetcherVersion = 4;
-        hash = "sha256-jVswUCJ96qacuJuDo4aUXoA0k8CSp061+KvCo0SLKRM=";
+        hash = "sha256-vy5WY0DC+LOPJxNSPUEx6eb8Kac19jHVAI3MQPzNyyg=";
       };
 
       # tree-sitter-cpp 0.23.4's linux-arm64 prebuild is an x86-64 binary.
@@ -322,9 +326,11 @@
             # every workspace package. Only selected packages contain sources
             # and compiled output.
             cp -R package.json pnpm-workspace.yaml node_modules $out/
+            # Into the directory's contents, since a package inside another's
+            # directory has been copied with it.
             ${lib.concatMapStrings (dir: ''
-              mkdir -p $out/${dirOf dir}
-              cp -R ${dir} $out/${dir}
+              mkdir -p $out/${dir}
+              cp -R ${dir}/. $out/${dir}/
             '') packageDirs}
             ${lib.concatMapStrings (file: ''
               mkdir -p $out/${dirOf file}

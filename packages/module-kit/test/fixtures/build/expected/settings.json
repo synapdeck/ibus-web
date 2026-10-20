@@ -1,0 +1,104 @@
+{
+  "schemas": [
+    {
+      "id": "org.example.buildfixture.every",
+      "paths": [
+        "/org/example/buildfixture/every/"
+      ],
+      "keys": [
+        {
+          "name": "show-hints",
+          "type": "b",
+          "default": {
+            "_tag": "b",
+            "value": true
+          },
+          "summary": "Show hints"
+        },
+        {
+          "name": "letter-case",
+          "type": "s",
+          "default": {
+            "_tag": "s",
+            "value": "lower"
+          },
+          "summary": "Letter case",
+          "description": "The case of the letters written.",
+          "choices": [
+            "lower",
+            "upper"
+          ]
+        },
+        {
+          "name": "greeting",
+          "type": "s",
+          "default": {
+            "_tag": "s",
+            "value": "γεια"
+          }
+        },
+        {
+          "name": "delay",
+          "type": "i",
+          "default": {
+            "_tag": "i",
+            "value": 300
+          },
+          "range": {
+            "min": {
+              "_tag": "i",
+              "value": 0
+            },
+            "max": {
+              "_tag": "i",
+              "value": 1000
+            }
+          }
+        },
+        {
+          "name": "scale",
+          "type": "d",
+          "default": {
+            "_tag": "d",
+            "value": 1.5
+          },
+          "range": {
+            "min": {
+              "_tag": "d",
+              "value": 0.5
+            },
+            "max": {
+              "_tag": "d",
+              "value": 4
+            }
+          }
+        },
+        {
+          "name": "ratio",
+          "type": "d",
+          "default": {
+            "_tag": "d",
+            "value": 0.25
+          }
+        },
+        {
+          "name": "words",
+          "type": "as",
+          "default": {
+            "_tag": "a",
+            "items": [
+              {
+                "_tag": "s",
+                "value": "alpha"
+              },
+              {
+                "_tag": "s",
+                "value": "beta"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -394,6 +394,18 @@ use a test framework. The main ones:
   `hangul-libhangul-link`: the toolchain and packages build, link and apply as expected ([toolchain.md](toolchain.md),
   [glib.md](glib.md)).
 
+## JavaScript modules
+
+`checks.module-kit-node` runs the kit's Vitest suites under Node: definitions, settings, candidates, properties and
+transform engines, the post-processor and its errors, the `ibus-web-module` command and the plugin's output. Because
+every bundler is a pinned dev dependency of a fixture package, not of the kit, `checks.module-kit-bundlers`
+(`packages/module-kit/checks/bundlers`) is a check of its own: it builds the kit's fixture module and
+[`examples/pinyin-tones`](../examples/pinyin-tones/README.md) with Vite, Rollup, Rolldown, esbuild, webpack and Rspack,
+compares each manifest and `settings.json` with the command line's, checks each bundler's source map beside the script,
+and exercises Vite's dev server, `?ibus-module` import and `vite build --watch`
+([module-kit.md](module-kit.md#the-bundler-plugin)). `checks.example-pinyin-tones-node` runs the example's own tests.
+The example's end-to-end tests are the demo's ([below](#production-playwright-integration)).
+
 ## TypeScript protocol
 
 `checks.protocol-node` runs the package's Vitest suites under Node: GVariant vectors, strict rejection cases, schema and
@@ -545,9 +557,9 @@ and `reset()` touch no database, and a handler that never returns ends in `Engin
 events use a helper that simulates unprevented native defaults; this does not prove trusted input, native undo, OS
 keyboard/layout, Safari or minimum browser versions.
 
-`packages.demo` builds examples/demo; `checks.example-demo-smoke` separately loads that built page in fresh Chromium,
-checks isolation and opaque archive delivery, and verifies typing and blur commit with constructed keys. The production
-demo uses the facade, panel and metadata-driven settings form.
+`packages.demo` builds examples/demo, the pinyin-tones JavaScript module with it; `checks.example-demo-smoke` separately
+loads that built page in fresh Chromium, checks isolation and opaque archive delivery, and verifies typing and blur
+commit with constructed keys. The production demo uses the facade, panel and metadata-driven settings form.
 
 These are default gates. `nix flake check` runs the default milestone tier; the explicit worker-host integration outputs
 and `integration-checks` aggregate above remain extended work, not a matrix to repeat for every focused change.
@@ -555,24 +567,28 @@ and `integration-checks` aggregate above remain extended work, not a matrix to r
 ### Production Playwright integration
 
 `nix build .#playwright-integration` serves the production demo through its Vite preview configuration with COOP/COEP
-and runs 41 trusted-input tests in each of Chromium, Firefox and WebKit (123 total): Hangul's ten, the table module's
-seven, Mozc's five, m17n's seven, Rime's seven and the layout matrix's five. The specs are grouped by module, in
-`examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's spec covers real composition, visible
-preedit without value/input leakage, focused native undo, separate blur commit, Hanja paging/click/digit selection,
-password exclusion, actual Worker restart, native Space reset ordering, 3f settings changes across live contexts, tabs
-and reload, and the picker with its Ctrl+Space toggle, which leaves plain input while deselected. It also opens the page
-as `/?properties=page` and turns Hangul input on with the page's own switch, the panel's properties not placed. The
-table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`, keeps one Worker across engine switches, gives plain input
-once deselected, checks that its engines stay in one picker group, and checks that the settings form follows the module.
-The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi, Vietnamese and a Thai tone mark on the
-field's own consonant, checks that the settings form holds only the selected engine's instance, shows a variable saved
-in the form reaching the field once the field has lost focus after the save and regained it, and times a restart from
-IndexedDB once the page shows persistent storage. The Rime spec (`rime.spec.ts`) checks the picker's language groups,
-installs `rime_ice`'s dictionaries on its first selection and nothing on its second, timing it, fetches `luna_pinyin`
-ahead of time into the page's cache and types with it, installs `cangjie5` ahead of time and finds nothing to install
-once it is selected, converts a phrase, types Cangjie, turns `luna_pinyin`'s simplification on with the page's own
-switch, finds a chosen candidate first after a reload, and checks that the settings form holds the selected engine's
-switches and that the page size reaches the panel; each test takes up to 300 s, and the run's limit is 1800 s.
+and runs 49 trusted-input tests in each of Chromium, Firefox and WebKit (147 total): Hangul's ten, the table module's
+seven, Mozc's five, m17n's seven, Rime's nine, the pinyin-tones module's six and the layout matrix's five. The specs are
+grouped by module, in `examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's spec covers
+real composition, visible preedit without value/input leakage, focused native undo, separate blur commit, Hanja
+paging/click/digit selection, password exclusion, actual Worker restart, native Space reset ordering, 3f settings
+changes across live contexts, tabs and reload, and the picker with its Ctrl+Space toggle, which leaves plain input while
+deselected. It also opens the page as `/?properties=page` and turns Hangul input on with the page's own switch, the
+panel's properties not placed. The table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`, keeps one Worker across
+engine switches, gives plain input once deselected, checks that its engines stay in one picker group, and checks that
+the settings form follows the module. The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi,
+Vietnamese and a Thai tone mark on the field's own consonant, checks that the settings form holds only the selected
+engine's instance, shows a variable saved in the form reaching the field once the field has lost focus after the save
+and regained it, and times a restart from IndexedDB once the page shows persistent storage. The Rime spec
+(`rime.spec.ts`) checks the picker's language groups, installs `rime_ice`'s dictionaries on its first selection and
+nothing on its second, timing it, fetches `luna_pinyin` ahead of time into the page's cache and types with it, installs
+`cangjie5` ahead of time and finds nothing to install once it is selected, converts a phrase, types Cangjie, turns
+`luna_pinyin`'s simplification on with the page's own switch, finds a chosen candidate first after a reload, and checks
+that the settings form holds the selected engine's switches and that the page size reaches the panel; each test takes up
+to 300 s, and the run's limit is 1800 s. The pinyin-tones spec (`pinyin-tones.spec.ts`), for the JavaScript module the
+page imports with `?ibus-module`, checks its picker group, types `ni3 hao3` into `nǐ hǎo`, turns `v-as-u` off with the
+page's own switch so that `lv4` stays as typed while `u:` still gives `ü`, checks that the settings form shows the
+setting and follows the switch, gives plain input once deselected, and keeps one Worker across selections.
 
 The layout matrix (`layouts.spec.ts`) types into Hangul, Rime's `luna_pinyin`, Mozc, m17n's Vietnamese telex and the
 table module's LaTeX from the US, AZERTY, QWERTZ, Dvorak and Colemak layouts, one test per module walking every layout:

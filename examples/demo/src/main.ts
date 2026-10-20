@@ -13,6 +13,7 @@ import {
 } from "ibus-web";
 import { createPanel } from "ibus-web/panel";
 import "ibus-web/panel/style.css";
+import pinyinTones from "@ibus-web/example-pinyin-tones/module?ibus-module";
 import "./style.css";
 
 type SettingsKey = Awaited<ReturnType<IbusWeb["settings"]["schemas"]>>[number]["keys"][number];
@@ -59,7 +60,12 @@ const loadModules = async (): Promise<Record<string, URL>> => {
   return Object.fromEntries(Object.entries(manifests).map(([name, path]) => [name, new URL(path, modulesUrl)]));
 };
 
-const modules = await loadModules();
+// The JavaScript module is built with the page and sits among the others in name order.
+const modules = Object.fromEntries(
+  Object.entries({ ...(await loadModules()), "pinyin-tones": new URL(pinyinTones, location.href) }).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  ),
+);
 const app = createIbusWeb({
   hostUrl: new URL("/ibus-web/host/worker/index.js", location.href),
   runtimeUrl: new URL("/ibus-web/runtime/ibus-runtime.js", location.href),

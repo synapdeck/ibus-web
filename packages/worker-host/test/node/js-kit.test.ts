@@ -213,6 +213,18 @@ beforeAll(async () => {
 });
 afterAll(() => bundle.remove());
 
+test("the kit's build writes the fixture's manifest from its script", () => {
+  expect(bundle.manifest).toMatchObject({
+    kind: "js",
+    name: "kit-fixture",
+    version: expect.stringMatching(/^1\.0\.0\+js\.[0-9a-f]{16}$/),
+    module: { url: expect.stringMatching(/\/module\.[0-9a-f]{16}\.js$/) },
+    engines: [{ name: "greek" }, { name: "words" }],
+    settingsSchemas: ["org.example.kitfixture.greek"],
+    settingsMetadata: { url: "./settings.json" },
+  });
+});
+
 test("a host serves a module written with the kit through every kind of request", async () => {
   const { worker, control, message } = await start(bundle.manifest);
   try {

@@ -7,7 +7,7 @@
 // there. Each refusal is warned of in the words the page hears for any
 // module's settings.
 
-import { variant, type GVariantValue, type Init } from "@ibus-web/protocol";
+import { settingAccepts, settingsSchemaPath, variant, type GVariantValue, type Init } from "@ibus-web/protocol";
 import type { ModuleScript, SettingDeclaration, SettingType, SettingValue } from "@ibus-web/protocol/module-script";
 
 type Variant = Extract<GVariantValue, { _tag: "v" }>;
@@ -47,34 +47,6 @@ const pathValid = (path: string): boolean => path.startsWith("/") && path.endsWi
 const patternValid = (pattern: string): boolean =>
   pathValid(pattern) && /^(?:[^{}]|\{[A-Za-z0-9_-]+\})*$/.test(pattern) && pattern.includes("{");
 
-const int32 = (value: number): boolean => Number.isInteger(value) && value >= -0x80000000 && value <= 0x7fffffff;
-
-const inRange = (declaration: { readonly range?: { min: number; max: number } }, value: number): boolean =>
-  declaration.range === undefined || (value >= declaration.range.min && value <= declaration.range.max);
-
-// GVariant strings are UTF-8 without NUL, and a lone surrogate has no
-// encoding in UTF-8.
-export const wellFormed = (value: unknown): value is string => typeof value === "string" && !/[\0\p{Cs}]/u.test(value);
-
-// Whether value is one of the key's: of its type, and within its choices or
-// range.
-const accepts = (declaration: SettingDeclaration, value: unknown): value is SettingValue => {
-  switch (declaration.type) {
-    case "b":
-      return typeof value === "boolean";
-    case "s":
-      return wellFormed(value) && (declaration.choices === undefined || declaration.choices.includes(value));
-    case "i":
-      return typeof value === "number" && int32(value) && inRange(declaration, value);
-    case "d":
-      return typeof value === "number" && inRange(declaration, value);
-    case "as":
-      return Array.isArray(value) && value.every(wellFormed);
-    default:
-      return false;
-  }
-};
-
 // The plain value a variant of the key's type holds, or undefined for a
 // variant of another type.
 const plain = (type: SettingType, boxed: Variant): unknown => {
@@ -108,34 +80,6 @@ const describe = (value: unknown): string => {
   }
 };
 
-const settingTypes: ReadonlySet<unknown> = new Set<SettingType>(["b", "s", "i", "d", "as"]);
-
-// What is wrong with a script's declaration of a key, which the start
-// refuses, or undefined for a sound one: of a known type, with a range of
-// that type's numbers, choices that are strings, and a default those allow.
-export const declarationProblem = (declaration: unknown): string | undefined => {
-  if (typeof declaration !== "object" || declaration === null) return "isn't a declaration";
-
-  const { type, range, choices, summary, description, default: initial } = declaration as Record<string, unknown>;
-  if (!settingTypes.has(type)) return `has the unknown type ${describe(type)}`;
-
-  if (range !== undefined) {
-    const { min, max } = (range ?? {}) as Record<string, unknown>;
-    const bound = (value: unknown): value is number =>
-      typeof value === "number" && Number.isFinite(value) && (type !== "i" || int32(value));
-    if ((type !== "i" && type !== "d") || !bound(min) || !bound(max) || min > max)
-      return `has the range ${describe(range)}, which isn't one of its type's`;
-  }
-  if (choices !== undefined && (type !== "s" || !Array.isArray(choices) || !choices.every(wellFormed)))
-    return `has the choices ${describe(choices)}, which aren't strings of its type`;
-  if ((summary !== undefined && !wellFormed(summary)) || (description !== undefined && !wellFormed(description)))
-    return "has a summary or description that isn't text";
-
-  if (!accepts(declaration as SettingDeclaration, initial))
-    return `has the default ${describe(initial)}, which it doesn't accept`;
-  return undefined;
-};
-
 export const settingsStore = (script: ModuleScript, warn: (message: string) => void) => {
   const schemas = new Map<string, Schema>();
   const byEngine = new Map<string, Schema>();
@@ -151,7 +95,7 @@ export const settingsStore = (script: ModuleScript, warn: (message: string) => v
       ]),
     );
     const id = `${script.settingsPrefix}.${engine}`;
-    const schema = { id, engine, path: `/${id.split(".").join("/")}/`, keys, values: new Map() };
+    const schema = { id, engine, path: settingsSchemaPath(id), keys, values: new Map() };
     schemas.set(id, schema);
     byEngine.set(engine, schema);
   }
@@ -187,7 +131,7 @@ export const settingsStore = (script: ModuleScript, warn: (message: string) => v
 
   const valueOf = (path: string, key: string, declaration: SettingDeclaration, value: Variant) => {
     const candidate = plain(declaration.type, value);
-    if (accepts(declaration, candidate)) return candidate;
+    if (settingAccepts(declaration, candidate)) return candidate;
 
     warn(`Invalid value for settings key: ${path}${key}`);
     return undefined;
@@ -256,7 +200,7 @@ export const settingsStore = (script: ModuleScript, warn: (message: string) => v
     // Undefined, after a warning, for an instance Init didn't declare.
     set: (engine: string, key: string, value: SettingValue): Written | undefined => {
       const { schema, declaration } = own(engine, key);
-      if (!accepts(declaration, value))
+      if (!settingAccepts(declaration, value))
         throw new TypeError(`setting ${key} of engine ${engine} can't hold ${describe(value)}`);
       if (declared.get(schema.path) !== schema) {
         warn(`Unknown settings path: ${schema.path}${key}`);

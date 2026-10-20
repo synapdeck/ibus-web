@@ -1,15 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// The kit-built fixture module, bundled the way a module's build ships it:
-// one ES module file with Effect and the kit inlined.
+// The kit-built fixture module, bundled the way a module's build ships it,
+// one ES module file with Effect and the kit inlined, and built into its
+// manifest, script and settings metadata by the kit's post-processor.
 
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import { buildModule } from "@ibus-web/module-kit/build";
 import type { JsModuleManifest } from "@ibus-web/protocol";
+import { Effect } from "effect";
 import { build } from "tsdown";
 
 const fixture = new URL("../fixtures/kit-module/", import.meta.url);
@@ -38,12 +41,17 @@ export const bundleKitModule = async (minify = false): Promise<BundledKitModule>
     deps: { alwaysBundle: [/^@ibus-web\//, "effect", /^effect\//], onlyBundle: false },
   });
 
-  const path = join(directory, "module.mjs");
-  const source = readFileSync(path);
-  const base = JSON.parse(readFileSync(new URL("manifest.json", fixture), "utf8")) as JsModuleManifest;
+  const source = readFileSync(join(directory, "module.mjs"));
+  const outDir = join(directory, "module");
+  const { manifest } = await Effect.runPromise(buildModule({ script: source, outDir }));
+
+  // The host resolves the script's URL against the manifest's only when it
+  // fetches the manifest, which Node's fetch can't do from a file, so the
+  // host is handed the manifest with the URL already resolved.
+  const url = new URL(manifest.module.url, pathToFileURL(`${outDir}/`)).href;
 
   return {
-    manifest: { ...base, module: { url: pathToFileURL(path).href, size: statSync(path).size } },
+    manifest: { ...manifest, module: { ...manifest.module, url } },
     bytes: source.length,
     gzipped: gzipSync(source).length,
     remove: () => rmSync(directory, { recursive: true, force: true }),

@@ -162,6 +162,14 @@ a symbol so that it survives any bundler.
   `toggle`, `radio`, `menu` or `separator`), label, optional symbol, tooltip and icon, `sensitive` and `visible`
   (default true), `state` (`unchecked`, the default, `checked` or `inconsistent`) and a menu's `children`.
 
+The main entry checks a default export against the contract alone, apart from any manifest. `scriptProblem(exported)`
+returns undefined for a module script, and otherwise `NotAModule`, `ModuleAbiMismatch` with the `abi` it states, or
+`Unsound` with the `reason`: a `persist` or `shutdown` that isn't a function, no engines, an engine named as an array
+index or without a `create` function, a `settingsPrefix` that can't start a schema id, settings without one, or a
+setting whose name a record can't carry or whose declaration `declarationProblem` refuses.
+`settingAccepts(declaration, value)` is whether a value is of a setting's type and within its range or choices, and
+`settingsSchemaIds` and `settingsSchemaPath` give a module's schema ids and an id's path.
+
 ## Generated artifacts
 
 The schemas define message names, numbers, fields, signatures and descriptions; TypeScript also defines protocol version

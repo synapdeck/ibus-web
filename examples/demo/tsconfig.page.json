@@ -4,8 +4,8 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@ibus-web/tsconfig/dom.json",
   "compilerOptions": {
-    // Vite types the CSS imports.
-    "types": ["vite/client"],
+    // Vite types the CSS imports, and the kit the module's.
+    "types": ["vite/client", "@ibus-web/module-kit/client"],
     "skipLibCheck": true
   },
   "include": ["src"]

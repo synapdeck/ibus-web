@@ -1,0 +1,27 @@
+{
+  "name": "@ibus-web/example-pinyin-tones",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./module": "./src/pinyin-tones.module.ts"
+  },
+  "scripts": {
+    "test": "vitest run --configLoader native",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@ibus-web/module-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@ibus-web/protocol": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

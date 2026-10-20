@@ -96,6 +96,15 @@ export {
   decodeModuleManifest,
   lazyStorePaths,
 } from "./manifest.ts";
+export {
+  declarationProblem,
+  scriptProblem,
+  settingAccepts,
+  settingsSchemaIds,
+  settingsSchemaPath,
+  wellFormed,
+  type ScriptProblem,
+} from "./script-check.ts";
 
 export { IBusCapability, IBusModifier, IBusInputPurpose, IBusInputHints } from "./ibus/flags.ts";
 export { keyvalToUnicode } from "./keyval-unicode.generated.ts";

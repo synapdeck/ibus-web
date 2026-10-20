@@ -6,5 +6,5 @@
   "compilerOptions": {
     "skipLibCheck": true
   },
-  "include": ["test"]
+  "include": ["test", "client.d.ts"]
 }
