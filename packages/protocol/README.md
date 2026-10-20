@@ -19,7 +19,8 @@ variants that ibus-web's settings API takes. `@ibus-web/protocol/transport` is t
 buffer, control layout and their constants, without the codecs. The root also exports the main transport symbols
 (`RingWriter`, `RingReader`, `transportLayout`, `transportViews`, `Word`, `State`, `ReqMode` and the default sizes).
 `@ibus-web/protocol/module-script` holds the types of the contract between the Worker host and a JavaScript module
-script, and imports nothing. `effect` 4 is a peer dependency.
+script, and imports nothing. `@ibus-web/protocol/descriptor` holds the `EngineDescriptor` schema and imports only
+`effect`. `effect` 4 is a peer dependency.
 
 The generated message reference is [`PROTOCOL.md`](PROTOCOL.md); the design is in
 [docs/protocol.md](https://github.com/synapdeck/ibus-web/blob/master/docs/protocol.md).

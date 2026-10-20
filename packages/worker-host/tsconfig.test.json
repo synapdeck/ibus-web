@@ -11,5 +11,5 @@
     "types": ["node", "@ibus-web/tsconfig/types/webassembly"],
     "skipLibCheck": true
   },
-  "include": ["test/node", "test/engines", "test/shared", "src/shared"]
+  "include": ["test/node", "test/engines", "test/shared", "test/fixtures/kit-module", "src/shared"]
 }

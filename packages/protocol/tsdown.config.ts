@@ -4,7 +4,12 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: { index: "src/index.ts", transport: "src/transport/index.ts", "module-script": "src/module-script.ts" },
+  entry: {
+    index: "src/index.ts",
+    transport: "src/transport/index.ts",
+    "module-script": "src/module-script.ts",
+    descriptor: "src/descriptor.ts",
+  },
   platform: "neutral",
   sourcemap: true,
   dts: { generator: "tsgo" },

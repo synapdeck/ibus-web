@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
-import { nonEmpty } from "./schemas.ts";
+import { EngineDescriptor } from "./descriptor.ts";
+import { nonEmpty, storePath } from "./strings.ts";
 
 const count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
 // The name becomes a directory and a database name, so it must be one path component that can't
@@ -10,21 +11,6 @@ const moduleName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.
 // SHA-256, in lowercase hexadecimal, of the runtime's ABI number and the
 // libraries it carries: their names, versions and exported symbols.
 const runtimeIdentity = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
-const storePath = Schema.String.check(
-  Schema.isPattern(/^\/nix\/store\/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+$/),
-);
-
-export const EngineDescriptor = Schema.Struct({
-  name: nonEmpty,
-  displayName: nonEmpty,
-  languages: Schema.Array(Schema.String),
-  keyboard: Schema.Struct({ layout: Schema.Literals(["us", "default"]), passThrough: Schema.Array(Schema.String) }),
-  // Store paths of the module's data that this engine needs and the module's start doesn't: installed before the
-  // engine is first made.
-  data: Schema.optionalKey(Schema.Array(storePath)),
-});
-
-export type EngineDescriptor = typeof EngineDescriptor.Type;
 
 // The module's lazy data: every store path some engine names as its own. The rest is base data, installed at start.
 export const lazyStorePaths = (manifest: { readonly engines: readonly EngineDescriptor[] }): ReadonlySet<string> =>

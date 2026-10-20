@@ -548,9 +548,11 @@ refusals, a session's write), the JavaScript backend on its own past a fault or 
 running timers on a fake clock (due order, cancelling, destroyed sessions, a throw), the host running a timer while idle
 with its output and doorbell and crashing on a timer's throw, a request and an idle timer each writing more than a
 256-byte ring holds, a record larger than the ring among them, while the page drains as it goes, and its settings store
-converting each type. `checks.worker-host-browser` runs `protocolRoundtrip`, `replySequence` and `jsModuleSmoke` (the
-fixture module started and a key typed on its `trace` engine) with real Workers on both runtime builds in Chromium and
-Firefox, twelve smoke cases.
+converting each type, and a module written with `@ibus-web/module-kit` (`test/fixtures/kit-module/`, bundled by the test
+with Effect and the kit inlined) served a trace of a transform engine with a toggle-bound setting, paged candidates and
+Effect handlers. `checks.worker-host-browser` runs `protocolRoundtrip`, `replySequence` and `jsModuleSmoke` (the fixture
+module started and a key typed on its `trace` engine) with real Workers on both runtime builds in Chromium and Firefox,
+twelve smoke cases.
 
 The complete matrices run as `packages.worker-host-node-integration` and `packages.worker-host-browser-integration`,
 also included in `packages.integration-checks`. Node integration retains every `test/node/*.test.ts`, including the

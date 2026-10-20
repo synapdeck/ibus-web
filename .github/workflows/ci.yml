@@ -19,7 +19,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         name: Check
         run: |
-          shipped=$(git diff --name-only "$BASE"...HEAD -- ':(top)packages/core/' ':(top)packages/ibus-web/' ':(top)packages/panel/' ':(top)packages/protocol/' ':(top)packages/runtime/' ':(top)packages/worker-host/' ':(top)packages/engines/hangul/' ':(top)packages/engines/m17n/' ':(top)packages/engines/mozc/' ':(top)packages/engines/rime/' ':(top)packages/engines/table/' ':(top)runtime/' ':(top)engines/' ':(top)modules/' ':(exclude,top)modules/flake/' ':(exclude,top,glob)**/test/**' ':(exclude,top,glob)**/checks/**')
+          shipped=$(git diff --name-only "$BASE"...HEAD -- ':(top)packages/core/' ':(top)packages/ibus-web/' ':(top)packages/module-kit/' ':(top)packages/panel/' ':(top)packages/protocol/' ':(top)packages/runtime/' ':(top)packages/worker-host/' ':(top)packages/engines/hangul/' ':(top)packages/engines/m17n/' ':(top)packages/engines/mozc/' ':(top)packages/engines/rime/' ':(top)packages/engines/table/' ':(top)runtime/' ':(top)engines/' ':(top)modules/' ':(exclude,top)modules/flake/' ':(exclude,top,glob)**/test/**' ':(exclude,top,glob)**/checks/**')
           if [ -z "$shipped" ]; then
             echo "Nothing a release ships changed."
           elif git diff --name-only --diff-filter=AD "$BASE"...HEAD -- '.changeset/*.md' | grep -q .; then

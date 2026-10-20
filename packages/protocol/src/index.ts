@@ -88,8 +88,8 @@ export {
   type TransportViews,
 } from "./transport/layout.ts";
 export { RingWriter, RingReader, type WriteResult } from "./transport/ring.ts";
+export { EngineDescriptor } from "./descriptor.ts";
 export {
-  EngineDescriptor,
   JsModuleManifest,
   ModuleManifest,
   WasmModuleManifest,

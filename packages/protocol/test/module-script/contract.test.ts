@@ -11,20 +11,13 @@ import { IBusAttrType, IBusPropState, IBusPropType } from "../../src/ibus/enums.
 import { IBusInputHints, IBusInputPurpose, IBusModifier } from "../../src/ibus/flags.ts";
 import { decodeModuleManifest } from "../../src/manifest.ts";
 import type { ModuleScript } from "../../src/module-script.ts";
+import { specifiers } from "../support/specifiers.ts";
 
 const packageDir = fileURLToPath(new URL("../../", import.meta.url));
 const distJs = join(packageDir, "dist/module-script.js");
 const distTypes = join(packageDir, "dist/module-script.d.ts");
 const fixtureDir = fileURLToPath(new URL("../../../worker-host/test/fixtures/js-module/", import.meta.url));
 const fixtureScript = join(fixtureDir, "module.mjs");
-
-// Any module specifier at all: static and dynamic imports, re-exports, import types and require.
-const specifiers = (source: string): string[] =>
-  [
-    ...source.matchAll(/\bimport\s*(?:type\b[^'"]*?)?(?:[\w*{}\s,]+from\s*)?["']([^"']+)["']/g),
-    ...source.matchAll(/\bexport\s*(?:type\s*)?(?:\*|\{[^}]*\})\s*from\s*["']([^"']+)["']/g),
-    ...source.matchAll(/\b(?:import|require)\s*\(\s*["']([^"']+)["']/g),
-  ].map((match) => match[1]!);
 
 describe("the module-script subpath's build", () => {
   test("imports and re-exports nothing", () => {

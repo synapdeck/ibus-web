@@ -113,6 +113,12 @@ memory bounds, which only a WebAssembly manifest is held to, rejecting unknown k
 [engines.md](engines.md#distribution-manifest)'s. The Worker host decodes a JavaScript manifest with `JsModuleManifest`
 alone, since it has no runtime to take bounds from ([worker-host.md](worker-host.md#startup-failures)).
 
+`@ibus-web/protocol/descriptor` holds `EngineDescriptor` apart from the codecs and exports nothing else; the manifests
+take it from there, and the root entry re-exports it. The `nonEmpty` and `storePath` field schemas it is made of, which
+the manifests and settings use too, stay internal to the package. It imports only `effect`, so a module script that
+decodes its engines' descriptors bundles Effect's `Schema` and nothing else of the protocol; a package test checks its
+built file's imports, through the chunk it shares with the root entry, and its exports.
+
 ## Module scripts
 
 `@ibus-web/protocol/module-script` is the contract between the Worker host and a JavaScript module script's default

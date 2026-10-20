@@ -1,0 +1,60 @@
+{
+  "name": "@ibus-web/module-kit",
+  "version": "0.1.1",
+  "description": "The authoring API for ibus-web's JavaScript input-method modules.",
+  "keywords": [
+    "ibus",
+    "ime",
+    "input-method",
+    "module"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/module-kit.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/module-kit"
+  },
+  "files": [
+    "dist",
+    "LICENSES",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsdown",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "@ibus-web/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@ibus-web/pack-licenses": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

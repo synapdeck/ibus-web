@@ -1,0 +1,24 @@
+{
+  "kind": "js",
+  "name": "kit-fixture",
+  "version": "1.0.0",
+  "license": "MIT OR Apache-2.0",
+  "protocol": 1,
+  "moduleAbi": 1,
+  "module": { "url": "module.mjs", "size": 0 },
+  "engines": [
+    {
+      "name": "greek",
+      "displayName": "Fixture Greek",
+      "languages": ["el"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    },
+    {
+      "name": "words",
+      "displayName": "Fixture words",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    }
+  ],
+  "settingsSchemas": ["org.example.kitfixture.greek"]
+}
