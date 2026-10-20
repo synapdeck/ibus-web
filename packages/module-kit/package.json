@@ -1,0 +1,132 @@
+{
+  "name": "@ibus-web/module-kit",
+  "version": "0.1.1",
+  "description": "The authoring API for ibus-web's JavaScript input-method modules.",
+  "keywords": [
+    "ibus",
+    "ime",
+    "input-method",
+    "module"
+  ],
+  "homepage": "https://github.com/synapdeck/ibus-web/blob/master/docs/module-kit.md",
+  "bugs": "https://github.com/synapdeck/ibus-web/issues",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/synapdeck/ibus-web.git",
+    "directory": "packages/module-kit"
+  },
+  "bin": {
+    "ibus-web-module": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "client.d.ts",
+    "LICENSES",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./build": {
+      "types": "./dist/build.d.ts",
+      "default": "./dist/build.js"
+    },
+    "./unplugin": {
+      "types": "./dist/unplugin.d.ts",
+      "default": "./dist/unplugin.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./client": {
+      "types": "./client.d.ts"
+    },
+    "./rollup": {
+      "types": "./dist/rollup.d.ts",
+      "default": "./dist/rollup.js"
+    },
+    "./rolldown": {
+      "types": "./dist/rolldown.d.ts",
+      "default": "./dist/rolldown.js"
+    },
+    "./esbuild": {
+      "types": "./dist/esbuild.d.ts",
+      "default": "./dist/esbuild.js"
+    },
+    "./webpack": {
+      "types": "./dist/webpack.d.ts",
+      "default": "./dist/webpack.js"
+    },
+    "./rspack": {
+      "types": "./dist/rspack.d.ts",
+      "default": "./dist/rspack.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsdown",
+    "prepack": "node ../../tools/pack-licenses/cli.ts prepack",
+    "postpack": "node ../../tools/pack-licenses/cli.ts postpack",
+    "test": "vitest run --configLoader native"
+  },
+  "dependencies": {
+    "@ibus-web/protocol": "workspace:*",
+    "es-module-lexer": "^2.3.2",
+    "unplugin": "^3.4.0"
+  },
+  "devDependencies": {
+    "@ibus-web/pack-licenses": "workspace:*",
+    "@ibus-web/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@rspack/core": "^2.0.0",
+    "effect": "catalog:",
+    "esbuild": "^0.28.0",
+    "rolldown": "^1.0.0",
+    "rollup": "^4.0.0",
+    "vite": "^8.0.0",
+    "webpack": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@rspack/core": {
+      "optional": true
+    },
+    "esbuild": {
+      "optional": true
+    },
+    "rolldown": {
+      "optional": true
+    },
+    "rollup": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "webpack": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "ibusWeb": {
+    "assets": [
+      "test/fixtures/build/module.js"
+    ]
+  }
+}

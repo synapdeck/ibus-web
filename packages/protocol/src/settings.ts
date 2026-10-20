@@ -3,7 +3,7 @@
 import { Schema, SchemaGetter } from "effect";
 import { encodeValue } from "./gvariant/encode.ts";
 import type { GVariantValue } from "./gvariant/value.ts";
-import { nonEmpty } from "./schemas.ts";
+import { nonEmpty } from "./strings.ts";
 
 // Structural schemas let Effect derive lossless JSON encodings, including decimal
 // strings for 64-bit integers, without changing the protocol's in-memory tree.

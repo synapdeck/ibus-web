@@ -3,9 +3,10 @@
 `@ibus-web/worker-host` (`packages/worker-host/`, MIT OR Apache-2.0) is the TypeScript that runs in each module's
 Worker. It makes the runtime's memory, instantiates `ibus-runtime.wasm` ([runtime.md](runtime.md)), starts the wake
 relay, mounts storage and installs the module's data ([storage.md](storage.md)), mounts the Nix store view, and serves
-requests, asleep inside the runtime between them. Effect 4 builds the resource scopes; the production request loop is
-synchronous TypeScript. The first successful `Init` applies the settings snapshot before the host loads the engine
-module, pumps and drains its output, and publishes the reply.
+requests, asleep inside the runtime between them. A JavaScript module has none of that: its host imports the module's
+script and serves its engines on the host's own thread, asleep on the control buffer between requests (below). Effect 4
+builds the resource scopes; the production request loop is synchronous TypeScript. The first successful `Init` applies
+the settings snapshot before the host loads the engine module, pumps and drains its output, and publishes the reply.
 
 The host implements the output ring and ordered replies. The production [page core](core.md) owns key capture, replay
 and client preedit policy; the test Page separately exercises the transport.
@@ -47,21 +48,24 @@ A page starts one host per module:
    `new Worker(url, { type: "module" })`, never inlined into its bundle (spec §9.2).
 4. It posts one `HostInit` and waits for `ready` or `error`.
 
-| `HostInit` field            | What it is                                                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `runtimeUrl`                | `ibus-runtime.js`, which the host imports.                                                                                                                   |
-| `wasm`                      | The compiled runtime; without it Emscripten fetches the `.wasm` itself.                                                                                      |
-| `manifest` or `manifestUrl` | Exactly one: an engine manifest (validated again by the host) or the URL of its JSON. Relative module/archive URLs resolve against the fetched manifest URL. |
-| `control`                   | The transport SAB; its layout is specified in [PROTOCOL.md](../packages/protocol/PROTOCOL.md#transport).                                                     |
-| `layout`                    | Optional slot/ring sizes, matching the buffer; defaults to 64 KiB and 256 KiB.                                                                               |
-| `storage`                   | `{ kind: "browser" }` (IndexedDB, or memory without it), `{ kind: "node", hostPath }` (tests), or `{ kind: "none" }`.                                        |
-| `test`                      | Read only by the test build; the host as released ignores it.                                                                                                |
+| `HostInit` field            | What it is                                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtimeUrl`                | `ibus-runtime.js`, which the host imports for a WebAssembly module; a JavaScript module's host doesn't read it.                                                                             |
+| `wasm`                      | The compiled runtime; without it Emscripten fetches the `.wasm` itself. The page leaves it out for a JavaScript module, whose host ignores it.                                              |
+| `manifest` or `manifestUrl` | Exactly one: a module manifest, WebAssembly or JavaScript (validated again by the host), or the URL of its JSON. Relative module and archive URLs resolve against the fetched manifest URL. |
+| `control`                   | The transport SAB; its layout is specified in [PROTOCOL.md](../packages/protocol/PROTOCOL.md#transport).                                                                                    |
+| `layout`                    | Optional slot/ring sizes, matching the buffer; defaults to 64 KiB and 256 KiB.                                                                                                              |
+| `storage`                   | `{ kind: "browser" }` (IndexedDB, or memory without it), `{ kind: "node", hostPath }` (tests), or `{ kind: "none" }`.                                                                       |
+| `test`                      | Read only by the test build; the host as released ignores it.                                                                                                                               |
 
-The host reads `constants.json` from beside `runtimeUrl` before validating the engine manifest. This runtime
-distribution file carries the runtime ABI and identity, protocol version, errno values (`-ECANCELED`, `-ETIMEDOUT`),
-pump error, IndexedDB read-only flag, memory bounds, `memoryFileBytes` (what the memory fallback allows each entry of
-the data beside its bytes), and `poolLowWater` (the idle Workers the host tops the pool up to). Missing or malformed
-constants fail startup with a diagnostic naming `constants.json`.
+For a WebAssembly module, the host reads `constants.json` from beside `runtimeUrl` before validating its manifest. This
+runtime distribution file carries the runtime ABI and identity, protocol version, errno values (`-ECANCELED`,
+`-ETIMEDOUT`), pump error, IndexedDB read-only flag, memory bounds, `memoryFileBytes` (what the memory fallback allows
+each entry of the data beside its bytes), and `poolLowWater` (the idle Workers the host tops the pool up to). Missing or
+malformed constants fail startup with a diagnostic naming `constants.json`. The host reads them only once it has the
+manifest and it isn't a JavaScript one, since a JavaScript module needs none: a manifest that can't be fetched or parsed
+is reported ahead of broken constants, and one that fails its checks, which need the constants, after them. A JavaScript
+module's host reads nothing of the runtime: it checks the manifest's `protocol` and `moduleAbi` against its own.
 
 The page touches only the control buffer and `postMessage`, never the runtime's memory, and no message carries a pointer
 into it. What else the page owes its hosts:
@@ -74,7 +78,8 @@ into it. What else the page owes its hosts:
 - **The writer lock after a terminate.** Chromium lets go of the locks of a Worker terminated while it sleeps in
   `Atomics.wait()` only some 2 s after `terminate()`. Having terminated a host that didn't report `storage: read-only`,
   the page waits for that module's writer lock to come free (a queued request it lets go of at once, bounded at 10 s)
-  before starting the module's next host ([storage.md](storage.md#restarts)).
+  before starting the module's next host ([storage.md](storage.md#restarts)). A JavaScript module's host takes no lock,
+  so it has nothing to wait for.
 - **No transactions on engine databases.** A transaction the page hasn't seen commit when it starts to spin holds up the
   backend's writes until the spin ends ([storage.md](storage.md#the-page-keeps-out)).
 
@@ -96,7 +101,9 @@ A `HostInit` with `install: { engines }` starts a host that only installs, for p
 would be memory, which would keep nothing. Otherwise it starts its runtime at its least memory with no engine threads,
 fetches no engine module, installs the base data as any host does and each engine's own as a `PrepareEngine` would,
 answering each with `prepared`, and closes every scope, letting go of every lock, before it posts `preloaded`. It never
-posts `ready`, and the page then ends its Worker.
+posts `ready`, and the page then ends its Worker. A JavaScript module has no data, so its install-only host imports no
+script and answers each engine with `prepared` at once, then posts `preloaded`; so does a `PrepareEngine` to a
+JavaScript module's host, `prepared` carrying an `error` only for an engine the module lacks.
 
 `HostMessage`, every message the host posts:
 
@@ -121,7 +128,8 @@ never change. Their layout is [storage.md](storage.md)'s.
 ## The program and its scopes
 
 The host is a scoped Effect program (`src/worker/host.ts`): each resource a `Layer`, each scope inside the last, closed
-in reverse.
+in reverse. The Worker scope reads the manifest, and its `kind` decides the scopes inside it: a WebAssembly module's are
+the rest of the table; a JavaScript module's is the module script alone (below).
 
 | Scope           | Acquire                                                                                                                                                                                                                                                                                                          | Release                                                                                                                                         |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -148,6 +156,26 @@ records, since they belong to no request. A trap skips runtime cleanup; a `Destr
 drains what the runtime wrote before the fault and stops there. The engine-module scope has no release action: the page
 has the modules release what they hold with `Shutdown` (below).
 
+**A JavaScript module** (`kind: "js"`) has no storage plan, runtime, wake relay, storage or engine module. Its one scope
+inside the Worker's, the module script (`src/worker/layers/script.ts`), imports `module.url` with `import()`, resolved
+against the manifest's final URL as a `.wasm` URL is, and checks the default export against the contract, with the
+protocol's `scriptProblem`, and against the manifest (`src/worker/script.ts`): the `ibusWebModule` brand equal to the
+host's module ABI, its `name` the manifest's, `persist` and `shutdown` functions where present, an engine for every
+descriptor in the manifest and none besides, in the manifest's order, none named as an array index (an object enumerates
+those first, whatever order the script wrote), each with a `create` function and a descriptor equal to the manifest's
+(`displayName`, `languages`, `keyboard`). Settings need a `settingsPrefix` of dot-separated components (letters, digits,
+`_` and `-`), and each engine's `settings` an object of declarations, each of a known type, with a range only on `i` or
+`d` (finite bounds of the type, `min` at most `max`), choices only on `s` (strings), a summary and description that are
+text, and a default its own declaration accepts. A setting's name must be text a record can carry: not empty, and
+without NUL or a lone surrogate. The schema ids so derived, `<settingsPrefix>.<engine>` for each engine with settings,
+must be the manifest's `settingsSchemas`, so a manifest built from another version of the script is refused. Each
+refusal is for good, with `refused: "manifest"`. The host doesn't compare the declarations with the settings metadata
+the page reads: the build writes both from the same script, so they agree. A manifest that doesn't belong to its script
+so fails at start rather than at a key. The script's name is its content hash, so its URL is the identity of the bytes
+that run; the host doesn't fetch it a second time to check its size, since `import()` can't be handed bytes it has
+checked. A script from another origin needs CORS headers, as a `.wasm` does, and a Content Security Policy's
+`script-src` must allow its origin. Nothing is released: a module stays loaded until the Worker ends.
+
 **Finalizers inspect the `Exit`.** After a trap the runtime's memory can't be trusted, so a finalizer that calls into
 the runtime (`runtimeFinalizer`, the seals) runs only while the runtime is intact; JavaScript-side cleanup and crash
 reporting always run. Whether a failure left the runtime intact is decided **by call site, not by error type**: a
@@ -167,9 +195,19 @@ as any other.
 
 The host fails its start, posting `error`, when:
 
-- the manifest fails to decode as a `ModuleManifest` (the rules are [engines.md](engines.md#distribution-manifest)'s) or
-  its numeric runtime ABI or protocol version mismatches (`RuntimeAbiMismatch` or `ProtocolMismatch`);
-
+- the manifest fails to decode as either variant of `ModuleManifest` (the rules are
+  [engines.md](engines.md#distribution-manifest)'s; only a WebAssembly manifest is held to the runtime's memory bounds),
+  refused for good with `refused: "manifest"`; a WebAssembly manifest's runtime ABI, runtime identity or protocol
+  version differs from the runtime's (`RuntimeAbiMismatch` or `ProtocolMismatch`); or a JavaScript manifest's module ABI
+  or protocol version differs from the host's (`ModuleAbiMismatch` or `ProtocolMismatch`);
+- a JavaScript module's script fails to import, which the message gives as `module script <url>: <error>`: refused for
+  good with `refused: "manifest"` when the script threw as it was parsed or evaluated, since it would again, but not
+  when `import()` rejected with a `TypeError`, a browser's error for a script that failed to fetch, which a restart may
+  get past. A script that throws a `TypeError` as it evaluates rejects the same way, so on a `TypeError` the host
+  fetches the script's URL once more: if that answers `ok` the script was delivered and is refused for good like any
+  other that throws, and otherwise it is a failed fetch, retried under the page's crash budget; or its default export
+  doesn't match the manifest (above), refused for good with `refused: "manifest"`, or states another module ABI
+  (`ModuleAbiMismatch`);
 - the memory isn't whole pages within the runtime's bounds (the message gives the value and the bounds), rather than as
   a `LinkError` or, for a size that isn't whole pages, a silently rounded memory;
 - the runtime fails to import or instantiate: a failed `WebAssembly.instantiate()` inside Emscripten's `instantiateWasm`
@@ -186,26 +224,120 @@ A failed host lets go of every lock it took, seals first if it can.
 
 ## The request loop
 
-The loop (`src/worker/loop.ts`) is plain functions run as **one synchronous section**: a thread asleep in
-`ibusweb_wait()` runs no other fiber, timer or promise, so nothing in it may rely on them, and GLib's time is the wait's
+The loop (`src/worker/loop.ts`) is plain functions run as **one synchronous section**: a thread asleep in the backend's
+wait runs no other fiber, timer or promise, so nothing in it may rely on them, and the pump's delay is the wait's
 timeout. The section is a single `Effect.try`, so a throw becomes `RuntimeStopped` and writes the `Crashed` record and
 `CRASHED` before anything else runs. Each step:
 
 1. If the control buffer's `mail` word differs from the messages taken, leave the section to take them (below). Read the
-   wake word, then `state`. Reading the word first means a wake that lands after the state or the pump looked has
-   changed it, and the sleep on it returns at once.
+   backend's wake word, then `state`. Reading the word first means a wake that lands after the state or the pump looked
+   has changed it, and the sleep on it returns at once.
 2. `CRASHED` means the relay failed (only the relay writes it while the host runs).
-3. `REQUEST`: copy the framed request into the runtime's heap and call `ibusweb_dispatch()`. A successful `Init` loads
-   the module; successful create/destroy requests update instance scopes. Pump, drain complete output to the ring,
-   publish `replyRet` and `replyOutSeq`, set `REPLY` and notify, then apply the `reqMode` doorbell rule. Ring space may
-   delay publication, but no pump runs during that wait.
+3. `REQUEST`: hand the framed request to the backend's dispatch. Pump, drain complete output to the ring, publish
+   `replyRet` and `replyOutSeq`, set `REPLY` and notify, then apply the `reqMode` doorbell rule. Ring space may delay
+   publication, but no pump runs during that wait.
 4. Otherwise pump; if no request arrived meanwhile, the host is idle with the pump's delay.
-5. Idle with fewer than `poolLowWater` idle Workers (and no failed top-up): leave the section to top up. Otherwise
-   `ibusweb_wait(seen, delay)`; any result but `0` and `-ETIMEDOUT` throws.
+5. Idle, with a pool holding fewer idle Workers than its low-water mark (and no failed top-up): leave the section to top
+   up. Otherwise sleep in the backend's wait on the word read in step 1, for the pump's delay.
 
 Before each step the host checks whether either IndexedDB backend's connection has closed, and posts `storage: closed`
 the first time one has, and whether more changes through them have failed with `ENOSPC` than when it last looked,
 posting `storage: quota` with how many (`src/worker/storage/watch.ts`).
+
+### Backends
+
+The loop serves whatever runs the module's engines through a `Backend` (`src/worker/backend.ts`). The ring writer, reply
+publication, `replyOutSeq`, the doorbell rule, the excursions and crash handling are the loop's, the same for every
+backend:
+
+| Member     | What the loop uses it for                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `wake`     | The word the host reads before looking for work and sleeps on, in the wait and in an excursion's `Atomics.waitAsync()`.      |
+| `dispatch` | Serves one framed request, returning its `ret` and, if the module faulted serving it, the fault's message.                   |
+| `pump`     | Runs work that has come due, returning the delay until more is, or -1 for none.                                              |
+| `drain`    | Publishes the records written since the last drain to the ring, in order, through the loop's ring writer.                    |
+| `wait`     | Sleeps until the wake word moves from the value read, or for a timeout; also the full-ring wait's sleep.                     |
+| `fault`    | The message the host crashes with once the module has faulted outside a request.                                             |
+| `pool`     | Workers the module's threads run on, which the host tops up from its event loop and warms; absent for a backend without one. |
+| `close`    | Destroys the engines still open as the host closes, if the module may still be called.                                       |
+
+**The WebAssembly backend** (`src/worker/runtime-backend.ts`) is the runtime. Dispatch copies the request into the
+runtime's heap and calls `ibusweb_dispatch()`; `-ECANCELED` is a fault, its message `an engine threw: <what()>` from
+`ibusweb_fault_reason()`, or `ibusweb_dispatch returned -ECANCELED` without one. After a successful dispatch, `Init`
+loads the engine module, and `CreateEngine` and `DestroyEngine` open and close instance scopes, which `close` destroys.
+Pump is `ibusweb_pump()`, which throws if it ran off the runtime's thread; drain is `drainOutput` (below); the wake word
+is the one in the runtime's memory the relay bumps, and the wait `ibusweb_wait()`, any result but `0` and `-ETIMEDOUT`
+throwing. Its pool is Emscripten's pthread pool (The pool top-up, below).
+
+**The JavaScript backend** (`src/worker/js-backend.ts`) runs the module script's engines on the host's own thread. Its
+wake word is the control buffer's own `wake`, which the page bumps, and its wait `Atomics.wait()` on it; it has no pool.
+It answers requests as the runtime's dispatcher does, with Emscripten's errno values and in the dispatcher's order:
+`-ENOTRECOVERABLE` once the module has faulted, `-ESHUTDOWN` once a `Shutdown` has run, `-EBADMSG` for a short header,
+nonzero flags or a payload `decodeRequest` refuses, `-ENOSYS` for an unknown kind (the test kinds among them),
+`-EALREADY` and `-EPROTO` for `Init`, and `-ENOTCONN` for anything before it. `SettingChanged` is the settings store's
+(below). `Persist` calls the script's `persist` and `Shutdown` its `shutdown`, both optional, whatever the header's
+`ic`; no session hears of a change after `Shutdown`, not even of a write `shutdown` made, whose `SettingWritten` still
+reaches the page. `CreateEngine` returns `-EEXIST` for a context with a session and `-ESRCH` for an engine the script
+lacks, and calls the engine's `create` with a context for the request's `ic`; a throw, or a result that isn't an object,
+writes `CreateEngineFailed` with the error's message on that context and returns `-EIO`. A GVariant string can't hold a
+NUL or a lone surrogate, which a JavaScript string may, so that message and a fault's have each replaced with U+FFFD,
+and a throw whose message can't be read fails with `an unprintable error`. Every other request goes to the context's
+session (`-ENOENT` without one) and its handler, which a session may leave out: `ProcessKeyEvent` returns 1 when
+`processKey` returns a truthy value, otherwise 0, and passes the text the keyval stands for: the character
+`keyvalToUnicode` gives, as `ibus_keyval_to_unicode()` does, Latin-1's, a Unicode keysym's and a legacy keysym's such as
+`Cyrillic_a`'s or `kana_A`'s, but `""` for a control character (BackSpace's, Return's, Escape's) or a keysym that stands
+for none. `PropertyActivate` maps IBus's state to `unchecked`, `checked` or `inconsistent`, a state outside them reading
+as `unchecked`. `SetSurroundingText` returns `-EINVAL` for a cursor or anchor past the text's length in code points, and
+`SetContentType` reaches the handler only when the purpose or hints differ from the session's, which start at 0 and 0.
+`DestroyEngine` calls `destroy` and drops the session; its context writes nothing afterwards.
+
+A context's output calls each make a record at once, so a value no record can carry throws inside the module's own call:
+`commit`, `preedit`, `auxiliary` and `lookupTable` become the `Update…`/`CommitText` records (a candidate page as the
+whole table: its candidates as the page, its cursor, no rounding, labels empty when absent, throwing for a cursor off
+the page, which is 0 on an empty one, or labels of another count than the candidates), `registerProperties` and
+`updateProperty` property lists with IBus's defaults for what a property leaves unset, `forwardKey`, `deleteSurrounding`
+and `requireSurrounding` their records, and `log` a `Log` record on the session's context in the module's name as
+domain, its message's NULs and lone surrogates replaced with U+FFFD (a message that isn't a string throws `TypeError`,
+and other text holding one throws), levels mapped to GLib's flags (`error` to `G_LOG_LEVEL_CRITICAL`, since GLib's
+`ERROR` is fatal). Code-point indices pass through, as IBusText counts them. Drain numbers the queued records from 1,
+wrapping past zero, and publishes them through `publishRecords`, so `replyOutSeq` names the last record a request wrote.
+
+The backend keeps the module's settings (`src/worker/js-settings.ts`) as the runtime's GSettings backend does, warning
+with a `Log` record on context 0 in its words and domain (`ibus-web`, `G_LOG_LEVEL_WARNING`). Each engine that declares
+settings has the schema `<settingsPrefix>.<engine>` at the fixed path of its id's components joined by `/`
+(`/org/example/jsfixture/upper/`). `Init` declares those instances, refusing with a warning an unknown schema id, an
+invalid path, another path than the schema's, and every pattern, since no schema here is relocatable. A stored value
+fills its key when it is a variant of the key's type, `b`, `s`, `i`, `d` or `as`, within its choices or range, an `i` a
+32-bit integer; any other value, or one for a key the schema lacks, is skipped for the default with one warning, and a
+key without a value reads its default. `SettingChanged` ignores the header's `ic`: it returns `-ENOENT` for a path no
+`Init` entry declared or a key its schema lacks and `-EINVAL` for a value its key refuses, each with a warning, and
+otherwise stores the value. `context.settings.get` reads a key as a plain value (`as` as a frozen array), and
+`context.settings.set` stores one and writes `SettingWritten` with the instance's path; both throw, inside the module's
+call, for a key the engine doesn't declare, and `set` for a value its key refuses. A write to an instance `Init` didn't
+declare is refused with a warning and stores nothing. A stored value that differs from the one before is a change, told
+to `settingChanged` in every live session of its engine, the writer's included, in the order they were created, once the
+request that made it has been served: the page's change at the end of its request, a session's write once the handler
+that wrote it has returned, and a write made while hearing of a change after that change. A throw from `settingChanged`
+is a fault, and a fault drops the changes not yet told.
+
+`context.after(ms, fn)` queues a timer on a monotonic clock (`performance.now()`), since the event loop never runs while
+the host serves; it throws `TypeError` for a delay that isn't a finite, non-negative number or a callback that isn't a
+function. The backend's pump runs every timer due when it starts, earliest first and in the order scheduled among
+equals, then delivers the setting changes they made, as a request's end does. It returns the delay to the next timer in
+milliseconds, rounded up, or -1 for none, and the loop sleeps in its wait for that long. A timer a timer schedules waits
+for the next pump, so one that reschedules itself at once can't hold the host in a pump. The output a timer writes while
+the host is idle is drained and rung with the doorbell by the loop's idle-pump rule. The function `after` returns
+cancels the timer and does nothing when called twice or after the timer ran. A session's timers go with the session, on
+`DestroyEngine`, a failed `create` and `close`, and a context destroyed already schedules none. After a fault or
+`Shutdown` the pump runs nothing.
+
+A throw from a handler, `persist`, `shutdown` or a timer is a fault: the backend keeps the first throw's message
+(`engine <name> threw: <error>`, or `the module's persist threw: …`), the request returns `-ECANCELED` with it, and the
+loop drains the records written before the throw, publishes the reply and crashes with `FAULT`. `close` destroys the
+open sessions while the module may be called, neither faulted nor shut down; a `destroy` that throws there stops the
+host with `FAULT`, and the sessions after it aren't destroyed. A timer's throw is recorded the same way: the pump
+returns -1, and the loop, which drains the records written before the throw, then crashes the host with `FAULT` and
+`engine <name> threw: <error>`.
 
 ### The ring and replies
 
@@ -223,19 +355,19 @@ Consecutive fragments keep `seq`, `ic` and `kind`; only padding may separate the
 least free space with which the next write publishes a fragment, counting any padding or skip before the ring's end. The
 reader concatenates fragments before `decodeRecord`. Counts and `replyOutSeq` refer to records, never fragments.
 
-`drainOutput` copies the runtime's whole output batch out of its memory before writing any of it: the pointer
-`ibusweb_output_peek()` returns lasts only until the next runtime call, and the full-ring wait is one, inside which a
-call another thread proxied to the host can append a record and move the buffer. The host consumes the runtime's output
-only once every record of the batch is published.
+The WebAssembly backend's `drainOutput` copies the runtime's whole output batch out of its memory before writing any of
+it: the pointer `ibusweb_output_peek()` returns lasts only until the next runtime call, and the full-ring wait is one,
+inside which a call another thread proxied to the host can append a record and move the buffer. The host consumes the
+runtime's output only once every record of the batch is published.
 
-**The full-ring wait.** The host sets `ringWaiting` to 1, rings the doorbell, reads the runtime's wake word as `seen`,
-then checks free space and `ringWaiting` again. It calls `ibusweb_wait(seen, -1)` only if space is still short and
-`ringWaiting` is still 1; otherwise, or once it wakes, it starts over from setting `ringWaiting`. The second check of
-`ringWaiting` is what keeps partial reads from losing a wake: a page read that lands between setting the flag and
-sampling `seen` clears it and spends its wake before the sample, and later reads see the flag clear and bump nothing, so
-sleeping on `seen` then would never wake. The host never pumps during the wait. The page advances `ringRead`, clears a
-set `ringWaiting`, and bumps and notifies the control `wake`. A relay failure found during this wait is reported at once
-with reason `RELAY`.
+**The full-ring wait.** The host sets `ringWaiting` to 1, rings the doorbell, reads the backend's wake word as `seen`,
+then checks free space and `ringWaiting` again. It sleeps in the backend's wait on `seen`, with no timeout, only if
+space is still short and `ringWaiting` is still 1; otherwise, or once it wakes, it starts over from setting
+`ringWaiting`. The second check of `ringWaiting` is what keeps partial reads from losing a wake: a page read that lands
+between setting the flag and sampling `seen` clears it and spends its wake before the sample, and later reads see the
+flag clear and bump nothing, so sleeping on `seen` then would never wake. The host never pumps during the wait. The page
+advances `ringRead`, clears a set `ringWaiting`, and bumps and notifies the control `wake`. A relay failure found during
+this wait is reported at once with reason `RELAY`.
 
 **`replyOutSeq`** is the `seq` of the last runtime record the host published to the ring for the request, or unchanged
 if none; it never comes from `ibusweb_output_last_seq()`. A record a proxied call appends during a full-ring wait isn't
@@ -268,9 +400,9 @@ the install's, reported in `prepared.error`.
 
 ### The pool top-up
 
-The top-up runs only while no request is pending. Threads beyond the pool fail with `EAGAIN`
-([runtime.md](runtime.md#threads)), and a browser starts (Chromium) or creates (Firefox) a Worker only while its
-creator's event loop runs, so the host adds Workers from its event loop:
+Only a WebAssembly module's host has a pool; the JavaScript backend has none. The top-up runs only while no request is
+pending. Threads beyond the pool fail with `EAGAIN` ([runtime.md](runtime.md#threads)), and a browser starts (Chromium)
+or creates (Firefox) a Worker only while its creator's event loop runs, so the host adds Workers from its event loop:
 
 - `PThread.allocateUnusedWorker()` creates each Worker; the host takes it straight back out of `PThread.unusedWorkers`,
   since `pthread_create()` hands out any Worker there, loaded or not, and a thread on one that hasn't loaded would wait
@@ -288,10 +420,11 @@ Measured: one Worker in 47–48 ms in Chromium 149 and Firefox 151, 74 ms under 
 
 ### The wake relay
 
-`src/worker/relay.ts` and `forward.ts`. The relay gets the control buffer's `wake` word and the runtime's wake word,
-says `ready`, then loops for good: `Atomics.wait()` on `wake` against the value it last forwarded; on a change, bump and
-notify the runtime's word. Changes that land while it forwards fold into one wake, which is all a waiter needs. Why the
-host sleeps in the runtime rather than on the control buffer is [runtime.md](runtime.md#waking-the-host).
+Only a WebAssembly module's host has a relay; a JavaScript module's sleeps on the control buffer's own `wake` word. The
+relay is `src/worker/relay.ts` and `forward.ts`. The relay gets the control buffer's `wake` word and the runtime's wake
+word, says `ready`, then loops for good: `Atomics.wait()` on `wake` against the value it last forwarded; on a change,
+bump and notify the runtime's word. Changes that land while it forwards fold into one wake, which is all a waiter needs.
+Why the host sleeps in the runtime rather than on the control buffer is [runtime.md](runtime.md#waking-the-host).
 
 If the relay throws, it writes `CRASHED` to the control buffer and bumps both words, so a host asleep on either wakes,
 finds `CRASHED` and reports `relay: …`; a host asleep in the runtime would never hear the relay's `error` event. An
@@ -304,29 +437,32 @@ After `ready`, a failure writes a `Crashed (us)` record, if the ring has room wi
 a page draining once on seeing `CRASHED` finds it. The exception is `RELAY`: the relay itself sets `CRASHED` before the
 host hears of the failure, so the record follows it. The reasons:
 
-| Reason  | Value | When                                                                   |
-| ------- | ----- | ---------------------------------------------------------------------- |
-| `TRAP`  | 1     | A runtime call threw: a trap, an abort, or another thread's crash.     |
-| `FAULT` | 2     | An engine threw a C++ exception, which the runtime caught.             |
-| `RELAY` | 3     | The wake relay failed.                                                 |
-| `LOAD`  | 4     | The engine module failed to load after a successful `Init`.            |
-| `HOST`  | 5     | The host itself failed, for instance runtime output it couldn't frame. |
+| Reason  | Value | When                                                                                      |
+| ------- | ----- | ----------------------------------------------------------------------------------------- |
+| `TRAP`  | 1     | A runtime call threw: a trap, an abort, or another thread's crash.                        |
+| `FAULT` | 2     | An engine threw: a C++ exception the runtime caught, or a JavaScript module's code threw. |
+| `RELAY` | 3     | The wake relay failed.                                                                    |
+| `LOAD`  | 4     | The engine module failed to load after a successful `Init`.                               |
+| `HOST`  | 5     | The host itself failed, for instance runtime output it couldn't frame.                    |
 
 The record's message is what is known at once; for a thread's crash, which reaches the host as `"unwind"`, it says only
-"a thread crashed". The `crashed` message waits briefly (`crashWaitMs`) in the event loop for the thread's own error and
-carries the full report. Host-written `Log` and `Crashed` records have `seq = ic = 0` and do not advance `replyOutSeq`;
-runtime sequences skip zero when they wrap. The protocol's decoder rejects a `Crashed` record with another reason
-(`SchemaError`) or with a nonzero `seq` or `ic` (`CodecError`).
+"a thread crashed". A GVariant string can't hold a NUL or a lone surrogate, so the record has each replaced with U+FFFD,
+and a message that still won't encode is written as a fixed `HOST` one: writing the record never throws. The `crashed`
+message waits briefly (`crashWaitMs`) in the event loop for the thread's own error and carries the full report.
+Host-written `Log` and `Crashed` records have `seq = ic = 0` and do not advance `replyOutSeq`; runtime sequences skip
+zero when they wrap. The protocol's decoder rejects a `Crashed` record with another reason (`SchemaError`) or with a
+nonzero `seq` or `ic` (`CodecError`).
 
 **Faults.** On `-ECANCELED` the host drains the output the runtime already wrote, publishes the reply under the
 `reqMode` doorbell rule, then writes `Crashed` with `FAULT` and sets `CRASHED`, so the page reads the request's records,
 then its reply, then the crash. An engine that faults outside a request, in a source on the host's thread or a handler
-on another, ends the host the same way once the pump that finds it has drained the output. Either way the message is
-`an engine threw: <what()>`, from `ibusweb_fault_reason()`, and the runtime's own warning precedes it in the ring. No
-dispatch or pump runs after it. A module the runtime refuses to load likewise has its output drained before the `LOAD`
-crash, so the runtime's account of the failure precedes the record. A trap skips runtime finalizers; JavaScript cleanup
-still runs. A relay killed outright cannot report itself, so page-side hang detection is still needed. Restart uses the
-same bootstrap and `Init`-then-load order.
+on another, ends the host the same way once the pump that finds it has drained the output. For a WebAssembly module the
+message is `an engine threw: <what()>`, from `ibusweb_fault_reason()`, and the runtime's own warning precedes it in the
+ring; for a JavaScript module it is the throw's own message ([above](#backends)). No dispatch or pump runs after it. A
+module the runtime refuses to load likewise has its output drained before the `LOAD` crash, so the runtime's account of
+the failure precedes the record. A trap skips runtime finalizers; JavaScript cleanup still runs. A relay killed outright
+cannot report itself, so page-side hang detection is still needed. Restart uses the same bootstrap and `Init`-then-load
+order.
 
 ## Storage and engine data in the host
 
@@ -404,17 +540,28 @@ host directory). Under Node:
 ## Tests
 
 `checks.worker-host-node` runs the deterministic Node units: archive, decompression, held locks, host output, install
-lifetime/progress, naming, scopes, startup, storage plan and storage watch. `checks.worker-host-browser` runs
-`protocolRoundtrip` and `replySequence` with real Workers on both runtime builds in Chromium and Firefox, eight smoke
-cases.
+lifetime/progress, naming, scopes, startup, storage plan and storage watch, and the host as released started on the
+JavaScript fixture module (`test/fixtures/js-module/`) and on scripts or manifests that don't belong together, serving
+every request kind to the fixture's `trace` engine, which logs each call and answers keys with each output call, and
+keeping its `upper` and `pick` engines' settings (`Init`'s values and those it skips, the page's changes and their
+refusals, a session's write), the JavaScript backend on its own past a fault or a shutdown, delivering changes and
+running timers on a fake clock (due order, cancelling, destroyed sessions, a throw), the host running a timer while idle
+with its output and doorbell and crashing on a timer's throw, a request and an idle timer each writing more than a
+256-byte ring holds, a record larger than the ring among them, while the page drains as it goes, and its settings store
+converting each type, and a module written with `@ibus-web/module-kit` (`test/fixtures/kit-module/`, bundled by the test
+with Effect and the kit inlined and built by the kit's `buildModule`) served a trace of a transform engine with a
+toggle-bound setting, paged candidates and Effect handlers. `checks.worker-host-browser` runs `protocolRoundtrip`,
+`replySequence` and `jsModuleSmoke` (the fixture module started and a key typed on its `trace` engine) with real Workers
+on both runtime builds in Chromium and Firefox, twelve smoke cases.
 
 The complete matrices run as `packages.worker-host-node-integration` and `packages.worker-host-browser-integration`,
 also included in `packages.integration-checks`. Node integration retains every `test/node/*.test.ts`, including the
 runtime matrices `engine.test.ts`, `protocol.test.ts`, `ring.test.ts` and `scenarios.test.ts`. Browser integration
-retains `engine.test.ts`, `layers.test.ts`, `protocol.test.ts`, `ring.test.ts` and `scenarios.test.ts`; the new
-`smoke.test.ts` runs only in the default gate. These matrices preserve the contention, tight heartbeat timing and stress
-scenarios. Run both with `nix build .#worker-host-node-integration .#worker-host-browser-integration -L`. CI runs the
-extended aggregate separately and requires both tiers before publication.
+retains `engine.test.ts`, `js-module.test.ts`, `layers.test.ts`, `protocol.test.ts`, `ring.test.ts` and
+`scenarios.test.ts`; `smoke.test.ts` runs only in the default gate. These matrices preserve the contention, tight
+heartbeat timing and stress scenarios. Run both with
+`nix build .#worker-host-node-integration .#worker-host-browser-integration -L`. CI runs the extended aggregate
+separately and requires both tiers before publication.
 
 All host targets use a selected workspace containing the host and its protocol and test-programs dependencies.
 Source-only edits to other packages do not rebuild them. The integration and browser smoke configurations use Chromium

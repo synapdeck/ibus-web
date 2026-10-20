@@ -39,6 +39,8 @@ local linters = new Mapping<String, Step> {
         // Implementation plans quote code verbatim as before/after snippets
         // that formatting embedded code would change.
         "docs/plans/**",
+        // A module build's output, compared byte for byte.
+        "packages/module-kit/test/fixtures/build/expected/**",
       )
     // The builtin's commands, with the config named: oxfmt formats with its
     // own defaults when it finds none, silently, and a named config it can't

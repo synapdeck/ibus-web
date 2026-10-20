@@ -21,6 +21,7 @@ test("effect consumers retain core services, tagged errors, adapters and protoco
   expect(crashed).toBeInstanceOf(Error);
   expect(crashed._tag).toBe("EngineCrashed");
   expect(new api.ProtocolError({ module: "m17n" })._tag).toBe("ProtocolError");
+  expect(new api.ModuleAbiMismatch({ module: "pinyin" })._tag).toBe("ModuleAbiMismatch");
   expect(new api.ConnectionBusyError()).toBeInstanceOf(Error);
   expect(api.ModuleManifest).toBeDefined();
   expect(api.ProcessKeyEvent).toBeDefined();

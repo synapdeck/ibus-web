@@ -8,7 +8,7 @@
 
 import { expect } from "vitest";
 import type { Reply } from "./client.ts";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import { memoryWithData, type StorageState } from "../../src/shared/messages.ts";
 import { encodeComponent, engineDataLock, engineDir, engineWriterLock } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";
@@ -46,7 +46,10 @@ export const DATA_PATH = "/nix/store/00000000000000000000000000000000-test-data"
 
 // The engine with the archive as its data, and the archive's version as its
 // own.
-export const withData = (engine: ModuleManifest, { version, url, size, files }: TestArchive): ModuleManifest => ({
+export const withData = (
+  engine: WasmModuleManifest,
+  { version, url, size, files }: TestArchive,
+): WasmModuleManifest => ({
   ...engine,
   version,
   data: [
@@ -57,7 +60,7 @@ export const withData = (engine: ModuleManifest, { version, url, size, files }: 
 
 // An engine of its own for a scenario on a runtime, named apart from those
 // of any earlier run in the same browser, with the test archive as its data.
-export const engineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): ModuleManifest =>
+export const engineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): WasmModuleManifest =>
   withData(
     {
       ...h.data.engines.empty,
@@ -71,7 +74,7 @@ export const engineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): 
 export const storedHost = (
   h: Harness,
   runtime: RuntimeBuild,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   more: Partial<HostOptions> = {},
 ) => h.start({ runtime, engine, storage: h.storage(engine), ...more });
 
@@ -127,7 +130,11 @@ const roundTrip = async (h: Harness, client: Client, dir: string): Promise<void>
 
 // The engine's directory is mounted on the backend the environment's
 // storage is, which hasn't closed, and a file round-trips through it.
-export const storageRoundtrip = async (h: Harness, { client }: RunningHost, engine: ModuleManifest): Promise<void> => {
+export const storageRoundtrip = async (
+  h: Harness,
+  { client }: RunningHost,
+  engine: WasmModuleManifest,
+): Promise<void> => {
   const at = await stats(client);
   expect(at.mount, "mount").toBe(h.storageMount);
   expect(at.storageClosed, "closed").toBe(false);
@@ -142,7 +149,7 @@ export const storageRoundtrip = async (h: Harness, { client }: RunningHost, engi
 export const storageFallback = async (
   h: Harness,
   { client, messages }: RunningHost,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   memoryBytes: number,
 ): Promise<void> => {
   const at = await stats(client);
@@ -162,7 +169,7 @@ export const storageFallback = async (
 // created in the engine's directory then fails with EIO, and the host
 // reports storage: closed, once. Leaves the engine's storage failing, so it
 // runs on a host of its own.
-export const storageClosed = async (h: Harness, { client, messages }: RunningHost, engine: ModuleManifest) => {
+export const storageClosed = async (h: Harness, { client, messages }: RunningHost, engine: WasmModuleManifest) => {
   if (h.upgradeDatabase === undefined) throw new Error("this environment can't upgrade a database");
   const before = await stats(client);
   expect(before.mount, "mount").toBe("indexeddb");
@@ -188,7 +195,7 @@ export const storageClosed = async (h: Harness, { client, messages }: RunningHos
 // A version change while the host sleeps, with nothing due, wakes nothing;
 // the page, which hears the change too, tells the host to check its
 // storage, and the host reports the close without a request.
-export const storageClosedIdle = async (h: Harness, host: RunningHost, engine: ModuleManifest) => {
+export const storageClosedIdle = async (h: Harness, host: RunningHost, engine: WasmModuleManifest) => {
   if (h.upgradeDatabase === undefined) throw new Error("this environment can't upgrade a database");
   const { client, messages } = host;
   expect((await stats(client)).storageClosed, "closed before").toBe(false);
@@ -218,7 +225,7 @@ const readOnlyOf = (host: RunningHost): boolean =>
 export const writerLock = async (
   h: Harness,
   runtime: RuntimeBuild,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   together = true,
 ): Promise<void> => {
   const dir = engineDir(engine);
@@ -297,7 +304,7 @@ const BENCH_BUDGET_MS = 60_000;
 // with real fsync()s under Node and strict commits in a browser, so each
 // request holds the page for as long as it takes, up to BENCH_BUDGET_MS, and
 // nothing here is timed.
-export const storageCosts = async (h: Harness, { client }: RunningHost, engine: ModuleManifest): Promise<void> => {
+export const storageCosts = async (h: Harness, { client }: RunningHost, engine: WasmModuleManifest): Promise<void> => {
   const ops = opsOf(h);
   const path = `${engineDir(engine)}/dictionary-${Math.random().toString(36).slice(2)}.bin`;
   const bench = async (opcode: number, ...args: number[]) =>
@@ -319,7 +326,7 @@ export const storageCosts = async (h: Harness, { client }: RunningHost, engine: 
 };
 
 // The lock a host holds beside the writer lock for as long as it runs.
-const dataLock = (engine: ModuleManifest): string => engineDataLock(engine, encodeComponent(engine.version));
+const dataLock = (engine: WasmModuleManifest): string => engineDataLock(engine, encodeComponent(engine.version));
 
 // Polls until the lock is free, for at most the page's bound on a lock's
 // release: a lock a host lets go of reaches the lock manager a moment later.
@@ -338,7 +345,7 @@ const freeSoon = async (h: Harness, name: string): Promise<boolean> => {
 // lock is free a writer lock still held is kept, and needs no longer wait. A
 // page's own wait for the writer lock, once it has seen a host fail, may
 // hold it a moment.
-const locksAfter = async (h: Harness, engine: ModuleManifest, writerFree: boolean): Promise<void> => {
+const locksAfter = async (h: Harness, engine: WasmModuleManifest, writerFree: boolean): Promise<void> => {
   expect(await freeSoon(h, dataLock(engine)), "the data lock let go of").toBe(true);
   const writer = engineWriterLock(engine);
   if (writerFree) expect(await freeSoon(h, writer), "the writer lock let go of").toBe(true);
@@ -376,7 +383,7 @@ const crashByRelay = async (h: Harness, { client }: RunningHost): Promise<void> 
 
 // Terminates the host, whose Worker ends with it, and with the Worker any
 // writer lock it kept: the page's bounded wait for the lock then gets it.
-const writerFreedByTerminate = async (h: Harness, host: RunningHost, engine: ModuleManifest): Promise<void> => {
+const writerFreedByTerminate = async (h: Harness, host: RunningHost, engine: WasmModuleManifest): Promise<void> => {
   const terminatedAt = h.now();
   await host.terminate();
   const freed = await h.locks.released(engineWriterLock(engine));

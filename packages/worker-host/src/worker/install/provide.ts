@@ -19,7 +19,7 @@
 // shut, opened only while the host holds an install lock and runs the
 // installer, and sealed for good as the host closes.
 
-import { errorSummary, lazyStorePaths, type ModuleManifest } from "@ibus-web/protocol";
+import { errorSummary, lazyStorePaths, type WasmModuleManifest } from "@ibus-web/protocol";
 import { Effect, type Scope } from "effect";
 import type { HostConfigValues } from "../../shared/config.ts";
 import type { CollectReport, HostMessage, InstallReport } from "../../shared/messages.ts";
@@ -39,7 +39,7 @@ import { holdLock, progressOn } from "./wait.ts";
 
 interface ProvideData {
   readonly handle: RuntimeHandle;
-  readonly engine: ModuleManifest;
+  readonly engine: WasmModuleManifest;
   readonly plan: StoragePlan;
   readonly idbReadOnly: number;
   readonly held: Held;
@@ -65,7 +65,7 @@ export interface DataMount {
 // one no host uses, and no host can start using it until it is let go.
 // Best-effort: a failure is reported, never thrown. The page's preloads of
 // other versions go too, which no host reads.
-const collect = async (store: DataStore, engine: ModuleManifest): Promise<CollectReport> => {
+const collect = async (store: DataStore, engine: WasmModuleManifest): Promise<CollectReport> => {
   const report: CollectReport = { removed: [], inUse: [] };
   const preloaded = await collectPreloaded(engine);
   if (preloaded !== undefined) report.error = preloaded;

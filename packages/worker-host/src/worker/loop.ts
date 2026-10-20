@@ -2,40 +2,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // The request loop: plain functions, run as one synchronous section. A thread
-// asleep in ibusweb_wait() runs nothing else, so nothing here may rely on
-// another fiber, a timer or a promise; GLib's time is the wait's timeout.
+// asleep in the backend's wait runs nothing else, so nothing here may rely on
+// another fiber, a timer or a promise; the pump's delay is the wait's
+// timeout.
 
 import { postReply, type ControlViews } from "../shared/control.ts";
-import { ReqMode, RingWriter, State, Word } from "@ibus-web/protocol/transport";
-import { CrashReason, errorReport, requestKinds } from "@ibus-web/protocol";
+import { ReqMode, State, Word } from "@ibus-web/protocol/transport";
+import { CrashReason, errorReport } from "@ibus-web/protocol";
+import type { Backend, Pool } from "./backend.ts";
 import { RuntimeStopped } from "./failure.ts";
-import type { EngineScopes } from "./scopes.ts";
-import { drainOutput } from "./output.ts";
-import type { RuntimeConstants } from "../shared/messages.ts";
 import type { InstrumentReply, Instruments } from "./instruments.ts";
-import { faultReason, type Runtime, type RuntimeHandle } from "./runtime.ts";
+import type { OutputRing } from "./output.ts";
+import type { Runtime } from "./runtime.ts";
 
 export interface LoopContext {
   // Reports storage that has failed since the host last woke.
   readonly watchStorage: () => void;
-  readonly handle: RuntimeHandle;
+  readonly backend: Backend;
   readonly control: ControlViews;
-  readonly constants: RuntimeConstants;
-  // The index of the wake word the host sleeps on in the runtime's memory.
-  readonly wakeIndex: number;
-  // Where requests and replies sit in the runtime's memory, each the
-  // control slot's size.
-  readonly buffers: { readonly request: number; readonly reply: number; readonly cap: number };
   readonly instruments: Instruments;
-  readonly lowWater: number;
-  readonly scopes: EngineScopes;
-  readonly loadEngine: () => void;
-  readonly writer: RingWriter;
-  readonly outputLength: Int32Array;
-  readonly postDoorbell: () => void;
-  // The sequence number of the last runtime record published to the ring,
-  // which a reply names.
-  lastSeq: number;
+  // Its lastSeq is the sequence number of the last module record published
+  // to the ring, which a reply names.
+  readonly ring: OutputRing;
   // Set once a top-up has failed; another would most likely fail the same
   // way.
   topUpFailed: boolean;
@@ -64,36 +52,28 @@ export type Step =
 
 // Why the synchronous section returned.
 type Excursion =
-  | { kind: "topUp"; want: number }
+  | { kind: "topUp"; pool: Pool; want: number }
   // The page has posted messages the host hasn't taken.
   | { kind: "mail" }
   | { kind: "await"; reply: Promise<InstrumentReply> }
   | { kind: "relayFailed" }
   | { kind: "stopped" };
 
-export const pump = (rt: Runtime, constants: RuntimeConstants): number => {
-  const delay = rt._ibusweb_pump();
-  if (delay === constants.pumpError) throw new Error("pumped off the runtime's thread");
-  return delay;
-};
-
 export const ringDoorbell = (ctx: LoopContext): void => {
-  if (Atomics.exchange(ctx.control.words, Word.doorbell, 1) === 0) ctx.postDoorbell();
+  if (Atomics.exchange(ctx.control.words, Word.doorbell, 1) === 0) ctx.ring.postDoorbell();
 };
 
-// An engine's exception the runtime caught, during a request or in a GLib
-// source on any thread, ends the host as a fault once the output before it
-// is in the ring.
+// A module's fault, during a request or outside one, ends the host once
+// the output before it is in the ring.
 const stopIfFaulted = (ctx: LoopContext): void => {
-  const reason = faultReason(ctx.handle);
-  if (reason !== undefined)
-    throw new RuntimeStopped({ error: `an engine threw: ${reason}`, reason: CrashReason.fault });
+  const fault = ctx.backend.fault();
+  if (fault !== undefined) throw new RuntimeStopped({ error: fault, reason: CrashReason.fault });
 };
 
 // Called only once the request's records are in the ring, so a reply never
 // lands ahead of them.
 const publishReply = (ctx: LoopContext, ret: number): void => {
-  if (!postReply(ctx.control, ret, ctx.lastSeq)) return;
+  if (!postReply(ctx.control, ret, ctx.ring.lastSeq)) return;
   const mode = Atomics.load(ctx.control.words, Word.reqMode);
   if (mode !== ReqMode.sync) ringDoorbell(ctx);
   ctx.instruments.replied(mode);
@@ -103,14 +83,14 @@ const publishReply = (ctx: LoopContext, ret: number): void => {
 export const finishReply = (ctx: LoopContext, reply: InstrumentReply): void => {
   if (reply.stop === true) ctx.stopping = true;
   if (reply.bytes !== undefined) ctx.control.slot.set(reply.bytes);
-  pump(ctx.handle.rt, ctx.constants);
-  drainOutput(ctx.handle.rt, ctx.writer, ctx.outputLength, ctx);
+  ctx.backend.pump();
+  ctx.backend.drain();
   publishReply(ctx, reply.ret);
   stopIfFaulted(ctx);
 };
 
 const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined => {
-  const { control, handle, buffers } = ctx;
+  const { control, backend } = ctx;
   const length = Atomics.load(control.words, Word.reqLen);
   if (length < 0 || length > control.slot.length) throw new Error("invalid request length");
   const request = control.slot.slice(0, length);
@@ -122,28 +102,19 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
     finishReply(ctx, own);
     return undefined;
   }
-  handle.bytes.set(request, buffers.request);
-  const ret = handle.rt._ibusweb_dispatch(buffers.request, request.length);
+
+  const { ret, fault } = backend.dispatch(request);
   // Output still drains after a fault; pumping doesn't. The crash that
   // follows writes its Crashed record behind the reply.
-  if (ret === ctx.constants.canceled) {
-    const reason = faultReason(handle);
-    let message = reason === undefined ? "ibusweb_dispatch returned -ECANCELED" : `an engine threw: ${reason}`;
+  if (fault !== undefined) {
+    let message = fault;
     try {
-      drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx);
+      backend.drain();
     } catch (error) {
       message += `; output drain failed: ${errorReport(error)}`;
     }
     publishReply(ctx, ret);
     throw new RuntimeStopped({ error: message, reason: CrashReason.fault });
-  }
-  if (ret === 0 && request.length >= 8) {
-    const header = new DataView(request.buffer, request.byteOffset, 8);
-    const kind = header.getUint16(0, true);
-    const ic = header.getUint32(4, true);
-    if (kind === requestKinds.get("Init")) ctx.loadEngine();
-    else if (kind === requestKinds.get("CreateEngine")) ctx.scopes.opened(ic);
-    else if (kind === requestKinds.get("DestroyEngine")) ctx.scopes.closed(ic);
   }
   finishReply(ctx, { ret });
   return undefined;
@@ -152,19 +123,20 @@ const serveRequest = (ctx: LoopContext): Promise<InstrumentReply> | undefined =>
 // The wake word is read before the state and the pump look, so a wake that
 // lands after them changes it and the sleep on it returns at once.
 export const step = (ctx: LoopContext): Step => {
-  const { control, handle } = ctx;
+  const { control, backend } = ctx;
   if (ctx.stopping) return { kind: "stopped" };
   ctx.watchStorage();
-  const seen = Atomics.load(handle.words, ctx.wakeIndex);
+  const seen = Atomics.load(backend.wake.words, backend.wake.index);
   const state = Atomics.load(control.words, Word.state);
   if (state === State.crashed) return { kind: "relayFailed" };
   if (state === State.request) {
     const reply = serveRequest(ctx);
     return reply === undefined ? { kind: "served" } : { kind: "await", reply };
   }
+
   ctx.woken = false;
-  const delay = pump(handle.rt, ctx.constants);
-  if (drainOutput(handle.rt, ctx.writer, ctx.outputLength, ctx) > 0) ringDoorbell(ctx);
+  const delay = backend.pump();
+  if (backend.drain() > 0) ringDoorbell(ctx);
   stopIfFaulted(ctx);
   const after = Atomics.load(control.words, Word.state);
   if (after === State.request || after === State.crashed) return { kind: "served" };
@@ -174,12 +146,13 @@ export const step = (ctx: LoopContext): Step => {
 // Whether the page has posted messages the host hasn't taken.
 export const mailWaiting = (ctx: LoopContext): boolean => Atomics.load(ctx.control.words, Word.mail) !== ctx.mailTaken;
 
-// Serves requests and pumps, sleeping in ibusweb_wait() between them, until
-// the pool needs topping up while no request is pending, the page has
-// posted a message, or something must wait for the event loop. A runtime
-// call that traps throws out of here.
+// Serves requests and pumps, sleeping in the backend's wait between them,
+// until the pool needs topping up while no request is pending, the page has
+// posted a message, or something must wait for the event loop. A backend
+// call that throws throws out of here.
 export const serveUntilExcursion = (ctx: LoopContext): Excursion => {
-  const { handle, instruments } = ctx;
+  const { backend, instruments } = ctx;
+  const { pool, wake } = backend;
   for (;;) {
     const next = step(ctx);
     if (next.kind === "served") continue;
@@ -187,18 +160,20 @@ export const serveUntilExcursion = (ctx: LoopContext): Excursion => {
     // Checked once step has read the wake word, so that mail posted after
     // this check has moved the word the host then sleeps on.
     if (mailWaiting(ctx)) return { kind: "mail" };
-    const idle = handle.rt.PThread.unusedWorkers.length;
-    if (!ctx.topUpFailed && !instruments.topUpsHeld() && idle < ctx.lowWater)
-      return { kind: "topUp", want: ctx.lowWater - idle };
-    // ibusweb_wait() can't tell a word that changed before it slept from one
-    // that changed during, so the word is read once more just before the
-    // call: a change before that read doesn't count as waking the host. One
-    // that lands between that read and the futex wait inside the call, a
-    // window of a few instructions, still does.
-    const unmoved = Atomics.load(handle.words, ctx.wakeIndex) === next.seen;
-    const ret = handle.rt._ibusweb_wait(next.seen, next.delay);
-    if (ret < 0 && ret !== ctx.constants.waitTimedOut) throw new Error(`ibusweb_wait: ${ret}`);
-    ctx.woken = unmoved && ret === 0;
+    if (pool !== undefined) {
+      const idle = pool.idle();
+      if (!ctx.topUpFailed && !instruments.topUpsHeld() && idle < pool.lowWater)
+        return { kind: "topUp", pool, want: pool.lowWater - idle };
+    }
+
+    // A wait can't tell a word that changed before it slept from one that
+    // changed during, so the word is read once more just before the call: a
+    // change before that read doesn't count as waking the host. One that
+    // lands between that read and the futex wait inside the call, a window
+    // of a few instructions, still does.
+    const unmoved = Atomics.load(wake.words, wake.index) === next.seen;
+    const woke = backend.wait(next.seen, next.delay);
+    ctx.woken = unmoved && woke;
   }
 };
 

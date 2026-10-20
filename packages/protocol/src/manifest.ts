@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { Schema } from "effect";
-import { nonEmpty } from "./schemas.ts";
+import { EngineDescriptor } from "./descriptor.ts";
+import { nonEmpty, storePath } from "./strings.ts";
 
 const count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
 // The name becomes a directory and a database name, so it must be one path component that can't
@@ -10,34 +11,30 @@ const moduleName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.
 // SHA-256, in lowercase hexadecimal, of the runtime's ABI number and the
 // libraries it carries: their names, versions and exported symbols.
 const runtimeIdentity = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
-const storePath = Schema.String.check(
-  Schema.isPattern(/^\/nix\/store\/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+$/),
-);
-
-export const EngineDescriptor = Schema.Struct({
-  name: nonEmpty,
-  displayName: nonEmpty,
-  languages: Schema.Array(Schema.String),
-  keyboard: Schema.Struct({ layout: Schema.Literals(["us", "default"]), passThrough: Schema.Array(Schema.String) }),
-  // Store paths of the module's data that this engine needs and the module's start doesn't: installed before the
-  // engine is first made.
-  data: Schema.optionalKey(Schema.Array(storePath)),
-});
-
-export type EngineDescriptor = typeof EngineDescriptor.Type;
 
 // The module's lazy data: every store path some engine names as its own. The rest is base data, installed at start.
 export const lazyStorePaths = (manifest: { readonly engines: readonly EngineDescriptor[] }): ReadonlySet<string> =>
   new Set(manifest.engines.flatMap((engine) => engine.data ?? []));
 
-export const ModuleManifest = Schema.Struct({
+const uniqueEngineNames = (manifest: { readonly engines: readonly EngineDescriptor[] }): string | undefined => {
+  const names = manifest.engines.map((engine) => engine.name);
+  return new Set(names).size === names.length ? undefined : "duplicate engine names";
+};
+
+// The module's descriptors in order; the first is the module's default.
+const engines = Schema.Array(EngineDescriptor).check(Schema.isNonEmpty());
+const asset = Schema.Struct({ url: nonEmpty, size: count });
+
+// A manifest without `kind` is a WebAssembly module.
+export const WasmModuleManifest = Schema.Struct({
+  kind: Schema.optionalKey(Schema.Literal("wasm")),
   name: moduleName,
   version: nonEmpty,
   license: nonEmpty,
   runtimeAbi: count,
   runtimeIdentity,
   protocol: count,
-  module: Schema.Struct({ url: nonEmpty, size: count }),
+  module: asset,
   memory: count.check(Schema.isMultipleOf(65536)),
   threads: count,
   data: Schema.Array(
@@ -52,14 +49,13 @@ export const ModuleManifest = Schema.Struct({
     }),
   ),
   settingsSchemaDir: Schema.String,
-  // The first engine is the module's default.
-  engines: Schema.Array(EngineDescriptor).check(Schema.isNonEmpty()),
+  engines,
   settingsSchemas: Schema.Array(Schema.String),
-  settingsMetadata: Schema.optionalKey(Schema.Struct({ url: nonEmpty, size: count })),
+  settingsMetadata: Schema.optionalKey(asset),
 }).check(
   Schema.makeFilter((manifest) => {
-    const names = manifest.engines.map((engine) => engine.name);
-    if (new Set(names).size !== names.length) return "duplicate engine names";
+    const duplicate = uniqueEngineNames(manifest);
+    if (duplicate !== undefined) return duplicate;
 
     const paths = manifest.data.map((entry) => entry.storePath);
     if (new Set(paths).size !== paths.length) return "duplicate data store paths";
@@ -83,6 +79,35 @@ export const ModuleManifest = Schema.Struct({
   }),
 );
 
+export type WasmModuleManifest = typeof WasmModuleManifest.Type;
+
+// A module written in JavaScript: one self-contained ES module script and no runtime, memory or data of its own.
+export const JsModuleManifest = Schema.Struct({
+  kind: Schema.Literal("js"),
+  name: moduleName,
+  version: nonEmpty,
+  license: nonEmpty,
+  protocol: count,
+  // The version of the contract between the host and the script's exports.
+  moduleAbi: count,
+  module: asset,
+  engines,
+  settingsSchemas: Schema.Array(Schema.String),
+  settingsMetadata: Schema.optionalKey(asset),
+}).check(
+  Schema.makeFilter((manifest) => {
+    const duplicate = uniqueEngineNames(manifest);
+    if (duplicate !== undefined) return duplicate;
+
+    const withData = manifest.engines.find((engine) => engine.data !== undefined);
+    return withData === undefined || `engine ${withData.name} names data, which a JavaScript module can't have`;
+  }),
+);
+
+export type JsModuleManifest = typeof JsModuleManifest.Type;
+
+export const ModuleManifest = Schema.Union([WasmModuleManifest, JsModuleManifest]);
+
 export type ModuleManifest = typeof ModuleManifest.Type;
 
 export const decodeModuleManifest = (
@@ -93,6 +118,7 @@ export const decodeModuleManifest = (
     ModuleManifest.check(
       Schema.makeFilter(
         (manifest) =>
+          manifest.kind === "js" ||
           (manifest.memory >= bounds.minimum && manifest.memory <= bounds.maximum) ||
           "memory is outside the runtime bounds",
       ),

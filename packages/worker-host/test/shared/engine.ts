@@ -15,7 +15,7 @@ import {
   encodeRequest,
   stringVariant,
   type Request,
-  type ModuleManifest,
+  type WasmModuleManifest,
 } from "@ibus-web/protocol";
 import { expect } from "vitest";
 import type { Harness, RuntimeBuild, RunningHost } from "./harness.ts";
@@ -52,8 +52,21 @@ export const manifestFailures = async (h: Harness, runtime: RuntimeBuild): Promi
     [{ protocol: base.protocol + 1 }, /ProtocolMismatch/],
     [{ threads: undefined }, /threads/],
   ] as const) {
-    await expect(h.start({ runtime, manifest: { ...base, ...change } as ModuleManifest })).rejects.toThrow(error);
+    await expect(h.start({ runtime, manifest: { ...base, ...change } as WasmModuleManifest })).rejects.toThrow(error);
   }
+
+  const script = {
+    kind: "js",
+    name: base.name,
+    version: base.version,
+    license: base.license,
+    protocol: base.protocol,
+    moduleAbi: 2,
+    module: base.module,
+    engines: base.engines,
+    settingsSchemas: base.settingsSchemas,
+  } as const;
+  await expect(h.start({ runtime, manifest: script })).rejects.toThrow(/ModuleAbiMismatch: manifest 2, host 1/);
 };
 
 export const engineLifecycle = async (h: Harness, runtime: RuntimeBuild, memory: boolean): Promise<void> => {

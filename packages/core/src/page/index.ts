@@ -55,6 +55,7 @@ export {
   EngineHung,
   EngineLoadFailed,
   isIbusWebError,
+  ModuleAbiMismatch,
   PrepareEngineError,
   ProtocolError,
   ProtocolMismatch,

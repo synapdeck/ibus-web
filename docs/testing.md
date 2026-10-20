@@ -394,12 +394,26 @@ use a test framework. The main ones:
   `hangul-libhangul-link`: the toolchain and packages build, link and apply as expected ([toolchain.md](toolchain.md),
   [glib.md](glib.md)).
 
+## JavaScript modules
+
+`checks.module-kit-node` runs the kit's Vitest suites under Node: definitions, settings, candidates, properties and
+transform engines, the post-processor and its errors, the `ibus-web-module` command and the plugin's output. Because
+every bundler is a pinned dev dependency of a fixture package, not of the kit, `checks.module-kit-bundlers`
+(`packages/module-kit/checks/bundlers`) is a check of its own: it builds the kit's fixture module and
+[`examples/pinyin-tones`](../examples/pinyin-tones/README.md) with Vite, Rollup, Rolldown, esbuild, webpack and Rspack,
+compares each manifest and `settings.json` with the command line's, checks each bundler's source map beside the script,
+and exercises Vite's dev server, `?ibus-module` import and `vite build --watch`
+([module-kit.md](module-kit.md#the-bundler-plugin)). `checks.example-pinyin-tones-node` runs the example's own tests.
+The example's end-to-end tests are the demo's ([below](#production-playwright-integration)).
+
 ## TypeScript protocol
 
 `checks.protocol-node` runs the package's Vitest suites under Node: GVariant vectors, strict rejection cases, schema and
 framing tests, generated-header/document tests, and fixed-seed Effect `Arbitrary` round trips, including encodings
-mutated by one to three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. The default Vitest
-configuration leaves out the parity suite and the decode benchmark.
+mutated by one to three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. Every request and record
+kind round trips through both directions of the codecs (`encodeRequest`/`decodeRequest`, `encodeRecord`/`decodeRecord`),
+and the framing refusals of the host-side pair are tested. The default Vitest configuration leaves out the parity suite
+and the decode benchmark.
 
 The transport's ring has four kinds of test beyond its unit cases:
 
@@ -417,12 +431,13 @@ The transport's ring has four kinds of test beyond its unit cases:
 
 `checks.protocol-parity` supplies a Nix-built corpus and a WASM C fixture producer using real IBus and json-glib, and
 runs the parity suite (`vitest.parity.config.ts`). Vitest asserts both directions of object serialization, every
-request's observed runtime arguments and result, every emitted record's fields and sequence, and that the strict decoder
-accepts exactly the inputs GLib's `g_variant_is_normal_form` does, with no exceptions, on 1000 fixed-seed byte strings:
-mutated normal-form encodings, unmutated ones and large containers. The test also requires the corpus to stay
-non-trivial (at least 40% normal form, at least 30% not, at least 100 signatures, offsets of widths 1, 2 and 4 among the
-accepted inputs). The suite throws without `IBUS_WEB_PROTOCOL_PARITY`, so the check fails rather than skips if it loses
-its manifest.
+request's observed runtime arguments and result, every emitted record's fields and sequence, that `decodeRequest` reads
+every corpus request and `encodeRecord` reproduces each emitted record's bytes, and that the strict decoder accepts
+exactly the inputs GLib's `g_variant_is_normal_form` does, with no exceptions, on 1000 fixed-seed byte strings: mutated
+normal-form encodings, unmutated ones and large containers. The test also requires the corpus to stay non-trivial (at
+least 40% normal form, at least 30% not, at least 100 signatures, offsets of widths 1, 2 and 4 among the accepted
+inputs). The suite throws without `IBUS_WEB_PROTOCOL_PARITY`, so the check fails rather than skips if it loses its
+manifest.
 
 The `files:runtime/libibus-web/include/ibus-web/protocol.h` and `files:packages/protocol/PROTOCOL.md` checks compare
 generated artifacts to their committed copies. Regenerate with `nix run .#write-files`.
@@ -446,9 +461,11 @@ nix build .#checks.x86_64-linux.hangul-data-closure
 ```
 
 The default WorkerHost Node gate runs deterministic unit tests without runtime fixtures. The default browser gate runs
-eight real Worker smoke cases: `protocolRoundtrip` and `replySequence`, each on asserting and released runtimes in
-Chromium and Firefox. They prove startup, request/reply results and ordered protocol output without storage contention
-or tight heartbeat timing. The small real Hangul host conformance gate remains default.
+twelve real Worker smoke cases: `protocolRoundtrip`, `replySequence` and `jsModuleSmoke`, each on asserting and released
+runtimes in Chromium and Firefox. They prove startup, request/reply results and ordered protocol output without storage
+contention or tight heartbeat timing; `jsModuleSmoke` starts the hand-written JavaScript module (its script imported by
+URL in the host's Worker) and types a key on its `trace` engine. The small real Hangul host conformance gate remains
+default.
 
 The full WorkerHost matrices, including storage, installation/upgrade contention, heartbeat liveness and stress, run
 explicitly:
@@ -463,6 +480,14 @@ nix build .#integration-checks -L
 dependency closure using the shared offline install and build machinery. Source-only edits to excluded packages such as
 core leave WorkerHost and Hangul host checks cached. Manifest, lockfile and shared configuration changes still
 invalidate relevant inputs; other checks may use the complete `ibusWeb.typescript.workspace`.
+
+The browser integration suite's `js-module.test.ts` runs that JavaScript module on both runtime builds in Chromium and
+Firefox: keys on each of its engines, a setting changed by the page, a property activated, a fault (the host's `CRASHED`
+state, and a `Crashed` record with reason `FAULT` naming the throw), a handler that never returns (the request stays
+unanswered, with no crash and nothing in the ring), and a WebAssembly module in a Worker of its own serving alongside
+it, still serving once the JavaScript module has crashed. The page turns the crash and the silence into `EngineCrashed`
+and `EngineHung`; that is the core package's ([core.md](core.md)), and `checks.core-browser` runs the silence through
+the page's hang detector to `EngineHung` and a restart.
 
 Worker-host integration suites run production transport behavior on asserting and released runtimes, under Node and
 Chromium/Firefox. They cover ordered `replyOutSeq`, doorbells, abandonment, fragment/padding boundaries, wraparound,
@@ -526,12 +551,15 @@ Its results are observations under one load, not a timer deadline under arbitrar
 
 `checks.core-node` runs deterministic Node tests for translation, connection budgets, key ownership, mixed
 sync/async/manual modes, context policy and recovery. `checks.core-browser` exercises real Worker/runtime/Hangul
-integration in Chromium and Firefox. Its synthetic DOM events use a helper that simulates unprevented native defaults;
-this does not prove trusted input, native undo, OS keyboard/layout, Safari or minimum browser versions.
+integration in Chromium and Firefox, and the page's handling of a JavaScript module against the real host: preloading
+fetches its script into the HTTP cache and leaves Cache Storage and the install-only Worker alone, `usage()`, `export()`
+and `reset()` touch no database, and a handler that never returns ends in `EngineHung` and a restart. Its synthetic DOM
+events use a helper that simulates unprevented native defaults; this does not prove trusted input, native undo, OS
+keyboard/layout, Safari or minimum browser versions.
 
-`packages.demo` builds examples/demo; `checks.example-demo-smoke` separately loads that built page in fresh Chromium,
-checks isolation and opaque archive delivery, and verifies typing and blur commit with constructed keys. The production
-demo uses the facade, panel and metadata-driven settings form.
+`packages.demo` builds examples/demo, the pinyin-tones JavaScript module with it; `checks.example-demo-smoke` separately
+loads that built page in fresh Chromium, checks isolation and opaque archive delivery, and verifies typing and blur
+commit with constructed keys. The production demo uses the facade, panel and metadata-driven settings form.
 
 These are default gates. `nix flake check` runs the default milestone tier; the explicit worker-host integration outputs
 and `integration-checks` aggregate above remain extended work, not a matrix to repeat for every focused change.
@@ -539,24 +567,28 @@ and `integration-checks` aggregate above remain extended work, not a matrix to r
 ### Production Playwright integration
 
 `nix build .#playwright-integration` serves the production demo through its Vite preview configuration with COOP/COEP
-and runs 41 trusted-input tests in each of Chromium, Firefox and WebKit (123 total): Hangul's ten, the table module's
-seven, Mozc's five, m17n's seven, Rime's seven and the layout matrix's five. The specs are grouped by module, in
-`examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's spec covers real composition, visible
-preedit without value/input leakage, focused native undo, separate blur commit, Hanja paging/click/digit selection,
-password exclusion, actual Worker restart, native Space reset ordering, 3f settings changes across live contexts, tabs
-and reload, and the picker with its Ctrl+Space toggle, which leaves plain input while deselected. It also opens the page
-as `/?properties=page` and turns Hangul input on with the page's own switch, the panel's properties not placed. The
-table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`, keeps one Worker across engine switches, gives plain input
-once deselected, checks that its engines stay in one picker group, and checks that the settings form follows the module.
-The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi, Vietnamese and a Thai tone mark on the
-field's own consonant, checks that the settings form holds only the selected engine's instance, shows a variable saved
-in the form reaching the field once the field has lost focus after the save and regained it, and times a restart from
-IndexedDB once the page shows persistent storage. The Rime spec (`rime.spec.ts`) checks the picker's language groups,
-installs `rime_ice`'s dictionaries on its first selection and nothing on its second, timing it, fetches `luna_pinyin`
-ahead of time into the page's cache and types with it, installs `cangjie5` ahead of time and finds nothing to install
-once it is selected, converts a phrase, types Cangjie, turns `luna_pinyin`'s simplification on with the page's own
-switch, finds a chosen candidate first after a reload, and checks that the settings form holds the selected engine's
-switches and that the page size reaches the panel; each test takes up to 300 s, and the run's limit is 1800 s.
+and runs 49 trusted-input tests in each of Chromium, Firefox and WebKit (147 total): Hangul's ten, the table module's
+seven, Mozc's five, m17n's seven, Rime's nine, the pinyin-tones module's six and the layout matrix's five. The specs are
+grouped by module, in `examples/demo/test/e2e/<module>.spec.ts` with their helpers beside them. Hangul's spec covers
+real composition, visible preedit without value/input leakage, focused native undo, separate blur commit, Hanja
+paging/click/digit selection, password exclusion, actual Worker restart, native Space reset ordering, 3f settings
+changes across live contexts, tabs and reload, and the picker with its Ctrl+Space toggle, which leaves plain input while
+deselected. It also opens the page as `/?properties=page` and turns Hangul input on with the page's own switch, the
+panel's properties not placed. The table spec (`table.spec.ts`) types `\alpha`, `\to,` and `S@`, keeps one Worker across
+engine switches, gives plain input once deselected, checks that its engines stay in one picker group, and checks that
+the settings form follows the module. The m17n spec (`m17n.spec.ts`) checks the picker's language groups, types Hindi,
+Vietnamese and a Thai tone mark on the field's own consonant, checks that the settings form holds only the selected
+engine's instance, shows a variable saved in the form reaching the field once the field has lost focus after the save
+and regained it, and times a restart from IndexedDB once the page shows persistent storage. The Rime spec
+(`rime.spec.ts`) checks the picker's language groups, installs `rime_ice`'s dictionaries on its first selection and
+nothing on its second, timing it, fetches `luna_pinyin` ahead of time into the page's cache and types with it, installs
+`cangjie5` ahead of time and finds nothing to install once it is selected, converts a phrase, types Cangjie, turns
+`luna_pinyin`'s simplification on with the page's own switch, finds a chosen candidate first after a reload, and checks
+that the settings form holds the selected engine's switches and that the page size reaches the panel; each test takes up
+to 300 s, and the run's limit is 1800 s. The pinyin-tones spec (`pinyin-tones.spec.ts`), for the JavaScript module the
+page imports with `?ibus-module`, checks its picker group, types `ni3 hao3` into `nǐ hǎo`, turns `v-as-u` off with the
+page's own switch so that `lv4` stays as typed while `u:` still gives `ü`, checks that the settings form shows the
+setting and follows the switch, gives plain input once deselected, and keeps one Worker across selections.
 
 The layout matrix (`layouts.spec.ts`) types into Hangul, Rime's `luna_pinyin`, Mozc, m17n's Vietnamese telex and the
 table module's LaTeX from the US, AZERTY, QWERTZ, Dvorak and Colemak layouts, one test per module walking every layout:

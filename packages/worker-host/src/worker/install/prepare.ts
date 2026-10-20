@@ -19,7 +19,7 @@
 // since WasmFS keeps only the entries it has found, never an entry's
 // absence.
 
-import { errorMessage, type ModuleManifest } from "@ibus-web/protocol";
+import { errorMessage, type WasmModuleManifest } from "@ibus-web/protocol";
 import type { HostConfigValues } from "../../shared/config.ts";
 import type { HostMessage, PathInstallReport } from "../../shared/messages.ts";
 import { enginePathInstallLock } from "../../shared/naming.ts";
@@ -46,7 +46,7 @@ interface Install {
 }
 
 interface Preparing {
-  readonly engine: ModuleManifest;
+  readonly engine: WasmModuleManifest;
   readonly post: (message: HostMessage) => void;
   readonly install?: Install;
 }
@@ -69,7 +69,7 @@ const absent = { lockWaitMs: 0, lockedAt: 0, releasedAt: 0 };
 // the lock's channel while it holds it.
 const installPath = (
   { handle, store, window, held, config, instruments, hooks }: Install,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   entry: DataEntry,
   path: PathInstall,
 ): Promise<PathOutcome> =>

@@ -34,6 +34,14 @@
     "./transport": {
       "types": "./dist/transport.d.ts",
       "default": "./dist/transport.js"
+    },
+    "./module-script": {
+      "types": "./dist/module-script.d.ts",
+      "default": "./dist/module-script.js"
+    },
+    "./descriptor": {
+      "types": "./dist/descriptor.d.ts",
+      "default": "./dist/descriptor.js"
     }
   },
   "publishConfig": {

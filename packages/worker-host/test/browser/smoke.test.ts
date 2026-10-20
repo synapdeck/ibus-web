@@ -4,6 +4,7 @@
 import { afterAll, describe, test } from "vitest";
 import { browserHarness } from "./harness.ts";
 import { protocolRoundtrip, replySequence } from "../shared/protocol.ts";
+import { jsModuleSmoke } from "./js-module.ts";
 
 const h = await browserHarness();
 afterAll(() => h.cleanUp());
@@ -17,4 +18,6 @@ describe.each(h.data.runtimes)("Worker smoke on $name", (runtime) => {
         await host.terminate();
       }
     });
+
+  test("jsModuleSmoke", () => jsModuleSmoke(h, runtime));
 });

@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ibus-web/tsconfig/node.json",
+  "compilerOptions": {
+    // The bundlers' declarations name DOM types, which Node code doesn't have.
+    "skipLibCheck": true,
+    // The fixture application's `?ibus-module` imports are typed as an
+    // application's are, through the kit's client entry.
+    "types": ["node", "@ibus-web/tsconfig/types/webassembly", "@ibus-web/module-kit/client"]
+  },
+  "include": ["*.ts", "fixture/app/*.ts"]
+}

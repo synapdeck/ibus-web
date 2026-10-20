@@ -36,6 +36,13 @@ validate the archive. Serve pages and assets with COOP `same-origin` and COEP `r
 cross-origin isolated for the shared-memory transport. Cross-origin assets additionally need headers compatible with
 that isolation policy.
 
+A JavaScript module is passed the same way, by its `manifest.json` under a name the page chooses
+([engines.md](engines.md#distribution-manifest)). Its manifest names one ES module script instead of a `.wasm` and data:
+serve the script beside the manifest, with CORS headers when it comes from another origin and, under a Content Security
+Policy, an origin that `script-src` allows. The page still gives `runtimeUrl`, which a WebAssembly module needs, even
+when every module is JavaScript; a JavaScript module's start neither fetches nor compiles the runtime, and its host
+doesn't read it ([worker-host.md](worker-host.md#starting-a-host)).
+
 `attach(inputOrTextarea, options?)` and `attachAdapter(adapter, options?)` return idempotent detach functions. Each
 surface may use `keyMode: "sync" | "async" | "manual"` (default `sync`). Native controls can coexist with editor-neutral
 async/manual adapters on one facade and engine FIFO. In manual mode call `keyAsync(adapter, event)` during the original
@@ -109,11 +116,11 @@ can't be read or reset, a reset among them when another tab keeps the database o
 ([storage.md](storage.md#the-host-api)). The storage Worker they start is `host/storage.js`, beside the host's script.
 
 Calls reject with the tagged errors of [core.md](core.md#errors), exported from `ibus-web` for `instanceof`:
-`EngineLoadFailed`, `RuntimeAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`, `ProtocolError`,
-`StorageUnavailable`, `CreateEngineError` and `PrepareEngineError`, each an `Error` with a `_tag`, `module`, `engine`
-where one applies and the Worker's `diagnostic`; `EngineCrashed` adds the crash's `reason`. A module that fails to start
-rejects `select`, `prepare` and `engines` with its error, a file `preload` couldn't fetch rejects it with
-`PrepareEngineError` for an engine's own data and `EngineLoadFailed` otherwise, and the settings calls reject an
+`EngineLoadFailed`, `RuntimeAbiMismatch`, `ModuleAbiMismatch`, `ProtocolMismatch`, `EngineCrashed`, `EngineHung`,
+`ProtocolError`, `StorageUnavailable`, `CreateEngineError` and `PrepareEngineError`, each an `Error` with a `_tag`,
+`module`, `engine` where one applies and the Worker's `diagnostic`; `EngineCrashed` adds the crash's `reason`. A module
+that fails to start rejects `select`, `prepare` and `engines` with its error, a file `preload` couldn't fetch rejects it
+with `PrepareEngineError` for an engine's own data and `EngineLoadFailed` otherwise, and the settings calls reject an
 unusable store with `StorageUnavailable`. A crash or hang has no call to reject, so `modulestate`'s detail carries
 `error` with `restarting` and `failed`. An unknown module name or a disposed facade rejects with a plain `Error`.
 

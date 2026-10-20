@@ -40,6 +40,8 @@ const recordCodecs = payloadCodecs<OutputRecord, typeof OutputRecord.Encoded>(Ou
 const crashedKind = recordKinds.get("Crashed");
 const requestEncoders = new Map([...requestCodecs].map(([kind, codec]) => [kind, Schema.encodeSync(codec)]));
 const recordDecoders = new Map([...recordCodecs].map(([kind, codec]) => [kind, Schema.decodeUnknownSync(codec)]));
+const requestDecoders = new Map([...requestCodecs].map(([kind, codec]) => [kind, Schema.decodeUnknownSync(codec)]));
+const recordEncoders = new Map([...recordCodecs].map(([kind, codec]) => [kind, Schema.encodeSync(codec)]));
 
 export function encodeRequest(ic: number, request: Request): Uint8Array {
   if (!Number.isInteger(ic) || ic < 0 || ic > 0xffffffff) {
@@ -57,6 +59,66 @@ export function encodeRequest(ic: number, request: Request): Uint8Array {
   header.setUint16(2, 0, true);
   header.setUint32(4, ic, true);
   bytes.set(payload, 8);
+  return bytes;
+}
+
+export interface DecodedRequest {
+  readonly ic: number;
+  readonly request: Request;
+}
+
+/**
+ * Decodes a request: an eight-byte header and a payload. Framing faults (a truncated header, a
+ * header with no payload, nonzero flags, an unknown kind) throw `CodecError`; a payload that
+ * doesn't match its kind's schema throws `SchemaError`.
+ */
+export function decodeRequest(bytes: Uint8Array): DecodedRequest {
+  if (bytes.length < 8) {
+    throw new CodecError({ message: "Request header is truncated" });
+  }
+  const header = new DataView(bytes.buffer, bytes.byteOffset, 8);
+  const kind = header.getUint16(0, true);
+  const flags = header.getUint16(2, true);
+  const ic = header.getUint32(4, true);
+  if (flags !== 0) {
+    throw new CodecError({ message: `Unknown request flags: 0x${flags.toString(16).padStart(4, "0")}` });
+  }
+  const decode = requestDecoders.get(kind);
+  if (decode === undefined) {
+    throw new CodecError({ message: `Unknown request kind: ${kind}` });
+  }
+  // Even the empty tuple takes a byte in normal form, so a bare header is never a request.
+  if (bytes.length === 8) {
+    throw new CodecError({ message: "Request has no payload" });
+  }
+  return { ic, request: decode(bytes.subarray(8)) };
+}
+
+/** Frames `record` with a sixteen-byte header and zero padding to the record alignment. */
+export function encodeRecord(seq: number, ic: number, record: OutputRecord): Uint8Array {
+  if (!Number.isInteger(seq) || seq < 0 || seq > 0xffffffff) {
+    throw new CodecError({ message: "Record sequence must be an unsigned 32-bit integer" });
+  }
+  if (!Number.isInteger(ic) || ic < 0 || ic > 0xffffffff) {
+    throw new CodecError({ message: "Input context must be an unsigned 32-bit integer" });
+  }
+  const kind = recordKinds.get(record._tag);
+  const encode = kind === undefined ? undefined : recordEncoders.get(kind);
+  if (kind === undefined || encode === undefined) {
+    throw new CodecError({ message: `Unknown record kind: ${record._tag}` });
+  }
+  if (kind === crashedKind && (seq !== 0 || ic !== 0)) {
+    throw new CodecError({ message: "Crashed records must carry seq 0 and ic 0" });
+  }
+  const payload = encode(record);
+  const bytes = new Uint8Array(Math.ceil((16 + payload.length) / RECORD_ALIGNMENT) * RECORD_ALIGNMENT);
+  const header = new DataView(bytes.buffer);
+  header.setUint32(0, seq, true);
+  header.setUint32(4, ic, true);
+  header.setUint16(8, kind, true);
+  header.setUint16(10, 0, true);
+  header.setUint32(12, payload.length, true);
+  bytes.set(payload, 16);
   return bytes;
 }
 

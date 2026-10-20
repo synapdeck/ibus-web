@@ -7,7 +7,7 @@
 // and so storage and locks, of its own.
 
 import { expect } from "vitest";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import type { PathInstallReport } from "../../src/shared/messages.ts";
 import { engineDataDatabase, enginePathInstallLock, engineStagingDir } from "../../src/shared/naming.ts";
 import type { Client } from "./client.ts";
@@ -32,7 +32,7 @@ const SHARED_ENGINE = "shared";
 // An engine of its own for a scenario on a runtime, whose base data is the
 // test engine's own, its schemas, and whose other engines name the lazy
 // archives as their own data. The archives' version is the engine's.
-export const lazyEngineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): ModuleManifest => {
+export const lazyEngineFor = (h: Harness, scenario: string, runtime: RuntimeBuild): WasmModuleManifest => {
   const { empty } = h.data.engines;
   const { lazy, lazy2 } = h.data.archives;
   const descriptor = empty.engines[0]!;
@@ -424,7 +424,7 @@ export const prepareWhole = (h: Harness, runtime: RuntimeBuild): Promise<void> =
 export const prepareWindowShut = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = lazyEngineFor(h, "prepare-window-shut", runtime);
-    const broken: ModuleManifest = {
+    const broken: WasmModuleManifest = {
       ...engine,
       data: engine.data.map((entry) =>
         entry.storePath === LAZY_PATH ? { ...entry, url: h.data.archives.missing } : entry,

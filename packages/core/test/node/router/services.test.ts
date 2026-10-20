@@ -6,7 +6,7 @@ import { TestClock } from "effect/testing";
 import { booleanVariant, CreateEngine, stringVariant, type ModuleManifest, type Request } from "@ibus-web/protocol";
 import { makeModuleRegistry } from "../../../src/services/modules.ts";
 import { ConnectionFailed, PrepareFailed } from "../../../src/connection/connection.ts";
-import { PrepareEngineError, RuntimeAbiMismatch } from "../../../src/errors.ts";
+import { ModuleAbiMismatch, PrepareEngineError, RuntimeAbiMismatch } from "../../../src/errors.ts";
 import { CoreConfig } from "../../../src/services/config.ts";
 import { SettingsSource } from "../../../src/services/settings.ts";
 import { Logger, PanelEvents, glibLevel } from "../../../src/services/logging.ts";
@@ -494,33 +494,34 @@ it.effect("repeated transient relaunch failures reach the crash cutoff", () =>
   }).pipe(Effect.provide(services)),
 );
 
-it.effect("runtime incompatibility is terminal even during relaunch", () =>
+it.effect("runtime or module ABI incompatibility is terminal even during relaunch", () =>
   Effect.gen(function* () {
-    let attempts = 0;
-    const c = new FakeConnection();
-    c.requestAsync = async () => emptyReply;
-    const registry = yield* makeModuleRegistry({
-      hostUrl: url,
-      runtimeUrl: url,
-      modules: { test: url },
-      loadManifest: async () => manifest,
-      loadMetadata: async () => metadata,
-      waitForWriter: () => Effect.void,
-      start: async () => {
-        if (++attempts > 1)
-          throw new ConnectionFailed({
-            reason: "load",
-            message: "RuntimeAbiMismatch: manifest 1, runtime 2",
-            refused: "RuntimeAbiMismatch",
-          });
-        return c;
-      },
-    });
-    yield* registry.select("test");
-    c.crash();
-    expect(yield* Effect.flip(registry.whenReady("test"))).toBeInstanceOf(RuntimeAbiMismatch);
-    yield* TestClock.adjust(10000);
-    expect(attempts).toBe(2);
+    for (const [refused, family] of [
+      ["RuntimeAbiMismatch", RuntimeAbiMismatch],
+      ["ModuleAbiMismatch", ModuleAbiMismatch],
+    ] as const) {
+      let attempts = 0;
+      const c = new FakeConnection();
+      c.requestAsync = async () => emptyReply;
+      const registry = yield* makeModuleRegistry({
+        hostUrl: url,
+        runtimeUrl: url,
+        modules: { test: url },
+        loadManifest: async () => manifest,
+        loadMetadata: async () => metadata,
+        waitForWriter: () => Effect.void,
+        start: async () => {
+          if (++attempts > 1)
+            throw new ConnectionFailed({ reason: "load", message: `${refused}: manifest 1, host 2`, refused });
+          return c;
+        },
+      });
+      yield* registry.select("test");
+      c.crash();
+      expect(yield* Effect.flip(registry.whenReady("test"))).toBeInstanceOf(family);
+      yield* TestClock.adjust(10000);
+      expect(attempts).toBe(2);
+    }
   }).pipe(Effect.provide(services)),
 );
 

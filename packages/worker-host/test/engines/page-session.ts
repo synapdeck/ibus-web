@@ -12,7 +12,7 @@ import {
   SetCapabilities,
   encodeRequest,
   type DecodedRecord,
-  type ModuleManifest,
+  type WasmModuleManifest,
   type Request,
 } from "@ibus-web/protocol";
 import { expect } from "vitest";
@@ -38,7 +38,7 @@ export const Key = {
 // with URLs as this environment fetches them, the heap and pool it is held
 // to, and texts its build computed.
 export interface ModuleBuild {
-  manifests: Readonly<Record<string, ModuleManifest>>;
+  manifests: Readonly<Record<string, WasmModuleManifest>>;
   heapBytes: number;
   poolBase: number;
   texts: Readonly<Record<string, string>>;
@@ -84,13 +84,13 @@ export class PageSession {
   // How long start's Init and first CreateEngine took.
   readonly timings = { initMs: 0, createMs: 0 };
   readonly host: RunningHost;
-  readonly manifest: ModuleManifest;
+  readonly manifest: WasmModuleManifest;
   private readonly options: SessionOptions;
   // The engine name the host runs under.
   get name(): string {
     return this.manifest.name;
   }
-  private constructor(host: RunningHost, manifest: ModuleManifest, options: SessionOptions) {
+  private constructor(host: RunningHost, manifest: WasmModuleManifest, options: SessionOptions) {
     this.host = host;
     this.manifest = manifest;
     this.options = options;
@@ -100,7 +100,7 @@ export class PageSession {
   static async start(
     h: Harness,
     runtime: RuntimeBuild,
-    manifest: ModuleManifest,
+    manifest: WasmModuleManifest,
     options: SessionOptions,
   ): Promise<PageSession> {
     const engine = options.sharing?.manifest ?? {

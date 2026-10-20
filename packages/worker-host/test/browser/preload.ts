@@ -5,7 +5,7 @@
 // preload cache before the network, and drops other versions' files as it
 // mounts its data. Node has no Cache Storage.
 
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import { expect } from "vitest";
 import { preloadCacheName, preloadKey } from "../../src/shared/naming.ts";
 import type { Harness, RuntimeBuild } from "../shared/harness.ts";
@@ -15,7 +15,7 @@ import { expectLazyTree, LAZY_PATH, lazyEngineFor, prepareLazy } from "../shared
 const absolute = (url: string): string => new URL(url, location.href).href;
 
 // Caches what the network has at from as the engine's file at url.
-const preload = async (engine: ModuleManifest, url: string, from: string): Promise<void> => {
+const preload = async (engine: WasmModuleManifest, url: string, from: string): Promise<void> => {
   const response = await fetch(from);
   expect(response.ok, from).toBe(true);
   const cache = await caches.open(preloadCacheName);
@@ -31,7 +31,7 @@ export const preloadedFiles = (h: Harness, runtime: RuntimeBuild): Promise<void>
     const lazy = base.data.find(({ storePath }) => storePath === LAZY_PATH)!;
     const moduleUrl = absolute(`missing/${base.name}.wasm`);
     const lazyUrl = absolute(`missing/${base.name}.tar`);
-    const engine: ModuleManifest = {
+    const engine: WasmModuleManifest = {
       ...base,
       module: { ...base.module, url: moduleUrl },
       data: base.data.map((entry) => (entry.storePath === LAZY_PATH ? { ...entry, url: lazyUrl } : entry)),

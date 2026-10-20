@@ -15,9 +15,11 @@ const fixtures =
         engines: { recoverable: string };
       });
 const prefix = "/@ibus-web-core/";
+const jsDir = fileURLToPath(new URL("./test/browser/fixtures/js-module/", import.meta.url));
 const dirs =
   fixtures && hangulPath
     ? {
+        js: jsDir,
         ...fixtures.runtimes,
         recoverable: fixtures.engines.recoverable,
         hangul: dirname(hangulPath),
@@ -39,6 +41,7 @@ export default defineConfig({
         })),
         hangulUrl: `${prefix}hangul/manifest.json`,
         recoverableUrl: `${prefix}recoverable/manifest.json`,
+        jsUrl: `${prefix}js/manifest.json`,
       },
     },
     testTimeout: 30_000,

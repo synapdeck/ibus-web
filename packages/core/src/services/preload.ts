@@ -12,6 +12,7 @@ import { createControl, preloadCacheName, preloadKey, type HostInit, type HostMe
 import { compile } from "../connection/connection.ts";
 import {
   EngineLoadFailed,
+  ModuleAbiMismatch,
   PrepareEngineError,
   ProtocolMismatch,
   RuntimeAbiMismatch,
@@ -69,9 +70,44 @@ interface File {
 // last report.
 const PROGRESS_INTERVAL_MS = 100;
 
+// Credits a file in proportion to its body as it arrives where the response
+// gives a length: short of its size until the caller credits the rest.
+const meter = (file: File, response: Response, credit: (bytes: number) => void) => {
+  const length = Number(response.headers.get("Content-Length"));
+  let received = 0;
+  let credited = 0;
+  return {
+    chunk(bytes: number): void {
+      received += bytes;
+      if (length <= 0) return;
+      const now = Math.max(0, Math.min(file.size - 1, Math.floor((file.size * received) / length)));
+      credit(now - credited);
+      credited = now;
+    },
+    finish(): void {
+      credit(file.size - credited);
+      credited = file.size;
+    },
+  };
+};
+
+// Fetches a script at low priority and reads it through, which is what leaves
+// it in the HTTP cache for the import that comes later.
+const warm = async (environment: PreloadEnvironment, file: File, credit: (bytes: number) => void): Promise<void> => {
+  const response = await environment.fetch(file.url, { priority: "low" });
+  if (!response.ok) throw new Error(`fetch ${file.url}: ${response.status}`);
+
+  const metered = meter(file, response, credit);
+  if (response.body !== null) {
+    const reader = response.body.getReader();
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
+      metered.chunk(chunk.value.byteLength);
+  }
+  metered.finish();
+};
+
 // Fetches url into the cache under key, at low priority. The file is
-// credited in proportion to its body as it arrives where the response gives
-// a length, and in full once it is stored.
+// credited in full once it is stored.
 const store = async (
   environment: PreloadEnvironment,
   cache: Cache,
@@ -81,19 +117,11 @@ const store = async (
   const response = await environment.fetch(file.url, { priority: "low" });
   if (!response.ok || response.body === null) throw new Error(`fetch ${file.url}: ${response.status}`);
 
-  const length = Number(response.headers.get("Content-Length"));
-  let received = 0;
-  let credited = 0;
+  const metered = meter(file, response, credit);
   const counted = response.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
-        received += chunk.byteLength;
-        // Short of its size until it is stored.
-        if (length > 0) {
-          const now = Math.max(0, Math.min(file.size - 1, Math.floor((file.size * received) / length)));
-          credit(now - credited);
-          credited = now;
-        }
+        metered.chunk(chunk.byteLength);
         controller.enqueue(chunk);
       },
     }),
@@ -102,7 +130,7 @@ const store = async (
   // still describes it.
   const type = response.headers.get("Content-Type");
   await cache.put(file.key, new Response(counted, type === null ? {} : { headers: { "Content-Type": type } }));
-  credit(file.size - credited);
+  metered.finish();
 };
 
 // The files of a module's entries that its cache lacks, each entry's own:
@@ -116,6 +144,7 @@ const filesOf = (
 ): (readonly File[])[] => {
   const resolve = (url: string): string => new URL(url, base).href;
   const lazy = lazyStorePaths(manifest);
+  const data = manifest.kind === "js" ? [] : manifest.data;
   const moduleFailed = (diagnostic: string) => new EngineLoadFailed({ module, diagnostic });
   const seen = new Set<string>();
   const file = (url: string, size: number, failed: File["failed"]): File[] => {
@@ -132,7 +161,7 @@ const filesOf = (
     const engineFailed = (diagnostic: string) => new PrepareEngineError({ module, engine: engine!, diagnostic });
     return [
       ...file(manifest.module.url, manifest.module.size, moduleFailed),
-      ...manifest.data.flatMap(({ storePath, url, size }) =>
+      ...data.flatMap(({ storePath, url, size }) =>
         !lazy.has(storePath) ? file(url, size, moduleFailed) : own.has(storePath) ? file(url, size, engineFailed) : [],
       ),
     ];
@@ -141,12 +170,13 @@ const filesOf = (
 
 /**
  * Fetches the module's manifest, at low priority, into the cache under its
- * version, and resolves to the URL its files' URLs are relative to: the
- * response's, after redirects, as the host takes it.
+ * version, or without a cache only for its URL, and resolves to the URL its
+ * files' URLs are relative to: the response's, after redirects, as the host
+ * takes it.
  */
 export const cacheManifest = async (
   environment: PreloadEnvironment,
-  cache: Cache,
+  cache: Cache | undefined,
   module: string,
   url: URL,
   manifest: ModuleManifest,
@@ -155,7 +185,8 @@ export const cacheManifest = async (
     const response = await environment.fetch(url, { priority: "low" });
     if (!response.ok) throw new Error(`fetch ${url.href}: ${response.status}`);
     const base = response.url || url.href;
-    await cache.put(preloadKey(base, manifest), response);
+    if (cache === undefined) await response.body?.cancel();
+    else await cache.put(preloadKey(base, manifest), response);
     return base;
   } catch (cause) {
     throw new EngineLoadFailed({ module, diagnostic: asError(cause).message });
@@ -165,11 +196,14 @@ export const cacheManifest = async (
 /**
  * Fetches what the cache lacks of a module's entries, one file at a time,
  * each entry's progress reported to progress(index, bytes, total), and
- * rejects with the first file's failure as the tagged error for it.
+ * rejects with the first file's failure as the tagged error for it. A
+ * JavaScript module's script is fetched into the HTTP cache instead, with or
+ * without a cache, every time: Cache Storage never holds it, and what the
+ * HTTP cache holds can't be asked.
  */
 export const fetchEntries = async (
   environment: PreloadEnvironment,
-  cache: Cache,
+  cache: Cache | undefined,
   module: string,
   manifest: ModuleManifest,
   base: string,
@@ -179,7 +213,9 @@ export const fetchEntries = async (
   const files = filesOf(module, manifest, base, engines);
   for (const [index, own] of files.entries()) {
     const missing: File[] = [];
-    for (const file of own) if ((await cache.match(file.key)) === undefined) missing.push(file);
+    for (const file of own)
+      if (cache === undefined || manifest.kind === "js" || (await cache.match(file.key)) === undefined)
+        missing.push(file);
     const total = missing.reduce((sum, { size }) => sum + size, 0);
 
     let bytes = 0;
@@ -193,10 +229,12 @@ export const fetchEntries = async (
     report(true);
     for (const file of missing) {
       try {
-        await store(environment, cache, file, (credit) => {
-          bytes += credit;
+        const credit = (credited: number): void => {
+          bytes += credited;
           report(false);
-        });
+        };
+        if (manifest.kind === "js") await warm(environment, file, credit);
+        else await store(environment, cache!, file, credit);
       } catch (cause) {
         throw file.failed(asError(cause).message);
       }
@@ -256,6 +294,8 @@ export const installModule = async (options: InstallOptions): Promise<InstallOut
             if (data.refused === "writer" || data.refused === "ephemeral") resolve(data.refused);
             else if (data.refused === "RuntimeAbiMismatch")
               reject(new RuntimeAbiMismatch({ module, diagnostic: data.message }));
+            else if (data.refused === "ModuleAbiMismatch")
+              reject(new ModuleAbiMismatch({ module, diagnostic: data.message }));
             else if (data.refused === "ProtocolMismatch")
               reject(new ProtocolMismatch({ module, diagnostic: data.message }));
             else reject(new EngineLoadFailed({ module, diagnostic: data.message }));

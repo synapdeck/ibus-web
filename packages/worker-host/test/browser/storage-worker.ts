@@ -4,7 +4,7 @@
 // The storage Worker against databases a running host made, which only a
 // browser has.
 
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import { unpackTar } from "modern-tar";
 import { expect } from "vitest";
 import {
@@ -63,7 +63,7 @@ const olderVersion = async (database: string, version: string): Promise<void> =>
 // version's stored, an older one's among them; the user data as a tar of its
 // files, whole across chunks; and it deletes the user data, whose host
 // closes its connection for it.
-export const storageWorker = async (h: Harness, host: RunningHost, engine: ModuleManifest): Promise<void> => {
+export const storageWorker = async (h: Harness, host: RunningHost, engine: WasmModuleManifest): Promise<void> => {
   const dir = engineDir(engine);
   const big = "0123456789".repeat(4000);
   expect(await writeFile(h, host.client, `${dir}/small.txt`, "small")).toBe(5);

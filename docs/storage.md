@@ -6,7 +6,8 @@ configuration) and its installed, read-only data live in IndexedDB, behind a Was
 version, who may write an engine's files, the fallbacks, and what it all costs. The host's side of it, its scopes and
 their order, is in [worker-host.md](worker-host.md); the thread pool share the backends take is in
 [runtime.md](runtime.md). GSettings values are not stored here; the settings bridge hands them to the host (spec
-§5.2.5).
+§5.2.5). A JavaScript module has no file system and mounts nothing, so this page is about WebAssembly modules, except
+where [the host API](#the-host-api) says what it does for a JavaScript one.
 
 ## What is mounted where
 
@@ -730,6 +731,10 @@ the export isn't split into shorter ones.
   every host's do at the version change; one that stays open past 10 s fails the reset. The version's data stays. A
   module that was selected is selected again, with its engine, each field's override that named it is given back, and
   one that was only running starts again; they come back after a reset that failed too.
+
+A JavaScript module has no databases, so for one `usage()` reports zeros (`versions` empty), `export()` resolves with an
+empty tar, and `reset()` restarts it if it runs, as `reset` restarts any module, and deletes nothing, opening no
+database and starting no storage Worker.
 
 Each rejects with `StorageUnavailable` naming the module when the storage Worker can't start or its request fails.
 WebKit's IndexedDB in Workers is unchecked (spec R5, R13). Open items are collected in

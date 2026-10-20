@@ -3,54 +3,63 @@
 import type { ControlViews } from "../shared/control.ts";
 import { State, Word, type RingWriter } from "@ibus-web/protocol/transport";
 import { CrashReason } from "@ibus-web/protocol";
+import type { Backend } from "./backend.ts";
 import { RuntimeStopped } from "./failure.ts";
-import type { Runtime } from "./runtime.ts";
+import { wait, type Runtime } from "./runtime.ts";
 
 export class HostDefect extends Error {}
 
-interface OutputWaitContext {
+// A GVariant string is UTF-8 without NUL, which a JavaScript string needn't
+// be. Text the host frames on a module's behalf, or for a crash, has either
+// replaced with U+FFFD, since failing to frame it would lose the record.
+export const recordText = (text: string): string => text.replace(/[\0\p{Cs}]/gu, "\uFFFD");
+
+interface RingContext {
   readonly control: ControlViews;
+  readonly postDoorbell: () => void;
+  // The sequence number of the last module record published to the ring.
+  lastSeq: number;
+}
+
+// Where the loop publishes a backend's records.
+export interface OutputRing extends RingContext {
+  readonly writer: RingWriter;
+}
+
+interface OutputWaitContext extends RingContext {
   readonly handle: { readonly words: Int32Array };
   readonly wakeIndex: number;
   readonly constants: { readonly waitTimedOut: number };
-  readonly postDoorbell: () => void;
-  // The sequence number of the last runtime record published to the ring.
-  lastSeq: number;
 }
+
+type Sleeper = Pick<Backend, "wake" | "wait">;
 
 const requireLiveRelay = (control: ControlViews): void => {
   if (Atomics.load(control.words, Word.state) === State.crashed)
     throw new RuntimeStopped({ error: "relay failed during output drain", reason: CrashReason.relay });
 };
 
-// A wake may arrive before the runtime starts sleeping. Read its word after
+// A wake may arrive before the backend starts sleeping. Read its word after
 // ringing, then check space again so a page read cannot be lost in that gap.
-const waitForSpace = (rt: Runtime, writer: RingWriter, needBytes: number, ctx: OutputWaitContext): void => {
+const waitForSpace = (writer: RingWriter, needBytes: number, ctx: RingContext, sleeper: Sleeper): void => {
   Atomics.store(ctx.control.words, Word.ringWaiting, 1);
   if (Atomics.exchange(ctx.control.words, Word.doorbell, 1) === 0) ctx.postDoorbell();
-  const seen = Atomics.load(ctx.handle.words, ctx.wakeIndex);
+  const seen = Atomics.load(sleeper.wake.words, sleeper.wake.index);
   const free = writer.freeBytes();
   requireLiveRelay(ctx.control);
   // A partial read can acknowledge waiting before its wake is sampled.
   // Re-arm so the remaining reads still have a waiter to notify.
   if (free >= needBytes || Atomics.load(ctx.control.words, Word.ringWaiting) === 0) return;
-  const ret = rt._ibusweb_wait(seen, -1);
-  if (ret < 0 && ret !== ctx.constants.waitTimedOut) throw new Error(`ibusweb_wait: ${ret}`);
+  sleeper.wait(seen, -1);
   requireLiveRelay(ctx.control);
 };
 
-// The peeked pointer is good only until the next runtime call, and a wait
-// for ring space is one: a call another thread proxied to the host runs
-// inside it, and one that logs appends to the output buffer, which may move.
-// So the whole batch is copied before anything is written. Only the wait
-// runs under back-pressure, so no pump can interleave records. lastSeq
-// follows the records actually published, never ibusweb_output_last_seq(),
-// which can already count a record appended during the wait and still
-// waiting for the next drain.
-export const drainOutput = (rt: Runtime, writer: RingWriter, words: Int32Array, ctx: OutputWaitContext): number => {
-  const pointer = rt._ibusweb_output_peek(words.byteOffset);
-  const batch = rt.HEAPU8.slice(pointer, pointer + (words[0]! >>> 0));
-  const view = new DataView(batch.buffer);
+// Writes a batch of whole records to the ring, waiting through sleeper
+// while it is full, and returns how many. No pump runs during a wait, so
+// nothing can interleave records. lastSeq follows the records actually
+// published.
+export const publishRecords = (writer: RingWriter, batch: Uint8Array, ctx: RingContext, sleeper: Sleeper): number => {
+  const view = new DataView(batch.buffer, batch.byteOffset, batch.byteLength);
   let copied = 0;
   let count = 0;
   while (copied < batch.length) {
@@ -60,7 +69,7 @@ export const drainOutput = (rt: Runtime, writer: RingWriter, words: Int32Array, 
     const record = batch.subarray(copied, copied + size);
     let result = writer.write(record);
     while (result._tag === "full") {
-      waitForSpace(rt, writer, result.needBytes, ctx);
+      waitForSpace(writer, result.needBytes, ctx, sleeper);
       result = writer.write(record);
     }
     Atomics.store(ctx.control.words, Word.ringWaiting, 0);
@@ -68,9 +77,26 @@ export const drainOutput = (rt: Runtime, writer: RingWriter, words: Int32Array, 
     copied += size;
     count++;
   }
+  return count;
+};
+
+// The peeked pointer is good only until the next runtime call, and a wait
+// for ring space is one: a call another thread proxied to the host runs
+// inside it, and one that logs appends to the output buffer, which may move.
+// So the whole batch is copied before anything is written. lastSeq never
+// comes from ibusweb_output_last_seq(), which can already count a record
+// appended during the wait and still waiting for the next drain.
+export const drainOutput = (rt: Runtime, writer: RingWriter, words: Int32Array, ctx: OutputWaitContext): number => {
+  const pointer = rt._ibusweb_output_peek(words.byteOffset);
+  const batch = rt.HEAPU8.slice(pointer, pointer + (words[0]! >>> 0));
+  const count = publishRecords(writer, batch, ctx, {
+    wake: { words: ctx.handle.words, index: ctx.wakeIndex },
+    wait: (seen, timeoutMs) => wait(rt, ctx.constants, seen, timeoutMs),
+  });
+
   // A trap leaves the runtime unfit for calls, including consume. Leave its
   // output untouched unless every frame in this batch was published.
-  if (copied > 0) rt._ibusweb_output_consume(copied);
+  if (batch.length > 0) rt._ibusweb_output_consume(batch.length);
   return count;
 };
 

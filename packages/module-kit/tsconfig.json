@@ -1,0 +1,16 @@
+// SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+// Each config checks the files of one environment: the kit, which runs in a
+// module's Worker; its build entry and bundler plugins, which run under Node;
+// its Node tests; and the build's and Vitest's configurations.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.worker.json" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.config.json" }
+  ]
+}

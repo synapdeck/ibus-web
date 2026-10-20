@@ -2,6 +2,7 @@
 %YAML 1.1
 ---
 allowBuilds:
+  esbuild: false
   tree-sitter: false
   tree-sitter-c: false
   tree-sitter-cpp: false
@@ -24,6 +25,7 @@ packages:
   - packages/*
   - packages/engines/*
   - tools/*
+  - packages/module-kit/checks/bundlers
   - engines/m17n/descriptors
   - engines/rime/descriptors
   - examples/*

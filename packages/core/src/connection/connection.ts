@@ -36,6 +36,8 @@ export interface ConnectionOptions {
   hostUrl: URL;
   runtimeUrl: URL;
   manifestUrl: URL;
+  /** The module's kind; defaults to `wasm`. A JavaScript module's host never reads the runtime, so none is compiled. */
+  kind?: "wasm" | "js";
   storage: "browser" | "none";
   layout?: TransportLayout;
   budgetMs: number;
@@ -143,7 +145,8 @@ export class Connection {
     )
       throw new RangeError("budgetMs must be nonnegative; hangMs and initHangMs must be finite and positive");
     options.signal?.throwIfAborted();
-    const wasm = await waitForCompilation(compile(options.runtimeUrl), options.signal);
+    const wasm =
+      options.kind === "js" ? undefined : await waitForCompilation(compile(options.runtimeUrl), options.signal);
     options.signal?.throwIfAborted();
     const layout = options.layout ?? transportLayout();
     const buffer = createControl(layout);
@@ -156,7 +159,7 @@ export class Connection {
     const init: HostInit<WebAssembly.Module> = {
       runtimeUrl: options.runtimeUrl.href,
       manifestUrl: options.manifestUrl.href,
-      wasm,
+      ...(wasm === undefined ? {} : { wasm }),
       control: buffer,
       layout,
       storage: { kind: options.storage },

@@ -145,6 +145,22 @@ decided.
   writer has compiled it ([rime.md](rime.md#a-read-only-module)); a read-only Mozc learns for its Worker's life alone,
   with its segment history off ([mozc.md](mozc.md#a-read-only-module)).
 
+## JavaScript modules
+
+- **No engine data or user files.** A JavaScript module's manifest has no `data`, and its engines get no files of their
+  own, so the storage API, data preloading and the writer lock have nothing of its to act on. An engine that needs data
+  bundles it into the script. Giving the variant data archives and engines whole-file access to their user directory is
+  additive, for a later minor release.
+- **Checked against one module.** The authoring API has been built against `examples/pinyin-tones` and the kit's own
+  fixtures, not yet against Synapdeck's transliteration registry, the consumer it was designed for.
+- **`vite build --watch` doesn't see a missing import appear.** It watches the files a build read, not their
+  directories, so a build that failed on a missing import rebuilds only when a watched file changes, such as the one
+  that imports it. The dev server rebuilds on a file added under a directory the failed build read, but not elsewhere.
+- **Rspack's extracted license file is untested.** The `*.LICENSE.txt` beside the script is moved with it for webpack
+  and Rspack, but Rspack's minimizer extracts no comment from the test fixture, so only webpack's path runs in a test.
+- **The preloaded script lives in the HTTP cache.** `import()` doesn't read Cache Storage, so a preloaded script is
+  fetched again at start when the browser has evicted it or the server sends it uncacheable.
+
 ## Storage
 
 - **A shared content-addressed store (future design).** Today every module version installs its whole closure into its

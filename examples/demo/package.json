@@ -10,10 +10,12 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@ibus-web/example-pinyin-tones": "workspace:*",
     "ibus-web": "workspace:*"
   },
   "devDependencies": {
     "@ibus-web/bundle-scan": "workspace:*",
+    "@ibus-web/module-kit": "workspace:*",
     "@ibus-web/test-programs": "workspace:*",
     "@ibus-web/tsconfig": "workspace:*",
     "@types/node": "catalog:",

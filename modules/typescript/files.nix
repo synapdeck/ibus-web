@@ -14,6 +14,7 @@
           # does the rest, and finds them through the workspace.
           "packages/engines/*"
           "tools/*"
+          "packages/module-kit/checks/bundlers"
           "engines/m17n/descriptors"
           "engines/rime/descriptors"
           "examples/*"
@@ -25,6 +26,9 @@
 
         # These packages ship N-API binaries for every supported build platform.
         allowBuilds = {
+          # Its platform's binary comes as an optional dependency; the script
+          # only checks it.
+          esbuild = false;
           tree-sitter = false;
           tree-sitter-c = false;
           tree-sitter-cpp = false;

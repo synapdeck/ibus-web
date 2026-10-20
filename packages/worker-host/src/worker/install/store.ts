@@ -18,7 +18,7 @@ import {
   engineDataDatabasePrefix,
   enginePathMarker,
 } from "../../shared/naming.ts";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import { nodeFs } from "../node-fs.ts";
 import { check, RuntimeRefused, withString, type RuntimeHandle } from "../runtime.ts";
 import { deleteDatabase, idbRequest, openExisting } from "../storage/idb.ts";
@@ -157,7 +157,7 @@ const getMeta = async (database: string, key: string): Promise<unknown> => {
 
 export const idbStore = (
   handle: RuntimeHandle,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   readOnlyFlag: number,
   deleteLimitMs: number,
 ): DataStore => {
@@ -259,7 +259,7 @@ const writeWhole = async (
 
 export const nodeStore = async (
   handle: RuntimeHandle,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   hostPath: string,
 ): Promise<DataStore> => {
   const fs = await nodeFs();

@@ -68,6 +68,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@ibus-web/module-kit": "workspace:*",
     "@ibus-web/pack-licenses": "workspace:*",
     "@ibus-web/test-programs": "workspace:*",
     "@ibus-web/tsconfig": "workspace:*",
@@ -85,5 +86,10 @@
   },
   "engines": {
     "node": ">=26"
+  },
+  "ibusWeb": {
+    "assets": [
+      "test/fixtures/js-module"
+    ]
   }
 }

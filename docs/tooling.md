@@ -25,9 +25,10 @@ What it provides:
 - **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)), `pnpm-workspace.yaml`
   ([the pnpm workspace](#the-pnpm-workspace)), libibus-web's `protocol.h` and `packages/protocol/PROTOCOL.md`, generated
   from the protocol's schemas ([protocol.md](protocol.md#generated-artifacts)), and the keysym tables in
-  `packages/core/src/keys/` (`*.generated.ts`), libibus-web's US keymap table (`us-keymap.generated.h`) and the
-  `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that accompany their sources. `.generated-files` lists
-  them all; the writer deletes a file it listed once the Nix stops generating it.
+  `packages/core/src/keys/` (`*.generated.ts`) and `packages/protocol/src/keyval-unicode.generated.ts`, libibus-web's US
+  keymap table (`us-keymap.generated.h`) and the `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that
+  accompany their sources. `.generated-files` lists them all; the writer deletes a file it listed once the Nix stops
+  generating it.
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against garbage collection:
 
@@ -242,7 +243,8 @@ with a `package.json` naming exactly what that directory imports; the root `pack
 | `packages/engines/*`                                                                  | `@ibus-web/engine-<name>`, whose contents Nix builds; in the workspace so that Changesets versions them ([Releases](#releases))                                  |
 | `tools/*`                                                                             | one private package per tool, `@ibus-web/<tool>`                                                                                                                 |
 | `engines/m17n/descriptors`                                                            | `@ibus-web/m17n-descriptors`, which turns the m17n descriptor program's output into the module's descriptors, settings paths and variable schemas                |
-| `examples/*`                                                                          | `@ibus-web/example-demo`, with its end-to-end tests                                                                                                              |
+| `packages/module-kit/checks/bundlers`                                                 | `@ibus-web/module-kit-bundlers`, the fixture package of `checks.module-kit-bundlers`, which holds the six bundlers the kit takes as optional peer dependencies   |
+| `examples/*`                                                                          | `@ibus-web/example-demo`, with its end-to-end tests, and `@ibus-web/example-pinyin-tones`, a JavaScript module the demo imports                                  |
 | `runtime/ibus-runtime`, `runtime/wasmfs-idb`, `modules/emscripten`, `modules/testing` | the JavaScript Emscripten links into those components, and their Vitest suites                                                                                   |
 
 `pnpm-workspace.yaml` is generated: its package globs and catalog are declared in Nix (`pnpmWorkspace` in
@@ -265,7 +267,9 @@ file, not the tracked copy. Never edit the YAML: change the Nix, run `write-file
     fetch another.
   - acorn in `tools/emscripten-library-deps` is the version Emscripten ships.
 - **pnpm 12**, nixpkgs' default `pnpm`, with its defaults. Its lockfile is two YAML documents (the first records pnpm
-  itself), which nixpkgs' fetcher handles. No dependency build script is allowed or needed.
+  itself), which nixpkgs' fetcher handles. `allowBuilds` (in the generated workspace file) denies the build scripts of
+  esbuild, which finds its binary as an optional dependency, and of the tree-sitter packages; no dependency build script
+  is allowed or needed.
 - **Effect** is a peer dependency of every package that uses it, `catalog:` (`^4.0.0`).
 
 ### In Nix
@@ -280,8 +284,9 @@ file, not the tracked copy. Never edit the YAML: change the Nix, run `write-file
    checker (`tools/emscripten-library-deps`) do.
 3. `ibusWeb.typescript.workspace` — the sources (each package's `.ts`, `.mts`, `.cts`, `.json`, plus files listed under
    `ibusWeb.assets` in its `package.json` and repository files outside any package that it reads, listed in
-   `ibusWeb.typescript.extraSources`) with `nodeModules` laid over them, compiled with `pnpm -r run build`. Checks run
-   from this output. `tools/pack-licenses` reads `REUSE.toml`, `LICENSE-*`, `LICENSES/` and `NOTICES/`, and
+   `ibusWeb.typescript.extraSources`) with `nodeModules` laid over them, compiled with `pnpm -r run build`. A package
+   inside another's directory, as a check's fixture package under `checks/`, is left out of the outer one's sources.
+   Checks run from this output. `tools/pack-licenses` reads `REUSE.toml`, `LICENSE-*`, `LICENSES/` and `NOTICES/`, and
    `tools/keysyms` the generated notices, which none of the packages hold.
 
 `ibusWeb.typescript.tsc` is the workspace's single TypeScript (the build fails if the lockfile resolves more than one),

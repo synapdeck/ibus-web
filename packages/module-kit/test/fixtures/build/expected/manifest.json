@@ -1,0 +1,44 @@
+{
+  "kind": "js",
+  "name": "build-fixture",
+  "version": "1.2.3+js.77f86506175a34f0",
+  "license": "MIT OR Apache-2.0",
+  "protocol": 1,
+  "moduleAbi": 1,
+  "module": {
+    "url": "./module.5ab3f01c3218ae2c.js",
+    "size": 1510
+  },
+  "engines": [
+    {
+      "name": "every",
+      "displayName": "Every setting",
+      "languages": [
+        "el",
+        "en"
+      ],
+      "keyboard": {
+        "layout": "us",
+        "passThrough": []
+      }
+    },
+    {
+      "name": "plain",
+      "displayName": "No settings",
+      "languages": [],
+      "keyboard": {
+        "layout": "default",
+        "passThrough": [
+          "Escape"
+        ]
+      }
+    }
+  ],
+  "settingsSchemas": [
+    "org.example.buildfixture.every"
+  ],
+  "settingsMetadata": {
+    "url": "./settings.json",
+    "size": 2125
+  }
+}

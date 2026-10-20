@@ -1,12 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Synapdeck, Inc.
 // SPDX-License-Identifier: MIT OR Apache-2.0
-import { decodeModuleManifest, type ModuleManifest } from "@ibus-web/protocol";
+import {
+  decodeModuleManifest,
+  JsModuleManifest,
+  PROTOCOL_VERSION,
+  type ModuleManifest,
+  type WasmModuleManifest,
+} from "@ibus-web/protocol";
+import { MODULE_ABI } from "@ibus-web/protocol/module-script";
 import type { HostInit, RuntimeConstants } from "../shared/messages.ts";
 import { Schema } from "effect";
 import { StartupFailed } from "./failure.ts";
 import { nodeFs } from "./node-fs.ts";
 
-export const checkManifest = (value: unknown, constants: RuntimeConstants): ModuleManifest => {
+// A WebAssembly module's manifest, checked against the runtime it runs on.
+export const checkManifest = (value: unknown, constants: RuntimeConstants): WasmModuleManifest => {
   let manifest: ModuleManifest;
   try {
     manifest = decodeModuleManifest(value, constants.memory);
@@ -16,6 +24,12 @@ export const checkManifest = (value: unknown, constants: RuntimeConstants): Modu
       refused: "manifest",
     });
   }
+  if (manifest.kind === "js")
+    throw new StartupFailed({
+      message: "manifest: a JavaScript module's, where a WebAssembly one's was expected",
+      refused: "manifest",
+    });
+
   if (manifest.runtimeAbi !== constants.runtimeAbi)
     throw new StartupFailed({
       message: `RuntimeAbiMismatch: manifest ${manifest.runtimeAbi}, runtime ${constants.runtimeAbi}`,
@@ -34,29 +48,85 @@ export const checkManifest = (value: unknown, constants: RuntimeConstants): Modu
   return manifest;
 };
 
+// A JavaScript module runs on the host alone, so it must speak the host's
+// own protocol and module ABI.
+export const checkJsManifest = (value: unknown): JsModuleManifest => {
+  let manifest: JsModuleManifest;
+  try {
+    manifest = Schema.decodeUnknownSync(JsModuleManifest, { onExcessProperty: "error" })(value);
+  } catch (error) {
+    throw new StartupFailed({ message: `manifest: ${String(error)}`, refused: "manifest" });
+  }
+
+  if (manifest.moduleAbi !== MODULE_ABI)
+    throw new StartupFailed({
+      message: `ModuleAbiMismatch: manifest ${manifest.moduleAbi}, host ${MODULE_ABI}`,
+      refused: "ModuleAbiMismatch",
+    });
+  if (manifest.protocol !== PROTOCOL_VERSION)
+    throw new StartupFailed({
+      message: `ProtocolMismatch: manifest ${manifest.protocol}, host ${PROTOCOL_VERSION}`,
+      refused: "ProtocolMismatch",
+    });
+  return manifest;
+};
+
 export const fetchBytes = async (url: string): Promise<Uint8Array> => {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`fetch ${url}: ${response.status}`);
   return new Uint8Array(await response.arrayBuffer());
 };
 
+// The module a host starts: a JavaScript one, or a WebAssembly one with the
+// constants of the runtime it runs on.
+export type StartingModule =
+  | { readonly kind: "js"; readonly manifest: JsModuleManifest }
+  | {
+      readonly kind: "wasm";
+      readonly manifest: WasmModuleManifest;
+      readonly constants: RuntimeDistributionConstants;
+    };
+
+const isJsManifest = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "js";
+
 // Relative asset URLs are interpreted against the fetched manifest, not the
 // Worker's script. Inline manifests already carry URLs resolved by the page.
+// The runtime's constants are read only for a WebAssembly module, which
+// they are checked against.
 export const readManifest = async (
   init: HostInit<unknown, unknown>,
-  constants: RuntimeConstants,
-): Promise<ModuleManifest> => {
-  if (init.manifest !== undefined) return checkManifest(init.manifest, constants);
-  if (init.manifestUrl === undefined) throw new StartupFailed({ message: "manifest or manifestUrl is required" });
-  const response = await fetch(init.manifestUrl);
-  if (!response.ok) throw new StartupFailed({ message: `fetch manifest: ${response.status}` });
-  const manifest = checkManifest(await response.json(), constants);
-  // Synthetic Responses have no URL; network responses include redirects.
-  const base = response.url || init.manifestUrl;
+  runtimeConstants: () => Promise<RuntimeDistributionConstants>,
+): Promise<StartingModule> => {
+  let value: unknown;
+  let base: string | undefined;
+  if (init.manifest !== undefined) value = init.manifest;
+  else if (init.manifestUrl === undefined) throw new StartupFailed({ message: "manifest or manifestUrl is required" });
+  else {
+    const response = await fetch(init.manifestUrl);
+    if (!response.ok) throw new StartupFailed({ message: `fetch manifest: ${response.status}` });
+    value = await response.json();
+    // Synthetic Responses have no URL; network responses include redirects.
+    base = response.url || init.manifestUrl;
+  }
+
+  const resolve = (url: string): string => (base === undefined ? url : new URL(url, base).href);
+
+  if (isJsManifest(value)) {
+    const manifest = checkJsManifest(value);
+    return { kind: "js", manifest: { ...manifest, module: { ...manifest.module, url: resolve(manifest.module.url) } } };
+  }
+
+  const constants = await runtimeConstants();
+  const manifest = checkManifest(value, constants);
   return {
-    ...manifest,
-    module: { ...manifest.module, url: new URL(manifest.module.url, base).href },
-    data: manifest.data.map((entry) => ({ ...entry, url: new URL(entry.url, base).href })),
+    kind: "wasm",
+    constants,
+    manifest: {
+      ...manifest,
+      module: { ...manifest.module, url: resolve(manifest.module.url) },
+      data: manifest.data.map((entry) => ({ ...entry, url: resolve(entry.url) })),
+    },
   };
 };
 
